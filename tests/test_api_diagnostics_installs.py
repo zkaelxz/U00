@@ -26,6 +26,7 @@ from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_installs_service as svc
 from services import diagnostics_upgrade_check_service as upgrade_svc
 from tests.api_helpers import session_headers
+from tests.job_helpers import wait_for_job
 
 REMOTE = "https://baihe.example.com"
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
@@ -61,16 +62,6 @@ class _Resp:
 
     def close(self):
         self.closed = True
-
-
-def _wait(job_id, timeout=10):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 @pytest.fixture
@@ -142,7 +133,7 @@ def test_deno_download_installs_verified_binary(client, env):
     _serve_release(env)
     r = client.post("/api/diagnostics/deno/install", json={"confirm": True})
     assert r.status_code == 200 and r.json() == {"job_id": "deno_install", "started": True}
-    st = _wait(svc.DENO_JOB_ID)
+    st = wait_for_job(svc.DENO_JOB_ID)
     assert st["status"] == "done", st
     assert env["dest"].read_bytes() == b"#!deno-binary"
     # Every request came from the static table or an allowlisted hop, with a timeout.
@@ -158,7 +149,7 @@ def test_deno_download_installs_verified_binary(client, env):
 def test_deno_checksum_mismatch_installs_nothing(client, env):
     _serve_release(env, checksum="0" * 64)
     assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
-    st = _wait(svc.DENO_JOB_ID)
+    st = wait_for_job(svc.DENO_JOB_ID)
     assert st["status"] == "error"
     assert not env["dest"].exists()
     last = client.get("/api/diagnostics/deno").json()["last_result"]
@@ -176,7 +167,7 @@ def test_deno_refuses_unexpected_redirects(client, env, hop):
     _serve_release(env)
     env["routes"][LATEST] = lambda: _Resp(302, location=hop)
     client.post("/api/diagnostics/deno/install", json={"confirm": True})
-    assert _wait(svc.DENO_JOB_ID)["status"] == "error"
+    assert wait_for_job(svc.DENO_JOB_ID)["status"] == "error"
     assert hop not in env["requests"]
     assert not env["dest"].exists()
     assert "evil" not in str(client.get("/api/diagnostics/deno").json())
@@ -186,7 +177,7 @@ def test_deno_redirect_loop_and_size_cap(client, env, monkeypatch):
     _serve_release(env)
     env["routes"][ASSET_HOST + "?zip"] = lambda: _Resp(302, location=ASSET_HOST + "?zip")
     client.post("/api/diagnostics/deno/install", json={"confirm": True})
-    assert _wait(svc.DENO_JOB_ID)["status"] == "error"
+    assert wait_for_job(svc.DENO_JOB_ID)["status"] == "error"
     # the versioned URL is hop 1, then MAX_REDIRECTS more; never a 7th request
     assert env["requests"].count(ASSET_HOST + "?zip") == svc.MAX_REDIRECTS
     background_jobs.clear_job(svc.DENO_JOB_ID)
@@ -194,14 +185,14 @@ def test_deno_redirect_loop_and_size_cap(client, env, monkeypatch):
     monkeypatch.setattr(svc, "DENO_MAX_BYTES", 10)
     env["routes"][ASSET_HOST + "?zip"] = lambda: _Resp(200, _zip(), length=False)
     client.post("/api/diagnostics/deno/install", json={"confirm": True})
-    assert _wait(svc.DENO_JOB_ID)["status"] == "error"
+    assert wait_for_job(svc.DENO_JOB_ID)["status"] == "error"
     assert not env["dest"].exists()
 
 
 def test_deno_zip_without_binary(client, env):
     _serve_release(env, zip_bytes=_zip(member="../../evil"))
     client.post("/api/diagnostics/deno/install", json={"confirm": True})
-    assert _wait(svc.DENO_JOB_ID)["status"] == "error"
+    assert wait_for_job(svc.DENO_JOB_ID)["status"] == "error"
     assert not env["dest"].exists()
 
 
@@ -238,7 +229,7 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
         yield {"returncode": 0, "timed_out": False, "cancelled": False}
     monkeypatch.setattr(svc.proc_run, "stream_tree", fake_tree)
     assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
-    assert _wait(svc.DENO_JOB_ID)["status"] == "done"
+    assert wait_for_job(svc.DENO_JOB_ID)["status"] == "done"
     assert ran and ran[0][0][:5] == ["winget", "install", "-e", "--id", "DenoLand.Deno"]
     assert ran[0][1] == svc.WINGET_TIMEOUT_SECONDS
     b = client.get("/api/diagnostics/deno")
@@ -273,7 +264,7 @@ def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
     assert client.post(url, json={"target": "2.0.0"}).status_code == 422
     r = client.post(url, json={"confirm": True, "target": "2.0.0"})
     assert r.status_code == 200 and r.json()["job_id"] == "upgrade_check"
-    assert _wait(upgrade_svc.UPGRADE_CHECK_JOB_ID)["status"] == "done"
+    assert wait_for_job(upgrade_svc.UPGRADE_CHECK_JOB_ID)["status"] == "done"
     assert calls == [("pydub", "2.0.0")]
     s = client.get("/api/diagnostics/upgrade-check")
     assert SECRET not in s.text and ABS_PATH not in s.text
@@ -313,9 +304,8 @@ def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
     client.post("/api/diagnostics/dependencies/pydub/test-upgrade",
                 json={"confirm": True, "target": "2.0.0"})
     background_jobs.request_cancel(upgrade_svc.UPGRADE_CHECK_JOB_ID)
-    assert _wait(upgrade_svc.UPGRADE_CHECK_JOB_ID)["status"] == "cancelled"
+    assert wait_for_job(upgrade_svc.UPGRADE_CHECK_JOB_ID)["status"] == "cancelled"
     assert closed == [True]
-
 
 
 def test_auth_on_reads_admin_writes_pc_only(env):

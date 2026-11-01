@@ -255,6 +255,14 @@ class TestReaderFollowAlong:
         html = reader.build_reader_html(self._lines(), "zh", {})
         assert 'data-start=' in html and 'data-end=' in html
 
+    def test_readings_off_keeps_words_clickable_without_rt(self, monkeypatch):
+        import reader
+        self._stub_segment(monkeypatch)
+        on = reader.build_reader_html(self._lines(), "zh", {})
+        off = reader.build_reader_html(self._lines(), "zh", {}, readings=False)
+        assert "<rt>" in on and "<rt>" not in off
+        assert 'ruby class="word"' in off
+
     def test_no_follow_bar_without_audio(self, monkeypatch):
         import reader
         self._stub_segment(monkeypatch)

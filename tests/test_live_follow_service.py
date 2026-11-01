@@ -7,7 +7,7 @@ import socket
 import pytest
 
 from services import live_follow_poller, live_follow_service as svc
-from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
                                      InvalidInputError, NotFoundError, RateLimitedError)
 from sources import live_follow_store
 
@@ -49,6 +49,10 @@ def follows(isolated_db, monkeypatch):
      f"https://www.youtube.com/channel/{CHANNEL_ID}/live", f"channel/{CHANNEL_ID}"),
     ("https://www.youtube.com/c/SomeName", "https://www.youtube.com/c/SomeName/live", "c/SomeName"),
     ("@白鹤频道", "https://www.youtube.com/@%E7%99%BD%E9%B9%A4%E9%A2%91%E9%81%93/live", "@白鹤频道"),
+    ("https://www.twitch.tv/SomeStreamer", "https://www.twitch.tv/somestreamer",
+     "twitch/somestreamer"),
+    ("twitch.tv/name_1/", "https://www.twitch.tv/name_1", "twitch/name_1"),
+    ("http://m.twitch.tv/name?sr=a", "https://www.twitch.tv/name", "twitch/name"),
 ])
 def test_channel_input_is_reduced_to_one_canonical_url(text, url, label):
     assert svc.normalize_channel(text) == (url, label)
@@ -67,6 +71,10 @@ def test_channel_input_is_reduced_to_one_canonical_url(text, url, label):
     "https://www.youtube.com/channel/UCshort", "https://www.youtube.com/c/..",
     "https://www.youtube.com\\@evil.example/@name",
     "https://www.youtube.com/@" + "x" * 300,
+    "https://twitch.tv.evil.example/name", "https://www.twitch.tv/", "https://www.twitch.tv/videos/123",
+    "https://www.twitch.tv/directory", "https://www.twitch.tv/wallet", "https://www.twitch.tv/drops", "https://www.twitch.tv/name/videos",
+    "https://www.twitch.tv/ab", "https://www.twitch.tv/na-me", "https://user@www.twitch.tv/name",
+    "https://www.twitch.tv:8443/name",
     None, 5,
 ])
 def test_hostile_or_unknown_channel_input_is_refused(text):
@@ -335,3 +343,15 @@ def test_a_followed_channel_keeps_a_series_or_an_old_title_id(follows, isolated_
         svc.update_follow(old["id"], options={"series_id": sid}, principal=ALICE)
     with pytest.raises(InvalidInputError):
         svc.update_follow(old["id"], options={"series_id": sid, "glossary_drama_id": did}, principal=BOB)
+
+
+def test_a_twitch_follow_starts_live_on_the_channel_page(follows, monkeypatch):
+    from services import live_service
+    seen = {}
+    monkeypatch.setattr(live_service, "start_session",
+                        lambda url, **kw: seen.update(url=url) or {"session_id": "live_x"})
+    v = svc.add_follow("https://www.twitch.tv/SomeName", principal=ALICE)
+    assert v["channel"] == "twitch/somename"
+    live_follow_store.update(v["id"], last_state="live", last_stream_id="123456789")
+    svc.start_from_follow(v["id"], principal=ALICE)
+    assert seen["url"] == "https://www.twitch.tv/somename"

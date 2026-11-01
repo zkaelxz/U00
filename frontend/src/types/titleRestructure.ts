@@ -1,6 +1,6 @@
 // api/schemas/title_restructure.py. Ids, names and counts only; never a
 // path or stored filename.
-export interface TitleRestructureChapter {
+interface TitleRestructureChapter {
   // Comic: the chapter group's id ("unknown" for unlabelled pages); novel: its number as text.
   id: string
   title: string
@@ -8,7 +8,7 @@ export interface TitleRestructureChapter {
   chars: number | null
 }
 
-export interface TitleRestructureTarget {
+interface TitleRestructureTarget {
   id: number
   title: string
 }
@@ -29,7 +29,7 @@ export interface TitleRestructureRequest {
   move_duplicates?: boolean
 }
 
-export interface TitleRestructurePreviewChapter extends TitleRestructureChapter {
+interface TitleRestructurePreviewChapter extends TitleRestructureChapter {
   duplicate: boolean
   moves: boolean
   in_translation: boolean

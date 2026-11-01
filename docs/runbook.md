@@ -4,7 +4,7 @@ For the person who keeps Baihe running. Run commands from the project folder.
 
 ## 1. Refresh the installer lock (pinned Windows wheels)
 Do this only after a dependency change (`requirements-core.txt`, `constraints.txt`, or a version bump).
-1. On a Windows PC with Python 3.12 and internet: `python installer/build_installer.py --update-lock`
+1. On a Windows PC with Python 3.13 and internet: `python installer/build_installer.py --update-lock`
 2. Read the change: `git diff installer/wheels.lock.txt`. Only the packages you meant to change should move.
 3. Commit `installer/wheels.lock.txt` with the dependency change.
 4. On GitHub: Actions -> "Windows Installer" -> Run workflow (set the version). The installer is the uploaded artifact.
@@ -40,7 +40,7 @@ An installed copy with a key line in `installer/release_public_key.txt` (in its 
 - Browser tests (`frontend/e2e/`) use the Chromium already installed. Never run `playwright install`.
 - GitHub CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the full local suite plus the frontend commands above is the gate.
 
-- Optional pre-push checks: `pip install pre-commit && pre-commit install`, then `pre-commit run` (changed files) before pushing. Hooks: ruff (`ruff.toml`: syntax errors plus unused imports, variables and names, f-strings with no fields, repeated dict keys), trailing whitespace and end-of-file fixing for `*.py`, and a warning for files over 1 MB. CI does not run these; they are advisory. Avoid `--all-files` for now: about 20 existing `.py` files lack a final newline and it would rewrite them.
+- Optional pre-push checks: `pip install pre-commit && pre-commit install`, then `pre-commit run` (changed files) before pushing. Hooks: ruff (`ruff.toml`: syntax errors plus unused imports, variables and names, f-strings with no fields, repeated dict keys, `requests` calls without `timeout=`), trailing whitespace and end-of-file fixing for `*.py`, and a warning for files over 1 MB. CI runs the same ruff check in the `guards` job (`S113` there is what enforces `timeout=` on `requests` calls); the other hooks are advisory. Avoid `--all-files` for now: about 20 existing `.py` files lack a final newline and it would rewrite them.
 
 ## 2b. Check which source sites still answer
 - `python scripts/source_probe.py` does one polite GET of each site's root (sequential, 2 s apart, no cookies) and prints reachable / challenge-page / http-error / dns-failure / timeout. `--json` for machine output; `--include-set-aside` also lists set-aside sites that answered again. It never edits a file and does nothing when `CI` is set. In a cloud sandbox, whose only way out is a proxy, add `--use-env-proxy` (honours `HTTPS_PROXY` and `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE`, TLS verification stays on); it checks reachability only, a 200 can be a challenge page, so real adapter checks still need the owner's PC.
@@ -50,7 +50,7 @@ An installed copy with a key line in `installer/release_public_key.txt` (in its 
 
 On the PC: `python -m tools.self_test`. It prints PASS / FAIL / SKIPPED per check and writes `self-test-report.txt` in the data folder (`--out FILE` to choose another). The report holds no key values, paths or URLs; paste it to the assistant. SKIPPED means the hardware or an optional engine is absent; only FAIL makes the exit code 1. `--model NAME` picks the Whisper model for the GPU check; it must already be downloaded, since the test never downloads.
 
-The 13 owner checks (`docs/archive/session-harvest/triage-2026-10-10.md`, "Owner checks", items 6-18; no separate checklist file is in the repo) map to it like this. Anything marked "listening/looking only" needs a person with real audio, a stream, a site or a Windows install.
+The 13 owner checks (from the 2026-10-10 triage's "Owner checks" items 6-18, a session note since removed from the repo; this table is their only copy) map to it like this. Anything marked "listening/looking only" needs a person with real audio, a stream, a site or a Windows install.
 
 | # | Check | Self-test line |
 |---|---|---|

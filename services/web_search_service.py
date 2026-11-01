@@ -45,7 +45,7 @@ import db
 from services import settings_service
 from lib import http
 from services.auth_service import SlidingWindowRateLimiter
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
 log = logging.getLogger(__name__)
@@ -106,13 +106,13 @@ def status() -> dict:
 
 def set_config(enabled: Optional[bool] = None, base_url: Optional[str] = None) -> dict:
     """Fields left as None keep their saved value; "" clears the URL."""
-    s = _stored()
+    changes = {}
     if base_url is not None:
-        s["base_url"] = settings_service.validate_endpoint_url(base_url) \
+        changes["base_url"] = settings_service.validate_endpoint_url(base_url) \
             if base_url.strip() else None
     if enabled is not None:
-        s["enabled"] = bool(enabled)
-    db.set_app_setting(SETTING, s)
+        changes["enabled"] = bool(enabled)
+    db.update_app_setting(SETTING, lambda stored: {**(stored if isinstance(stored, dict) else {}), **changes})
     return get_config()
 
 

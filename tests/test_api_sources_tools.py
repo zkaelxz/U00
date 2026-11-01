@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 import bulk_import
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -25,6 +25,7 @@ from services import sources_tools_service as svc
 from sources import generic_import, ladder, pipeline, profiles, registry
 from sources.ladder import LadderResult
 from sources.models import AccessTier
+from tests.job_helpers import wait_for_job
 
 _REAL_FETCH_PAGE = generic_import.fetch_page
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
@@ -67,16 +68,6 @@ class FakeFetch:
         return lr
 
 
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
 @pytest.fixture
 def env(isolated_db, monkeypatch):
     monkeypatch.setattr(registry, "adapter_classes", lambda: {})
@@ -86,7 +77,7 @@ def env(isolated_db, monkeypatch):
     yield fetch
     for jid in list(background_jobs.list_all_jobs()):
         if jid.startswith(("sources_", "sourceimport_", "discover_")):
-            _wait(jid)
+            wait_for_job(jid, missing_ok=True)
             background_jobs.clear_job(jid)
 
 
@@ -101,7 +92,7 @@ def _no_leak(r):
 
 
 def _result(client, job_id):
-    _wait(job_id)
+    wait_for_job(job_id, missing_ok=True)
     return client.get(f"/api/sources/jobs/{job_id}/result")
 
 
@@ -143,11 +134,11 @@ def test_preflight_handoff_is_a_finding(client, env):
 
 def test_preflight_from_another_device_is_static_only(env):
     svc.start_preflight(PAGE, local=False)
-    _wait("sources_url_preflight")
+    wait_for_job("sources_url_preflight", missing_ok=True)
     assert env.calls[-1]["signed_in"] is False and env.calls[-1]["browser"] is False
     background_jobs.clear_job("sources_url_preflight")
     svc.start_preflight(PAGE, local=True)
-    _wait("sources_url_preflight")
+    wait_for_job("sources_url_preflight", missing_ok=True)
     assert env.calls[-1]["signed_in"] is True and env.calls[-1]["browser"] is True
 
 
@@ -243,14 +234,14 @@ def test_remote_pasted_import_keeps_no_profile_or_capability_record(env, monkeyp
 
     did = db.create_drama(title_en="N", media_type="novel")
     svc.start_pasted_import(url, html, did, local=False)
-    assert _wait(f"sourceimport_{did}")["status"] == "done"
+    assert wait_for_job(f"sourceimport_{did}", missing_ok=True)["status"] == "done"
     assert profiles.versions(DOMAIN, "novel") == before
     assert profiles.versions(DOMAIN, "novel")[0]["failures"] == 0
     assert recorded == [] and env.calls == []
 
     background_jobs.clear_job(f"sourceimport_{did}")
     svc.start_pasted_import(url, html, did, local=True)
-    assert _wait(f"sourceimport_{did}")["status"] == "done"
+    assert wait_for_job(f"sourceimport_{did}", missing_ok=True)["status"] == "done"
     after = profiles.versions(DOMAIN, "novel")
     assert after != before and after[0]["failures"] == 1
     assert len(recorded) == 1 and env.calls == []
@@ -269,7 +260,7 @@ def test_pasted_preview_is_linear_on_hostile_markup(client, env):
 
 
 def test_one_pasted_preview_at_a_time(env, monkeypatch):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     assert svc._PASTED_PREVIEW_LOCK.acquire(blocking=False)
     try:
         with pytest.raises(ConflictError):
@@ -317,7 +308,7 @@ def test_identify_media_lists_resources_full_url_only_at_the_pc(client, env):
     # started from another device keeps no full URLs at all.
     background_jobs.clear_job("sources_url_identify")
     svc.start_identify_media(MEDIA_URL, local=False)
-    remote = _wait("sources_url_identify")["result"]
+    remote = wait_for_job("sources_url_identify", missing_ok=True)["result"]
     assert env.calls[-1]["signed_in"] is False and env.calls[-1]["browser"] is False
     assert client.get("/api/sources/url/identify-media/resource",
                       params={"run_id": res["run_id"], "index": a["index"]}).status_code == 404
@@ -353,7 +344,7 @@ def test_identify_media_nothing_found(client, env):
 def test_recent_extractions_list(client, env):
     env.html = MEDIA_HTML
     client.post("/api/sources/url/identify-media", json={"url": MEDIA_URL + "?k=" + SECRET})
-    _wait("sources_url_identify")
+    wait_for_job("sources_url_identify", missing_ok=True)
     r = client.get("/api/sources/url/extractions")
     assert r.status_code == 200
     _no_leak(r)
@@ -400,7 +391,7 @@ class FakeEngine:
 def discover(env, monkeypatch):
     background_jobs.clear_job(discover_svc.BULK_JOB_ID)
     monkeypatch.setattr(settings_service, "resolve_key", lambda name: SECRET)
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     seen = []
 
     def extract(text, engine, source_name=""):
@@ -415,7 +406,7 @@ def test_bulk_pasted_extract_then_commit(client, discover):
     r = client.post("/api/discover/bulk-extract/pasted",
                     json={"text": "排行榜\n1. 白鹤 作者A", "source_label": "jj", "engine": "claude"})
     assert r.status_code == 200 and r.json()["job_id"] == discover_svc.BULK_JOB_ID
-    _wait(discover_svc.BULK_JOB_ID)
+    wait_for_job(discover_svc.BULK_JOB_ID, missing_ok=True)
     res = client.get("/api/discover/bulk-extract/result")
     assert SECRET not in res.text
     result = res.json()["result"]

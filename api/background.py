@@ -192,7 +192,7 @@ def stop_remote_health_monitor(timeout: float = 5.0) -> None:
         poller[0].join(timeout)
 
 
-def start_background_services() -> dict:
+def start_background_services(features_off=frozenset()) -> dict:
     """Starts what is due (and runs the startup sweeps above); returns
     {"chapter_scheduler": bool, "page_server": bool} (True = running after this call). Never raises: a
     failure is logged and the API still starts."""
@@ -205,6 +205,11 @@ def start_background_services() -> dict:
         drama_service.cleanup_stale_tombstones()
     except Exception as exc:
         log_warning("leftover deleted-drama folders were not swept: %s", exc)
+    try:
+        from services import quick_video_service
+        quick_video_service.sweep_temporary()
+    except Exception as exc:
+        log_warning("leftover watch-once titles were not swept: %s", exc)
     try:
         import translation_finish
         translation_finish.repair_stale_aligned_statuses()
@@ -257,14 +262,15 @@ def start_background_services() -> dict:
     except Exception as exc:
         log_warning("bulk batches were not resumed: %s", exc)
     try:
-        from sources import chapter_check
-        chapter_check.ensure_scheduler_started()
-        state["chapter_scheduler"] = True
+        if "sources" not in features_off:
+            from sources import chapter_check
+            chapter_check.ensure_scheduler_started()
+            state["chapter_scheduler"] = True
     except Exception as exc:
         log_warning("chapter-check scheduler did not start: %s", exc)
     try:
         from sources import store as src_store
-        if bool(src_store.get_setting("page_server_enabled")):
+        if "extension" not in features_off and bool(src_store.get_setting("page_server_enabled")):
             import page_server
             try:
                 from services import extension_service

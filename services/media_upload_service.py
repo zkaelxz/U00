@@ -62,7 +62,7 @@ from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
 from services import drama_service, ownership_service, settings_service
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
@@ -350,7 +350,7 @@ def audio_mode_for_upload(drama_id, transcript_text):
         raise
 
 
-def install_media(drama_id, new_files, **fields):
+def install_media(drama_id, new_files, transcribe_new_audio=False, **fields):
     """Puts new media in place for drama_id. new_files maps a DB field
     (audio_filename / source_video_filename) to (path, stem, ext): each file
     is moved to a free `<stem>[-n]<ext>` in the drama folder, never over an
@@ -373,6 +373,13 @@ def install_media(drama_id, new_files, **fields):
     # hardsub_ocr needs a video (source_service refuses to set it without
     # one), and every transcribe run of such a title fails once it is gone.
     if old.get("transcript_mode") == "hardsub_ocr" and "source_video_filename" not in new_files:
+        fields.setdefault("transcript_mode", AUDIO_TRANSCRIPT_MODE)
+    # A new title reads as have_transcript, whose tab only takes pasted text;
+    # the first media on an empty title is for transcribing it. Only a caller
+    # with no pasted transcript asks for this: an upload that carries one
+    # keeps the unset mode, which is how it reads that text.
+    if (transcribe_new_audio and "audio_filename" in new_files and not old.get("transcript_mode")
+            and not any(old.get(f) for f in _MEDIA_FIELDS) and not db.load_line_ids(drama_id)):
         fields.setdefault("transcript_mode", AUDIO_TRANSCRIPT_MODE)
     placed = []
     try:
@@ -575,7 +582,7 @@ def _log_media_failure(drama_id, exc) -> None:
     """Server-log the real reason behind an upload's fixed _EXTRACT_FAILED or
     _SAVE_FAILED sentence, which the user sees instead of ffmpeg's or the OS's text."""
     import applog
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     detail = f"{type(exc).__name__}: {exc}"
     stderr = getattr(exc, "stderr", None)
     if isinstance(stderr, bytes):
@@ -612,7 +619,8 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         ddir = db.drama_dir(drama_id)
         if ext not in VIDEO_EXTENSIONS:
             try:
-                name = install_media(drama_id, {"audio_filename": (staged, "source", ext)})[
+                name = install_media(drama_id, {"audio_filename": (staged, "source", ext)},
+                                    transcribe_new_audio=transcribe_options is None)[
                     "audio_filename"]
             except BaseException as exc:
                 _keep_failed_upload(ddir, staged, ext)
@@ -669,7 +677,8 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
         media_seconds = (transcribe_pipeline._audio_duration_seconds(part_path)
                          if transcribe_options is not None else None)
         install_media(drama_id, {"source_video_filename": (staged, "source", ext),
-                                 "audio_filename": (part_path, "audio", ".wav")})
+                                 "audio_filename": (part_path, "audio", ".wav")},
+                      transcribe_new_audio=transcribe_options is None)
     except BaseException as exc:
         if os.path.exists(part_path):
             os.remove(part_path)

@@ -13,7 +13,7 @@ import db
 import ocr
 import page_fetch_profile
 import resegment
-import translate_engines
+from engine_backends import engine_registry
 from core import Line
 from services import auto_backup_service as abs_
 from services import auto_backup_settings as abt_
@@ -214,7 +214,7 @@ class TestBenchmarkCancel:
                 attempts.append(1)
                 flag["cancel"] = True
                 raise ValueError("boom")
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Failing)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Failing)
         monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: flag["cancel"])
         bench.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
         from services import translate_service

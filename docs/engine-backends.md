@@ -7,11 +7,10 @@ line numbers so the page survives edits. Measured ASR results live in
 
 ## 1. Translation engines
 
-### The front door and the package
+### The package
 
-`translate_engines.py` holds no logic. It re-exports every public and private
-name from the `engine_backends/` package so `import translate_engines` and
-`translate_engines.X` keep working. The package is split by provider and role
+Callers import the `engine_backends` module that defines a name
+(`from engine_backends import shared`). The package is split by provider and role
 (its `__init__.py` docstring has the same list):
 
 | Module | Holds |
@@ -190,7 +189,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
 
 ### Pictures
 
-`engine_backends/vision.py` (`read_image_text`, re-exported by `translate_engines`) sends one picture and a fixed "copy the text, do not translate" prompt to Claude, Gemini, OpenAI or Ollama, each in its own image shape (Claude image block, Gemini `inlineData`, OpenAI `image_url` data URL, Ollama `images`), and returns the text plus the provider's token counts. DeepSeek is refused. OpenAI's request carries `max_completion_tokens` and a low `reasoning_effort`. A request logs its own usage from its worker thread (`on_done`), so a call the deadline abandons is still billed in the log. `services/image_text_service.py` owns the limits, the worst-case price estimate and the cap check; the route is `POST /api/translate/read-image` (PC only).
+`engine_backends/vision.py` (`read_image_text`, ) sends one picture and a fixed "copy the text, do not translate" prompt to Claude, Gemini, OpenAI or Ollama, each in its own image shape (Claude image block, Gemini `inlineData`, OpenAI `image_url` data URL, Ollama `images`), and returns the text plus the provider's token counts. DeepSeek is refused. OpenAI's request carries `max_completion_tokens` and a low `reasoning_effort`. A request logs its own usage from its worker thread (`on_done`), so a call the deadline abandons is still billed in the log. `services/image_text_service.py` owns the limits, the worst-case price estimate and the cap check; the route is `POST /api/translate/read-image` (PC only).
 
 ### Cost caps and bulk batches
 
@@ -213,6 +212,133 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
   transient errors, switches on auth or connection failures for the rest of the
   run, and records each switch in `events`.
 
+### Arguments of the translate pipeline
+
+What each argument of `translate_lines_with_engine` (`engine_backends/translate_pipeline.py`) does; `_TranslateRun` reads them from one namespace.
+
+stop_before_batch: checked only between batches, never during a request:
+a batch already sent is finished and kept (cancel_check_cb is the one that
+abandons a request in flight).
+
+thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
+answering; None = the title's remembered choice, else off. Its reasoning is
+never saved with a line.
+
+scene_aware_batches: start batches at scene breaks (plan_batches)
+instead of cutting fixed slices of batch_size. Same maximum size.
+scene_break_gap: the pause, in seconds, that counts as a scene break.
+sentence_limits: how much translate_by_sentence may join into one sentence.
+
+translate_by_sentence: show the model each run of timed fragments that
+makes one sentence as that whole sentence, and put its English back onto
+the fragments (sentence_groups). None means the title's saved choice
+(drama_meta["translate_by_sentence"]), so every translate path agrees.
+Inert for Reflect mode and for engines that don't follow instructions.
+
+check_replies: run the merged/shifted-reply guard. None = the engine
+and model's default (default_reply_guard); an explicit True/False wins.
+An engine with checks_replies = False is never checked.
+
+detail_cb: optional callable (fraction, message) for a job that wants
+finer progress than progress_cb: fires at the start and end of every
+batch, after each Reflect pass starts, and while a retry waits. When
+given it replaces progress_cb entirely, so a caller passes one or the
+other. The fraction never decreases and never exceeds 1.0.
+
+cancel_check_cb: optional callable returning True if the run should
+stop cooperatively between batches -- e.g. background_jobs.is_cancel_requested,
+so a background translation job can be stopped safely (rather than
+racing a destructive action like a full library reset against a
+thread that's still writing).
+
+reflect: "High quality" mode -- runs reflect_translate_batch
+(three passes: faithfulness, reflection, expressiveness) per batch
+instead of engine.translate_batch's single pass. notes_cb, if given,
+is called once per batch with a list of {line_idx, term, note_type,
+note} dicts (translation_guide's translation-notes shape) for
+whichever lines the reflection pass actually critiqued -- call
+db.save_translation_notes(...) from it. Ignored when reflect=False.
+
+ollama_num_ctx_override: optional Settings override for OllamaEngine's
+context-window size. Ignored by every other engine. OllamaEngine
+itself never lets this go below what the actual prompt needs --
+see _estimate_ollama_num_ctx's docstring for why.
+
+lines: list of objects with .zh and .en attributes (mutated in place).
+
+character_names: optional {speaker_label: character_name} (see
+db.list_characters) -- resolves each line's raw diarization label
+into an actual name shown to the translator, e.g. "[Xiaoling] 你好"
+instead of just "你好". Drives correct pronouns/honorifics/register,
+which the model previously had zero signal for. A line whose speaker
+has no name set is shown with no prefix at all, not the raw label
+(a diarization id like "SPEAKER_00" isn't a name and would just be
+noise for the model to ignore).
+
+save_cb: optional callback invoked after every batch (successful or
+not) with the full `lines` list so far, so progress survives a
+crash/network failure partway through -- call db.save_lines(...)
+from it. Without this, a failure on batch N loses batches 1..N-1
+too if the caller only saves once at the very end.
+
+usage_cb: optional callback invoked after every successful batch
+with (input_tokens, output_tokens, cache_read_tokens,
+cache_write_tokens) -- call db.log_usage(...) from it for cost
+tracking. input_tokens is the whole prompt; the cache counts are the
+parts of it read from / written to a provider prompt cache. In
+Reflect mode it's called once per LLM pass with just (input_tokens,
+output_tokens), so give the last two parameters defaults. Only fires
+for engines that report usage; pure-MT engines don't report token
+counts the same way, so nothing is logged for those.
+
+cost_cap_usd: stop cleanly once this run's estimated spend
+(estimate_cost_for_engine over each batch's real reported usage)
+reaches this many dollars. Checked after each batch, so the batch
+that crosses the cap still finishes and is saved -- the run can go
+over by at most one batch, and never loses finished work. cap_cb, if
+given, is called with the amount spent when the cap stops a run that
+still had batches left.
+
+target_ids: optional set of permanent line ids -- only those lines are
+translated (on top of the force_retranslate rule); every other line
+still serves as look-back/look-ahead context.
+
+A failed batch is retried once, then, if it fails again, its lines
+are left untranslated (.en stays empty) and noted in the returned
+`errors` list, rather than raising and losing everything after it.
+A batch whose engine returns the WRONG NUMBER of translations is
+treated the same way -- a real, confirmed bug this replaces: the
+old code paired the response with the batch by raw list position
+(zip()), so a response one line short (a common LLM failure: merging
+two lines into one, or silently dropping a line) silently shifted
+every translation after the gap onto the wrong line. A length
+mismatch is now always a batch error, never a misassignment --
+fixing the actual mismatch (an engine's own id-keyed JSON response
+parsing, for Claude/DeepSeek/Gemini/Ollama) lives in each engine's
+own translate_batch, since that's where the real per-line recovery
+(retry only the missing ones, not the whole batch) can happen with
+the id information still available; by the time a bare list[str]
+reaches here, all this can safely check is its length.
+
+By default, lines that already have non-empty .en are skipped --
+so calling this again after a partial failure only retries what's
+actually missing, instead of re-translating (and re-paying for)
+everything. Pass force_retranslate=True to redo everything anyway.
+
+context_window: how many already-translated lines immediately before
+each batch get shown to the model (as "how this was already
+translated", not something to retranslate). Batches are translated in
+isolation otherwise -- a pronoun or a person referred to only by
+relation ("her", "that guy") a few lines back has nothing to resolve
+against, and the model has to guess fresh every batch instead of
+staying consistent with what came right before it. 0 disables this.
+
+context_window_ahead: same idea, forward instead of back -- how many
+lines immediately AFTER this batch (raw, untranslated) get shown for
+context only. A line ending on a cliffhanger or an incomplete thought
+previously had nothing to resolve against going forward, only
+backward. 0 disables this.
+
 ## 2. Rules learned from bugs
 
 1. **Match results by id, never by position.** Use
@@ -226,15 +352,14 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
    shown, stored or logged. API responses carry booleans for "key set", not the
    key, a path or a fetched URL.
 3. **Every outbound call has `timeout=`.** `tests/test_static_analysis.py`
-   enforces it for `translate_engines.py`, everything under `engine_backends/`,
+   enforces it for everything under `engine_backends/`,
    `services/`, `api/` and a list of other modules; a new HTTP-calling module
    outside those goes on that list. Bodies of unknown size are read with
    `post_json` (see above).
-4. **Patch the module that uses a name, not the front door.** A test patches
+4. **Patch the module that uses a name.** A test patches
    `engine_backends.llm_tasks.call_llm_json`, `engine_backends.local._ollama_reachability_cache`,
-   and so on. Patching `translate_engines.X` only affects code that reads `X`
-   from `translate_engines` at call time, so it silently does nothing for
-   engine-internal callers.
+   and so on. A caller that did `from engine_backends.x import name` holds its own
+   copy, so patch it in the caller's namespace.
 5. **Moderation is its own error.** Raise `ContentModerationBlocked` from the
    structural signal in `translate_batch` instead of returning empty text, so
    the caller can flag the line with the provider's real reason.
@@ -361,7 +486,7 @@ All in `dub.py`; this page only maps them.
 
 ## 5. Shared paths
 
-The API calls these shared functions: `translate_engines.get_engine`,
+The API calls these shared functions: `engine_backends.engine_registry.get_engine`,
 `FallbackEngine`, `redact_secrets`, `estimate_cost_for_engine`,
 `settings_service.resolve_key`, `transcribe_service` (including
 `stored_whisper_size`, `build_auto_initial_prompt`, `require_qwen3_packages`),
@@ -382,8 +507,7 @@ fall back to `GOOGLE_API_KEY`). Ollama's URL comes from `ollama_url` /
    and, if free or keyless, `FREE_ENGINES` / `KEYLESS_ENGINES`; if it cannot
    follow instructions, `TRANSLATION_ONLY_ENGINES`. Add models and prices to
    `pricing.py` (`PRICING_PER_MILLION_TOKENS`) so cost estimates and caps work,
-   and to `_CAP_ENGINES` in `translate_run_service` if it is paid. Re-export
-   new public names from `translate_engines.py`. Add a bulk provider only if
+   and to `_CAP_ENGINES` in `translate_run_service` if it is paid. Add a bulk provider only if
    the vendor has a batch API (`bulk_translate.BULK_ENGINES`).
 3. **Settings and keys:** an `ENV_NAMES` entry in `settings_service`, the
    matching `SECRET_ENGINES` entry in `frontend/src/pages/settingsKeys.ts` and

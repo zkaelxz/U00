@@ -50,7 +50,7 @@ from lib import http
 from lib.safe_paths import contained as _inside, is_device_name
 from services import (artifact_service, drama_service, export_service,
                       settings_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
 log = logging.getLogger(__name__)
@@ -129,15 +129,15 @@ def _check_library_dir(value) -> str:
 def set_config(enabled: Optional[bool] = None, server_url: Optional[str] = None,
                library_dir: Optional[str] = None) -> dict:
     """Fields left as None keep their saved value; "" clears a text field."""
-    s = _stored()
+    changes = {}
     if server_url is not None:
-        s["server_url"] = settings_service.validate_endpoint_url(server_url) \
+        changes["server_url"] = settings_service.validate_endpoint_url(server_url) \
             if server_url.strip() else None
     if library_dir is not None:
-        s["library_dir"] = _check_library_dir(library_dir) if library_dir.strip() else None
+        changes["library_dir"] = _check_library_dir(library_dir) if library_dir.strip() else None
     if enabled is not None:
-        s["enabled"] = bool(enabled)
-    db.set_app_setting(SETTING, s)
+        changes["enabled"] = bool(enabled)
+    db.update_app_setting(SETTING, lambda stored: {**(stored if isinstance(stored, dict) else {}), **changes})
     return get_config()
 
 

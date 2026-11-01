@@ -19,21 +19,12 @@ from jobs import job_launch
 import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
+from tests.job_helpers import wait_for_job
 
 
 def _fake_ffmpeg(job_id, cmd, cwd=None, **kw):
     with open(cmd[-1], "wb") as f:
         f.write(b"wav")
-
-
-def _wait(job_id, timeout=5.0):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.02)
-    raise AssertionError(f"job {job_id} did not finish")
 
 
 @pytest.fixture
@@ -69,7 +60,7 @@ def test_video_upload_extracts_audio(client, isolated_db):
     # The job names the video when it puts it in place (source-2.mkv if source.mkv is taken).
     assert r.json() == {"name": None, "size": 9, "kind": "video",
                         "job_id": f"extract_audio_{did}"}
-    assert _wait(f"extract_audio_{did}")["status"] == "done"
+    assert wait_for_job(f"extract_audio_{did}", timeout=5.0)["status"] == "done"
     d = db.get_drama(did)
     assert d["audio_filename"] == "audio.wav" and d["source_video_filename"] == "source.mkv"
     assert sorted(os.listdir(db.drama_dir(did))) == ["audio.wav", "source.mkv"]
@@ -94,7 +85,7 @@ def test_video_upload_returns_before_extraction_finishes(client, isolated_db, mo
     r2 = _up(client, did, "b.mp4", b"other")
     assert r2.status_code == 409
     gate.set()
-    assert _wait(job_id)["status"] == "done"
+    assert wait_for_job(job_id, timeout=5.0)["status"] == "done"
     assert db.get_drama(did)["audio_filename"] == "audio.wav"
     with open(os.path.join(db.drama_dir(did), "source.mp4"), "rb") as f:
         assert f.read() == b"fakeaudio"
@@ -129,7 +120,7 @@ def test_a_missing_ffmpeg_is_named_and_the_upload_kept(client, isolated_db, monk
         raise FileNotFoundError(2, "No such file or directory", cmd[0])
     monkeypatch.setattr(background_jobs, "run_cancellable", missing)
     did = db.create_drama(title_en="D")
-    job = _wait(_up(client, did, "a.mp4").json()["job_id"])
+    job = wait_for_job(_up(client, did, "a.mp4").json()["job_id"], timeout=5.0)
     assert job["status"] == "error"
     assert media_upload_service.FFMPEG_MISSING in job["error"] and "kept" in job["error"]
     assert list(_kept(did).values()) == [b"fakeaudio"]
@@ -144,7 +135,7 @@ def test_video_extract_failure_is_job_error_and_keeps_the_upload(client, isolate
     did = db.create_drama(title_en="D")
     r = _up(client, did, "a.mp4")
     assert r.status_code == 200
-    job = _wait(r.json()["job_id"])
+    job = wait_for_job(r.json()["job_id"], timeout=5.0)
     assert job["status"] == "error"
     assert "Could not read audio from that video file." in job["error"]
     assert "kept" in job["error"]
@@ -175,7 +166,7 @@ def test_extract_ffmpeg_opens_local_files_only(client, isolated_db, monkeypatch)
         _fake_ffmpeg(job_id, cmd)
     monkeypatch.setattr(background_jobs, "run_cancellable", recording)
     did = db.create_drama(title_en="D")
-    assert _wait(_up(client, did, "a.mp4").json()["job_id"])["status"] == "done"
+    assert wait_for_job(_up(client, did, "a.mp4").json()["job_id"], timeout=5.0)["status"] == "done"
     i = cmds[0].index("-i")
     assert cmds[0][i - 4:i] == video_export.local_input()
 
@@ -195,7 +186,7 @@ def test_the_extract_ffmpeg_is_noted_for_the_next_start(client, isolated_db, mon
         _fake_ffmpeg(job_id, cmd)
     monkeypatch.setattr(background_jobs, "run_cancellable", noting)
     did = db.create_drama(title_en="D")
-    assert _wait(_up(client, did, "a.mp4").json()["job_id"])["status"] == "done"
+    assert wait_for_job(_up(client, did, "a.mp4").json()["job_id"], timeout=5.0)["status"] == "done"
     assert noted == [1]
     assert os.listdir(storage.temp_root()) == []
 
@@ -208,7 +199,7 @@ def test_the_extract_still_runs_when_no_work_folder_can_be_made(client, isolated
         raise OSError("read-only temp folder")
     monkeypatch.setattr(storage, "new_workdir", no_room)
     did = db.create_drama(title_en="D")
-    assert _wait(_up(client, did, "a.mp4").json()["job_id"])["status"] == "done"
+    assert wait_for_job(_up(client, did, "a.mp4").json()["job_id"], timeout=5.0)["status"] == "done"
     assert db.get_drama(did)["audio_filename"]
 
 
@@ -219,7 +210,7 @@ def test_video_extract_cancel_is_cancelled_and_keeps_the_upload(client, isolated
         raise background_jobs.JobCancelled(job_id)
     monkeypatch.setattr(background_jobs, "run_cancellable", cancelled)
     did = db.create_drama(title_en="D")
-    job = _wait(_up(client, did, "a.mp4").json()["job_id"])
+    job = wait_for_job(_up(client, did, "a.mp4").json()["job_id"], timeout=5.0)
     assert job["status"] == "cancelled"
     assert os.listdir(db.drama_dir(did)) == ["kept_media"]
     assert list(_kept(did).values()) == [b"fakeaudio"]
@@ -338,7 +329,7 @@ def test_concurrent_upload_loser_never_touches_winner_file(client, isolated_db):
     release.set()
     t.join(5)
     assert out["r"]["job_id"] == f"extract_audio_{did}"
-    _wait(out["r"]["job_id"])
+    wait_for_job(out["r"]["job_id"], timeout=5.0)
     with open(os.path.join(db.drama_dir(did), "source.mp4"), "rb") as f:
         assert f.read() == b"winner"
     assert not any(n.startswith(".upload_") for n in os.listdir(db.drama_dir(did)))
@@ -386,7 +377,7 @@ def test_confirmed_replace_keeps_the_old_original(client, isolated_db):
 def test_existing_source_video_needs_confirm(client, isolated_db):
     import db
     did = db.create_drama(title_en="D")
-    assert _wait(_up(client, did, "a.mp4", b"vid1").json()["job_id"])["status"] == "done"
+    assert wait_for_job(_up(client, did, "a.mp4", b"vid1").json()["job_id"], timeout=5.0)["status"] == "done"
     os.remove(os.path.join(db.drama_dir(did), "audio.wav"))  # video alone still counts
     r = _up(client, did, "b.mp3", b"aud")
     assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
@@ -395,7 +386,7 @@ def test_existing_source_video_needs_confirm(client, isolated_db):
 def test_video_replace_keeps_old_until_extraction_succeeds(client, isolated_db, monkeypatch):
     import db
     did = db.create_drama(title_en="D")
-    assert _wait(_up(client, did, "a.mp4", b"old").json()["job_id"])["status"] == "done"
+    assert wait_for_job(_up(client, did, "a.mp4", b"old").json()["job_id"], timeout=5.0)["status"] == "done"
     gate = threading.Event()
     seen = {}
 
@@ -408,7 +399,7 @@ def test_video_replace_keeps_old_until_extraction_succeeds(client, isolated_db, 
                     data={"confirm_replace_audio": "true"})
     assert r.status_code == 200, r.text
     gate.set()
-    assert _wait(r.json()["job_id"])["status"] == "done"
+    assert wait_for_job(r.json()["job_id"], timeout=5.0)["status"] == "done"
     assert seen["during"] == b"old"
     after = db.get_drama(did)
     assert (after["source_video_filename"], after["audio_filename"]) == ("source-2.mp4", "audio-2.wav")
@@ -420,7 +411,7 @@ def test_video_replace_keeps_old_until_extraction_succeeds(client, isolated_db, 
 def test_failed_extraction_on_replace_leaves_the_title_as_it_was(client, isolated_db, monkeypatch):
     import db
     did = db.create_drama(title_en="D")
-    assert _wait(_up(client, did, "a.mp4", b"old").json()["job_id"])["status"] == "done"
+    assert wait_for_job(_up(client, did, "a.mp4", b"old").json()["job_id"], timeout=5.0)["status"] == "done"
     before = db.get_drama(did)
 
     def boom(job_id, cmd, cwd=None, **kw):
@@ -428,7 +419,7 @@ def test_failed_extraction_on_replace_leaves_the_title_as_it_was(client, isolate
     monkeypatch.setattr(background_jobs, "run_cancellable", boom)
     r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"new")},
                     data={"confirm_replace_audio": "true"})
-    assert _wait(r.json()["job_id"])["status"] == "error"
+    assert wait_for_job(r.json()["job_id"], timeout=5.0)["status"] == "error"
     assert _read(did, "source.mp4") == b"old" and _read(did, "audio.wav") == b"wav"
     after = db.get_drama(did)
     assert (after["audio_filename"], after["source_video_filename"]) == (
@@ -456,7 +447,7 @@ def test_confirm_flag_must_be_a_bool(isolated_db):
     import io
     import db
     from services import media_upload_service
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     did = db.create_drama(title_en="D")
     with pytest.raises(InvalidInputError):
         media_upload_service.upload_media(did, "a.mp3", io.BytesIO(b"x"), confirm_replace_audio="yes")
@@ -478,7 +469,7 @@ def test_kept_media_is_in_a_media_backup(client, isolated_db):
 
 
 def _video_title(client, did):
-    assert _wait(_up(client, did, "a.mp4", b"old").json()["job_id"])["status"] == "done"
+    assert wait_for_job(_up(client, did, "a.mp4", b"old").json()["job_id"], timeout=5.0)["status"] == "done"
     import db
     return db.get_drama(did)
 
@@ -487,7 +478,7 @@ def _replace_video(client, did):
     r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"new")},
                     data={"confirm_replace_audio": "true"})
     assert r.status_code == 200, r.text
-    return _wait(r.json()["job_id"])
+    return wait_for_job(r.json()["job_id"], timeout=5.0)
 
 
 def _assert_title_unchanged(did, before):
@@ -921,7 +912,7 @@ def test_new_media_is_fsynced_before_the_db_names_it(client, isolated_db, monkey
     monkeypatch.setattr(m, "_fsync_file", spy_fsync)
     monkeypatch.setattr(db, "update_drama", spy_update)
     did = db.create_drama(title_en="D")
-    assert _wait(_up(client, did, "a.mp4", b"vid").json()["job_id"])["status"] == "done"
+    assert wait_for_job(_up(client, did, "a.mp4", b"vid").json()["job_id"], timeout=5.0)["status"] == "done"
     assert [e[0] for e in events] == ["fsync", "fsync", "db"]
     names = sorted(e[1] for e in events[:2])
     assert names[0] == ".audio.extract.wav" and names[1].startswith(".upload_")
@@ -1031,7 +1022,7 @@ def test_replacing_audio_with_a_video_attaches_it_and_sets_the_old_audio_aside(c
     assert _up(client, did, "a.mp3", b"first").status_code == 200
     r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"vid")},
                     data={"confirm_replace_audio": "true"})
-    assert _wait(r.json()["job_id"])["status"] == "done"
+    assert wait_for_job(r.json()["job_id"], timeout=5.0)["status"] == "done"
     after = db.get_drama(did)
     assert (after["source_video_filename"], after["audio_filename"]) == ("source.mp4", "audio.wav")
     assert _status(client, did)["has_source_video"] is True
@@ -1076,3 +1067,45 @@ def test_replacing_a_video_with_audio_leaves_other_modes_alone(client, isolated_
     db.update_drama(did, transcript_mode=mode)
     assert _replace_with_audio(client, did).status_code == 200
     assert db.get_drama(did)["transcript_mode"] == mode
+
+
+def test_first_audio_on_an_empty_title_means_transcribe_it(isolated_db, tmp_path):
+    import db
+    from services import media_upload_service as m
+    did = db.create_drama(title_en="D")
+    src = tmp_path / "a.mp3"
+    src.write_bytes(b"media")
+    m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")},
+                    transcribe_new_audio=True)
+    assert db.get_drama(did)["transcript_mode"] == "whisper"
+
+
+def test_audio_added_to_a_title_with_a_chosen_mode_or_lines_keeps_its_mode(isolated_db, tmp_path):
+    import db
+    from core import Line
+    from services import media_upload_service as m
+    chosen = db.create_drama(title_en="C", transcript_mode="have_transcript")
+    with_lines = db.create_drama(title_en="L")
+    db.save_lines(with_lines, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+    for did, want in ((chosen, "have_transcript"), (with_lines, None)):
+        src = tmp_path / f"a{did}.mp3"
+        src.write_bytes(b"media")
+        m.install_media(did, {"audio_filename": (str(src), "source", ".mp3")},
+                        transcribe_new_audio=True)
+        assert db.get_drama(did).get("transcript_mode") == want
+
+
+def test_a_plain_upload_on_an_empty_title_means_transcribe_it(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("a.mp3", b"media")})
+    assert r.status_code == 200, r.text
+    assert db.get_drama(did)["transcript_mode"] == "whisper"
+
+
+def test_a_video_uploaded_to_a_title_with_a_chosen_mode_keeps_it(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    db.update_drama(did, transcript_mode="hardsub_ocr")
+    _video_title(client, did)
+    assert db.get_drama(did)["transcript_mode"] == "hardsub_ocr"

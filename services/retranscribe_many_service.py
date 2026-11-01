@@ -28,13 +28,13 @@ import db
 import sensitivity_preset as presets
 import source_change
 import storage
-from services import (compare_transcription_service as compare, settings_service, timing_settings_service,
+from services import (compare_transcription_service as compare, difficult_audio_service, settings_service, timing_settings_service,
                       transcribe_pipeline, transcribe_service, translate_service, retranscribe_line_service,
                       transcribe_options_service)
 from services.retranscribe_worker import (apply_retranscribe_many_outcome, cpu_retry_args, MANY_USE_GPU_ARG,
                                           retranscribe_many_worker, retranscribe_timeout_s)
 from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
 MAX_LINES = compare.MAX_LINES
@@ -93,6 +93,7 @@ def start_retranscribe_many(drama_id: int, line_ids: list, initial_prompt: str =
                 transcribe_options_service.stored_hallucination_silence_sec(drama),
                 bool(drama.get("whisper_repeat_guard")),
                 presets.normalize(heard_row.get("sensitivity_preset")),
+                difficult_audio_service.rehear_kwargs(drama),
                 transcribe_pipeline._model_loading_message(
                     size, whisper_models.is_whisper_model_cached(size)),
                 retranscribe_timeout_s(sum(w[2] - w[1] for w in windows), len(windows)), scratch_dir)

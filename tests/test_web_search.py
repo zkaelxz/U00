@@ -18,7 +18,7 @@ from api.server import create_app
 from services import settings_service
 from lib import capped_body
 from services import web_search_service as ws
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
 URL = "http://192.168.1.30:8888"
@@ -286,7 +286,7 @@ def test_concurrent_searches_are_capped(fake):
 
 
 def test_each_caller_has_its_own_bucket_inside_the_global_cap(fake, monkeypatch):
-    from services.service_errors import RateLimitedError
+    from lib.errors import RateLimitedError
     monkeypatch.setattr(ws, "_caller_rate", ws.SlidingWindowRateLimiter(ws.PER_CALLER_MAX,
                                                                         ws.RATE_WINDOW))
     _on()
@@ -305,7 +305,7 @@ def test_each_caller_has_its_own_bucket_inside_the_global_cap(fake, monkeypatch)
 
 
 def test_the_pc_test_is_not_blocked_by_searches(fake):
-    from services.service_errors import RateLimitedError
+    from lib.errors import RateLimitedError
     _on()
     for i in range(ws.RATE_MAX):
         ws.search("x", caller=f"user:{i}")
@@ -418,3 +418,16 @@ def test_a_web_result_goes_through_the_pasted_link_guards(fake):
     assert len(fake.calls) == 1  # the result page itself was never fetched
     with pytest.raises(InvalidInputError):
         sources_url_service.start_preview(row["url"])
+
+
+def test_saving_one_field_keeps_a_field_another_save_wrote_meanwhile(fake, monkeypatch):
+    ws.set_config(enabled=True, base_url=URL)
+    real = ws.settings_service.validate_endpoint_url
+
+    def slow_validate(url):
+        # A second save lands while this one is still validating its address.
+        ws.db.update_app_setting(ws.SETTING, lambda v: {**v, "enabled": False})
+        return real(url)
+    monkeypatch.setattr(ws.settings_service, "validate_endpoint_url", slow_validate)
+    ws.set_config(base_url=URL)
+    assert ws.get_config()["enabled"] is False

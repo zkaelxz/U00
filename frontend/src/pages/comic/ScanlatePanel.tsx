@@ -280,6 +280,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
           {uploadMsg && <p role="status">{uploadMsg}</p>}
         </div>
       )}
+      {/* Until a page exists the engine, run and export controls would only show what is missing. */}
+      {config?.page_count !== 0 && (<>
 
       <div className="scanlate-run-row">
         <Field
@@ -435,6 +437,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
           </div>
         </div>
       </Section>
+      </>)}
     </Card>
   )
 }

@@ -8,7 +8,7 @@ import type { AsrAdviceNote, AsrAdviceRequest } from '../../../types/workspace'
 const ADVICE_DEBOUNCE_MS = 250
 
 /** The form's choices as the advisor takes them; one object so a change in any of them re-asks. */
-export function adviceKey(req: AsrAdviceRequest): string {
+function adviceKey(req: AsrAdviceRequest): string {
   return JSON.stringify(req)
 }
 

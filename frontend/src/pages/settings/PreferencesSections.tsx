@@ -182,7 +182,7 @@ export function KeepFreeMemory({ schema, settings, onSettings }: Props) {
   )
 }
 
-export const ADVANCED_TITLE = 'Offline, paths and limits'
+const ADVANCED_TITLE = 'Offline, paths and limits'
 
 export function AdvancedCard(props: AdvancedProps) {
   const { schema, settings, onSettings, openSignal = 0, uploadsSignal = 0 } = props

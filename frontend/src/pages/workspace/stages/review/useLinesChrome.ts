@@ -1,10 +1,13 @@
 import { useEffect, useState, type RefObject } from 'react'
 
 const COLLAPSE_PX = 160
-const COLLAPSE_BACK_PX = 60
+const COLLAPSE_BACK_PX = 20
 
 // Phones: once the page is scrolled the sticky toolbar shrinks to its chip row so more lines show.
-// Two thresholds, because shrinking it moves the scroll position a little.
+// Collapsing also hides the app header, stage tabs and player above the lines, which shortens the page by about 110px and makes the
+// browser pull scrollY down by that much to keep the lines still. So the expand threshold must sit below COLLAPSE_PX minus that
+// shift (and above zero); with a gap narrower than the shift the bar collapses, lands under the expand line, expands, lands over the
+// collapse line and flickers forever while the finger is still scrolling.
 export function useScrollCollapse(isPhone: boolean): boolean {
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {

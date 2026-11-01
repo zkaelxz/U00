@@ -11,12 +11,14 @@ from PIL import Image
 
 import background_jobs
 import db
-import translate_engines
 from engine_backends import vision
 from services import benchmark_lab_service as svc
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError, MissingKeyError
-from tests.test_benchmark_lab import _wait
+from lib.errors import InvalidInputError, MissingKeyError
+from tests.job_helpers import wait_for_job
+
+# The fixture below patches vision.read_image_text itself, so the real one is kept here.
+_REAL_READ_IMAGE_TEXT = vision.read_image_text
 
 REFERENCE = "你好世界"
 
@@ -56,7 +58,7 @@ def reads(isolated_db, monkeypatch):
             on_done(usage)
         return state["text"], usage
 
-    monkeypatch.setattr(translate_engines, "read_image_text", fake)
+    monkeypatch.setattr(vision, "read_image_text", fake)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test-key-12345678")
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
@@ -66,7 +68,7 @@ def reads(isolated_db, monkeypatch):
 
 def _run(configs, **kw):
     started = svc.start_run("ocr", configs, **kw)
-    _wait()
+    wait_for_job(svc.JOB_ID, timeout=15)
     return started
 
 
@@ -201,13 +203,13 @@ class TestBounds:
             return REFERENCE, {}
 
         monkeypatch.setattr(vision, "_dispatch", slow)
-        monkeypatch.setattr(translate_engines, "read_image_text", vision.read_image_text)
+        monkeypatch.setattr(vision, "read_image_text", _REAL_READ_IMAGE_TEXT)
         started = time.monotonic()
         (sid,) = svc.start_run("ocr", [{"engine": "claude"}])["session_ids"]
         time.sleep(0.5)
         background_jobs.request_cancel(svc.JOB_ID)
         try:
-            _wait()
+            wait_for_job(svc.JOB_ID, timeout=15)
             assert time.monotonic() - started < 6 and len(calls) == 1
             assert svc.get_run(sid)["run"]["status"] == "cancelled"
         finally:

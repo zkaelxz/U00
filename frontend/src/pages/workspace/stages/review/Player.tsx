@@ -6,6 +6,7 @@ import { mediaStreamUrl, type PlayerMediaKind } from '../../../../api/media'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { usePopOut } from '../../../../hooks/usePopOut'
+import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
@@ -78,7 +79,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [segment, setSegment] = useState<Segment | null>(null)
   const [failed, setFailed] = useState(false)
   const [loop, setLoop] = usePersistedState('review.loop', false)
-  const [open, setOpen] = usePersistedState('review.playerOpen', true)
+  const [open, setOpen] = usePersistedState('review.playerOpen', !(useMediaQuery('(max-width: 640px)') && kind === 'video')) // closed on a phone: an open video hides the lines
   const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
   const rate = validRate(ratePref)
   const [subsPref, setSubs] = usePersistedState<string>('review.subs', 'English')

@@ -7,6 +7,7 @@ LLM call are faked -- no network.
 """
 
 import time
+from engine_backends import engine_registry
 
 import pytest
 
@@ -24,9 +25,10 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import (auth_service, glossary_extract_service, glossary_service as gs,
                       settings_service, translate_service)
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
 from tests.api_helpers import error_of
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 REMOTE = "https://baihe.example.com"
@@ -54,15 +56,6 @@ def _put_job(job_id, status="done", result=None, message="", error=None, progres
             "cancel_requested": False}
 
 
-def _wait(job_id):
-    for _ in range(200):
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error", "cancelled"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
 class _Engine:
     supports_reference = True
     model = "fake-model"
@@ -72,7 +65,7 @@ class _Engine:
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 
@@ -129,7 +122,7 @@ class TestLinesGlossaryService:
         out = gs.start_lines_glossary_run(did)
         assert out == {"job_id": f"lines_glossary_{did}", "engine": "claude", "line_count": 2}
         assert fake_engine["key"] == SECRET and SECRET not in repr(out)
-        st = _wait(out["job_id"])
+        st = wait_for_job(out["job_id"], timeout=4.0)
         assert st["status"] == "done", st.get("error")
         assert seen == {"lines": ["青云宗的师尊", "沈清来了"], "lang": "zh", "known": ["师尊"]}
         assert usage and usage[0][0] == did and usage[0][3] == "extract_terms"
@@ -159,7 +152,7 @@ class TestLinesGlossaryService:
         out = gs.start_lines_glossary_run(did)
         time.sleep(0.5)
         background_jobs.request_cancel(out["job_id"])
-        st = _wait(out["job_id"])
+        st = wait_for_job(out["job_id"], timeout=4.0)
         release.set()
         # Drama ids repeat across tests; a leftover entry would refuse their calls.
         from engine_backends import llm_tasks
@@ -172,7 +165,7 @@ class TestLinesGlossaryService:
         monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [
             {"term": "青云宗", "suggested_translation": "Qingyun Sect",
              "renderings": ["Azure Sect"]}])
-        st = _wait(gs.start_lines_glossary_run(did)["job_id"])
+        st = wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         (p,) = st["result"]["proposals"]
         assert p["alternatives"] == []
 
@@ -182,7 +175,7 @@ class TestLinesGlossaryService:
         def boom(*a, **kw):
             raise RuntimeError(f"401 for key {SECRET}")
         monkeypatch.setattr(tguide, "extract_terms_llm", boom)
-        st = _wait(gs.start_lines_glossary_run(did)["job_id"])
+        st = wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         assert st["status"] == "error" and SECRET not in repr(st)
         assert SECRET not in repr(gs.get_lines_glossary_status(did))
 
@@ -194,7 +187,7 @@ class TestLinesGlossaryService:
             background_jobs.request_cancel(job_id)
             return [{"term": "青云宗", "suggested_translation": "Qingyun Sect"}]
         monkeypatch.setattr(tguide, "extract_terms_llm", extract)
-        st = _wait(gs.start_lines_glossary_run(did)["job_id"])
+        st = wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         assert st["status"] == "cancelled" and not st.get("result")
 
     def test_start_refusals(self, isolated_db, monkeypatch, fake_engine):
@@ -351,9 +344,9 @@ class TestLinesGlossaryService:
     def test_status_names_the_run(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _lines_drama(isolated_db)
         monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [])
-        _wait(gs.start_lines_glossary_run(did)["job_id"])
+        wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         first = gs.get_lines_glossary_status(did)["run_id"]
-        _wait(gs.start_lines_glossary_run(did)["job_id"])
+        wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         second = gs.get_lines_glossary_status(did)
         assert first and second["run_id"] and second["run_id"] != first
         assert background_jobs.get_status(gs.lines_glossary_job_id(did))["result"]["run_id"] \
@@ -381,7 +374,7 @@ class TestLinesGlossaryRoutes:
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"lines_glossary_{did}", "engine": "claude",
                             "line_count": 2}
-        _wait(f"lines_glossary_{did}")
+        wait_for_job(f"lines_glossary_{did}", timeout=4.0)
         r = local_client.get(_gl(did))
         assert r.status_code == 200 and SECRET not in r.text
         body = r.json()
@@ -404,7 +397,7 @@ class TestLinesGlossaryRoutes:
             raise RuntimeError(f"401 for key {SECRET}")
         monkeypatch.setattr(tguide, "extract_terms_llm", boom)
         local_client.post(_gl(did))
-        _wait(f"lines_glossary_{did}")
+        wait_for_job(f"lines_glossary_{did}", timeout=4.0)
         r = local_client.get(_gl(did))
         assert r.json()["status"] == "error" and SECRET not in r.text
 
@@ -532,7 +525,7 @@ class TestRunScopedCancel:
             assert background_jobs.is_cancel_requested(job_id)
         finally:
             release.set()
-            _wait(job_id)
+            wait_for_job(job_id, timeout=4.0)
         # finished: nothing left to cancel
         assert local_client.post(f"{path}/cancel", json={"run_id": run}).status_code == 409
 

@@ -29,7 +29,7 @@ import zipfile
 from lib.safe_paths import contained as _inside
 from services import ownership_service
 from services import sources_save_service as saves
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 255
 MAX_PAGES = saves.MAX_CHAPTER_PAGES

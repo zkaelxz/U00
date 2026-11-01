@@ -1,7 +1,7 @@
 """Auto-tune (transcribe_service) and glossary-from-novel (glossary_service)
 service jobs. Fully mocked: no audio models, no LLM, no network."""
 import os
-import time
+from engine_backends import engine_registry
 
 import pytest
 
@@ -12,10 +12,11 @@ import line_alignment
 import whisper_models
 import whisper_transcribe
 import translation_guide as tguide
-from services import glossary_extract_service, glossary_service as gs
+from services import glossary_service as gs
 from services import autotune_service as at, settings_service, translate_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 
@@ -220,20 +221,11 @@ def _novel_drama(db, orig="原文", novel="English", engine="claude"):
     return did, sid
 
 
-def _wait(job_id):
-    for _ in range(200):
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
 @pytest.fixture
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 
@@ -265,7 +257,7 @@ class TestNovelGlossary:
         out = gs.start_novel_glossary_run(did)
         assert out == {"job_id": f"novel_glossary_{did}", "engine": "claude", "paired": True}
         assert fake_engine["key"] == SECRET and SECRET not in repr(out)
-        st = _wait(out["job_id"])
+        st = wait_for_job(out["job_id"], timeout=4.0)
         assert st["status"] == "done", st.get("error")
         assert seen == {"src": "原文", "en": "English", "known": ["师尊"]}
         props = {p["term"]: p for p in st["result"]["proposals"]}
@@ -281,7 +273,7 @@ class TestNovelGlossary:
                             lambda src, e, **kw: seen.update(src=src, en=kw["english_translation"]) or [])
         out = gs.start_novel_glossary_run(did)
         assert out["paired"] is False
-        _wait(out["job_id"])
+        wait_for_job(out["job_id"], timeout=4.0)
         assert seen == {"src": "English", "en": ""}
 
     def test_engine_error_redacted(self, isolated_db, monkeypatch, fake_engine):
@@ -290,7 +282,7 @@ class TestNovelGlossary:
         def boom(*a, **kw):
             raise RuntimeError(f"401 for key {SECRET}")
         monkeypatch.setattr(tguide, "extract_glossary_from_novel", boom)
-        st = _wait(gs.start_novel_glossary_run(did)["job_id"])
+        st = wait_for_job(gs.start_novel_glossary_run(did)["job_id"], timeout=4.0)
         assert st["status"] == "error" and SECRET not in repr(st)
 
     def test_start_refusals(self, isolated_db, monkeypatch):
@@ -344,10 +336,10 @@ class TestNovelGlossary:
             [{"term": "青云宗", "suggested_translation": "Blue Cloud Sect", "category": "place",
               "policy": "translate", "reason": "second"}]])
         monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: next(answers))
-        _wait(gs.start_novel_glossary_run(did)["job_id"])
+        wait_for_job(gs.start_novel_glossary_run(did)["job_id"], timeout=4.0)
         first = gs.get_novel_glossary_status(did)["run_id"]
         assert first and isinstance(first, str)
-        _wait(gs.start_novel_glossary_run(did)["job_id"])
+        wait_for_job(gs.start_novel_glossary_run(did)["job_id"], timeout=4.0)
         second = gs.get_novel_glossary_status(did)["run_id"]
         assert second and second != first
         with pytest.raises(ConflictError, match="review again"):

@@ -11,7 +11,7 @@ the reference-capable ones (`ai_engines`), defaulting to the saved default
 engine (Settings > Defaults, settings_service.get("default_engine")) when that
 is one of them. The key is resolved here, on the PC, from .env; it is never
 taken from, or returned to, the client, and a failure to build the engine
-is reported without it (translate_engines.redact_secrets). The route checks
+is reported without it (shared.redact_secrets). The route checks
 `engines.paid` for the named engine first (api.auth.require_engines_allowed).
 
 SO10, Review extraction: a review step between the preview and the write.
@@ -55,7 +55,7 @@ new `revision`; a request naming an older one is a 409, so a stale screen
 can't import or save a result it didn't show. An image whose download
 failed or that Pillow couldn't read can't be marked as a page. Text is
 scrubbed and URLs reduced to scheme+host+path, or the bare host when a
-path segment looks like a credential (`translate_engines.display_url`). A review of a page read through the saved
+path segment looks like a credential (`shared.display_url`). A review of a page read through the saved
 signed-in browser is shown only at this PC (it can carry the account's
 page chrome), and a run started from another device never auto-saves a
 site profile (adaptive `hold_profiles`).
@@ -73,20 +73,19 @@ from typing import Optional
 import background_jobs
 import comic_chapters
 import db
-import translate_engines
+from engine_backends import shared, engine_registry
 from services import drama_service
 from services import page_import_limits as limits
 from services import settings_service
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
     NotFoundError,
 )
-from services.sources_registry_service import scrub
 from services.sources_search_service import JobFailed
-from sources import adaptive, ai_extract, ai_extract_comic as axc, ai_extract_novel as axn, pipeline, profiles
+from sources import adaptive, ai_extract, pipeline
 from sources import novel_follow
 from sources import store as src_store
 
@@ -97,7 +96,7 @@ _ENGINE_FAILED = "The AI engine could not be set up."
 def ai_engines() -> list:
     """Engine names the AI fallback may use (those that take a reference
     prompt)."""
-    return [e for e, cls in translate_engines.ENGINES.items()
+    return [e for e, cls in engine_registry.ENGINES.items()
             if getattr(cls, "supports_reference", False)]
 
 
@@ -112,7 +111,7 @@ def engines_view() -> dict:
     status. `free`: the ones that need no `engines.paid`."""
     engines = ai_engines()
     return {"engines": engines, "default": default_ai_engine(),
-            "free": [e for e in engines if e in translate_engines.FREE_ENGINES]}
+            "free": [e for e in engines if e in engine_registry.FREE_ENGINES]}
 
 
 def resolve_ai_engine_name(use_ai, engine) -> Optional[str]:
@@ -144,7 +143,7 @@ def build_ai_engine(name: Optional[str]):
         if not key:
             raise MissingKeyError(name)
     try:
-        return translate_engines.get_engine(
+        return engine_registry.get_engine(
             name, key, base_url=base_url,
             free_tier=name == "gemini" and settings_service.get("gemini_free_tier"))
     except DependencyUnavailableError:
@@ -152,7 +151,7 @@ def build_ai_engine(name: Optional[str]):
     except Exception as e:
         # Never the key: the message is redacted and the cause dropped.
         raise DependencyUnavailableError(
-            translate_engines.redact_secrets(f"{_ENGINE_FAILED} ({type(e).__name__})")) from None
+            shared.redact_secrets(f"{_ENGINE_FAILED} ({type(e).__name__})")) from None
 
 
 # ---------------------------------------------------------------------------
@@ -372,135 +371,10 @@ def drop_review(drama_id: int):
         _discard(_REVIEWS.pop(int(drama_id), None))
 
 
-def _label(text) -> str:
-    return (scrub(str(text or "")) or "")[:MAX_LABEL]
-
-
-def _confidence_view(data: dict) -> dict:
-    conf = (data or {}).get("confidence") or {}
-    o = ai_extract.overall(data or {})
-    fields = []
-    for f in list(ai_extract.FIELDS) + ["media_resources"]:
-        c = conf.get(f)
-        if not c:
-            continue
-        value = (data or {}).get(f)
-        shown = None if value is None or isinstance(value, (list, dict)) else _label(value)
-        if f in ("next_url", "previous_url") and isinstance(value, str):
-            shown = translate_engines.display_url(value)
-        fields.append({"field": f, "bucket": c.get("bucket"), "score": float(c.get("score") or 0),
-                       "checks": [_label(x) for x in c.get("checks") or []], "value": shown})
-    return {"overall": {"bucket": o.get("bucket"), "score": float(o.get("score") or 0)},
-            "fields": fields}
-
-
-def _report_view(report) -> dict:
-    if report is None:
-        return {"headline": "", "lines": [], "llm_calls": 0, "cache_hit": False,
-                "profile": "", "pending_profile": None}
-    pending = getattr(report, "pending_profile", None)
-    bucket = (((pending or {}).get("validation") or {}).get("overall") or {}).get("bucket")
-    return {"headline": scrub(report.headline()),
-            "lines": [scrub(x) for x in (report.access_lines + report.lines)][:40],
-            "llm_calls": int(report.llm_calls), "cache_hit": bool(report.cache_hit),
-            "profile": scrub(adaptive.describe_profile(report.profile)),
-            "pending_profile": {"bucket": bucket} if pending else None}
-
-
 # ----- novel ---------------------------------------------------------------
-
-def _novel_base_rules(rv: _Review) -> dict:
-    return rv.rules or profiles.infer_novel_rules(rv.page, rv.data) or {}
-
-
-def _containers(rv: _Review) -> list:
-    """[(selector, chars, preview)] offered for the chapter text, the
-    current rule's selector first when the page's top list lacks it."""
-    opts = [(sel, n, t) for sel, n, t in profiles.container_options(rv.page)
-            if len(sel) <= MAX_SELECTOR_LEN]
-    base = _novel_base_rules(rv).get("content_selector")
-    if base and len(base) <= MAX_SELECTOR_LEN and base not in [o[0] for o in opts]:
-        el = profiles.select_one(rv.page.soup, base)
-        text = el.get_text(" ", strip=True) if el is not None else ""
-        opts.insert(0, (base, len(text), text[:80]))
-    return opts
-
-
-def _exclusions(rv: _Review, selector: str) -> list:
-    return [(sel, t) for sel, t in profiles.exclusion_options(rv.page, selector)
-            if len(sel) <= MAX_SELECTOR_LEN]
-
-
-def _headings(rv: _Review) -> list:
-    return [b for b in rv.page.blocks if b.tag in ai_extract.HEADING_TAGS
-            or b.id == rv.data.get("chapter_title_block")][:MAX_HEADINGS]
-
-
-def _links(rv: _Review) -> list:
-    return rv.page.links[:MAX_LINKS]
-
-
-def _link_id_for(rv: _Review, url):
-    return next((l.id for l in _links(rv) if url and l.url == url), None)
-
-
-def _novel_view(rv: _Review) -> dict:
-    data, base = rv.data, _novel_base_rules(rv)
-    containers = _containers(rv)
-    sels = [c[0] for c in containers]
-    current = base.get("content_selector") if base.get("content_selector") in sels else \
-        (sels[0] if sels else None)
-    exclusions = {sel: _exclusions(rv, sel) for sel in sels}
-    ex_now = {s for s, _t in exclusions.get(current, [])}
-    title_id = data.get("chapter_title_block")
-    heads = _headings(rv)
-    text = data.get("content") or ""
-    return {
-        "text_preview": text[:MAX_PREVIEW_CHARS],
-        "char_count": len(text),
-        "chapter_title": _label(data.get("chapter_title")),
-        "containers": [{"selector": sel, "chars": int(n), "preview": _label(t),
-                        "exclusions": [{"selector": es, "preview": _label(et)}
-                                       for es, et in exclusions[sel]]}
-                       for sel, n, t in containers],
-        "content_selector": current,
-        "exclude_selectors": [x for x in base.get("exclude_selectors") or [] if x in ex_now],
-        "headings": [{"id": b.id, "text": _label(b.text)} for b in heads],
-        "title_block": title_id if title_id in {b.id for b in heads} else None,
-        "links": [{"id": l.id, "text": _label(l.text), "url": translate_engines.display_url(l.url)}
-                  for l in _links(rv)],
-        "next_link": _link_id_for(rv, data.get("next_url")),
-        "previous_link": _link_id_for(rv, data.get("previous_url")),
-        "number_from": base.get("number_from") if base.get("number_from") in NUMBER_FROM else "title",
-    }
 
 
 # ----- comic ---------------------------------------------------------------
-
-def _comic_items(rv: _Review) -> list:
-    roles = {p["resource_url"]: p for p in rv.data.get("pages") or []}
-    out = []
-    for i, c in enumerate(rv.candidates):
-        p = roles.get(c.url) or {}
-        role = p.get("role") or "other"
-        page = (p.get("index") + 1) if role == "content" and isinstance(p.get("index"), int) else 0
-        out.append({"id": i, "display_url": translate_engines.display_url(c.url), "attr": _label(c.attr or "src"),
-                    "width": int(c.width or 0), "height": int(c.height or 0),
-                    "role": role if role in ai_extract.COMIC_ROLES else "other", "page": page,
-                    "reason": _label(c.reject_reason or p.get("reason") or ""),
-                    "has_image": _usable(rv, i)})
-    return out
-
-
-def _usable(rv: _Review, i: int) -> bool:
-    """Downloaded, an accepted type (PNG/JPEG/WebP) with a size within the
-    page rules (services/page_import_limits.py, header only): only such an
-    image can become a page."""
-    c = rv.candidates[i]
-    size = rv.sizes.get(i, 0)
-    return (size > 0 and _image_type(c) is not None and c.width > 0 and c.height > 0
-            and c.width * c.height <= limits.MAX_IMAGE_PIXELS
-            and size <= limits.MAX_IMAGE_BYTES)
 
 
 def write_pages(drama_id: int, items, job_id: str = None, chapter: dict = None) -> tuple:
@@ -535,197 +409,7 @@ def write_pages(drama_id: int, items, job_id: str = None, chapter: dict = None) 
     return added, skipped
 
 
-def _kept_ids(rv: _Review, data: dict) -> list:
-    """Candidate ids of the images marked as pages, in page order, usable only."""
-    by_url = {c.url: i for i, c in enumerate(rv.candidates)}
-    ids = [by_url[p["resource_url"]] for p in sorted(
-        (p for p in data.get("pages") or [] if p.get("role") == "content"),
-        key=lambda p: p["index"]) if p["resource_url"] in by_url]
-    return [i for i in ids if _usable(rv, i)]
-
-
-def _kept_count(rv: _Review) -> int:
-    return len(_kept_ids(rv, rv.data))
-
-
-def _comic_view(rv: _Review) -> dict:
-    return {"images": _comic_items(rv), "roles": list(ai_extract.COMIC_ROLES),
-            "page_count": _kept_count(rv)}
-
-
-def _first_heading(rv: _Review, data: dict) -> str:
-    """The reviewed page's heading, as a direct import would write it: the
-    chapter title, else the page's <title>, capped."""
-    title = (data or {}).get("chapter_title") or rv.page.page_title or ""
-    return title[:adaptive.MAX_TITLE_CHARS]
-
-
-def _follow_view(rv: _Review):
-    """The pages of a followed import, by id in reading order (0 = the
-    reviewed first page, as last re-run): title, length and host only."""
-    if not rv.follow_stop:
-        return None
-    pages = [{"id": 0, "title": _label(_first_heading(rv, rv.data)),
-              "char_count": len(rv.data.get("content") or ""),
-              "host": profiles.domain_of(rv.url)}]
-    pages += [{"id": i, "title": _label(p.title), "char_count": len(p.text or ""),
-               "host": profiles.domain_of(p.url)} for i, p in enumerate(rv.chain, 1)]
-    return {"pages": pages, "stop": rv.follow_stop}
-
-
-def review_view(drama_id: int, principal=None, local: bool = True) -> dict:
-    """The review for a drama: 404 when there is none (or it expired, or
-    it is PC-only and the request isn't from this PC)."""
-    _require_drama(drama_id, principal)
-    rv = _get(drama_id, local=local)
-    out = {
-        "kind": "extraction_review", "drama_id": rv.drama_id, "revision": rv.revision,
-        "content_type": rv.kind, "why": rv.why, "display_url": translate_engines.display_url(rv.url),
-        "confidence": _confidence_view(rv.data), "report": _report_view(rv.report),
-        "can_save_profile": bool(rv.rules), "novel": None, "comic": None,
-        "follow": _follow_view(rv),
-    }
-    out[rv.kind] = _novel_view(rv) if rv.kind == "novel" else _comic_view(rv)
-    return out
-
-
 # ----- corrections ---------------------------------------------------------
-
-def _offered(value, allowed, what: str):
-    if value is None:
-        return None
-    if not isinstance(value, str) or value not in allowed:
-        raise InvalidInputError(_NOT_OFFERED, details={"field": what})
-    return value
-
-
-def rerun_novel(drama_id: int, revision: str, content_selector, exclude_selectors=(),
-                title_block=None, next_link=None, previous_link=None, number_from="title",
-                principal=None, local: bool = True) -> dict:
-    """Re-runs the extraction on the kept page with the chosen parts. 422
-    for a choice the review didn't offer, or when the chosen parts give no
-    text; 409 stale revision."""
-    _require_drama(drama_id, principal)
-    rv = _get(drama_id, revision, local)
-    if rv.kind != "novel":
-        raise InvalidInputError("This review is for comic pages.")
-    sel = _offered(content_selector, {c[0] for c in _containers(rv)}, "content_selector")
-    if sel is None:
-        raise InvalidInputError("Pick the part of the page that holds the chapter text.")
-    allowed_ex = {s for s, _t in _exclusions(rv, sel)}
-    exclude = []
-    for x in exclude_selectors or []:
-        x = _offered(x, allowed_ex, "exclude_selectors")
-        if x not in exclude:
-            exclude.append(x)
-    title_id = _offered(title_block, {b.id for b in _headings(rv)}, "title_block")
-    link_ids = {l.id for l in _links(rv)}
-    next_id = _offered(next_link, link_ids, "next_link")
-    prev_id = _offered(previous_link, link_ids, "previous_link")
-    if number_from not in NUMBER_FROM:
-        raise InvalidInputError(_NOT_OFFERED, details={"field": "number_from"})
-    rules = profiles.novel_rules_from_choices(rv.page, sel, exclude, title_id, next_id, prev_id,
-                                              number_from)
-    new, why = profiles.apply_novel_rules(rv.page, rules)
-    if new is None:
-        raise InvalidInputError(scrub(why) or "Those choices found no chapter text.")
-    axn.validate_novel(new, rv.page)
-    if not (new.get("content") or "").strip():
-        raise InvalidInputError("Those choices found no chapter text.")
-    with _LOCK:
-        if rv.revision != revision:
-            raise ConflictError(_STALE, details={"revision": rv.revision})
-        rv.data, rv.rules, rv.revision = new, rules, _new_revision()
-    return review_view(drama_id, principal, local)
-
-
-def rerun_comic(drama_id: int, revision: str, images, principal=None, local: bool = True) -> dict:
-    """Applies the person's roles and page numbers, each keyed by the image
-    id the review gave it. Images not named keep their current role and
-    page. 422 for an unknown id or role, a page number out of range, or an
-    image that can't be a page (not downloaded, or not readable)."""
-    _require_drama(drama_id, principal)
-    rv = _get(drama_id, revision, local)
-    if rv.kind != "comic":
-        raise InvalidInputError("This review is for novel text.")
-    current = {it["id"]: it for it in _comic_items(rv)}
-    chosen = {}
-    for item in images or []:
-        cid, role, page = item.get("id"), item.get("role"), item.get("page", 0)
-        if isinstance(cid, bool) or not isinstance(cid, int) or cid not in current:
-            raise InvalidInputError(_NOT_OFFERED, details={"field": "images.id"})
-        if role not in ai_extract.COMIC_ROLES:
-            raise InvalidInputError(_NOT_OFFERED, details={"field": "images.role"})
-        if isinstance(page, bool) or not isinstance(page, int) or not 0 <= page <= MAX_PAGE_NUMBER:
-            raise InvalidInputError(f"Page numbers go from 0 (not a page) to {MAX_PAGE_NUMBER}.")
-        if role == "content" and not _usable(rv, cid):
-            raise InvalidInputError("That image couldn't be downloaded or read, so it can't be a page.",
-                                    details={"field": "images.role", "id": cid})
-        chosen[cid] = (role, page)
-    roles, order = {}, {}
-    for cid, it in current.items():
-        role, page = chosen.get(cid, (it["role"], it["page"]))
-        if role == "content" and not _usable(rv, cid):
-            role, page = "other", 0
-        url = rv.candidates[cid].url
-        roles[url] = role
-        if role == "content" and page > 0:
-            order[url] = page
-    new = profiles.comic_data_from_roles(rv.page, rv.candidates, roles, order)
-    axc.validate_comic(new, rv.page, adaptive.measured(rv.candidates))
-    rules = profiles.infer_comic_rules(rv.candidates, new)
-    with _LOCK:
-        if rv.revision != revision:
-            raise ConflictError(_STALE, details={"revision": rv.revision})
-        rv.data, rv.rules, rv.revision = new, rules, _new_revision()
-    return review_view(drama_id, principal, local)
-
-
-def _snapshot(rv: _Review, revision: str) -> tuple:
-    """(data, rules) as of `revision`, read under the lock so a re-run from
-    another tab can't swap them in between (409 when it already has)."""
-    with _LOCK:
-        if rv.revision != revision:
-            raise ConflictError(_STALE, details={"revision": rv.revision})
-        return rv.data, rv.rules
-
-
-def save_profile(drama_id: int, revision: str, principal=None) -> dict:
-    """Saves the corrections as the site's profile (a new version; the
-    previous one is kept for rollback). 422 when there are no corrections
-    yet or the profile doesn't validate. PC-only route."""
-    _require_drama(drama_id, principal)
-    rv = _get(drama_id, revision)
-    data, rules = _snapshot(rv, revision)
-    if not rules:
-        raise InvalidInputError("Re-run with your corrections first; those are what's saved.")
-    try:
-        v = profiles.save_version(profiles.domain_of(rv.url), rv.kind, rules, data,
-                                  origin="correction", approved=True)
-    except profiles.ProfileRejected as e:
-        raise InvalidInputError(scrub(str(e))) from None
-    return {"domain": profiles.domain_of(rv.url), "kind": rv.kind, "version": int(v["version"]),
-            "replaces": v.get("replaces")}
-
-
-def approve_profile(drama_id: int, revision: str, principal=None) -> dict:
-    """Saves the profile candidate the extraction held for approval."""
-    _require_drama(drama_id, principal)
-    rv = _get(drama_id, revision)
-    with _LOCK:                       # taken once: a second approve finds nothing
-        pending = getattr(rv.report, "pending_profile", None)
-        if pending:
-            rv.report.pending_profile = None
-    if not pending:
-        raise InvalidInputError("There's no suggested profile waiting for approval.")
-    try:
-        v = adaptive.approve_pending(pending)
-    except profiles.ProfileRejected as e:
-        with _LOCK:
-            rv.report.pending_profile = pending
-        raise InvalidInputError(scrub(str(e))) from None
-    return {"domain": profiles.domain_of(rv.url), "kind": rv.kind, "version": int(v["version"]),
-            "replaces": v.get("replaces")}
 
 
 # ----- import --------------------------------------------------------------
@@ -891,3 +575,12 @@ def review_image(drama_id: int, candidate_id: int, principal=None, local: bool =
         return _read(rv, candidate_id), _image_type(rv.candidates[candidate_id])
     except OSError:
         raise NotFoundError("No such image in this review.") from None
+
+
+# Defined in the modules below; re-exported so `services.sources_extraction_service.<name>` keeps working.
+from services.sources_extraction_views import (  # noqa: E402,F401
+    _label, _confidence_view, _report_view, _novel_base_rules, _containers, _exclusions,
+    _headings, _links, _link_id_for, _novel_view, _comic_items, _usable, _kept_ids, _kept_count,
+    _comic_view, _first_heading, _follow_view, review_view, _offered)
+from services.sources_extraction_actions import (  # noqa: E402,F401
+    rerun_novel, rerun_comic, _snapshot, save_profile, approve_profile)

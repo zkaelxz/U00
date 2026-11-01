@@ -21,7 +21,7 @@ import { browserStorage } from './usePersistedState'
  * starts from its defaults.
  */
 
-export const DRAFT_KEY_PREFIX = 'baihe.draft.'
+const DRAFT_KEY_PREFIX = 'baihe.draft.'
 export const DRAFT_VERSION = 1
 
 export type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
@@ -92,7 +92,7 @@ export function changedKeys<T extends object>(current: T, base: T): Partial<T> {
   return out
 }
 
-export interface StageDraft<T extends object> {
+interface StageDraft<T extends object> {
   // The remembered values that match `shape` (empty when there is no draft).
   draft: Partial<T>
   // Everything stored, for forms that validate their own shape.

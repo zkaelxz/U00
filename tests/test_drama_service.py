@@ -3,7 +3,7 @@ import pytest
 
 import db
 from services import drama_service as ds
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _count():
@@ -14,6 +14,13 @@ def test_create_basic(isolated_db):
     d = ds.create_drama(source_language="ja", title_en="T", media_type="anime")
     assert d["title_en"] == "T" and d["source_language"] == "ja"
     assert d["media_type"] == "anime" and d["preset_defaults"] is None
+
+
+def test_create_novel_starts_in_narration_mode(isolated_db):
+    novel = ds.create_drama(source_language="zh", title_en="N", media_type="novel")
+    audio = ds.create_drama(source_language="zh", title_en="A")
+    assert db.get_drama(novel["id"])["content_mode"] == "novel_narration"
+    assert db.get_drama(audio["id"])["content_mode"] == "audio_drama"
 
 
 @pytest.mark.parametrize("lang", [None, "", "en", "ZH"])
@@ -261,7 +268,7 @@ import time
 
 import background_jobs
 from jobs import job_table
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 
 def _drama_with_files():
@@ -350,7 +357,7 @@ def test_delete_db_failure_restores_folder(isolated_db, monkeypatch):
     def boom(_id):
         raise RuntimeError("db down")
     monkeypatch.setattr(ds.db, "delete_drama", boom)
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     with pytest.raises(ServiceError) as ei:
         ds.delete_drama(did, confirm=True, confirm_text="DELETE")
     assert folder not in str(ei.value)
@@ -363,7 +370,7 @@ def test_delete_rename_failure_leaves_everything(isolated_db, monkeypatch):
     def boom(*a, **k):
         raise OSError("locked")
     monkeypatch.setattr(ds.os, "rename", boom)
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     with pytest.raises(ServiceError):
         ds.delete_drama(did, confirm=True, confirm_text="DELETE")
     assert _intact(did, folder)
@@ -377,7 +384,7 @@ def _user(email):
 
 
 def test_create_and_move_respect_series_visibility(isolated_db):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     a_id, a = _user("a@example.com")
     b_id, b = _user("b@example.com")
     secret = db.get_or_create_series("Secret", owner_user_id=a_id, is_private=True)
@@ -415,7 +422,7 @@ def test_new_series_refused_after_precheck_creates_nothing(isolated_db, monkeypa
     # Security review LOW-A: the name can be taken (or made private) between
     # the pre-check and the series step; the new drama must be undone.
     from services import ownership_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
 
     def refuse(principal, name):
         raise ConflictError("That series name is taken")
@@ -453,7 +460,7 @@ def test_update_new_series_name_rejected(isolated_db, kw):
 
 def test_update_new_series_refused_leaves_no_stray_series(isolated_db):
     from services import ownership_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     a_id, a = _user("a@example.com")
     b_id, _b = _user("b@example.com")
     b_drama = db.create_drama(title_zh="b", owner_user_id=b_id)

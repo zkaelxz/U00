@@ -28,7 +28,7 @@ export const installConfirmLabel = (name: string): string | undefined =>
 
 // ---- page-wide busy state ----
 
-export type AdminAction = 'install' | 'upgrade' | 'reset'
+type AdminAction = 'install' | 'upgrade' | 'reset'
 // `job`: the install job's latest state (progress and message), once it reports one.
 export type AdminBusy = { kind: AdminAction; name: string; job?: DiagnosticsJobState | null } | null
 
@@ -84,7 +84,7 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 // ---- Setup ----
 
 // `value` is the text without the label ("3.11.9", "ffmpeg not found"); `text` is the one-line form.
-type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
+type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean; unknown?: boolean }
 
 /** The ffmpeg row's problem text: missing, or built without libass. */
 function ffmpegProblem(c: DiagnosticsSetupChecks): string {
@@ -120,6 +120,8 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
+  // Without PyTorch nothing looked at the GPU, so the row is neither OK nor a problem.
+  if (gpu && !gpuBlind && !c.cuda.torch_installed) rows[rows.length - 1].unknown = true
   const missing = c.files.missing_top_level.length
   add('files', 'App files', missing === 0, 'all present', `${missing} missing`)
   add('library', 'Library folder', c.library_writable, 'writable', "can't be written to")
@@ -201,7 +203,7 @@ const ENGINE_REPO_HINTS: Record<string, RegExp> = {
 const exactRepos = (e: ModelEngineVersion): string[] =>
   e.package === null && e.version?.includes('/') ? e.version.split(',').map((r) => r.trim()) : []
 
-export type EngineModelRow = {
+type EngineModelRow = {
   engine: ModelEngineVersion
   cached: DiagnosticsHfCacheEntry[]
   // The engine downloads weights but none are cached (and it is installed): "not downloaded".

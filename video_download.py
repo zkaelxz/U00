@@ -6,7 +6,7 @@ result through the file picker.
 
 Wraps yt-dlp's Python API (not the CLI) so progress can be reported to a
 background job the same way translation/dubbing already do (progress_cb
-pattern -- see translate_engines.translate_lines_with_engine, dub.py).
+pattern -- see engine_backends.translate_pipeline.translate_lines_with_engine, dub.py).
 
 SETUP: pip install yt-dlp
 Needs ffmpeg on PATH for the audio-extraction postprocessor -- already a

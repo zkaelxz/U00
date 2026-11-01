@@ -27,7 +27,7 @@ import process_guard
 from lib import proc
 from services import app_update_service, auth_service, shutdown_service
 from services import update_service as us
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
 
 BRANCH = "baihe-subtitler"
@@ -37,6 +37,7 @@ RESULT_KEY = "source_update.last_result"
 _START_BAT_STATE_ENV = frozenset({"BAIHE_UPDATE_OLD", "BAIHE_FORCE_DEPS", "BAIHE_BUILD_FRONTEND",
                                   "BAIHE_AUTO_BUILD"})
 HELPER = os.path.join("tools", "restart_after_update.py")
+HELPER_LOG = "restart_after_update.log"  # written by the helper; same name there
 GIT_TIMEOUT = 20
 FETCH_TIMEOUT = 40
 CHECK_MIN_INTERVAL = 5.0
@@ -176,7 +177,7 @@ def _settle_pending(head) -> None:
     if head and head != pending.get("from"):
         message = f"Updated to {_short(head)}."
     else:
-        reason = _local_problem() or "The update didn't finish"
+        reason = _local_problem() or f"start.bat stopped before Baihe came up (what it printed is in {HELPER_LOG} in the Baihe folder)"
         message = f"Not updated: {reason.rstrip('.')}. Still on {_short(head)}."
     db.set_app_setting(RESULT_KEY, {"message": message, "at": time.time()})
     db.set_app_setting(PENDING_KEY, None)

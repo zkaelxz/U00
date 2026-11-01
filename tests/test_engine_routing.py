@@ -5,10 +5,10 @@ import pytest
 
 import db
 import diagnostics_report
-import translate_engines
+from engine_backends import engine_registry
 from services import engine_routing_service as routing
 from services import line_ai_service, settings_service, translate_run_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError)
 
 SECRET = "sk-ant-api03-" + "A" * 40
@@ -22,19 +22,19 @@ def no_keys(monkeypatch):
 
 class TestEngineTags:
     def test_every_engine_is_tagged_and_translates(self):
-        assert set(translate_engines.ENGINE_CAPABILITIES) == set(translate_engines.ENGINES)
-        for name in translate_engines.ENGINES:
-            assert translate_engines.CAP_TRANSLATE in translate_engines.engine_capabilities(name)
+        assert set(engine_registry.ENGINE_CAPABILITIES) == set(engine_registry.ENGINES)
+        for name in engine_registry.ENGINES:
+            assert engine_registry.CAP_TRANSLATE in engine_registry.engine_capabilities(name)
 
     def test_translation_only_engines_do_not_follow_instructions(self):
-        followers = set(translate_engines.engines_with_capability(
-            translate_engines.CAP_INSTRUCTIONS))
-        assert not followers & translate_engines.TRANSLATION_ONLY_ENGINES
+        followers = set(engine_registry.engines_with_capability(
+            engine_registry.CAP_INSTRUCTIONS))
+        assert not followers & engine_registry.TRANSLATION_ONLY_ENGINES
         assert "fake" not in followers  # fake output; can't do QC/JSON tasks
 
     def test_free_engines_are_cheap(self):
-        cheap = set(translate_engines.engines_with_capability(translate_engines.CAP_CHEAP))
-        assert translate_engines.FREE_ENGINES <= cheap
+        cheap = set(engine_registry.engines_with_capability(engine_registry.CAP_CHEAP))
+        assert engine_registry.FREE_ENGINES <= cheap
 
 
 class TestResolve:
@@ -167,7 +167,7 @@ class TestEngineTest:
 
             def translate_batch(self, lines, context):
                 raise RuntimeError(f"401 Unauthorized for key {SECRET}")
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Boom())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: Boom())
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: SECRET)
         monkeypatch.setattr(settings_service, "key_status", lambda *a, **k: {"claude": True})
         out = routing.test_engine("claude")
@@ -194,7 +194,7 @@ class TestEngineTest:
 
     def test_a_timed_out_engine_stays_busy_until_its_call_ends(self, isolated_db, monkeypatch):
         import threading
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         release = threading.Event()
         monkeypatch.setattr(routing, "TEST_TIMEOUT_S", 0.05)
         monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
@@ -219,7 +219,7 @@ class TestEngineTest:
         assert routing._last_test("claude") is None
 
     def test_an_engine_with_a_test_block_is_not_tested(self, isolated_db, monkeypatch):
-        from services.service_errors import UnsupportedOperationError
+        from lib.errors import UnsupportedOperationError
         monkeypatch.setitem(routing._NO_TEST, "fake_mt", "Downloads a large model on first use.")
         monkeypatch.setattr(diagnostics_report, "check_engine_reachable",
                             lambda *a, **k: pytest.fail("would download a model"))

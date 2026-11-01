@@ -1,5 +1,4 @@
 """Discover network helpers (API batch 1, spec D-2). Mocked: no network, no LLM."""
-import time
 
 import pytest
 
@@ -14,12 +13,13 @@ import db
 import metadata_lookup
 import navigator
 import title_library
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, safe_fetch, settings_service
 from services import discover_lookup_service as svc
+from tests.job_helpers import wait_for_job
 
 KEY = "sk-ant-api03-SECRETKEYSECRETKEYSECRETKEY1234567890"
 PAGE = safe_fetch.FetchResult("Menu\nLogin\nSome page text " * 10, False)
@@ -37,7 +37,7 @@ def fakes(monkeypatch, isolated_db):
     for j in (svc.BULK_JOB_ID, svc.NAV_JOB_ID):
         background_jobs.clear_job(j)
     monkeypatch.setattr(settings_service, "resolve_key", lambda name: KEY)
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     monkeypatch.setattr(safe_fetch, "fetch_public_text", lambda url: PAGE)
     monkeypatch.setattr(metadata_lookup, "extract_metadata_llm",
                         lambda text, eng: {"title_zh": "书", "summary": f"k={KEY}", "evil": "x"})
@@ -52,22 +52,13 @@ def fakes(monkeypatch, isolated_db):
                                     "snippet": "s"}])
     yield
     for j in (svc.BULK_JOB_ID, svc.NAV_JOB_ID):
-        _wait(j)
+        wait_for_job(j, timeout=5.0, missing_ok=True)
         background_jobs.clear_job(j)
 
 
 @pytest.fixture
 def client():
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
-def _wait(job_id):
-    for _ in range(250):
-        s = background_jobs.get_status(job_id)
-        if not s or s["status"] not in ("running", "queued"):
-            return s
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _clean(r):
@@ -95,7 +86,7 @@ def test_bulk_extract_then_commit(client):
                     json={"urls": ["https://a.example/1"], "source_label": "jjwxc",
                           "engine": "claude"})
     assert r.status_code == 200 and r.json() == {"job_id": svc.BULK_JOB_ID, "started": True}
-    _wait(svc.BULK_JOB_ID)
+    wait_for_job(svc.BULK_JOB_ID, timeout=5.0, missing_ok=True)
     res = client.get("/api/discover/bulk-extract/result")
     entries = _clean(res)["result"]["entries"]
     assert [e["title"] for e in entries] == ["A"]
@@ -112,7 +103,7 @@ def test_user_urls_come_back_without_query_or_fragment(client):
     assert r.json()["suggestion"]["source_url"] == "https://a.example/list/1"
     assert "TOKENVALUE123" not in r.text and "frag" not in r.text
     client.post("/api/discover/bulk-extract", json={"urls": [signed], "engine": "claude"})
-    _wait(svc.BULK_JOB_ID)
+    wait_for_job(svc.BULK_JOB_ID, timeout=5.0, missing_ok=True)
     res = client.get("/api/discover/bulk-extract/result")
     assert "TOKENVALUE123" not in res.text and "?" not in res.text
     b = res.json()["result"]
@@ -131,11 +122,11 @@ def test_ids_from_an_earlier_extraction_never_match_a_later_one(client, monkeypa
                         lambda text, eng, source_name="": [{"title": text}])
     client.post("/api/discover/bulk-extract", json={"urls": ["https://a.example/1"],
                                                     "engine": "claude"})
-    _wait(svc.BULK_JOB_ID)
+    wait_for_job(svc.BULK_JOB_ID, timeout=5.0, missing_ok=True)
     a_entries = client.get("/api/discover/bulk-extract/result").json()["result"]["entries"]
     client.post("/api/discover/bulk-extract", json={"urls": ["https://b.example/1"],
                                                     "engine": "claude"})
-    _wait(svc.BULK_JOB_ID)
+    wait_for_job(svc.BULK_JOB_ID, timeout=5.0, missing_ok=True)
     b_entries = client.get("/api/discover/bulk-extract/result").json()["result"]["entries"]
     assert a_entries[0]["entry_id"] != b_entries[0]["entry_id"]
     r = client.post("/api/discover/bulk-commit", json={"entries": a_entries})
@@ -156,7 +147,7 @@ def test_urls_differing_only_by_query_stay_distinct(client, monkeypatch):
     monkeypatch.setattr(bulk_import, "extract_listing_entries_llm",
                         lambda text, eng, source_name="": [{"title": text}])
     client.post("/api/discover/bulk-extract", json={"urls": list(pages), "engine": "claude"})
-    _wait(svc.BULK_JOB_ID)
+    wait_for_job(svc.BULK_JOB_ID, timeout=5.0, missing_ok=True)
     res = client.get("/api/discover/bulk-extract/result")
     assert "id=" not in res.text
     entries = res.json()["result"]["entries"]
@@ -171,7 +162,7 @@ def test_urls_differing_only_by_query_stay_distinct(client, monkeypatch):
     pages["https://s.example/book.php?id=3"] = "Book Three"
     client.post("/api/discover/bulk-extract",
                 json={"urls": ["https://s.example/book.php?id=3"], "engine": "claude"})
-    _wait(svc.BULK_JOB_ID)
+    wait_for_job(svc.BULK_JOB_ID, timeout=5.0, missing_ok=True)
     third = client.get("/api/discover/bulk-extract/result").json()["result"]["entries"]
     assert client.post("/api/discover/bulk-commit", json={"entries": third}).json()["added"] == 1
     assert "https://s.example/book.php?id=3" in {r["source_url"] for r in db.list_known_titles()}
@@ -200,7 +191,7 @@ def test_navigation_help(client):
                     json={"url": "https://site.example/", "goal": "find chapter list",
                           "engine": "claude"})
     assert r.status_code == 200
-    _wait(svc.NAV_JOB_ID)
+    wait_for_job(svc.NAV_JOB_ID, timeout=5.0, missing_ok=True)
     b = _clean(client.get("/api/discover/navigation-help/result"))
     assert b["status"] == "done" and b["result"]["steps"].startswith("1. Click Login")
     assert b["result"]["labels"]["Menu"] == "EN Menu"

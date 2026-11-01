@@ -7,7 +7,7 @@ import type { createLinesController, LinesState, Pending } from './linesControll
 import { pageForPosition } from './reviewLogic'
 import type { LineTarget } from './reviewResults'
 
-export interface LinesNavigationDeps {
+interface LinesNavigationDeps {
   dramaId: number
   ctl: ReturnType<typeof createLinesController>
   st: { current: LinesState }

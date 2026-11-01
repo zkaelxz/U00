@@ -12,7 +12,7 @@ pytest.importorskip("httpx")
 import storage
 
 from services import artifact_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 
 @pytest.fixture
@@ -34,6 +34,12 @@ def test_download_and_info(client, did):
     assert r.headers["content-disposition"] == 'attachment; filename="a_b.srt"'
     info = client.get(f"/api/artifacts/dramas/{did}/subtitle/info").json()
     assert info == {"name": "a b.srt", "size": 5, "kind": "subtitle"}
+
+
+def test_info_for_an_artifact_never_made_is_null_but_an_unknown_title_is_404(client, did):
+    r = client.get(f"/api/artifacts/dramas/{did}/video/info")
+    assert r.status_code == 200 and r.json() is None
+    assert client.get("/api/artifacts/dramas/9999/video/info").status_code == 404
 
 
 def test_newest_file_wins(client, did):

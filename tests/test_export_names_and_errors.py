@@ -19,7 +19,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import export_service, library_backup_service
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 HOSTILE_TITLES = ["../../etc/passwd", "..", "...", "a/b\\c", "CON.txt", "x\x00y.srt",
                   "‮txt.srt", "日本語" * 80, " . ", "NUL"]
@@ -106,7 +106,8 @@ def test_zip_entries_are_named_like_single_downloads(isolated_db):
 
 
 def _client_raising(exc):
-    app = create_app(ApiSettings())
+    # A built frontend's catch-all route would answer /api/_boom first.
+    app = create_app(ApiSettings(serve_frontend=False))
     router = APIRouter()
 
     @router.get("/api/_boom")

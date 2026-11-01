@@ -26,7 +26,7 @@ ISO_639_2 = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor"}
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.
 LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
-               "speaker_manual", "sfx", "lang")
+               "speaker_manual", "sfx", "lang", "reviewed")
 
 
 @dataclass
@@ -38,7 +38,7 @@ class Line:
     en: str = ""
     speaker: str = None
     dub_filename: str = None
-    flag: str = None       # a key from translate_engines.FLAG_REASONS / SYSTEM_FLAG_REASONS, or None
+    flag: str = None       # a key from engine_backends.flag_reasons.FLAG_REASONS / SYSTEM_FLAG_REASONS, or None
     flag_note: str = ""    # brief reason from flag_uncertain_lines, e.g. "ambiguous 'her'"
     # True once someone set this line's speaker by hand -- re-running
     # speaker detection (diarize.merge_speakers) leaves it alone unless
@@ -51,6 +51,9 @@ class Line:
     # title's source_language, so titles saved before this field existed
     # behave exactly as before.
     lang: str = None
+    # True once a reviewer marked the translation checked. Editing `en`
+    # clears it: the checked text is gone, so the mark would lie.
+    reviewed: bool = False
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int = field(default=None, compare=False)
     # encode_line_words' stored form, read through line_words. None means "not
@@ -99,7 +102,7 @@ def line_from_row(row) -> "Line":
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
               sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"),
-              word_timings=row.get("word_timings"))
+              reviewed=bool(row.get("reviewed")), word_timings=row.get("word_timings"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
     if "word_timings" in row:
         ln.orig["word_timings"] = ln.word_timings
@@ -111,7 +114,7 @@ def lines_from_rows(rows) -> list:
 
 
 # Fields a snapshot/version records since the undo fix; older ones lack them.
-SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx", "lang")
+SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx", "lang", "reviewed")
 
 
 def adopt_ids(restored, current, recorded=()) -> list:
@@ -155,6 +158,9 @@ def adopt_ids(restored, current, recorded=()) -> list:
                 setattr(ln, f, getattr(match, f))
         if "sfx" not in recorded:
             ln.sfx = ln.sfx or match.sfx
+        if "reviewed" not in recorded:
+            # Carried as today's value; the save unchecks it anyway if the English differs.
+            ln.reviewed = match.reviewed
         # Older snapshots/versions didn't record
         # speaker_manual -- restoring the same speaker the line has now
         # keeps its hand-corrected mark instead of silently dropping it.
@@ -173,6 +179,7 @@ def lines_from_saved(rows) -> list:
                  flag_note=r.get("flag_note") or "", sfx=bool(r.get("sfx")),
                  speaker_manual=bool(r.get("speaker_manual")),
                  lang=_stored_line_lang(r.get("lang")), id=r.get("id"),
+                 reviewed=bool(r.get("reviewed")),
                  word_timings=words_for_text(r.get("word_timings"), r.get("zh") or ""))
             for r in rows]
 

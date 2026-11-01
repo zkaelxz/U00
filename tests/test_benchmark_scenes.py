@@ -5,17 +5,17 @@ engine; results are matched back by case id; the older one-case run is unchanged
 paid arm honours the estimate and the cap. Mocked engines only.
 """
 import json
-import time
 
 import pytest
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing
 from services import benchmark_lab_service as lab
 from services import benchmark_scene_service as scene
 from services import translate_service
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
+from tests.job_helpers import wait_for_job
 
 
 class SceneEngine:
@@ -39,7 +39,7 @@ class SceneEngine:
 
 @pytest.fixture
 def engine(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", SceneEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", SceneEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test" if name == "claude" else "offline")
     SceneEngine.batches, SceneEngine.reverse = [], False
@@ -56,19 +56,9 @@ def _scene(title="T", n=5, set_name="s", language="zh", start=1):
     return db.create_benchmark_clip_cases(rows)
 
 
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(lab.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 def _run(options, **kw):
     started = lab.start_run("translation", [{"engine": "claude", "options": options}], **kw)
-    _wait()
+    wait_for_job(lab.JOB_ID, timeout=15)
     return started["session_ids"][0]
 
 
@@ -201,7 +191,7 @@ class TestSceneRun:
     def test_the_older_run_is_unchanged_without_options(self, isolated_db, engine):
         _scene("T", 3)
         lab.start_run("translation", [{"engine": "claude"}])
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         assert [b["lines"] for b in engine.batches] == [["T1"], ["T2"], ["T3"]]
 
     def test_each_case_is_scored_and_spend_is_logged_once(self, isolated_db, engine):
@@ -218,7 +208,7 @@ class TestSceneRun:
         class Down(SceneEngine):
             def translate_batch(self, zh_lines, context):
                 raise RuntimeError("boom abcd-secret-1234")
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Down)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Down)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "abcd-secret-1234")
         _scene("T", 2)
         sid = _run({})
@@ -247,7 +237,7 @@ class TestSceneRun:
                                                               "estimated_cost_usd": 0})
         started = lab.start_run("translation", [{"engine": "claude", "options": {"batch_size": 1}}],
                                 max_cost_usd=0.0001)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         run = lab.get_run(started["session_ids"][0])["run"]
         assert run["status"] == "stopped_cap"
         assert len(engine.batches) < 6
@@ -259,14 +249,14 @@ class TestSceneRun:
                  "source_text": f"{t}{i}", "reference_text": f"EN {t}{i}", "tier": "application", "set_name": "s",
                  "title": t, "scene_order": i} for i in (1, 2) for t in "ABC"]
         db.create_benchmark_clip_cases(rows)
-        batch = translate_engines.estimate_cost_for_engine(SceneEngine(), 1000, 1000)
+        batch = pricing.estimate_cost_for_engine(SceneEngine(), 1000, 1000)
         monkeypatch.setattr(lab.settings_service, "get_monthly_cap_usd", lambda: 100.0)
         monkeypatch.setattr(lab, "estimate", lambda *a, **k: {"monthly_refusal": None, "estimate_above_cap": False,
                                                               "estimated_cost_usd": 0})
         before = db.get_month_spend()
         started = lab.start_run("translation", [{"engine": "claude", "options": {"batch_size": 6}}],
                                 max_cost_usd=batch * 0.8)
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         run = lab.get_run(started["session_ids"][0])["run"]
         assert run["status"] == "stopped_cap" and len(engine.batches) == 1
         assert run["total_cost_usd"] == pytest.approx(db.get_month_spend() - before)
@@ -287,7 +277,7 @@ class TestSceneBugHunt:
                 err = RuntimeError("quota used up abcd-secret-1234")
                 err.stops_run = True
                 raise err
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Expired)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Expired)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "abcd-secret-1234")
         _scene("T", 3)
         results = lab.get_run(_run({"batch_size": 1}))["results"]
@@ -301,7 +291,7 @@ class TestSceneBugHunt:
                 if zh_lines == ["T1"]:
                     raise RuntimeError("blocked by the content filter")
                 return ["" if z == "T2" else f"EN {z}" for z in zh_lines]
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Picky)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Picky)
         _scene("T", 3)
         errors = {r["case_label"]: r["error"] or "" for r in lab.get_run(_run({"batch_size": 1}))["results"]}
         assert "content filter" in errors["T #1"] and not errors["T #3"]

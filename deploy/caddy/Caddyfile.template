@@ -178,6 +178,7 @@
 		method POST
 		path /api/dramas/*/folder/open
 		path /api/media/dramas/*/download-url /api/media/dramas/*/remove
+		path /api/quick-video/start /api/quick-video/*/delete
 		path /api/novel/dramas/*/attach-from-sources /api/novel/dramas/*/ocr-chapter
 		path /api/novel/dramas/*/lncrawl
 		path /api/novel/dramas/*/raw-novel/remove

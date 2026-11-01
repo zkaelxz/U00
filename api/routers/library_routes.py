@@ -15,7 +15,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 
-import translate_engines
+from engine_backends import shared
 from api.auth import require_permission
 from api.schemas import (
     DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
@@ -27,16 +27,19 @@ from services import library_service, novel_files_service
 router = APIRouter(prefix="/api/library", tags=["library"])
 
 _SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields
-                        if f not in ("custom_tags", "is_private", "owned_by_me"))
+                        if f not in ("custom_tags", "is_private", "owned_by_me", "line_count", "translated_count"))
 _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
                        if f not in ("custom_tags", "is_private", "owned_by_me", "has_audio", "has_novel_reference",
-                                    "has_cover_art", "source_url", "keep_original"))
+                                    "has_cover_art", "source_url", "keep_original", "line_count", "translated_count"))
 
 
 def _to_summary(drama: dict) -> DramaSummary:
+    # Only the Library list counts lines; a series or recent row has no counts and keeps the default.
     return DramaSummary(**{f: drama.get(f) for f in _SUMMARY_FIELDS},
                         is_private=drama.get("sharing_private"),
                         owned_by_me=drama.get("sharing_owned"),
+                        line_count=drama.get("line_count") or 0,
+                        translated_count=drama.get("translated_count") or 0,
                         custom_tags=library_service.split_custom_tags(drama))
 
 
@@ -44,7 +47,7 @@ def to_detail(drama: dict) -> DramaDetail:
     return DramaDetail(**{f: drama.get(f) for f in _DETAIL_FIELDS},
                        custom_tags=library_service.split_custom_tags(drama),
                        # Never the query: a pasted download link can carry a token.
-                       source_url=translate_engines.display_url(drama.get("source_url")) or None,
+                       source_url=shared.display_url(drama.get("source_url")) or None,
                        has_audio=bool(drama.get("audio_filename")),
                        has_novel_reference=novel_files_service.has_reference(drama["id"], drama),
                        has_cover_art=bool(drama.get("cover_art_filename")),

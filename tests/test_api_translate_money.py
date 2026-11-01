@@ -7,15 +7,15 @@ pytest.importorskip("httpx")
 
 
 import db
-import translate_engines
+from engine_backends import pricing, engine_registry
 from services import translate_run_service, translate_service
 from tests.test_standalone_money import PARAGRAPH, TEXT, _Billed, _request_cost
 
 
 def test_the_stop_message_reaches_the_response(client, monkeypatch):
-    engine = _Billed(tokens=translate_engines.estimate_translation_tokens([PARAGRAPH] * 8))
+    engine = _Billed(tokens=pricing.estimate_translation_tokens([PARAGRAPH] * 8))
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: engine)
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: engine)
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: _request_cost() * 1.2)
     resp = client.post("/api/translate", json={"text": TEXT, "engine": "claude",
                                                "source_language": "zh", "target_language": "en"})

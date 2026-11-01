@@ -448,7 +448,7 @@ def test_failed_pr_names_the_branch_it_left(ready, monkeypatch):
 
 
 def test_an_oversized_github_response_is_refused(monkeypatch):
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
 
     class Endless:
         status_code = 200

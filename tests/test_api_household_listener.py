@@ -26,13 +26,14 @@ from starlette.requests import Request
 import background_jobs
 from jobs import job_launch
 import db
+from core import Line
 from api import auth as api_auth
 from api import remote_uploads
 from api.api_config import (ApiSettings, check_bind_safety, check_household_bind_safety,
                             household_settings, load_settings)
 from api.server import create_app
 from services import auth_service
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 HOUSEHOLD_PORT = 8610
 PUBLIC_HOST = "baihe.example.com"
@@ -903,11 +904,25 @@ class TestSecurityHeaders:
             csp = r.headers["content-security-policy"]
             assert "frame-ancestors 'none'" in csp and "object-src 'none'" in csp
             assert "default-src 'self'" in csp and "connect-src 'self'" in csp
-            # Only the two stream-video hosts may be framed; scripts stay as before.
-            assert "frame-src https://www.youtube-nocookie.com https://player.twitch.tv;" in csp
+            # Only the Reader's own page and the two stream-video hosts may be framed;
+            # scripts only from the app's files.
+            assert "frame-src 'self' https://www.youtube-nocookie.com https://player.twitch.tv;" in csp
             assert csp.count("frame-src") == 1
-            assert "script-src 'self' 'unsafe-inline';" in csp
+            assert "script-src 'self';" in csp and "'unsafe-inline'" not in csp.split("style-src")[0]
             assert "strict-transport-security" not in r.headers   # plain http, no proxy word
+
+    def test_reader_page_document_is_framable_by_the_app(self, isolated_db):
+        """The Reader iframe loads page.html from the household address: the
+        app's policy must allow framing itself, and the page's own headers
+        (its CSP, SAMEORIGIN) win over the listener's defaults."""
+        did = db.create_drama(title_en="Story", source_language="zh")
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        r = _household_client().get(f"/api/reader/dramas/{did}/page.html", headers=_h(_admin_session()))
+        assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+        assert r.headers["content-security-policy"].startswith("default-src 'none'")
+        assert r.headers["x-frame-options"] == "SAMEORIGIN"
+        shell = _household_client().get("/api/health")
+        assert "frame-src 'self' " in shell.headers["content-security-policy"]
 
     def test_route_set_header_kept(self):
         gate, _reached = _gate()
@@ -1033,7 +1048,7 @@ def test_startup_sweeps_stale_sessions_on_the_admin_listener_only(isolated_db, m
     from services import jobs_service
     for name in ("start_background_services", "start_gpu_queue_poller",
                  "start_reeval_scheduler", "stop_gpu_queue_poller", "stop_reeval_scheduler"):
-        monkeypatch.setattr(background, name, lambda: None)
+        monkeypatch.setattr(background, name, lambda *_: None)
     monkeypatch.setattr(jobs_service, "sweep_stale_job_records", lambda: 0)
     swept = []
     monkeypatch.setattr(auth_service, "sweep_stale_sessions", lambda: swept.append(1) or 0)

@@ -19,7 +19,7 @@ from services import diagnostics_gaps_service
 from services.assistant_repo_access import (_OUTSIDE, _SECRET_NAME_RE, _clip, _denied_rel, _git, _is_denied_part,
                                             _redact, _rel, _resolve, _tracked_files, _walk_text_files,
                                             repo_root)
-from services.service_errors import ConflictError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, ServiceError
 
 
 MAX_READ_LINES = 400

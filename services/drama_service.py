@@ -45,7 +45,7 @@ from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
                       source_link_service, vdb_names_service)
 from lib import file_manager
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
 log = logging.getLogger(__name__)
@@ -172,6 +172,10 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             raise NotFoundError("No preset with that id.")
 
     fields = dict(texts, media_type=media_type, source_language=source_language, **owned)
+    if media_type == "novel":
+        # A novel is translated from text, so it starts in narration mode instead of
+        # needing a set-up click on Media before the text can become lines.
+        fields["content_mode"] = "novel_narration"
     if release_date:
         fields["release_date"] = release_date
     if series_id is not None:
@@ -213,7 +217,16 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             k for k in profile_plan["columns"] if k != "translate_start_json") if profile_plan else ())
 
     detail = library_service.get_library_drama(new_id)
-    detail["preset_defaults"] = None if preset is None else {
+    detail["preset_defaults"] = _preset_defaults(preset)
+    detail["profile_skipped"] = profile_plan["skipped"] if profile_plan else []
+    return detail
+
+
+def _preset_defaults(preset) -> dict:
+    """The preset values the New title form shows after creating (None without a preset)."""
+    if preset is None:
+        return None
+    return {
         "style_preset": preset.get("style_preset"),
         "locale": preset.get("locale"),
         "default_female_pronouns": bool(preset.get("default_female_pronouns")),
@@ -223,8 +236,6 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         "engine_model": (preset.get("engine_model") or None)
         if preset.get("translation_engine") else None,
     }
-    detail["profile_skipped"] = profile_plan["skipped"] if profile_plan else []
-    return detail
 
 
 def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:

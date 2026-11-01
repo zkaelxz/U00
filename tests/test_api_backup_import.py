@@ -469,7 +469,7 @@ COPIED = {
                "translate_by_sentence", "translate_start_json", "transcribe_start_json", "release_date",
                "difficult_audio"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
-              "speaker_manual", "sfx", "lang", "word_timings"},
+              "speaker_manual", "sfx", "lang", "word_timings", "reviewed"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
                    "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "pronouns"},

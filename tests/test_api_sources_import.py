@@ -2,7 +2,6 @@
 a new series (POST /api/sources/tracked). Fake adapters, no network."""
 import os
 import threading
-import time
 
 import pytest
 
@@ -20,7 +19,7 @@ from api.server import create_app
 from services import auth_service, drama_service
 from services import sources_import_service as imp
 from services import sources_search_service as search
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 from sources import chapter_check, pipeline, registry, store
 from sources.adapters.missevan import MissEvanSource
 from sources.base import SourceAdapter
@@ -28,6 +27,7 @@ from sources.http import PacingPolicy
 from sources.models import (ChallengeDetected, ChapterInfo, FailureReason, PageRef,
                             SeriesInfo, SourceUnavailable)
 from tests.sources_helpers import ScriptedTransport, png
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 HOST = "https://fake.invalid"
@@ -100,23 +100,13 @@ def fakes(isolated_db, monkeypatch):
     yield classes
     for jid in list(background_jobs.list_all_jobs()):
         if jid.startswith(("sources_", "sourceimport_")):
-            _wait(jid)
+            wait_for_job(jid, missing_ok=True)
             background_jobs.clear_job(jid)
 
 
 @pytest.fixture
 def client(fakes):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
-
-
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _clean(r):
@@ -134,7 +124,7 @@ def _raw(did):
 
 
 def _result(client, job_id):
-    _wait(job_id)
+    wait_for_job(job_id, missing_ok=True)
     r = client.get(f"/api/sources/jobs/{job_id}/result")
     return r, (_clean(r) if r.status_code == 200 else r.json())
 
@@ -298,7 +288,7 @@ def test_job_result_accepts_only_our_ids(client, fakes):
     idle = client.get("/api/sources/jobs/sourceimport_1/result")
     assert idle.status_code == 200 and idle.json()["status"] == "idle"
     job_launch.start_job("sourceimport_x", lambda: None)
-    _wait("sourceimport_x")
+    wait_for_job("sourceimport_x", missing_ok=True)
     assert client.get("/api/sources/jobs/sourceimport_x/result").status_code == 404
     background_jobs.clear_job("sourceimport_x")
     assert not search._is_ours("sourceimport_") and search._is_ours("sourceimport_12")
@@ -321,7 +311,7 @@ def test_does_not_shadow_catalog_routes(client, fakes):
 def _load_series(client, name="alpha", series_id="s1"):
     assert client.post(f"/api/sources/{name}/series",
                        json={"series_id": series_id}).status_code == 200
-    _wait(search.SERIES_JOB_PREFIX + name)
+    wait_for_job(search.SERIES_JOB_PREFIX + name, missing_ok=True)
 
 
 def test_track_needs_a_loaded_series(client, fakes):
@@ -374,7 +364,7 @@ def test_pipeline_start_import_claims_the_drama_job(client, fakes):
     assert r.status_code == 409
     assert pipeline.start_import("comic", "s1", _chs(), did) is False
     gate.set()
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert len(db.list_pages(did)) == 4
     # and the other way round: the API's job blocks the pipeline path
     gate.clear()
@@ -383,7 +373,7 @@ def test_pipeline_start_import_claims_the_drama_job(client, fakes):
     assert r.status_code == 200
     assert pipeline.start_import("comic", "s1", _chs(), did) is False
     gate.set()
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
 
 
 def test_pipeline_start_import_skips_chapters_already_imported(client, fakes):
@@ -391,7 +381,7 @@ def test_pipeline_start_import_skips_chapters_already_imported(client, fakes):
     did = _novel()
     store.record_imported("alpha", "s1", "c1", did)
     assert pipeline.start_import("alpha", "s1", _chs("alpha"), did) is True
-    st = _wait(f"sourceimport_{did}")
+    st = wait_for_job(f"sourceimport_{did}", missing_ok=True)
     rows = {r["chapter_id"]: r for r in st["result"]["chapters"]}
     assert rows["c1"].get("skipped") is True and not rows["c2"].get("skipped")
     assert fakes["alpha"].calls == ["c2"]
@@ -412,7 +402,7 @@ def test_chapter_check_auto_import_skips_a_busy_drama(client, fakes, monkeypatch
         assert background_jobs.get_status(f"sourceimport_{did}")["status"] == "running"
     finally:
         hold.set()
-        _wait(f"sourceimport_{did}")
+        wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert fakes["alpha"].calls == []
     assert not [j for j in background_jobs.list_all_jobs() if str(j).startswith("source_import_")]
 
@@ -485,7 +475,7 @@ def test_chapter_jobs_from_another_device_get_no_browser(fakes, route):
     job_id = f"sourceimport_{did}" if route == "import" else "sources_save"
     local = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     assert local.post(f"/api/sources/alpha/{route}", json=body).status_code == 200
-    _wait(job_id)
+    wait_for_job(job_id, missing_ok=True)
     background_jobs.clear_job(job_id)
     u = auth_service.add_user("kid@example.com")
     auth_service.grant_permission(u["id"], "sources.import")
@@ -496,7 +486,7 @@ def test_chapter_jobs_from_another_device_get_no_browser(fakes, route):
                       base_url="https://baihe.example.com", raise_server_exceptions=False)
     r = away.post(f"/api/sources/alpha/{route}", json=body, headers=h)
     assert r.status_code == 200, r.text
-    _wait(job_id)
+    wait_for_job(job_id, missing_ok=True)
     assert seen == [True, False]
 
 
@@ -517,7 +507,7 @@ def test_auth_on(fakes):
     auth_service.grant_permission(u["id"], "sources.import")
     r = c.post("/api/sources/alpha/import", json=body, headers=h)
     assert r.status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert c.get(f"/api/sources/jobs/sourceimport_{did}/result", headers=h).status_code == 200
 
 

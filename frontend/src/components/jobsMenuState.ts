@@ -2,7 +2,7 @@
 import { formatJobDuration, jobTimeLeftText, isActive, isFinished, orderJobs } from '../pages/diagnosticsFormat'
 import type { JobRecord } from '../types/jobs'
 
-export const RECENT_FINISHED = 5
+const RECENT_FINISHED = 5
 export const JOBS_POLL_MS = 10_000
 export const HIDE_ON = [401, 403, 404]
 

@@ -20,7 +20,7 @@ import memory_headroom
 import ollama_unload
 import portable
 from lib import settings_schema
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
 # first entry is also the canonical name set_engine_key()/set_endpoint_url()
@@ -368,8 +368,8 @@ SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini", "openai")
 
 
 def _engine_choices() -> tuple:
-    import translate_engines
-    return tuple(translate_engines.ENGINES)
+    from engine_backends import engine_registry
+    return tuple(engine_registry.ENGINES)
 
 
 def engine_preference_choices() -> tuple:

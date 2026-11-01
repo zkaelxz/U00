@@ -24,9 +24,10 @@ import db
 import source_change
 import subtitle_parse
 import subtitle_sidecar
+import translation_finish
 from services import ownership_service, restructure_service
 from services.lines_service import MAX_LINE_TEXT_CHARS
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 MODES = ("source", "translation")
 SAMPLE_CUES = 5
@@ -164,6 +165,9 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
                 kept = set(db.save_lines(drama_id, written, fields=("en", "flag", "flag_note"),
                                          only_if_unchanged=True))
                 written = [ln for ln in written if ln.id not in kept]
+                # The AI translate path syncs the status after its write; an imported
+                # file that fills the last blank must move the title the same way.
+                translation_finish.mark_translated_if_complete(drama_id)
         handle = restructure_service.undo_handle(drama_id, history_id) if history_id else None
     return {"mode": mode, "format": parsed.format, "encoding": parsed.encoding,
             "lines_written": len(written), "line_ids": [ln.id for ln in written],

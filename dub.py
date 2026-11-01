@@ -318,7 +318,7 @@ def _voice_for_signature(clone, lang=None) -> dict:
 # or slower than DUB_MAX_SLOWDOWN. A line needing more speed-up than the
 # cap gets the cap and is allowed to overflow its window rather than be
 # crushed to fit. This is the fallback after the pacing rewrite
-# (translate_engines.rewrite_for_pacing_llm), not a replacement for it --
+# (engine_backends.llm_tasks.rewrite_for_pacing_llm), not a replacement for it --
 # a rewritten, shorter line simply needs less stretch. Starting values are
 # youtube-auto-dub's own defaults; both are adjustable per run.
 DUB_MAX_SPEEDUP = 1.4
@@ -427,7 +427,7 @@ def build_dub_track(lines, drama_dir: str, character_clone_map: dict, progress_c
     dub_clips/pacing.json (load_pacing reads it back).
     """
     from pydub import AudioSegment
-    from translate_engines import call_with_backoff
+    from engine_backends.shared import call_with_backoff
 
     clips_dir = os.path.join(drama_dir, "dub_clips")
     os.makedirs(clips_dir, exist_ok=True)

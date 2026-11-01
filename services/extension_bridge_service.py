@@ -13,7 +13,7 @@ import json
 import page_capture_checks
 import page_server
 from services import ownership_service
-from services.service_errors import ServiceError
+from lib.errors import ServiceError
 
 
 def parse_json(body: bytes) -> dict:
@@ -60,7 +60,7 @@ def health_payload(principal=None, app_port=None) -> dict:
         dramas = [d for d in dramas if d["id"] in visible]
     return {
         "ok": True,
-        "app": "Baihe Subtitler",
+        "app": "Baihe Studio",
         # The PC's "Open in Baihe" link must follow BAIHE_API_PORT; a member
         # opens the household address they typed, so the PC passes its port and a member's call does not.
         **({"app_port": app_port} if app_port is not None else {}),

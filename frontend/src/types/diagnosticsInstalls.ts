@@ -14,7 +14,7 @@ export interface DiagnosticsJobStarted {
   started: boolean
 }
 
-export interface DiagnosticsDenoResult {
+interface DiagnosticsDenoResult {
   ok: boolean
   on_path: boolean
   needs_restart: boolean
@@ -36,7 +36,7 @@ export interface DiagnosticsDenoStatus {
 
 type UpgradeVerdict = 'safe' | 'broken' | 'conflict' | 'incomplete' | string
 
-export interface DiagnosticsUpgradeCheckResult {
+interface DiagnosticsUpgradeCheckResult {
   ok: boolean
   verdict: UpgradeVerdict | null
   reason: string | null
@@ -70,7 +70,7 @@ export interface DiagnosticsDependencyInstallResult {
 }
 
 export interface DiagnosticsDependencyInstallState {
-  kind: 'package' | 'upgrade' | 'gpu_torch' | 'cuda_runtime' | null
+  kind: 'package' | 'upgrade' | 'upgrade_outdated' | 'gpu_torch' | 'cuda_runtime' | null
   package: string | null
   result: DiagnosticsDependencyInstallResult | null
   job_id: string

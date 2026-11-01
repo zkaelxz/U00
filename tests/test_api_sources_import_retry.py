@@ -4,6 +4,7 @@ browser check / terms stop / cancel; GET /api/sources/{name}/import-state
 returns those plus the chapters already imported, so the picker can mark
 them and retry only the failed ones. Fake adapters, no network."""
 import threading
+from engine_backends import engine_registry
 
 import pytest
 
@@ -18,7 +19,7 @@ from sources.models import (ChallengeDetected, FailureReason, SourceUnavailable,
                             TermsProhibited)
 
 from tests.test_api_sources_import import (HOST, SECRET, _make, _novel, _result,  # noqa: F401
-                                           _wait, client, fakes)
+                                           client, fakes)
 
 
 def _start(client, did, ids, name="alpha"):
@@ -169,7 +170,7 @@ def test_page_write_failure_removes_the_pages_and_stays_retryable(client, fakes,
     written = _fail_page_two(monkeypatch)
     client.post("/api/sources/comic/import",
                 json={"series_id": "s1", "chapter_ids": ["c1", "c2"], "drama_id": did})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert written and db.list_pages(did) == []   # page 1 of c1 was written, then removed
     body = _state(client, did, name="comic").json()
     rows = {x["chapter_id"]: x["status"] for x in body["retry"]}
@@ -195,7 +196,7 @@ def test_a_claim_that_cannot_be_released_still_rolls_the_page_back(client, fakes
     did = db.create_drama(title_en="M", media_type="manhua")
     client.post("/api/sources/comic/import",
                 json={"series_id": "s1", "chapter_ids": ["c1", "c2"], "drama_id": did})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert failed and db.list_pages(did) == []
     rows = {x["chapter_id"]: x["status"] for x in _state(client, did, name="comic").json()["retry"]}
     assert rows["c1"] == "failed"
@@ -214,7 +215,7 @@ def test_pages_that_could_not_be_removed_mark_the_chapter_partial(client, fakes,
     monkeypatch.setattr(pipeline, "_discard_pages", cannot_remove)
     client.post("/api/sources/comic/import",
                 json={"series_id": "s1", "chapter_ids": ["c1", "c2"], "drama_id": did})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert len(db.list_pages(did)) == 1
     body = _state(client, did, name="comic").json()
     rows = {x["chapter_id"]: x for x in body["retry"]}
@@ -233,7 +234,7 @@ def test_stop_while_listing_records_requested_chapters(client, fakes):
     did = _novel()
     client.post("/api/sources/alpha/import",
                 json={"series_id": "s1", "chapter_ids": ["c1", "c2"], "drama_id": did})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     body = _state(client, did).json()
     assert [(x["chapter_id"], x["status"]) for x in body["retry"]] == [
         ("c1", "not_attempted"), ("c2", "not_attempted")]
@@ -253,7 +254,7 @@ def test_unexpected_error_still_saves_the_manifest(client, fakes, monkeypatch):
     monkeypatch.setattr(pipeline, "_append_chapter_text", boom)
     client.post("/api/sources/alpha/import",
                 json={"series_id": "s1", "chapter_ids": ["c1", "c2", "c10"], "drama_id": did})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     rows = {x["chapter_id"]: x["status"] for x in _state(client, did).json()["retry"]}
     # c2 was being saved when the error hit: shown, but not retried automatically
     assert rows == {"c1": "failed", "c2": "partial", "c10": "not_attempted"}
@@ -271,7 +272,7 @@ def test_a_text_write_error_leaves_the_chapter_retryable(client, fakes, monkeypa
     monkeypatch.setattr(pipeline, "_fsync", disk_full)
     client.post("/api/sources/alpha/import",
                 json={"series_id": "s1", "chapter_ids": ["c2"], "drama_id": did})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     body = _state(client, did).json()
     assert [(x["chapter_id"], x["status"]) for x in body["retry"]] == [("c2", "failed")]
     assert body["retry_count"] == 1
@@ -293,7 +294,7 @@ def test_a_crash_after_the_text_is_written_retries_through_the_api_once(client, 
     monkeypatch.setattr(pipeline, "_record_imported", crash)
     client.post("/api/sources/alpha/import",
                 json={"series_id": "s1", "chapter_ids": ["c2"], "drama_id": did})
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert [x["chapter_id"] for x in _state(client, did).json()["retry"]] == ["c2"]
     assert store.import_text_offset("alpha", "s1", did, "c2") is not None
 
@@ -357,7 +358,6 @@ def test_import_state_auth_on_permission_and_ownership(fakes):
 # AI recovery of a chapter whose page layout changed ("needs_ai")
 # ---------------------------------------------------------------------------
 
-import translate_engines  # noqa: E402
 from api import auth as api_auth  # noqa: E402
 from api.api_config import ApiSettings  # noqa: E402
 from api.server import create_app  # noqa: E402
@@ -370,6 +370,7 @@ from tests.sources_helpers import ScriptedTransport, html  # noqa: E402
 from tests.test_adaptive_extraction import (FakeEngine, chapter_html,  # noqa: E402,F401
                                             fake_llm)
 from tests.test_api_sources_import import _raw  # noqa: E402
+from tests.job_helpers import wait_for_job
 
 C2_URL = f"{HOST}/c/2?t={SECRET}"
 LAYOUT = SourceError("layout", FailureReason.LAYOUT_CHANGED)
@@ -404,7 +405,7 @@ def engines(monkeypatch, fake_llm, isolated_db):  # noqa: F811
         e = FakeEngine(lambda prompt: None)
         built.append((name, e))
         return e
-    monkeypatch.setattr(translate_engines, "get_engine", get_engine)
+    monkeypatch.setattr(engine_registry, "get_engine", get_engine)
     return built
 
 
@@ -474,11 +475,11 @@ def test_reviewed_recovery_imports_like_the_adapter_would(client, fakes, engines
     did = _novel()
     _stopped(client, fakes, did)
     _recover(client, did)
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     rev = client.get(f"/api/sources/dramas/{did}/extraction").json()["revision"]
     r = client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rev})
     assert r.status_code == 200, r.text
-    assert _wait(f"sourceimport_{did}")["status"] == "done"
+    assert wait_for_job(f"sourceimport_{did}", missing_ok=True)["status"] == "done"
     assert store.imported_chapter_ids("alpha", "s1", did) == {"c1", "c2"}
     assert "第2章" in _raw(did) and "第12章" in _raw(did)
     assert [x["chapter_id"] for x in _state(client, did).json()["retry"]] == ["c10"]
@@ -513,7 +514,7 @@ def test_ai_recover_conflicts(client, fakes, engines):
     _stopped(client, fakes, did)
     assert _recover(client, did, cid="c1").status_code == 409        # already imported
     assert _recover(client, did).status_code == 200
-    _wait(f"sourceimport_{did}")
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
     assert _recover(client, did).status_code == 409                  # a review is open
     assert _recover(client, 99999).status_code == 404
 
@@ -536,7 +537,7 @@ def test_ai_recover_with_no_text_keeps_needs_ai(client, fakes, engines):
     did = _novel()
     _stopped(client, fakes, did, pages={C2_URL: html("<html><body>nothing</body></html>")})
     assert _recover(client, did).status_code == 200
-    assert _wait(f"sourceimport_{did}")["status"] == "error"
+    assert wait_for_job(f"sourceimport_{did}", missing_ok=True)["status"] == "error"
     assert client.get(f"/api/sources/dramas/{did}/extraction").status_code == 404
     assert _state(client, did).json()["retry"][0]["status"] == "needs_ai"
 

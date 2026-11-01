@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 import db
 import page_server
-import translate_engines
+from engine_backends import engine_registry, pricing
 from api import auth as api_auth
 from api import background
 from api.api_config import ApiSettings
@@ -59,7 +59,7 @@ def test_default_is_no_engine_and_no_keys(env):
     assert r.status_code == 200
     body = r.json()
     assert body["engine"] is None and body["model"] is None and body["ready"] is False
-    assert {e["name"] for e in body["engines"]} == set(translate_engines.ENGINES)
+    assert {e["name"] for e in body["engines"]} == set(engine_registry.ENGINES)
     assert all(set(e) == {"name", "label", "free", "models", "model_labels", "cloud_models",
                                 "key_configured", "package_installed"}
                for e in body["engines"])
@@ -68,7 +68,7 @@ def test_default_is_no_engine_and_no_keys(env):
 def test_save_persists_and_pushes_key_server_side(env):
     _write_key(env)
     c = _client()
-    model = list(translate_engines.CLAUDE_MODELS)[0]
+    model = list(pricing.CLAUDE_MODELS)[0]
     r = c.post("/api/extension/engine", json={"engine": "claude", "model": model})
     assert r.status_code == 200
     assert SECRET not in r.text

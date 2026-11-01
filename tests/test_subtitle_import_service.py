@@ -21,7 +21,7 @@ from api.server import create_app
 from core import Line
 from services import auth_service
 from services import subtitle_import_service as svc
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 SRT = ("1\n00:00:01,000 --> 00:00:02,000\nfirst\n\n"
        "2\n00:00:03,000 --> 00:00:04,000\nsecond\n\n"
@@ -120,6 +120,18 @@ class TestTranslationImport:
         assert db.list_line_history(did) == []
         _upload(local_client, did, "apply", data=self.EN, mode="translation", confirm_overwrite=True)
         assert db.list_line_history(did)[0]["label"] == svc.SNAPSHOT_LABEL
+
+    def test_filling_every_line_marks_the_title_translated(self, local_client):
+        did = _drama(_three_lines(), status="aligned")
+        r = _upload(local_client, did, "apply", data=self.EN, mode="translation", confirm_overwrite=True)
+        assert r.status_code == 200, r.text
+        assert db.get_drama(did)["status"] == "translated"
+
+    def test_a_partial_fill_leaves_the_title_aligned(self, local_client):
+        partial = self.EN.decode().split("\n\n")[0].encode()
+        did = _drama(_three_lines(), status="aligned")
+        assert _upload(local_client, did, "apply", data=partial, mode="translation").status_code == 200
+        assert db.get_drama(did)["status"] == "aligned"
 
     def test_fills_empty_lines_without_confirmation(self, local_client):
         lines = _three_lines()

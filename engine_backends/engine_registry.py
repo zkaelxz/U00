@@ -342,10 +342,11 @@ def _missing_package_name(exc: ImportError, fallback: str) -> str:
     return top if _PACKAGE_NAME_RE.fullmatch(top) else fallback
 
 
-def default_translate_options(engine=None, model=None) -> dict:
+def default_translate_options(engine=None, model=None, novel: bool = False) -> dict:
     """Context window sizes and batch size a translate run starts with; the
-    batch size follows the engine and model (none given = the generic 30)."""
-    return {"context_window": 10, "context_window_ahead": 6,
+    batch size follows the engine and model (none given = the generic 30).
+    A novel reads across paragraphs, so it looks further back and ahead."""
+    return {"context_window": 30 if novel else 10, "context_window_ahead": 15 if novel else 6,
             "batch_size": default_batch_size(engine, model)}
 
 

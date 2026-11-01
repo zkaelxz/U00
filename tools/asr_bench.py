@@ -38,13 +38,13 @@ import whisper_hallucination
 import db
 import memory_headroom
 import subtitle_parse
-import translate_engines
+from engine_backends import shared as engine_shared
 import whisper_models
 from jobs import gpu_slots
 from services.asr_timing_service import (COVER_FRACTION, count_in_silence, match, overlap as _overlap,
                                          speech_spans)
 from services import benchmark_scoring_service, settings_service, transcribe_pipeline, transcribe_service, transcribe_options_service
-from services.service_errors import ServiceError
+from lib.errors import ServiceError
 from tools import self_test
 from tools import asr_bench_recipes as recipes_mod
 from tools.asr_bench_recipes import BACKENDS, RecipeError, RunContext
@@ -92,7 +92,7 @@ class Plan:
 
 
 def _clean(text) -> str:
-    return self_test._clean(translate_engines.redact_secrets(str(text or "")))
+    return self_test._clean(engine_shared.redact_secrets(str(text or "")))
 
 
 def _lines_of_title(rows: list) -> list:
@@ -360,7 +360,7 @@ def metrics(result: Result, reference: list, spans, language: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _cell(text) -> str:
-    text = self_test._URL.sub("[URL]", translate_engines.redact_secrets(" ".join(str(text or "").split())))
+    text = self_test._URL.sub("[URL]", engine_shared.redact_secrets(" ".join(str(text or "").split())))
     text = text.replace("|", "\\|")
     return text if len(text) <= MAX_CELL_CHARS else text[:MAX_CELL_CHARS - 1] + "…"
 

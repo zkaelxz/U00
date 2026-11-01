@@ -28,6 +28,12 @@ class TestDiagnostics:
         assert "version" in result
         assert isinstance(result["ok"], bool)
 
+    @pytest.mark.parametrize("minor,ok", [(11, False), (12, True), (13, True)])
+    def test_python_older_than_the_numpy_floor_is_not_ok(self, monkeypatch, minor, ok):
+        monkeypatch.setattr(diagnostics.sys, "version_info",
+                            type("V", (tuple,), {"major": 3, "minor": minor, "micro": 0})((3, minor, 0)))
+        assert diagnostics.check_python_version()["ok"] is ok
+
     def test_ffmpeg_check_returns_expected_shape(self):
         result = diagnostics.check_ffmpeg()
         assert "found" in result
@@ -121,7 +127,7 @@ class TestDiagnostics:
                         continue
                     for name in names:
                         top = name.split(".")[0]
-                        if top in sys.stdlib_module_names or os.path.exists(os.path.join(PROJECT_ROOT, f"{top}.py")):
+                        if top in sys.stdlib_module_names or os.path.exists(os.path.join(PROJECT_ROOT, f"{top}.py")) or os.path.isfile(os.path.join(PROJECT_ROOT, top, "__init__.py")):
                             continue
                         assert top in registered, f"{module}: {top}"
         for key in ("transformers", "nagisa", "soynlp"):
@@ -577,18 +583,18 @@ class TestCheckEngineReachable:
         assert result["error"]
 
     def test_a_translate_call_that_raises_is_reported_as_failure(self, monkeypatch):
-        import translate_engines
+        from engine_backends import standalone
 
         def boom(*a, **k):
             raise RuntimeError("invalid key: sk-fake1234567890")
-        monkeypatch.setattr(translate_engines, "standalone_translate", boom)
+        monkeypatch.setattr(standalone, "standalone_translate", boom)
         result = diagnostics_report.check_engine_reachable("claude", api_key="sk-fake1234567890")
         assert result["ok"] is False
         assert "sk-fake1234567890" not in result["error"]     # redacted, like every other engine error
 
     def test_an_empty_translation_is_reported_as_failure_not_silently_ok(self, monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "standalone_translate", lambda *a, **k: "")
+        from engine_backends import standalone
+        monkeypatch.setattr(standalone, "standalone_translate", lambda *a, **k: "")
         result = diagnostics_report.check_engine_reachable("claude", api_key="sk-x")
         assert result["ok"] is False
         assert "empty" in result["error"].lower()
