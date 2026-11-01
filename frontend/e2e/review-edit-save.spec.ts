@@ -35,8 +35,24 @@ test('Tab out of an edited translation saves it', async ({ page }) => {
   await page.getByTestId('line-en').first().click()
   const box = page.getByLabel('Translation')
   await box.fill('Typed then Tab')
-  await box.press('Tab')
+  // Save & next, Save and Cancel are the row's own controls; the fourth Tab leaves them.
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Tab')
   await expect.poll(() => storedEn(page, 0)).toBe('Typed then Tab')
+})
+
+test('Tab to Save then Enter sends one save request', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  await page.getByTestId('line-en').first().click()
+  const saves: string[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && /\/api\/lines\/dramas\/3\/lines\/\d+$/.test(r.url())) saves.push(r.url())
+  })
+  await page.getByLabel('Translation').fill('One request')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => storedEn(page, 0)).toBe('One request')
+  expect(saves).toHaveLength(1)
 })
 
 test('clicking elsewhere saves, but Cancel still warns instead of saving', async ({ page }) => {

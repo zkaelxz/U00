@@ -205,14 +205,14 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
   )
 }
 
-// Tab or a click elsewhere used to drop typed text without a word. Cancel is the one
-// control that must not save first: it warns about the unsaved text instead. A refused
+// Tab or a click elsewhere used to drop typed text without a word. The row's own Save and
+// Cancel are not leaving: Save would send a second request, Cancel would never warn. A refused
 // save (a conflict, a problem) is not retried by leaving the box: its Reload or Retry
 // button would race the retry. A hidden window blurs too but the person has not finished.
 function savesOnBlur(e: FocusEvent<HTMLLIElement>, editable: boolean): boolean {
   if (!editable || !document.hasFocus()) return false
   const next = e.relatedTarget as Element | null
-  if (next?.closest('.review-cancel')) return false
+  if (next?.closest('.review-actions, .review-editbar')) return false
   // Hopping between this row's own fields is still editing; a button is leaving the box.
   return !(next && e.currentTarget.contains(next) && next.matches('textarea, input, select'))
 }
@@ -361,7 +361,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               <div className="review-actions" onMouseDown={keepFocusInBox}>
                 <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
                 <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
-                <button type="button" className={buttonClass('ghost', 'sm', 'review-cancel')} onClick={actions.cancelEdit}>Cancel</button>
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>
                 {edit?.discardWarning ? (
                   <span className="review-keys" role="status">{DISCARD_WARNING}</span>
                 ) : (

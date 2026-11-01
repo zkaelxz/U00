@@ -23,7 +23,7 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
       {editing ? (
         <>
           {discardWarning && <span role="status">{DISCARD_WARNING}</span>}
-          <button type="button" className={buttonClass('ghost', 'md', 'review-cancel')} onClick={onCancel}>Cancel</button>
+          <button type="button" className={buttonClass('ghost')} onClick={onCancel}>Cancel</button>
           <button type="button" className={buttonClass('secondary')} onClick={onSave}>Save</button>
           <button type="button" className={buttonClass('primary')} onClick={onSaveAndNext}>Save &amp; next</button>
         </>
