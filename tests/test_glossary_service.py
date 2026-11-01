@@ -6,7 +6,7 @@ import translation_guide as tguide
 from engine_backends.engine_registry import WORKFLOW_TIERS
 from services import glossary_service as gs
 from lib.errors import (
-    ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError,
+    ConflictError, InvalidInputError, NotFoundError,
 )
 
 

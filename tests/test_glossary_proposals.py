@@ -8,7 +8,7 @@ import background_jobs
 import db
 import translation_guide as tguide
 from services import glossary_extract_service, glossary_service as gs
-from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _drama(isolated_db, name="S", series=True):
