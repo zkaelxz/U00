@@ -250,9 +250,13 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
         _record_run_speed(drama_id, result)
         if applied is False:
             return {"failed_reason": "empty"}
+        hint = (result or {}).get("speaker_count_hint")
         if fell_back:
             # Replaces the stored result so the finished job still says it.
-            return {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
+            kept = {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
+            return {**kept, "speaker_count_hint": hint} if hint else kept
+        if hint:
+            return {"device": result.get("device"), "speaker_count_hint": hint}
     return _on_done
 
 

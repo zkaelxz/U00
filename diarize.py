@@ -36,6 +36,7 @@ from lib import clock
 import json
 import os
 import time
+from typing import Optional
 
 DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
                       "pyannote/speaker-diarization-3.1")
@@ -182,6 +183,28 @@ def _log_gpu_without_kernels() -> None:
     import applog
     applog.get_logger().error("diarization: this PyTorch build has no kernels for your GPU, "
                               "running on CPU instead (Diagnostics > GPU PyTorch)")
+
+
+# Auto detection on a long clip that finds this few speakers is usually an
+# undercount: pyannote's clustering merges minor speakers, and loosening it
+# enough to find them took 78x longer, so the cheap fix is typing the count.
+FEW_SPEAKERS_MAX = 2
+FEW_SPEAKERS_MIN_SECONDS = 180.0
+FEW_SPEAKERS_NOTICE = ("Only {found} speaker{plural} found in this long clip. If there are more, "
+                       "type the expected number of speakers and detect again.")
+
+
+def few_speakers_notice(segments, audio_seconds: float, hints: dict) -> Optional[str]:
+    """The suggestion to type a speaker count, or None. Only automatic runs
+    (no count or range typed) on audio of several minutes qualify."""
+    if any(hints.get(k) for k in ("num_speakers", "min_speakers", "max_speakers")):
+        return None
+    if audio_seconds < FEW_SPEAKERS_MIN_SECONDS:
+        return None
+    found = len({seg["speaker"] for seg in segments})
+    if found < 1 or found > FEW_SPEAKERS_MAX:
+        return None
+    return FEW_SPEAKERS_NOTICE.format(found=found, plural="" if found == 1 else "s")
 
 
 def _run_pipeline(pipeline, audio, hints: dict, on_progress=None):
@@ -362,6 +385,12 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     for turn, _, speaker in annotation.itertracks(yield_label=True):
         segments.append({"start": turn.start, "end": turn.end, "speaker": speaker})
 
+    if run_info is not None:
+        # The last turn's end stands in for the clip length: only the speech matters here.
+        notice = few_speakers_notice(segments, max((g["end"] for g in segments), default=0.0), hints)
+        if notice:
+            run_info["few_speakers_notice"] = notice
+
     if not return_embeddings:
         return (segments, model) if return_model else segments
     embeddings = extract_speaker_embeddings(result, annotation)
@@ -409,7 +438,8 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                                  "seconds": time.monotonic() - started,
                                  "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
                                  "fallback_reason": run_info.get("fallback_reason"),
-                                 "fallback_kind": run_info.get("fallback_kind")}))
+                                 "fallback_kind": run_info.get("fallback_kind"),
+                                 "speaker_count_hint": run_info.get("few_speakers_notice")}))
     except ImportError as exc:
         from jobs import process_worker
         # Only a missing package: a mismatched install ("cannot import name X
