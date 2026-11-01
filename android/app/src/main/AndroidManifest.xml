@@ -22,5 +22,17 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <!-- Its own launcher entry: browse a comic site and send its pages to Baihe. -->
+        <activity
+            android:name=".GrabActivity"
+            android:label="Baihe Grab"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
