@@ -51,6 +51,8 @@ export type Route =
   | { name: 'series'; id: number; tab?: SeriesTab }
   | { name: 'read'; id: number; page: number | null }
   | { name: 'comic'; id: number; page: number | null }
+  // "#/comic/3/edit?page=2": the text-box editor for one page.
+  | { name: 'comic-edit'; id: number; page: number | null }
   // Chapters saved as CBZ files: the list, one series, one chapter's pages.
   | { name: 'manga' }
   | { name: 'manga-series'; source: string; series: string }
@@ -129,6 +131,10 @@ export function parseRoute(hash: string): Route {
     const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
     return { name: head, id: Number(a), page }
   }
+  if (head === 'comic' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 3 && parts[2] === 'edit') {
+    const p = new URLSearchParams(qs).get('page')
+    return { name: 'comic-edit', id: Number(a), page: p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null }
+  }
   if (head === 'manga') {
     // "#/manga/<source>/<series>[/<chapter>][?page=N]", each name %-encoded.
     let names: string[]
@@ -181,6 +187,7 @@ export function routeHref(r: Route): string {
     return query ? `${base}?${query}` : base
   }
   if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`
+  if (r.name === 'comic-edit') return `#/comic/${r.id}/edit${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
   if (r.name === 'manga-read') {

@@ -70,7 +70,7 @@ _EDIT_ERRS = error_responses(404, 409, 422)
 @router.patch("/dramas/{drama_id}/pages/{page_id}/regions/{region_id}",
               dependencies=[require_permission("lines.edit")],
               response_model=ScanlatePageDetail, responses=_EDIT_ERRS,
-              summary="Change one text box (English, box, font, colour) if the page is still "
+              summary="Change one text box (English, box, kind, font, colour) if the page is still "
                       "at expected_rev; 409 with the current rev otherwise")
 def patch_region(body: ComicRegionEditRequest, drama_id: int = Path(ge=1, le=2**31 - 1),
                  page_id: int = Path(ge=1, le=2**31 - 1),

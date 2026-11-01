@@ -6,6 +6,7 @@ render on tiny synthetic pages."""
 
 import importlib.util
 import io
+import json
 import os
 import threading
 
@@ -143,7 +144,8 @@ def test_expected_value_mismatch_is_409(client):
 
 
 @pytest.mark.parametrize("changes", [
-    {"source_text": "x"}, {"skip": True}, {"kind": "sfx"}, {"idx": 3}, {"page_id": 2},
+    {"source_text": "x"}, {"skip": True}, {"kind": "speech"}, {"kind": None}, {"kind": ""},
+    {"idx": 3}, {"page_id": 2},
     {"translated_text": None}, {"x": None}, {"x": -1}, {"w": 0}, {"font_size": 2},
     {"font_size": 500}, {"font_category": "comic-sans"}, {"text_color": "red"},
     {"text_color": "#12345"}, {"translated_text": "x" * 2001},
@@ -154,6 +156,77 @@ def test_unknown_or_invalid_changes_are_422(client, changes):
     r = client.patch(_url(did, pid, rid), json={"expected_rev": 0, "changes": changes})
     assert r.status_code == 422, (changes, r.text)
     assert db.get_page(pid)["rev"] == 0 and _row(pid, rid)["x"] == 10
+
+
+@pytest.mark.parametrize("kind", ["bubble", "thought", "narration", "caption", "sign", "sfx"])
+def test_patch_sets_any_known_kind(client, kind):
+    did, pid, (rid, other) = _page()
+    r = client.patch(_url(did, pid, rid), json={"expected_rev": 0, "expected": {"kind": "bubble"},
+                                                "changes": {"kind": kind}})
+    assert r.status_code == 200, r.text
+    assert next(g for g in r.json()["regions"] if g["id"] == rid)["kind"] == kind
+    assert _row(pid, rid)["kind"] == kind and _row(pid, other)["kind"] == "bubble"
+    assert r.json()["rev"] == (0 if kind == "bubble" else 1)
+
+
+def test_kind_edit_with_a_stale_rev_or_kind_is_409_and_writes_nothing(client):
+    did, pid, (rid, other) = _page()
+    assert db.update_bubble_fields(other, {"translated_text": "From the job"})
+    r = client.patch(_url(did, pid, rid), json={"expected_rev": 0, "changes": {"kind": "sfx"}})
+    assert r.status_code == 409 and r.json()["error"]["details"] == {"reason": "stale", "rev": 1}
+    # the box's kind moved on since the editor read it
+    assert db.update_bubble_fields(rid, {"kind": "sign"})
+    r = client.patch(_url(did, pid, rid), json={"expected_rev": 2, "expected": {"kind": "bubble"},
+                                                "changes": {"kind": "sfx"}})
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "stale"
+    assert _row(pid, rid)["kind"] == "sign" and db.get_page(pid)["rev"] == 2
+
+
+def _latest_entry(pid):
+    return json.loads(db.get_page(pid)["edit_history"])[-1]
+
+
+def test_undo_of_a_kind_edit_puts_the_kind_back(client):
+    did, pid, (rid, _o) = _page()
+    client.patch(_url(did, pid, rid), json={"expected_rev": 0, "changes": {
+        "kind": "narration", "translated_text": "Meanwhile"}})
+    entry = _latest_entry(pid)
+    assert (entry["before"]["kind"], entry["after"]["kind"]) == ("bubble", "narration")
+    r = _undo(client, did, pid, 1)
+    assert r.status_code == 200 and r.json()["undo_depth"] == 0
+    assert (_row(pid, rid)["kind"], _row(pid, rid)["translated_text"]) == ("bubble", "Hello")
+
+
+def test_choosing_sfx_also_includes_the_box_and_undo_takes_both_back(client):
+    import scanlate_regions
+    did, pid, (rid, _o) = _page()
+    r = client.patch(_url(did, pid, rid), json={"expected_rev": 0, "changes": {"kind": "sfx"}})
+    assert r.status_code == 200, r.text
+    box = next(g for g in r.json()["regions"] if g["id"] == rid)
+    assert (box["kind"], box["include_sfx"]) == ("sfx", True)
+    entry = _latest_entry(pid)
+    assert entry["before"] == {"kind": "bubble", "include_sfx": 0}
+    assert entry["after"] == {"kind": "sfx", "include_sfx": 1}
+    assert not scanlate_regions.region_excluded_from_auto(_row(pid, rid))
+    assert _undo(client, did, pid, 1).status_code == 200
+    assert (_row(pid, rid)["kind"], _row(pid, rid)["include_sfx"]) == ("bubble", 0)
+
+
+def test_a_detected_sfx_box_is_included_once_its_kind_is_applied(client):
+    did, pid, (rid, _o) = _page()
+    assert db.update_bubble_fields(rid, {"kind": "sfx"})
+    # other edits leave the detector's choice alone
+    client.patch(_url(did, pid, rid), json={"expected_rev": 1, "changes": {"x": 12}})
+    assert _row(pid, rid)["include_sfx"] == 0
+    r = client.patch(_url(did, pid, rid), json={"expected_rev": 2, "changes": {"kind": "sfx"}})
+    assert r.status_code == 200 and r.json()["rev"] == 3
+    assert _row(pid, rid)["include_sfx"] == 1
+
+
+def test_create_as_sfx_is_included(client):
+    did, pid, _ids = _page()
+    new = _create(client, did, pid, 0, kind="sfx").json()["regions"][-1]
+    assert (new["kind"], new["include_sfx"]) == ("sfx", True)
 
 
 def test_unknown_top_level_and_expected_fields_are_422(client):
@@ -408,6 +481,18 @@ def test_create_with_only_the_box_takes_the_defaults(client):
         ("", 18, "regular", None)
 
 
+def test_create_with_a_kind_keeps_it_and_its_undo_removes_the_box(client):
+    did, pid, ids = _page()
+    r = _create(client, did, pid, 0, kind="caption")
+    assert r.status_code == 200, r.text
+    new = r.json()["regions"][-1]
+    assert new["kind"] == "caption" and _row(pid, new["id"])["kind"] == "caption"
+    entry = _latest_entry(pid)
+    assert entry["op"] == "create" and entry["after"]["kind"] == "caption"
+    assert _undo(client, did, pid, 1).status_code == 200
+    assert [b["id"] for b in db.load_bubbles(pid)] == ids
+
+
 def test_create_with_a_stale_rev_is_409_and_writes_nothing(client):
     did, pid, (_rid, other) = _page()
     assert db.update_bubble_fields(other, {"translated_text": "From the job"})
@@ -422,7 +507,8 @@ def test_create_with_a_stale_rev_is_409_and_writes_nothing(client):
     {"y": 100},                                   # 100 + 30 runs past the 120 px page
     {"w": 0}, {"h": -1}, {"x": -1}, {"w": None}, {"font_size": 3},
     {"font_category": "comic-sans"}, {"text_color": "blue"}, {"translated_text": "x" * 2001},
-    {"translated_text": None}, {"source_text": "x"}, {"kind": "sfx"}, {"skip": True},
+    {"translated_text": None}, {"source_text": "x"}, {"kind": "speech"}, {"kind": None},
+    {"skip": True},
     {"idx": 0}, {"id": 1}, {"page_id": 2}])
 def test_create_with_invalid_values_is_422(client, region):
     did, pid, _ids = _page()
@@ -704,3 +790,44 @@ def test_a_read_on_an_untouched_new_page_is_saved(isolated_db):
     pid = db.create_page(did, 0, "pages/page_0000.png", 200, 120)
     assert save_read_bubbles(pid, [_region(10)], newly_stored=True, reused_rev=0) == []
     assert len(db.load_bubbles(pid)) == 1
+
+
+def _set_raw_history(pid, text, rev=1):
+    conn = db.get_conn()
+    try:
+        conn.execute("UPDATE pages SET edit_history = ?, rev = ? WHERE id = ?", (text, rev, pid))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_a_deeply_nested_saved_history_reads_as_empty(isolated_db):
+    _did, pid, _ids = _page()
+    _set_raw_history(pid, "[" * 200000 + "]" * 200000)
+    assert db.edit_history_depth(db.get_page(pid)) == 0
+
+
+@pytest.mark.parametrize("entry", [
+    {"op": 5, "region_id": 1, "rev_before": 0, "rev_after": 1},
+    {"op": "edit", "region_id": 1, "before": [1], "after": {"translated_text": "x"},
+     "rev_before": 0, "rev_after": 1},
+    {"op": "edit", "region_id": 1, "before": {"translated_text": "x"}, "after": "x",
+     "rev_before": 0, "rev_after": 1},
+    "not an entry",
+])
+def test_malformed_history_entries_are_dropped_not_a_server_error(client, entry):
+    did, pid, _ids = _page()
+    _set_raw_history(pid, json.dumps([entry]))
+    assert db.edit_history_depth(db.get_page(pid)) == 0
+    r = _undo(client, did, pid, 1)
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "nothing_to_undo"
+
+
+def test_an_entry_whose_undo_raises_clears_the_history_as_broken(client):
+    did, pid, _ids = _page()
+    _set_raw_history(pid, json.dumps([{
+        "op": "edit", "region_id": [1], "before": {"translated_text": "x"},
+        "after": {"translated_text": "y"}, "rev_before": 0, "rev_after": 1}]))
+    r = _undo(client, did, pid, 1)
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "history_changed"
+    assert db.get_page(pid)["edit_history"] is None
