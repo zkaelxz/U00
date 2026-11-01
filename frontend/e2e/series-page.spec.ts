@@ -151,6 +151,7 @@ test('Glossary tools: export the translation memory as TMX and import a TMX file
     name: 'memory.tmx', mimeType: 'application/xml', buffer: Buffer.from('<tmx version="1.4"><body/></tmx>'),
   })
   await expect.poll(() => posts.find((p) => p.path.endsWith('/translation-memory/import'))?.body).toEqual({ tmx: '<tmx version="1.4"><body/></tmx>' })
+  await expect(page.getByTestId('series-tmx-result')).toHaveText('Added 1, kept 0')
 })
 
 test('Defaults: save title settings, preview and apply them to every title', async ({ page }) => {
