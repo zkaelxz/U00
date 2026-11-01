@@ -83,17 +83,18 @@ def upsert_glossary_term(series_id: int, term_original: str, term_translation: s
 
 def insert_glossary_term_if_absent(series_id: int, term_original: str, term_translation: str,
                                    notes: str = "", category: str | None = None, policy: str | None = None,
-                                   enforce_exact: bool = False) -> bool:
+                                   enforce_exact: bool = False, aliases: str | None = None,
+                                   banned_translations: str | None = None) -> bool:
     """Adds a term only if the series has none with this original text (a
     term added meanwhile is left alone). Returns True when it was added."""
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("""
             INSERT INTO glossary_terms (series_id, term_original, term_translation, notes,
-                                         category, policy, enforce_exact)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                         category, policy, enforce_exact, aliases, banned_translations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(series_id, term_original) DO NOTHING
         """, (series_id, term_original, term_translation, notes, category, policy,
-              int(enforce_exact)))
+              int(enforce_exact), aliases, banned_translations))
         conn.commit()
         return cur.rowcount == 1
 

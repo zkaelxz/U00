@@ -8,25 +8,61 @@ request. What is still wrong afterwards is flagged for Review."""
 
 import re
 
+from .llm_feature_prompts import glossary_term_forms
 from .llm_tasks import matching_glossary_terms
 from .translation_guard import line_problems, unusable_reply
 
+NAME_CATEGORIES = ("person_name", "courtesy_name", "clan_sect")
 GLOSSARY_FLAG = "glossary_missing"
 FLAG_NOTE_PREFIX = "Glossary: "
 MAX_TERMS_IN_NOTE = 3
 
 
+def _has_required_word(en: str, translation: str) -> bool:
+    """Whether `en` holds the required English. A name made of letters must stand
+    alone ("Li" is not in "Lily"); anything else is looked for as written."""
+    folded, wanted = en.casefold(), translation.casefold()
+    if not (wanted[0].isascii() and wanted[0].isalnum()
+            and wanted[-1].isascii() and wanted[-1].isalnum()):
+        return wanted in folded
+    return re.search(rf"(?<!\w){re.escape(wanted)}(?!\w)", folded) is not None
+
+
+def _is_ambiguous_source(term: dict) -> bool:
+    """A term whose English the model is meant to choose per occurrence, or a
+    single character that is not a name (道 or 王 sit inside many other words),
+    is not demanded of a line unless the term is marked enforce_exact."""
+    if term.get("enforce_exact"):
+        return False
+    if term.get("policy") == "contextual":
+        return True
+    single = len((term.get("term_original") or "").strip()) < 2
+    return single and term.get("category") not in NAME_CATEGORIES
+
+
 def required_terms(zh: str, terms) -> list:
-    """(source, required English) for each glossary term the source line holds."""
-    return [(t["term_original"], t["term_translation"].strip())
-            for t in matching_glossary_terms(zh or "", [t for t in (terms or [])
-                                                        if (t.get("term_translation") or "").strip()])]
+    """(source, required English) for each glossary term the source line holds.
+    A term whose every occurrence lies inside a longer matched term's (王 inside
+    王明) is not demanded."""
+    zh = zh or ""
+    matched = matching_glossary_terms(zh, [t for t in (terms or [])
+                                           if (t.get("term_translation") or "").strip()
+                                           and not _is_ambiguous_source(t)])
+    spans_of = {id(t): [(m.start(), m.end()) for f in glossary_term_forms(t) if f
+                        for m in re.finditer(re.escape(f), zh)] for t in matched}
+    longest_first = sorted(matched, key=lambda t: -max(len(f) for f in glossary_term_forms(t)))
+    covered, kept = [], set()
+    for t in longest_first:
+        spans = spans_of[id(t)]
+        if not all(any(a <= s0 and e0 <= b for a, b in covered) for s0, e0 in spans):
+            kept.add(id(t))
+        covered += spans
+    return [(t["term_original"], t["term_translation"].strip()) for t in matched if id(t) in kept]
 
 
 def missing_terms(zh: str, en: str, terms) -> list:
     """The required terms of this line that its English does not contain."""
-    folded = (en or "").casefold()
-    return [(src, tr) for src, tr in required_terms(zh, terms) if tr.casefold() not in folded]
+    return [(src, tr) for src, tr in required_terms(zh, terms) if not _has_required_word(en or "", tr)]
 
 
 def flag_note(missing) -> str:

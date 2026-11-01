@@ -465,11 +465,11 @@ def _wait_for_job(job_id, timeout=60):
 
 
 class TestBulkSeriesTranslate:
-    def _drama(self, isolated_db, n=2, engine="fake", series_id=None, status="aligned"):
+    def _drama(self, isolated_db, n=2, engine="fake", series_id=None, status="aligned", zh=None):
         did = isolated_db.create_drama(title_en=f"Drama {n}", media_type="audio_drama",
                                        content_mode="audio_drama", status=status,
                                        translation_engine=engine, series_id=series_id)
-        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(n)])
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=zh or f"句{i}") for i in range(n)])
         return did
 
     def _run(self, drama_ids, monkeypatch, **kw):
@@ -520,7 +520,8 @@ class TestBulkSeriesTranslate:
     def test_each_drama_uses_its_own_series_glossary(self, isolated_db, monkeypatch):
         sid = isolated_db.get_or_create_series("Test Series")
         isolated_db.upsert_glossary_term(sid, "苏杉", "Su Shan", enforce_exact=True, notes="Su Xian")
-        d1 = self._drama(isolated_db, n=1, series_id=sid)
+        # Only terms that occur in the run's text reach the engine, so the line has to mention the name.
+        d1 = self._drama(isolated_db, n=1, series_id=sid, zh="苏杉来了")
 
         class RecordingEngine:
             name = "fake"
