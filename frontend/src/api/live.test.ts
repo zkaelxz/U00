@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   LIVE_FORM_FALLBACK, formDefaults, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
@@ -90,6 +90,13 @@ describe('buildStartBody', () => {
     expect(DEFAULT_FORM).toMatchObject({ segment_seconds: 20, overlap_seconds: 3, whisper_size: 'small', reply_without_thinking: true })
     const b = buildStartBody({ ...DEFAULT_FORM, ...FAST_CAPTIONS, url: 'https://a.test' })
     expect(b).toMatchObject({ segment_seconds: 4, overlap_seconds: 1, whisper_size: 'small', reply_without_thinking: true })
+  })
+
+  it('Balanced captions asks for large-v3 with 8 s chunks and leaves the defaults alone', () => {
+    const b = buildStartBody({ ...DEFAULT_FORM, ...BALANCED_CAPTIONS, url: 'https://a.test' })
+    expect(b).toMatchObject({ segment_seconds: 8, overlap_seconds: 3, whisper_size: 'large-v3', reply_without_thinking: true })
+    expect(WHISPER_SIZES).toContain('large-v3')
+    expect(DEFAULT_FORM.whisper_size).toBe('small')
   })
 
   it('falls back to defaults for blank (NaN or null) numbers', () => {
