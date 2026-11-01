@@ -32,7 +32,7 @@ from services.source_service import drama_audio_path as _audio_path
 import timing_drift
 from services import ownership_service, speech_coverage_service
 from lib.errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 # Backends whose line times are Silero's spans or the forced aligner's, with no Whisper pass behind them.
 NO_WHISPER_PASS_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")

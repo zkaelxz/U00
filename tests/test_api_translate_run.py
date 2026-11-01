@@ -103,12 +103,12 @@ def test_bulk_list_and_cancel(local_client, monkeypatch):
 
 def _provider_env(monkeypatch, provider):
     import bulk_providers
-    import translate_engines
+    from engine_backends import engine_registry
     from services import translate_service
     seen = {}
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: seen.setdefault("key_for", name) and "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
     monkeypatch.setattr(bulk_providers, "make_provider", lambda name, engine: provider)
     return seen
 
@@ -169,10 +169,10 @@ def test_bulk_line_count_uses_count(isolated_db):
     ("fake", "someone/evil-repo"), ("fake", "../models/x"), ("claude", "not-a-claude-model"),
     ("fake", "anything"), ("deepseek", 123)])
 def test_run_refuses_model_not_offered(local_client, monkeypatch, engine, model):
-    import translate_engines
+    from engine_backends import engine_registry
     from services import translate_service
     built = []
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: built.append(a))
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: built.append(a))
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
     r = local_client.post(f"{BASE}/{_seed()}/run", json={"engine": engine, "model": model})
     assert r.status_code == 422
@@ -183,13 +183,13 @@ def test_run_refuses_model_not_offered(local_client, monkeypatch, engine, model)
 
 
 def test_offered_or_default_models_pass_the_check():
-    import translate_engines
+    from engine_backends import local, pricing, engine_registry
     from services import translate_run_service as svc
     from lib.errors import InvalidInputError
     svc._require_offered_model("fake", None)
-    svc._require_offered_model("ollama", next(iter(translate_engines.OLLAMA_MODELS)))
-    svc._require_offered_model("claude", next(iter(translate_engines.CLAUDE_MODELS)))
-    svc._require_offered_model("deepseek", translate_engines.effective_default_model("deepseek"))
+    svc._require_offered_model("ollama", next(iter(local.OLLAMA_MODELS)))
+    svc._require_offered_model("claude", next(iter(pricing.CLAUDE_MODELS)))
+    svc._require_offered_model("deepseek", engine_registry.effective_default_model("deepseek"))
     with pytest.raises(InvalidInputError):
         svc._require_offered_model("deepseek", "other-model")
 

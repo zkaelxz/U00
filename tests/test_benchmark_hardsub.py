@@ -14,7 +14,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import vision as engine_vision
 from core import Line
 from services import benchmark_hardsub_read_service as read_svc
 from services import benchmark_hardsub_service as hs
@@ -250,8 +251,8 @@ def reads(isolated_db, ffmpeg, monkeypatch):
             on_done(state["usage"])
         return text, state["usage"]
 
-    monkeypatch.setattr(translate_engines, "read_image_text", fake)
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", Translator)
+    monkeypatch.setattr(engine_vision, "read_image_text", fake)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", Translator)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test-key-12345678")
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)

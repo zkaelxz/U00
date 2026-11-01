@@ -47,7 +47,7 @@ _NO_ARTIFACT = "No artifact available."
 
 def _redacted(result: dict) -> dict:
     """Per-id messages come from service errors; strip anything key-like."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     for item in result.get("results") or ():
         if item.get("message"):
             item["message"] = redact_secrets(item["message"])

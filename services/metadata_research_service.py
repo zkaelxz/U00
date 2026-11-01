@@ -38,7 +38,9 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
-import translate_engines
+from engine_backends import gemini as engine_gemini
+from engine_backends import shared as engine_shared
+from engine_backends import pricing as engine_pricing
 from services import drama_service, library_service, settings_service
 from lib import http
 from services.metadata_service import SUGGEST_FIELDS, require_drama
@@ -96,7 +98,7 @@ _FIELD_LABELS = {"title_en": "English title", "title_zh": "original-language tit
                  "summary": "a short plot synopsis (2-4 sentences, English)"}
 _UNAVAILABLE = "The online research service is unavailable. Try again later."
 # finishReason values where Gemini withheld its answer on policy grounds.
-_BLOCK_REASONS = translate_engines.GEMINI_BLOCK_REASONS
+_BLOCK_REASONS = engine_gemini._GEMINI_BLOCK_REASONS
 
 
 
@@ -147,7 +149,7 @@ def _model_daily_limit(state: dict, model: str) -> int:
     project's real figure only in AI Studio, so the engine table's usual
     figure stands until a daily-quota reply names it."""
     return (state["learned_rpd"].get(model)
-            or translate_engines.gemini_free_tier_limits_for(model)["rpd"])
+            or engine_gemini.gemini_free_tier_limits_for(model)["rpd"])
 
 
 def _daily_limit(free_tier: bool) -> int:
@@ -277,7 +279,7 @@ def _prompt(entity: dict, mode: str) -> str:
 
 
 def _call_gemini(api_key: str, model: str, prompt: str) -> dict:
-    url, headers = translate_engines.gemini_generate_request(model, api_key)
+    url, headers = engine_shared.gemini_generate_request(model, api_key)
     resp = http.post(url, headers=headers,
                      json={"contents": [{"parts": [{"text": prompt}]}],
                            "tools": [{"google_search": {}}]},
@@ -594,7 +596,7 @@ def _snapshot_cached(drama_id: int, drama: dict, mode: Optional[str], model: Opt
 def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
     if settings_service.get("gemini_free_tier"):
         return 0.0
-    cost = translate_engines.estimate_cost(model, EST_INPUT_TOKENS[mode], EST_OUTPUT_TOKENS[mode])
+    cost = engine_pricing.estimate_cost(model, EST_INPUT_TOKENS[mode], EST_OUTPUT_TOKENS[mode])
     # Worst case: every query the model may run is a paid one.
     return cost + (GROUNDED_PAID_PRICE_USD * MAX_QUERIES_PER_LOOKUP if paid_search else 0.0)
 
@@ -670,7 +672,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
         detail = e.detail if isinstance(e, _GeminiRefused) else ""
         log.warning("Grounded research failed: %s%s%s", type(e).__name__,
                     f" (HTTP {status})" if status else "",
-                    f": {translate_engines.redact_secrets(detail)}" if detail else "")
+                    f": {engine_shared.redact_secrets(detail)}" if detail else "")
         if isinstance(e, _GeminiRefused):
             if not e.searched:
                 _release_search(reserved_on, model, e.daily_quota)
@@ -680,10 +682,10 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     if queries > 1:  # the 3.x models bill every query the model ran
         _count_searches(queries - 1)
     paid_queries = max(0, queries - free_before)
-    usage = translate_engines.gemini_usage(data.get("usageMetadata"))
+    usage = engine_shared.gemini_usage(data.get("usageMetadata"))
     cost = 0.0
     if not free_tier:
-        cost = translate_engines.estimate_cost(model, usage["input_tokens"],
+        cost = engine_pricing.estimate_cost(model, usage["input_tokens"],
                                                usage["output_tokens"])
         cost += GROUNDED_PAID_PRICE_USD * paid_queries
     db.log_usage(drama_id, "gemini", model, "metadata_research", usage["input_tokens"],

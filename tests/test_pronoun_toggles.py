@@ -7,7 +7,8 @@ fake engine captures the system prompt, no network."""
 import pytest
 
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import prompts as engine_prompts
 import translation_guide as tguide
 from core import Line
 from services import (bulk_submit_service, line_ai_service, review_jobs_service,
@@ -26,7 +27,7 @@ def prompts(monkeypatch):
     real = fake_engine.FakeEngine.translate_batch
 
     def capture(self, zh_lines, context):
-        seen.append(translate_engines.build_stable_system_text(dict(context)))
+        seen.append(engine_prompts.build_stable_system_text(dict(context)))
         return real(self, zh_lines, context)
     monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", capture)
     return seen
@@ -107,7 +108,7 @@ def test_library_bulk_translate_without_toggles_reuses_each_titles_choice(isolat
     did = _drama(isolated_db, SAVED_FEMALE_NO_GENRE, status="aligned",
                  translation_engine="claude")
     wjs = workspace_job_service
-    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
     monkeypatch.setattr(wjs.job_launch, "start_job", lambda *a, **k: False)
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     wjs.run_bulk_series_translate_job("bulk_toggles", [did], {"claude": "k"},
@@ -120,7 +121,7 @@ def test_line_ai_improve_reuses_the_saved_choice(isolated_db, monkeypatch, build
     from services import translate_service
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
     from tests import fake_engine
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: fake_engine.FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: fake_engine.FakeEngine())
     did = _drama(isolated_db, SAVED_FEMALE_NO_GENRE)
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="他来了", en="He came.")])
     line_id = db.load_lines(did)[0]["id"]
@@ -168,7 +169,7 @@ def test_the_chosen_toggles_are_baked_into_the_persisted_bulk_args(isolated_db, 
 def test_library_bulk_translate_rows_carry_their_own_run_settings(isolated_db, monkeypatch):
     did = _drama(isolated_db, SAVED_FEMALE_NO_GENRE, status="aligned", translation_engine="claude")
     wjs = workspace_job_service
-    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
     seen = []
     monkeypatch.setattr(wjs.job_launch, "start_job",

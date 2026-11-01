@@ -13,7 +13,7 @@ pytest.importorskip("httpx")
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry, local
 from services import benchmark_lab_service as svc
 from services import benchmark_translate_sweep_service as tsweep
 from services import translate_service
@@ -32,7 +32,7 @@ def _scene(title="T", n=4, set_name="s"):
 
 @pytest.fixture
 def engine(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", SceneEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", SceneEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: SECRET)
     SceneEngine.batches, SceneEngine.reverse = [], False
 
@@ -117,8 +117,8 @@ class TestTranslateSweepRoutes:
         assert db.list_benchmark_sessions(10, "translation") == []
 
     def test_an_estimate_on_an_engine_with_a_temperature_knob_reads(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(translate_engines, "pulled_ollama_models", lambda url: [])
-        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+        monkeypatch.setattr(local, "pulled_ollama_models", lambda url: [])
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
         for title in "ABCD":
             _scene(title, 3)
         r = _local().post(f"{BASE}/translate-sweep/estimate",
