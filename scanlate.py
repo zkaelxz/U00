@@ -194,8 +194,9 @@ def bulk_find_replace_preview(items: list, find: str, replace: str, text_field: 
 
 
 def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: str = "auto",
-                        hf_token: str = None, ocr_backend: str = None, tesseract_cmd: str = None,
-                        prefer_paddle_vl_manga: bool = False, page_id: int = None,
+                        hf_token: str | None = None, ocr_backend: str | None = None,
+                        tesseract_cmd: str | None = None,
+                        prefer_paddle_vl_manga: bool = False, page_id: int | None = None,
                         art_captions: bool = False):
     """Detect -> structure (analyze_page_regions) -> OCR -> font-style
     sample for one page. Shared by the single-page Detect button and the

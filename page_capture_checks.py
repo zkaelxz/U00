@@ -142,7 +142,7 @@ def looks_blank(data: bytes) -> bool:
             img.draft("RGB", (128, 128))
             img.thumbnail((64, 64))
             probe = img.convert("RGB")
-            return all(lo == hi for lo, hi in probe.getextrema())
+            return all(isinstance(band, tuple) and band[0] == band[1] for band in probe.getextrema())
     except Exception:
         return False
 
@@ -219,7 +219,7 @@ def upright(data: bytes, ext: str):
         return data, ext
 
 
-def sniff_image(data: bytes):
+def sniff_image(data: bytes) -> tuple[str, None] | tuple[None, tuple[int, str]]:
     """(extension, None) from the bytes themselves, or (None, (status, reason)).
     The client's claimed type is only a hint; the pixel cap is read from the
     header so a huge image is refused before anything decodes it."""

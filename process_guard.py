@@ -76,7 +76,7 @@ def group_name_for(install_root) -> str:
 def _kernel32():
     import ctypes
     from ctypes import wintypes
-    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     k.CreateJobObjectW.restype = wintypes.HANDLE
     k.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
     k.OpenJobObjectW.restype = wintypes.HANDLE
@@ -97,7 +97,7 @@ def _handler_type():
     """The HANDLER_ROUTINE callback type: BOOL WINAPI (DWORD)."""
     import ctypes
     from ctypes import wintypes
-    return ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+    return getattr(ctypes, "WINFUNCTYPE")(wintypes.BOOL, wintypes.DWORD)
 
 
 def _extended_limit_info(flags):

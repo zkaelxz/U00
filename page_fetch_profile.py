@@ -106,7 +106,7 @@ def _shut(pw, context):
         proxy.stop()
 
 
-def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selector: str = None,
+def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selector: str | None = None,
                        wait_ms: int = 2500, launcher=None):
     """Like fetch_rendered, but inside the persistent profile at
     `profile_dir`, so a site the person already signed in to sees that
@@ -154,7 +154,7 @@ class LoginWindowTimeout(RuntimeError):
     """The sign-in window stayed open past LOGIN_MAX_WAIT_SECONDS."""
 
 
-def _wait_for_close(context, max_wait: float = None) -> None:
+def _wait_for_close(context, max_wait: float | None = None) -> None:
     """Waits for the person to close the window, up to LOGIN_MAX_WAIT_SECONDS --
     in short steps, so an app shutdown ends the wait too (and _shut then
     closes the browser on this, its own, thread)."""

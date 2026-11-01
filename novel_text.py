@@ -225,15 +225,15 @@ def best_decoding(data: bytes, encodings) -> tuple:
     most Big5 bytes without an error into kana, Greek and box symbols, so "first
     that decodes" turned a traditional-Chinese novel into noise. (None, None) when
     none decode."""
-    first = best = None
+    best: tuple[str, str, float] | None = None
     for encoding in encodings:
         try:
             text = data.decode(encoding)
         except (UnicodeDecodeError, LookupError):
             continue
         score = _plausible_share(text)
-        if first is None:
-            first = best = (text, encoding, score)
+        if best is None:
+            best = (text, encoding, score)
         elif score >= best[2] + _CLEARLY_BETTER:
             best = (text, encoding, score)
     return (best[0], best[1]) if best else (None, None)

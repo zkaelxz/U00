@@ -357,7 +357,7 @@ def apply_retention(drama_dir: str) -> None:
                 _compress(path)
 
 
-def original_text_for_line(raw: dict, line) -> str:
+def original_text_for_line(raw: dict | None, line) -> str | None:
     """The originally transcribed text for `line`: every original line whose
     midpoint falls inside this line's time range, joined -- so a line merged
     from two shows both parts -- falling back to the original line with the
