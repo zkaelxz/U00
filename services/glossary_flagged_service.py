@@ -10,7 +10,7 @@ the usage log and the pre-run undo snapshot all apply as for any run.
 import db
 from engine_backends.glossary_check import GLOSSARY_FLAG, missing_terms
 from services import profile_service, settings_service, stronger_engine_service, translate_run_service
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 
 def _flagged_rows(drama_id: int) -> list:

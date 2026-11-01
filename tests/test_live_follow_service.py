@@ -7,7 +7,7 @@ import socket
 import pytest
 
 from services import live_follow_poller, live_follow_service as svc
-from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
                                      InvalidInputError, NotFoundError, RateLimitedError)
 from sources import live_follow_store
 

@@ -19,7 +19,7 @@ import model_pins
 from lib import model_offline
 from services import auth_service
 from services import model_readiness_service as mrs
-from services.service_errors import ConflictError, ForbiddenError
+from lib.errors import ConflictError, ForbiddenError
 from tests.test_api_household_listener import _admin_client, _admin_session, _h, _household_client
 
 MESSAGE = "This model is not downloaded yet. Ask the owner of the main PC to download it first."
@@ -131,7 +131,7 @@ ROUTES = [
      "resplit_service", "resplit_long_lines", _aligner),
     ("/api/diarization/dramas/{did}/run", None, "diarization_service",
      "start_diarization_run", _pyannote),
-    ("/api/dub/dramas/{did}/run", {}, "dub_service", "start_dub_run",
+    ("/api/listen/dramas/{did}/run", {}, "listen_service", "start_listen",
      _transformers_repo("k2-fsa/OmniVoice")),
     ("/api/scanlate/dramas/{did}/run", {"engine": "ollama"}, "scanlate_run_service", "start_run",
      _paddle_ch),

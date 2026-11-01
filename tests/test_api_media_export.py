@@ -16,7 +16,7 @@ import storage
 import video_export
 from core import Line
 from services import artifact_service, export_service, media_export_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 from tests.api_helpers import error_of
 from tests.job_helpers import wait_for_job
 
@@ -117,7 +117,7 @@ def test_audiobook_no_lines_422(local_client, isolated_db):
 def test_audiobook_no_narration_422(local_client, drama):
     r = local_client.post(f"/api/export/dramas/{drama}/audiobook")
     assert r.status_code == 422
-    assert error_of(r)["message"] == "There is no narration yet. Create it in Dub first."
+    assert error_of(r)["message"] == "There is no narration yet. Create it with Listen in the Reader first."
 
 
 def test_audiobook_ffmpeg_missing_503(local_client, drama, isolated_db, monkeypatch):

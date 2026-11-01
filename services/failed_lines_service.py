@@ -18,7 +18,7 @@ import json
 
 import db
 from services import ownership_service, translate_run_service
-from services.service_errors import UnsupportedOperationError
+from lib.errors import UnsupportedOperationError
 
 # Words the run's own error text uses when a reply was cut off or came back
 # short: a smaller batch fits the reply.

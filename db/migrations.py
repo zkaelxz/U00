@@ -83,7 +83,7 @@ def _migrate_line_columns(conn):
     if "dub_filename" not in existing_cols:
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN dub_filename TEXT")
     if "flag" not in existing_cols:
-        # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
+        # A key from engine_backends.flag_reasons.FLAG_REASONS, set by flag_uncertain_lines()
         # -- the review queue for a long file, so a person doesn't have to
         # scan every line to find the handful worth a second look.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag TEXT")
@@ -171,7 +171,7 @@ def _migrate_drama_columns(conn):
                           ("hardsub_ocr_backend", "TEXT"),
                           ("hardsub_interval_sec", "REAL DEFAULT 1.0"),
                           # Freeform, multi-line instructions that DO reach
-                          # the translation prompt (translate_engines.build_llm_instructions)
+                          # the translation prompt (engine_backends.prompts.build_llm_instructions)
                           # -- unlike personal_notes above, which is private and never
                           # sent anywhere. The series-level counterpart is
                           # series.instructions, inherited by every drama in the series.

@@ -57,7 +57,7 @@ test('phone: each tab fits the width, the tab row scrolls inside itself, targets
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
   await expect(page.getByRole('tablist', { name: 'Assistant' })).toBeVisible()
-  for (const label of ['Ask', 'Work list', 'GitHub and tools']) {
+  for (const label of ['Ask', 'Work list', 'Tools']) {
     await openTab(page, label)
     await expect(page.getByRole('tab', { name: label, exact: true })).toHaveAttribute('aria-selected', 'true')
     await expectNoSidewaysScroll(page)

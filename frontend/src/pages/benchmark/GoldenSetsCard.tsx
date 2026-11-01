@@ -15,6 +15,7 @@ import { BuildSetSection } from './BuildSetSection'
 import { CaseRow } from './CaseRow'
 import { ClipImportSection } from './ClipImportSection'
 import { CorrectionsSection } from './CorrectionsSection'
+import { HardSubReadingSection } from './HardSubReadingSection'
 import { TIER_HELP, TIER_LABELS, plainError, setDisplayName, stageLabel, benchmarkTierLabel, tierTone } from './benchmarkForm'
 
 type Props = {
@@ -98,6 +99,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
       <ClipImportSection options={options} pc={pc} onDone={onChanged} />
       <BuildSetSection pc={pc} onDone={onChanged} />
       <CorrectionsSection sets={sets} pc={pc} onDone={onChanged} />
+      <HardSubReadingSection pc={pc} />
       <ImportSection options={options} pc={pc} onDone={onChanged} />
       <AddCaseSection options={options} pc={pc} onDone={onChanged} />
     </BenchSection>

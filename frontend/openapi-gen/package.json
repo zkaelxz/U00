@@ -1,0 +1,10 @@
+{
+  "name": "baihe-openapi-gen",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Generates src/api/generated/schema.d.ts. Separate from the app because openapi-typescript needs the TypeScript 5 compiler API, which the app's TypeScript 7 does not ship.",
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

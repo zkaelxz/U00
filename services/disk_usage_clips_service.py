@@ -2,7 +2,7 @@
 services/disk_usage_clips_service.py -- unused voice clips: list the files in
 a title's voice_refs/ that no speaker points to, and move chosen ones to
 Baihe's Trash folder through the same checks and rename as a Clear in
-services/disk_usage_service.py. UI-free; raises services/service_errors.
+services/disk_usage_service.py. UI-free; raises lib/errors.
 """
 
 import hashlib
@@ -19,7 +19,7 @@ from services import disk_usage_hold as hold
 from services import disk_usage_measure as measure
 from services import disk_usage_service as dus
 from services import disk_usage_trash_store as store
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 # Only the two kinds of file the app writes into a title's voice_refs/

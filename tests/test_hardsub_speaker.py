@@ -3,7 +3,9 @@ Reading a title's hard subs speaker by speaker (services/hardsub_speaker_groups.
 hardsub_speaker_read_service.py, hardsub_speaker_compare.py). ffmpeg and the vision provider are faked.
 """
 import io
+import json
 import os
+import threading
 import time
 
 import pytest
@@ -13,14 +15,16 @@ from PIL import Image, ImageDraw
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import vision as engine_vision
 from core import Line
+from jobs import job_launch
 from services import benchmark_hardsub_service as band_pictures
 from services import hardsub_speaker_compare as compare
 from services import hardsub_speaker_groups as groups
 from services import hardsub_speaker_read_service as svc
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
 WHITE, YELLOW, CYAN, RED = (255, 255, 255), (255, 230, 0), (0, 230, 230), (255, 40, 40)
 # What the fake vision model "reads" from a crop, by the colour of its text.
@@ -103,8 +107,8 @@ def run(isolated_db, monkeypatch):
     monkeypatch.setattr(band_pictures, "_grab", grab)
     monkeypatch.setattr(band_pictures.shutil, "which", lambda name: "/usr/bin/ffmpeg")
     monkeypatch.setattr(svc.shutil, "which", lambda name: "/usr/bin/ffmpeg")
-    monkeypatch.setattr(translate_engines, "read_image_text", fake)
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", Engine)
+    monkeypatch.setattr(engine_vision, "read_image_text", fake)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", Engine)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "sk-test-key-12345678")
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
     background_jobs.clear_all_jobs()
@@ -193,6 +197,114 @@ class TestReading:
         assert result["comparison"]["recall"] == 1.0
         # S1 speaks while white-left is shown, so the labels map onto groups.
         assert result["comparison"]["label_match"] is not None
+
+
+class TestResultView:
+    def test_a_finished_reading_returns_its_groups_and_comparison(self, run):
+        did = _title()
+        _read(did)
+        got = svc.result(None, did)
+        assert got["status"] == "done"
+        assert {g["key"] for g in got["result"]["groups"]} == {"cyan-left", "white-left", "white-right", "yellow-right"}
+        assert got["result"]["comparison"]["recall"] is not None
+
+    def test_a_finished_reading_survives_an_app_restart(self, run):
+        did = _title()
+        first = _read(did)
+        background_jobs.clear_all_jobs()
+        got = svc.result(None, did)
+        assert got["status"] == "done" and got["result"] == first
+
+    def test_a_new_reading_in_progress_hides_the_saved_one(self, run):
+        did = _title()
+        _read(did)
+        background_jobs.clear_all_jobs()
+        gate = threading.Event()
+        job_launch.start_job(svc.job_id(did), lambda jid: gate.wait(10), svc.job_id(did),
+                             description="x", line_fields=())
+        try:
+            assert svc.result(None, did)["status"] == "running"
+        finally:
+            gate.set()
+
+    def test_a_failed_new_reading_does_not_show_the_old_one_as_done(self, run):
+        did = _title()
+        _read(did)
+        background_jobs.clear_all_jobs()
+
+        def boom(jid):
+            raise RuntimeError("ffmpeg exploded")
+        job_launch.start_job(svc.job_id(did), boom, svc.job_id(did), description="x", line_fields=())
+        _finish(did)
+        got = svc.result(None, did)
+        assert got["status"] != "done" and got["result"] is None
+
+    def test_nothing_is_saved_for_a_title_deleted_during_its_reading(self, run):
+        did = _title()
+        folder = db.drama_dir(did)
+        db.delete_drama(did)
+        svc._save_result(did, {"groups": []})
+        assert not os.path.exists(os.path.join(folder, svc.RESULT_FILE))
+
+    def test_a_title_cannot_be_deleted_while_its_paid_reading_runs(self, run):
+        from services import drama_service
+        did = _title()
+        gate = threading.Event()
+        job_launch.start_job(svc.job_id(did), lambda jid: gate.wait(10), svc.job_id(did),
+                             description="x", line_fields=())
+        try:
+            assert drama_service.job_running_for_drama(did)
+        finally:
+            gate.set()
+
+    def test_a_title_never_read_is_not_found(self, run):
+        with pytest.raises(NotFoundError):
+            svc.result(None, _title())
+
+    def test_a_reading_in_progress_has_no_result_yet(self, run):
+        did = _title()
+        gate = threading.Event()
+        job_launch.start_job(svc.job_id(did), lambda jid: gate.wait(10), svc.job_id(did),
+                             description="x", line_fields=())
+        try:
+            got = svc.result(None, did)
+            assert got["status"] == "running" and got["result"] is None
+        finally:
+            gate.set()
+
+    def test_a_corrupt_saved_file_counts_as_no_saved_reading(self, run):
+        did = _title()
+        for junk in ("{not json", ""):
+            with open(svc._result_path(did), "w", encoding="utf-8") as fh:
+                fh.write(junk)
+            with pytest.raises(NotFoundError):
+                svc.result(None, did)
+
+    def test_a_stopped_reading_is_saved_and_comes_back_with_its_reason(self, run):
+        did = _title()
+        run["fail"] = True
+        _read(did)
+        background_jobs.clear_all_jobs()
+        got = svc.result(None, did)
+        assert got["status"] == "done" and got["result"]["stopped"] == "failed"
+        assert "sk-test-key-12345678" not in json.dumps(got)
+
+    def test_the_saved_reading_belongs_to_its_own_title(self, run):
+        first, second = _title(), _title()
+        _read(first)
+        background_jobs.clear_all_jobs()
+        assert svc.result(None, first)["status"] == "done"
+        with pytest.raises(NotFoundError):
+            svc.result(None, second)
+
+    def test_a_member_cannot_read_another_members_private_title(self, run):
+        did = _title()
+        db.update_drama(did, is_private=1, owner_user_id=1)
+        _read(did)
+        background_jobs.clear_all_jobs()
+        assert svc.result({"user_id": 1}, did)["status"] == "done"
+        with pytest.raises(NotFoundError):
+            svc.result({"user_id": 2}, did)
 
 
 class TestEstimateAndCap:

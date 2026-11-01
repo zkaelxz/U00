@@ -21,7 +21,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   `python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>`;
   never a blanket `-W ignore` (it hides crashing threads). Don't run `tools/route_table.py` without `--write` (36 KB).
 - Never skip, loosen or delete a test to get CI green. A test may go when its behaviour is gone, when another named test pins the same behaviour, when it pinned an implementation detail and a behaviour test replaces it, or when it could not fail; the only test of a live behaviour stays, and the PR names each removed test and the reason.
-- Skip list, never read unless the task is about them: `FILE_ORGANIZATION.md`, `docs/STATUS.md`, `docs/engineering-standards.md`,
+- Skip list, never read unless the task is about them: `docs/STATUS.md`, `docs/engineering-standards.md`,
   `.test_durations`, `docs/archive/` (research notes, reports and session summaries included), `docs/specs/`, `docs/design/`, `.claude/`.
 - More rules (mocked tests and `isolated_db`, frontend commands, SQL-kwarg whitelist, `save_lines` full sync, `sources.db`,
   optional dependencies, comments, how to finish) and recipe cards (Settings row, API route, language pack, DB column,
@@ -32,7 +32,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
 A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set.
 - Match LLM results to lines by explicit id, never by list position.
 - No secrets in URLs, logs, stored errors or API responses (no fetched URLs either, except a `display_url`-cleaned source page link (scheme, host, path only)). Keys go in headers; pass error text
-  through `translate_engines.redact_secrets`.
+  through `engine_backends.shared.redact_secrets`.
 - Every outbound HTTP call has `timeout=`; use `lib.http.get`/`post` for fetches the app makes itself.
 - Every API route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()` or `authenticated()`
   and its row in `docs/route-permissions.md`, regenerated with `python tools/route_table.py --write`.
@@ -62,10 +62,10 @@ typical task, and be easier to edit than the whole; no forwarding-only modules, 
 Done means:
 1. Moved, not rewritten: behaviour, messages and signatures unchanged.
 2. Callers import from the new module. Old names stay importable only through the front doors
-   `db`, `translate_engines`, `api.schemas`, or where the brief says.
+   `db`, `engine_backends`, `api.schemas`, or where the brief says.
 3. A test patch on a moved name points at the module that now uses it; no assertion removed or loosened; same pass count.
 4. Inside the `db` package call other db functions as `db.<name>`.
-5. The new module is named in `FILE_ORGANIZATION.md`; a new top-level `.py` is also added to the
+5. The new module starts with a one-line docstring (`python tools/repo_map.py` reads it); a new top-level `.py` is also added to the
    expected-files list (`expected_files.EXPECTED_TOP_LEVEL_FILES`: one sorted line per name; check the current location first).
 6. Run the area's tests, then `tests/test_static_analysis.py`, `tests/test_split_guards*` (if present) and
    `tests/test_diagnostics_and_export.py`, and report counts; CI runs the full suite.
@@ -83,11 +83,11 @@ whole: `db`, `diagnostics`, `core`, `scanlate`, `services/transcribe_service`, o
 |---|---|---|---|---|---|---|---|---|
 | Library / titles | Library.tsx, LibraryTools.tsx, libraryParity/ | library_routes.py, drama_routes.py | library_service.py, drama_service.py, ownership_service.py | title_library.py | dramas, series | test_library_service.py, test_drama_service.py, test_api_dramas.py, test_title_library.py | library*.spec.ts | database.md |
 | Transcription (ASR) | workspace/stages/TranscribeStage.tsx | transcribe_routes.py, asr_options_routes.py, diarization_routes.py | transcribe_service.py, transcribe_options_service.py, transcribe_speed_service.py, retranscribe_line_service.py, transcribe_pipeline.py, asr_options_service.py, diarization_service.py | asr_backend.py, whisper_models.py, vad_segments.py, forced_align.py, diarize.py, segment_splitting.py | dramas, lines | test_transcribe_service.py, test_asr_backend.py, test_diarize.py, test_segment.py | transcribe-*.spec.ts | engine-backends.md, asr-experiments.md |
-| Translation + engines | Translate.tsx, workspace/stages/TranslateStage.tsx | translate_routes.py, translate_run_routes.py, engine_routing_routes.py | translate_service.py, translate_run_service.py, translate_preset_service.py, engine_routing_service.py | translate_engines.py, engine_backends/, bulk_translate.py, bulk_apply.py, bulk_reflect.py, bulk_poll.py, translation_finish.py, translation_guide.py | lines, translation_versions, presets, usage_log | test_translate_engines.py, test_translate_run_service.py, test_bulk_translate.py, test_engine_routing.py | translate*.spec.ts | engine-backends.md |
+| Translation + engines | Translate.tsx, workspace/stages/TranslateStage.tsx | translate_routes.py, translate_run_routes.py, engine_routing_routes.py | translate_service.py, translate_run_service.py, translate_preset_service.py, engine_routing_service.py | engine_backends/, bulk_translate.py, bulk_apply.py, bulk_reflect.py, bulk_poll.py, translation_finish.py, translation_guide.py | lines, translation_versions, presets, usage_log | test_translate_engines.py, test_translate_run_service.py, test_bulk_translate.py, test_engine_routing.py | translate*.spec.ts | engine-backends.md |
 | Review / lines | workspace/stages/ReviewStage.tsx, workspace/stages/review/ | lines_routes.py, review_lines_routes.py, review_extras_routes.py, review_records_routes.py | lines_service.py, review_lines_service.py, line_tools_service.py | line_tools.py, auto_qc.py, resegment.py | lines, line_history, line_provenance | test_lines_service.py, test_review_lines_service.py, test_api_lines.py | review-*.spec.ts | api-and-services.md |
 | Characters / glossary | workspace/stages/CharactersPanel.tsx, workspace/stages/GlossaryPanel.tsx | characters_routes.py, glossary_routes.py, series_people_routes.py | characters_service.py, glossary_service.py, series_people_service.py | translation_memory.py | characters, series_characters, glossary_terms | test_characters_service.py, test_glossary_service.py, test_api_glossary.py | characters-*.spec.ts, glossary-*.spec.ts | database.md |
 | Live translate | Live.tsx, live/ | live_routes.py | live_service.py | live_translate.py, live_fetch.py | n/a | test_live_service.py, test_live_translate.py, test_live_fetch.py, test_api_live.py | live*.spec.ts | n/a |
-| Dubbing | workspace/stages/DubStage.tsx, workspace/stages/VoiceClonePanel.tsx | dub_routes.py, voice_clone_routes.py, narration_routes.py | dub_service.py, voice_clone_service.py, narration_service.py | dub.py, dub_narration.py, voice_id.py | voice_bank, characters | test_dub.py, test_dub_service.py, test_api_dub.py, test_voice_id.py | dub-*.spec.ts, voice-*.spec.ts | engine-backends.md |
+| Dubbing | workspace/stages/VoiceClonePanel.tsx | listen_routes.py, voice_clone_routes.py, narration_routes.py | listen_service.py, voice_clone_service.py, narration_service.py | dub.py, dub_narration.py, voice_id.py | voice_bank, characters | test_dub.py, test_listen_service.py, test_api_listen.py, test_voice_id.py | voice-*.spec.ts | engine-backends.md |
 | Scanlate / OCR | Comic.tsx, comic/, SavedManga.tsx | scanlate_routes.py, comic_routes.py, saved_comics_routes.py | scanlate_run_service.py, scanlate_pages_service.py, comic_view_service.py | scanlate.py, scanlate_detect.py, scanlate_inpaint.py, ocr.py, hardsub_ocr.py | pages, bubbles | test_scanlate.py, test_ocr.py, test_hardsub_ocr.py, test_api_comic_viewer.py | scanlate*.spec.ts, comic*.spec.ts | n/a |
 | Sources / adapters | Sources.tsx, sources/, Discover.tsx | source_routes.py, sources_*_routes.py | source_service.py, sources_*_service.py | sources/ (adapters in sources/adapters/), page_fetch.py | `sources.db` via sources/store.py | test_sources_*.py, test_api_sources_*.py, test_source_service.py | sources*.spec.ts, source-*.spec.ts | adding-source.md, content-sources.md |
 | Benchmark lab | Benchmark.tsx, benchmark/ | benchmark_routes.py, model_reeval_routes.py, model_registry_routes.py | benchmark_lab_service.py, model_reeval_service.py, model_registry_service.py | benchmark.py, asr_benchmark.py | benchmark_*, model_candidates, model_decisions | test_benchmark_lab.py, test_benchmark.py, test_model_reeval.py, test_api_benchmark.py | lab-*.spec.ts, bench-sections.spec.ts | database.md |
@@ -99,7 +99,7 @@ whole: `db`, `diagnostics`, `core`, `scanlate`, `services/transcribe_service`, o
 | Export | workspace/stages/ExportStage.tsx | export_routes.py | export_service.py, media_export_service.py | subtitle_formats.py, video_export.py, vocab_export.py, glossary_io.py | n/a | test_export_service.py, test_export_formats.py, test_api_export_ass.py, test_api_media_export.py, test_video_export.py, test_vocab_export.py | export-*.spec.ts | user-guide.md |
 | Language packs | settings/LanguagePacksCard.tsx | language_pack_routes.py | language_pack_service.py | language_packs.py, language_pack_data/ (JSON glossaries) | app_settings | test_language_packs.py, test_api_language_packs.py | language-packs*.spec.ts, settings-language-packs*.spec.ts | user-guide.md |
 | Reader | Reader.tsx, reader/, SavedMangaReader.tsx | reader_routes.py | reader_service.py | reader.py | n/a | test_reader_service.py, test_api_reader_m4.py, test_reader_no_segmenter.py | reader.spec.ts | n/a |
-| Assistant | Assistant.tsx, assistant/ | assistant_routes.py, assistant_github_routes.py | maintenance_assistant_service.py, assistant_settings_service.py, assistant_tools_service.py, assistant_repo_access.py, assistant_diagnosis_service.py, assistant_backlog_service.py, assistant_github_service.py, assistant_roles_service.py | n/a | app_settings | test_maintenance_assistant.py, test_assistant_github.py, test_assistant_roles.py | assistant*.spec.ts | n/a |
+| Assistant | Assistant.tsx, assistant/ | assistant_routes.py | maintenance_assistant_service.py, assistant_settings_service.py, assistant_tools_service.py, assistant_repo_access.py, assistant_diagnosis_service.py, assistant_backlog_service.py, assistant_roles_service.py | n/a | app_settings | test_maintenance_assistant.py, test_assistant_roles.py | assistant*.spec.ts | n/a |
 | Jellyfin | settings/JellyfinSection.tsx | jellyfin_routes.py | jellyfin_service.py | n/a | app_settings (`jellyfin` key; API key in .env) | test_jellyfin.py | jellyfin.spec.ts | n/a |
 
 Layer rules for the folders above: `docs/api-and-services.md`. Frontend stages:

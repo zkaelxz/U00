@@ -19,6 +19,9 @@ _LAMA_BLOCKS = 18
 # gigabytes. Past this size the OpenCV fallback is used instead.
 _ML_MAX_PIXELS = 3_000_000
 
+# Dark-on-light lettering is every pixel under this share of the paper's gray.
+_LETTERING_CUTOFF_OF_PAPER = 0.8
+
 # Set when the checkpoint is present but unusable (corrupt, wrong shape), so one
 # bad ~200 MB file is not re-read for every region of every page.
 _lama_load_error = None
@@ -257,6 +260,24 @@ def background_is_dark(gray_roi) -> bool:
     return float(np.median(gray_roi)) < 100
 
 
+def _lettering_mask(gray_roi):
+    """uint8 mask (255 = erase) of the lettering in a gray crop, grown past
+    its anti-aliased edge: a fixed gray cut-off left the pale strokes and the
+    halo round each stroke behind as ghost text under the English. The cut-off
+    follows the paper's own brightness, so lettering on tinted paper is caught
+    too."""
+    import cv2
+    if background_is_dark(gray_roi):
+        # Light lettering on a dark balloon: masking the dark pixels would
+        # erase the whole balloon and smear the surrounding art across it.
+        _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY)
+    else:
+        paper = float(np.median(gray_roi))
+        cutoff = int(min(max(150, paper * _LETTERING_CUTOFF_OF_PAPER), 240))
+        _, mask = cv2.threshold(gray_roi, cutoff, 255, cv2.THRESH_BINARY_INV)
+    return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2)
+
+
 def _resolve_inpaint_backend(backend: str) -> str:
     if backend == "auto":
         return "ml" if lama_ml_weights_cached() else "cv"
@@ -298,13 +319,7 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
 
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    if background_is_dark(gray_roi):
-        # Light lettering on a dark balloon: masking the dark pixels would
-        # erase the whole balloon and smear the surrounding art across it.
-        _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY)
-    else:
-        _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY_INV)
-    mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+    mask = _lettering_mask(gray_roi)
     if inside is not None:
         keep = np.zeros(mask.shape, dtype=bool)
         oy, ox = box["y"] - y, box["x"] - x

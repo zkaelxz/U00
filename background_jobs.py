@@ -37,7 +37,7 @@ import time
 
 import job_force_stop
 from lib import pid as pid_lib
-from job_process_kill import kill_tree  # noqa: F401  (tests patch background_jobs.kill_tree; FILE_ORGANIZATION.md names it)
+from job_process_kill import kill_tree  # noqa: F401  (tests patch background_jobs.kill_tree)
 from jobs.gpu_queue import _refresh_queue_messages_locked, _run_finish_hooks, _take_queued_locked
 from jobs.job_table import HEARTBEAT_INTERVAL, _emit_change, _jobs, _lock, _mirror_locked, _warn, _workers
 
@@ -237,7 +237,7 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "sourceimport_", "urlmedia_", "voiceref_", "lines_glossary_", "spelling_suggest_", "burnpreview_",
     "bulk_consistency_", "bulk_emotion_", "bulk_notes_", "bulk_flag_", "resegpreview_", "scanlate_",
     "lncrawl_",
-    "comparetx_", "retime_", "speechcov_", "restructure_",
+    "comparetx_", "retime_", "speechcov_", "restructure_", "hardsub_reference_",
 )
 
 

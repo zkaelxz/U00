@@ -4,7 +4,7 @@ import { guard, mockVoiceClone, openVoices } from './voiceCloneMocks'
 import { shot } from './shots'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
-// Phone project (390x844, touch): Dub > Voices and cloning fits the screen
+// Phone project (390x844, touch): Review > Voices tab fits the screen
 // and its controls are 44px targets.
 
 test('voices panel on a phone: no sideways scroll, 44px targets', async ({ page }) => {

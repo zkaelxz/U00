@@ -80,7 +80,7 @@ def _py_files_under(dirname):
 
 
 class TestHttpCallsHaveTimeouts:
-    """Regression coverage for a real gap: translate_engines.py's Gemini,
+    """Regression coverage for a real gap: engine_backends' Gemini,
     Google, and Ollama calls, and qa.py's Gemini call, had no timeout=
     at all. Without one, a server that stops responding mid-request
     leaves the job stuck at "running" with no way to notice."""
@@ -88,7 +88,7 @@ class TestHttpCallsHaveTimeouts:
     def test_modules_that_fetch_through_lib_http(self):
         # None of these makes a raw call today; the list keeps a later
         # urlopen or session.request in one of them from going untimed.
-        files = [os.path.join(PROJECT_ROOT, "translate_engines.py")] + _py_files_under("engine_backends")
+        files = _py_files_under("engine_backends")
         files += [os.path.join(PROJECT_ROOT, n) for n in (
             "bulk_translate.py", "dub.py", "navigator.py", "page_fetch.py", "title_library.py",
             "core.py", "whisper_transcribe.py", "diagnostics.py", "dependency_updates.py",
@@ -338,7 +338,7 @@ class TestSdkClientsHaveTimeouts:
             checked += n
             if bad:
                 problems[os.path.relpath(f, PROJECT_ROOT)] = bad
-        assert checked >= 2, "the checker no longer sees translate_engines' SDK clients"
+        assert checked >= 2, "the checker no longer sees engine_backends' SDK clients"
         assert problems == {}, f"SDK client(s) missing timeout=: {problems}"
 
     def test_checker_catches_missing_timeouts(self, tmp_path):
@@ -751,7 +751,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "epub_io.py::export_epub": 105,
     "services/title_restructure_service.py::_move_novel": 104,
     "sources/adapters/kuaikan.py::_decode_nuxt_state": 103,
-    "dub.py::build_dub_track": 103,
     "sources/preflight.py::preflight": 102,
     "services/drama_restore_service.py::copy_drama": 102,
     "installer/service.py::Services.set_port": 101,
@@ -850,7 +849,6 @@ _CAPTURE_ALLOWED = {
     "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
     # pending: ffmpeg runs bounded by timeout= only.
     "audio_extract.py::_run_ffmpeg": "pending: ffmpeg",
-    "dub.py::time_stretch": "pending: ffmpeg",
     "dub_narration.py::export_narration_m4b": "pending: ffmpeg",
     "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
     "services/media_peaks_service.py::_decode": "pending: ffmpeg",

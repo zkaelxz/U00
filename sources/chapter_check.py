@@ -18,7 +18,7 @@ import background_jobs
 from jobs import job_launch
 import db
 from lib.errors import ConflictError
-from translate_engines import redact_for_storage
+from engine_backends.shared import redact_for_storage
 
 from . import extension_marker, http, ladder, registry, store
 from .models import SourceError

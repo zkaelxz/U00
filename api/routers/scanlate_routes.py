@@ -38,8 +38,8 @@ from api.schemas import (ComicRegionCreateRequest, ComicRegionEditRequest,
                          ComicRegionUndoRequest, error_responses)
 from lib.capped_request import read_capped_form
 from services import (model_readiness_service, page_import_limits, scanlate_pages_service,
-                      scanlate_render_service, scanlate_run_service, settings_service)
-from services.service_errors import InvalidInputError
+                      scanlate_render_service, scanlate_run_service)
+from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api/scanlate", tags=["scanlate"])
 
@@ -164,7 +164,7 @@ async def post_pages(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1))
 def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
     # The configured default is resolved first, so a household user can run
     # a drama whose default engine is a free one.
-    engine = body.engine or settings_service.get("default_engine")
+    engine = body.engine or scanlate_pages_service.default_engine()
     require_engines_allowed(request, engine)
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_scanlate, drama_id, body.detect_backend,

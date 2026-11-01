@@ -344,6 +344,13 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   useEffect(() => {
     if (!toolsOpen || phone) return
     const el = document.getElementById('comic-scanlate')
+    // The sticky bar wraps to as many rows as the window width needs, so a fixed margin
+    // hides the panel's heading under it at some widths.
+    const bar = document.querySelector<HTMLElement>('.comic-top')
+    if (el && bar) {
+      const stuckAt = parseFloat(getComputedStyle(bar).top) || 0
+      el.style.scrollMarginTop = `${Math.ceil(stuckAt + bar.getBoundingClientRect().height) + 8}px`
+    }
     el?.scrollIntoView({ block: 'start' })
     el?.focus({ preventScroll: true })
   }, [toolsOpen, phone])

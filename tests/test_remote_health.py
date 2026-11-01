@@ -562,7 +562,7 @@ def public_dns(monkeypatch):
     "https:///nohost", 42,
 ])
 def test_ip_check_address_validation(env, public_dns, value):
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     with pytest.raises(InvalidInputError) as exc:
         rhs.set_ip_check_url(value)
     assert "ip.example" not in str(exc.value) and "router" not in str(exc.value)
@@ -677,7 +677,7 @@ def test_ip_check_set_and_clear_run_off_the_event_loop(env, monkeypatch):
 
 
 def test_a_stuck_test_worker_refuses_the_next_test_until_it_ends(env, monkeypatch):
-    from services.service_errors import RateLimitedError
+    from lib.errors import RateLimitedError
     env.write_text(f"{rhs.IP_CHECK_ENV}={CHECK_URL}\n")
     release = threading.Event()
     ended = threading.Event()

@@ -11,11 +11,11 @@ import pytest
 
 from jobs import job_launch, job_table
 import db
-import translate_engines
+from engine_backends import engine_registry
 from services import benchmark_lab_service as lab
 from services import model_reeval_service as svc
 from services import settings_service
-from services.service_errors import (ConflictError, InvalidInputError,
+from lib.errors import (ConflictError, InvalidInputError,
                                      UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
 
@@ -51,10 +51,10 @@ class WeakEngine(GoodEngine):
 
 @pytest.fixture
 def world(isolated_db, monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "fake_good", GoodEngine)
-    monkeypatch.setattr(translate_engines, "KEYLESS_ENGINES", translate_engines.KEYLESS_ENGINES | {"fake_good"})
-    monkeypatch.setitem(translate_engines.ENGINE_NOTES, "fake_good", "stand-in")
-    monkeypatch.setitem(translate_engines.ENGINES, "ollama", WeakEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "fake_good", GoodEngine)
+    monkeypatch.setattr(engine_registry, "KEYLESS_ENGINES", engine_registry.KEYLESS_ENGINES | {"fake_good"})
+    monkeypatch.setitem(engine_registry.ENGINE_NOTES, "fake_good", "stand-in")
+    monkeypatch.setitem(engine_registry.ENGINES, "ollama", WeakEngine)
     settings_service.set_settings({"default_engine": "ollama"})
     lab.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
     # A scheduled run needs a spending limit: a monthly cap here.
@@ -250,7 +250,7 @@ class TestReviewFixes:
         a = svc.add_candidate("fake_good")["candidate"]
         _run_now()
         svc.promote(a["id"], confirm=True)
-        monkeypatch.setitem(translate_engines.ENGINES, "ollama", GoodEngine)
+        monkeypatch.setitem(engine_registry.ENGINES, "ollama", GoodEngine)
         b = svc.add_candidate("ollama", "qwen3:8b")["candidate"]
         _run_now()
         svc.promote(b["id"], confirm=True)

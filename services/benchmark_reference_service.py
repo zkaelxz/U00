@@ -27,7 +27,7 @@ from services import benchmark_lab_service as lab
 from services import benchmark_scoring_service as scoring
 from services import ownership_service
 from services.media_upload_service import check_room_for
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 from services.transcribe_service import _drama_audio_path
 

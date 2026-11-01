@@ -13,7 +13,7 @@ import db
 import metadata_lookup
 import navigator
 import title_library
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -37,7 +37,7 @@ def fakes(monkeypatch, isolated_db):
     for j in (svc.BULK_JOB_ID, svc.NAV_JOB_ID):
         background_jobs.clear_job(j)
     monkeypatch.setattr(settings_service, "resolve_key", lambda name: KEY)
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     monkeypatch.setattr(safe_fetch, "fetch_public_text", lambda url: PAGE)
     monkeypatch.setattr(metadata_lookup, "extract_metadata_llm",
                         lambda text, eng: {"title_zh": "书", "summary": f"k={KEY}", "evil": "x"})

@@ -14,13 +14,14 @@ from PIL import Image, ImageDraw, ImageFilter
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import vision as engine_vision
 from core import Line
 from services import benchmark_hardsub_read_service as read_svc
 from services import benchmark_hardsub_service as hs
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 from lib.errors import DependencyUnavailableError
 from tests.job_helpers import wait_for_job
 
@@ -76,6 +77,12 @@ def _frames(case_id):
 
 
 class TestCaseCreation:
+    def test_a_picture_can_be_grabbed_on_a_data_folder_that_never_held_a_case(self, isolated_db, ffmpeg):
+        import shutil
+        shutil.rmtree(db.BENCHMARK_DIR, ignore_errors=True)
+        name = hs._grab("video.mp4", 1.0, (0.7, 1.0))
+        assert os.path.exists(os.path.join(db.BENCHMARK_DIR, name))
+
     def test_three_pictures_of_the_band_become_one_ocr_case(self, isolated_db, ffmpeg):
         did, ids = _title(isolated_db)
         out = hs.add_lines(None, did, [ids[0]])
@@ -250,8 +257,8 @@ def reads(isolated_db, ffmpeg, monkeypatch):
             on_done(state["usage"])
         return text, state["usage"]
 
-    monkeypatch.setattr(translate_engines, "read_image_text", fake)
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", Translator)
+    monkeypatch.setattr(engine_vision, "read_image_text", fake)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", Translator)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test-key-12345678")
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
@@ -434,7 +441,7 @@ class TestReadThenTranslate:
         _case(reads)
         monkeypatch.setattr(translate_service, "resolve_api_key",
                             lambda name, env_path=None: "sk-test-key-12345678" if name == "claude" else None)
-        from services.service_errors import MissingKeyError
+        from lib.errors import MissingKeyError
         arm = {"engine": "claude", "translate": {"engine": "deepseek"}}
         with pytest.raises(MissingKeyError):
             lab.start_run("ocr", [arm])
@@ -489,7 +496,7 @@ class TestLabBugFixes:
 
     def test_a_second_add_to_the_same_set_while_one_runs_is_refused(self, isolated_db, ffmpeg):
         from services.benchmark_reference_service import adding_to_set
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         did, ids = _title(isolated_db)
         with adding_to_set("hard-sub "):
             with pytest.raises(ConflictError):
@@ -507,7 +514,7 @@ class TestLabBugFixes:
 
     def test_a_failed_translation_step_keeps_the_reads_cost(self, reads, monkeypatch):
         from services import benchmark_vision_service as vision
-        from services.service_errors import MissingKeyError
+        from lib.errors import MissingKeyError
         _case(reads)
         (sid,) = lab.start_run("ocr", [TestReadThenTranslate.ARM])["session_ids"]
         wait_for_job(lab.JOB_ID, timeout=15)

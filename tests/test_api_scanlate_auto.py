@@ -36,7 +36,8 @@ import ocr
 import scanlate
 import scanlate_render
 import scanlate_translate
-import translate_engines
+from engine_backends import shared
+from engine_backends import llm_tasks as engine_llm_tasks
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -44,7 +45,7 @@ from services import auth_service
 from services import page_import_limits as limits
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_run_service as run_svc
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 from tests.job_helpers import wait_for_job
 
 LOCAL = {"X-Baihe-Local": "1"}
@@ -384,7 +385,7 @@ class _LLM:
     None,
 ])
 def test_untrusted_answers_apply_nothing(monkeypatch, answer):
-    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: answer)
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", lambda *a, **k: answer)
     got, ctx = scanlate_translate.translate_regions_by_id({"0": "你好", "1": "再见"}, _LLM(), {},
                                                 previous_context="before")
     assert got is None and ctx == "before"
@@ -396,7 +397,7 @@ def test_reordered_answer_is_matched_by_id(monkeypatch):
     def fake(engine, prompt, **kw):
         seen["prompt"] = prompt
         return '```json\n{"translations": {"1": "Bye", "0": "Hello"}, "context_summary": "ctx2"}\n```'
-    monkeypatch.setattr(translate_engines, "call_llm_json", fake)
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", fake)
     got, ctx = scanlate_translate.translate_regions_by_id({"0": "你好", "1": "再见"}, _LLM(), {},
                                                 previous_context="ctx1")
     assert got == {"0": "Hello", "1": "Bye"} and ctx == "ctx2"
@@ -453,7 +454,7 @@ def test_art_captions_run_translates_the_detected_caption_text(client, monkeypat
 def test_art_captions_run_is_refused_without_paddle(client, fake_detect, monkeypatch):
     def require(backend, cmd=None):
         if backend == "paddle":
-            from services.service_errors import DependencyUnavailableError
+            from lib.errors import DependencyUnavailableError
             raise DependencyUnavailableError("PaddleOCR is not installed.")
     monkeypatch.setattr(ocr, "require_backend", require)
     monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "tesseract")
@@ -575,7 +576,7 @@ def test_context_from_predecessor_and_usage_logged(client, fake_detect, monkeypa
         usage_cb(100, 20)
         return json.dumps({"translations": {"0": "Hello", "1": "Bye"},
                            "context_summary": "AFTER-P2"})
-    monkeypatch.setattr(translate_engines, "call_llm_json", fake)
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", fake)
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     r = _run(client, did, mode="page", page_id=p2, engine="claude")
     assert r.status_code == 200, r.text
@@ -608,7 +609,7 @@ def test_failed_redo_keeps_the_translated_regions(client, fake_detect, monkeypat
     db.save_bubbles(pid, [_region(1, text="旧", translated_text="good one"),
                           _region(50, text="旧2", translated_text="good two")])
     before = [b["id"] for b in db.load_bubbles(pid)]
-    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: "not json")
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", lambda *a, **k: "not json")
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     _run(client, did, mode="page", page_id=pid, engine="claude")
     st = wait_for_job(f"scanlate_{did}", timeout=20)
@@ -679,7 +680,7 @@ def test_redo_keeps_the_page_when_one_chunk_of_a_dense_page_is_rejected(client, 
         json.dumps({"translations": {str(i): f"new {i}" for i in range(40)},
                     "context_summary": "s"}),
         "not json"])                                    # the second chunk (5 regions)
-    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: next(replies))
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", lambda *a, **k: next(replies))
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     _run(client, did, mode="page", page_id=pid, engine="claude")
     st = wait_for_job(f"scanlate_{did}", timeout=20)
@@ -696,7 +697,7 @@ def test_a_partly_translated_first_run_still_saves_what_was_translated(client, m
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (new, []))
     replies = iter([json.dumps({"translations": {str(i): f"new {i}" for i in range(40)},
                                 "context_summary": "s"}), "not json"])
-    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: next(replies))
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", lambda *a, **k: next(replies))
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     _run(client, did, mode="page", page_id=pid, engine="claude")
     wait_for_job(f"scanlate_{did}", timeout=20)
@@ -712,7 +713,7 @@ def test_redo_with_ocr_error_keeps_hand_corrected_source_text(client, monkeypatc
                           _region(50, text="另一个", translated_text="")])
     before = [(b["id"], b["source_text"]) for b in db.load_bubbles(pid)]
     paid = []
-    monkeypatch.setattr(translate_engines, "call_llm_json",
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json",
                         lambda *a, **k: paid.append(1) or "{}")
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (
         [_region(5, "你好"), _region(50, "")], [("error", "OCR failed on 1 of 2 regions.")]))
@@ -729,7 +730,7 @@ def test_a_redo_that_will_be_thrown_away_is_not_translated_or_billed(client, mon
     pid = _page(did)
     db.save_bubbles(pid, [_region(1, translated_text="good")])
     paid = []
-    monkeypatch.setattr(translate_engines, "call_llm_json",
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json",
                         lambda *a, **k: paid.append(1) or "{}")
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: (
@@ -742,7 +743,7 @@ def test_a_redo_that_will_be_thrown_away_is_not_translated_or_billed(client, mon
 
 def test_answers_are_applied_by_key_not_position(monkeypatch):
     import services.scanlate_run_service as rs
-    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: json.dumps(
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", lambda *a, **k: json.dumps(
         {"translations": {"2": "C", "0": "A"}, "context_summary": "s"}))
     regions = [_region(1, text="甲"), _region(2, text="乙", skip=True), _region(3, text="丙")]
     ok, ctx = rs._translate(regions, _LLM(), "claude", {"source_language": "ja"}, None, "", 1, [])
@@ -779,7 +780,7 @@ def test_llm_prompt_names_the_source_language(monkeypatch):
     def fake(engine, prompt, **kw):
         prompts.append(prompt)
         return json.dumps({"translations": {"0": "A"}})
-    monkeypatch.setattr(translate_engines, "call_llm_json", fake)
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", fake)
     scanlate_translate.translate_regions_by_id({"0": "あ"}, _LLM(), {"source_language": "ja"})
     assert "Japanese" in prompts[0]
 
@@ -788,7 +789,7 @@ def test_llm_prompt_names_the_source_language(monkeypatch):
 def test_unmatched_answer_keeps_ocr_and_notes_it(client, fake_detect, monkeypatch):
     did = _drama()
     pid = _page(did)
-    monkeypatch.setattr(translate_engines, "call_llm_json",
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json",
                         lambda *a, **k: '{"translations": ["Hello", "Bye"]}')
     monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
     _run(client, did, engine="claude")
@@ -1179,7 +1180,7 @@ def test_a_timed_out_call_stops_the_run_instead_of_failing_every_page(isolated_d
     assert len(notes) == 1 and notes[0][0] == 7 and "did not answer" in notes[0][1]["run_notes"]
     # Each page is one request, and with thinking on DeepSeek may take the whole
     # client timeout to answer it.
-    assert scopes[0]["deadline"] >= translate_engines.SDK_REQUEST_TIMEOUT
+    assert scopes[0]["deadline"] >= shared.SDK_REQUEST_TIMEOUT
 
 
 def test_translate_helper_does_not_turn_a_timeout_into_a_warning(monkeypatch):
@@ -1392,3 +1393,33 @@ def test_read_ahead_detection_keeps_the_runs_offline_switch(isolated_db, monkeyp
     finally:
         model_offline.reset(token)
     assert seen == [(p1, True), (p2, True)]
+
+
+@needs_cv2
+def test_a_missing_lama_model_is_noted_once_per_page(tmp_path, monkeypatch):
+    src = tmp_path / "p.png"
+    src.write_bytes(_png(200, 80))
+    bubbles = [_region(x, translated_text="Hi") for x in (0, 60, 120)]
+    monkeypatch.setattr(scanlate_render, "inpaint_region", lambda *a, **k: None)
+
+    def run(cached):
+        monkeypatch.setattr(scanlate_render, "lama_ml_weights_cached", lambda: cached)
+        notes = []
+        scanlate_render.process_page(str(src), [dict(b) for b in bubbles],
+                                     str(tmp_path / f"out_{cached}.png"), notes=notes)
+        return notes
+
+    missing = ("error", "inpaint_unavailable", scanlate_render.LAMA_MISSING_NOTE)
+    assert run(False).count(missing) == 1
+    assert [n for n in run(True) if len(n) > 1 and n[1] == "inpaint_unavailable"] == []
+
+
+def test_blank_regions_note_names_regions_by_position_among_all_bubbles():
+    from services import scanlate_render_service as render_svc
+    bubbles = [_region(i) for i in range(5)]
+    note = render_svc._blank_regions_note
+    assert note([bubbles[2]], bubbles) == "Region 3 had no translation and was left as the original."
+    assert note([bubbles[1], bubbles[3], bubbles[4]], bubbles) == (
+        "Regions 2, 4 and 5 had no translation and were left as the original.")
+    assert note([bubbles[0], bubbles[1]], bubbles) == (
+        "Regions 1 and 2 had no translation and were left as the original.")

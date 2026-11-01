@@ -71,11 +71,7 @@ def checkpoint_scope(job_kind: str, owner, input_hash: str, model: str, settings
 
 
 def record_unit(scope: str, unit_id, payload) -> None:
-    with _conn() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO job_checkpoints (scope, unit_id, payload_json, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (scope, str(unit_id), json.dumps(payload, ensure_ascii=False), time.time()))
+    db.record_checkpoint_unit(scope, unit_id, payload)
 
 
 def sweep_old(max_age_days=CHECKPOINT_MAX_AGE_DAYS, now=None) -> int:

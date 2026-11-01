@@ -85,7 +85,7 @@ import types
 import pytest
 
 from services import qwen3_requirements_service as reqs
-from services.service_errors import DependencyUnavailableError
+from lib.errors import DependencyUnavailableError
 
 
 def _fake_installed(monkeypatch, missing=(), transformers="5.19.0", qwen_asr=None):
