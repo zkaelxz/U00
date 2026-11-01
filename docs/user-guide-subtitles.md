@@ -33,6 +33,8 @@ Configured per drama in the Workspace's Translate stage.
 A novel title opens on its saved chapters with **Translate**, **Add chapters**, **Glossary**, **Export** and **Read** above the list, and without the Media, Review and Dub tabs; each button opens the matching stage.
 A novel title with no lines yet also has a link box: **Import from link** imports the chapters, splits them into lines, tags speakers and finds glossary terms, then stops at **Review the glossary**; after you review it, **Translate** runs as usual. If a step fails, its error shows and **Continue** picks up from where the title is.
 
+The **Instructions** tab beside **Chapters** holds the title's instructions and its **Term conventions** (one per line, saved as the last section of the same text); both go into every translation, and the conventions also guide the terms the glossary finds in the novel.
+
 The Translate stage has four tabs, one screen each (the last one you used is remembered per title): **Translate** (engine, model, style, the estimate and the Translate button, More options, the notices about failed batches or missing glossary names, Bulk batches), **Glossary** (the panel below, with its language packs), **Characters** and **Reference novel** (an existing English translation of the novel, used to keep names consistent). A running job's progress stays above the tabs whichever one you are on. A link can open one with `#/drama/<id>/translate?tab=glossary` (or `translate`, `characters`, `novel`). In every tab only the first card opens by itself; the others are folded and remember how you left them.
 
 - **Style presets** change register and pacing: audio drama (spoken, contractions), novel (literary), subtitles (instant comprehension), manhua (concise bubble dialogue).
