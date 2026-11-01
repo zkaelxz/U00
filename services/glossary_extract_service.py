@@ -20,7 +20,7 @@ import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service, novel_files_service, paid_job_service
-from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text
+from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text, split_term_conventions
 from lib.errors import (
     ConflictError,
     InvalidInputError,
@@ -150,12 +150,12 @@ def _bounded_calls(job_id, drama_id, engine, engine_name, operation):
 
 
 def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_text, en_text,
-                            source_language, known_terms, fresh=False):
+                            source_language, known_terms, fresh=False, conventions=""):
     try:
         with _bounded_calls(job_id, drama_id, engine, engine_name, "glossary_from_novel") as limits:
             proposals = tguide.extract_glossary_from_novel(
                 src_text, engine, source_language=source_language, english_translation=en_text,
-                known_terms=known_terms,
+                known_terms=known_terms, conventions=conventions,
                 response_cache=_novel_glossary_cache(engine, engine_name, fresh),
                 progress_cb=lambda f: background_jobs.update_progress(
                     job_id, f, f"Reading... {f * 100:.0f}%"),
@@ -299,7 +299,8 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
         en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid) if sid else [],
         gpu_touching=engine_name == "ollama",
-        description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh))
+        description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh),
+        conventions=split_term_conventions(drama.get("project_instructions"))[1])
     if not started:
         raise ConflictError("A glossary extraction is already running for this title.")
     return {"job_id": job_id, "engine": engine_name, "paired": bool(en_text)}

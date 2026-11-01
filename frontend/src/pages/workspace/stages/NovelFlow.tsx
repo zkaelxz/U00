@@ -36,7 +36,7 @@ export function NovelFlow({ busy, onJobStarted }: Props) {
         <li>Add the text below: paste it, attach an EPUB, or use the chapters scraped in Sources.</li>
         <li>Split it into lines and tag who speaks.</li>
         <li><a href={`#/drama/${dramaId}/translate`}>Translate the lines</a>.</li>
-        <li>Later, if you want audio: <a href={`#/drama/${dramaId}/dub`}>make the narration</a>.</li>
+        <li>Later, if you want audio: <a href={`#/read/${dramaId}`}>make the narration</a>.</li>
       </ol>
       {narration ? (
         <NarrationPanel dramaId={dramaId} busy={busy} onJobStarted={onJobStarted} />

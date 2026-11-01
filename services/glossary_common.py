@@ -17,6 +17,22 @@ from services.ownership_service import require_drama as _drama  # noqa: F401  (t
 MAX_TERM_LEN = 200
 MAX_NOTES_LEN = 1000
 
+# Term conventions live as a trailing section of the project instructions text,
+# so the translate prompt carries them with no second channel, and backup and
+# import already copy them. frontend/.../NovelInstructionsTab.tsx splits on the same heading.
+TERM_CONVENTIONS_HEADING = "Term conventions:"
+
+
+def split_term_conventions(instructions: str) -> tuple:
+    """(prose, conventions) from a project instructions text; the last heading wins
+    so prose that quotes the heading earlier isn't cut."""
+    text = instructions or ""
+    marker = "\n" + TERM_CONVENTIONS_HEADING + "\n"
+    at = ("\n" + text).rfind(marker)
+    if at < 0:
+        return text.strip(), ""
+    return text[:max(at - 1, 0)].strip(), text[at + len(marker) - 1:].strip()
+
 
 def _series_id(drama: dict, *, required: bool) -> Optional[int]:
     sid = drama.get("series_id")

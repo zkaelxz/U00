@@ -261,125 +261,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/assistant/github": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** PC only: GitHub delivery settings (token: configured or not, never the value) */
-        get: operations["get_status_api_assistant_github_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/deliver": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: open ONE draft PR from a new branch for the previewed diff (confirm=true + its sha256; never pushes to an existing branch) */
-        post: operations["post_deliver_api_assistant_github_deliver_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: the exact diff a PR would carry, with its sha256 (no network) */
-        post: operations["post_preview_api_assistant_github_preview_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: turn GitHub delivery on/off, set the repo and base branch */
-        post: operations["post_settings_api_assistant_github_settings_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: check the token can see the repo (409 while off / no token) */
-        post: operations["post_test_api_assistant_github_test_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: store the GitHub token in .env (write-only; key-write gate) */
-        post: operations["post_token_api_assistant_github_token_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/assistant/github/token/clear": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** PC only: remove the GitHub token from .env (key-write gate) */
-        post: operations["post_token_clear_api_assistant_github_token_clear_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/assistant/report": {
         parameters: {
             query?: never;
@@ -1008,7 +889,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** PC only: a title's latest hard-sub reading by speaker (progress, or the lines and comparison) */
+        get: operations["get_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_get"];
         put?: never;
         /** PC only: read a title's hard subs by speaker with a vision model (confirm=true; result on the job) */
         post: operations["post_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_post"];
@@ -3162,74 +3044,6 @@ export interface paths {
         };
         /** The title's source link as imported or typed (PC only; may carry a query) */
         get: operations["get_source_link_api_dramas__drama_id__source_link_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dub/dramas/{drama_id}/config": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Read-only Dub-stage summary for one drama */
-        get: operations["get_dub_config_api_dub_dramas__drama_id__config_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dub/dramas/{drama_id}/pacing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Per-line pacing from the last dub run */
-        get: operations["get_dub_pacing_api_dub_dramas__drama_id__pacing_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dub/dramas/{drama_id}/run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start the dub/narration track job (poll GET /api/jobs/{job_id}) */
-        post: operations["start_dub_run_api_dub_dramas__drama_id__run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dub/dramas/{drama_id}/track": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download the finished dub/narration track (WAV) */
-        get: operations["download_dub_track_api_dub_dramas__drama_id__track_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11512,119 +11326,6 @@ export interface components {
              */
             confirm: boolean;
         };
-        /** AssistantGithubConnection */
-        AssistantGithubConnection: {
-            /** Base Branch */
-            base_branch: string;
-            /** Base Exists */
-            base_exists: boolean;
-            /** Can Push */
-            can_push: boolean;
-            /** Default Branch */
-            default_branch?: string | null;
-            /** Ok */
-            ok: boolean;
-            /** Repo */
-            repo: string;
-        };
-        /** AssistantGithubDeliverRequest */
-        AssistantGithubDeliverRequest: {
-            /**
-             * Body
-             * @default
-             */
-            body: string;
-            /**
-             * Confirm
-             * @default false
-             */
-            confirm: boolean;
-            /** Patch */
-            patch: string;
-            /** Sha256 */
-            sha256: string;
-            /** Title */
-            title: string;
-        };
-        /** AssistantGithubDelivered */
-        AssistantGithubDelivered: {
-            /** Base Branch */
-            base_branch: string;
-            /** Branch */
-            branch: string;
-            /** Files */
-            files: components["schemas"]["AssistantGithubFile"][];
-            /** Pr Number */
-            pr_number?: number | null;
-            /** Pr Url */
-            pr_url: string;
-            /** Repo */
-            repo: string;
-        };
-        /** AssistantGithubFile */
-        AssistantGithubFile: {
-            /**
-             * Change
-             * @enum {string}
-             */
-            change: "add" | "modify" | "delete";
-            /** Path */
-            path: string;
-        };
-        /** AssistantGithubPreview */
-        AssistantGithubPreview: {
-            /** Base Branch */
-            base_branch: string;
-            /** Branch Prefix */
-            branch_prefix: string;
-            /** Files */
-            files: components["schemas"]["AssistantGithubFile"][];
-            /** Patch */
-            patch: string;
-            /** Repo */
-            repo: string;
-            /** Sha256 */
-            sha256: string;
-            /** Title */
-            title: string;
-        };
-        /** AssistantGithubPreviewRequest */
-        AssistantGithubPreviewRequest: {
-            /** Patch */
-            patch: string;
-            /** Title */
-            title: string;
-        };
-        /** AssistantGithubSettingsUpdate */
-        AssistantGithubSettingsUpdate: {
-            /** Base Branch */
-            base_branch?: string | null;
-            /** Enabled */
-            enabled?: boolean | null;
-            /** Repo */
-            repo?: string | null;
-        };
-        /**
-         * AssistantGithubStatus
-         * @description Never carries the token: only whether one is configured.
-         */
-        AssistantGithubStatus: {
-            /** Base Branch */
-            base_branch: string;
-            /** Branch Prefix */
-            branch_prefix: string;
-            /** Enabled */
-            enabled: boolean;
-            /** Repo */
-            repo?: string | null;
-            /** Token Configured */
-            token_configured: boolean;
-        };
-        /** AssistantGithubTokenResult */
-        AssistantGithubTokenResult: {
-            /** Token Configured */
-            token_configured: boolean;
-        };
         /** AssistantPatch */
         AssistantPatch: {
             /** Files */
@@ -12434,6 +12135,48 @@ export interface components {
             /** Unclear */
             unclear: number;
         };
+        /** BenchmarkHardSubComparison */
+        BenchmarkHardSubComparison: {
+            /** Groups */
+            groups: components["schemas"]["BenchmarkHardSubGroupScore"][];
+            /** Label Match */
+            label_match?: number | null;
+            /** Label Overlap */
+            label_overlap: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /** Precision */
+            precision?: number | null;
+            /** Recall */
+            recall?: number | null;
+        };
+        /** BenchmarkHardSubGroup */
+        BenchmarkHardSubGroup: {
+            /** Key */
+            key: string;
+            /** Lines */
+            lines: components["schemas"]["BenchmarkHardSubLine"][];
+        };
+        /** BenchmarkHardSubGroupScore */
+        BenchmarkHardSubGroupScore: {
+            /** Characters */
+            characters: number;
+            /** Key */
+            key: string;
+            /** Recall */
+            recall?: number | null;
+        };
+        /** BenchmarkHardSubLine */
+        BenchmarkHardSubLine: {
+            /** End */
+            end: number;
+            /** Start */
+            start: number;
+            /** Text */
+            text: string;
+        };
         /** BenchmarkHardSubReadEstimate */
         BenchmarkHardSubReadEstimate: {
             /** Cap Applies */
@@ -12457,6 +12200,28 @@ export interface components {
             /** Windows */
             windows: number;
         };
+        /** BenchmarkHardSubReadOutcome */
+        BenchmarkHardSubReadOutcome: {
+            comparison: components["schemas"]["BenchmarkHardSubComparison"];
+            /** Cost Usd */
+            cost_usd: number;
+            /** Failed Reads */
+            failed_reads: number;
+            /** Groups */
+            groups: components["schemas"]["BenchmarkHardSubGroup"][];
+            /** Note */
+            note?: string | null;
+            /** Stopped */
+            stopped?: string | null;
+            /** Unclear Pictures */
+            unclear_pictures: number;
+            /** Unreadable */
+            unreadable: number;
+            /** Windows Read */
+            windows_read: number;
+            /** Windows Total */
+            windows_total: number;
+        };
         /**
          * BenchmarkHardSubReadRequest
          * @description Read a title's burned-in subtitles speaker by speaker. confirm is for the run, not the estimate.
@@ -12479,6 +12244,16 @@ export interface components {
             model?: string | null;
             /** Speaker Groups */
             speaker_groups?: number | null;
+        };
+        /** BenchmarkHardSubReadResult */
+        BenchmarkHardSubReadResult: {
+            /** Message */
+            message?: string | null;
+            /** Progress */
+            progress?: number | null;
+            result?: components["schemas"]["BenchmarkHardSubReadOutcome"] | null;
+            /** Status */
+            status: string;
         };
         /** BenchmarkHardSubReadStarted */
         BenchmarkHardSubReadStarted: {
@@ -14115,6 +13890,11 @@ export interface components {
              * @default
              */
             clone_engine_removed: string;
+            /**
+             * Clone Warning
+             * @default
+             */
+            clone_warning: string;
             /** Has Ref Audio */
             has_ref_audio: boolean;
             /** Line Count */
@@ -16618,135 +16398,14 @@ export interface components {
              */
             voice_actors?: string | null;
         };
-        /**
-         * DubConfig
-         * @description Read-only Dub-stage summary for one drama.
-         *     No filesystem path or secret.
-         */
-        DubConfig: {
-            /** Blocker */
-            blocker?: string | null;
-            /**
-             * Can Keep Background
-             * @default false
-             */
-            can_keep_background: boolean;
-            /** Content Mode */
-            content_mode?: string | null;
-            /** Default Engine */
-            default_engine: string;
-            defaults?: components["schemas"]["DubDefaults"] | null;
-            /** Drama Id */
-            drama_id: number;
-            /** Gpu Required */
-            gpu_required: boolean;
-            /** Is Narration */
-            is_narration: boolean;
-            /** Narration Language */
-            narration_language: string;
-            /** Narration Language Options */
-            narration_language_options: string[];
-            /** Source Language */
-            source_language: string;
-            /** Speakable Line Count */
-            speakable_line_count: number;
-            /** Speakers */
-            speakers: components["schemas"]["DubSpeaker"][];
-            /** Track Available */
-            track_available: boolean;
-            /** Tts Engines */
-            tts_engines: components["schemas"]["DubTtsEngine"][];
-        };
-        /**
-         * DubDefaults
-         * @description Pacing-limit defaults and slider ranges; null for narration.
-         */
-        DubDefaults: {
-            /** Max Slowdown */
-            max_slowdown: number;
-            /** Max Speedup */
-            max_speedup: number;
-            /** Slowdown Range */
-            slowdown_range: number[];
-            /** Speedup Range */
-            speedup_range: number[];
-        };
-        /**
-         * DubPacing
-         * @description Per-line pacing from the last dub run; `available` is False when
-         *     there is nothing to show (never dubbed, or narration). No paths.
-         */
-        DubPacing: {
-            /** Available */
-            available: boolean;
-            /** Counts */
-            counts: {
-                [key: string]: number;
-            };
-            /** Lines */
-            lines: components["schemas"]["DubPacingLine"][];
-        };
-        /**
-         * DubPacingLine
-         * @description One line's fit against its original timing window. status is
-         *     "fit", "stretched" or "overflow".
-         */
-        DubPacingLine: {
-            /** Clip Ms */
-            clip_ms?: number | null;
-            /** Factor */
-            factor: number;
-            /** Idx */
-            idx: number;
-            /** Status */
-            status: string;
-            /** Window Ms */
-            window_ms?: number | null;
-        };
-        /** DubRunRequest */
-        DubRunRequest: {
-            /**
-             * Keep Background
-             * @default false
-             */
-            keep_background: boolean;
-            /** Max Slowdown */
-            max_slowdown?: number | null;
-            /** Max Speedup */
-            max_speedup?: number | null;
-            /** Narration Language */
-            narration_language?: string | null;
-            /**
-             * Tts Engine
-             * @default omnivoice
-             */
-            tts_engine: string;
-        };
         /** DubRunStarted */
         DubRunStarted: {
             /** Job Id */
             job_id: string;
         };
         /**
-         * DubSpeaker
-         * @description One speaker's resolved engine, as the Generate button would resolve
-         *     it. No reference-audio path, only a boolean.
-         */
-        DubSpeaker: {
-            /** Character Name */
-            character_name?: string | null;
-            /** Clone Warning */
-            clone_warning?: string | null;
-            /** Engine */
-            engine: string;
-            /** Has Clone Ref */
-            has_clone_ref: boolean;
-            /** Speaker Label */
-            speaker_label: string;
-        };
-        /**
          * DubTtsEngine
-         * @description One selectable voice engine for the Dub stage.
+         * @description One selectable voice engine for Listen.
          */
         DubTtsEngine: {
             /** Key */
@@ -21736,7 +21395,7 @@ export interface components {
         /**
          * ReaderMediaAvailability
          * @description What the Watch / listen panel can show -- booleans and labels only.
-         *     React plays the files through /api/media and /api/dub.
+         *     React plays the files through /api/media and /api/listen.
          */
         ReaderMediaAvailability: {
             /** Caption Tracks */
@@ -21745,8 +21404,6 @@ export interface components {
             captions_overlay: boolean;
             /** Drama Id */
             drama_id: number;
-            /** Dub */
-            dub: boolean;
             /** Narration */
             narration: boolean;
             /** Original */
@@ -29391,284 +29048,6 @@ export interface operations {
             };
         };
     };
-    get_status_api_assistant_github_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubStatus"];
-                };
-            };
-        };
-    };
-    post_deliver_api_assistant_github_deliver_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssistantGithubDeliverRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubDelivered"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_preview_api_assistant_github_preview_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssistantGithubPreviewRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubPreview"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_settings_api_assistant_github_settings_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssistantGithubSettingsUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubStatus"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_test_api_assistant_github_test_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubConnection"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_token_api_assistant_github_token_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubTokenResult"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    post_token_clear_api_assistant_github_token_clear_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistantGithubTokenResult"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     post_report_api_assistant_report_post: {
         parameters: {
             query?: never;
@@ -31356,6 +30735,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BenchmarkHardSubAddResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkHardSubReadResult"];
                 };
             };
             /** @description Not Found */
@@ -37637,188 +37065,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    get_dub_config_api_dub_dramas__drama_id__config_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DubConfig"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_dub_pacing_api_dub_dramas__drama_id__pacing_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DubPacing"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    start_dub_run_api_dub_dramas__drama_id__run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DubRunRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DubRunStarted"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    download_dub_track_api_dub_dramas__drama_id__track_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

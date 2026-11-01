@@ -360,7 +360,7 @@ class TestAuthOn:
     def test_403_without_permission_200_with_it(self, isolated_db):
         c = _remote(_app())
         u, s = _user()
-        assert c.get("/api/dub/dramas/1/track", headers=_h(s)).status_code == 403  # media.stream
+        assert c.get("/api/listen/dramas/1/track", headers=_h(s)).status_code == 403  # media.stream
         assert c.get("/api/library/dramas", headers=_h(s)).status_code == 200
         assert c.get("/api/diagnostics", headers=_h(s)).status_code == 403          # admin
         body = c.get("/api/diagnostics", headers=_h(s)).json()

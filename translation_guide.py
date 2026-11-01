@@ -650,9 +650,32 @@ def _sample_across_text(text: str, total_chars: int = 24000, chunks: int = 6):
     return out
 
 
+def _merge_novel_entries(all_terms: dict, entries) -> None:
+    """Folds one window's parsed reply into `all_terms`, keyed by term."""
+    if not isinstance(entries, list):
+        return
+    for e in entries:
+        if not isinstance(e, dict) or not e.get("term"):
+            continue
+        e["category"] = e.get("category") if e.get("category") in TERM_CATEGORIES else "other"
+        e["policy"] = e.get("policy") if e.get("policy") in TERM_POLICIES else "keep_pinyin"
+        # later windows refine earlier proposals rather than duplicating,
+        # but the earlier renderings stay visible: a term rendered
+        # differently per window is the inconsistency a reviewer should see.
+        seen = all_terms.get(e["term"])
+        e["windows"] = (seen["windows"] if seen else 0) + 1
+        renderings = list(seen["renderings"]) if seen else []
+        rendering = str(e.get("suggested_translation") or "").strip()
+        if rendering and rendering not in renderings:
+            renderings.append(rendering)
+        e["renderings"] = renderings
+        all_terms[e["term"]] = e
+
+
 def extract_glossary_from_novel(novel_text: str, engine, source_language: str = "zh",
                                  english_translation: str = "", known_terms=None,
-                                 progress_cb=None, usage_cb=None, response_cache=None):
+                                 progress_cb=None, usage_cb=None, response_cache=None,
+                                 conventions: str = ""):
     """
     Builds a term glossary from a novel rather than from drama dialogue.
 
@@ -696,6 +719,12 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         known_block = ("\n\nAlready in the glossary -- do NOT propose these again: "
                        + ", ".join(t["term_original"] for t in known_terms))
 
+    conventions_block = ""
+    if conventions.strip():
+        conventions_block = ("\n\nThe person running this translation set these conventions for "
+                             "terms -- follow them when choosing each suggested translation:\n"
+                             + conventions.strip())
+
     all_terms = {}
     total = len(src_samples)
     for i, sample in enumerate(src_samples):
@@ -719,7 +748,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
             "-- worth a translation note even when the name stays pinyin.\n\n"
             'Return ONLY a JSON array: [{"term": "...", "suggested_translation": "...", '
             '"category": "...", "policy": "...", "reason": "brief justification"}]. '
-            f"No preamble, no markdown fences.{known_block}{paired}\n\n"
+            f"No preamble, no markdown fences.{known_block}{conventions_block}{paired}\n\n"
             f"Excerpt:\n{sample}"
         )
 
@@ -735,23 +764,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         if (response_cache and not cached and isinstance(entries, list)
                 and any(isinstance(e, dict) and e.get("term") for e in entries)):
             response_cache[1](prompt, text)
-        if isinstance(entries, list):
-            for e in entries:
-                if not isinstance(e, dict) or not e.get("term"):
-                    continue
-                e["category"] = e.get("category") if e.get("category") in TERM_CATEGORIES else "other"
-                e["policy"] = e.get("policy") if e.get("policy") in TERM_POLICIES else "keep_pinyin"
-                # later windows refine earlier proposals rather than duplicating,
-                # but the earlier renderings stay visible: a term rendered
-                # differently per window is the inconsistency a reviewer should see.
-                seen = all_terms.get(e["term"])
-                e["windows"] = (seen["windows"] if seen else 0) + 1
-                renderings = list(seen["renderings"]) if seen else []
-                rendering = str(e.get("suggested_translation") or "").strip()
-                if rendering and rendering not in renderings:
-                    renderings.append(rendering)
-                e["renderings"] = renderings
-                all_terms[e["term"]] = e
+        _merge_novel_entries(all_terms, entries)
         if progress_cb:
             progress_cb((i + 1) / total)
     return list(all_terms.values())

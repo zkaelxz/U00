@@ -39,7 +39,6 @@ from api.remote_uploads import RemoteUploadGate, upload_matchers
 from api.routers import (
     admin_users_routes,
     artifact_routes,
-    assistant_github_routes,
     assistant_routes,
     asr_options_routes,
     auth_routes,
@@ -67,7 +66,6 @@ from api.routers import (
     discover_routes,
     drama_routes,
     events_routes,
-    dub_routes,
     listen_routes,
     engine_routing_routes,
     stronger_engine_routes,
@@ -213,7 +211,7 @@ _ROUTER_MODULES = (
     system_routes, update_routes, source_update_routes, library_routes, reader_routes, diagnostics_routes, setup_routes,
     jobs_routes, queue_routes, quick_video_routes, events_routes, job_stage_routes, loaded_models_routes,
     settings_routes, translate_routes, export_routes, diarization_routes, source_suspect_routes,
-    timing_check_routes, source_routes, transcribe_routes, subtitle_import_routes, dub_routes, listen_routes,
+    timing_check_routes, source_routes, transcribe_routes, subtitle_import_routes, listen_routes,
     drama_routes, translate_run_routes, characters_routes, glossary_routes, language_pack_routes,
     vdb_names_routes, review_lines_routes, review_records_routes, lines_routes, artifact_routes,
     media_routes, link_details_routes, narration_routes, metadata_routes, metadata_research_routes,
@@ -231,7 +229,7 @@ _ROUTER_MODULES = (
     novel_files_routes, benchmark_routes, model_registry_routes, model_reeval_routes,
     diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes,
     real_model_check_routes, voice_bank_audio_routes, sources_tools_routes, assistant_routes,
-    sharing_routes, assistant_github_routes,
+    sharing_routes,
 )
 
 

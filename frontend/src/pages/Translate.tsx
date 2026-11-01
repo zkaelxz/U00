@@ -51,6 +51,7 @@ const isText = (v: unknown): v is string => typeof v === 'string'
 
 export default function TranslatePage() {
   const [engines, setEngines] = useState<TranslateEngine[]>([])
+  const [enginesLoaded, setEnginesLoaded] = useState(false)
   const [defaultEngine, setDefaultEngine] = useState<string | null>(null)
   const [history, setHistory] = useState<TranslateHistoryEntry[]>([])
   // Remembered per viewer (react-ui-guidelines rule 12); validated on read.
@@ -86,7 +87,8 @@ export default function TranslatePage() {
     translateApi.engineList().then((r) => {
       setEngines(r.items)
       setDefaultEngine(r.default_engine)
-    }, setError)
+      setEnginesLoaded(true)
+    }, (e: unknown) => { setError(e); setEnginesLoaded(true) })
     refreshHistory()
   }, [refreshHistory])
 
@@ -277,7 +279,7 @@ export default function TranslatePage() {
                 <button
                   type="submit"
                   className={buttonClass('primary')}
-                  disabled={loading || noKey || !canTranslate}
+                  disabled={loading || !enginesLoaded || noKey || !canTranslate}
                   aria-describedby={!canTranslate ? 'translate-needs-permission' : noKey ? 'translate-needs-key' : undefined}
                 >
                   {loading ? 'Translating…' : 'Translate'}
