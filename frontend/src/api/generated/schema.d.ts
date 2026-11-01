@@ -24010,6 +24010,8 @@ export interface components {
             mode: "missing" | "page" | "all";
             /** Page Id */
             page_id?: number | null;
+            /** Read Ahead From */
+            read_ahead_from?: number | null;
         };
         /** ScanlateUploadLimits */
         ScanlateUploadLimits: {

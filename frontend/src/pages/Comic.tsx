@@ -59,6 +59,7 @@ import {
 } from './comic/comicLogic'
 import { useJumpRequest, usePageJump } from './comic/usePageJump'
 import { readerClasses, usePagedReader } from './comic/usePagedReader'
+import { useReadAhead } from './comic/useReadAhead'
 import './reader/reader.css'
 import './comic/comic.css'
 import { browserStorage } from '../hooks/usePersistedState'
@@ -210,6 +211,13 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const position = current === null ? 0 : visible.indexOf(current) + 1
   // Every listed page ignoring the one-chapter limit: chapter jumps and the overall position.
   const visibleAll = useMemo(() => visibleOrdinals(pages, { ...cprefs, chapterOnly: false }, null), [pages, cprefs])
+  useReadAhead({
+    titleId: id,
+    page: current === null ? undefined : pages[current - 1],
+    ahead: visible.slice(position, position + 3).map((n) => pages[n - 1]).filter(Boolean),
+    enabled: canTypeset && current !== null,
+    onFinished: loadPages,
+  })
   const resumed = initialPage === null && !resumeDismissed && start !== null && start > 1 ? start : null
   // Set after hiding or restoring pages: the reload shifts the layout, so the reader is put back on their page.
   const reanchor = useRef(false)

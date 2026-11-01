@@ -118,13 +118,21 @@ def _require_opencv() -> None:
             details={"reason": "missing_package", "package": "opencv-python"})
 
 
+# Small on purpose: a reader who stops after a page should not have paid for a whole chapter.
+READ_AHEAD_PAGES = 3
+
+
 def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, confirm: bool = False,
               engine: str | None = None, detect_backend: str = "auto",
-              chapter_id: str | None = None, art_captions: bool = False) -> dict:
+              chapter_id: str | None = None, art_captions: bool = False,
+              read_ahead_from: int | None = None) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
     pages. `chapter_id` limits "missing"/"all" to one chapter. `art_captions` also
-    translates the large text drawn on the art (needs PaddleOCR). Returns {job_id, engine, mode}."""
+    translates the large text drawn on the art (needs PaddleOCR). `read_ahead_from` is the page
+    a reader is on: the run covers the READ_AHEAD_PAGES visible pages after it, and (nobody
+    having asked for this spend) is refused for a capped engine while no monthly cap is set.
+    Returns {job_id, engine, mode}."""
     pages_svc.require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("mode must be 'missing', 'page' or 'all'.")
@@ -143,9 +151,16 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
         raise InvalidInputError("chapter_id can't be combined with a single page.")
     if mode == "all" and not confirm:
         raise ConflictError(_CONFIRM_ALL)
+    if read_ahead_from is not None and (mode != "missing" or chapter_id is not None):
+        raise InvalidInputError("read_ahead_from only works with mode 'missing' and no chapter.")
     # Pages marked "not part of the story" are skipped, and a chapter limits the run.
     targets = ([page_id] if mode == "page"
                else comic_chapters_service.run_page_ids(drama_id, chapter_id))
+    if read_ahead_from is not None:
+        if read_ahead_from not in targets:
+            raise UnsupportedOperationError("That page is not in the reading order.")
+        start = targets.index(read_ahead_from) + 1
+        targets = targets[start:start + READ_AHEAD_PAGES]
     if not targets:
         raise UnsupportedOperationError("No pages to run: they are all hidden.")
     _require_opencv()
@@ -153,6 +168,9 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
     if art_captions:
         _require_paddle()
     engine_name = engine or str(settings_service.get("default_engine"))
+    if read_ahead_from is not None:
+        paid_job_service.require_cap_for_unattended(
+            engine_name, bool(settings_service.get("gemini_free_tier")))
     # Pure-MT engines are called once per region, outside call_llm_json.
     built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(
