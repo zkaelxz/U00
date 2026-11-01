@@ -63,6 +63,58 @@ final class ServerAddress {
         }
     }
 
+    /**
+     * The Baihe address the shell may keep: https, or http only for a host on a private
+     * network (this phone's LAN, Tailscale, localhost), because cleartext is allowed
+     * app-wide and must not reach a public host. A path, query or login is dropped.
+     */
+    static String shellAddress(String text) {
+        String raw = text == null ? "" : text.trim();
+        if (raw.isEmpty() || raw.matches(".*\\s.*")) return null;
+        if (!raw.contains("://")) raw = "https://" + raw;
+        try {
+            URI uri = new URI(raw);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            if (uri.getRawUserInfo() != null || uri.getHost() == null) return null;
+            if (!scheme.equals("https") && !(scheme.equals("http") && isPrivateHost(uri.getHost()))) return null;
+            String origin = scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT);
+            return uri.getPort() > 0 ? origin + ":" + uri.getPort() : origin;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** True for localhost, a .local/.lan name, or an IPv4 literal in a private range. */
+    static boolean isPrivateHost(String host) {
+        String h = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        if (h.equals("localhost") || h.endsWith(".local") || h.endsWith(".lan")) return true;
+        String[] p = h.split("\\.");
+        if (p.length != 4) return false;
+        int[] n = new int[4];
+        for (int i = 0; i < 4; i++) {
+            if (!p[i].matches("\\d{1,3}")) return false;
+            n[i] = Integer.parseInt(p[i]);
+            if (n[i] > 255) return false;
+        }
+        return n[0] == 10 || n[0] == 127
+                || (n[0] == 192 && n[1] == 168)
+                || (n[0] == 172 && n[1] >= 16 && n[1] <= 31)
+                || (n[0] == 100 && n[1] >= 64 && n[1] <= 127);
+    }
+
+    /** True when `url` is on the same scheme, host and port as the saved Baihe address. */
+    static boolean sameOrigin(String address, String url) {
+        try {
+            URI a = new URI(address);
+            URI u = new URI(url);
+            return a.getScheme() != null && a.getScheme().equalsIgnoreCase(u.getScheme())
+                    && a.getHost() != null && a.getHost().equalsIgnoreCase(u.getHost())
+                    && a.getPort() == u.getPort();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** The host (and port) to show for a normalized origin. */
     static String hostOf(String origin) {
         return origin.substring("https://".length());
