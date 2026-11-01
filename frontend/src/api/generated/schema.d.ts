@@ -1008,7 +1008,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** PC only: a title's latest hard-sub reading by speaker (progress, or the lines and comparison) */
+        get: operations["get_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_get"];
         put?: never;
         /** PC only: read a title's hard subs by speaker with a vision model (confirm=true; result on the job) */
         post: operations["post_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_post"];
@@ -12434,6 +12435,48 @@ export interface components {
             /** Unclear */
             unclear: number;
         };
+        /** BenchmarkHardSubComparison */
+        BenchmarkHardSubComparison: {
+            /** Groups */
+            groups: components["schemas"]["BenchmarkHardSubGroupScore"][];
+            /** Label Match */
+            label_match?: number | null;
+            /** Label Overlap */
+            label_overlap: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /** Precision */
+            precision?: number | null;
+            /** Recall */
+            recall?: number | null;
+        };
+        /** BenchmarkHardSubGroup */
+        BenchmarkHardSubGroup: {
+            /** Key */
+            key: string;
+            /** Lines */
+            lines: components["schemas"]["BenchmarkHardSubLine"][];
+        };
+        /** BenchmarkHardSubGroupScore */
+        BenchmarkHardSubGroupScore: {
+            /** Characters */
+            characters: number;
+            /** Key */
+            key: string;
+            /** Recall */
+            recall?: number | null;
+        };
+        /** BenchmarkHardSubLine */
+        BenchmarkHardSubLine: {
+            /** End */
+            end: number;
+            /** Start */
+            start: number;
+            /** Text */
+            text: string;
+        };
         /** BenchmarkHardSubReadEstimate */
         BenchmarkHardSubReadEstimate: {
             /** Cap Applies */
@@ -12457,6 +12500,28 @@ export interface components {
             /** Windows */
             windows: number;
         };
+        /** BenchmarkHardSubReadOutcome */
+        BenchmarkHardSubReadOutcome: {
+            comparison: components["schemas"]["BenchmarkHardSubComparison"];
+            /** Cost Usd */
+            cost_usd: number;
+            /** Failed Reads */
+            failed_reads: number;
+            /** Groups */
+            groups: components["schemas"]["BenchmarkHardSubGroup"][];
+            /** Note */
+            note?: string | null;
+            /** Stopped */
+            stopped?: string | null;
+            /** Unclear Pictures */
+            unclear_pictures: number;
+            /** Unreadable */
+            unreadable: number;
+            /** Windows Read */
+            windows_read: number;
+            /** Windows Total */
+            windows_total: number;
+        };
         /**
          * BenchmarkHardSubReadRequest
          * @description Read a title's burned-in subtitles speaker by speaker. confirm is for the run, not the estimate.
@@ -12479,6 +12544,16 @@ export interface components {
             model?: string | null;
             /** Speaker Groups */
             speaker_groups?: number | null;
+        };
+        /** BenchmarkHardSubReadResult */
+        BenchmarkHardSubReadResult: {
+            /** Message */
+            message?: string | null;
+            /** Progress */
+            progress?: number | null;
+            result?: components["schemas"]["BenchmarkHardSubReadOutcome"] | null;
+            /** Status */
+            status: string;
         };
         /** BenchmarkHardSubReadStarted */
         BenchmarkHardSubReadStarted: {
@@ -27551,7 +27626,7 @@ export interface components {
         };
         /**
          * TranslateEngine
-         * @description One entry from translate_engines.ENGINES --
+         * @description One entry from engine_backends.engine_registry.ENGINES --
          *     key_configured is a boolean only, never a key value.
          */
         TranslateEngine: {
@@ -31356,6 +31431,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BenchmarkHardSubAddResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_hard_sub_reading_api_benchmark_dramas__drama_id__hard_sub_reading_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkHardSubReadResult"];
                 };
             };
             /** @description Not Found */
