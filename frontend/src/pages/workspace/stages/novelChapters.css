@@ -30,3 +30,8 @@ a.chapters-row { text-decoration: none; box-sizing: border-box; }
   .novel-title .workspace-header { flex-wrap: wrap; }
   .novel-title .workspace-header h1 { flex: 1 1 8rem; }
 }
+
+/* The Episodes list of the Simple title view: title left, state right, every episode in view. */
+.episodes-list { max-height: none; }
+.episodes-row { grid-template-columns: minmax(0, 1fr) auto; }
+.episodes-row .chapters-meta { grid-column: auto; text-align: right; }
