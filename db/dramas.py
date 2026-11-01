@@ -43,7 +43,7 @@ def create_drama(**fields) -> int:
         placeholders = ", ".join("?" for _ in fields)
         cur = conn.execute(f"INSERT INTO dramas ({cols}) VALUES ({placeholders})",
                             list(fields.values()))
-        new_id = cur.lastrowid
+        new_id = db.inserted_id(cur)
         db.claim_new_drama_folder(new_id)   # raising here rolls the insert back
         conn.commit()
     return new_id
@@ -188,7 +188,7 @@ def _fold_if_needed(conn, term: str) -> tuple:
 
 def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
-                 media_type: str = "", visible_to: int = None):
+                 media_type: str = "", visible_to: int | None = None):
     """`visible_to`: a non-admin user id; when set, only
     dramas that user may see are returned (any drama in a series they own;
     otherwise, outside a private series, their own or non-private ones).
@@ -286,7 +286,7 @@ def list_dramas_by_series_ids(series_ids) -> dict:
     return {sid: _order_series_dramas(ds) for sid, ds in grouped.items()}
 
 
-def get_library_stats(visible_to: int = None):
+def get_library_stats(visible_to: int | None = None):
     """`visible_to` (auth B2): count only the dramas (and their lines) that
     user may see; None = the whole library."""
     where, params = "", []
@@ -315,7 +315,7 @@ def get_library_stats(visible_to: int = None):
     }
 
 
-def list_dramas_recently_active(n: int = 10, visible_to: int = None):
+def list_dramas_recently_active(n: int = 10, visible_to: int | None = None):
     where, params = "", []
     if visible_to is not None:
         clause, params = db.drama_visible_sql("dramas", visible_to)
@@ -343,7 +343,7 @@ def drama_has_translated_lines(drama_id: int) -> bool:
                             "LIMIT 1", (drama_id,)).fetchone() is not None
 
 
-def search_lines_globally(query: str, limit: int = 100, visible_to: int = None):
+def search_lines_globally(query: str, limit: int = 100, visible_to: int | None = None):
     """Searches zh/en text across every drama's lines, returns results
     with the parent drama's title attached, for the Library tab's
     global search -- not scoped to one drama like the Reader tab is.

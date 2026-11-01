@@ -20,7 +20,7 @@ def create_page(drama_id: int, idx: int, filename: str, width: int, height: int)
             "INSERT INTO pages (drama_id, idx, filename, width, height) VALUES (?, ?, ?, ?, ?)",
             (drama_id, idx, filename, width, height))
         conn.commit()
-        new_id = cur.lastrowid
+        new_id = db.inserted_id(cur)
     return new_id
 
 
@@ -49,7 +49,7 @@ def list_pages(drama_id: int):
     return [dict(r) for r in rows]
 
 
-def get_page(page_id: int, drama_id: int = None):
+def get_page(page_id: int, drama_id: int | None = None):
     """One page row, or None. With drama_id, None unless the page belongs to
     that drama (ids from a request must be scoped to their drama)."""
     with contextlib.closing(db.get_conn()) as conn:
@@ -98,8 +98,8 @@ def _bubble_value(field, value):
     return value
 
 
-def update_bubble_fields(bubble_id: int, fields: dict, expected: dict = None,
-                         page_id: int = None) -> bool:
+def update_bubble_fields(bubble_id: int, fields: dict, expected: dict | None = None,
+                         page_id: int | None = None) -> bool:
     """Compare-and-set for one bubble: ONE conditional UPDATE that writes
     `fields` only if every `expected` column still holds the value the
     caller saw (text columns: NULL equals ""; skip/include_sfx as bools).
@@ -145,7 +145,7 @@ def update_bubble_fields(bubble_id: int, fields: dict, expected: dict = None,
         conn.close()
 
 
-def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles, expected_rev: int = None):
+def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles, expected_rev: int | None = None):
     """Conditional full replace for a background job: in ONE transaction,
     replaces the page's bubbles with `bubbles` (reading order = list order)
     only if the page's current bubble-id set is exactly `expected_ids` and,
@@ -314,7 +314,7 @@ def _check_columns(name: str, keys):
 
 
 def edit_region(page_id: int, bubble_id: int, fields: dict, expected_rev: int,
-                expected: dict = None) -> tuple:
+                expected: dict | None = None) -> tuple:
     """The comic editor's write: in ONE transaction, sets `fields` on one
     bubble of this page only if the page's rev is still `expected_rev` and
     every `expected` column still holds the value the caller saw, then bumps
@@ -368,10 +368,12 @@ def create_region(page_id: int, values: dict, expected_rev: int) -> tuple:
         history = _live_history(conn, page_id, history, rev)
         idx = conn.execute("SELECT COALESCE(MAX(idx), -1) + 1 FROM bubbles WHERE page_id = ?",
                            (page_id,)).fetchone()[0]
-        new_id = conn.execute(_BUBBLE_INSERT_SQL,
-                              (page_id, idx) + _bubble_row_values(values)).lastrowid
+        new_id = db.inserted_id(conn.execute(_BUBBLE_INSERT_SQL,
+                                             (page_id, idx) + _bubble_row_values(values)))
         _bump_page_rev(conn, page_id)
         row = _region_row(conn, page_id, new_id)
+        if row is None:
+            raise RuntimeError("the inserted region is missing")
         _record(conn, page_id, history, rev, {
             "op": "create", "region_id": new_id,
             "after": {k: row[k] for k in _region_row_fields()}})

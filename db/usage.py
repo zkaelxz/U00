@@ -46,7 +46,7 @@ def log_usage(drama_id: int, engine: str, model: str, operation: str,
 MONTHLY_SPEND_RESET_KEY = "monthly_spend_reset_at"
 
 
-def get_month_spend_reset_at(now: datetime.datetime = None):
+def get_month_spend_reset_at(now: datetime.datetime | None = None):
     """The saved reset time (UTC ISO) while it applies to this month, else None.
     A reset from an earlier month is ignored so the new month starts at its
     own first day without anyone having to undo it. A marker that is not a
@@ -67,7 +67,7 @@ def get_month_spend_reset_at(now: datetime.datetime = None):
     return when.isoformat() if month_start <= when <= now else None
 
 
-def get_month_spend(now: datetime.datetime = None, since_reset: bool = True) -> float:
+def get_month_spend(now: datetime.datetime | None = None, since_reset: bool = True) -> float:
     """Estimated spend logged so far in the current calendar month (UTC),
     across the whole library. By default only rows at or after an active
     reset count: this is what the monthly cap is checked against.
@@ -134,7 +134,7 @@ def undo_usage_recost() -> int:
     return n
 
 
-def get_usage_summary(drama_id: int = None, visible_to: int = None):
+def get_usage_summary(drama_id: int | None = None, visible_to: int | None = None):
     """Returns {"input_tokens", "output_tokens", "estimated_cost_usd", "call_count"} --
     totals for one drama, or the whole library if drama_id is None.
     `visible_to` (auth B2, library totals only): only calls logged against
@@ -171,7 +171,7 @@ def get_usage_summary(drama_id: int = None, visible_to: int = None):
     return dict(row)
 
 
-def get_usage_by_drama(visible_to: int = None):
+def get_usage_by_drama(visible_to: int | None = None):
     """Per-drama cost breakdown, joined with drama titles, for the dashboard.
     Includes translation_engine so the dashboard can show "$0.00 (free)"
     for a free engine instead of a bare, ambiguous-looking $0.00.
@@ -200,7 +200,7 @@ def get_usage_by_drama(visible_to: int = None):
 # ---------------------------------------------------------------------------
 
 def save_translate_history(source_language: str, target_language: str, engine: str,
-                           source_text: str, translated_text: str, user_id: int = None) -> int:
+                           source_text: str, translated_text: str, user_id: int | None = None) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("""
             INSERT INTO translate_history (source_language, target_language, engine,
@@ -209,11 +209,11 @@ def save_translate_history(source_language: str, target_language: str, engine: s
         """, (source_language, target_language, engine, source_text, translated_text,
               clock.utcnow().isoformat(), user_id))
         conn.commit()
-        new_id = cur.lastrowid
+        new_id = db.inserted_id(cur)
     return new_id
 
 
-def list_translate_history(limit: int = 50, visible_to: int = None) -> List[dict]:
+def list_translate_history(limit: int = 50, visible_to: int | None = None) -> List[dict]:
     """Most recent first. `visible_to` (auth B2): only that user's own rows
     (rows with no user -- the PC, the extension -- are for admins and the
     local owner, who pass None)."""

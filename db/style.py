@@ -21,7 +21,7 @@ def record_edit_sample(drama_id: int, zh: str, ai_version: str, user_version: st
         conn.commit()
 
 
-def list_edit_samples(drama_id: int = None, limit: int = 100):
+def list_edit_samples(drama_id: int | None = None, limit: int = 100):
     with contextlib.closing(db.get_conn()) as conn:
         if drama_id:
             rows = conn.execute(
