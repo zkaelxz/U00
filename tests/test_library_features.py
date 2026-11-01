@@ -19,7 +19,7 @@ import background_jobs
 from jobs import job_launch, job_table
 import story_context as sc
 import storage as stg
-import translate_engines
+from engine_backends import engine_registry
 from core import Line
 
 
@@ -535,7 +535,7 @@ class TestBulkSeriesTranslate:
                 return ["Su Xian appears." for _ in zh_lines]
 
         recording = RecordingEngine()
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: recording)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: recording)
         status = self._run([d1], monkeypatch)
         assert recording.seen_glossary and recording.seen_glossary[0]["term_original"] == "苏杉"
         # enforce_exact substitution still applies on top of the engine's own output.
@@ -561,7 +561,7 @@ class TestBulkSeriesTranslate:
                 background_jobs.request_cancel(f"translate_{d1}")
                 return [f"EN:{z}" for z in zh_lines]
 
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: SlowEngine())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: SlowEngine())
         assert job_launch.start_job(job_id, lt.run_bulk_series_translate_job, job_id, [d1, d2], {})
         _wait_for_job(job_id)
         result = background_jobs.get_status(job_id)["result"]
@@ -615,12 +615,12 @@ class TestBulkSeriesTranslate:
         whatever model Settings has configured for that engine."""
         d1 = self._drama(isolated_db, n=1, engine="claude")
         seen = {}
-        real_get_engine = translate_engines.get_engine
+        real_get_engine = engine_registry.get_engine
 
         def spy(engine_name, api_key, model=None, **kw):
             seen["model"] = model
             return real_get_engine(engine_name, api_key, model, **kw)
-        monkeypatch.setattr(translate_engines, "get_engine", spy)
+        monkeypatch.setattr(engine_registry, "get_engine", spy)
 
         self._run([d1], monkeypatch, api_keys={"claude": "sk-ant-fake"},
                  models={"claude": "claude-opus-4"})

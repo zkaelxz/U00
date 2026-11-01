@@ -18,7 +18,7 @@ import time
 
 import db
 from lib import sqlite_check
-from translate_engines import redact_for_storage, safe_url
+from engine_backends.shared import redact_for_storage, safe_url
 
 # Concrete starting defaults, plus the cache mode
 # and the chapter-check schedule. All user-editable in Settings.

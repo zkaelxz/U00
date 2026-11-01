@@ -16,7 +16,7 @@ from services import disk_usage_trash_service as dts
 from services import drama_service, keep_original_service
 from services import library_admin_service as las
 from services import library_backup_service as lbs
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 ORIGINALS = ["source.mp4", "audio.wav", "novel_reference.txt", "raw_novel_context.txt",
              "raw_transcript.json", "raw_transcript.20260101T000000Z.json", "pages/p_0001.png"]

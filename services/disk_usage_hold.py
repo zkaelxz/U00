@@ -2,7 +2,7 @@
 services/disk_usage_hold.py -- the library hold of the data-folder disk usage
 feature: why clear, move and restore are refused right now, and the exclusive
 hold (plus the one-change-at-a-time lock) around inspect -> re-resolve ->
-change, so no job starts in between. UI-free; raises services/service_errors.
+change, so no job starts in between. UI-free; raises lib/errors.
 """
 
 import contextlib
@@ -11,7 +11,7 @@ import threading
 import background_jobs
 from jobs import job_launch
 from jobs import gpu_slots
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 BUSY = ("A job, restore or other library task is running. Wait for it to finish, then try "
         "again.")

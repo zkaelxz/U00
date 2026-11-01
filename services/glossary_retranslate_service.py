@@ -4,7 +4,7 @@ re-translate only the lines those terms affect.
 
 `find_glossary_affected_lines` lists the translated lines whose source
 text holds a glossary term or one of its aliases (the same test as
-translate_engines.matching_glossary_terms), plus the lines whose current
+llm_tasks.matching_glossary_terms), plus the lines whose current
 English uses one of a term's banned translations (Auto QC's test). The
 glossary keeps no changed-at time, so the caller narrows it by picking
 terms (`term_ids`); none picked means every term.
@@ -30,9 +30,9 @@ import re
 
 import auto_qc
 import db
-import translate_engines
+from engine_backends import llm_tasks
 from services import line_provenance_service, translate_run_service
-from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 from services.ownership_service import require_drama as _require_drama
 
 
@@ -76,7 +76,7 @@ def _affected(drama_id: int, drama: dict, term_ids) -> tuple:
         zh, en = row.get("zh") or "", row.get("en") or ""
         if not zh.strip() or not en.strip():
             continue
-        matched = {t["id"]: "source" for t in translate_engines.matching_glossary_terms(zh, terms)}
+        matched = {t["id"]: "source" for t in llm_tasks.matching_glossary_terms(zh, terms)}
         en_lower = auto_qc.normalize(en).lower()
         for t, forms in banned:
             if forms and auto_qc.banned_hit(forms, en_lower):

@@ -3,7 +3,7 @@ added and again at start, laid over the title for that one run, never saved to i
 import pytest
 
 import db
-import translate_engines
+from engine_backends import local as engine_local
 from core import Line
 from lib.errors import ForbiddenError, InvalidInputError
 from services import artifact_service, queue_service as q, translate_run_service
@@ -61,7 +61,7 @@ def test_bad_translate_settings_are_refused_before_anything_is_queued(isolated_d
 
 
 def test_a_hosted_ollama_model_needs_paid_permission(isolated_db, seen_run, monkeypatch):
-    monkeypatch.setattr(translate_engines, "is_ollama_cloud_model", lambda m: m.endswith("-cloud"))
+    monkeypatch.setattr(engine_local, "is_ollama_cloud_model", lambda m: m.endswith("-cloud"))
     with pytest.raises(ForbiddenError):
         q.add_item(None, _drama(), "translate", False, at_pc=True, settings={"model": "gpt-oss:120b-cloud"})
 

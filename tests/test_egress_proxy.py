@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import live_fetch
 import live_translate
-import translate_engines
+from engine_backends import shared
 from services import egress_proxy, live_service
 from lib import url_guard
 
@@ -221,7 +221,7 @@ def test_each_proxy_has_its_own_secret_and_redaction_hides_it():
     with egress_proxy.GuardedProxy() as a, egress_proxy.GuardedProxy() as b:
         secret = urlsplit(a.url).password
         assert secret and secret != urlsplit(b.url).password
-        shown = translate_engines.redact_secrets(f"Unable to connect to proxy {a.url}")
+        shown = shared.redact_secrets(f"Unable to connect to proxy {a.url}")
         assert secret not in shown
         assert secret not in live_service.clean_message(f"ProxyError: {a.url} refused")
 

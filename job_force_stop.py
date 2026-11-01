@@ -97,7 +97,7 @@ def refresh_abandoned_gpu_rows() -> None:
 def refuse_if_abandoned_locked(job_id) -> None:
     """Caller holds job_table._lock (start_job's own check)."""
     if _live_abandoned(job_id) is not None:
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         raise ConflictError(ABANDONED_REFUSAL)
 
 
@@ -124,7 +124,7 @@ def force_stop(job_id: str) -> dict:
     call a no-op instead of a second release. Returns
     {"status", "worker_still_running"}."""
     from jobs import gpu_queue, job_runner, job_table
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     with job_table._lock:
         job = job_table._jobs.get(job_id)
         if job is None or job.get("status") != "running":

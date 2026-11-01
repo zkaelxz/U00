@@ -8,7 +8,7 @@ import requests
 
 pytest.importorskip("fastapi")
 
-import translate_engines
+from engine_backends import shared, local, engine_registry
 from engine_backends.shared import LLMTaskTimeout
 from lib import http
 from services import engine_failure_service as efs
@@ -38,8 +38,8 @@ class APITimeoutError(APIConnectionError):  # openai's timeout subclasses its co
 
 
 @pytest.mark.parametrize("exc,reason", [
-    (translate_engines.FreeTierDailyLimitReached("used up"), "daily_limit"),
-    (translate_engines.ContentModerationBlocked("gemini", "SAFETY"), "blocked"),
+    (shared.FreeTierDailyLimitReached("used up"), "daily_limit"),
+    (shared.ContentModerationBlocked("gemini", "SAFETY"), "blocked"),
     (LLMTaskTimeout("late"), "timed_out"),
     (requests.ReadTimeout(SECRET), "timed_out"),
     (http.ResponseTooSlow(), "timed_out"),
@@ -68,7 +68,7 @@ def test_each_cause_gets_its_reason_and_a_fixed_sentence(exc, reason):
 
 
 def test_an_ollama_failure_keeps_its_own_sentence_and_reason():
-    exc = translate_engines.OllamaUnavailableError(
+    exc = local.OllamaUnavailableError(
         "ollama_unreachable", "Ollama isn't running. Start it, or pick another engine.")
     err = efs.engine_failure(exc, "ollama", "x")
     assert err.details == {"reason": "ollama_unreachable"}
@@ -88,7 +88,7 @@ def test_metadata_autofill_and_romanize_name_the_cause(isolated_db, monkeypatch,
 
     class Engine:
         supports_reference = True
-    monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda *a, **kw: Engine())
 
     def refused(*a, **kw):

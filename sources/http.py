@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from lib import cancellable_lock
-from translate_engines import safe_url
+from engine_backends.shared import safe_url
 
 from . import detect, health, pacing, store
 from .cache import RawCache

@@ -44,7 +44,7 @@ from api.notification_schemas import NotificationList
 from api.schemas import ErrorResponse, JobRecord, LiveSessionStatus
 from services import auth_service
 from services import event_stream_service as events
-from services.service_errors import InvalidInputError, RateLimitedError
+from lib.errors import InvalidInputError, RateLimitedError
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
