@@ -11,6 +11,7 @@ import os
 import time
 
 import db
+from lib import settings_schema
 from lib.errors import NewerDatabaseError
 from services.library_restore_sql import (_current_state_marker, _fsync_dir, _open_carry_conn,
                                           _ro_uri, _schema_sql_allowed, _table_names)
@@ -51,7 +52,14 @@ _RESTORE_KEPT_AUTH_TABLES = auth_service.RESTORE_KEPT_TABLES
 # back, and an uploaded file must not choose where this library's copies
 # are written.
 _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
-                              "auto_backup.state")
+                              "auto_backup.state") + (
+    # PC-only and security settings: a backup from someone else must not point the
+    # Jellyfin API key at its server, choose the program OCR or the novel
+    # downloader runs, or switch uploads from away back on. "jellyfin" is
+    # services.jellyfin_service.SETTING.
+    "jellyfin", settings_schema.BY_KEY["tesseract_cmd"].store_key,
+    settings_schema.BY_KEY["lncrawl_cmd"].store_key,
+    "remote_uploads", "remote_uploads.on_at")
 
 
 # Media folders a restore keeps from the current library when the zip has

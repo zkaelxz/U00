@@ -7,9 +7,13 @@ applies before the body is read. The upload routes declare
 something stay local_only(). Rules: docs/remote-access-permissions-core.md.
 """
 
+import logging
+
 from starlette.requests import Request
 
 from services import auth_service
+
+log = logging.getLogger(__name__)
 
 UPLOAD_PERMISSION = auth_service.UPLOAD_PERMISSION
 # Room for the multipart framing and the small form fields next to the file.
@@ -108,7 +112,20 @@ class RemoteUploadGate:
         refusal, receive = capped_upload(request, receive)
         if refusal is not None:
             return await refusal(scope, receive, send)
+        await self._audit(principal, scope)
         return await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _audit(principal, scope) -> None:
+        """One activity-log row per upload accepted from away, written before the
+        body is read so a stolen admin cookie leaves a trace even if the upload
+        fails. The path names the title; the file's name is never logged."""
+        from starlette.concurrency import run_in_threadpool
+        try:
+            await run_in_threadpool(auth_service.write_audit, principal.get("user_id"),
+                                    "upload.away", f"{scope.get('method', '')} {scope.get('path', '')}")
+        except Exception:
+            log.warning("could not write the away-upload audit row", exc_info=True)
 
     def _is_upload(self, scope) -> bool:
         if self._upload is None:

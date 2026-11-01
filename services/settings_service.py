@@ -270,6 +270,10 @@ def _set_remote_uploads(enabled: bool) -> None:
     if enabled:
         db.set_app_setting("remote_uploads.on_at", time.time())
     db.set_app_setting("remote_uploads", enabled)
+    from services import auth_service
+    # Only the PC can flip this, so there is no acting account to name.
+    auth_service.write_audit(None, "remote_uploads.on" if enabled else "remote_uploads.off",
+                             f"{REMOTE_UPLOADS_DAYS} days" if enabled else "")
 
 
 # Switches whose owner (a root module) keeps its own storage and setter.

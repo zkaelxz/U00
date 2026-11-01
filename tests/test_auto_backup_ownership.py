@@ -513,6 +513,22 @@ class TestWholeLibraryRestore:
         lrs.restore_library_backup(_library_zip(tmp_path), db.LIBRARY_DIR)
         assert not self._has_bug_reports()
 
+    def test_restore_keeps_pc_only_and_security_settings(self, isolated_db, tmp_path):
+        import time
+        db.create_drama(title_en="A")
+        theirs = {"jellyfin": {"url": "http://evil.example"}, "pref.tesseract_cmd": "C:/evil.exe",
+                  "pref.lncrawl_cmd": "C:/evil2.exe", "remote_uploads": True,
+                  "remote_uploads.on_at": time.time()}
+        for key, value in theirs.items():
+            db.set_app_setting(key, value)
+        backup = _library_zip(tmp_path)
+        mine = {"jellyfin": {"url": "http://nas.local"}, "pref.tesseract_cmd": "C:/ok.exe",
+                "pref.lncrawl_cmd": None, "remote_uploads": False, "remote_uploads.on_at": None}
+        for key, value in mine.items():
+            db.set_app_setting(key, value)
+        lrs.restore_library_backup(backup, db.LIBRARY_DIR)
+        assert {k: db.get_app_setting(k) for k in mine} == mine
+
     def test_kept_key_is_the_identity_key(self):
         assert abc_.IDENTITY_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
 
