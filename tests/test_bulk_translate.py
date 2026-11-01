@@ -1807,6 +1807,20 @@ class TestReflectStageSubmitFailure:
             i: f"draft-{i}" for i in ids}
         assert "cap" in isolated_db.get_bulk_job(jid)["last_error"]
 
+    def test_a_next_stage_that_does_not_fit_the_remaining_cap_is_not_submitted(self, isolated_db):
+        engine, did, jid = self._pipeline(isolated_db)
+        ids = self._faithful_results(isolated_db, engine, jid)
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 9.999999)
+
+        status = bulk_poll.check_once(jid, bp.ClaudeBatchProvider(engine), engine=engine,
+                                      monthly_cap_usd=10.0)
+
+        assert status == "applied"
+        assert len(engine.client.messages.batches.created) == 1
+        assert {ln.id: ln.en for ln in isolated_db.load_line_objects(did)} == {
+            i: f"draft-{i}" for i in ids}
+        assert "spending cap" in isolated_db.get_bulk_job(jid)["last_error"]
+
     def _count_creates(self, monkeypatch, engine, before=None, batch_id="msgbatch_01"):
         batches = engine.client.messages.batches
         real, sent = batches.create, []
