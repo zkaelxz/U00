@@ -1402,7 +1402,6 @@ _LAYOUT_CHANGED_MESSAGES = {
     "piaotian": "Piaotian's page layout has changed",
     "ranobes": "ranobes' page layout has changed",
     "syosetu": "Syosetu's page layout has changed",
-    "toonkor": "ToonKor's page layout has changed",
     "twmanga": "twmanga's page layout has changed",
     "xbanxia": "xbanxia's page layout has changed",
     "zerosumonline": "zerosumonline's API response has changed",
@@ -1443,7 +1442,7 @@ def test_shared_soup_parses_html_and_tolerates_none():
 # The shared plain image download
 # ---------------------------------------------------------------------------
 
-_PLAIN_IMAGE_ADAPTERS = ("baozimh", "guazimanhua", "kuaikan", "miaoqumh", "toonkor",
+_PLAIN_IMAGE_ADAPTERS = ("baozimh", "guazimanhua", "kuaikan", "miaoqumh",
                          "zerosumonline")
 
 

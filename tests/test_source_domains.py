@@ -13,25 +13,19 @@ from services import assistant_backlog_service as backlog, assistant_settings_se
 from services import source_domains_service as svc
 from sources import domains, health, store
 from sources import http as src_http
-from sources.adapters import toonkor, xbanxia
+from sources.adapters import xbanxia
 from sources.cache import RawCache
 from sources.models import ChallengeDetected, FailureReason, FetchFailed, SourceUnavailable
 
 from .sources_helpers import FakeClock, ScriptedTransport, html, make_client
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
-TK = "https://toonkor0.org"
-TK_NEW = "https://toonkor1.org"
 XB = xbanxia.BASE_URL
 XB_BARE = "https://xbanxia.cc"
+XB_NEW = "https://xbanxia1.org"
+XB_PATH = "/books/2001.html"
 SEARCH = "/modules/article/search_t.php"
 
-TOONKOR_HOME = ("<html><head><title>툰코 - 무료 웹툰</title></head><body>" + "".join(
-    f"<div class='section-item-inner'><img src='/t{i}.jpg'><div class='section-item-title'>"
-    f"<a href='/webtoon-{i}' alt='Webtoon {i}'>Webtoon {i}</a></div></div>" for i in range(4))
-    + "</body></html>")
-TOONKOR_SERIES = ("<html><body><table class='bt_view1'><tr><td class='bt_title'>Title</td>"
-                  "</tr></table></body></html>")
 XB_HOME = ("<html><head><title>半夏小說 - 網路小說線上免費看</title></head><body>"
            "<form action='/modules/article/search_t.php' method='post'>"
            "<input name='searchkey'><button name='Submit'>搜索</button></form>"
@@ -46,10 +40,10 @@ CHALLENGE = html("<title>Just a moment...</title>", 403, {"cf-mitigated": "chall
 
 
 def _down():
-    return requests.exceptions.ConnectionError(f"could not connect: {TK}/x?token={SECRET}")
+    return requests.exceptions.ConnectionError(f"could not connect: {XB}/x?token={SECRET}")
 
 
-def _moved(to, body=TOONKOR_HOME):
+def _moved(to, body=XB_HOME):
     """What the transport hands back after following a redirect to `to`."""
     return html(body, url=to)
 
@@ -61,19 +55,20 @@ def world(isolated_db):
     src_http.reset_pacing_state()
 
 
-def _toonkor(routes, cache=False):
-    clock = FakeClock()
-    t = ScriptedTransport(routes, clock)
-    a = toonkor.ToonkorSource(client=make_client("toonkor", t, clock, max_retries=0))
-    if cache:
-        a.client.cache = RawCache("keep_originals")
-    return a, t
-
-
 def _xbanxia(routes):
     clock = FakeClock()
     t = ScriptedTransport(routes, clock)
     return xbanxia.XbanxiaSource(client=make_client("xbanxia", t, clock, max_retries=0)), t
+
+
+def _single(routes, cache=False):
+    """xbanxia with a one-domain list, the shape a site with a single address has."""
+    if store.domain_list("xbanxia") is None:
+        store.set_domain_list("xbanxia", [XB])
+    a, t = _xbanxia(routes)
+    if cache:
+        a.client.cache = RawCache("keep_originals")
+    return a, t
 
 
 def _hosts():
@@ -103,10 +98,10 @@ class TestFailover:
         assert t.urls() == [f"{XB_BARE}/books/2001.html"]
 
     def test_a_saved_list_replaces_the_adapters_own(self, world):
-        store.set_domain_list("toonkor", [TK_NEW, TK])
-        a, t = _toonkor({f"{TK_NEW}/webtoon-1": html(TOONKOR_SERIES)})
-        a.get_series("webtoon-1")
-        assert t.urls() == [f"{TK_NEW}/webtoon-1"]
+        store.set_domain_list("xbanxia", [XB_NEW, XB])
+        a, t = _single({f"{XB_NEW}{XB_PATH}": html(XB_SERIES)})
+        a.get_series("2001")
+        assert t.urls() == [f"{XB_NEW}{XB_PATH}"]
 
     def test_a_search_that_ends_on_another_host_counts_as_failed(self, world):
         store.set_domain_list("xbanxia", [XB_BARE, XB])
@@ -120,7 +115,7 @@ class TestFailover:
         assert store.last_good_domain("xbanxia") == XB
 
     def test_an_absolute_url_on_another_host_is_fetched_as_given(self, world):
-        a, t = _toonkor({"https://elsewhere.example/c_1.html": html("<p>x</p>")})
+        a, t = _single({"https://elsewhere.example/c_1.html": html("<p>x</p>")})
         a._get("https://elsewhere.example/c_1.html", "x")
         assert t.urls() == ["https://elsewhere.example/c_1.html"]
 
@@ -131,11 +126,11 @@ class TestFailover:
         assert t.urls() == [f"{XB}/books/2001.html"]
 
     def test_a_challenge_hands_off_and_proposes_nothing(self, world):
-        store.set_domain_list("toonkor", [TK, TK_NEW])
-        a, t = _toonkor({f"{TK}/webtoon-1": CHALLENGE})
+        store.set_domain_list("xbanxia", [XB, XB_NEW])
+        a, t = _single({f"{XB}{XB_PATH}": CHALLENGE})
         with pytest.raises(ChallengeDetected):
-            a.get_series("webtoon-1")
-        assert t.urls() == [f"{TK}/webtoon-1"] and _hosts() == []
+            a.get_series("2001")
+        assert t.urls() == [f"{XB}{XB_PATH}"] and _hosts() == []
 
 
 # ---------------------------------------------------------------------------
@@ -144,68 +139,61 @@ class TestFailover:
 
 class TestProposals:
     def test_a_redirect_to_the_same_site_elsewhere_becomes_a_pending_proposal(self, world):
-        a, t = _toonkor({f"{TK}/webtoon-1": _moved(f"{TK_NEW}/")})
+        a, t = _single({f"{XB}{XB_PATH}": _moved(f"{XB_NEW}/")})
         with pytest.raises(SourceUnavailable) as e:
-            a.get_series("webtoon-1")
+            a.get_series("2001")
         assert e.value.reason == FailureReason.ALL_DOMAINS_UNREACHABLE
         assert "possible new address" in str(e.value)
-        assert _hosts() == ["toonkor1.org"]
-        assert store.domain_list("toonkor") is None      # pending only
-        assert t.urls() == [f"{TK}/webtoon-1"]            # no extra request
-        assert health.category(health.get("toonkor")["last_error_type"]) == "domains_unreachable"
+        assert _hosts() == ["xbanxia1.org"]
+        assert store.domain_list("xbanxia") == [XB]       # pending only
+        assert t.urls() == [f"{XB}{XB_PATH}"]            # no extra request
+        assert health.category(health.get("xbanxia")["last_error_type"]) == "domains_unreachable"
 
     def test_the_off_list_page_is_neither_used_nor_cached(self, world):
-        a, t = _toonkor({f"{TK}/webtoon-1": _moved(f"{TK_NEW}/webtoon-1", TOONKOR_SERIES)},
+        a, t = _single({f"{XB}{XB_PATH}": _moved(f"{XB_NEW}{XB_PATH}", XB_SERIES)},
                         cache=True)
         with pytest.raises(SourceUnavailable):
-            a.get_series("webtoon-1")
-        assert a.client.cache.get(f"{TK}/webtoon-1") is None
-        health.reset("toonkor")
-        a2, t2 = _toonkor({f"{TK}/webtoon-1": _down()}, cache=True)
+            a.get_series("2001")
+        assert a.client.cache.get(f"{XB}{XB_PATH}") is None
+        health.reset("xbanxia")
+        a2, t2 = _single({f"{XB}{XB_PATH}": _down()}, cache=True)
         with pytest.raises(SourceUnavailable):
-            a2.get_series("webtoon-1")
-        assert t2.urls() == [f"{TK}/webtoon-1"]
+            a2.get_series("2001")
+        assert t2.urls() == [f"{XB}{XB_PATH}"]
 
     def test_a_listed_page_is_still_cached(self, world):
-        a, _ = _toonkor({f"{TK}/webtoon-1": html(TOONKOR_SERIES)}, cache=True)
-        a.get_series("webtoon-1")
-        a2, t2 = _toonkor({}, cache=True)
-        assert a2.get_series("webtoon-1").title == "Title" and t2.urls() == []
+        a, _ = _single({f"{XB}{XB_PATH}": html(XB_SERIES)}, cache=True)
+        a.get_series("2001")
+        a2, t2 = _single({}, cache=True)
+        assert a2.get_series("2001").title == "Novel" and t2.urls() == []
 
-    @pytest.mark.parametrize("final", ["https://toonkor-free.example/", "http://toonkor2.org/",
-                                       "http://toonkor0.org/webtoon-1"])
+    @pytest.mark.parametrize("final", ["https://xbanxia-free.example/", "http://xbanxia2.org/",
+                                       "http://www.xbanxia.cc/books/2001.html"])
     def test_a_lookalike_or_plain_http_result_is_not_proposed_or_used(self, world, final):
-        body = TOONKOR_HOME.replace("툰코", "웹툰천국") if "free" in final else TOONKOR_HOME
-        a, t = _toonkor({f"{TK}/webtoon-1": _moved(final, body)}, cache=True)
+        body = XB_HOME.replace("半夏小說", "筆趣閣") if "free" in final else XB_HOME
+        a, t = _single({f"{XB}{XB_PATH}": _moved(final, body)}, cache=True)
         with pytest.raises(SourceUnavailable):
-            a.get_series("webtoon-1")
-        assert _hosts() == [] and a.client.cache.get(f"{TK}/webtoon-1") is None
+            a.get_series("2001")
+        assert _hosts() == [] and a.client.cache.get(f"{XB}{XB_PATH}") is None
 
     def test_host_forms_are_normalised(self, world):
-        for final in ("https://Toonkor1.ORG./", "https://toonkor2.org:443/",
-                      "https://toonkor3.org:8443/"):
-            a, _ = _toonkor({f"{TK}/webtoon-1": _moved(final)})
+        for final in ("https://Xbanxia1.ORG./", "https://xbanxia2.org:443/",
+                      "https://xbanxia3.org:8443/"):
+            a, _ = _single({f"{XB}{XB_PATH}": _moved(final)})
             with pytest.raises(SourceUnavailable):
-                a.get_series("webtoon-1")
-        assert sorted(_hosts()) == ["toonkor1.org", "toonkor2.org", "toonkor3.org:8443"]
+                a.get_series("2001")
+        assert sorted(_hosts()) == ["xbanxia1.org", "xbanxia2.org", "xbanxia3.org:8443"]
 
     def test_at_most_five_pending_and_dismissed_never_return(self, world):
-        assert [store.propose_domain("toonkor", f"t{i}.example") for i in range(7)] == \
+        assert [store.propose_domain("xbanxia", f"t{i}.example") for i in range(7)] == \
             [True] * 5 + [False] * 2
-        assert store.dismiss_domain_proposal("toonkor", "t0.example")
-        assert store.propose_domain("toonkor", "t0.example") is False
-        assert store.propose_domain("toonkor", "t9.example") is True
-        assert store.propose_domain("xbanxia", "x.example") is True   # per source
+        assert store.dismiss_domain_proposal("xbanxia", "t0.example")
+        assert store.propose_domain("xbanxia", "t0.example") is False
+        assert store.propose_domain("xbanxia", "t9.example") is True
+        assert store.propose_domain("baozimh", "x.example") is True   # per source
 
 
 class TestVerifySite:
-    def test_toonkor(self):
-        assert toonkor.ToonkorSource.verify_site(TOONKOR_HOME)
-        assert not toonkor.ToonkorSource.verify_site(
-            "<html><head><title>툰코</title></head><body><p>툰코 toonkor</p></body></html>")
-        assert not toonkor.ToonkorSource.verify_site(TOONKOR_HOME.replace("툰코", "Webtoon Hub"))
-        assert not toonkor.ToonkorSource.verify_site("")
-
     def test_xbanxia(self):
         assert xbanxia.XbanxiaSource.verify_site(XB_HOME)
         assert not xbanxia.XbanxiaSource.verify_site(XB_HOME.replace("半夏小說", "筆趣閣"))
@@ -216,11 +204,11 @@ class TestVerifySite:
 class TestNormalizeHost:
     def test_forms(self):
         n = domains.normalize_host
-        assert n("Toonkor1.ORG.") == "toonkor1.org"
-        assert n(" toonkor1.org:443 ") == "toonkor1.org"
-        assert n("toonkor1.org:8443") == "toonkor1.org:8443"
-        for bad in ("toonkor1.org:", "toonkor1.org:0", "toonkor1.org:65536", "toonkor1.org:x",
-                    "toonkor1.org:８４４３", "example.com\n:8443", "exa mple.com", "example.com\t",
+        assert n("Xbanxia1.ORG.") == "xbanxia1.org"
+        assert n(" xbanxia1.org:443 ") == "xbanxia1.org"
+        assert n("xbanxia1.org:8443") == "xbanxia1.org:8443"
+        for bad in ("xbanxia1.org:", "xbanxia1.org:0", "xbanxia1.org:65536", "xbanxia1.org:x",
+                    "xbanxia1.org:８４４３", "example.com\n:8443", "exa mple.com", "example.com\t",
                     "10.0.0.1", "[::1]", "::ffff:10.0.0.1", "https://a.org", "a.org/x",
                     "localhost", ""):
             assert n(bad) == "", bad
@@ -232,10 +220,10 @@ class TestNormalizeHost:
 
 class TestUnreachable:
     def _fail(self):
-        a, _ = _toonkor({f"{TK}/webtoon-1": _down()})
+        a, _ = _single({f"{XB}{XB_PATH}": _down()})
         with pytest.raises(SourceUnavailable):
-            a.get_series("webtoon-1")
-        health.reset("toonkor")
+            a.get_series("2001")
+        health.reset("xbanxia")
 
     def test_one_backlog_item_per_source_until_it_is_cleared(self, world):
         settings_svc.set_settings({"developer_mode": True})
@@ -243,7 +231,7 @@ class TestUnreachable:
         items = backlog.list_backlog()["items"]
         assert len(items) == 1
         text = items[0]["text"]
-        assert text.startswith("[source-domains:toonkor]") and "toonkor0.org" in text
+        assert text.startswith("[source-domains:xbanxia]") and "www.xbanxia.cc" in text
         assert SECRET not in text and "?" not in text and "://" not in text
         self._fail()
         assert len(backlog.list_backlog()["items"]) == 1
@@ -255,7 +243,7 @@ class TestUnreachable:
         self._fail()
         assert backlog.list_backlog()["items"] == []
         settings_svc.set_settings({"developer_mode": True})
-        store.propose_domain("toonkor", "toonkor1.org")
+        store.propose_domain("xbanxia", "xbanxia1.org")
         self._fail()
         assert backlog.list_backlog()["items"] == []
 
@@ -293,7 +281,7 @@ class TestRoutes:
         store.set_last_good_domain("xbanxia", XB_BARE)
         r = local.get("/api/source-domains")
         rows = {d["source"]: d for d in r.json()}
-        assert set(rows) == {"toonkor", "xbanxia"}
+        assert set(rows) == {"xbanxia"}
         assert rows["xbanxia"] == {"source": "xbanxia", "display_name": "xbanxia.cc",
                                    "domains": ["www.xbanxia.cc", "xbanxia.cc"],
                                    "default_domains": ["www.xbanxia.cc", "xbanxia.cc"],
@@ -302,37 +290,37 @@ class TestRoutes:
         assert "://" not in r.text
 
     def test_confirm_puts_the_host_first_and_the_next_request_uses_it(self, local):
-        store.propose_domain("toonkor", "toonkor1.org:8443", now=123.0)
-        health.record_failure("toonkor", "ALL_DOMAINS_UNREACHABLE", "x", base_backoff=10)
+        store.propose_domain("xbanxia", "xbanxia1.org:8443", now=123.0)
+        health.record_failure("xbanxia", "ALL_DOMAINS_UNREACHABLE", "x", base_backoff=10)
         assert local.get("/api/source-domains/proposals").json() == [
-            {"source": "toonkor", "display_name": "툰코 ToonKor", "host": "toonkor1.org:8443",
+            {"source": "xbanxia", "display_name": "xbanxia.cc", "host": "xbanxia1.org:8443",
              "found_at": 123.0}]
         r = local.post("/api/source-domains/proposals/confirm",
-                       json={"source": "toonkor", "host": "toonkor1.org:8443"})
+                       json={"source": "xbanxia", "host": "xbanxia1.org:8443"})
         assert r.status_code == 200, r.text
-        assert r.json()["domains"] == ["toonkor1.org:8443", "toonkor0.org"]
-        assert r.json()["last_good"] == "toonkor1.org:8443" and r.json()["customized"] is True
+        assert r.json()["domains"] == ["xbanxia1.org:8443", "www.xbanxia.cc", "xbanxia.cc"]
+        assert r.json()["last_good"] == "xbanxia1.org:8443" and r.json()["customized"] is True
         assert local.get("/api/source-domains/proposals").json() == []
-        assert health.get("toonkor")["consecutive_failures"] == 0
-        a, t = _toonkor({"https://toonkor1.org:8443/webtoon-1": html(TOONKOR_SERIES)})
-        a.get_series("webtoon-1")
-        assert t.urls() == ["https://toonkor1.org:8443/webtoon-1"]
+        assert health.get("xbanxia")["consecutive_failures"] == 0
+        a, t = _single({"https://xbanxia1.org:8443/books/2001.html": html(XB_SERIES)})
+        a.get_series("2001")
+        assert t.urls() == ["https://xbanxia1.org:8443/books/2001.html"]
         assert local.post("/api/source-domains/proposals/confirm",
-                          json={"source": "toonkor", "host": "toonkor1.org:8443"}).status_code == 404
+                          json={"source": "xbanxia", "host": "xbanxia1.org:8443"}).status_code == 404
 
     def test_trailing_dot_confirm_and_dismiss(self, local):
-        store.propose_domain("toonkor", "toonkor1.org")
-        store.propose_domain("toonkor", "toonkor3.org.")    # a row stored with the dot
+        store.propose_domain("xbanxia", "xbanxia1.org")
+        store.propose_domain("xbanxia", "xbanxia3.org.")    # a row stored with the dot
         r = local.post("/api/source-domains/proposals/confirm",
-                       json={"source": "toonkor", "host": "toonkor1.org."})
-        assert r.status_code == 200 and r.json()["domains"][0] == "toonkor1.org"
+                       json={"source": "xbanxia", "host": "xbanxia1.org."})
+        assert r.status_code == 200 and r.json()["domains"][0] == "xbanxia1.org"
         r = local.post("/api/source-domains/proposals/dismiss",
-                       json={"source": "toonkor", "host": "toonkor3.org"})
+                       json={"source": "xbanxia", "host": "xbanxia3.org"})
         assert r.status_code == 200 and r.json() == {"dismissed": True}
         assert store.domain_proposals() == []
 
     def test_errors(self, local):
-        ok = {"source": "toonkor", "host": "toonkor9.org"}
+        ok = {"source": "xbanxia", "host": "xbanxia9.org"}
         assert local.post("/api/source-domains/proposals/confirm", json=ok).status_code == 404
         assert local.post("/api/source-domains/proposals/dismiss", json=ok).status_code == 404
         assert local.post("/api/source-domains/proposals/confirm",
@@ -340,9 +328,9 @@ class TestRoutes:
         assert local.post("/api/source-domains/nosuch", json={"domains": ["a.org"]}).status_code == 404
         for bad in (["https://a.org/x?k=1"], ["10.0.0.1"], ["localhost"], ["[::1]"],
                     ["a.org:"], ["a.org:0"], ["a.org:65536"], ["a.org:abc"], ["a.org\n:1"], []):
-            r = local.post("/api/source-domains/toonkor", json={"domains": bad})
+            r = local.post("/api/source-domains/xbanxia", json={"domains": bad})
             assert r.status_code == 422, bad
-        assert store.domain_list("toonkor") is None
+        assert store.domain_list("xbanxia") is None
 
     def test_set_and_reset_a_list(self, local):
         r = local.post("/api/source-domains/xbanxia",
@@ -361,7 +349,7 @@ class TestRoutes:
         from api.api_config import ApiSettings
         from api.server import create_app
         from services import auth_service
-        store.propose_domain("toonkor", "toonkor1.org")
+        store.propose_domain("xbanxia", "xbanxia1.org")
         user = auth_service.grant_admin_local("owner@example.com")
         s = auth_service.create_session(user["id"], "pytest", "203.0.113.9")
         h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
@@ -371,8 +359,8 @@ class TestRoutes:
         assert c.get("/api/source-domains/proposals", headers=h).status_code == 403
         assert c.get("/api/source-domains", headers=h).status_code == 403
         assert c.post("/api/source-domains/proposals/confirm", headers=h,
-                      json={"source": "toonkor", "host": "toonkor1.org"}).status_code == 403
-        assert c.post("/api/source-domains/toonkor", headers=h,
+                      json={"source": "xbanxia", "host": "xbanxia1.org"}).status_code == 403
+        assert c.post("/api/source-domains/xbanxia", headers=h,
                       json={"domains": ["a.org"]}).status_code == 403
-        assert _hosts() == ["toonkor1.org"]
-        assert svc.list_proposals()[0]["host"] == "toonkor1.org"
+        assert _hosts() == ["xbanxia1.org"]
+        assert svc.list_proposals()[0]["host"] == "xbanxia1.org"
