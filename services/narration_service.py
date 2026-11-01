@@ -41,13 +41,14 @@ from services import (
 from lib.errors import (
     ConflictError,
     InvalidInputError,
-    MissingKeyError,
 )
 
 DEFAULT_ENGINE = "claude"
 # LLM-capable engines that can tag speakers (pure MT engines cannot).
 TAG_ENGINES = ["claude", "deepseek", "gemini", "openai", "ollama"]
 MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
+NO_KEY_NOTICE = ("No AI key set, so every line is marked Narrator. "
+                 "Add a key in Settings to tag speakers.")
 
 
 def _read_novel(drama_id: int) -> str:
@@ -87,8 +88,10 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
                         model: Optional[str] = None, fresh: bool = False) -> dict:
     """Starts the chunk-and-tag job; returns {"job_id"}. NotFoundError for
     an unknown drama, InvalidInputError for no novel text or an engine that
-    cannot tag speakers, DependencyUnavailableError if the engine's key is
-    not configured, ConflictError if a run is already active.
+    cannot tag speakers, ConflictError if a run is already active.
+    With no key for the engine the job still cuts the text and marks every
+    chunk "Narrator" (chunking needs no AI), so a pasted novel opens
+    without any account.
 
     A re-run over the same text, engine, model and known characters
     resumes after the batches an interrupted run already tagged;
@@ -102,8 +105,6 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     if not text.strip():
         raise InvalidInputError("This title has no novel text attached yet.")
     api_key = _api_key(engine_name)
-    if not api_key:
-        raise MissingKeyError(engine_name)
 
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
@@ -166,6 +167,12 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         return
     lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
 
+    if not api_key:
+        for ln in lines:
+            ln.speaker = "Narrator"
+        _save_lines(job_id, drama_id, lines, notice=NO_KEY_NOTICE)
+        return
+
     job_timing_service.mark_stage(job_id, "Tag speakers")
     background_jobs.update_progress(job_id, 0.2, "Tagging speakers with the LLM...")
     engine = engine_registry.get_engine(
@@ -194,8 +201,12 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
+    _save_lines(job_id, drama_id, lines)
+
+
+def _save_lines(job_id, drama_id, lines, notice=None):
     job_timing_service.mark_stage(job_id, "Save")
-    background_jobs.update_progress(job_id, 0.9, "Saving lines...")
+    background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
     for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
     background_jobs.cancel_line_jobs(drama_id)
@@ -207,4 +218,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     db.save_lines(drama_id, lines)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)
-    background_jobs.set_result(job_id, {"line_count": len(lines)})
+    result = {"line_count": len(lines)}
+    if notice:
+        result["notice"] = notice
+    background_jobs.set_result(job_id, result)
