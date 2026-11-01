@@ -11,10 +11,12 @@ export function TmxCard({ seriesId, canEdit, onImported }: { seriesId: number; c
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [result, setResult] = useState<string | null>(null)
 
   const run = (work: () => Promise<void>) => {
     setBusy(true)
     setError(null)
+    setResult(null)
     work().then(
       () => setBusy(false),
       (err: unknown) => { setBusy(false); setError(err) },
@@ -24,7 +26,8 @@ export function TmxCard({ seriesId, canEdit, onImported }: { seriesId: number; c
     downloadText(await exportTmx(seriesId), `series-${seriesId}-memory.tmx`, 'application/x-tmx+xml')
   })
   const upload = (file: File) => run(async () => {
-    await importTmx(seriesId, await file.text())
+    const done = await importTmx(seriesId, await file.text())
+    setResult(`Added ${done.added}, kept ${done.skipped}`)
     onImported()
   })
 
@@ -51,6 +54,7 @@ export function TmxCard({ seriesId, canEdit, onImported }: { seriesId: number; c
           </>
         )}
       </div>
+      {result && <p className="muted" role="status" data-testid="series-tmx-result">{result}</p>}
     </Card>
   )
 }
