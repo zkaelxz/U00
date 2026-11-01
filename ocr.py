@@ -237,9 +237,11 @@ def paddle_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
 
 
 def extract_text_rapidocr(image_path: str) -> str:
-    """Chinese and Japanese text through RapidOCR's bundled models (no download
-    on first use). Its default model has no Korean, so a Korean page comes
-    back as noise: Korean stays on Tesseract or Paddle."""
+    """Chinese and Japanese text through RapidOCR's default models, which ship
+    inside its wheel (no download on first use). Any other language or model
+    type would be fetched by RapidOCR itself, outside lib.http, so this
+    function never asks for one. The default model has no Korean, so a Korean
+    page comes back as noise: Korean stays on Tesseract or Paddle."""
     from rapidocr import RapidOCR
     with _MODEL_LOCK:
         if "_rapidocr_instance" not in globals():
@@ -248,7 +250,7 @@ def extract_text_rapidocr(image_path: str) -> str:
     return "\n".join(result.txts or ())
 
 
-_PADDLE_VL_MANGA_REPO ="jzhang533/PaddleOCR-VL-For-Manga"
+_PADDLE_VL_MANGA_REPO = "jzhang533/PaddleOCR-VL-For-Manga"
 # The manga repo's tokenizer files lack `image_token`, so its own processor
 # fails to load; the base repo's processor is compatible with the manga weights.
 _PADDLE_VL_PROCESSOR_REPO = "PaddlePaddle/PaddleOCR-VL"
@@ -264,8 +266,9 @@ _BACKEND_PACKAGES = {
     "manga_ocr": (("manga_ocr", "manga-ocr"),),
     "paddle": (("paddleocr", "paddleocr"), ("paddle", "paddlepaddle")),
     "paddle_vl_manga": (("transformers", "transformers"),),
-    "rapidocr": (("rapidocr", "rapidocr"), ("shapely", "shapely"), ("pyclipper", "pyclipper"),
-                 ("omegaconf", "omegaconf"), ("colorlog", "colorlog")),
+    "rapidocr": (("rapidocr", "rapidocr"), ("onnxruntime", "onnxruntime"), ("shapely", "shapely"),
+                 ("pyclipper", "pyclipper"), ("omegaconf", "omegaconf"), ("colorlog", "colorlog"),
+                 ("six", "six"), ("tqdm", "tqdm"), ("yaml", "PyYAML")),
     "tesseract": (("pytesseract", "pytesseract"),),
 }
 _TESSERACT_PROBE_SECONDS = 10

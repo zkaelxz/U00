@@ -33,3 +33,21 @@ def test_a_queued_rapidocr_install_is_accepted_by_the_apply_step():
     import pending_install
     argv = install_registry.install_argv(sorted(install_registry.RAPIDOCR_KEYS))
     assert pending_install._argv_accepted(argv)
+
+
+def test_upgrading_rapidocr_skips_its_dependencies_like_installing_it(monkeypatch):
+    from services import diagnostics_packages_service as svc
+    seen = {}
+    monkeypatch.setattr(svc, "_run_pip", lambda name, confirm, cmds, job_id=None: seen.update(
+        {"rapidocr": cmds("rapidocr")[0][0], "pytesseract": cmds("pytesseract")[0][0]}))
+    monkeypatch.setattr(svc, "_clear_update_cache", lambda: None)
+    svc.upgrade_dependency("rapidocr", ["rapidocr==3.10.0"])
+    assert "--no-deps" in seen["rapidocr"] and seen["rapidocr"][-1] != "--no-deps"
+    assert "--no-deps" not in seen["pytesseract"]
+
+
+def test_rapidocr_requirements_cover_its_metadata():
+    # rapidocr 3.10.0 requires these (besides numpy, Pillow and requests, which the app has,
+    # and opencv-python-headless, which is the one we skip) plus an inference engine.
+    assert {"onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm",
+            "PyYAML"} <= install_registry.RAPIDOCR_KEYS

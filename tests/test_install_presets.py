@@ -34,7 +34,7 @@ KNOWN_PYPI_DISTS = {
     "lightnovel-crawler",
     "trafilatura", "audio-separator", "funasr", "demucs", "cryptography", "authlib",
     "numpy", "httpx", "nagisa", "soynlp", "jiwer", "sacrebleu",
-    "rapidocr", "shapely", "pyclipper", "omegaconf", "colorlog",
+    "rapidocr", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "pyyaml",
 }
 # Import names whose PyPI project is something else (or a squatter).
 IMPORT_ONLY_NAMES = {"cv2", "pil", "bs4", "sklearn", "yaml", "skimage", "dateutil",

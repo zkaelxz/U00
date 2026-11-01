@@ -31,7 +31,8 @@ NEEDS_CV2_CONTRIB = frozenset({"paddleocr"})
 # the build the app already has; its other requirements are keys of their own.
 INSTALL_WITHOUT_DEPS = frozenset({"rapidocr"})
 # The rest of its requirements, installed beside it because --no-deps skips them.
-RAPIDOCR_KEYS = frozenset({"rapidocr", "shapely", "pyclipper", "omegaconf", "colorlog"})
+RAPIDOCR_KEYS = frozenset({"rapidocr", "onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog",
+                           "six", "tqdm", "PyYAML"})
 
 
 def installable_packages() -> set:
@@ -62,6 +63,11 @@ def unqueueable_reason(keys) -> str | None:
     return None
 
 
+def dependency_flags(keys) -> list:
+    """`--no-deps` for the keys that must not pull their own requirements, else nothing."""
+    return ["--no-deps"] if INSTALL_WITHOUT_DEPS & set(keys) else []
+
+
 def install_dists(keys) -> list:
     """Dist names for `keys`. The contrib build already provides cv2, so a plain
     opencv-python asked for beside a key that pulls contrib would only make the
@@ -80,8 +86,7 @@ def install_argv(keys, python: str | None = None, torch_pins_path: str | None = 
     reqs = install_dists(keys) if specs is None else specs
     argv = [python or sys.executable, "-m", "pip", "install", *diagnostics.PIP_INSTALL_FLAGS,
             *reqs, *dependency_updates.constraints_pip_args(project_root or ROOT)]
-    if INSTALL_WITHOUT_DEPS & set(keys):
-        argv.insert(argv.index("install") + 1, "--no-deps")
+    argv[argv.index("install") + 1:argv.index("install") + 1] = dependency_flags(keys)
     if torch_pins_path:
         argv += ["-c", torch_pins_path]
     return argv
