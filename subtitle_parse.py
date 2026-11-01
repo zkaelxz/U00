@@ -99,6 +99,12 @@ _BOMS = ((b"\xff\xfe\x00\x00", "utf-32"), (b"\x00\x00\xfe\xff", "utf-32"),
          (b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16"))
 _SUSPECT_CHARS = re.compile(r"[\ue000-\uf8ff\ufffd\x00-\x08\x0b\x0c\x0e-\x1f]")
 _KANA = re.compile(r"[\u3041-\u3096\u30a1-\u30fa]")
+_CJK_CHARS = re.compile(r"[\u3041-\u30fa\u3400-\u9fff\uac00-\ud7a3]")
+
+
+def _mostly_clean(text: str) -> bool:
+    """At most 2% of characters failed to decode: a stray byte, not the wrong codec."""
+    return text.count("\ufffd") * 50 <= len(text)
 
 
 def reads_as_shift_jis(data: bytes) -> bool:
@@ -153,6 +159,11 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
         try:
             return data.decode(canonical), canonical, False
         except UnicodeDecodeError:
+            # One stray byte (common in files converted by older tools) must not
+            # make the right codec unusable; the bad bytes show as U+FFFD.
+            text = data.decode(canonical, errors="replace")
+            if _mostly_clean(text):
+                return text, canonical, False
             raise SubtitleParseError(f"The file is not valid {encoding} text.") from None
     for bom, name in _BOMS:
         if data.startswith(bom):
@@ -172,7 +183,23 @@ def decode_subtitle_bytes(data: bytes, encoding: Optional[str] = None,
         return data.decode("utf-8"), "utf-8", False
     except UnicodeDecodeError:
         pass
-    for name in legacy_codec_order(data, language) + _WESTERN_FALLBACK:
+    order = legacy_codec_order(data, language)
+    for name in order:
+        try:
+            text = data.decode(name)
+        except UnicodeDecodeError:
+            continue
+        if not _SUSPECT_CHARS.search(text):
+            return text, name, True
+    # A single bad byte fails every strict CJK decode, and cp1252 then accepts
+    # almost anything, so the lenient CJK reading has to be tried before it.
+    lenient = [(text.count("\ufffd"), k, name, text) for k, name in enumerate(order)
+               for text in [data.decode(name, errors="replace")]
+               if _mostly_clean(text) and _CJK_CHARS.search(text)]
+    if lenient:
+        _, _, name, text = min(lenient)
+        return text, name, True
+    for name in _WESTERN_FALLBACK:
         try:
             text = data.decode(name)
         except UnicodeDecodeError:
@@ -223,8 +250,13 @@ def _unescape(text: str) -> str:
         return text
 
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
 def _clean_text(lines: list) -> str:
-    return "\n".join(part for part in (ln.strip() for ln in lines) if part)
+    # Control characters are invisible in Review but make players and editors
+    # treat the exported file as binary.
+    return "\n".join(part for part in (_CONTROL_CHARS.sub("", ln).strip() for ln in lines) if part)
 
 
 # --------------------------------------------------------------------- SRT
@@ -266,6 +298,7 @@ def parse_srt(text: str) -> list:
 # --------------------------------------------------------------------- VTT
 
 _VTT_TAGS = re.compile(r"<[^<>]*>")
+_VTT_COMMENT_BLOCK = re.compile(r"(?:NOTE|STYLE|REGION)(?:[ \t]|$)")
 
 
 def parse_vtt(text: str) -> list:
@@ -286,7 +319,8 @@ def parse_vtt(text: str) -> list:
         blocks.append(cur)
     cues = []
     for block in blocks:
-        if block[0].startswith(("NOTE", "STYLE", "REGION")):
+        # A cue identifier may merely start with these words ("NOTE1").
+        if _VTT_COMMENT_BLOCK.match(block[0]) and not _ARROW.search(block[0]):
             continue
         # An identifier line may come first; a timing line is always the first or second.
         at = next((k for k, row in enumerate(block[:2]) if _ARROW.search(row)), None)
@@ -443,7 +477,7 @@ def parse_lrc(text: str) -> list:
             # Positive offsets make the lyrics appear sooner, so they are subtracted.
             offset = _lrc_offset(m.group(1))
             continue
-        starts, pos = [], 0
+        starts, pos = [], len(row) - len(row.lstrip())
         while True:
             m = _LRC_STAMP.match(row, pos)
             if not m:
@@ -452,7 +486,7 @@ def parse_lrc(text: str) -> list:
             pos = m.end()
         if not starts:
             continue  # [ti:], [ar:], [by:] and other tags carry no time
-        words = _LRC_WORD_STAMP.sub("", row[pos:]).strip()
+        words = _CONTROL_CHARS.sub("", _LRC_WORD_STAMP.sub("", row[pos:])).strip()
         if len(words) > MAX_CUE_TEXT_CHARS:
             raise SubtitleParseError(f"Line {number}: a lyric line has more than "
                                      f"{MAX_CUE_TEXT_CHARS} characters.")

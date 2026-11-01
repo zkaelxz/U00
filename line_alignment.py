@@ -7,6 +7,7 @@ import difflib
 import re
 
 from core import Line
+from novel_text import split_sentences
 from segment_splitting import encode_line_words, line_words
 
 
@@ -33,6 +34,23 @@ def _join_source(first: str, second: str) -> str:
     if last_word_char and second and _is_hangul(last_word_char) and _is_hangul(second[0]):
         return first + " " + second
     return first + second
+
+
+_CJK_EDGE = re.compile(r"[\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]")
+
+
+def join_segment_texts(texts) -> str:
+    """Segment texts of one line joined the way a full transcription writes them:
+    with a space between Latin or Korean words, and none next to a Chinese or
+    Japanese character or punctuation mark."""
+    out = ""
+    for text in (t.strip() for t in texts):
+        if not text:
+            continue
+        if out and not (_CJK_EDGE.match(out[-1]) or _CJK_EDGE.match(text[0])):
+            out += " "
+        out += text
+    return out
 
 
 def _merged_words(first, second):
@@ -113,7 +131,7 @@ def split_user_transcript(raw_text: str):
         return manual_lines
     # CJK full-width punctuation covers zh/ja; Korean text often also
     # uses standard Latin punctuation, so that's included as a fallback.
-    parts = re.split(r"(?<=[。！？…～\.\!\?])\s*", raw_text)
+    parts = split_sentences(raw_text, latin_end_needs_space=False)
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -134,24 +152,46 @@ def lines_from_char_times(user_lines, per_line_times, total_audio_end):
         raw_bounds[li] = (min(t), max(t)) if t else None
     known_idxs = [li for li, b in raw_bounds.items() if b is not None]
 
+    # Unmatched lines in a run share the gap between their matched neighbours
+    # in proportion to their text; giving each the whole gap made the overlap
+    # pass below push every later correctly-timed line later.
+    spans = {}
+    li = 0
+    while li < len(user_lines):
+        if raw_bounds[li] is not None:
+            li += 1
+            continue
+        run_end = li
+        while run_end < len(user_lines) and raw_bounds[run_end] is None:
+            run_end += 1
+        prev_known = max([k for k in known_idxs if k < li], default=None)
+        next_known = min([k for k in known_idxs if k > li], default=None)
+        gap_start = raw_bounds[prev_known][1] if prev_known is not None else 0.0
+        gap_end = raw_bounds[next_known][0] if next_known is not None else total_audio_end
+        weights = [max(len(re.sub(r"\s+", "", user_lines[k])), 1) for k in range(li, run_end)]
+        cursor = gap_start
+        for k, w in zip(range(li, run_end), weights):
+            width = max(gap_end - gap_start, 0.0) * w / sum(weights)
+            spans[k] = (cursor, cursor + width)
+            cursor += width
+        li = run_end
+
     lines_out = []
     for li in range(len(user_lines)):
-        b = raw_bounds[li]
-        if b is not None:
-            start, end = b
-        else:
-            prev_known = max([k for k in known_idxs if k < li], default=None)
-            next_known = min([k for k in known_idxs if k > li], default=None)
-            prev_end = raw_bounds[prev_known][1] if prev_known is not None else 0.0
-            next_start = raw_bounds[next_known][0] if next_known is not None else total_audio_end
-            start, end = prev_end, next_start
+        start, end = raw_bounds[li] if raw_bounds[li] is not None else spans[li]
         lines_out.append(Line(idx=li, start=start, end=max(end, start + 0.5), zh=user_lines[li]))
 
     for i in range(1, len(lines_out)):
-        if lines_out[i].start < lines_out[i - 1].end:
-            lines_out[i].start = lines_out[i - 1].end + 0.05
-        if lines_out[i].end <= lines_out[i].start:
-            lines_out[i].end = lines_out[i].start + 1.0
+        cur, prev = lines_out[i], lines_out[i - 1]
+        if cur.start < prev.end:
+            # A matched line's time came from the audio, so the earlier line
+            # gives way when it can; otherwise this line moves after it.
+            if raw_bounds[i] is not None and cur.start - prev.start >= 0.1:
+                prev.end = cur.start
+            else:
+                cur.start = prev.end + 0.05
+        if cur.end <= cur.start:
+            cur.end = cur.start + 1.0
     return lines_out
 
 

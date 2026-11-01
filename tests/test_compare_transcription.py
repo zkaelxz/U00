@@ -147,6 +147,11 @@ class TestLineLanguage:
         _run(did)
         assert [t["language"] for t in _env["transcribe"]] == ["zh", "en", "zh"]
 
+    def test_a_difficult_audio_title_is_heard_without_the_detector_and_never_in_fast_mode(self, _env):
+        did, _ = _drama(2, difficult_audio=1, whisper_fast_mode=1)
+        _run(did)
+        assert all(t["fast_mode"] is False and t["difficult_audio"] is True for t in _env["transcribe"])
+
     def test_single_language_title_is_unchanged(self, _env):
         did, _ = _drama(3)
         _run(did)

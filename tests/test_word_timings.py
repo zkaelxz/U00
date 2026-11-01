@@ -54,6 +54,16 @@ def _phrase_times():
     return out
 
 
+def _padded_phrase_times():
+    """What a word-timed split gives each phrase: the words plus the edge pads an
+    unsplit line gets (the pauses are wider than both), bounded by the line's own edges."""
+    out = [(a - segment_splitting.WORD_EDGE_PAD_START, b + segment_splitting.WORD_EDGE_PAD_END)
+           for a, b in _phrase_times()]
+    out[0] = (max(out[0][0], START), out[0][1])
+    out[-1] = (out[-1][0], min(out[-1][1], END))
+    return out
+
+
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
@@ -322,7 +332,7 @@ class TestResplit:
         assert (r["split_lines"], r["line_count"]) == (1, dry["line_count"])
         rows = db.load_lines(did)
         assert [x["zh"] for x in rows] == PHRASES
-        assert _flat((x["start"], x["end"]) for x in rows) == pytest.approx(_flat(_phrase_times()))
+        assert _flat((x["start"], x["end"]) for x in rows) == pytest.approx(_flat(_padded_phrase_times()))
         assert rows[0]["id"] == ids[0]
         # every piece got exactly its own words, so it can be cut again
         words = _valid_words(did)
@@ -337,7 +347,7 @@ class TestResplit:
         assert r["split_lines"] == 2
         rows = db.load_lines(did)
         assert [x["zh"] for x in rows] == PHRASES
-        assert _flat((x["start"], x["end"]) for x in rows) == pytest.approx(_flat(_phrase_times()))
+        assert _flat((x["start"], x["end"]) for x in rows) == pytest.approx(_flat(_padded_phrase_times()))
         assert all(_valid_words(did))
 
     def test_no_pause_long_enough_means_no_cut(self, monkeypatch):
@@ -396,7 +406,7 @@ class TestResplit:
         assert len(rows) == dry["line_count"] == 4
         assert [x["zh"] for x in rows] == PHRASES
         # outer edges stay where the user put them; the cuts still come from the words
-        times = _phrase_times()
+        times = _padded_phrase_times()
         expected = [(START - 1.0, times[0][1]), *times[1:-1], (times[-1][0], END + 0.6)]
         assert _flat((x["start"], x["end"]) for x in rows) == pytest.approx(_flat(expected))
         assert all(_valid_words(did))
