@@ -2,7 +2,7 @@
 
 The feature walkthroughs, setup details and troubleshooting that used to sit in the root `README.md`. The README keeps install and start; this page keeps everything else a user needs. Menu paths and button labels were checked against `frontend/src` when this page was split out; the UI changes often, so if a label here is off, the UI wins.
 
-Related docs: [`STATUS.md`](STATUS.md) (what is built and what is next), [`engine-backends.md`](engine-backends.md) (translation, transcription and dubbing engines), [`asr-experiments.md`](asr-experiments.md) (Whisper model choice), [`browser-extension.md`](browser-extension.md), [`household-access.md`](household-access.md), [`runbook.md`](runbook.md) (restore, certificate), [`technical-notes.md`](technical-notes.md) (bugs found and fixed).
+Related docs: [`engine-backends.md`](engine-backends.md) (translation, transcription and dubbing engines), [`asr-experiments.md`](asr-experiments.md) (Whisper model choice), [`browser-extension.md`](browser-extension.md), [`household-access.md`](household-access.md), [`runbook.md`](runbook.md) (restore, certificate), [`technical-notes.md`](technical-notes.md) (bugs found and fixed).
 
 ## Start here
 

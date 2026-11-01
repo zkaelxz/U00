@@ -16,7 +16,7 @@ Build it, with three choices:
 
 The always-on server is the main node: it holds the library, serves the app and the household sign-in, and owns the job queue. The PC (or any second machine) is an optional worker that claims GPU-heavy jobs while it is online and idle. When no worker is available, the server's own GPU runs the job as today.
 
-Remote access must be in place first: `docs/STATUS.md` says the API must not be exposed beyond loopback until the Caddy and LAN checks are done. The plan also reopens the parked "M8+ job queue" item, which is an owner decision.
+Remote access must be in place first: the API must not be exposed beyond loopback until the Caddy and LAN checks are done. The plan also reopens the parked "M8+ job queue" item, which is an owner decision.
 
 ## 1. What exists and what is missing
 

@@ -120,7 +120,7 @@ baihe-subtitler/
 │   │                             tests/test_sources_credential_audit.py) [audit record]
 │   ├── specs/                    earlier proposals for Discover/Sources/Live, Scanlate, Step 141 (PC shell) and the Workspace/
 │   │                             Review UX; written against the Streamlit tabs [proposals, partly historical]
-│   ├── STATUS.md                 current state, in-flight PRs, what's next [live status; each
+│   ├── an old doc                 current state, in-flight PRs, what's next [live status; each
 │   │                             session replaces its own entry]
 │   ├── archive/                  historical records, not sources of truth: migration review,
 │   │                             handoff and phase log, old roadmap master tracker, Streamlit test

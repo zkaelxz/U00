@@ -62,7 +62,6 @@ If something does not work, Diagnostics checks your setup and says what is missi
 
 - [User guide](docs/user-guide.md): every feature, install and start options (flags, portable mode, updates, uninstall), ports and troubleshooting.
 - [Household access](docs/household-access.md): using the app from other devices.
-- [Status](docs/STATUS.md): what works today and what is next.
 - [Docs index](docs/README.md): architecture, database, jobs, engines, testing and release notes for contributors. Contributor rules: [`CLAUDE.md`](CLAUDE.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Licence

@@ -21,7 +21,7 @@ in the app. Not a copy of the commit log.
 
 ## Docs
 
-If this changes what a user sees or does: the `docs/user-guide.md` line and the `docs/STATUS.md` entry updated in this PR (name them), or "no user-visible change".
+If this changes what a user sees or does: the `docs/user-guide.md` line updated in this PR (name it), or "no user-visible change".
 
 ## Exit condition
 

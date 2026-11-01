@@ -306,7 +306,7 @@ There is no enforced minimum line duration, minimum gap or CPS rule at transcrip
 - The words are cleared when `zh` changes without new words — [db.py:2477-2481, 2551-2556, 2649-2657](/home/user/U00/db.py) [READ]
 - Lines get words in the pipeline via `encode_line_words(seg["text"], seg.get("words"))` — [services/transcribe_pipeline.py:580-589](/home/user/U00/services/transcribe_pipeline.py) [READ]
 - Lines with no words: Qwen (all three backends), Groq, mixed-language Whisper, MMS-realigned segments ([word_align.py:160-193](/home/user/U00/word_align.py) builds new dicts without words), and anything cut by even split [READ/RAN].
-- Undo and single-line re-transcribe lose words: [docs/STATUS.md:26](/home/user/U00/docs/STATUS.md) [READ]
+- Undo and single-line re-transcribe lose words: an old doc [READ]
 - [RAN] E3: Whisper words in a different script from the text (Traditional words, Simplified text) give `encode_line_words → null`, and the splitter falls back.
 
 **`tighten_to_words`**

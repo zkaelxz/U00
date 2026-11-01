@@ -22,7 +22,6 @@ Linked from `AGENTS.md`. For a 64k-context model: read the card for your edit, n
 - Finish with a short summary: what changed, commands run with pass counts, what you are unsure about, follow-ups.
 
 ## Skip list (do not read unless the task is about them)
-`docs/STATUS.md`,
 `docs/engineering-standards.md`, `.test_durations` (2.2 MB),
 `docs/archive/` (research notes, reports and session summaries included). `opencode.json` denies reads of these.
 

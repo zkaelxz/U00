@@ -42,7 +42,7 @@ def test_mixed_or_other_docs_are_not_notes_only(files):
     ["db.py", "tests/test_db.py"],
     ["sources/adapters/bilibili.py"],
     ["scripts/x.py", "tools/repo_map.py"],
-    ["docs/STATUS.md", "services/x.py"],
+    ["docs/user-guide.md", "services/x.py"],
 ])
 def test_backend_only_change_skips_e2e_but_runs_all_pytest(files):
     assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,

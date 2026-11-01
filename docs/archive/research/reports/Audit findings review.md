@@ -338,10 +338,10 @@ Each area lists the most important findings with a status: **fixed (PR)**, **in 
 
 ### 2.12 Docs versus code (#1105) and the fix PR (#1122)
 
-**What it examined:** CLAUDE.md, AGENTS.md, FILE_ORGANIZATION.md, STATUS.md and every doc under `docs/`.
+**What it examined:** CLAUDE.md, AGENTS.md, FILE_ORGANIZATION.md, an old doc and every doc under `docs/`.
 
 **Most important findings:**
-- **H1 to H3. STATUS.md, background-jobs.md and CLAUDE.md say the new job store (#1058) is unmerged,** or that the in-memory dict decides. Both are wrong. **Wait-listed:** those files are owned by open PRs.
+- **H1 to H3. an old doc, background-jobs.md and CLAUDE.md say the new job store (#1058) is unmerged,** or that the in-memory dict decides. Both are wrong. **Wait-listed:** those files are owned by open PRs.
 - **H4 and H5. content-sources.md says a site's terms block imports.** That check has done nothing since 2026-09-27. **Fixed (#1122).**
 - **H7 to H10. Four wrong menu paths** for Remote access, Users and Settings tabs. **Fixed (#1122).**
 - **H11. The docs tell users to run `cli.py timing-check`, which doesn't exist.** **Wait-listed (#891).**
@@ -485,7 +485,7 @@ Each area lists the most important findings with a status: **fixed (PR)**, **in 
 | 1 | Wire device tokens into the extension bridge | Not started |
 | 2 | Tighten the size ratchet | Not started |
 | 3 | Short busy wait for job writes under the lock | Fixed (#1078) |
-| 4 | Fix the stale docs | Partly fixed (#1122). STATUS.md still waits. |
+| 4 | Fix the stale docs | Partly fixed (#1122). an old doc still waits. |
 | 8 | Move the remaining fetchers onto `lib/http` | Wave 4 in open PR (#1070) |
 | 9 | Start splitting `db.py` into a package | #943, open and parked |
 | 11 | One settings reader | Open PRs #1068 and #1071 |
@@ -603,7 +603,7 @@ These defects recur across many areas. Each pattern points at a structural fix, 
 | **Stored file names trusted as paths** | Voice bank clips (#1088 M9). Novel reference (#1116 M8). Audio file from another PC's copy (#1124 M2). The `_inside` helper copied 5 times with subtle differences (#1113). | One `lib/paths.contained()` helper, used everywhere a stored name becomes a path. |
 | **Two processes that can't see each other** | GPU slot name with no instance (#1086 M1, #1123 H2). The CLI can't see app jobs (#1123 H1). Reused process ids (#1086 L4, #1077 review). | Put the instance id in every holder and job row. Make the CLI write job records like the app does. Much of this is #1073 and Phase 1. |
 | **Tests that cannot fail** | `.tsx` tests never run (#1104 H1). Always-skipped tests (#1104 H2, M7). Sleeps used to prove nothing happened (#1104 M6). Locks removed with no failing test (#1121 H1, H3, M14, M15). `pytest.raises(Exception)` (#1121 H6). A fake-clock deadline test that passes while the bug exists (#1097). Tests pinning the bad behaviour (#1094 M7, #1098 H2). Vacuous tests in a fix (#1078 review). | Make thread exceptions fail pytest. Add `Barrier`-based contention tests for each lock. Require each new test to be run once against the unfixed code. #1141 and #1087 did this; #1089 did not. |
-| **Docs and comments that claim what the code doesn't do** | 40 drifts in #1105. STATUS.md says device tokens work (#1113). Docstrings promising protections the code lacks (#1102 H3, #1116 M7 and M10, #1119 L1, #1088 H1). | Keep docs that state facts short and generated where possible (as the route table now is). One docs-sync pass after each merge wave. Treat a false "never" in a comment as a bug. |
+| **Docs and comments that claim what the code doesn't do** | 40 drifts in #1105. an old doc says device tokens work (#1113). Docstrings promising protections the code lacks (#1102 H3, #1116 M7 and M10, #1119 L1, #1088 H1). | Keep docs that state facts short and generated where possible (as the route table now is). One docs-sync pass after each merge wave. Treat a false "never" in a comment as a bug. |
 | **Frontend shows what the server refuses** | Members offered admin-only actions (#1101 H1, H2, M8, M11; #1104 H3). | One permission hook every page uses, and a test that runs pages as a limited member. #1139, open, adds that test. |
 
 ---
@@ -717,7 +717,7 @@ PR #1073 (one GPU path) is held for this.
    - Tighten the size ratchet (item 2).
    - Back up `sources.db` with the auto-backup, and run a quick integrity check at startup (item 5).
    - Write a one-page threat model (item 12).
-8. **One docs pass after the next merge wave:** STATUS.md, background-jobs.md, CLAUDE.md and AGENTS.md (#1105 H1 to H3, M12, M13), plus the `npx tsc -b` command and the stale "Settings > Remote access" comments. Then update `owner-test-checklist.md` for the 13 merged fixes it is missing.
+8. **One docs pass after the next merge wave:** an old doc, background-jobs.md, CLAUDE.md and AGENTS.md (#1105 H1 to H3, M12, M13), plus the `npx tsc -b` command and the stale "Settings > Remote access" comments. Then update `owner-test-checklist.md` for the 13 merged fixes it is missing.
 
 ---
 

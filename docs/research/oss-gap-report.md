@@ -193,7 +193,7 @@ Licence is the repo's licence file; model weights can differ and were not checke
 - Whether dub output keeps stereo through `build_dub_track`: only the absence of spatial/loudness code was confirmed.
 - GitHub stars were taken from the owner's lists; repos not on those lists show "n/g". Weight licences were not checked. The asr topic list was extended only with page 6 (20 repos, "Load more" unavailable); pages 7+ were not tried, so the list is the top ~120 visible. Of the ~120 video-translation repos, the ~60 zero-to-three-star ones not named by the owner were skipped. The `asmr` topic shows 104 repos but only 60 loaded.
 - creator tools whose core is obfuscated (CreatorBox) and README-only repos (xiaoniu, GhostCut scripts, Asmr-Player, neokikoeru) could not be read in code.
-- STATUS.md was last checked at 175d617; the base is 68595ce. The claims above were re-read against the code at the base, not taken from STATUS.md.
+- The claims above were re-read against the code at the base (68595ce).
 
 ## 8. Addendum: SmartSub and Voice-Pro (2026-10-08)
 
