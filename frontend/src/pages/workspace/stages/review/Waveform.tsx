@@ -16,6 +16,7 @@ import {
   bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, neighbourCut, NUDGE_SECONDS, panView, peakColumns, round3, snapToCut, timeToX, viewAround,
   viewForLine, visibleLines, xToTime, zoomView, type View,
 } from './waveformLogic'
+import { FrameTimingButton } from './FrameTiming'
 import { useShotChanges } from './useShotChanges'
 
 export type Edge = 'start' | 'end'
@@ -25,6 +26,8 @@ interface Props {
   lines: ReviewLine[]
   active: ReviewLine | null
   player: RefObject<PlayerHandle | null>
+  // The title has a video: the frame timing view needs its pictures.
+  hasVideo?: boolean
   // Save one edge through the Review edit path; true when saved.
   onRetime: (lineId: number, edge: Edge, value: number) => Promise<boolean>
   // The active line is open in the row editor: its draft would go stale.
@@ -54,7 +57,7 @@ const RETIME_FAILED = 'Couldn’t move that edge. The line may have changed: rel
 // cues. Dragging the active line's edges (or arrow keys on a focused edge)
 // saves start/end through the same line-edit route as the row editor, and an
 // edge stops at its neighbour instead of overlapping it.
-export default function Waveform({ dramaId, lines, active, player, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap, focusGap = null, lineCount = null }: Props) {
+export default function Waveform({ dramaId, lines, active, player, hasVideo = false, onRetime, editingActive, gaps = [], gapBlocked = null, onTranscribeGap, focusGap = null, lineCount = null }: Props) {
   const box = useRef<HTMLDivElement | null>(null)
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const head = useRef<HTMLDivElement | null>(null)
@@ -297,6 +300,9 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={shots.busy} onClick={() => void shots.find(view)} data-testid="wave-find-shots">
           Find shot changes
         </button>
+        {active && bounds && hasVideo && (
+          <FrameTimingButton dramaId={dramaId} active={active} bounds={bounds} cuts={shots.cuts} onCommit={(edge, v) => void commit(edge, v)} error={message} />
+        )}
         <span className="muted review-wave-range" data-testid="wave-range">
           {formatTime(view.start)} – {formatTime(view.start + view.span)}
         </span>

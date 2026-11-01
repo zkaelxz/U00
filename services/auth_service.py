@@ -670,6 +670,30 @@ def sweep_stale_sessions(now: float | None = None) -> int:
     return n
 
 
+# Rows older than this are deleted at startup. Newer rows are never touched,
+# whatever their action, so recent security events stay reviewable.
+AUDIT_RETENTION_DAYS = 30
+_AUDIT_PRUNE_BATCH = 500
+
+
+def prune_audit_log(now: float | None = None) -> int:
+    """Startup clean-up: deletes activity-log rows older than
+    AUDIT_RETENTION_DAYS in small batches so no single write transaction runs
+    long. Returns how many rows were removed."""
+    now = time.time() if now is None else now
+    cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                           time.gmtime(now - AUDIT_RETENTION_DAYS * 86400))
+    total = 0
+    while True:
+        n = db.auth_delete_audit_before(cutoff, _AUDIT_PRUNE_BATCH)
+        total += n
+        if n < _AUDIT_PRUNE_BATCH:
+            break
+    if total:
+        write_audit(None, "audit.prune", f"{total} older than {AUDIT_RETENTION_DAYS} days")
+    return total
+
+
 # --- the signed-in user's own devices ------------------------------------------
 # The user id always comes from the caller's session, never from the
 # request, so nobody can list or end another user's sessions here; a session
