@@ -263,12 +263,14 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
     pos = 0
     for unit, (unit_start, unit_end), orig in zip(units, spans, raw):
         unit_len = max(len(unit.text), 1)
-        if word_units:
-            # The aligner drops punctuation from its words ("world!" -> "world"),
-            # so find each word forward from the last one instead of counting.
-            found = concatenated.find(unit.text, pos) if unit.text else -1
-            if found >= 0:
-                pos = found
+        # The aligner drops punctuation from its units ("world!" -> "world", and
+        # "，" in Chinese), so counting characters would fall behind the text
+        # after every mark: later units land on earlier lines and the last
+        # lines get none. Find each unit forward from the last one instead,
+        # but only across punctuation, never across text the aligner skipped.
+        found = concatenated.find(unit.text, pos) if unit.text else -1
+        if found >= 0 and not any(c.isalnum() for c in concatenated[pos:found]):
+            pos = found
         for offset in range(unit_len):
             char_pos = pos + offset
             if char_pos >= len(line_of_char):
