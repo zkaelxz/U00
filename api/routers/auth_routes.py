@@ -49,7 +49,7 @@ import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Path, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, client_ip,
@@ -60,7 +60,7 @@ from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, clie
 from api.no_store import NO_STORE, no_store_json
 from api.remote_uploads import away_principal
 from services import auth_service, member_key_service, oidc_service
-from lib.errors import DependencyUnavailableError, NotFoundError
+from lib.errors import DependencyUnavailableError, NotFoundError, RateLimitedError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -146,6 +146,19 @@ def _oidc_cookie_name(request: Request) -> str:
     return OIDC_COOKIE_NAME if session_cookie_secure(request) else DEV_OIDC_COOKIE_NAME
 
 
+def _rate_limited_page() -> HTMLResponse:
+    """These two routes are browser navigations: the JSON error body would
+    strand a phone on a page with no way back. Stays a 429 so the proxy and
+    retry logic still see the limit."""
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+        "<title>Sign-in paused</title><body style='font-family:sans-serif;max-width:32rem;"
+        "margin:3rem auto;padding:0 1rem'><h1>Sign-in paused</h1>"
+        "<p>Too many sign-in attempts. Wait about 10 minutes and try again.</p>"
+        "<p><a href='/'>Back to Baihe</a></p></body>",
+        status_code=429, headers={**NO_STORE, "Retry-After": "600"})
+
+
 def _redirect(request: Request, location: str) -> RedirectResponse:
     resp = RedirectResponse(location, status_code=302, headers=dict(NO_STORE))
     resp.delete_cookie(_oidc_cookie_name(request), path="/", httponly=True, samesite="lax",
@@ -158,7 +171,10 @@ def login(request: Request, return_to: str = "/"):
     _require_auth_on(request)
     sign_in = _sign_in(request)
     ip = client_ip(request)
-    sign_in.check_rate("login", ip)
+    try:
+        sign_in.check_rate("login", ip)
+    except RateLimitedError:
+        return _rate_limited_page()
     txn_id, url = sign_in.begin(_config(request), return_to, client_ip=ip)
     resp = RedirectResponse(url, status_code=302, headers=dict(NO_STORE))
     resp.set_cookie(_oidc_cookie_name(request), txn_id, httponly=True, samesite="lax",
@@ -172,7 +188,10 @@ def callback(request: Request, state: str = "", code: str = "", error: str = "")
     _require_auth_on(request)
     sign_in = _sign_in(request)
     ip = client_ip(request)
-    sign_in.check_rate("callback", ip)
+    try:
+        sign_in.check_rate("callback", ip)
+    except RateLimitedError:
+        return _rate_limited_page()
     config = _config(request)
     try:
         result = sign_in.complete(

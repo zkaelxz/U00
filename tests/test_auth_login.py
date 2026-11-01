@@ -580,7 +580,9 @@ class TestRateLimits:
         c = _client(app)
         codes = [c.get("/api/auth/login").status_code for _ in range(21)]
         assert codes[:20] == [302] * 20 and codes[20] == 429
-        assert c.get("/api/auth/login").json()["error"]["code"] == "rate_limited"
+        limited = c.get("/api/auth/login")
+        assert limited.headers["content-type"].startswith("text/html")
+        assert "10 minutes" in limited.text and limited.headers["retry-after"] == "600"
         other = _client(app, peer=("198.51.100.7", 1))
         assert other.get("/api/auth/login").status_code == 302
         clock[0] += 601

@@ -793,8 +793,36 @@ class TestPaidEngines:
                                  "fallback_chain": [{"engine": "claude"}]},
                       headers=_h(s)).status_code == 403
         assert c.post(url, json={"engine": "ollama"}, headers=_h(s)).status_code not in (401, 403)
+        db.update_drama(did, translation_engine="ollama")
+        assert c.post(url, json={}, headers=_h(s)).status_code not in (401, 403)   # default is free
         assert c.post(f"/api/review-jobs/dramas/{did}/flag", json={"engine": "gemini"},
                       headers=_h(s)).status_code == 403
+
+    @pytest.mark.parametrize("path,body", [
+        ("run", {}),
+        ("glossary-affected/run", {"line_ids": [1], "preview_hash": "x"}),
+        ("source-changed/run", {"line_ids": [1]}),
+        ("retry-failed/run", {}),
+    ])
+    def test_default_engine_run_passes_the_checked_engine_on(self, isolated_db, monkeypatch,
+                                                             path, body):
+        from lib.errors import ConflictError
+        from services import translate_thinking_service
+        seen = {}
+
+        def stub(start, drama_id, thinking, remember, *args, **kwargs):
+            seen.update(kwargs)
+            raise ConflictError("stop here")
+        monkeypatch.setattr(translate_thinking_service, "start_with_thinking", stub)
+        c = _remote(_app())
+        _u, s = _user()
+        did = db.create_drama(title_en="T", source_language="zh")
+        url = f"/api/translate-run/dramas/{did}/{path}"
+        assert c.post(url, json=body, headers=_h(s)).status_code == 403   # default is paid
+        db.update_drama(did, translation_engine="ollama")
+        assert c.post(url, json=body, headers=_h(s)).status_code == 409
+        # The service must run what was checked, not re-read the title's engine.
+        assert seen["engine_name"] == "ollama"
 
     def test_resegment_llm_is_gated(self, isolated_db):
         c = _remote(_app())
