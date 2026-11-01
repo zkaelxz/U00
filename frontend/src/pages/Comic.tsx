@@ -26,6 +26,7 @@ import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
+import { AddComicDialog } from './comic/AddComicDialog'
 import { ChapterBar } from './comic/ChapterBar'
 import {
   chapterIndex,
@@ -91,6 +92,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [regions, setRegions] = useState<Record<number, RegionsState>>({})
   const [linesOpen, setLinesOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [initialPage] = useState(routePage)
   const [chapterPrefs, setChapterPrefs] = useState<ChapterPrefs | null>(null)
 
@@ -334,6 +336,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       Translate
     </button>
   )
+  const addButton = (
+    <button type="button" className="comic-tools-btn" onClick={() => setAddOpen(true)}>
+      Add a Comic
+    </button>
+  )
   // Boxes are edited with lines.edit; without it the editor would only show refusals.
   const canEdit = useHolds('lines.edit')
   // Always present once allowed, so the bar does not shift when the page list arrives.
@@ -483,6 +490,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && toolsButton}
+          {addButton}
           {!empty && editButton}
           {view}
           {chapterBar}
@@ -499,6 +507,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           )}
           {toggles}
           {!empty && toolsButton}
+          {addButton}
           {!empty && editButton}
           {view}
           {chapterBar}
@@ -572,6 +581,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <div id="comic-scanlate">{toolsOpen && panel}</div>
         </Sheet>
       )}
+      {addOpen && <AddComicDialog open onClose={() => setAddOpen(false)} />}
       {phone && currentPage && current !== null && (
         <Sheet open={linesOpen} title={`Page ${current} text`} onClose={() => setLinesOpen(false)}>
           <ComicLines page={current} state={regionsFor(currentPage)} onRetry={() => retryText(currentPage.id)} />

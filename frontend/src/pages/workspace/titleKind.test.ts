@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { titleKind } from './titleKind'
+import { foldsTranslateOptions, titleKind } from './titleKind'
+
+describe('foldsTranslateOptions', () => {
+  it('folds the run options for novels and comics only', () => {
+    expect((['novel', 'comic'] as const).map(foldsTranslateOptions)).toEqual([true, true])
+    expect((['video', 'audio', 'subtitle'] as const).map(foldsTranslateOptions)).toEqual([false, false, false])
+  })
+})
 
 describe('titleKind', () => {
   it.each([
