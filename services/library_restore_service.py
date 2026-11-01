@@ -11,6 +11,7 @@ import os
 import time
 
 import db
+from lib import settings_schema
 from lib.errors import NewerDatabaseError
 from services.library_restore_sql import (_current_state_marker, _fsync_dir, _open_carry_conn,
                                           _ro_uri, _schema_sql_allowed, _table_names)
@@ -51,7 +52,17 @@ _RESTORE_KEPT_AUTH_TABLES = auth_service.RESTORE_KEPT_TABLES
 # back, and an uploaded file must not choose where this library's copies
 # are written.
 _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
-                              "auto_backup.state")
+                              "auto_backup.state") + (
+    # PC-only and security settings: a backup from someone else must not point the
+    # Jellyfin API key at its server, choose a program or file the PC runs or reads
+    # (a network path leaks the Windows login), move where comics are saved, change
+    # the web-search server, or switch uploads from away back on. Every path
+    # setting is kept by type, so a new one is covered without being listed here.
+    # "jellyfin", "comic_save" and "web_search" are those services' SETTING keys.
+    "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.on_at",
+    *(setting.store_key for setting in settings_schema.SETTINGS
+      if setting.store == "db" and setting.type == "path"),
+    *(settings_schema.BY_KEY[key].store_key for key in ("cookies_browser", "max_upload_mb")))
 
 
 # Media folders a restore keeps from the current library when the zip has
@@ -294,8 +305,10 @@ def _stage_library_db(staging_dir: str, library_dir: str) -> tuple:
         try:
             conn = _open_carry_conn(staged)
             try:
-                conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
-                             "cancel_requested = 0 WHERE status IN ('queued', 'running')",
+                conn.execute("UPDATE job_records SET status = 'cancelled', "
+                             "finished_at = COALESCE(updated_at, ?), cancel_requested = 0, "
+                             "detail_state = 'interrupted' "
+                             "WHERE status IN ('queued', 'running')",
                              (time.time(),))
                 gpu_slots.clear(conn)
                 queue_service.clear_schedule(conn)

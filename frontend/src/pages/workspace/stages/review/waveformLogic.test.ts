@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   bucketsFor, clampEdge, clampSpan, edgeBounds, MAX_SPAN, MIN_LINE_SECONDS, MIN_SPAN, panView, peakColumns,
-  mergeCuts, snapToCut, timeToX, viewAround, viewForLine, visibleLines, xToTime, zoomView,
+  mergeCuts, neighbourCut, snapToCut, timeToX, viewAround, viewForLine, visibleLines, xToTime, zoomView,
 } from './waveformLogic'
 
 const L = (id: number, idx: number, start: number, end: number) => ({ id, idx, start, end })
@@ -124,5 +124,14 @@ describe('shot changes', () => {
 
   it('merges found cuts in order without repeats', () => {
     expect(mergeCuts([2, 5], [5, 3, 9])).toEqual([2, 3, 5, 9])
+  })
+
+  it('finds the next and previous cut, ignoring one the playhead is already on', () => {
+    const cuts = [2, 4.4, 9]
+    expect(neighbourCut(cuts, 3, 1)).toBe(4.4)
+    expect(neighbourCut(cuts, 4.4, 1)).toBe(9)
+    expect(neighbourCut(cuts, 4.4, -1)).toBe(2)
+    expect(neighbourCut(cuts, 9, 1)).toBeNull()
+    expect(neighbourCut(cuts, 1, -1)).toBeNull()
   })
 })

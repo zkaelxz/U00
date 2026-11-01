@@ -145,6 +145,9 @@ const ACTIONS: Record<string, string> = {
   'user.bind_google': 'Google account linked',
   'permission.grant': 'Permission granted',
   'permission.revoke': 'Permission removed',
+  'upload.away': 'Upload from away',
+  'remote_uploads.on': 'Uploads from away turned on',
+  'remote_uploads.off': 'Uploads from away turned off',
   'library.restore': 'Library restored',
   'library.restore_drama': 'Title restored from backup',
 }

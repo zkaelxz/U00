@@ -425,6 +425,8 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
                  force_retranslate, own_lines_only, thinking, include_genre_notes,
                  default_female_pronouns):
     """(response, run settings, novel reference, glossary terms, style guidelines)."""
+    if not bulk:
+        translate_run_options.require_no_pending_bulk_overlap(drama_id, eligible)
     glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, opts.style_preset,
         include_genre_notes=include_genre_notes,
@@ -489,6 +491,13 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
     if not started:
         raise ConflictError("A translation is already running for this title.")
     _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)
+
+
+def run_engine_name(drama_id: int) -> str:
+    """The engine a run on this title uses when the caller names none."""
+    drama = ownership_service.require_drama(drama_id)
+    return (drama.get("translation_engine")
+            or engine_routing_service.resolve_capability("translation.cheap"))
 
 
 def _resolve_run_options(drama, engine_name, model, style_preset, style_note, locale,

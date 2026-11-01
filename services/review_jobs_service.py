@@ -38,7 +38,7 @@ import db
 from lib.safe_paths import plain_file_in
 from engine_backends import engine_registry, local, pricing
 from engine_backends import gemini as engine_gemini
-from services import (fixflag_translate, ownership_service, paid_job_service, settings_service,
+from services import (fixflag_translate, translate_run_options, ownership_service, paid_job_service, settings_service,
                       translate_run_service, translate_service, workspace_review_job_service,
                       transcribe_options_service)
 from lib.errors import (
@@ -120,6 +120,18 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
             "model": getattr(engine, "model", None), "line_count": line_count, "bulk": True}
 
 
+def _require_no_pending_bulk_of_kind(kind: str, drama_id: int) -> None:
+    """A live pass beside a paid batch of the same kind pays for the work twice,
+    and the batch's answers then land on lines this pass already changed."""
+    bulk_kind = _BULK_KIND.get(kind)
+    if bulk_kind in (None, "consistency"):
+        return
+    pending = translate_run_options.BULK_IN_FLIGHT_STATUSES
+    if any(j.get("kind") == bulk_kind for j in db.list_bulk_jobs(drama_id, statuses=pending)):
+        raise ConflictError("A bulk translation is still pending for some of these lines. "
+                            "Wait for it to finish, or cancel it first.")
+
+
 def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional[str],
            gemini_free_tier: bool | None, runner, make_args, allow_translation_only: bool = False,
            precheck=None, bulk: bool = False, bulk_kwargs=None) -> dict:
@@ -156,6 +168,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         engine = engine_registry.get_engine(engine_name, api_key, model)
         return _start_bulk(kind, drama_id, engine, engine_name, len(lines),
                            bulk_kwargs(drama) if bulk_kwargs else {})
+    _require_no_pending_bulk_of_kind(kind, drama_id)
     job_id = f"{prefix}{drama_id}"
     if background_jobs.is_running(job_id):
         raise ConflictError(f"A {label} is already running for this title.")

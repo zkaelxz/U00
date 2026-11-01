@@ -325,7 +325,7 @@ export default function SourceStage() {
         </p>
       )}
       {uploaded && <p role="status">{uploaded}</p>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <ErrorBanner error={error} describe={{ pcOnly: !canUpload }} onDismiss={() => setError(null)} />
     </>
   )
 
