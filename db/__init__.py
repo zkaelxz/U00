@@ -323,6 +323,7 @@ def init_db():
         _migrate_bulk_job_columns(conn)
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
+        _migrate_progress_view_prefs(conn)
         _migrate_auth_session_columns(conn)
         _grant_lines_read_for_reader_page(conn)
         import device_tokens   # owns its table; imports db, so not at the top
@@ -358,7 +359,7 @@ from db.migrations import (  # noqa: E402,F401
     _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
     _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
     _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
-    _migrate_ownership_columns, _migrate_scanlate_columns,
+    _migrate_ownership_columns, _migrate_progress_view_prefs, _migrate_scanlate_columns,
     _migrate_series_and_character_columns, _migrate_step26e_profiles,
     _migrate_vocab_and_style_columns)
 
@@ -452,7 +453,7 @@ from db.job_checkpoints import record_checkpoint_unit  # noqa: E402,F401
 
 
 from db.library_folder import (  # noqa: E402,F401
-    PRE_RESTORE_MARKER, fsync_dir, hold_restore_lock, library_startup_notes,
+    PRE_RESTORE_MARKER, fsync_dir, hold_restore_lock, is_kept_copy_name, library_startup_notes,
     recover_interrupted_restore, release_restore_lock)
 
 
@@ -575,7 +576,7 @@ from db.line_annotations import (  # noqa: E402,F401
 from db.reading import (  # noqa: E402,F401
     clear_reading_history, create_profile, delete_profile, get_personal_notes, get_profile,
     get_progress, list_continue_reading, list_profiles, list_reading_history,
-    save_personal_notes, save_progress)
+    get_view_prefs, save_personal_notes, save_progress, save_view_prefs)
 
 
 # ---------------------------------------------------------------------------
