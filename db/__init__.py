@@ -517,6 +517,7 @@ from db.comic_pages import (  # noqa: F401
     create_page,
     update_page,
     list_pages,
+    page_progress_by_drama,
     get_page,
     move_pages,
     BUBBLE_EDIT_FIELDS,

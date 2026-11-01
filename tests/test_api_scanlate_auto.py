@@ -1436,7 +1436,7 @@ def _read_ahead(monkeypatch, engine="claude"):
     return started
 
 
-def test_read_ahead_covers_the_few_visible_pages_after_the_reader(client, monkeypatch):
+def test_read_ahead_covers_the_readers_page_and_the_few_visible_pages_after_it(client, monkeypatch):
     from services import translate_run_service
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
     started = _read_ahead(monkeypatch)
@@ -1445,7 +1445,7 @@ def test_read_ahead_covers_the_few_visible_pages_after_the_reader(client, monkey
     import comic_chapters
     comic_chapters.set_hidden(did, [db.get_page(ids[2])["filename"]], True)
     run_svc.start_run(did, read_ahead_from=ids[1], engine="claude")
-    assert started["targets"] == ids[3:6]
+    assert started["targets"] == [ids[1], ids[3], ids[4], ids[5]]
 
 
 def test_read_ahead_on_a_paid_engine_needs_a_monthly_cap(client, monkeypatch):

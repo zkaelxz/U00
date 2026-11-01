@@ -84,6 +84,12 @@ describe('AddComicDialog', () => {
     }
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Add<\/button>/)
   })
+  it('the Read translated form takes only a chapter link and offers Read translated', () => {
+    const html = renderToStaticMarkup(<AddComicDialog open readTranslated onClose={() => {}} />)
+    expect(html).toContain('Chapter link')
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Read translated<\/button>/)
+    for (const t of ['Images', 'CBZ', 'Reading mode']) expect(html).not.toContain(t)
+  })
   it('draws nothing while closed', () => {
     expect(renderToStaticMarkup(<AddComicDialog open={false} onClose={() => {}} />)).not.toContain('Reading mode')
   })

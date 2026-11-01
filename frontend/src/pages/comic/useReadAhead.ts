@@ -1,10 +1,14 @@
 // Translates the pages just after the one being read, in the background, so they are typeset when the reader turns the page.
 import { useEffect, useRef } from 'react'
 
+import { useInterval } from '../../hooks/useInterval'
+import { browserStorage } from '../../hooks/usePersistedState'
+
 import { cancelJob, getJob } from '../../api/jobs'
 import { scanlateApi } from '../../api/scanlate'
 import type { ComicPageInfo } from '../../types/comic'
 import { isTerminalStatus } from '../../types/jobs'
+import { isReadTranslated } from './comicLogic'
 
 // Waits out a page flick so skimming through a chapter does not start a run per page.
 export const READ_AHEAD_DELAY_MS = 2000
@@ -17,15 +21,25 @@ export function needsReadAhead(ahead: ComicPageInfo[], tried: ReadonlySet<number
 
 interface Options {
   titleId: number
-  // The page being read, and the few visible pages after it.
-  page: ComicPageInfo | undefined
-  ahead: ComicPageInfo[]
-  // Only a title that already has typeset pages is being translated; an untouched one is never started.
-  enabled: boolean
+  pages: ComicPageInfo[]
+  // 1-based page numbers the reader lists, and the 1-based place of the page being read among them.
+  visible: number[]
+  position: number
+  count: number
+  // A title with typeset pages is being translated; an untouched one is only started by "Read translated".
+  canTypeset: boolean
   onFinished: () => void
 }
 
-export function useReadAhead({ titleId, page, ahead, enabled, onFinished }: Options) {
+export function useReadAhead({ titleId, pages, visible, position, count, canTypeset, onFinished }: Options) {
+  const readTranslated = isReadTranslated(browserStorage(), titleId)
+  const current = position > 0 ? pages[visible[position - 1] - 1] : undefined
+  // The reader's page and the few after it.
+  const ahead = visible.slice(Math.max(0, position - 1), position + 3).map((n) => pages[n - 1]).filter(Boolean)
+  const enabled = (canTypeset || readTranslated) && current !== undefined
+  const page = current
+  // A title made with "Read translated" is still being imported: its pages arrive while the reader is open.
+  useInterval(onFinished, count === 0 && readTranslated ? 4000 : null, { pauseWhenHidden: true })
   const tried = useRef(new Set<number>())
   const stopped = useRef(false)
   const jobId = useRef<string | null>(null)
@@ -43,8 +57,11 @@ export function useReadAhead({ titleId, page, ahead, enabled, onFinished }: Opti
           jobId.current = started.job_id
           poll(started.job_id)
         },
-        // A job already running, no monthly cap for a paid engine, no key or no permission: reading goes on without it.
-        () => {},
+        // A job (or the import) already running, no monthly cap for a paid engine, no key or no permission:
+        // reading goes on without it, and the next page turn or arriving page asks again.
+        () => {
+          for (const p of ahead) tried.current.delete(p.id)
+        },
       )
     }, READ_AHEAD_DELAY_MS)
     return () => window.clearTimeout(timer)

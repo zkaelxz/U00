@@ -130,7 +130,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
     or mode "all" without confirm. 503: no key for the engine. 400: no
     pages. `chapter_id` limits "missing"/"all" to one chapter. `art_captions` also
     translates the large text drawn on the art (needs PaddleOCR). `read_ahead_from` is the page
-    a reader is on: the run covers the READ_AHEAD_PAGES visible pages after it, and (nobody
+    a reader is on: the run covers it and the READ_AHEAD_PAGES visible pages after it ("missing" skips the translated ones), and (nobody
     having asked for this spend) is refused for a capped engine while no monthly cap is set.
     Returns {job_id, engine, mode}."""
     pages_svc.require_drama(drama_id)
@@ -159,8 +159,8 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
     if read_ahead_from is not None:
         if read_ahead_from not in targets:
             raise UnsupportedOperationError("That page is not in the reading order.")
-        start = targets.index(read_ahead_from) + 1
-        targets = targets[start:start + READ_AHEAD_PAGES]
+        start = targets.index(read_ahead_from)
+        targets = targets[start:start + 1 + READ_AHEAD_PAGES]
     if not targets:
         raise UnsupportedOperationError("No pages to run: they are all hidden.")
     _require_opencv()

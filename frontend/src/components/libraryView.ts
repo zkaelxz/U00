@@ -81,10 +81,16 @@ export const countDramas = (n: number) => `${n} ${n === 1 ? 'title' : 'titles'}`
 /** The search, sort and view bar has nothing to act on until the library holds a title; a filter that matches nothing keeps it so it can be cleared. */
 export const hideLibraryBar = (count: number | null, filtered: boolean): boolean => count === 0 && !filtered
 
-type Progress = { line_count?: number; translated_count?: number; status: string | null }
+type Progress = { line_count?: number; translated_count?: number; page_count?: number; pages_translated?: number; status: string | null }
 
 /** The card's progress line: "32 left" while lines wait, "412 translated" once none do; null without lines. */
 export function cardProgress(d: Progress): { text: string; share: number } | null {
+  // A comic being read translated counts pages; one nobody has started translating shows no bar.
+  const pages = d.page_count ?? 0
+  if (pages > 0 && (d.pages_translated ?? 0) > 0) {
+    const done = Math.min(pages, d.pages_translated ?? 0)
+    return { text: `Translated ${done.toLocaleString()} of ${pages.toLocaleString()} pages`, share: done / pages }
+  }
   const total = d.line_count ?? 0
   if (total <= 0) return null
   const done = Math.min(total, d.translated_count ?? 0)
