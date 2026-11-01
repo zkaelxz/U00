@@ -186,6 +186,14 @@ def get_conn():
     return conn
 
 
+def inserted_id(cur: sqlite3.Cursor) -> int:
+    """The id of the row the plain INSERT on `cur` just added. sqlite3 types
+    lastrowid as optional; it is None only when no row was inserted."""
+    if cur.lastrowid is None:
+        raise RuntimeError("the INSERT added no row")
+    return cur.lastrowid
+
+
 # Per-thread redirect of get_conn(), used only by migrate_database_file.
 _path_override = threading.local()
 

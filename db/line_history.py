@@ -99,6 +99,7 @@ def get_line_history_snapshot(history_id: int):
     be turned back into Line objects and saved via save_lines()."""
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute("SELECT snapshot_json FROM line_history WHERE id = ?", (history_id,)).fetchone()
-    if not row:
+    text = gzip_text.unpack(row["snapshot_json"]) if row else None
+    if text is None:
         return None
-    return json.loads(gzip_text.unpack(row["snapshot_json"]))
+    return json.loads(text)

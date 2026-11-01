@@ -16,8 +16,8 @@ import db
 # ---------------------------------------------------------------------------
 
 def create_benchmark_case(label: str, stage: str, content_type: str, source_language: str = "zh",
-                           input_filename: str = None, source_text: str = None,
-                           reference_text: str = None) -> int:
+                           input_filename: str | None = None, source_text: str | None = None,
+                           reference_text: str | None = None) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(
             "INSERT INTO benchmark_cases (label, stage, content_type, source_language, "
@@ -25,11 +25,11 @@ def create_benchmark_case(label: str, stage: str, content_type: str, source_lang
             (label, stage, content_type, source_language, input_filename, source_text, reference_text,
              clock.utcnow().isoformat()))
         conn.commit()
-        case_id = cur.lastrowid
+        case_id = db.inserted_id(cur)
     return case_id
 
 
-def list_benchmark_cases(stage: str = None):
+def list_benchmark_cases(stage: str | None = None):
     """All cases, or only those for one stage ('transcription'/'translation'/'ocr')."""
     with contextlib.closing(db.get_conn()) as conn:
         if stage:
@@ -76,8 +76,8 @@ def list_benchmark_runs(case_id: int):
 
 def create_benchmark_lab_case(label: str, stage: str, source_language: str, source_text: str,
                               reference_text: str, tier: str, set_name: str,
-                              content_type: str = "novel", origin_drama_id: int = None,
-                              origin_line_id: int = None) -> int:
+                              content_type: str = "novel", origin_drama_id: int | None = None,
+                              origin_line_id: int | None = None) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(
             "INSERT INTO benchmark_cases (label, stage, content_type, source_language, source_text, "
@@ -86,7 +86,7 @@ def create_benchmark_lab_case(label: str, stage: str, source_language: str, sour
             (label, stage, content_type, source_language, source_text, reference_text, tier,
              set_name, origin_drama_id, origin_line_id, clock.utcnow().isoformat()))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 def update_benchmark_case_texts(case_id: int, source_text: str, reference_text: str) -> int:
@@ -170,7 +170,7 @@ def get_benchmark_case(case_id: int):
     return dict(row) if row else None
 
 
-def find_benchmark_case(set_name: str, source_text: str, origin_line_id: int = None):
+def find_benchmark_case(set_name: str, source_text: str, origin_line_id: int | None = None):
     """An existing case in `set_name` with this source text (or, for a
     regression case, from this line) -- so an import or "add as regression
     test" run twice doesn't store the same example twice."""
@@ -195,7 +195,7 @@ def create_benchmark_session(fields: dict) -> int:
             f"VALUES ({', '.join('?' for _ in cols)}, ?)",
             tuple(fields.get(c) for c in cols) + (clock.utcnow().isoformat(),))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 _BENCHMARK_SESSION_UPDATABLE = {"status", "scored_count", "passed_count", "error_count",
@@ -227,7 +227,7 @@ def get_benchmark_session(session_id: int):
     return dict(row) if row else None
 
 
-def list_benchmark_sessions(limit: int = 50, stage: str = None):
+def list_benchmark_sessions(limit: int = 50, stage: str | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         if stage:
             rows = conn.execute("SELECT * FROM benchmark_sessions WHERE stage = ? "

@@ -7,7 +7,7 @@ from lib import clock
 import db
 
 
-def _default_profile_id(conn) -> int:
+def _default_profile_id(conn) -> int | None:
     """The profile progress/history/notes falls back to when no profile_id
     is given -- the first profile ever created (lowest id), which is the
     one _migrate_step26e_profiles creates on every install (a fresh one or
@@ -18,12 +18,12 @@ def _default_profile_id(conn) -> int:
     return row["id"] if row else None
 
 
-def create_profile(name: str, color: str = None) -> int:
+def create_profile(name: str, color: str | None = None) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("INSERT INTO profiles (name, color, created_at) VALUES (?, ?, ?)",
                            (name, color, clock.utcnow().isoformat()))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 def list_profiles():
@@ -56,7 +56,7 @@ def delete_profile(profile_id: int):
         conn.commit()
 
 
-def get_personal_notes(drama_id: int, profile_id: int = None) -> str:
+def get_personal_notes(drama_id: int, profile_id: int | None = None) -> str:
     with contextlib.closing(db.get_conn()) as conn:
         if profile_id is None:
             profile_id = _default_profile_id(conn)
@@ -65,7 +65,7 @@ def get_personal_notes(drama_id: int, profile_id: int = None) -> str:
     return (row["notes"] or "") if row else ""
 
 
-def save_personal_notes(drama_id: int, notes: str, profile_id: int = None):
+def save_personal_notes(drama_id: int, notes: str, profile_id: int | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         if profile_id is None:
             profile_id = _default_profile_id(conn)
@@ -78,9 +78,9 @@ def save_personal_notes(drama_id: int, notes: str, profile_id: int = None):
         conn.commit()
 
 
-def save_progress(drama_id: int, profile_id: int = None, last_line_idx: int = None,
-                   audio_position_seconds: float = None, last_page: int = None,
-                   percent_complete: float = None, record_history: bool = True):
+def save_progress(drama_id: int, profile_id: int | None = None, last_line_idx: int | None = None,
+                   audio_position_seconds: float | None = None, last_page: int | None = None,
+                   percent_complete: float | None = None, record_history: bool = True):
     """Upserts the resume point for a drama, for one profile. Only the
     fields you pass are updated, so saving an audio position doesn't
     clobber the reading page. profile_id defaults to the household's
@@ -114,7 +114,7 @@ def save_progress(drama_id: int, profile_id: int = None, last_line_idx: int = No
         conn.commit()
 
 
-def get_progress(drama_id: int, profile_id: int = None):
+def get_progress(drama_id: int, profile_id: int | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         if profile_id is None:
             profile_id = _default_profile_id(conn)
@@ -132,7 +132,7 @@ def get_progress(drama_id: int, profile_id: int = None):
     return d
 
 
-def list_continue_reading(limit: int = 8, profile_id: int = None, visible_to: int = None):
+def list_continue_reading(limit: int = 8, profile_id: int | None = None, visible_to: int | None = None):
     """Dramas with partial progress, most recently touched first -- the
     'Continue' shelf. Excludes anything finished (>=99%) or untouched.
     `limit` stays the first positional parameter (profile_id was added
@@ -155,8 +155,8 @@ def list_continue_reading(limit: int = 8, profile_id: int = None, visible_to: in
     return [dict(r) for r in rows]
 
 
-def list_reading_history(drama_id: int = None, limit: int = 50, profile_id: int = None,
-                         visible_to: int = None):
+def list_reading_history(drama_id: int | None = None, limit: int = 50, profile_id: int | None = None,
+                         visible_to: int | None = None):
     """`visible_to` (auth B2, all-dramas listing only): only dramas that
     user may see."""
     visible, vparams = "", []
@@ -184,7 +184,7 @@ def list_reading_history(drama_id: int = None, limit: int = 50, profile_id: int 
     return [dict(r) for r in rows]
 
 
-def clear_reading_history(drama_id: int = None, profile_id: int = None):
+def clear_reading_history(drama_id: int | None = None, profile_id: int | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         if profile_id is None:
             profile_id = _default_profile_id(conn)

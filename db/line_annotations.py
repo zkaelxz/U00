@@ -8,7 +8,7 @@ import json
 import db
 
 
-def save_translation_notes(drama_id: int, notes, id_by_idx: dict = None):
+def save_translation_notes(drama_id: int, notes, id_by_idx: dict | None = None):
     """notes: list of {line_idx, term, note_type, note} (or with line_id).
     Stored against the line's permanent id. id_by_idx: {line_idx: line_id}
     as of when the notes were generated -- a background job passes its
@@ -98,7 +98,7 @@ def load_consistency_issues(drama_id: int):
     return out
 
 
-def save_emotions(drama_id: int, emotion_map: dict, id_by_idx: dict = None):
+def save_emotions(drama_id: int, emotion_map: dict, id_by_idx: dict | None = None):
     """emotion_map: {line_idx: {"emotion", "intensity", "note"}}, the shape
     emotion.detect_emotions() returns. Persisted so a whole-drama emotion
     detection run (a real LLM batch job, same cost scale as translation)

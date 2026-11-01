@@ -132,8 +132,8 @@ def get_research_result(research_id: str, drama_id: int):
 
 
 def add_field_provenance(drama_id: int, field: str, value: str, status: str, *,
-                         sources=None, retrieved_at: str = None, confidence: float = None,
-                         last_verified: str = None):
+                         sources=None, retrieved_at: str | None = None, confidence: float | None = None,
+                         last_verified: str | None = None):
     """One researched field value with its own evidence. `sources`
     is a list of {"title", "url"}; the first is also stored as source /
     source_url."""
