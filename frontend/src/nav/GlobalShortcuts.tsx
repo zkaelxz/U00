@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react'
 
 import { useShortcut } from '../hooks/useShortcut'
 import { Sheet } from '../components/Sheet'
-import { buttonClass } from '../components/uiClasses'
 import { REVIEW_EDITING_KEYS, REVIEW_KEYS } from '../pages/workspace/stages/review/ShortcutSheet'
 import type { Route } from '../router'
 import { globalShortcut } from './palette'
@@ -33,7 +32,7 @@ export function KeyboardHelpButton() {
   return (
     <button
       type="button"
-      className={buttonClass('ghost', 'sm')}
+      className="keys-btn"
       aria-label="Keyboard shortcuts"
       aria-haspopup="dialog"
       onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))}
