@@ -389,10 +389,10 @@ def _hint_function(series_id, pack_title, source_language):
     return hints
 
 
-def start_session(url, source_language="zh", whisper_size="small", segment_seconds=20,
-                  overlap_seconds=live_translate.DEFAULT_OVERLAP_SECONDS,
+def start_session(url, source_language="zh", whisper_size="small", segment_seconds: float = 20,
+                  overlap_seconds: float = live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
-                  max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
+                  max_minutes: float = DEFAULT_MAX_MINUTES, use_gpu: bool = False,
                   use_saved_cookies: bool = False,
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
                   series_id: Optional[int] = None, delayed_player: bool = False,

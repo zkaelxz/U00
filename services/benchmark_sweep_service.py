@@ -355,7 +355,7 @@ def _applies(language: str, winner: dict) -> list:
     return out
 
 
-def decide(decision: str, reason: str = "") -> dict:
+def decide(decision: str, reason: str | None = "") -> dict:
     """The owner's call on the finished sweep's recommendation (benchmark_sweep_core.decide)."""
     return sweep_core.decide(_store, decision, reason, applies=_record_applies, save_profile=_save_profile,
                        capability=DECISION_CAPABILITY, source="settings sweep")

@@ -29935,7 +29935,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["BackupNowRequest"];
+                "application/json": components["schemas"]["BackupNowRequest"] | null;
             };
         };
         responses: {
@@ -40928,7 +40928,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["LibraryBackupRequest"];
+                "application/json": components["schemas"]["LibraryBackupRequest"] | null;
             };
         };
         responses: {
@@ -40970,7 +40970,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["LibraryUserBackupRequest"];
+                "application/json": components["schemas"]["LibraryUserBackupRequest"] | null;
             };
         };
         responses: {
@@ -41180,7 +41180,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["LibraryExportRequest"];
+                "application/json": components["schemas"]["LibraryExportRequest"] | null;
             };
         };
         responses: {
@@ -53798,7 +53798,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["EngineTestRequest"];
+                "application/json": components["schemas"]["EngineTestRequest"] | null;
             };
         };
         responses: {
@@ -57759,7 +57759,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["StrongerLineTryRequest"];
+                "application/json": components["schemas"]["StrongerLineTryRequest"] | null;
             };
         };
         responses: {
@@ -60362,7 +60362,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["GlossaryFlaggedRedoStart"];
+                "application/json": components["schemas"]["GlossaryFlaggedRedoStart"] | null;
             };
         };
         responses: {

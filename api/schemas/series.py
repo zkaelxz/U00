@@ -14,7 +14,7 @@ __all__ = ["SeriesListItem", "SeriesListResponse", "SeriesTitle", "SeriesPage",
            "SeriesDefaultsPreview", "SeriesDefaultsApplyRequest", "SeriesDefaultsApplyResult",
            "SeriesTmxImportRequest", "SeriesTmxImportResult"]
 
-_ID = dict(ge=1, le=2**31 - 1)
+_ID: dict[str, Any] = dict(ge=1, le=2**31 - 1)
 
 
 class SeriesListItem(BaseModel):

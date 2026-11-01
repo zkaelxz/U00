@@ -279,7 +279,8 @@ def _status_body(s: dict) -> dict:
             "proposals": (s.get("result") or {}).get("proposals"), "run_id": s.get("run_id")}
 
 
-def _apply(apply_fn, drama_id: int, payload: GlossaryProposalsApplyRequest) -> dict:
+def _apply(apply_fn, drama_id: int,
+           payload: GlossaryProposalsApplyRequest | LinesGlossaryApplyRequest) -> dict:
     if payload.overwrite_existing and not payload.confirm:
         raise InvalidInputError("Overwriting existing terms needs confirm=true.")
     overrides = {term: edit.model_dump(exclude_unset=True)

@@ -53,7 +53,7 @@ _gpu_poller = None          # (thread, stop_event) while running
 _gpu_lock = threading.Lock()
 
 
-def start_gpu_queue_poller(interval: float = None) -> bool:
+def start_gpu_queue_poller(interval: float | None = None) -> bool:
     """Starts the periodic GPU-queue re-check; returns False if one is
     already running in this process."""
     global _gpu_poller
@@ -107,7 +107,7 @@ REEVAL_FIRST_CHECK_SECONDS = 120.0
 _reeval_poller = None       # (thread, stop_event) while running
 
 
-def start_reeval_scheduler(interval: float = None) -> bool:
+def start_reeval_scheduler(interval: float | None = None) -> bool:
     global _reeval_poller
     interval = REEVAL_POLL_SECONDS if interval is None else float(interval)
     with _gpu_lock:
@@ -149,8 +149,8 @@ def stop_reeval_scheduler(timeout: float = 5.0) -> None:
 _remote_health_poller = None   # (thread, stop_event) while running
 
 
-def start_remote_health_monitor(settings, interval: float = None,
-                                first: float = None) -> bool:
+def start_remote_health_monitor(settings, interval: float | None = None,
+                                first: float | None = None) -> bool:
     global _remote_health_poller
     from services import remote_health_service as rhs
     # Without sign-in settings `python -m api` does not start the household

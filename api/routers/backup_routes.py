@@ -63,7 +63,7 @@ def post_settings(body: AutoBackupSettingsUpdate):
              responses=error_responses(409, 422),
              summary="Back up now: adds a new copy, then rotates the old ones "
                      "(replace is ignored)")
-def post_now(body: BackupNowRequest = None):
+def post_now(body: BackupNowRequest | None = None):
     body = body or BackupNowRequest()
     return abs_.start_now(replace=body.replace, include_media=body.include_media)
 

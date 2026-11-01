@@ -93,7 +93,7 @@ def _judge(body: BenchmarkRunRequest):
     return {"engine": cfg["engine"], "model": cfg["model"]}, cfg["allow_same_model"]
 
 
-def _with_judge(runs: list, rows: list = None) -> None:
+def _with_judge(runs: list, rows: list | None = None) -> None:
     """Adds the judge summary and the owner's picks to each run and, in Arena
     rows, the scores and picks to each cell (cell i belongs to run i)."""
     judge_svc.annotate_runs(runs)
@@ -318,7 +318,7 @@ def _clip_rows(form) -> list:
     if manifest is not None:
         return clip_svc.parse_manifest(manifest)
     try:
-        rows = json.loads(clips)
+        rows = json.loads(clips or "")
     except ValueError:
         raise InvalidInputError("'clips' isn't valid JSON.") from None
     if not isinstance(rows, list):

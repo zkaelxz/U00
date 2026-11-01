@@ -157,8 +157,10 @@ async def _unexpected_error(request: Request, exc: Exception):
 
 def install_error_handlers(app: FastAPI):
     from sources.store import SourcesDatabaseBusy
-    app.add_exception_handler(SourcesDatabaseBusy, _sources_db_busy)
-    app.add_exception_handler(ServiceError, _service_error)
-    app.add_exception_handler(RequestValidationError, _validation_error)
-    app.add_exception_handler(StarletteHTTPException, _http_error)
-    app.add_exception_handler(Exception, _unexpected_error)
+    # The decorator form, because add_exception_handler's stub only takes a
+    # handler for a bare Exception.
+    app.exception_handler(SourcesDatabaseBusy)(_sources_db_busy)
+    app.exception_handler(ServiceError)(_service_error)
+    app.exception_handler(RequestValidationError)(_validation_error)
+    app.exception_handler(StarletteHTTPException)(_http_error)
+    app.exception_handler(Exception)(_unexpected_error)

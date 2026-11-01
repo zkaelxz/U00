@@ -94,14 +94,14 @@ def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
 
 @router.post("/export", dependencies=[local_only()], response_model=LibraryExportStarted,
              responses=_ERR_409, summary="Start the export-all zip job")
-def post_export(body: LibraryExportRequest = None):
+def post_export(body: LibraryExportRequest | None = None):
     return lbs.start_export_zip(body.drama_ids if body else None,
                                 include_originals=bool(body and body.include_originals))
 
 
 @router.post("/backup", dependencies=[local_only()], response_model=LibraryJobStarted,
              responses=_ERR_409, summary="Start a full (or database-only) library backup job")
-def post_backup(body: LibraryBackupRequest = None):
+def post_backup(body: LibraryBackupRequest | None = None):
     if body is not None and body.database_only:
         return lbs.start_database_backup()
     return lbs.start_backup()
@@ -110,7 +110,7 @@ def post_backup(body: LibraryBackupRequest = None):
 @router.post("/backup/user", dependencies=[local_only()], response_model=LibraryJobStarted,
              responses=error_responses(404, 409, 422),
              summary="Start a backup of one person's dramas and series (no user: the PC's)")
-def post_user_backup(body: LibraryUserBackupRequest = None):
+def post_user_backup(body: LibraryUserBackupRequest | None = None):
     return lub.start_user_backup(body.user_id if body else None)
 
 
