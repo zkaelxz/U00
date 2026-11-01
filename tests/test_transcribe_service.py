@@ -482,10 +482,59 @@ class TestStartTranscribeRun:
         captured = _capture_worker_start(monkeypatch)
         transcribe_service.start_transcribe_run(did)
         names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
-        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]))
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]()))
         assert captured["use_gpu"] is True and retry.pop("use_gpu") is False
         assert retry.pop("checkpoint") == {**captured["checkpoint"], "record": False}
         assert retry == {n: captured[n] for n in retry}
+
+    def test_the_crash_retry_continues_after_the_units_the_gpu_run_stored(self, isolated_db,
+                                                                          monkeypatch):
+        import inspect
+        from services import job_checkpoint_service
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", True)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        scope = captured["checkpoint"]["scope"]
+        assert captured["checkpoint"]["resumed_units"] == 0
+        # The GPU run stores two units, then its worker dies.
+        unit0 = [{"start": 0.0, "end": 121.0, "text": "a"}]
+        unit1 = [{"start": 122.0, "end": 245.0, "text": "b"}]
+        job_checkpoint_service.record_unit(scope, 0, unit0)
+        job_checkpoint_service.record_unit(scope, 1, unit1)
+        names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]()))
+        assert retry["use_gpu"] is False
+        assert retry["checkpoint"] == {"scope": scope, "segments": unit0 + unit1,
+                                       "resumed_units": 2, "record": False}
+
+    def test_the_crash_retry_keeps_the_settings_the_gpu_run_started_with(self, isolated_db,
+                                                                         monkeypatch):
+        import inspect
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", True)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        # Changed while the GPU run was going: a stitched result must not mix two models.
+        patch_setting(monkeypatch, "whisper_model_path", "/models/other")
+        names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]()))
+        assert retry["local_model_path"] == captured["local_model_path"] != "/models/other"
+
+    def test_a_crash_retry_that_cannot_read_the_units_continues_from_where_the_run_started(
+            self, isolated_db, monkeypatch):
+        import inspect
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        patch_setting(monkeypatch, "use_gpu", True)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+
+        def locked(scope):
+            raise OSError("database is locked")
+        monkeypatch.setattr(transcribe_service.transcribe_checkpoint_service, "resume_from", locked)
+        names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
+        retry = dict(zip(names, captured["start_kwargs"]["cpu_retry_args"]()))
+        assert retry["checkpoint"] == {**captured["checkpoint"], "record": False}
 
     def test_a_groq_run_has_no_crash_retry_so_its_paid_calls_are_not_repeated(
             self, isolated_db, monkeypatch):
