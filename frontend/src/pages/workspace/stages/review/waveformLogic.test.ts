@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   bucketsFor, clampEdge, clampSpan, edgeBounds, MAX_SPAN, MIN_LINE_SECONDS, MIN_SPAN, panView, peakColumns,
-  timeToX, viewAround, viewForLine, visibleLines, xToTime, zoomView,
+  mergeCuts, snapToCut, timeToX, viewAround, viewForLine, visibleLines, xToTime, zoomView,
 } from './waveformLogic'
 
 const L = (id: number, idx: number, start: number, end: number) => ({ id, idx, start, end })
@@ -101,5 +101,28 @@ describe('edge bounds', () => {
     expect(clampEdge(1.02, b.start)).toBe(1)
     expect(clampEdge(1.5, b.end)).toBe(1.05)
     expect(clampEdge(1.0, b.end)).toBe(1.05)
+  })
+})
+
+describe('shot changes', () => {
+  const view = { start: 0, span: 20 }
+
+  it('snaps to a cut within 8 pixels, and only then', () => {
+    // 1000 px over 20 s: 8 px is 0.16 s.
+    expect(snapToCut(4.43, [4.4], view, 1000)).toBe(4.4)
+    expect(snapToCut(4.6, [4.4], view, 1000)).toBe(4.6)
+  })
+
+  it('takes the nearest of two cuts', () => {
+    expect(snapToCut(4.5, [4.4, 4.52], view, 1000)).toBe(4.52)
+  })
+
+  it('leaves the time alone with no cuts or no width', () => {
+    expect(snapToCut(4.43, [], view, 1000)).toBe(4.43)
+    expect(snapToCut(4.43, [4.4], view, 0)).toBe(4.43)
+  })
+
+  it('merges found cuts in order without repeats', () => {
+    expect(mergeCuts([2, 5], [5, 3, 9])).toEqual([2, 3, 5, 9])
   })
 })

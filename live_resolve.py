@@ -4,6 +4,10 @@ the capture fetches, through yt-dlp, without downloading anything; and the
 error Live capture raises with a message meant for the owner.
 """
 import re
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from yt_dlp import _Params
 
 
 class LiveCaptureError(RuntimeError):
@@ -46,8 +50,8 @@ def _reason(exc) -> str:
     return text or type(exc).__name__
 
 
-def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str = None,
-                       proxy: str = None, ladder=None) -> str:
+def resolve_stream_url(url: str, cookies_browser: str | None = None, cookies_file: str | None = None,
+                       proxy: str | None = None, ladder=None) -> str:
     """
     Resolves a page URL (YouTube live, or anything yt-dlp supports) to a
     direct, ffmpeg-playable media URL WITHOUT downloading anything -- the
@@ -82,7 +86,8 @@ def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str 
             opts["proxy"] = proxy
         if player_client:
             opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        # yt-dlp's _Params TypedDict is narrower than the options this builds from settings.
+        with yt_dlp.YoutubeDL(cast("_Params", opts)) as ydl:
             return ydl.extract_info(url, download=False)
 
     last_exc = None

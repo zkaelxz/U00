@@ -122,7 +122,7 @@ def fetch_static(url: str, timeout: int = 20):
     return html, text
 
 
-def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
+def fetch_rendered(url: str, timeout: int = 30, wait_selector: str | None = None,
                     wait_ms: int = 2500):
     """
     Fetches with a real browser engine so JavaScript actually runs.
@@ -169,7 +169,7 @@ async () => {
 """
 
 
-def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: str = None,
+def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: str | None = None,
                                    wait_ms: int = 2500):
     """Like fetch_rendered(), but additionally resolves any `blob:` object
     URLs found in `<img>` tags into real bytes before the browser closes.
@@ -201,7 +201,7 @@ def _url_matches(url: str, pattern) -> bool:
     return pattern in url
 
 
-def _capture_entry(url: str, status: int, content_type: str, body: bytes = None,
+def _capture_entry(url: str, status: int, content_type: str, body: bytes | None = None,
                    max_body_bytes: int = 5_000_000) -> dict:
     """One recorded response, with the body dropped (not raised past)
     when it's missing or larger than the cap -- so one huge, merely
@@ -277,7 +277,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
 
 
 @contextmanager
-def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
+def _rendered_page(url: str, timeout: int, wait_selector: str | None, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
     closed automatically on exit. Shared by fetch_rendered() and
     fetch_rendered_resolving_blobs() so both wait the same way.

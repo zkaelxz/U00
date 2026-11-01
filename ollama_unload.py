@@ -105,7 +105,7 @@ def job_scope(scope: "JobScope"):
 def is_enabled() -> bool:
     import db
     try:
-        return settings_schema.coerce(SETTING_KEY, db.get_app_setting(SETTING_KEY))
+        return bool(settings_schema.coerce(SETTING_KEY, db.get_app_setting(SETTING_KEY)))
     except Exception:
         return True  # the default; a settings read error must not change behaviour
 
