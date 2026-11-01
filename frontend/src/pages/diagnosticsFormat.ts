@@ -1,3 +1,4 @@
+import { withoutExceptionNames } from '../components/errorMessages'
 import type { DependencyStatus, GpuStatus } from '../types/diagnostics'
 import { formatLeft, isNoPercentStage } from './workspace/stages/transcribeEstimate'
 import { cancellingText, isActiveStatus, isCancellingMessage, isTerminalStatus, jobName, shownStatus, type JobRecord } from '../types/jobs'
@@ -136,7 +137,7 @@ const PIP_INSTALL = /(\b[Rr]un )?`?(?:python -m )?pip3? install((?: -{1,2}[\w-]+
  * title, not drama.
  */
 export function plainJobText(text: string): string {
-  return text
+  return withoutExceptionNames(text)
     .replace(PIP_INSTALL, (_all, run: string | undefined, _flags: string, args: string) => {
       const name = args.trim().split(/\s+/)[0]?.replace(/["']/g, '').split(/[<>=!~[,]/)[0]
       const where = name ? `${PACKAGES_HOME} (${name})` : PACKAGES_HOME
