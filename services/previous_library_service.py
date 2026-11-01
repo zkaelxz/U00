@@ -12,6 +12,7 @@ never a path.
 """
 
 import os
+import re
 import shutil
 import sqlite3
 import time
@@ -26,6 +27,8 @@ LABEL = "Previous library kept after restore"
 DELETE_WORD = "DELETE"
 PRE_RESET_MARKER = ".pre_reset_"
 STAGING_PREFIX = ".restore_staging_"
+# tempfile.mkdtemp's random suffix: the restore names its staging folder that way.
+_STAGING_RE = re.compile(re.escape(STAGING_PREFIX) + r"[a-z0-9_]+", re.ASCII)
 # A restore writes into its staging folder throughout; one quiet this long died.
 STAGING_STALE_SECONDS = 6 * 3600
 BUSY = "A job, restore or other library task is running. Wait for it to finish, then try again."
@@ -44,9 +47,12 @@ def _parent_and_base():
 
 def is_previous_library_name(name: str) -> bool:
     _parent, base = _parent_and_base()
-    low, base = name.lower(), base.lower()
-    return (low.startswith(base + db.PRE_RESTORE_MARKER) or low.startswith(base + PRE_RESET_MARKER)
-            or low.startswith(STAGING_PREFIX))
+    return (db.is_kept_copy_name(base, name, db.PRE_RESTORE_MARKER)
+            or db.is_kept_copy_name(base, name, PRE_RESET_MARKER) or _is_staging(name))
+
+
+def _is_staging(name: str) -> bool:
+    return _STAGING_RE.fullmatch(os.path.normcase(name)) is not None
 
 
 def _folders() -> list:
@@ -97,7 +103,7 @@ def _library_checks_out() -> bool:
         return True
     _parent, base = _parent_and_base()
     for name, path in _folders():
-        if name.lower().startswith((base + db.PRE_RESTORE_MARKER).lower()):
+        if db.is_kept_copy_name(base, name, db.PRE_RESTORE_MARKER):
             if _title_count(os.path.join(path, "library.db")) != 0:
                 return False    # titles there, or unreadable: assume they matter
     return True
@@ -107,7 +113,7 @@ def _stale(name: str, path: str) -> bool:
     """A staging folder nothing has written to for STAGING_STALE_SECONDS: no
     restore is still preparing it (one in another process holds no lock
     while it extracts). Every other kept copy always counts."""
-    if not name.lower().startswith(STAGING_PREFIX):
+    if not _is_staging(name):
         return True
     newest = 0.0
     for root, dirs, files in os.walk(path):
@@ -213,5 +219,5 @@ def after_reset(dest: str, ok: bool) -> None:
             shutil.rmtree(dest, ignore_errors=True)
         return
     for name, path in _folders():
-        if name.lower().startswith((base + PRE_RESET_MARKER).lower()) and path != dest:
+        if db.is_kept_copy_name(base, name, PRE_RESET_MARKER) and path != dest:
             shutil.rmtree(path, ignore_errors=True)
