@@ -343,21 +343,29 @@ class SourceClient:
             self.sleep(min(left, 0.5))
 
     # -- pacing ------------------------------------------------------------
-    def _wait_turn(self, host: str, st: dict):
+    def _wait_turn(self, host: str, st: dict, image_pace: tuple = None):
         """Takes the source's session break, then waits for the host's
         turn. The two locks are never held together, and the host lock
-        only blocks other requests to that host."""
+        only blocks other requests to that host. `image_pace`: (min, max)
+        gap for a download from a picture server, which a reader loads in
+        bulk; never slower than the person's own pace, it skips the session
+        break, and a Retry-After, a slowdown and a declared host interval
+        still apply."""
         # Real-time polling (not self.sleep) so a cancel still interrupts a
         # thread queued behind another one's wait on the same lock.
         with cancellable_lock.hold(st["break_lock"], self._check_cancel):
             self._check_cancel()
-            self._maybe_take_a_break(st, pacing.slow_key(self.source, host))
+            if image_pace is None:
+                self._maybe_take_a_break(st, pacing.slow_key(self.source, host))
         declared = {str(k).lower(): v for k, v in self.policy.host_min_interval.items()}
         hs = _host(host, float(declared.get(host, 0.0)))
         key = pacing.slow_key(self.source, host)
         with cancellable_lock.hold(hs["lock"], self._check_cancel):
             self._check_cancel()
-            gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
+            lo, hi = self.policy.min_delay, self.policy.max_delay
+            if image_pace is not None:
+                lo, hi = min(lo, image_pace[0]), min(hi, image_pace[1])
+            gap = self.rng.uniform(lo, hi)
             gap = max(gap, hs["min_interval"]) * pacing.multiplier(key)
             wait = pacing.wait_seconds(key, hs["last"], gap, self.clock())
             if wait > 0:
@@ -392,8 +400,8 @@ class SourceClient:
 
     # -- the request -------------------------------------------------------
     def request(self, method: str, url: str, headers: dict = None, data=None,
-                use_cache: bool = True, classify_body: bool = True,
-                record_health: bool = True, action: str = None) -> Response:
+                use_cache: bool = True, classify_body: bool = True, record_health: bool = True,
+                action: str = None, image_pace: tuple = None) -> Response:
         self._check_cancel()
         wait = health.retry_after(self.source)
         if wait is not None:
@@ -432,7 +440,7 @@ class SourceClient:
         slowed = False
         while True:
             with st["sem"].at(self.policy.max_concurrent, self._check_cancel):
-                self._wait_turn(host, st)
+                self._wait_turn(host, st, image_pace)
                 self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
                 started = self.clock()
