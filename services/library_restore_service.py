@@ -54,20 +54,15 @@ _RESTORE_KEPT_AUTH_TABLES = auth_service.RESTORE_KEPT_TABLES
 _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
                               "auto_backup.state") + (
     # PC-only and security settings: a backup from someone else must not point the
-    # Jellyfin API key at its server, choose the program OCR or the novel
-    # downloader runs, or switch uploads from away back on. "jellyfin" is
-    # services.jellyfin_service.SETTING.
-    "jellyfin", settings_schema.BY_KEY["tesseract_cmd"].store_key,
-    settings_schema.BY_KEY["lncrawl_cmd"].store_key,
-    # Folder and file paths the PC reads or writes (a network path would leak the
-    # Windows login), the web-search server, and the upload size cap.
-    # "comic_save" and "web_search" are sources_save_service.SETTING and
-    # web_search_service.SETTING.
-    "comic_save", "web_search",
-    settings_schema.BY_KEY["whisper_model_path"].store_key,
-    settings_schema.BY_KEY["cookies_file"].store_key,
-    settings_schema.BY_KEY["max_upload_mb"].store_key,
-    "remote_uploads", "remote_uploads.on_at")
+    # Jellyfin API key at its server, choose a program or file the PC runs or reads
+    # (a network path leaks the Windows login), move where comics are saved, change
+    # the web-search server, or switch uploads from away back on. Every path
+    # setting is kept by type, so a new one is covered without being listed here.
+    # "jellyfin", "comic_save" and "web_search" are those services' SETTING keys.
+    "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.on_at",
+    *(setting.store_key for setting in settings_schema.SETTINGS
+      if setting.store == "db" and setting.type == "path"),
+    *(settings_schema.BY_KEY[key].store_key for key in ("cookies_browser", "max_upload_mb")))
 
 
 # Media folders a restore keeps from the current library when the zip has
