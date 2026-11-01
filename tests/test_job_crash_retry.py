@@ -81,6 +81,26 @@ def test_a_native_crash_runs_the_job_once_more_on_the_cpu(run_dir, monkeypatch):
     bg.clear_job("crash_retry_ok")
 
 
+def test_cpu_retry_args_given_as_a_function_are_read_when_the_cpu_run_starts(run_dir):
+    calls = []
+
+    def args_now():
+        # By now the GPU run has started and crashed.
+        calls.append(_runs(run_dir))
+        return (run_dir, False, False)
+
+    seen = []
+    bg.clear_job("crash_retry_late_args")
+    assert job_launch.start_process_job(
+        "crash_retry_late_args", crash_on_gpu_worker, args=(run_dir, True, False),
+        cpu_retry_args=args_now, on_done=lambda jid, result: seen.append(result))
+    status = _wait_end("crash_retry_late_args")
+    assert status["status"] == "done", status
+    assert calls == [["run-1-gpu"]]
+    assert seen and seen[0]["on_gpu"] is False
+    bg.clear_job("crash_retry_late_args")
+
+
 def test_a_crash_of_the_cpu_run_ends_the_job_without_a_third_run(run_dir):
     assert _start("crash_retry_twice", run_dir, crash_on_cpu=True)
     status = _wait_end("crash_retry_twice")
