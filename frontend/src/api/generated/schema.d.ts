@@ -7937,7 +7937,7 @@ export interface paths {
         delete: operations["delete_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__delete"];
         options?: never;
         head?: never;
-        /** Change one text box (English, box, font, colour) if the page is still at expected_rev; 409 with the current rev otherwise */
+        /** Change one text box (English, box, kind, font, colour) if the page is still at expected_rev; 409 with the current rev otherwise */
         patch: operations["patch_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__patch"];
         trace?: never;
     };
@@ -14301,6 +14301,8 @@ export interface components {
             font_size?: number | null;
             /** H */
             h?: number | null;
+            /** Kind */
+            kind?: string | null;
             /** Text Color */
             text_color?: string | null;
             /** Translated Text */
@@ -14315,7 +14317,7 @@ export interface components {
         /**
          * ComicRegionNew
          * @description A text box the user drew: x, y, w, h required, the rest optional
-         *     (empty English, size 18, regular style, automatic colour).
+         *     (empty English, size 18, regular style, a bubble, automatic colour).
          */
         ComicRegionNew: {
             /** Font Category */
@@ -14324,6 +14326,8 @@ export interface components {
             font_size?: number | null;
             /** H */
             h: number;
+            /** Kind */
+            kind?: string | null;
             /** Text Color */
             text_color?: string | null;
             /** Translated Text */
