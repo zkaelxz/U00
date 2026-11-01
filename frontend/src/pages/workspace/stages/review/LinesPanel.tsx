@@ -337,6 +337,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         lines={shown}
         active={active}
         player={player}
+        hasVideo={mediaKind === 'video'}
         open={waveOpen}
         onToggle={() => setWaveOpen(!waveOpen)}
         onRetime={ctl.retime}

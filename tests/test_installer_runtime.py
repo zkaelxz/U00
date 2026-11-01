@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(ROOT, "installer"))
 import launcher  # noqa: E402
 import portable  # noqa: E402
 import postinstall  # noqa: E402
+import service_config  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -593,6 +594,60 @@ class TestRun:
         log = (data / "launcher" / "install.log").read_text(encoding="utf-8")
         assert "did not finish" in log and "Install finished OK." in log
 
+    def test_key_writes_on_sets_one_line_and_keeps_the_rest(self, tmp_path):
+        app, wheels, data = self._layout(tmp_path)
+        data.mkdir()
+        (data / ".env").write_bytes(b"DEEPSEEK_API_KEY=sk-x\nBAIHE_API_ALLOW_KEY_WRITES=0\nNOTE=\xe9")
+        assert postinstall.run(wheels, str(data), python_exe="py", app_dir=app,
+                               runner=lambda *a: 0, restrict=lambda *a: False, key_writes=True) == 0
+        assert (data / ".env").read_bytes() == (
+            b"DEEPSEEK_API_KEY=sk-x\nNOTE=\xe9\nBAIHE_API_ALLOW_KEY_WRITES=1\n")
+        assert service_config.read_env_file(data / ".env")["BAIHE_API_ALLOW_KEY_WRITES"] == "1"
+        assert sorted(p.name for p in (data / "launcher").iterdir()) == ["install.log"]
+
+    def test_key_writes_on_creates_the_env(self, tmp_path):
+        app, wheels, data = self._layout(tmp_path)
+        postinstall.run(wheels, str(data), python_exe="py", app_dir=app,
+                        runner=lambda *a: 0, restrict=lambda *a: False, key_writes=True)
+        assert (data / ".env").read_text(encoding="utf-8") == "BAIHE_API_ALLOW_KEY_WRITES=1\n"
+
+    def test_key_writes_off_removes_the_line_from_a_utf16_env(self, tmp_path):
+        app, wheels, data = self._layout(tmp_path)
+        data.mkdir()
+        (data / ".env").write_text("A=1\nBAIHE_API_ALLOW_KEY_WRITES=1\n", encoding="utf-16")
+        postinstall.run(wheels, str(data), python_exe="py", app_dir=app,
+                        runner=lambda *a: 0, restrict=lambda *a: False, key_writes=False)
+        assert (data / ".env").read_text(encoding="utf-8") == "A=1\n"
+
+    def test_without_key_writes_the_env_is_untouched(self, tmp_path):
+        app, wheels, data = self._layout(tmp_path)
+        data.mkdir()
+        (data / ".env").write_bytes(b"BAIHE_API_ALLOW_KEY_WRITES=1")
+        postinstall.run(wheels, str(data), python_exe="py", app_dir=app,
+                        runner=lambda *a: 0, restrict=lambda *a: False)
+        assert (data / ".env").read_bytes() == b"BAIHE_API_ALLOW_KEY_WRITES=1"
+
+    def test_main_passes_key_writes(self, tmp_path, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(postinstall, "run", lambda *a, **k: seen.update(k) or 0)
+        for arg, want in (("on", True), ("off", False)):
+            postinstall.main(["--wheels", "w", "--data-dir", "d", "--key-writes", arg])
+            assert seen["key_writes"] is want
+        postinstall.main(["--wheels", "w", "--data-dir", "d"])
+        assert seen["key_writes"] is None
+
+    def test_an_env_that_cant_be_written_stops_the_install(self, tmp_path, monkeypatch):
+        app, wheels, data = self._layout(tmp_path)
+
+        def denied(*a, **k):
+            raise PermissionError(13, "Access is denied")
+        monkeypatch.setattr(postinstall, "set_key_writes", denied)
+        with pytest.raises(postinstall.PostInstallError) as e:
+            postinstall.run(wheels, str(data), python_exe="py", app_dir=app,
+                            runner=lambda *a: pytest.fail("ran pip"), restrict=lambda *a: False,
+                            key_writes=True)
+        assert e.value.code == 7
+
     def test_main_bad_data_dir(self, tmp_path, capsys):
         assert postinstall.main(["--wheels", str(tmp_path), "--data-dir", "relative"]) == 2
         assert "full path" in capsys.readouterr().err
@@ -902,7 +957,7 @@ class TestCreatedFlag:
 
     def test_main_passes_the_flag(self, monkeypatch, tmp_path):
         seen = {}
-        monkeypatch.setattr(postinstall, "run", lambda w, d, created=False, new=False:
+        monkeypatch.setattr(postinstall, "run", lambda w, d, created=False, new=False, key_writes=None:
                             seen.update(created=created, new=new) or 0)
         assert postinstall.main(["--wheels", "w", "--data-dir", str(tmp_path), "--data-dir-created"]) == 0
         assert seen == {"created": True, "new": False}

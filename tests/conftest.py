@@ -599,3 +599,13 @@ def local_client(isolated_db):
     from api.api_config import ApiSettings
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
                       headers={"X-Baihe-Local": "1"})
+
+
+@pytest.fixture
+def whisper_present(monkeypatch):
+    """Lab Whisper arms are refused when faster-whisper is missing, as it is on CI; tests of what a
+    run does with an arm need the arm accepted."""
+    import diagnostics
+    real = diagnostics.check_dependency
+    monkeypatch.setattr(diagnostics, "check_dependency",
+                        lambda name, *a, **k: True if name == "faster_whisper" else real(name, *a, **k))

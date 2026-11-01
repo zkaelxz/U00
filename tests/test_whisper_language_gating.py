@@ -80,7 +80,7 @@ class TestServerRefuses:
             compare_transcription_service._validate_candidate(
                 {"id": 1, "source_language": language}, model, "whisper")
 
-    def test_lab_refuses_a_mixed_selection(self, model, language, monkeypatch):
+    def test_lab_refuses_a_mixed_selection(self, model, language, monkeypatch, whisper_present):
         cases = [{"id": 1, "source_language": "zh" if language != "zh" else "ko"},
                  {"id": 2, "source_language": language}]
         monkeypatch.setattr(lab, "_select_cases", lambda *a, **k: cases)

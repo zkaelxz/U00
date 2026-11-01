@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
+import android.webkit.WebResourceRequest;
 import android.os.Bundle;
 import android.text.InputType;
 import android.webkit.WebChromeClient;
@@ -26,8 +28,26 @@ public class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
-        // Stay inside the app for Baihe pages; sign-in and other sites still load in this view.
-        web.setWebViewClient(new WebViewClient());
+        // Only Baihe's own origin loads here. Google blocks sign-in inside an embedded WebView and
+        // credentials must not be typed into a view this app controls, so every other
+        // address (shared links, sign-in redirects) opens in the system browser.
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                String address = prefs().getString(ADDRESS, null);
+                if (address != null && ServerAddress.sameOrigin(address, url)) return false;
+                String scheme = request.getUrl().getScheme();
+                if ("http".equals(scheme) || "https".equals(scheme)) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                    } catch (RuntimeException e) {
+                        // No browser installed: nothing safe to do but stay on the current page.
+                    }
+                }
+                return true;
+            }
+        });
         web.setWebChromeClient(new WebChromeClient());
         setContentView(web);
         open(getIntent());
@@ -66,8 +86,8 @@ public class MainActivity extends Activity {
                 .setView(input)
                 .setCancelable(false)
                 .setPositiveButton("OK", (d, w) -> {
-                    String a = input.getText().toString().trim();
-                    if (!a.startsWith("http://") && !a.startsWith("https://")) {
+                    String a = ServerAddress.shellAddress(input.getText().toString());
+                    if (a == null) {
                         askAddress(intent);
                         return;
                     }

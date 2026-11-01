@@ -56,6 +56,8 @@ def fake_ffmpeg(monkeypatch):
 
     monkeypatch.setattr(refs.subprocess, "run", run)
     monkeypatch.setattr(refs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    # The fake subprocess.run would otherwise record the audio-length probe as a clip cut.
+    monkeypatch.setattr(refs.media_inspect, "duration_seconds", lambda path, **kw: None)
     return calls
 
 
@@ -187,11 +189,20 @@ class TestAddingLinesToASet:
 
         monkeypatch.setattr(refs.subprocess, "run", run)
         monkeypatch.setattr(refs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(refs.media_inspect, "duration_seconds", lambda path, **kw: None)
         with pytest.raises(DependencyUnavailableError) as err:
             refs.add_title_lines(None, did, "moon-fixes")
         assert "audio.wav" not in str(err.value) and "line 5" in str(err.value)
         assert os.listdir(db.BENCHMARK_DIR) == []
         assert db.list_benchmark_cases("transcription") == []
+
+    def test_lines_past_the_end_of_the_audio_are_skipped_and_the_rest_added(self, isolated_db, fake_ffmpeg, monkeypatch):
+        did = _title(isolated_db)  # corrected lines run 6-8 s and 12-14 s
+        monkeypatch.setattr(refs.media_inspect, "duration_seconds", lambda path, **kw: 10.0)
+        preview = refs.add_title_lines(None, did, "moon-fixes", dry_run=True)
+        assert (preview["case_count"], preview["unclippable_skipped"]) == (1, 1)
+        res = refs.add_title_lines(None, did, "moon-fixes")
+        assert (res["added"], len(db.list_benchmark_cases("transcription"))) == (1, 1)
 
     def test_a_header_only_clip_is_refused_and_names_the_line(self, isolated_db, monkeypatch):
         did = _title(isolated_db)
@@ -202,6 +213,7 @@ class TestAddingLinesToASet:
 
         monkeypatch.setattr(refs.subprocess, "run", run)
         monkeypatch.setattr(refs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(refs.media_inspect, "duration_seconds", lambda path, **kw: None)
         with pytest.raises(DependencyUnavailableError, match="line 3"):
             refs.add_title_lines(None, did, "moon-fixes")
         assert os.listdir(db.BENCHMARK_DIR) == []
@@ -220,6 +232,7 @@ class TestAddingLinesToASet:
 
         monkeypatch.setattr(refs.subprocess, "run", run)
         monkeypatch.setattr(refs.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(refs.media_inspect, "duration_seconds", lambda path, **kw: None)
         assert refs.add_title_lines(None, did, "moon-fixes")["added"] == 2
         assert len(db.list_benchmark_cases("transcription")) == 2
         # The set is free again afterwards.
