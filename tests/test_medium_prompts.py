@@ -66,6 +66,7 @@ def test_novel_instructions_ask_for_native_prose():
     assert "translationese" in text
     assert "double quotation marks" in text
     assert "Add no image, detail or flourish" in text
+    assert "sound spoken" in text and "Dialogue tags" in text
     reflection = build_reflect_reflection_task("", [1], {1: "x"}, {1: "y"}, kind="novel")
     assert "translationese" in reflection
     assert "native novelist" in medium_prompts.improve_rubric("novel")
