@@ -146,6 +146,64 @@ def test_a_reported_unit_is_not_changed_after_it_was_reported(monkeypatch, no_re
     assert units[0][0]["end"] == pytest.approx(121.2)
 
 
+def _resume_once(monkeypatch, stored, tail, on_unit=None):
+    """The merged result of a decode that resumes after `stored` and hears `tail` (times from the cut)."""
+    def fake_slice(audio_path, start, end, out_path, timeout=None):
+        with open(out_path, "wb") as f:
+            f.write(b"x" * 1000)
+
+    class Model:
+        def transcribe(self, audio_path, **kwargs):
+            return iter(tail), types.SimpleNamespace(duration=300.0)
+
+    monkeypatch.setattr(audio_extract, "extract_audio_slice", fake_slice)
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
+    return whisper_transcribe.transcribe_for_timing("/media/a.wav", resume_segments=stored,
+                                                    on_unit=on_unit, filter_hallucination_repeats=0)
+
+
+def _stored_line_ending_at_250():
+    return [{"start": 10.0, "end": 200.0, "text": "前面的话", "words": [{"start": 10.0, "end": 200.0, "word": "前面的话"}]},
+            {"start": 248.0, "end": 250.4, "text": "你们觉得现在要打出来吗?",
+             "words": [{"start": 248.0, "end": 250.0, "word": "你们觉得现在要打出来吗?"}]}]
+
+
+def test_a_resume_does_not_write_the_line_it_stopped_on_twice(monkeypatch, no_rehear):
+    # Word times ended before the speech did, so the tail starts with the same line again.
+    tail = [Seg(0.5, 2.5, "你们觉得现在要打出来吗？"), Seg(4.0, 6.0, "下一句")]
+    out = _resume_once(monkeypatch, _stored_line_ending_at_250(), tail)
+    assert [s["text"] for s in out] == ["前面的话", "你们觉得现在要打出来吗?", "下一句"]
+
+
+def test_a_resume_drops_the_last_words_of_the_cut_line_heard_again(monkeypatch, no_rehear):
+    tail = [Seg(0.0, 0.8, "打出来吗"), Seg(3.0, 5.0, "下一句")]
+    out = _resume_once(monkeypatch, _stored_line_ending_at_250(), tail)
+    assert [s["text"] for s in out] == ["前面的话", "你们觉得现在要打出来吗?", "下一句"]
+
+
+def test_a_resume_keeps_the_same_line_said_again_later(monkeypatch, no_rehear):
+    tail = [Seg(1.0, 3.0, "下一句"), Seg(4.0, 6.0, "你们觉得现在要打出来吗")]
+    out = _resume_once(monkeypatch, _stored_line_ending_at_250(), tail)
+    assert [s["text"] for s in out] == ["前面的话", "你们觉得现在要打出来吗?", "下一句", "你们觉得现在要打出来吗"]
+    tail = [Seg(30.0, 32.0, "你们觉得现在要打出来吗")]
+    out = _resume_once(monkeypatch, _stored_line_ending_at_250(), tail)
+    assert [s["text"] for s in out][-1] == "你们觉得现在要打出来吗"
+
+
+def test_a_resume_keeps_a_short_reply_that_ends_like_the_cut_line(monkeypatch, no_rehear):
+    stored = [{"start": 240.0, "end": 250.2, "text": "你说得对", "words": [{"start": 240.0, "end": 250.0, "word": "你说得对"}]}]
+    tail = [Seg(0.3, 0.6, "对。"), Seg(2.0, 3.0, "说得对")]
+    out = _resume_once(monkeypatch, stored, tail)
+    assert [s["text"] for s in out] == ["你说得对", "对。", "说得对"]
+
+
+def test_the_repeat_dropped_at_the_cut_is_not_stored_in_the_next_unit(monkeypatch, no_rehear):
+    units = []
+    tail = [Seg(0.5, 2.5, "你们觉得现在要打出来吗"), Seg(3.0, 130.0, "很长的下一句")]
+    _resume_once(monkeypatch, _stored_line_ending_at_250(), tail, on_unit=units.append)
+    assert [[s["text"] for s in u] for u in units] == [["很长的下一句"]]
+
+
 def test_a_replaced_local_model_file_is_a_different_scope(tmp_path):
     model = tmp_path / "m"
     model.mkdir()
