@@ -12,7 +12,6 @@ import scanlate_translate
 from engine_backends import llm_tasks
 from lib.errors import ConflictError
 from services import scanlate_pages_service as pages_svc
-from services import scanlate_region_redo_service as svc
 from services import scanlate_render_service as render_svc
 from services import scanlate_run_service as run_svc
 from tests.test_api_comic_region_edit import _page, client  # noqa: F401
