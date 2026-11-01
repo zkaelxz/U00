@@ -56,20 +56,17 @@ STORAGE_QUALITY_PRESETS = {
     "archival": {
         "label": "Archival — keep everything",
         "keep_dub_clips": True, "keep_typeset_pages": True, "keep_ocr_temp": True,
-        "dub_bitrate": "192k",
         "note": "Nothing auto-removed. Largest footprint, fastest re-export.",
     },
     "balanced": {
         "label": "Balanced — keep finals, drop intermediates",
         "keep_dub_clips": False, "keep_typeset_pages": True, "keep_ocr_temp": False,
-        "dub_bitrate": "128k",
         "note": "Keeps finished output, clears per-line clips and OCR scratch. "
                 "Recommended for most libraries.",
     },
     "minimal": {
         "label": "Minimal — sources and text only",
         "keep_dub_clips": False, "keep_typeset_pages": False, "keep_ocr_temp": False,
-        "dub_bitrate": "96k",
         "note": "Smallest footprint. Re-export anything you need again.",
     },
 }

@@ -672,7 +672,19 @@ def test_dubbed_video_without_a_dub_says_so_plainly(local_client, isolated_db, d
     _add_video(isolated_db, drama)
     r = local_client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 422
-    assert error_of(r)["message"] == "There is no dub yet. Create it in Dub first."
+    assert error_of(r)["message"] == "There is no dub track for this title."
+
+
+def test_title_dubbed_before_the_stage_was_removed_still_exports_and_plays(
+        local_client, drama, isolated_db, fake_ffmpeg):
+    from services import reader_service
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")   # all an old title has: no narration_track.wav
+    assert not os.path.exists(os.path.join(isolated_db.drama_dir(drama), "narration_track.wav"))
+    assert reader_service.get_media_availability(drama)["narration"] is True
+    assert reader_service.media_file_path(drama, "narration")[1].endswith("dub_track.wav")
+    assert local_client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 200
+    assert wait_for_job(f"dubbed_video_{drama}", timeout=6.0)["status"] == "done"
 
 
 def test_export_is_moved_with_an_atomic_replace(local_client, drama, isolated_db, fake_ffmpeg,

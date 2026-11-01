@@ -269,7 +269,7 @@ export function DubbedVideoBlock({ reason, startError, onStartError }: BlockShar
       kind="dubbed_video"
       testId="dubbed"
       hint="The dub track in place of the original sound"
-      note="Replaces the video's sound with the dub track from the Dub stage."
+      note="Replaces the video's sound with the title's existing dub track."
       start={() => startDubbedVideo(dramaId, { keep_original: keepOriginal })}
       blockedReason={reason}
       startError={startError}

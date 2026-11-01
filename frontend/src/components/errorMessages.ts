@@ -93,7 +93,7 @@ export interface DescribeOptions {
   // Admin/restore callers: validation_error and invalid_input show the
   // server's own text too (fixed sentences, no paths; still safeDetail-filtered).
   serverText?: boolean
-  // Refusals whose server sentence is the whole answer ("There is no dub yet...")
+  // Refusals whose server sentence is the whole answer ("There is no dub track for this title.")
   // show it as the heading instead of the generic validation text.
   reasonAsTitle?: boolean
 }
