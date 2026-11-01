@@ -712,7 +712,10 @@
         .slice(0, MAX_TITLE_CANDIDATE_CHARS).join("");
       if (text && !titles.includes(text)) titles.push(text);
     }
-    return { url: location.href, language: document.documentElement.lang || "", titles,
+    const siteMeta = document.querySelector('meta[property="og:site_name"]');
+    const siteName = String((siteMeta && siteMeta.content) || "").replace(/\s+/g, " ").trim()
+      .slice(0, MAX_TITLE_CANDIDATE_CHARS);
+    return { url: location.href, language: document.documentElement.lang || "", titles, siteName,
              chapterLinks: chapterLinks() };
   }
 
@@ -1519,7 +1522,8 @@
     const tally = captureTally(seen.size, counts, firstFailure, unreadablePages);
     const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}.`;
     reportProgress(message);
-    toast(message, 8000);
+    // A failure text can name the server's address, which a page's own scripts could read from the DOM.
+    if (CAPTURE_STOP_MESSAGES[reason]) toast(message, 8000);
     return { ok: true, data: { reason, message, found: seen.size, ...counts,
                                unreadable: unreadablePages, pages: [],
                                ...accessNeeded(needAccess) } };

@@ -83,6 +83,10 @@ function addDramaOption(id, title, mediaType) {
 
 // With no drama picked the app finds or creates the title this page belongs to; the picker then
 // shows it, so the next send in this popup goes to the same one. A pick made by hand always wins.
+// The title the app picked on its own. It stays out of the per-site memory, or every later series
+// on the site would go into it without a prompt; a hand pick in the list clears it.
+let autoPickedId = "";
+
 async function autoTitle(tab, kind) {
   say("Finding the title for this page…");
   await ensureContentScript(tab.id);
@@ -93,6 +97,7 @@ async function autoTitle(tab, kind) {
   const data = made.data;
   addDramaOption(data.drama_id, data.title, data.media_type);
   els.drama.value = String(data.drama_id);
+  autoPickedId = String(data.drama_id);
   showDramaTitle();
   return { dramaId: data.drama_id, note: describeAutoTitle(data) };
 }
@@ -348,6 +353,9 @@ async function load() {
     if (health && health.error && health.error.startsWith(NO_TOKEN_PREFIX)) {
       showNotice("Paste your token to get started.", "Open options", () => chrome.runtime.openOptionsPage());
       say("Actions are off until a token is saved.");
+    } else if (health && (health.status === 401 || health.status === 403)) {
+      showNotice("Baihe didn't accept this token.", "Open options", () => chrome.runtime.openOptionsPage());
+      say("Paste a new token from Baihe's Settings.");
     } else {
       showNotice("Can't reach Baihe on this PC.", "Retry", load);
       say("Check that Baihe is running with the Extension bridge on.");
@@ -423,7 +431,7 @@ async function run(all) {
       if (status && status.ok) site = status.data.host || "";
     }
     // An automatic title is not remembered for the site: the next series there needs its own.
-    if (dramaId && site && !autoNote) {
+    if (dramaId && site && String(dramaId) !== autoPickedId) {
       await chrome.runtime.sendMessage({ type: "rememberDrama", site, dramaId });
     }
     await chrome.tabs.sendMessage(tab.id, {
@@ -497,7 +505,7 @@ async function startCapture(fromHere) {
   showCapturing(true);
   try {
     await ensureContentScript(tab.id);
-    if (dramaId && !autoNote) {
+    if (dramaId && String(dramaId) !== autoPickedId) {
       const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
       const site = siteOf(tab.url) || (status && status.ok ? status.data.host : "");
       if (site) await chrome.runtime.sendMessage({ type: "rememberDrama", site, dramaId });
@@ -614,7 +622,10 @@ async function runSaveNovel() {
   }
 }
 
-els.drama.addEventListener("change", showDramaTitle);
+els.drama.addEventListener("change", () => {
+  autoPickedId = "";
+  showDramaTitle();
+});
 els.autoCreate.addEventListener("change", () => saveAutoOption("create", els.autoCreate.checked));
 els.autoFill.addEventListener("change", () => saveAutoOption("fill", els.autoFill.checked));
 els.autoSeries.addEventListener("change", () => saveAutoOption("series", els.autoSeries.checked));

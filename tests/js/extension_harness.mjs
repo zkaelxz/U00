@@ -526,6 +526,32 @@ async function novel(scenario) {
         filled: p.describeAutoTitle({ created: false, title: "一人之下", series_id: 3, filled: ["title_en", "source_url"] }),
       };
     }
+    case "popup_health_failure": {
+      const noop = () => {};
+      const run = async (failure) => {
+        const els = new Map();
+        const el = (id) => {
+          if (!els.has(id)) els.set(id, { addEventListener: noop, classList: { toggle: noop }, appendChild: noop,
+            options: [], value: "", checked: true, textContent: "", hidden: true });
+          return els.get(id);
+        };
+        const sandbox = {
+          document: { getElementById: el, querySelectorAll: () => [] },
+          chrome: { runtime: { sendMessage: async () => failure, onMessage: { addListener: noop } },
+                    tabs: { query: async () => [] } },
+          console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
+        };
+        vm.createContext(sandbox);
+        vm.runInContext(`${read("shared.js")}\n${read("site_access.js")}\n${read("popup.js")}`, sandbox);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return el("noticeText").textContent;
+      };
+      return {
+        revoked: await run({ ok: false, status: 401, error: "a valid token header is required" }),
+        refused: await run({ ok: false, status: 403, error: "no" }),
+        down: await run({ ok: false, error: "Couldn't reach Baihe" }),
+      };
+    }
     case "popup_labels": {
       const p = loadPopupScript();
       p.dramaTitles.set("4", "书");
