@@ -35,6 +35,7 @@ __all__ = [
     "MediaUploadResult",
     "MediaStatus",
     "MediaPeaks",
+    "MediaShotChanges",
     "UploadAndTranscribeResult",
     "LibraryUsage",
     "LibraryDashboard",
@@ -370,6 +371,12 @@ class MediaPeaks(BaseModel):
     end: float
     buckets: int
     peaks: List[int] = Field(description="Peak loudness per bucket, 0-255.")
+
+
+class MediaShotChanges(BaseModel):
+    start: float
+    end: float
+    cuts: List[float] = Field(description="Shot-change times in seconds, ascending, inside the window.")
 
 
 class UploadAndTranscribeResult(BaseModel):

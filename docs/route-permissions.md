@@ -358,6 +358,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/media/dramas/{drama_id}/download-url` | local_only() |
 | `GET /api/media/dramas/{drama_id}/peaks` | media.stream |
 | `POST /api/media/dramas/{drama_id}/remove` | local_only() |
+| `GET /api/media/dramas/{drama_id}/shot-changes` | media.stream |
 | `GET /api/media/dramas/{drama_id}/status` | library.read |
 | `POST /api/media/dramas/{drama_id}/upload` | media.upload |
 | `POST /api/media/dramas/{drama_id}/upload-and-transcribe` | media.upload + jobs.start |
