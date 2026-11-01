@@ -65,8 +65,6 @@ DYNAMIC_KEYS = {
         "glossary.name_marks.<person>: one person's right/wrong/skip marks on the name check",
     ("services/assistant_settings_service.py", "_SETTINGS_PREFIX + key"):
         "assistant.<name>: names are checked against the schema below",
-    ("services/assistant_github_service.py", "_SETTINGS_PREFIX + key"):
-        "assistant.github.<name>: names are checked against the schema below",
     ("services/model_registry_service.py", "setting_key"):
         "argument; callers pass the model_overrides.* constants, declared in the schema",
     ("engine_backends/engine_registry.py", "setting_key"):
@@ -230,7 +228,6 @@ class TestEveryKeyIsDeclared:
 
     @pytest.mark.parametrize("rel,prefix", [
         ("services/assistant_settings_service.py", "assistant."),
-        ("services/assistant_github_service.py", "assistant.github."),
     ])
     def test_assistant_keys_are_rows(self, rel, prefix):
         names = set(re.findall(r'\b_get\("([a-z_]+)"', _read(rel)))
