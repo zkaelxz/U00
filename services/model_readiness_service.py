@@ -327,7 +327,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
     return needs
 
 
-def for_dub(drama_id: int, keep_background: bool = False, tts_engine: str = "omnivoice") -> list:
+def for_dub(drama_id: int, tts_engine: str = "omnivoice") -> list:
     import db
     import dub
     drama = db.get_drama(drama_id)
@@ -339,8 +339,6 @@ def for_dub(drama_id: int, keep_background: bool = False, tts_engine: str = "omn
     if any(c.get("engine") == "omnivoice" and c.get("ref_audio") and not c.get("ref_text")
            for c in clones.values()):
         needs.append(omnivoice_asr_ready)
-    if keep_background and drama.get("content_mode") != "novel_narration":
-        needs.append(_need(separation_ready, drama.get("separation_backend") or "auto"))
     return needs
 
 
