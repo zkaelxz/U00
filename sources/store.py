@@ -574,7 +574,7 @@ from sources.store_tracking import (  # noqa: E402,F401
     set_save_pending, untrack_series, poll_validators, save_poll_validators, list_tracked_series,
     known_chapter_ids, record_new_chapters, CHECK_CYCLE_LEASE_KEY, _setting_float,
     claim_check_cycle, release_check_cycle, mark_checked, list_notifications,
-    dismiss_notification)
+    dismiss_notification, new_chapter_counts_by_drama)
 from sources.store_domains import (  # noqa: E402,F401
     remember_images, hashes_seen_elsewhere, get_extraction, put_extraction, delete_extraction,
     _domains_key, _last_good_key, domain_list, set_domain_list, last_good_domain,
