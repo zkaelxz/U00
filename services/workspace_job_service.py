@@ -21,6 +21,7 @@ from engine_backends import translate_pipeline, fallback, pricing, engine_regist
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
+from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
 from engine_backends.run_limits import FailureStreak
 import translation_finish
@@ -64,6 +65,11 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
     glossary_terms = db.list_glossary_terms(series_id) if series_id else None
+    if glossary_terms:
+        # A big series glossary would otherwise ride in every batch's prompt.
+        run_text = "\n".join(ln.zh or "" for ln in lines)
+        glossary_terms = [t for t in glossary_terms
+                          if any(f and f in run_text for f in glossary_term_forms(t))]
     series_chars = db.list_series_characters(series_id) if series_id else []
     drama_chars = db.list_characters_with_series_names(drama_id)
     prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
