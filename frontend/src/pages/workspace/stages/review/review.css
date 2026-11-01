@@ -169,6 +169,9 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 }
 
 /* ---- find and replace (opened from the toolbar) ---- */
+/* Open, the panel sits right under the toolbar: sticky, a toolbar with the player and waveform (~380px) covered its labels and first rows on a 800px-tall screen. */
+.review-editor.is-replacing .review-toolbar { position: static; }
+.review-editor.is-replacing .review-line { scroll-margin-top: calc(var(--bar-h, 0px) + var(--space-2)); }
 .review-replace { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
 .review-replace-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .review-replace-head h2 { margin: 0; }
@@ -276,6 +279,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Four chips and the pager share one row: the chips scroll sideways rather than push the pager down. */
   .review-chips { flex: 1 1 0; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .review-chip span { min-height: var(--touch); padding-inline: 10px; }
+  .review-chips { gap: 2px; }
+  /* Between lines the caption is a blank bar: on a phone it reads as an empty card. */
+  .review-caption.is-empty { display: none; }
   .review-pager { margin-left: auto; }
   .review-pager button { min-width: var(--touch); padding-inline: 0; }
   button.review-search-toggle { min-width: var(--touch); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
@@ -308,7 +314,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-line-meta { flex-wrap: nowrap; }
 }
 @media (max-width: 640px) {
-  .review-chip span { padding-inline: 8px; min-width: var(--touch); justify-content: center; }
+  .review-chip span { padding-inline: 6px; min-width: var(--touch); justify-content: center; }
   .review-player-row .review-pager { margin-left: auto; }
   .stage-review textarea, .stage-review input { scroll-margin-top: 9rem; scroll-margin-bottom: 5rem; }
   .review-loop-word { display: none; }
