@@ -57,6 +57,8 @@ _PINS_RE = re.compile(r"^baihe-torch-pins-[A-Za-z0-9_]+\.txt$")      # install_r
 # Mirrors diagnostics.PIP_INSTALL_FLAGS, which this stdlib-only module cannot import;
 # a test keeps the two equal.
 _PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
+# Also accepted: install_registry.INSTALL_WITHOUT_DEPS packages add it (repeated here, as above).
+_NO_DEPS_FLAG = "--no-deps"
 # Mirrors install_registry.CV2_SWAP_UNINSTALLABLE for the same reason.
 _UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
 _CV2_CONTRIB = "opencv-contrib-python"
@@ -425,7 +427,7 @@ def _argv_accepted(argv) -> TypeGuard[list[str]]:
     rest, i = argv[4:], 0
     while i < len(rest):
         arg = rest[i]
-        if arg in _PIP_FLAGS or _NAME_RE.match(arg):
+        if arg in _PIP_FLAGS or arg == _NO_DEPS_FLAG or _NAME_RE.match(arg):
             i += 1
         elif arg == "-c" and i + 1 < len(rest):
             if not (_norm(rest[i + 1]) == app_constraints or _is_pins_file(rest[i + 1])):
@@ -722,7 +724,7 @@ def _touchable_dists(keys: list):
         if rest[i] == "-c":
             i += 2
             continue
-        if rest[i] not in _PIP_FLAGS:
+        if rest[i] not in _PIP_FLAGS and rest[i] != _NO_DEPS_FLAG:
             names.add(_canonical_name(rest[i]))
         i += 1
     return names
