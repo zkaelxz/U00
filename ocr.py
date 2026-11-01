@@ -236,17 +236,82 @@ def paddle_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
     return lines
 
 
-def extract_text_rapidocr(image_path: str) -> str:
-    """Chinese and Japanese text through RapidOCR's default models, which ship
-    inside its wheel (no download on first use). Any other language or model
-    type would be fetched by RapidOCR itself, outside lib.http, so this
-    function never asks for one. The default model has no Korean, so a Korean
-    page comes back as noise: Korean stays on Tesseract or Paddle."""
+# The wheel's default recognizer has no Korean; this one is fetched once through
+# lib.http and handed to RapidOCR by path, so RapidOCR's own downloader never runs.
+# Pinned to the rapidocr release the URL names so the checksum stays valid.
+RAPIDOCR_KOREAN_MODEL = {
+    "file": "korean_PP-OCRv5_rec_mobile.onnx",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "onnx/PP-OCRv5/rec/korean_PP-OCRv5_rec_mobile.onnx"),
+    "sha256": "cd6e2ea50f6943ca7271eb8c56a877a5a90720b7047fe9c41a2e541a25773c9b",
+    "max_bytes": 32 * 1024 * 1024,
+}
+_RAPIDOCR_DOWNLOAD_TIMEOUT = (15, 60)
+
+
+class RapidOcrModelUnavailable(RuntimeError):
+    """The extra model could not be fetched; the message is short and has no URL or path."""
+
+
+def rapidocr_model_path(spec: dict) -> str:
+    import os
+    import portable
+    return os.path.join(portable.data_dir(), "model_cache", "rapidocr", spec["file"])
+
+
+def ensure_rapidocr_model(spec: dict) -> str:
+    """The model's local path, downloading it first if it is missing. Checked against its
+    SHA-256 before it is put in place, so a cut or tampered download is never loaded."""
+    import hashlib
+    import os
+    import tempfile
+    from lib import http
+    path = rapidocr_model_path(spec)
+    if os.path.isfile(path):
+        return path
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        resp = http.get(spec["url"], timeout=_RAPIDOCR_DOWNLOAD_TIMEOUT, max_bytes=spec["max_bytes"])
+    except Exception as exc:
+        raise RapidOcrModelUnavailable("Could not download the RapidOCR model.") from exc
+    if not resp.ok or hashlib.sha256(resp.body).hexdigest() != spec["sha256"]:
+        raise RapidOcrModelUnavailable("The RapidOCR model download was incomplete or changed.")
+    fd, part = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(resp.body)
+        os.replace(part, path)
+    except BaseException:
+        if os.path.exists(part):
+            os.unlink(part)
+        raise
+    return path
+
+
+def _rapidocr_params(source_language: str) -> dict:
+    # The text-orientation classifier flips some upright lines and they come back as
+    # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
+    # subtitle lines are upright, so it is left off.
+    params = {"Global.log_level": "warning", "Global.use_cls": False}
+    if source_language == "ko":
+        from rapidocr import LangRec, ModelType, OCRVersion
+        params.update({"Rec.model_path": ensure_rapidocr_model(RAPIDOCR_KOREAN_MODEL),
+                       "Rec.ocr_version": OCRVersion.PPOCRV5, "Rec.model_type": ModelType.MOBILE,
+                       "Rec.lang_type": LangRec.KOREAN})
+    return params
+
+
+def extract_text_rapidocr(image_path: str, source_language: str = "zh") -> str:
+    """Chinese and Japanese text through RapidOCR's PP-OCRv6 models, which ship inside its
+    wheel; Korean through its Korean recognizer (ensure_rapidocr_model). One engine is kept
+    per language, since the recognizer is fixed when the engine is built."""
     from rapidocr import RapidOCR
+    key = "ko" if source_language == "ko" else "default"
     with _MODEL_LOCK:
-        if "_rapidocr_instance" not in globals():
-            globals()["_rapidocr_instance"] = RapidOCR(params={"Global.log_level": "warning"})
-        result = globals()["_rapidocr_instance"](image_path)
+        engines = globals().setdefault("_rapidocr_instances", {})
+        if key not in engines:
+            engines[key] = RapidOCR(params=_rapidocr_params(source_language))
+        result = engines[key](image_path)
     return "\n".join(result.txts or ())
 
 
@@ -502,7 +567,7 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
         paddle_lang = _PADDLE_LANG_BY_SOURCE.get(source_language, "ch")
         fn = lambda p: extract_text_paddle(p, lang=paddle_lang)
     elif backend == "rapidocr":
-        fn = extract_text_rapidocr
+        fn = lambda p: extract_text_rapidocr(p, source_language)
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
         vertical_pack = (vertical and source_language in TESSERACT_LANG
