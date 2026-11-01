@@ -468,11 +468,11 @@ class TestRestoreSavedLines:
 _SAVED = {"idx": 0, "start": 1.0, "end": 2.0, "zh": "saved zh", "en": "saved en",
           "speaker": "Saved", "dub_filename": "saved.wav", "flag": "idiom",
           "flag_note": "saved note", "speaker_manual": True, "sfx": True, "lang": "ko",
-          "reviewed": True}
+          "reviewed": True, "ass_event": '{"style": "Saved"}'}
 _SINCE = {"idx": 0, "start": 3.0, "end": 4.0, "zh": "later zh", "en": "later en",
           "speaker": "Later", "dub_filename": "later.wav", "flag": "name",
           "flag_note": "later note", "speaker_manual": False, "sfx": False, "lang": "en",
-          "reviewed": False}
+          "reviewed": False, "ass_event": '{"style": "Later"}'}
 # A version is a pick of translation; the dub clip from when it was saved may
 # have been regenerated or deleted since, so it isn't stored and the line
 # keeps its current clip.
@@ -522,7 +522,9 @@ class TestEveryLineFieldRoundTrips:
                                        "dub_filename", "speaker_manual")}]
         old[0]["id"] = isolated_db.load_line_objects(did)[0].id
         got = self._restore_after_change(isolated_db, did, old)
-        # flag, note, SFX mark, language and the Checked mark stay as the line has them now
+        # flag, note, SFX mark, language and the Checked mark stay as the line has them now;
+        # a snapshot from before ASS events were kept predates any ASS import, so none
         expected = dict(_SAVED, flag=_SINCE["flag"], flag_note=_SINCE["flag_note"],
-                        sfx=_SINCE["sfx"], lang=_SINCE["lang"], reviewed=_SINCE["reviewed"])
+                        sfx=_SINCE["sfx"], lang=_SINCE["lang"], reviewed=_SINCE["reviewed"],
+                        ass_event=None)
         assert {f: getattr(got, f) for f in LINE_FIELDS} == expected

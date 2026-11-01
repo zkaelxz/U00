@@ -482,7 +482,7 @@ def _delete_line_refs(conn, line_id):
 
 
 _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, "
-                 "speaker_manual, sfx, lang, reviewed")
+                 "speaker_manual, sfx, lang, reviewed, ass_event")
 
 
 def load_lines(drama_id: int, with_words: bool = False, ids=None):

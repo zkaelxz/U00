@@ -2279,7 +2279,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
     "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
-              "word_timings", "reviewed"),
+              "word_timings", "reviewed", "ass_event"),
     "dramas": (
         "translation_engine", "content_mode", "narration_language", "source_video_filename",
         "source_language", "chinese_script", "media_type", "series_id", "episode_number",
@@ -2294,7 +2294,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
         "keep_original", "translate_by_sentence", "release_date", "difficult_audio",
-        "translate_start_json", "transcribe_start_json"),
+        "translate_start_json", "transcribe_start_json", "ass_styles"),
     "presets": ("options_json", "is_default"),
     "series": ("instructions", "owner_user_id", "is_private", "default_settings"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",

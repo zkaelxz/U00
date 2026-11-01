@@ -263,3 +263,215 @@ def test_translation_import_keeps_a_translation_edited_after_the_load(isolated_d
     assert [r["en"] for r in db.load_lines(did)][:2] == ["typed", "Two"]
     assert out["lines_written"] == 1
 
+
+
+# ---- imported ASS styles, positions and override tags --------------------
+
+_STYLE_FORMAT = ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+                 "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
+                 "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")
+_STYLE_ROWS = [
+    "Style: Default,Arial,60,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,3,1,2,30,30,40,1",
+    "Style: Sign,Noto Sans,48,&H0000FFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,2,0,8,20,20,15,1"]
+_SIGN_TEXT = r"{\an8}{\pos(10,20)}Hello {\i1}there{\i0}"
+_KARAOKE_TEXT = r"{\k20}ka{\k30}ra"
+ASS = ("[Script Info]\nTitle: T\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\nWrapStyle: 2\n"
+       "YCbCr Matrix: TV.709\n\n[V4+ Styles]\n" + _STYLE_FORMAT + "\n" + "\n".join(_STYLE_ROWS) + "\n\n"
+       "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+       f"Dialogue: 2,0:00:01.00,0:00:02.00,Sign,Bob,5,6,7,Banner;1,{_SIGN_TEXT}\n"
+       f"Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,{_KARAOKE_TEXT}\n").encode()
+_KNOWN_RECORDS = ("[", "Format:", "Style:", "Dialogue:", "Title:", "ScriptType:", "PlayResX:", "PlayResY:",
+                  "WrapStyle:", "ScaledBorderAndShadow:", "YCbCr Matrix:")
+
+
+def _ass_out(did, field="zh", **kw):
+    from services import export_service
+    return export_service.generate_ass_text(did, field=field, **kw)
+
+
+def _dialogues(text):
+    return [row for row in text.splitlines() if row.startswith("Dialogue:")]
+
+
+def _events(text):
+    """Each Dialogue as its 10 comma-split fields (Text keeps its commas)."""
+    return [row[len("Dialogue: "):].split(",", 9) for row in _dialogues(text)]
+
+
+def _assert_only_known_records(text, dialogue_count):
+    for row in text.splitlines():
+        assert not row.strip() or row.startswith(_KNOWN_RECORDS), repr(row)
+    assert len(_dialogues(text)) == dialogue_count
+
+
+def _import_ass(local_client, did=None, data=ASS, **fields):
+    did = did or _drama()
+    r = _upload(local_client, did, "apply", data=data, name="a.ass", **fields)
+    assert r.status_code == 200, r.text
+    return did, r.json()
+
+
+def _set_en(did, texts):
+    lines = db.load_line_objects(did)
+    for ln, text in zip(lines, texts):
+        ln.en = text
+    db.save_lines(did, lines, fields=("en",))
+
+
+class TestAssRoundTrip:
+    def test_styles_canvas_and_event_fields_come_back(self, local_client):
+        did, _ = _import_ass(local_client)
+        out = _ass_out(did, "zh")
+        out_lines = out.splitlines()
+        for row in _STYLE_ROWS:
+            assert row in out_lines
+        for row in ("PlayResX: 1920", "PlayResY: 1080", "WrapStyle: 2", "YCbCr Matrix: TV.709"):
+            assert row in out_lines
+        first, second = _events(out)
+        assert first[0] == "2" and first[3:9] == ["Sign", "Bob", "5", "6", "7", "Banner;1"]
+        assert second[0] == "0" and second[3] == "Default"
+
+    def test_unedited_source_export_keeps_inline_and_karaoke_tags(self, local_client):
+        did, _ = _import_ass(local_client)
+        first, second = _events(_ass_out(did, "zh"))
+        assert first[9] == _SIGN_TEXT and second[9] == _KARAOKE_TEXT
+
+    def test_translation_export_keeps_only_leading_overrides(self, local_client):
+        did, _ = _import_ass(local_client)
+        _set_en(did, ["Hi, you", "Sung"])
+        first, second = _events(_ass_out(did, "en"))
+        assert first[9] == r"{\an8}{\pos(10,20)}Hi, you"
+        assert second[9] == r"{\k20}Sung"
+        assert first[3] == "Sign" and first[0] == "2"  # style and layer still imported
+
+    def test_editing_the_source_text_drops_inline_tags_but_keeps_leading(self, local_client):
+        did, _ = _import_ass(local_client)
+        lines = db.load_line_objects(did)
+        lines[0].zh = "Hello world"
+        db.save_lines(did, lines, fields=("zh",))
+        first, second = _events(_ass_out(did, "zh"))
+        assert first[9] == r"{\an8}{\pos(10,20)}Hello world"
+        assert second[9] == _KARAOKE_TEXT  # untouched line still verbatim
+
+    def test_baihe_styles_colliding_with_imported_names_are_renamed(self, local_client):
+        did, _ = _import_ass(local_client)
+        out = _ass_out(did, "zh")
+        names = [row[len("Style: "):].split(",")[0] for row in out.splitlines() if row.startswith("Style:")]
+        assert names.count("Default") == 1 and "Baihe Default" in names
+
+    def test_a_line_added_later_uses_baihe_style_scaled_to_the_canvas(self, local_client):
+        did, _ = _import_ass(local_client)
+        lines = db.load_line_objects(did)
+        lines.append(Line(idx=2, start=5.0, end=6.0, zh="新", en="new"))
+        db.save_lines(did, lines, fields=None)
+        out = _ass_out(did, "zh", preset="Clean")
+        added = _events(out)[-1]
+        assert added[3] == "Baihe Default" and added[9] == "新"
+        baihe = next(r for r in out.splitlines() if r.startswith("Style: Baihe Default,")).split(",")
+        assert baihe[2] == "90"  # Clean's 24 on a 288-high canvas, scaled to 1080
+
+    def test_srt_and_vtt_export_carry_no_tags(self, local_client):
+        from services import export_service
+        did, _ = _import_ass(local_client)
+        for fmt in ("srt", "vtt"):
+            text = export_service.generate_subtitle_text(did, fmt, "zh")
+            assert "Hello there" in text and "kara" in text
+            assert "\\" not in text and "{" not in text
+
+    def test_importing_an_srt_afterwards_drops_the_styles_from_the_export(self, local_client):
+        did, _ = _import_ass(local_client)
+        assert db.get_drama(did)["ass_styles"]
+        r = _upload(local_client, did, "apply", confirm_replace_lines=True)
+        assert r.status_code == 200
+        assert all(x["ass_event"] is None for x in db.load_lines(did))
+        out = _ass_out(did, "zh")
+        assert "PlayResX: 384" in out and "PlayResY: 288" in out
+        assert "Baihe Default" not in out and "Sign" not in out and "YCbCr" not in out
+
+    def test_undoing_the_import_brings_back_lines_without_events(self, local_client):
+        from services import restructure_service
+        did = _drama(_three_lines())
+        _, body = _import_ass(local_client, did, confirm_replace_lines=True)
+        assert all(x["ass_event"] for x in db.load_lines(did))
+        undo = body["undo"]
+        restructure_service.restore_version(did, undo["history_id"], body["line_ids"],
+                                            undo["lines_fingerprint"])
+        rows = db.load_lines(did)
+        assert [x["zh"] for x in rows] == ["一", "二", "三"]
+        assert all(x["ass_event"] is None for x in rows)
+        out = _ass_out(did, "zh")  # the stored styles no longer match any line
+        assert "PlayResX: 384" in out and "Baihe Default" not in out
+
+    def test_undoing_a_second_import_brings_back_the_first_files_styles(self, local_client):
+        from services import restructure_service
+        did, _ = _import_ass(local_client)
+        before = _ass_out(did, "zh")
+        other = ASS.replace(b"PlayResX: 1920", b"PlayResX: 640").replace(b"PlayResY: 1080", b"PlayResY: 360")
+        other = other.replace(b"Style: Sign,", b"Style: Other,").replace(b",Sign,", b",Other,")
+        _, body = _import_ass(local_client, did, data=other, confirm_replace_lines=True)
+        assert "PlayResY: 360" in _ass_out(did, "zh")
+        undo = body["undo"]
+        restructure_service.restore_version(did, undo["history_id"], body["line_ids"],
+                                            undo["lines_fingerprint"])
+        assert _ass_out(did, "zh") == before
+
+    def test_bilingual_split_keeps_the_event_on_the_lines(self, local_client):
+        data = ASS.replace(r"Hello {\i1}there{\i0}".encode(), r"你好\NHello".encode())
+        did, _ = _import_ass(local_client, data=data, split_bilingual=True)
+        row = db.load_lines(did)[0]
+        assert (row["zh"], row["en"]) == ("你好", "Hello") and row["ass_event"]
+        first = _events(_ass_out(did, "en"))[0]
+        assert first[3] == "Sign" and first[9] == r"{\an8}{\pos(10,20)}Hello"
+
+
+class TestHostileStoredAssData:
+    BAD = "a b\r\nDialogue: 0,0:00:00.00,0:00:09.00,X,,0,0,0,,INJECTED,[Events]"
+
+    def _title(self, event, styles=None):
+        did = _drama()
+        db.save_lines(did, [Line(idx=0, start=1.0, end=2.0, zh="一", en="one", ass_event=event),
+                            Line(idx=1, start=3.0, end=4.0, zh="二", en="two", ass_event=event)])
+        db.update_drama(did, ass_styles=styles if styles is not None else
+                        '{"styles": [], "script_info": {"playresx": "1920", "playresy": "1080"}}')
+        return did
+
+    @pytest.mark.parametrize("field", ["zh", "en"])
+    def test_whitespace_and_commas_in_event_fields_cannot_add_records(self, isolated_db, field):
+        import json
+        bad = self.BAD
+        did = self._title(json.dumps({k: bad for k in ("layer", "style", "name", "marginl", "marginr",
+                                                       "marginv", "effect", "lead", "raw", "plain")}))
+        _assert_only_known_records(_ass_out(did, field), 2)
+
+    @pytest.mark.parametrize("event", ["{not json", "[1, 2]", '"text"', "123", "null"])
+    def test_malformed_event_json_is_treated_as_no_event(self, isolated_db, event):
+        did = self._title(event)
+        out = _ass_out(did, "zh")
+        _assert_only_known_records(out, 2)
+        assert [e[9] for e in _events(out)] == ["一", "二"]
+
+    @pytest.mark.parametrize("margin", ["1e999", "abc", "-1e999", "nan", ""])
+    def test_non_numeric_margins_become_ints(self, isolated_db, margin):
+        import json
+        did = self._title(json.dumps({"marginl": margin, "marginr": margin, "marginv": margin, "layer": margin}))
+        out = _ass_out(did, "zh")
+        _assert_only_known_records(out, 2)
+        for e in _events(out):
+            assert all(x.lstrip("-").isdigit() for x in [e[0], *e[5:8]])
+
+    def test_hostile_stored_styles_cannot_add_records(self, isolated_db):
+        import json
+        evil = "x\nDialogue: 0,0:00:00.00,0:00:09.00,Default,,0,0,0,,INJECTED\r[Events]"
+        styles = json.dumps({"styles": [{"name": evil, "fontname": evil, "fontsize": evil, "bold": evil},
+                                        {"name": "Sign", "alignment": "8\nStyle: Evil,Arial"}],
+                             "script_info": {"playresx": evil, "playresy": evil, "wrapstyle": evil,
+                                             "ycbcr matrix": evil, "scaledborderandshadow": evil}})
+        did = self._title('{"style": "Sign"}', styles)
+        _assert_only_known_records(_ass_out(did, "zh"), 2)
+
+    @pytest.mark.parametrize("styles", ["{bad", "[1]", "5", '{"styles": "x", "script_info": 3}',
+                                        '{"styles": [1, null, {"name": 5}], "script_info": []}'])
+    def test_malformed_stored_styles_export_baihe_output(self, isolated_db, styles):
+        did = self._title('{"style": "Sign"}', styles)
+        out = _ass_out(did, "zh")
+        _assert_only_known_records(out, 2)

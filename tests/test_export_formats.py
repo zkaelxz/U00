@@ -556,3 +556,56 @@ class TestSrtFileText:
     def test_ascii_text_is_unchanged(self):
         assert sf.srt_file_text("1\nhi\n") == "1\nhi\n"
         assert sf.srt_file_text("") == ""
+
+
+# ---- imported ASS header ---------------------------------------------------
+
+_HEADER = {"styles": [{"name": "Default", "fontname": "Arial", "fontsize": "60"}],
+           "script_info": {"playresx": "1920", "playresy": "1080"}}
+
+
+def _with_events(lines):
+    for ln in lines:
+        ln.ass_event = '{"style": "Default"}'
+    return lines
+
+
+def test_ass_without_a_header_is_baihes_384x288_output():
+    out = sf.lines_to_ass(_lines(), sf.ASS_PRESETS["Clean"])
+    assert "PlayResX: 384" in out and "PlayResY: 288" in out and "Baihe Default" not in out
+
+
+def test_imported_default_style_wins_its_name_and_baihes_moves_aside():
+    out = sf.lines_to_ass(_with_events(_lines()), sf.ASS_PRESETS["Clean"], ass_header=_HEADER).splitlines()
+    assert "PlayResX: 1920" in out and "PlayResY: 1080" in out
+    styles = [r.split(",")[0] for r in out if r.startswith("Style:")]
+    assert styles.count("Style: Default") == 1 and "Style: Baihe Default" in styles
+    # Missing columns take libass defaults rather than leaving a short row
+    imported = next(r for r in out if r.startswith("Style: Default,"))
+    assert len(imported.split(",")) == len(sf.ASS_STYLE_COLUMNS)
+
+
+def test_header_is_ignored_when_no_line_carries_an_event():
+    out = sf.lines_to_ass(_lines(), sf.ASS_PRESETS["Clean"], ass_header=_HEADER)
+    assert "PlayResX: 384" in out and "Baihe Default" not in out
+
+
+def test_a_playres_with_one_side_fills_the_other_like_libass():
+    assert sf.imported_play_res({"playresx": "1920"}) == (1920, 1440)
+    assert sf.imported_play_res({"playresy": "1080"}) == (1440, 1080)
+    assert sf.imported_play_res({}) is None
+    assert sf.imported_play_res({"playresx": "abc", "playresy": "1e999"}) is None
+
+
+def test_decode_ass_json_rejects_anything_but_an_object():
+    assert sf.decode_ass_json('{"a": 1}') == {"a": 1}
+    for bad in (None, "", "{x", "[1]", "5", "null"):
+        assert sf.decode_ass_json(bad) is None
+
+
+def test_line_with_a_hostile_event_stays_one_dialogue_record():
+    ln = Line(idx=0, start=0.0, end=1.0, zh="a", en="b",
+              ass_event='{"style": "X\\nDialogue: 0", "effect": "a,b\\r\\nStyle: Evil", "lead": "{\\\\an8}\\nx"}')
+    out = sf.lines_to_ass([ln], sf.ASS_PRESETS["Clean"], ass_header=_HEADER)
+    assert len([r for r in out.splitlines() if r.startswith("Dialogue:")]) == 1
+    assert not [r for r in out.splitlines() if r.startswith("Style: Evil")]

@@ -343,6 +343,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                      for c in db.list_characters_with_series_names(drama_id)
                      if c.get("character_name")}
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
+    ass_header, ass_header_key = subtitle_formats.ass_header_for(drama.get("ass_styles"), lines)
 
     return subtitle_formats.lines_to_ass(
         lines, merged_style, field, notes_by_idx,
@@ -350,7 +351,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
         wrap_chars=build_wrap_chars(wrap_chars_en, wrap_chars_source),
         title=drama.get("title_en") or drama.get("title_zh") or "",
         notes_as_separate_line=notes_as_separate_line, frame_aspect=frame_aspect,
-        **break_language(drama))
+        ass_header=ass_header, ass_header_key=ass_header_key, **break_language(drama))
 
 
 def get_export_readiness(drama_id: int) -> dict:
