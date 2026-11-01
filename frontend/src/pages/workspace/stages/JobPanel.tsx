@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 
 import { cancelJob } from '../../../api/jobs'
 import { Badge } from '../../../components/Badge'
@@ -9,7 +9,7 @@ import { humanize } from '../../../components/labels'
 import { buttonClass } from '../../../components/uiClasses'
 import { useHolds } from '../../../hooks/useHolds'
 import { openReportDialog } from '../../../report/reportDialogStore'
-import { useJobs, useNow } from '../../../hooks/useJobs'
+import { JobsContext, useJobs, useNow } from '../../../hooks/useJobs'
 import { useCancelsAnyJob } from '../../../hooks/useSession'
 import type { ApiError } from '../../../api/client'
 import type { JobRecord } from '../../../types/jobs'
@@ -18,7 +18,7 @@ import { etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, type EtaSample 
 import { formatElapsed } from './autotuneGlossary'
 import { stripStallNote, stuckText, watchStuck, type StuckInfo } from './jobStuck'
 import { lastRunCounts, lastRunFor } from './lastRun'
-import { isTerminalStatus, cancelNeedsConfirm, jobFailed, jobName, jobOutcomeText, offersCancel } from '../../../types/jobs'
+import { isTerminalStatus, cancelNeedsConfirm, jobFailed, jobName, jobOutcomeText, offersCancel, shownStatus } from '../../../types/jobs'
 import './jobPanel.css'
 
 interface LastRunProps {
@@ -138,6 +138,13 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
   const stuck = useStuck(job)
   const [cancelError, setCancelError] = useState<unknown>(null)
   const active = job !== null && !isTerminalStatus(job.status)
+  // With push down, the app-wide list (title pill, header badge, Jobs page) only catches up on its slow poll;
+  // this panel already knows the run ended, so it asks for a read now.
+  const reloadJobs = useContext(JobsContext)?.reload
+  const finishedId = job && isTerminalStatus(job.status) ? job.job_id : null
+  useEffect(() => {
+    if (finishedId) reloadJobs?.()
+  }, [finishedId, reloadJobs])
   // Server text goes through safeDetail like job.error; if it is unsafe or
   // too long, the plain outcome label is still shown.
   const outcomeFull = job && job.status !== 'error' ? jobOutcomeText(job) : null
@@ -155,7 +162,7 @@ export function JobPanel({ job, pollError, jobId, lastRun, note, liveEta = false
       {job ? (
         <>
           <p data-testid="job-status">
-            {humanize('status', job.status)}
+            {humanize('status', shownStatus(job))}
             {message && job.status !== 'error' ? ` · ${message}` : ''}
           </p>
           {elapsed !== null && !/\(elapsed /.test(job.message) && (

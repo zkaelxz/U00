@@ -36,7 +36,7 @@ import bulk_poll
 import bulk_translate
 import translation_finish
 import db
-from engine_backends import engine_registry, pricing
+from engine_backends import engine_registry, llm_tasks, pricing
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
@@ -396,8 +396,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
             drama_id, engine_name, model, caps[0], reflect, force_retranslate,
             gemini_free_tier, job_cost_cap_usd, estimate_translate_cost)
         job_id = bulk_job_id(drama_id)
-    if background_jobs.is_running(job_id):
-        raise ConflictError("A translation is already running for this title.")
+    _refuse_if_busy(job_id)
 
     engines, engine, cost_cap = translate_run_options.instantiate_engines(built, chain, caps)
 
@@ -461,6 +460,14 @@ def _launch_bulk(job_id, drama_id, drama, engine, opts, reflect, novel_reference
     if not started:
         raise ConflictError("A translation is already running for this title.")
     _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)
+
+
+def _refuse_if_busy(job_id: str) -> None:
+    if background_jobs.is_running(job_id):
+        raise ConflictError("A translation is already running for this title.")
+    # A cancelled run's request can run on at the provider for minutes; a new run now would fail in its first batch.
+    if llm_tasks.abandoned_request_alive(job_id):
+        raise ConflictError(llm_tasks.PREVIOUS_REQUEST_MESSAGE)
 
 
 def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,

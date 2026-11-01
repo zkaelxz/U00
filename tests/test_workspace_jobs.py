@@ -811,6 +811,27 @@ def test_translate_job_sends_a_standalone_dramas_per_drama_pronouns(isolated_db,
     _clear(job_id)
 
 
+def test_translate_job_result_counts_the_lines_it_wrote_so_a_dead_run_reads_failed(isolated_db, monkeypatch):
+    from services import jobs_service
+    job_id = "test_translate_counts_written"
+    _clear(job_id)
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                               "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="你好"), Line(idx=1, start=1, end=2, zh="再见")]
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine",
+                        lambda lines, engine, **kw: (lines, ["batch 1: provider down"]))
+
+    run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
+                      None, "", "claude", "audio_drama")
+
+    result = job_table._jobs[job_id]["result"]
+    assert result["translated_count"] == 0
+    outcome, _msg = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))
+    assert outcome == "failed"
+    _clear(job_id)
+
+
 class TestFreeEngineVersionLabelling:
     """Step 1d item 5: a translation version made with a free engine (or
     a free-tier Gemini key) is marked [testing: <engine>] in its label,

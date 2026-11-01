@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 
-import { api, ApiError } from '../api/client'
+import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -60,6 +60,8 @@ interface Props {
   onRetrySeries?: () => void
   // The titles on screen (expanded groups, display order), for pruning the selection to what the viewer can see.
   onVisible?: (items: DramaSummary[]) => void
+  // The page shows a failed load once, with Retry; the list reports it instead of drawing its own line.
+  onLoadError: (error: unknown) => void
 }
 
 // Two to three native radios drawn as one segmented control.
@@ -81,7 +83,7 @@ function Segmented<T extends string>({ label, name, value, options, onChange }: 
 
 export function LibraryList({
   selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems, onCreate, series = null, seriesError = false,
-  onRetrySeries, onVisible,
+  onRetrySeries, onVisible, onLoadError,
 }: Props) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -107,12 +109,13 @@ export function LibraryList({
     setCollapsedKeys([...next])
   }
   const [items, setItems] = useState<DramaSummary[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
   const [hits, setHits] = useState<LibrarySearchHit[] | null>(null)
   const [hitsError, setHitsError] = useState<unknown>(null)
   const phone = useMediaQuery('(max-width: 640px)')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const onItemsRef = useLatest(onItems)
+  const onLoadErrorRef = useLatest(onLoadError)
   const onVisibleRef = useLatest(onVisible)
   const selecting = !!checked && !!onCheckedChange
   const toggle = (id: number) => checked && onCheckedChange?.(toggleLibraryId(checked, id))
@@ -133,11 +136,14 @@ export function LibraryList({
           if (!cancelled) {
             setItems(resp.items)
             setError(null)
+            onLoadErrorRef.current(null)
             onItemsRef.current?.(resp.items)
           }
         })
         .catch((e: unknown) => {
-          if (!cancelled) setError(e instanceof ApiError ? e.message : 'Unexpected error.')
+          if (cancelled) return
+          setError(e)
+          onLoadErrorRef.current(e)
         })
     }, 200)
     return () => {
@@ -364,7 +370,6 @@ export function LibraryList({
         <LineHits hits={hits} error={hitsError} />
       ) : (
         <>
-          {error && <p className="error" role="alert">{error}</p>}
           {wantedGroup === 'series' && series === null && seriesError && (
             <p className="status-line warn" role="status" data-testid="series-load-failed">
               <span>Series could not be loaded; showing the plain list.</span>

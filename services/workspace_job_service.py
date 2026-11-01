@@ -162,7 +162,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     """
     if force_retranslate and any(ln.en for ln in lines):
         db.save_line_history_snapshot(drama_id, lines, "before force re-translate")
-    en_before = {ln.id: ln.en for ln in lines} if target_ids is not None else None
+    en_before = {ln.id: ln.en for ln in lines}
     cap_reached = {}
     _bill_failed_attempts(drama_id, engine)
     character_names = _speaker_names(drama_id)
@@ -222,14 +222,14 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         if target_ids is not None:
             # Imported here: it needs translate_run_service, which imports this module.
             from services import failed_lines_service
-            failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before or {}, errors)
+            failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before, errors)
         if summary_engine is not None and not summary_skip_reason:
             from services import episode_summary_service
             summary_skip_reason = episode_summary_service.missing_after_run_reason(
                 drama_id, summary_engine_choice or "", cancelled)
         background_jobs.set_result(job_id, _run_result(errors, cap_reached.get("spent"),
                                                        summary_skip_reason, recheck, kept_edits,
-                                                       engine))
+                                                       engine, lines, en_before))
     if cancelled:
         # The engine stops between batches and returns normally, keeping the
         # lines already translated; returning here would end the job done at
@@ -237,8 +237,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         raise background_jobs.JobCancelled(job_id)
 
 
-def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, engine) -> dict:
-    return {"errors": errors, "cap_reached": cap_spent,
+def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, engine, lines,
+                en_before) -> dict:
+    written = sum(1 for ln in lines if ln.en and ln.en != en_before.get(ln.id))
+    return {"errors": errors, "cap_reached": cap_spent, "translated_count": written,
             **({"summary_skipped": summary_skip_reason} if summary_skip_reason else {}),
             **({"flags_needing_recheck": sorted(recheck)} if recheck else {}),
             **({"kept_your_edit": sorted(kept_edits)} if kept_edits else {}),

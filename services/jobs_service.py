@@ -41,7 +41,7 @@ STALE_JOB_SECONDS = job_table.STALE_JOB_SECONDS
 # of scalars only; strings go through redact_for_support (secrets stripped,
 # absolute paths collapsed to ".../name") and URLs are replaced.
 RESULT_ALLOWED_KEYS = (
-    "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
+    "failed_reason", "detail", "errors", "lines_replaced", "cap_reached", "translated_count",
     "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
     "coverage_warning", "ollama_notice", "speaker_count_hint", "stage_summary", "diarize_skipped_reason",
@@ -451,6 +451,9 @@ def _summary_outcome(result: dict) -> tuple:
         # A count from the re-segment and off-peak batch jobs, a list of line ids from the others.
         count = len(kept) if isinstance(kept, list) else kept
         parts.append(f"{count} line(s) edited while it ran kept your edit.")
+    if errors and result.get("translated_count") == 0:
+        # A run that stopped on its engine's errors before writing any English must not read as done.
+        return "failed", f"Nothing was translated. First problem: {errors[0]}"
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):
         parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
     if errors:
