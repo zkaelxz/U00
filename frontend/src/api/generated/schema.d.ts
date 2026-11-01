@@ -900,6 +900,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/benchmark/dramas/{drama_id}/hard-sub-reading/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: label a title's lines with the speaker groups of its latest hard-sub reading */
+        post: operations["post_hard_sub_reading_apply_api_benchmark_dramas__drama_id__hard_sub_reading_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/benchmark/dramas/{drama_id}/hard-sub-reading/estimate": {
         parameters: {
             query?: never;
@@ -12170,6 +12187,17 @@ export interface components {
             skipped: number;
             /** Unclear */
             unclear: number;
+        };
+        /** BenchmarkHardSubApplyResult */
+        BenchmarkHardSubApplyResult: {
+            /** Kept Manual */
+            kept_manual: number;
+            /** Labelled */
+            labelled: number;
+            /** Speakers */
+            speakers: string[];
+            /** Unplaced */
+            unplaced: number;
         };
         /** BenchmarkHardSubComparison */
         BenchmarkHardSubComparison: {
@@ -30958,6 +30986,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BenchmarkHardSubReadStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_hard_sub_reading_apply_api_benchmark_dramas__drama_id__hard_sub_reading_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkHardSubApplyResult"];
                 };
             };
             /** @description Not Found */

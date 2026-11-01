@@ -50,6 +50,7 @@ from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCas
                          BenchmarkHardSubReadEstimate, BenchmarkHardSubReadRequest,
                          BenchmarkHardSubReadStarted,
                          BenchmarkHardSubReadResult,
+                         BenchmarkHardSubApplyResult,
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
                          BenchmarkPairNext, BenchmarkPickRequest, BenchmarkPickSummary,
@@ -64,6 +65,7 @@ from lib.errors import InvalidInputError
 from services import benchmark_clip_service as clip_svc
 from services import benchmark_export_service as export_svc
 from services import benchmark_hardsub_service as hardsub_svc
+from services import hardsub_speaker_apply_service as hardsub_apply_svc
 from services import hardsub_speaker_read_service as hardsub_read_svc
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as svc
@@ -208,6 +210,14 @@ def post_hard_sub_reading(body: BenchmarkHardSubReadRequest, request: Request, d
             summary="PC only: a title's latest hard-sub reading by speaker (progress, or the lines and comparison)")
 def get_hard_sub_reading(request: Request, drama_id: int = Path(ge=1)):
     return hardsub_read_svc.result(request.state.principal, drama_id)
+
+
+@router.post("/dramas/{drama_id}/hard-sub-reading/apply", dependencies=[local_only()],
+             response_model=BenchmarkHardSubApplyResult,
+             responses=_ERRS,  # pyright: ignore[reportArgumentType]
+             summary="PC only: label a title's lines with the speaker groups of its latest hard-sub reading")
+def post_hard_sub_reading_apply(request: Request, drama_id: int = Path(ge=1)):
+    return hardsub_apply_svc.apply(request.state.principal, drama_id)
 
 
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,
