@@ -46,7 +46,7 @@ def _has_text(segments) -> bool:
 
 
 def hear_window(audio_path, start, end, language, slice_path, whisper_size, gpu_fallback,
-                **transcribe_kwargs):
+                **transcribe_kwargs) -> dict:
     """Cuts [start, end) to slice_path and transcribes it: {"segments": [...]}
     or {"failed_reason": "audio_slice", "detail"} when the cut failed. A
     model-download failure comes back as {"failed_reason": "model_download",

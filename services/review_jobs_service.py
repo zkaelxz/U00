@@ -121,7 +121,7 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
 
 
 def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional[str],
-           gemini_free_tier: bool, runner, make_args, allow_translation_only: bool = False,
+           gemini_free_tier: bool | None, runner, make_args, allow_translation_only: bool = False,
            precheck=None, bulk: bool = False, bulk_kwargs=None) -> dict:
     """make_args(drama, lines, engine, engine_name) -> (args, extra kwargs)
     for start_job after the job id. bulk_kwargs(drama) -> extra kwargs for
@@ -134,7 +134,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         raise UnsupportedOperationError("This title has no lines yet.")
     if precheck:
         precheck(lines)
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
+    engine_name = engine_name or drama.get("translation_engine") or str(settings_service.get("default_engine"))
     if engine_name not in engine_registry.ENGINES:
         raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     if not allow_translation_only and engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:

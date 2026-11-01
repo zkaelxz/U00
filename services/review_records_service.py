@@ -197,9 +197,9 @@ def get_edit_tendencies(drama_id: int, principal=None) -> dict:
     drama = ownership_service.require_drama(drama_id)
     tend = adaptive_style.summarize_edit_tendencies(db.list_edit_samples(drama_id))
     scope = f"series:{drama['series_id']}" if drama.get("series_id") else "global"
-    stored = db.get_style_profile(scope)
+    stored = db.get_style_profile(scope) or {}
     profile = None
-    prefs = ((stored or {}).get("profile") or {}).get("preferences")
+    prefs = (stored.get("profile") or {}).get("preferences")
     if prefs and ownership_service.sees_learned_style(principal, stored["profile"]):
         pr = stored["profile"]
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),

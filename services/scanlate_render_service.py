@@ -226,7 +226,7 @@ def _export_job(jid: str, drama_id: int, formats: list, typeset: bool = True):
             if typeset and path is None and page["id"] in with_regions:
                 notes = []
                 if render_page(drama_id, page["id"], notes, lambda: check_cancel(jid))["rendered"]:
-                    path = _rendered_path(drama_id, db.get_page(page["id"]))
+                    path = _rendered_path(drama_id, pages_svc.require_page(drama_id, page["id"]))
                 append_notes(page["id"], notes)
             if path is None:
                 path = original_path(drama_id, page)

@@ -86,7 +86,7 @@ def _build_engine(engine_name: str):
     try:
         return engine_registry.get_engine(
             engine_name, api_key,
-            free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
+            free_tier=engine_name == "gemini" and bool(settings_service.get("gemini_free_tier")),
             base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
     except Exception:
@@ -100,7 +100,7 @@ def _require_ocr_backend(drama_id: int) -> None:
     import ocr
     lang = pages_svc.require_drama(drama_id).get("source_language") or "zh"
     ocr.require_backend(settings_service.resolve_ocr_backend(lang),
-                        settings_service.get("tesseract_cmd") or None)
+                        str(settings_service.get("tesseract_cmd")) or None)
 
 
 def _require_paddle() -> None:
@@ -152,7 +152,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
     _require_ocr_backend(drama_id)
     if art_captions:
         _require_paddle()
-    engine_name = engine or settings_service.get("default_engine")
+    engine_name = engine or str(settings_service.get("default_engine"))
     # Pure-MT engines are called once per region, outside call_llm_json.
     built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(
@@ -254,7 +254,7 @@ def _is_translated_caption(region: dict) -> bool:
 
 
 def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool,
-                          notes: list = ()) -> bool:
+                          notes: list | tuple = ()) -> bool:
     """A redo replaces the page's regions. It must not swap translated
     regions for nothing (detection found none), for OCR-only text (the
     translation failed or was partial), for a page where OCR lost some

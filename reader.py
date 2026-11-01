@@ -135,7 +135,7 @@ def _row_html(ln, raw_html: str, en_html: str, seek_btn: str, editable: bool) ->
 
 
 def build_reader_html(lines, source_language: str, definitions: dict,
-                       audio_data_uri: str = None, theme: str = "light",
+                       audio_data_uri: str | None = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
                        max_width: int = 1200, font: str = "system",
                        readings: bool = True, paragraph_ends=None,

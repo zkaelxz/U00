@@ -19,6 +19,7 @@ use an isolated library dir via `isolated_db`).
 """
 
 import re
+from typing import Any, overload
 from urllib.parse import urlsplit
 
 import db
@@ -57,6 +58,10 @@ _POSIX_PATH = re.compile(r"(?<![\w:/.\-])(?:~|\.{1,2})?/(?:[\w.\-~@+ ]+/)+[\w.\-
                          r"(?<![\w:/.\-])~/[\w.\-~@+]+")
 
 
+@overload
+def scrub(text: None) -> None: ...
+@overload
+def scrub(text: object) -> str: ...
 def scrub(text):
     """Free text safe to show: secrets redacted, URL queries and filesystem
     paths (including the library folder) removed."""
@@ -75,6 +80,10 @@ def scrub(text):
     return text
 
 
+@overload
+def scrub_any(value: dict) -> dict: ...
+@overload
+def scrub_any(value: Any) -> Any: ...
 def scrub_any(value):
     if isinstance(value, str):
         return scrub(value)

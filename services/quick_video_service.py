@@ -132,7 +132,10 @@ def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bo
     chain = uuid.uuid4().hex
     try:
         # The new title has no transcript to paste, so it transcribes the downloaded audio.
-        if not db.get_drama(drama_id).get("transcript_mode"):
+        drama = db.get_drama(drama_id)
+        if drama is None:
+            raise NotFoundError("Title not found.")
+        if not drama.get("transcript_mode"):
             db.update_drama(drama_id, transcript_mode="whisper")
         packs = options.get("quick_language_packs") or []
         if packs:

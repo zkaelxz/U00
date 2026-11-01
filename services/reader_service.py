@@ -257,7 +257,7 @@ def llm_engine(engine_name=None, model=None):
         raise MissingKeyError(engine_name)
     engine = engine_registry.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get("gemini_free_tier"),
+        free_tier=bool(settings_service.get("gemini_free_tier")),
         base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):

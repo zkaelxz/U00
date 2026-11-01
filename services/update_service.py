@@ -290,7 +290,7 @@ def copy_problem(exc):
     antivirus scan) holds, else None. storage_errors' other sentences name
     the library folder or the app log, which don't fit these files."""
     problem = storage_errors.classify(exc)
-    if problem in (storage_errors.DISK_FULL, storage_errors.FILE_IN_USE):
+    if problem is not None and problem in (storage_errors.DISK_FULL, storage_errors.FILE_IN_USE):
         return problem.message
     return None
 
@@ -399,7 +399,7 @@ def check() -> dict:
     usable = [r for r in (_parse_release(d, allow_pre)
                           for d in (data if isinstance(data, list) else []))
               if r is not None]
-    release = max(usable, key=lambda r: parse_version(r["version"]), default=None)
+    release = max(usable, key=lambda r: parse_version(r["version"]) or (), default=None)
     if release is not None:
         lookup = "found"
     with _lock:
@@ -444,10 +444,11 @@ def status() -> dict:
     current = current_version()
     with _lock:
         s = dict(_state)
-        verified = _verified is not None
-        verified_version = _verified["version"] if verified else None
-        verified_name = _verified["name"] if verified else None
-        verified_signed = verified and _verified["signature"] is not None
+        held = _verified
+        verified = held is not None
+        verified_version = held["version"] if held is not None else None
+        verified_name = held["name"] if held is not None else None
+        verified_signed = held is not None and held["signature"] is not None
     installed = _is_installed()
     return {"current": current, "installed": installed, "latest": s["latest"],
             "update_available": bool(s["latest"] and current

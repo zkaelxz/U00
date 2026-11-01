@@ -70,6 +70,7 @@ Text is scrubbed, URLs reduced to scheme+host+path.
 
 import dataclasses
 import threading
+from typing import NoReturn
 from urllib.parse import urlsplit
 
 import background_jobs
@@ -175,7 +176,7 @@ def require_idle(drama_id: int):
 # ---------------------------------------------------------------------------
 
 def _outcome(row: dict) -> dict:
-    out = {"chapter_id": str(row.get("chapter_id")), "title": scrub(row.get("title") or "")}
+    out: dict = {"chapter_id": str(row.get("chapter_id")), "title": scrub(row.get("title") or "")}
     if row.get("skipped"):
         out["outcome"] = "skipped"
     elif row.get("ok"):
@@ -200,7 +201,7 @@ _PARTLY = ("Stopped by an unexpected error while saving this chapter; it may be 
            "imported -- check the title before retrying it.")
 
 
-def _import_result(chapters: list, cancelled: bool, handoff) -> dict:
+def _import_result(chapters: list, cancelled: bool | None, handoff) -> dict:
     counts = {k: sum(1 for c in chapters if c["outcome"] == k)
               for k in ("imported", "skipped", "failed", "not_attempted")}
     retry = [c["chapter_id"] for c in chapters
@@ -480,7 +481,7 @@ def get_import_state(name, series_id, drama_id, principal=None) -> dict:
 _NO_TEXT = "No chapter text was found on that page."
 
 
-def url_fail(job_id: str, err: dict):
+def url_fail(job_id: str, err: dict) -> NoReturn:
     fail_job(job_id, "url_import", err)
 
 
@@ -694,7 +695,7 @@ def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=Fa
             "review_open": bool(review_open)}
 
 
-def _adapter_chapter(url: str, job_id: str | None = None):
+def _adapter_chapter(url: str, job_id: str = ""):
     """(adapter, chapter) when a source adapter recognises `url` as one chapter,
     else None. The chapter's own URL is the page to read: for a mobile link it
     is the desktop page, because the mobile one carries no image list."""
@@ -702,7 +703,7 @@ def _adapter_chapter(url: str, job_id: str | None = None):
         # The job's own client, so the adapter's fetch is capped, paced and cancelled with it.
         adapter = registry.find_for_url(url, client=source_client(url, job_id))
         parsed = adapter.parse_url(url) if adapter is not None else None
-        if parsed:
+        if adapter is not None and parsed:
             ladder.check_terms(adapter.name, adapter.capabilities())
     except Exception:
         return None
@@ -759,8 +760,9 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
         fail_job(job_id, "comic_import", _no_pages_error(e, url))
     except Exception as e:
         fail_job(job_id, "comic_import", error_view(e))
-    if res.ladder is not None and getattr(res.ladder, "handoff", None):
-        fail_job(job_id, "comic_import", handoff_error(res.ladder.handoff, url))
+    handoff = getattr(res.ladder, "handoff", None)
+    if handoff:
+        fail_job(job_id, "comic_import", handoff_error(handoff, url))
     why = extraction.review_reason(report, review)
     if why or not res.images:
         opened = extraction.open_review(drama_id, "comic", url, getattr(res.ladder, "html", ""),

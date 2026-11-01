@@ -200,11 +200,11 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         if target_ids is not None:
             # Imported here: it needs translate_run_service, which imports this module.
             from services import failed_lines_service
-            failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before, errors)
+            failed_lines_service.prune_resolved(drama_id, lines, target_ids, en_before or {}, errors)
         if summary_engine is not None and not summary_skip_reason:
             from services import episode_summary_service
             summary_skip_reason = episode_summary_service.missing_after_run_reason(
-                drama_id, summary_engine_choice, cancelled)
+                drama_id, summary_engine_choice or "", cancelled)
         background_jobs.set_result(job_id, _run_result(errors, cap_reached.get("spent"),
                                                        summary_skip_reason, recheck, kept_edits,
                                                        engine))
@@ -516,7 +516,9 @@ def _follow_bulk_title(job_id, per_job_id, i, total, n_titles, title):
 
 def _record_bulk_outcome(results, did, per_job_id):
     per_status = background_jobs.get_status(per_job_id) or {}
-    per_result = per_status.get("result") if isinstance(per_status.get("result"), dict) else {}
+    per_result = per_status.get("result")
+    if not isinstance(per_result, dict):
+        per_result = {}
     if per_status.get("status") == "error":
         results["errors"][did] = per_status.get("error")
     elif per_status.get("status") == "cancelled" \

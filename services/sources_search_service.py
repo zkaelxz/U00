@@ -138,9 +138,9 @@ def error_view(exc, source: str | None = None) -> dict:
             "message": f"{type(exc).__name__}: {msg}", "details": None}
 
 
-_CLASS_BY_STATUS = {400: UnsupportedOperationError, 404: NotFoundError, 409: ConflictError,
-                    422: InvalidInputError, 429: RateLimitedError,
-                    503: DependencyUnavailableError}
+_CLASS_BY_STATUS: dict[object, type[ServiceError]] = {
+    400: UnsupportedOperationError, 404: NotFoundError, 409: ConflictError,
+    422: InvalidInputError, 429: RateLimitedError, 503: DependencyUnavailableError}
 _RATE_LIMITED = "The site is limiting requests right now. Try again in a few minutes."
 # By health category (sources.health): a plain reason for each failure kind.
 _FIXED_TEXT = {

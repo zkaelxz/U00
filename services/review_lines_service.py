@@ -12,12 +12,13 @@ Nothing here writes to the database or disk. No FastAPI import:
 plain dicts in and out. Identity is always `Line.id`; `idx` is returned for
 display only and never accepted as an identifier.
 """
+import importlib
 import os
 import re
 
 try:  # Python 3.11+ moved the regex parser under `re`; `sre_parse` is the deprecated alias
-    from re import _constants as _sre
-    from re import _parser as _sre_parse
+    _sre = importlib.import_module("re._constants")
+    _sre_parse = importlib.import_module("re._parser")
 except ImportError:  # pragma: no cover - Python < 3.11
     import sre_constants as _sre
     import sre_parse as _sre_parse
@@ -256,8 +257,7 @@ def get_pacing_flags(drama_id: int) -> dict:
     ids = {ln.idx: ln.id for ln in lines}
     found = llm_tasks.smart_segment_lines(
         lines, **review_thresholds.thresholds_for(drama).pacing_kwargs())
-    flags = sorted((dict(f, id=ids.get(f["idx"])) for f in found),
-                   key=lambda f: -f["severity"])
+    flags = [dict(f, id=ids.get(f["idx"])) for f in sorted(found, key=lambda f: -f["severity"])]
     return {"flags": flags, "count": len(flags)}
 
 

@@ -635,7 +635,7 @@ def _translate_run_args(drama: dict) -> dict:
     default_locale = settings_service.get("default_locale")
     locale, style_note = profile_service.locale_and_note(
         drama, default_locale if default_locale in settings_service.LOCALE_CHOICES else "en-US",
-        settings_service.get("default_style_note") or "")
+        str(settings_service.get("default_style_note") or ""))
     return {"engine": _translate_engine(drama), "style_note": style_note, "locale": locale}
 
 
@@ -764,7 +764,7 @@ def tick(now: float | None = None) -> None:
         running_job = running["job_id"] if running else None
         if changed:
             _save(doc)
-    if running is not None:
+    if running is not None and running_job is not None:
         finished, status, reason = _job_outcome(running_job)
         if not finished:
             return

@@ -112,7 +112,7 @@ def list_gaps(drama_id: int, min_gap: float | None = None) -> dict:
     addable on its own. `min_gap` defaults to Settings > Timing and splitting.
     NotFoundError for an unknown drama."""
     if min_gap is None:
-        min_gap = timing_settings_service.value("gap_fill_min_gap_seconds")
+        min_gap = float(timing_settings_service.value("gap_fill_min_gap_seconds"))
     ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     gaps = find_line_gaps(lines, min_gap)

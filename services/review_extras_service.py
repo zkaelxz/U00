@@ -266,8 +266,8 @@ def _visible_profile(principal, profile) -> dict:
 def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                 principal=None) -> dict:
     scope = _scope(drama)
-    stored = db.get_style_profile(scope)
-    pr = _visible_profile(principal, (stored or {}).get("profile"))
+    stored = db.get_style_profile(scope) or {}
+    pr = _visible_profile(principal, stored.get("profile"))
     profile = None
     if pr.get("preferences"):
         profile = {"summary": pr.get("summary") or "", "confidence": pr.get("confidence"),
@@ -284,7 +284,7 @@ def _style_view(drama_id: int, drama: dict, message: Optional[str] = None,
                          "preference_count": len((h.get("profile") or {}).get("preferences")
                                                  or []),
                          "updated_at": h.get("updated_at")}
-                        for h in ((stored or {}).get("history") or [])
+                        for h in (stored.get("history") or [])
                         if ownership_service.sees_learned_style(principal, h.get("profile"))],
             "message": message}
 
@@ -390,8 +390,8 @@ def set_style_applied(drama_id: int, apply: bool, principal=None) -> dict:
     drama = ownership_service.require_drama(drama_id)
     scope = _scope(drama)
     with _STYLE_LOCK:
-        stored = db.get_style_profile(scope)
-        profile = dict(_visible_profile(principal, (stored or {}).get("profile")))
+        stored = db.get_style_profile(scope) or {}
+        profile = dict(_visible_profile(principal, stored.get("profile")))
         if not profile.get("preferences"):
             raise NotFoundError("No learned style to turn on or off yet.")
         if apply:

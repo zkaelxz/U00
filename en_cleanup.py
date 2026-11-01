@@ -278,7 +278,8 @@ _RULE_FUNCS = {
 }
 
 
-def clean_text(text: str, style: Optional[dict] = None, protected_terms: Iterable[str] = (),
+def clean_text(text: str, style: Optional[dict] = None,
+               protected_terms: "Iterable[str] | re.Pattern | None" = (),
                speaker: Optional[str] = None, rules: Iterable[str] = RULES) -> tuple:
     """(cleaned text, rules that changed it). Text with CJK letters, empty
     text, over-long text, or text holding private-use characters comes back

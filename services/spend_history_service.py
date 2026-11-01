@@ -103,7 +103,7 @@ def _with_other(entries: list) -> list:
     if len(entries) <= MAX_BREAKDOWN_ROWS:
         return entries
     keep, rest = entries[:MAX_BREAKDOWN_ROWS], entries[MAX_BREAKDOWN_ROWS:]
-    other = {f: sum(e[f] for e in rest) for f in
+    other: dict[str, object] = {f: sum(e[f] for e in rest) for f in
              ("calls", "input_tokens", "output_tokens", "cache_read_tokens")}
     other.update(key=None, label="Other", is_other=True,
                  cost_usd=round(sum(e["cost_usd"] for e in rest), 6))

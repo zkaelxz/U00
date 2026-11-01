@@ -204,7 +204,7 @@ def build_review_engine():
     model = settings["review_model"]
     require_cloud_consent(name, model)  # the reviewer reads the same code and logs
     engine = reader_service.llm_engine(name, model)
-    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get("gemini_free_tier"))
+    line_ai_service.refuse_if_over_monthly_cap(name, bool(settings_service.get("gemini_free_tier")))
     return engine, name, model
 
 
@@ -250,7 +250,7 @@ def changelog(from_ref: str, to_ref: str = "HEAD", engine_name: str | None = Non
     comes from rev-list, and `truncated` says when the newest
     MAX_CHANGELOG_COMMITS were all the model saw."""
     _require_developer_mode()
-    from_ref = _ref_arg({"r": from_ref}, "r")
+    from_ref = _ref_arg({"r": from_ref}, "r") or ""
     to_ref = _ref_arg({"r": to_ref or "HEAD"}, "r", "HEAD")
     if not from_ref:
         raise InvalidInputError("from_ref is required.")
