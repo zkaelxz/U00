@@ -19,6 +19,7 @@ interface Props {
   lines: ReviewLine[]
   active: ReviewLine | null
   player: RefObject<PlayerHandle | null>
+  hasVideo: boolean
   open: boolean
   onToggle: () => void
   onRetime: (id: number, edge: Edge, value: number) => Promise<boolean>
@@ -33,7 +34,7 @@ interface Props {
   lineCount?: number | null
 }
 
-export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle, onRetime, editingActive, gaps, jobRunning, canTranscribe, need = null, focusGap, lineCount = null }: Props) {
+export function ReviewWaveform({ dramaId, lines, active, player, hasVideo, open, onToggle, onRetime, editingActive, gaps, jobRunning, canTranscribe, need = null, focusGap, lineCount = null }: Props) {
   const blocked = gapBlockedReason({ jobRunning, editing: editingActive, canTranscribe, needReason: need?.reason })
   return (
     <div className="review-wave-section">
@@ -43,7 +44,7 @@ export function ReviewWaveform({ dramaId, lines, active, player, open, onToggle,
       {open && (
         <Suspense fallback={null}>
           <Waveform
-            dramaId={dramaId} lines={lines} active={active} player={player} onRetime={onRetime} editingActive={editingActive}
+            dramaId={dramaId} lines={lines} active={active} player={player} hasVideo={hasVideo} onRetime={onRetime} editingActive={editingActive}
             gaps={gaps.gaps} gapBlocked={gaps.busy ? 'Adding lines for the gap…' : blocked} onTranscribeGap={(g) => void gaps.transcribe(g)} focusGap={focusGap} lineCount={lineCount}
           />
         </Suspense>

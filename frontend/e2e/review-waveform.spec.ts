@@ -13,6 +13,10 @@ function python(code: string) {
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
 }
 
+test.afterEach(() => {
+  python('db.update_drama(3, source_video_filename=None)')
+})
+
 test.beforeEach(() => {
   python(`
 import os, wave, struct, math
@@ -185,4 +189,29 @@ test('can be hidden', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: 'Hide waveform' }).click()
   await expect(page.getByRole('group', { name: 'Waveform' })).toHaveCount(0)
+})
+
+test('Frame timing steps an edge one frame at a time and saves it', async ({ page }) => {
+  // The pictures are not decoded here (the CI image has no ffmpeg): a placeholder file makes the title
+  // a video title, and the probe answer is mocked.
+  python(`
+import os
+p = os.path.join(db.drama_dir(3), 'e2e.mp4')
+open(p, 'wb').write(b'not a real video')
+db.update_drama(3, source_video_filename='e2e.mp4')
+`)
+  await page.route('**/api/metadata/dramas/3/analyze-media', (route) =>
+    route.fulfill({ json: { drama_id: 3, duration_seconds: 12, has_video: true, has_audio: true, audio_track_count: 1, sample_rate: 8000, fps: 24 } }),
+  )
+  const { ids } = await open(page)
+  await page.getByTestId(`line-${ids[1]}`).click()
+  await page.getByTestId('wave-frame-timing').click()
+  const sheet = page.getByRole('dialog', { name: 'Frame timing' })
+  await expect(sheet.getByTestId('frame-clock-end')).toContainText('Out 0:04.000 · frame 96')
+  await sheet.getByRole('group', { name: 'Out' }).getByRole('button', { name: 'frame ▶' }).click()
+  await expect(sheet.getByTestId('frame-clock-end')).toContainText('frame 97')
+  await expect.poll(async () => (await lineTimes(page))[1][1]).toBeCloseTo(97 / 24, 2)
+  await sheet.getByRole('group', { name: 'In' }).getByRole('button', { name: '◀ frame' }).focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(sheet.getByTestId('frame-clock-start')).toContainText('frame 82')
 })

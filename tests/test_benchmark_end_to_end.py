@@ -18,6 +18,8 @@ from services import model_readiness_service, translate_service
 from lib.errors import InvalidInputError, UnsupportedOperationError
 from tests.job_helpers import wait_for_job
 
+pytestmark = pytest.mark.usefixtures("whisper_present")
+
 HEARD = {"a.wav": "你好吗", "b.wav": "再见"}
 
 

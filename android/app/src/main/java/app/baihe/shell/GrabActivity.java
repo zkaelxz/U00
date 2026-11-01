@@ -238,7 +238,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if (grabbing && !uploading && nonce.equals(runningGrab)) finishGrab("The page did not finish.");
         }, GRAB_TIMEOUT_MS);
         try (InputStream in = getAssets().open("grab.js")) {
-            String script = new String(in.readAllBytes(), StandardCharsets.UTF_8).replace("__NONCE__", nonce);
+            // InputStream.readAllBytes needs API 33; the app runs on API 26.
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            for (int n; (n = in.read(chunk)) > 0; ) out.write(chunk, 0, n);
+            String script = new String(out.toByteArray(), StandardCharsets.UTF_8).replace("__NONCE__", nonce);
             web.evaluateJavascript(script, null);
         } catch (Exception e) {
             finishGrab("Could not start the grab.");
