@@ -7915,7 +7915,43 @@ export interface paths {
         /** A page's visible text regions in reading order (skipped and SFX dropped) */
         get: operations["get_page_regions_api_scanlate_dramas__drama_id__pages__page_id__regions_get"];
         put?: never;
+        /** Add one text box inside the page if it is still at expected_rev; the new box is the last region in the answer */
+        post: operations["post_region_api_scanlate_dramas__drama_id__pages__page_id__regions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         post?: never;
+        /** Remove one text box if the page is still at expected_rev */
+        delete: operations["delete_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change one text box (English, box, font, colour) if the page is still at expected_rev; 409 with the current rev otherwise */
+        patch: operations["patch_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__patch"];
+        trace?: never;
+    };
+    "/api/scanlate/dramas/{drama_id}/pages/{page_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo the page's latest text-box edit, new box or deletion if nothing else wrote the page since */
+        post: operations["post_undo_api_scanlate_dramas__drama_id__pages__page_id__undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14234,6 +14270,75 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /** ComicRegionCreateRequest */
+        ComicRegionCreateRequest: {
+            /** Expected Rev */
+            expected_rev: number;
+            region: components["schemas"]["ComicRegionNew"];
+        };
+        /**
+         * ComicRegionEditRequest
+         * @description expected_rev: the page rev the client read (409 if it moved on).
+         *     expected: the box's values the client saw for any fields it wants
+         *     checked as well, usually the ones it changes.
+         */
+        ComicRegionEditRequest: {
+            changes: components["schemas"]["ComicRegionFields"];
+            expected?: components["schemas"]["ComicRegionFields"] | null;
+            /** Expected Rev */
+            expected_rev: number;
+        };
+        /**
+         * ComicRegionFields
+         * @description The fields the editor may change, all optional: only the ones sent
+         *     count. text_color null puts the automatic colour back.
+         */
+        ComicRegionFields: {
+            /** Font Category */
+            font_category?: string | null;
+            /** Font Size */
+            font_size?: number | null;
+            /** H */
+            h?: number | null;
+            /** Text Color */
+            text_color?: string | null;
+            /** Translated Text */
+            translated_text?: string | null;
+            /** W */
+            w?: number | null;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+        };
+        /**
+         * ComicRegionNew
+         * @description A text box the user drew: x, y, w, h required, the rest optional
+         *     (empty English, size 18, regular style, automatic colour).
+         */
+        ComicRegionNew: {
+            /** Font Category */
+            font_category?: string | null;
+            /** Font Size */
+            font_size?: number | null;
+            /** H */
+            h: number;
+            /** Text Color */
+            text_color?: string | null;
+            /** Translated Text */
+            translated_text?: string | null;
+            /** W */
+            w: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /** ComicRegionUndoRequest */
+        ComicRegionUndoRequest: {
+            /** Expected Rev */
+            expected_rev: number;
         };
         /** ComicSourceChapter */
         ComicSourceChapter: {
@@ -23565,6 +23670,11 @@ export interface components {
             rev: number;
             /** Run Notes */
             run_notes: components["schemas"]["ScanlateNote"][];
+            /**
+             * Undo Depth
+             * @default 0
+             */
+            undo_depth: number;
             /** Width */
             width: number;
         };
@@ -23601,6 +23711,8 @@ export interface components {
             skip: boolean;
             /** Source Text */
             source_text: string;
+            /** Text Color */
+            text_color?: string | null;
             /** Translated Text */
             translated_text: string;
             /** W */
@@ -51796,6 +51908,222 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_region_api_scanlate_dramas__drama_id__pages__page_id__regions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicRegionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanlatePageDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__delete: {
+        parameters: {
+            query: {
+                expected_rev: number;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+                region_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanlatePageDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+                region_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicRegionEditRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanlatePageDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_undo_api_scanlate_dramas__drama_id__pages__page_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicRegionUndoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanlatePageDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
