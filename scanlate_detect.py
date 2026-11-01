@@ -22,7 +22,15 @@ def decode_page(image_path: str):
     from PIL import Image
     try:
         with Image.open(image_path) as opened:
-            rgb = np.asarray(opened.convert("RGB"))
+            if "A" in opened.getbands() or "transparency" in opened.info:
+                # Plain RGB conversion keeps whatever colour sits under a
+                # transparent pixel, usually black.
+                rgba = opened.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, (255, 255, 255))
+                flat.paste(rgba, mask=rgba.getchannel("A"))
+                rgb = np.asarray(flat)
+            else:
+                rgb = np.asarray(opened.convert("RGB"))
     except (OSError, ValueError) as exc:
         raise ValueError(f"Could not read image: {image_path}") from exc
     return np.ascontiguousarray(rgb[:, :, ::-1])
@@ -642,6 +650,7 @@ def detect_panels(image_path: str, min_panel_frac: float = 0.02, image=None):
 
 
 _MAX_WEBTOON_SLICES = 200
+_MIN_TAIL_MARGIN_PX = 60
 
 
 class StripTooLong(ValueError):
@@ -695,6 +704,10 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
             # prefer the empty row closest to the ideal cut point
             cut = search_lo + int(empty_idxs[np.argmin(np.abs(
                 (empty_idxs + search_lo) - ideal_end))])
+        if h - cut <= overlap + min(_MIN_TAIL_MARGIN_PX, target_height // 4):
+            # A tail this short would be a page of just the overlap band.
+            slices.append({"y_start": y, "y_end": h, "index": idx})
+            break
         slices.append({"y_start": y, "y_end": cut, "index": idx})
         y = max(cut - overlap, cut) if overlap == 0 else max(cut - overlap, y + 1)
         idx += 1

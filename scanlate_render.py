@@ -216,6 +216,15 @@ def _wrap_words(draw, text: str, font, avail: int, hyphenate: bool) -> list:
     return lines
 
 
+# The bundled Latin fonts have no glyphs for these, so they would typeset as
+# empty boxes; engines often carry them over from the Japanese.
+_CJK_PUNCTUATION = str.maketrans({
+    "「": '"', "」": '"', "『": '"', "』": '"', "【": "[", "】": "]",
+    "～": "~", "〜": "~", "、": ",", "。": ".", "！": "!", "？": "?",
+    "：": ":", "；": ";", "（": "(", "）": ")", "　": " ", "・": " ",
+})
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
@@ -239,6 +248,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     between a bold/regular/handwritten face via _find_font() -- see that
     function for the full resolution order and custom_fonts.
     """
+    text = text.translate(_CJK_PUNCTUATION)
     draw = ImageDraw.Draw(image)
     resolved_font_path = _find_font(font_path, category=font_category, custom_fonts=custom_fonts)
 
@@ -436,7 +446,8 @@ def erase_lettering(image_path: str, b: dict, page, gray) -> None:
     inside = None
     if gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
         inside = bubble_erase_mask(image_path, b, image=gray)
-    inpaint_region(image_path, b, image=page, inside=inside)
+    shape_fitted = gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS
+    inpaint_region(image_path, b, image=page, inside=inside, spare_art=shape_fitted)
 
 
 def sample_text_style(image_path: str, box, image=None) -> dict:
