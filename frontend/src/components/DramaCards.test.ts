@@ -35,6 +35,12 @@ describe('DramaCards', () => {
     expect(out).not.toMatch(/audio_drama|>zh</)
   })
 
+  it('badges new chapters, singular and plural, nothing at zero', () => {
+    expect(html([drama({ new_chapters: 1 })])).toContain('1 new chapter<')
+    expect(html([drama({ new_chapters: 3 })])).toContain('3 new chapters<')
+    expect(html([drama({ new_chapters: 0 })])).not.toContain('new chapter')
+  })
+
   it('shows line progress and the next stage, nothing without lines', () => {
     const out = html([drama({ line_count: 40, translated_count: 8, status: 'aligned' })])
     expect(out).toContain('32 left')

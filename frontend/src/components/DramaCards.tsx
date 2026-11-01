@@ -2,7 +2,7 @@ import type { DramaSummary } from '../api/types'
 import { mediaTypeLabel } from '../labels'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
-import { cardNext, cardProgress, dramaName, readHref, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
+import { cardNext, cardProgress, dramaName, newChaptersText, readHref, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
@@ -66,6 +66,7 @@ function CardText({ d }: { d: DramaSummary }) {
       {d.media_type && <p className="drama-card-type">{mediaTypeLabel(d.media_type)}</p>}
       {d.release_date && <p className="drama-card-type" data-testid="card-release-date">{d.release_date}</p>}
       <div className="pill-row">
+        {newChaptersText(d.new_chapters) && <Badge>{newChaptersText(d.new_chapters)}</Badge>}
         {d.status && <Badge kind="status" value={d.status} />}
         {d.source_language && <Badge kind="language" value={d.source_language} />}
         {shown.map((t) => <Badge key={t}>{t}</Badge>)}

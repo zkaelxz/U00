@@ -92,6 +92,12 @@ export function cardProgress(d: Progress): { text: string; share: number } | nul
   return { text: left > 0 ? `${left.toLocaleString()} left` : `${done.toLocaleString()} translated`, share: done / total }
 }
 
+/** The card's badge for chapters a source check found; null when there are none. */
+export function newChaptersText(n: number | undefined): string | null {
+  if (!n || n < 1) return null
+  return n === 1 ? '1 new chapter' : `${n.toLocaleString()} new chapters`
+}
+
 /** The stage a card offers next: Translate while lines wait, Review once they are all done, nothing once exported. */
 export function cardNext(d: Progress & { id: number }): { label: string; href: string } | null {
   const total = d.line_count ?? 0

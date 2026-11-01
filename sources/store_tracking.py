@@ -309,6 +309,17 @@ def list_notifications(include_dismissed: bool = False) -> list:
         return [dict(r) for r in conn.execute(q)]
 
 
+def new_chapter_counts_by_drama() -> dict:
+    """{drama_id: undismissed new-chapter notifications} for tracked series
+    linked to a title, in one query, for the Library's unread badge."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT t.drama_id AS drama_id, COUNT(*) AS n FROM chapter_notifications n "
+            "JOIN tracked_series t ON t.source=n.source AND t.series_id=n.series_id "
+            "WHERE n.dismissed=0 AND t.drama_id IS NOT NULL GROUP BY t.drama_id")
+        return {r["drama_id"]: r["n"] for r in rows}
+
+
 def dismiss_notification(notification_id: int):
     with connect() as conn:
         conn.execute("UPDATE chapter_notifications SET dismissed=1 WHERE id=?", (notification_id,))

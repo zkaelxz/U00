@@ -32,6 +32,20 @@ class TestListLibraryDramas:
         assert (rows[a]["line_count"], rows[a]["translated_count"]) == (2, 1)
         assert (rows[b]["line_count"], rows[b]["translated_count"]) == (0, 0)
 
+    def test_rows_carry_undismissed_new_chapters_of_the_linked_series(self, isolated_db):
+        from sources import store
+        from sources.models import ChapterInfo
+        a = _make(isolated_db, title_en="A")
+        b = _make(isolated_db, title_en="B")
+        store.track_series("s", "1", "Linked", drama_id=a)
+        store.track_series("s", "2", "Unlinked")
+        store.record_new_chapters("s", "1", [ChapterInfo("s", "1", "c1", "1"),
+                                             ChapterInfo("s", "1", "c2", "2")])
+        store.record_new_chapters("s", "2", [ChapterInfo("s", "2", "c9", "9")])
+        store.dismiss_notification(store.list_notifications()[-1]["id"])
+        rows = {d["id"]: d["new_chapters"] for d in library_service.list_library_dramas()}
+        assert rows == {a: 1, b: 0}
+
     def test_name_only_listing_skips_the_line_scan(self, isolated_db, monkeypatch):
         from core import Line
         a = _make(isolated_db, title_en="A")

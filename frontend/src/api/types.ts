@@ -53,6 +53,8 @@ export interface DramaSummary {
   // Library list only: how far the title's lines are.
   line_count?: number
   translated_count?: number
+  // Library list only: new chapters found by a source check and not yet dismissed.
+  new_chapters?: number
 }
 
 export interface DramaDetail extends DramaSummary {
