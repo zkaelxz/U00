@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { untilTestEnds } from './stageLineMocks'
+
 // The narration chunk-and-tag panel on a novel's Media stage. The seeded
 // title is made a novel by replacing its media type; the narration config and
 // run endpoints are mocked so no LLM runs.
@@ -10,10 +12,12 @@ const job = (status: string) => ({
 })
 
 async function asNovel(page: Page) {
-  await page.route('**/api/library/dramas/1', async (route) => {
-    const res = await route.fetch()
-    await route.fulfill({ response: res, json: { ...(await res.json()), media_type: 'novel', content_mode: 'novel_narration' } })
-  })
+  await page.route('**/api/library/dramas/1', (route) =>
+    untilTestEnds(async () => {
+      const res = await route.fetch()
+      await route.fulfill({ response: res, json: { ...(await res.json()), media_type: 'novel', content_mode: 'novel_narration' } })
+    }),
+  )
 }
 
 test('narration chunk-and-tag needs a confirmation before replacing lines', async ({ page }) => {
