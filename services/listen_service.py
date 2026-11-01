@@ -200,6 +200,11 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     db.update_drama(drama_id, status="dubbed")
 
 
+def narration_job_id(drama_id: int) -> str:
+    # Kept as dub_<id> so jobs started before the Dub stage was removed still resolve.
+    return f"dub_{drama_id}"
+
+
 def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dict:
     """Starts the narration track as a background process job (`dub_<id>`);
     the result is applied by an on_done hook. {"job_id"}. NotFoundError (unknown
@@ -222,7 +227,7 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
         raise InvalidInputError("No source text to narrate." if narrate_original
                                 else "No translated lines to dub yet.")
 
-    job_id = f"dub_{drama_id}"
+    job_id = narration_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if job and job["status"] in ("running", "queued"):
         raise ConflictError(f"A dub job is already running for title {drama_id}.")

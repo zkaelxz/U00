@@ -447,7 +447,7 @@ Docs drift misleads agents and users, but it never corrupts data. The audit rate
 
 | ID | Finding | Class | Likelihood | Impact | Reason |
 |---|---|---|---|---|---|
-| H1, H2, H3 | STATUS.md, background-jobs.md and CLAUDE.md say the job store is unmerged or the dict decides | SHOULD-FIX | Every agent session | Agents change the wrong layer | One docs pass after the next merge wave. |
+| H1, H2, H3 | an old doc, background-jobs.md and CLAUDE.md say the job store is unmerged or the dict decides | SHOULD-FIX | Every agent session | Agents change the wrong layer | One docs pass after the next merge wave. |
 | H4, H5 | content-sources says site terms block imports; manual check expects a refusal | SHOULD-FIX | Owner reading the doc | Wrong expectations | Fixed #1122. |
 | H6 | engine-backends says every provider uses streaming reads | SHOULD-FIX | Agents adding an engine | New engine built the old way | Docs pass. |
 | H7, H8, H9, H10 | Four wrong menu paths for users | SHOULD-FIX | Owner and members following the guide | Can't find a setting | Fixed #1122. |
@@ -461,9 +461,9 @@ Docs drift misleads agents and users, but it never corrupts data. The audit rate
 | M24 | "First four" guard files (it is five) | CHEAP-WIN | Agents | Minor | Fixed #1122. |
 | M25, M26 | api-and-services and FILE_ORGANIZATION lists incomplete | CHEAP-WIN | Agents | Minor | Docs pass. |
 | M27, M28 | Audit-log location and "context before" default | CHEAP-WIN | Owner | Minor | Fixed #1122. |
-| M29 | STATUS says LocalAgreement streaming works | CHEAP-WIN | Owner planning | Wrong expectation | Backlog row fixed #1122; STATUS waits. |
+| M29 | that doc says LocalAgreement streaming works | CHEAP-WIN | Owner planning | Wrong expectation | Backlog row fixed #1122; that doc waits. |
 | M30, M31 | Backlog rows already done or with wrong paths | CHEAP-WIN | Agents | Wasted work | Fixed #1122. |
-| M32 | STATUS "checked through #1062" | CHEAP-WIN | Owner | Minor | Docs pass. |
+| M32 | that doc "checked through #1062" | CHEAP-WIN | Owner | Minor | Docs pass. |
 | 33, 34, 35, 36, 37, 38, 39 (L) | Stale names, columns, labels and token estimates across docs | CHEAP-WIN | Agents and owner | Minor | Docs pass; 37 and 39 fixed #1122. |
 | 40 (L) | `OPTIONAL_DEPENDENCIES` entries wrong for starlette, pydantic, openai, requests | CHEAP-WIN | Diagnostics page | Wrong labels | Small. |
 
@@ -650,7 +650,7 @@ Whether these matter depends on whether the owner runs `cli.py` at all. The clas
 | **A one-page threat model** | **Only the cheap part** | Write half a page that states this document's yardstick: who is trusted, what remote access exposes, what is out of scope. Its real value is telling future auditors what not to chase. Skip the full asset-actor-boundary model. |
 | **Per-launch secret on the off-mode admin listener** | **Skip** | See not-to-do item 1. Broaden the proxy-header check (#1118 L3) and add a docs warning instead. |
 | **Back up `sources.db`** (and a quick integrity check) | **Worth doing** | Restore currently loses tracked series for certain (#1088 H1 to H3). Copy it with the SQLite backup API in auto-backup, carry the live copy when a backup lacks it, and run `PRAGMA quick_check` on the backup copy. All small. |
-| **Device tokens** (wire them in) | **Only the cheap part** | The bridge only listens on the PC itself, so per-device revocation adds little here. Remove or relabel the "revoke" control and fix STATUS.md, so nothing promises protection it doesn't give. |
+| **Device tokens** (wire them in) | **Only the cheap part** | The bridge only listens on the PC itself, so per-device revocation adds little here. Remove or relabel the "revoke" control and fix an old doc, so nothing promises protection it doesn't give. |
 
 ### Fixes already merged or in flight that were out of proportion
 

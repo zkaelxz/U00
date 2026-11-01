@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { memo, useEffect, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
@@ -205,6 +205,22 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
   )
 }
 
+// Tab or a click elsewhere used to drop typed text without a word. The row's own Save and
+// Cancel are not leaving: Save would send a second request, Cancel would never warn. A refused
+// save (a conflict, a problem) is not retried by leaving the box: its Reload or Retry
+// button would race the retry. A hidden window blurs too but the person has not finished.
+function savesOnBlur(e: FocusEvent<HTMLLIElement>, editable: boolean): boolean {
+  if (!editable || !document.hasFocus()) return false
+  const next = e.relatedTarget as Element | null
+  if (next?.closest('.review-actions, .review-editbar')) return false
+  // Hopping between this row's own fields is still editing; a button is leaving the box.
+  return !(next && e.currentTarget.contains(next) && next.matches('textarea, input, select'))
+}
+
+// A pressed Save or Cancel keeps focus in the box: otherwise the blur saves first, so Save
+// sends a second request and Cancel never gets to warn (Safari and iOS give no relatedTarget).
+const keepFocusInBox = (e: MouseEvent<HTMLElement>) => e.preventDefault()
+
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
 // One line: meta, source and translation. Only the active row's controls are Tab
@@ -232,10 +248,14 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       e.preventDefault()
       const field = e.currentTarget.dataset.field === 'zh' ? 'zh' : 'en'
       actions.splitAtCursor(line.id, field, e.currentTarget.selectionStart ?? 0)
-    } else if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       actions.saveAndNext()
     }
+  }
+
+  const onRowBlur = (e: FocusEvent<HTMLLIElement>) => {
+    if (savesOnBlur(e, !!draft && !edit?.discardWarning && !issue)) actions.save()
   }
 
   const onRowClick = (e: MouseEvent<HTMLLIElement>) => {
@@ -254,6 +274,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       aria-current={active ? 'true' : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
+      onBlur={onRowBlur}
     >
       <label className="review-select">
         <input
@@ -337,7 +358,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               rows={2}
             />
             {!isPhone && (
-              <div className="review-actions">
+              <div className="review-actions" onMouseDown={keepFocusInBox}>
                 <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
                 <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
                 <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>

@@ -36,6 +36,7 @@ __all__ = [
     "BenchmarkHardSubReadEstimate",
     "BenchmarkHardSubReadStarted",
     "BenchmarkHardSubReadResult",
+    "BenchmarkHardSubApplyResult",
     "BenchmarkHardSubLine",
     "BenchmarkHardSubGroup",
     "BenchmarkHardSubGroupScore",
@@ -292,6 +293,13 @@ class BenchmarkHardSubReadResult(BaseModel):
     message: Optional[str] = None
     # None while the reading is still going.
     result: Optional[BenchmarkHardSubReadOutcome] = None
+
+
+class BenchmarkHardSubApplyResult(BaseModel):
+    labelled: int
+    kept_manual: int
+    unplaced: int
+    speakers: List[str]
 
 
 class BenchmarkCorrectionsAddResult(BaseModel):
