@@ -89,6 +89,7 @@ def _retrying(fn, deadline=None):
                     or (left is not None and left <= delay)):
                 raise
             time.sleep(delay)
+    raise RuntimeError("_WRITE_TRIES must be at least 1")
 
 
 def _write_row(job_id, job, result_json, timeout=None):

@@ -136,6 +136,8 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
         out["snapshot_saved"] = True
         pass_info = {"snapshot_id": db.list_line_history(drama_id)[0]["id"], "written": {}}
     for w in writable:
+        if w.id is None:
+            continue
         new_en = w.en.strip()[:lines_service.MAX_LINE_TEXT_CHARS]
         if db.update_line_fields_if(drama_id, w.id, {"en": new_en}, {"en": before[w.id]}):
             out["shortened"] += 1

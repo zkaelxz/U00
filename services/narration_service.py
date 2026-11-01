@@ -196,7 +196,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
 
     job_timing_service.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, "Saving lines...")
-    for label in sorted({ln.speaker for ln in lines}):
+    for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
     background_jobs.cancel_line_jobs(drama_id)
     existing = db.load_line_objects(drama_id)

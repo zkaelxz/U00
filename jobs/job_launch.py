@@ -39,7 +39,7 @@ def _with_member_key(target):
 _exclusive_label = None
 
 
-def acquire_exclusive(label: str, ignore_job_id: str = None) -> bool:
+def acquire_exclusive(label: str, ignore_job_id: str | None = None) -> bool:
     """Atomically: refuse (False) if any job is running/queued in this
     process or another exclusive hold is active; otherwise take the hold,
     so no new job can start until release_exclusive(). `ignore_job_id` is
@@ -206,7 +206,7 @@ def _admit_locked(job_id, gpu_touching, description, owner_user_id):
 
 
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
-              description: str = None, run_settings: dict = None, line_fields=None,
+              description: str | None = None, run_settings: dict | None = None, line_fields=None,
               **kwargs) -> bool:
     """
     Starts target(*args, **kwargs) in a background thread under job_id.
@@ -283,8 +283,8 @@ def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method):
 
 
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
-                      description: str = None, on_done=None, on_finish=None,
-                      kill_whole_tree: bool = False, start_method: str = None, run_settings: dict = None,
+                      description: str | None = None, on_done=None, on_finish=None,
+                      kill_whole_tree: bool = False, start_method: str | None = None, run_settings: dict | None = None,
                       initial_result=None, line_fields=None, cpu_retry_args=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess

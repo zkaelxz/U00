@@ -36,9 +36,9 @@ class Line:
     end: float
     zh: str
     en: str = ""
-    speaker: str = None
-    dub_filename: str = None
-    flag: str = None       # a key from engine_backends.flag_reasons.FLAG_REASONS / SYSTEM_FLAG_REASONS, or None
+    speaker: str | None = None
+    dub_filename: str | None = None
+    flag: str | None = None       # a key from engine_backends.flag_reasons.FLAG_REASONS / SYSTEM_FLAG_REASONS, or None
     flag_note: str = ""    # brief reason from flag_uncertain_lines, e.g. "ambiguous 'her'"
     # True once someone set this line's speaker by hand -- re-running
     # speaker detection (diarize.merge_speakers) leaves it alone unless
@@ -50,21 +50,21 @@ class Line:
     # This line's spoken language, a LINE_LANGUAGES code; None means the
     # title's source_language, so titles saved before this field existed
     # behave exactly as before.
-    lang: str = None
+    lang: str | None = None
     # True once a reviewer marked the translation checked. Editing `en`
     # clears it: the checked text is gone, so the mark would lie.
     reviewed: bool = False
     # Permanent row id (lines.id). None for a line not saved yet.
-    id: int = field(default=None, compare=False)
+    id: int | None = field(default=None, compare=False)
     # encode_line_words' stored form, read through line_words. None means "not
     # loaded": db.save_lines then leaves the column alone (and clears it when the
     # text changes), so a caller that never loads it can't wipe or keep stale words.
-    word_timings: str = field(default=None, compare=False, repr=False)
+    word_timings: str | None = field(default=None, compare=False, repr=False)
     # Field values as last loaded from / saved to the database. db.save_lines
     # only writes a field whose value differs from this, so two writers
     # (a background job and the page) can't clobber each other's fields.
     # None means "unknown" -- every field is written.
-    orig: dict = field(default=None, compare=False, repr=False)
+    orig: dict | None = field(default=None, compare=False, repr=False)
     # Ids of lines merged into this one since the last save -- db.save_lines
     # re-points their notes/emotions here before deleting their rows.
     merged_ids: list = field(default_factory=list, compare=False, repr=False)
@@ -227,7 +227,7 @@ def fmt_ts(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
+def notes_suffix(line_idx: int, notes_by_idx: dict | None) -> str:
     """notes_by_idx: {line_idx: [{"term", "note"}, ...]}, from
     db.list_translation_notes() grouped by line -- see
     translation_guide.group_notes_by_line(). Renders as a bracketed
@@ -260,7 +260,7 @@ def _srt_text(text: str) -> str:
     return "\n".join(part for part in (text or "").splitlines() if part.strip())
 
 
-def lines_to_srt(lines, field="en", notes_by_idx: dict = None) -> str:
+def lines_to_srt(lines, field="en", notes_by_idx: dict | None = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
         text = getattr(ln, field)
@@ -271,7 +271,7 @@ def lines_to_srt(lines, field="en", notes_by_idx: dict = None) -> str:
     return "\n".join(out)
 
 
-def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
+def lines_to_bilingual_srt(lines, notes_by_idx: dict | None = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
         en, zh = ln.en, ln.zh
