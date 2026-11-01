@@ -12,9 +12,9 @@ BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error", "needs_resubmit
 
 
 def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
-                    provider_batch_id: str = None, scheduled_for: str = None,
-                    translate_args: dict = None, kind: str = "translate",
-                    stage: str = None, pipeline_id: str = None) -> int:
+                    provider_batch_id: str | None = None, scheduled_for: str | None = None,
+                    translate_args: dict | None = None, kind: str = "translate",
+                    stage: str | None = None, pipeline_id: str | None = None) -> int:
     """lines: [(line_id, request_key, zh_hash, en_at_submit), ...], or,
     for a non-translate kind that needs something to compare against once
     results come back (see the `bulk_job_lines` table's own comment),
@@ -36,7 +36,7 @@ def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
         """, (drama_id, engine, model, provider_batch_id, status, scheduled_for,
               json.dumps(translate_args, ensure_ascii=False) if translate_args is not None else None,
               now, now, kind, stage, pipeline_id))
-        job_id = cur.lastrowid
+        job_id = db.inserted_id(cur)
         rows = []
         for row in lines:
             if len(row) == 4:
@@ -72,7 +72,7 @@ def get_bulk_job(bulk_job_id: int):
     return _bulk_job_row(r) if r else None
 
 
-def list_bulk_jobs(drama_id: int = None, statuses=None, pipeline_id: str = None) -> list:
+def list_bulk_jobs(drama_id: int | None = None, statuses=None, pipeline_id: str | None = None) -> list:
     """Newest first. statuses: optional iterable to filter on.
     pipeline_id: every stage row of one Reflect run shares one,
     so the Bulk jobs panel can pull all three (whichever exist so far) to

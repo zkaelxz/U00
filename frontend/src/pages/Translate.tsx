@@ -36,7 +36,7 @@ import {
   historyTime,
   isDirection,
   orderEngines,
-  pickEngine,
+  shownEngine,
   pickLanguage,
   pickModel,
   showLocalOnlyNote,
@@ -101,7 +101,7 @@ export default function TranslatePage() {
       .finally(() => setClearing(false))
   }
 
-  const engine = pickEngine(engines, enginePref, defaultEngine)
+  const engine = shownEngine(engines, enginePref, defaultEngine)
   const selected = engines.find((e) => e.name === engine)
   const model = pickModel(selected, modelPref)
   const direction = isDirection(directionPref) ? directionPref : 'to_english'

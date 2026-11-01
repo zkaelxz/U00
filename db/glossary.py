@@ -7,7 +7,7 @@ from lib import clock
 import db
 
 
-def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool = False) -> int:
+def get_or_create_series(name: str, owner_user_id: int | None = None, is_private: bool = False) -> int:
     """`owner_user_id`/`is_private` only stamp a newly
     created row; an existing series is returned unchanged. Not
     visibility-aware: non-admin callers use
@@ -23,7 +23,7 @@ def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool 
                             (name, clock.utcnow().isoformat(), owner_user_id,
                              int(bool(is_private))))
         conn.commit()
-        new_id = cur.lastrowid
+        new_id = db.inserted_id(cur)
     return new_id
 
 
@@ -36,7 +36,7 @@ def create_series(name: str, owner_user_id: int | None = None, is_private: bool 
                            (name, clock.utcnow().isoformat(), owner_user_id,
                             int(bool(is_private))))
         conn.commit()
-        return cur.lastrowid
+        return db.inserted_id(cur)
 
 
 def get_series_id_by_name(name: str):
@@ -45,7 +45,7 @@ def get_series_id_by_name(name: str):
     return row["id"] if row else None
 
 
-def list_series(visible_to: int = None):
+def list_series(visible_to: int | None = None):
     """`visible_to`: a non-admin user id; when set, only
     that user's own or non-private series. None = unfiltered."""
     with contextlib.closing(db.get_conn()) as conn:
@@ -59,8 +59,8 @@ def list_series(visible_to: int = None):
 
 
 def upsert_glossary_term(series_id: int, term_original: str, term_translation: str, notes: str = "",
-                          category: str = None, policy: str = None, enforce_exact: bool = False,
-                          aliases: str = None, banned_translations: str = None):
+                          category: str | None = None, policy: str | None = None, enforce_exact: bool = False,
+                          aliases: str | None = None, banned_translations: str | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("""
             INSERT INTO glossary_terms (series_id, term_original, term_translation, notes,
@@ -82,7 +82,7 @@ def upsert_glossary_term(series_id: int, term_original: str, term_translation: s
 
 
 def insert_glossary_term_if_absent(series_id: int, term_original: str, term_translation: str,
-                                   notes: str = "", category: str = None, policy: str = None,
+                                   notes: str = "", category: str | None = None, policy: str | None = None,
                                    enforce_exact: bool = False) -> bool:
     """Adds a term only if the series has none with this original text (a
     term added meanwhile is left alone). Returns True when it was added."""
@@ -155,9 +155,9 @@ def update_translation_memory_after_replace(series_id: int, old_translation: str
 
 
 def update_glossary_term(term_id: int, term_original: str, term_translation: str,
-                          notes: str = "", category: str = None, policy: str = None,
-                          enforce_exact: bool = False, aliases: str = None,
-                          banned_translations: str = None):
+                          notes: str = "", category: str | None = None, policy: str | None = None,
+                          enforce_exact: bool = False, aliases: str | None = None,
+                          banned_translations: str | None = None):
     """Updates an existing glossary term by its own id -- unlike
     upsert_glossary_term (keyed on term_original, for the extract-and-add
     flow), this lets a term's original text itself be corrected without
