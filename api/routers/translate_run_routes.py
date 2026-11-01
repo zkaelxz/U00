@@ -204,7 +204,7 @@ def start_retry_failed(body: RetryFailedLinesStart, request: Request, drama_id: 
              response_model=GlossaryFlaggedRedoStarted,
              summary="Redo the lines flagged for a missing glossary name with the stronger engine",
              responses=error_responses(400, 404, 409, 422, 503))
-def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart = None,
+def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart | None = None,
                                 drama_id: int = Path(ge=1)):
     engine = glossary_flagged_service.engine_name(drama_id)
     require_engines_allowed(request, engine)

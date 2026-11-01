@@ -32,7 +32,7 @@ the session cookie and no custom headers; GET needs no CSRF token. A cap
 
 import asyncio
 import json
-from typing import Optional
+from typing import Callable, Optional
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
@@ -94,7 +94,7 @@ class _Auth:
     (a fast-ticking job wakes the stream several times a second; each wake
     must not re-resolve the session). None once it may no longer read."""
 
-    def __init__(self, principal, revalidate, now):
+    def __init__(self, principal, revalidate: Callable[[], Optional[dict]], now):
         self.principal = principal
         self._revalidate = revalidate
         self._checked = now
