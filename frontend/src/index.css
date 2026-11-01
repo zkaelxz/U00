@@ -622,7 +622,7 @@ html:has(.selection-bar.wide) { scroll-padding-bottom: 6rem; }
 }
 /* Stage content cross-fades on a stage change: opacity only, no slide. */
 @keyframes stage-fade { from { opacity: 0; } }
-:is(.stage-source, .stage-translate, .stage-review, .stage-dub, .stage-export) { animation: stage-fade 120ms var(--ease); }
+:is(.stage-source, .stage-translate, .stage-review, .stage-export) { animation: stage-fade 120ms var(--ease); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }

@@ -3052,74 +3052,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/dub/dramas/{drama_id}/config": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Read-only Dub-stage summary for one drama */
-        get: operations["get_dub_config_api_dub_dramas__drama_id__config_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dub/dramas/{drama_id}/pacing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Per-line pacing from the last dub run */
-        get: operations["get_dub_pacing_api_dub_dramas__drama_id__pacing_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dub/dramas/{drama_id}/run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start the dub/narration track job (poll GET /api/jobs/{job_id}) */
-        post: operations["start_dub_run_api_dub_dramas__drama_id__run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dub/dramas/{drama_id}/track": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download the finished dub/narration track (WAV) */
-        get: operations["download_dub_track_api_dub_dramas__drama_id__track_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/events": {
         parameters: {
             query?: never;
@@ -13958,6 +13890,11 @@ export interface components {
              * @default
              */
             clone_engine_removed: string;
+            /**
+             * Clone Warning
+             * @default
+             */
+            clone_warning: string;
             /** Has Ref Audio */
             has_ref_audio: boolean;
             /** Line Count */
@@ -16461,135 +16398,14 @@ export interface components {
              */
             voice_actors?: string | null;
         };
-        /**
-         * DubConfig
-         * @description Read-only Dub-stage summary for one drama.
-         *     No filesystem path or secret.
-         */
-        DubConfig: {
-            /** Blocker */
-            blocker?: string | null;
-            /**
-             * Can Keep Background
-             * @default false
-             */
-            can_keep_background: boolean;
-            /** Content Mode */
-            content_mode?: string | null;
-            /** Default Engine */
-            default_engine: string;
-            defaults?: components["schemas"]["DubDefaults"] | null;
-            /** Drama Id */
-            drama_id: number;
-            /** Gpu Required */
-            gpu_required: boolean;
-            /** Is Narration */
-            is_narration: boolean;
-            /** Narration Language */
-            narration_language: string;
-            /** Narration Language Options */
-            narration_language_options: string[];
-            /** Source Language */
-            source_language: string;
-            /** Speakable Line Count */
-            speakable_line_count: number;
-            /** Speakers */
-            speakers: components["schemas"]["DubSpeaker"][];
-            /** Track Available */
-            track_available: boolean;
-            /** Tts Engines */
-            tts_engines: components["schemas"]["DubTtsEngine"][];
-        };
-        /**
-         * DubDefaults
-         * @description Pacing-limit defaults and slider ranges; null for narration.
-         */
-        DubDefaults: {
-            /** Max Slowdown */
-            max_slowdown: number;
-            /** Max Speedup */
-            max_speedup: number;
-            /** Slowdown Range */
-            slowdown_range: number[];
-            /** Speedup Range */
-            speedup_range: number[];
-        };
-        /**
-         * DubPacing
-         * @description Per-line pacing from the last dub run; `available` is False when
-         *     there is nothing to show (never dubbed, or narration). No paths.
-         */
-        DubPacing: {
-            /** Available */
-            available: boolean;
-            /** Counts */
-            counts: {
-                [key: string]: number;
-            };
-            /** Lines */
-            lines: components["schemas"]["DubPacingLine"][];
-        };
-        /**
-         * DubPacingLine
-         * @description One line's fit against its original timing window. status is
-         *     "fit", "stretched" or "overflow".
-         */
-        DubPacingLine: {
-            /** Clip Ms */
-            clip_ms?: number | null;
-            /** Factor */
-            factor: number;
-            /** Idx */
-            idx: number;
-            /** Status */
-            status: string;
-            /** Window Ms */
-            window_ms?: number | null;
-        };
-        /** DubRunRequest */
-        DubRunRequest: {
-            /**
-             * Keep Background
-             * @default false
-             */
-            keep_background: boolean;
-            /** Max Slowdown */
-            max_slowdown?: number | null;
-            /** Max Speedup */
-            max_speedup?: number | null;
-            /** Narration Language */
-            narration_language?: string | null;
-            /**
-             * Tts Engine
-             * @default omnivoice
-             */
-            tts_engine: string;
-        };
         /** DubRunStarted */
         DubRunStarted: {
             /** Job Id */
             job_id: string;
         };
         /**
-         * DubSpeaker
-         * @description One speaker's resolved engine, as the Generate button would resolve
-         *     it. No reference-audio path, only a boolean.
-         */
-        DubSpeaker: {
-            /** Character Name */
-            character_name?: string | null;
-            /** Clone Warning */
-            clone_warning?: string | null;
-            /** Engine */
-            engine: string;
-            /** Has Clone Ref */
-            has_clone_ref: boolean;
-            /** Speaker Label */
-            speaker_label: string;
-        };
-        /**
          * DubTtsEngine
-         * @description One selectable voice engine for the Dub stage.
+         * @description One selectable voice engine for Listen.
          */
         DubTtsEngine: {
             /** Key */
@@ -21579,7 +21395,7 @@ export interface components {
         /**
          * ReaderMediaAvailability
          * @description What the Watch / listen panel can show -- booleans and labels only.
-         *     React plays the files through /api/media and /api/dub.
+         *     React plays the files through /api/media and /api/listen.
          */
         ReaderMediaAvailability: {
             /** Caption Tracks */
@@ -21588,8 +21404,6 @@ export interface components {
             captions_overlay: boolean;
             /** Drama Id */
             drama_id: number;
-            /** Dub */
-            dub: boolean;
             /** Narration */
             narration: boolean;
             /** Original */
@@ -24235,6 +24049,11 @@ export interface components {
             title_en?: string | null;
             /** Title Zh */
             title_zh?: string | null;
+            /**
+             * Translated Count
+             * @default 0
+             */
+            translated_count: number;
         };
         /** SetPrivateRequest */
         SetPrivateRequest: {
@@ -37251,188 +37070,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    get_dub_config_api_dub_dramas__drama_id__config_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DubConfig"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_dub_pacing_api_dub_dramas__drama_id__pacing_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DubPacing"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    start_dub_run_api_dub_dramas__drama_id__run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DubRunRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DubRunStarted"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description Service Unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    download_dub_track_api_dub_dramas__drama_id__track_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -35,8 +35,7 @@ def test_empty_drama_source_current_rest_blocked(client):
     assert r.status_code == 200
     b = r.json()
     assert b["stage_index"] == 0 and b["stage"] == "source" and b["line_count"] == 0
-    assert _states(b) == {"source": "current", "translate": "blocked", "review": "blocked",
-                          "dub": "blocked", "export": "blocked"}
+    assert _states(b) == {"source": "current", "translate": "blocked", "review": "blocked", "export": "blocked"}
     assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(did)))  # read never creates
 
 
@@ -56,8 +55,7 @@ def test_translate_current_with_counts(client):
     b = client.get(_url(did)).json()
     assert b["stage_index"] == 3 and b["stage"] == "translate"
     assert (b["line_count"], b["untranslated_count"], b["flagged_count"]) == (5, 2, 1)
-    assert _states(b) == {"source": "done", "translate": "current", "review": "pending",
-                          "dub": "optional", "export": "pending"}
+    assert _states(b) == {"source": "done", "translate": "current", "review": "pending", "export": "pending"}
 
 
 def test_review_then_dub_track_then_exported(client):
@@ -76,8 +74,7 @@ def test_review_then_dub_track_then_exported(client):
     r = client.get(_url(did))
     b = r.json()
     assert b["stage_index"] == 6 and b["stage"] == "export" and b["has_dub_track"] is True
-    assert _states(b) == {"source": "done", "translate": "done", "review": "done",
-                          "dub": "done", "export": "current"}
+    assert _states(b) == {"source": "done", "translate": "done", "review": "done", "export": "current"}
     _no_leak(r)
     db.update_drama(did, status="exported")
     b = client.get(_url(did)).json()

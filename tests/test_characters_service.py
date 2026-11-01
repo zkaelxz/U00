@@ -104,13 +104,13 @@ class TestUpdate:
     def test_a_removed_engine_cannot_be_picked_but_a_stored_one_lists_as_removed(self, isolated_db):
         did = _drama(isolated_db)
         with pytest.raises(InvalidInputError,
-                           match="The F5-TTS engine was removed. Pick another voice engine in Dub."):
+                           match="The F5-TTS engine was removed. Pick another voice engine."):
             cs.update_character(did, "A", clone_engine="f5tts")
         isolated_db.upsert_character(did, "A", clone_engine="f5tts")  # as saved before the removal
         out = cs.list_characters(did)
         entry = next(c for c in out if c["speaker_label"] == "A")
         assert entry["clone_engine"] == "f5tts"
-        assert entry["clone_engine_removed"] == "The F5-TTS engine was removed. Pick another voice engine in Dub."
+        assert entry["clone_engine_removed"] == "The F5-TTS engine was removed. Pick another voice engine."
         # picking another engine replaces it; the same call clears the notice
         assert cs.update_character(did, "A", clone_engine="omnivoice")["clone_engine_removed"] == ""
 
@@ -199,7 +199,7 @@ def test_h1_unsupported_engine_message_has_no_engine_name(isolated_db):
                                        ("gpt_sovits", "GPT-SoVITS")])
 def test_a_removed_engine_cannot_be_chosen_but_a_stored_one_loads(isolated_db, key, label):
     did = _drama(isolated_db, source_language="zh")
-    removed = f"The {label} engine was removed. Pick another voice engine in Dub."
+    removed = f"The {label} engine was removed. Pick another voice engine."
     with pytest.raises(InvalidInputError) as e:
         cs.update_character(did, "A", clone_engine=key)
     assert str(e.value) == removed
@@ -260,4 +260,4 @@ class TestVoiceBankHardening:
         entry = cs.apply_voice_bank_entry(did, "A", eid)
         assert entry["has_ref_audio"] is True and entry["clone_engine"] == "chatterbox"
         assert entry["clone_engine_removed"] == (
-            "The Chatterbox engine was removed. Pick another voice engine in Dub.")
+            "The Chatterbox engine was removed. Pick another voice engine.")

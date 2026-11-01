@@ -4,6 +4,7 @@ import type { ScanlateConfig } from '../../types/scanlate'
 import {
   checkFiles,
   defaultEngine,
+  pagesText,
   progressSummary,
   runBlockedReason,
   toolsSummary,
@@ -71,6 +72,9 @@ describe('scanlate panel logic', () => {
     expect(toolsSummary(config())).toBe('OpenCV detector (ML model not downloaded) · LaMa cleanup · OCR: manga_ocr (not installed)')
     expect(progressSummary(config())).toBe('4 pages · 2 with text · 1 typeset')
     expect(progressSummary(config({ page_count: 0 }))).toBe('No pages yet')
+    expect(progressSummary(config({ page_count: 1 }))).toBe('1 page · 2 with text · 1 typeset')
+    expect(pagesText(1)).toBe('1 page')
+    expect(pagesText(2)).toBe('2 pages')
   })
 
   it('checks files against the limits before sending', () => {

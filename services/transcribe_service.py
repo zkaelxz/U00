@@ -395,10 +395,23 @@ def _cpu_retry_args(drama, run, scratch_dir, checkpoint=None):
     # CPU rerun would bill the user twice and log it once.
     if not run.use_gpu or drama.get("use_groq"):
         return None
-    # It continues after the same units but records none: the crashed run's later units
-    # are still stored, and a second set cut differently would leave gaps between the two.
-    return _worker_args(drama, run, scratch_dir, False,
-                        checkpoint and {**checkpoint, "record": False})
+    # The settings are read now, as the GPU run's were; only the checkpoint is read later.
+    args = _worker_args(drama, run, scratch_dir, False, checkpoint)
+    if not checkpoint:
+        return args
+    # _worker_args ends with (checkpoint, scratch_dir).
+    return functools.partial(_cpu_retry_now, args[:-2], checkpoint, args[-1])
+
+
+def _cpu_retry_now(head, checkpoint, scratch_dir):
+    """The CPU run's args with the checkpoint read when it starts, so it continues after the
+    units the crashed GPU run stored. It records none: those units are under the GPU run's
+    scope, which a later GPU run resumes from."""
+    try:
+        checkpoint = transcribe_checkpoint_service.resume_from(checkpoint["scope"])
+    except Exception:   # noqa: BLE001  a locked database must not cost the run: continue from where it started
+        pass
+    return (*head, {**checkpoint, "record": False}, scratch_dir)
 
 
 def _start_worker_job(job_id, drama_id, drama, run) -> bool:
