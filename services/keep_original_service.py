@@ -81,8 +81,15 @@ def scan_library() -> dict:
 
 def clean_title_storage(drama_id: int, categories) -> dict:
     """storage.clean_drama_storage for one title, its pinned originals kept."""
-    return storage.clean_drama_storage(os.path.join(db.DRAMAS_DIR, str(drama_id)), categories,
-                                       keep=kept_paths(drama_id))
+    folder = os.path.join(db.DRAMAS_DIR, str(drama_id))
+    result = storage.clean_drama_storage(folder, categories, keep=kept_paths(drama_id))
+    if "typeset_pages" in categories:
+        # A page row that still names a deleted typeset file reads as typeset.
+        for page in db.list_pages(drama_id):
+            rel = page.get("rendered_filename")
+            if rel and not os.path.isfile(os.path.join(folder, rel)):
+                db.update_page(page["id"], rendered_filename=None)
+    return result
 
 
 def trashed_from_pinned_title(parts) -> bool:

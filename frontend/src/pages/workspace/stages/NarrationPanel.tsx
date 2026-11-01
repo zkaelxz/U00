@@ -9,6 +9,7 @@ import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { NarrationConfig } from '../../../types/dub'
 import { AI_ENGINE_LABEL } from '../../../helpText'
+import { useNovelFilesVersion } from './novelFileEvents'
 import { EngineGateNote } from './EngineGateNote'
 import { useEngineGate, useTitleEngines } from './useEngineGate'
 
@@ -27,20 +28,22 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   const [startOver, setStartOver] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
+  // Attaching the text bumps this, so the panel stops saying there is none.
+  const filesVersion = useNovelFilesVersion()
   useEffect(() => {
     let cancelled = false
     narrationApi.config(dramaId).then(
       (c) => {
         if (cancelled) return
         setCfg(c)
-        setEngine(c.default_engine)
+        setEngine((current) => current || c.default_engine)
       },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, filesVersion])
 
   // The title's engine list knows the SDK and Ollama; this panel's own key flags are the ones its run checks.
   const titleEngines = useTitleEngines(dramaId)

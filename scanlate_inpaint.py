@@ -290,6 +290,22 @@ def _lettering_mask(gray_roi):
     return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2)
 
 
+_ART_MIN_EDGE_MARK_SHARE = 0.08
+
+
+def _drop_marks_running_off_edge(mask) -> None:
+    """Clears, in place, the mask components that touch the crop's edge and
+    cover a sizeable share of it. Small ones stay: a stroke can end at the
+    edge of a tight box."""
+    import cv2
+    count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), connectivity=8)
+    rh, rw = mask.shape[:2]
+    for i in range(1, count):
+        x, y, w, h, area = stats[i]
+        if (x == 0 or y == 0 or x + w == rw or y + h == rh) and area >= _ART_MIN_EDGE_MARK_SHARE * rh * rw:
+            mask[labels == i] = 0
+
+
 def _resolve_inpaint_backend(backend: str) -> str:
     if backend == "auto":
         return "ml" if lama_ml_weights_cached() else "cv"
@@ -297,7 +313,8 @@ def _resolve_inpaint_backend(backend: str) -> str:
 
 
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
-                    backend: str = "auto", hf_token: str | None = None, image=None, inside=None):
+                    backend: str = "auto", hf_token: str | None = None, image=None, inside=None,
+                    spare_art: bool = False):
     """Removes text within `box` so the translated text has a clean
     background. Returns the path to the (possibly newly-created) cleaned
     image; if out_path is None, overwrites nothing and returns an image
@@ -320,7 +337,12 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     outline (scanlate_detect.bubble_erase_mask()). Only marks inside
     it are erased: the box's corners hold the balloon's outline and the art
     around it, which erasing every dark pixel in the rectangle used to wipe
-    into a white block."""
+    into a white block.
+
+    spare_art: for a balloon whose outline wasn't found (`inside` is None),
+    leave dark marks that run off the box edge. Lettering sits inside the
+    balloon, so a large mark touching the edge is the art the balloon is
+    drawn over, and erasing it smears white across the box."""
     import cv2
     img = image if image is not None else cv2.imread(image_path)
     h, w = img.shape[:2]
@@ -339,6 +361,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         part = part[:bh - max(oy, 0), :bw - max(ox, 0)]
         keep[max(oy, 0):max(oy, 0) + part.shape[0], max(ox, 0):max(ox, 0) + part.shape[1]] = part
         mask[~keep] = 0
+    elif spare_art:
+        _drop_marks_running_off_edge(mask)
 
     resolved = _resolve_inpaint_backend(backend)
     inpainted_roi = None
