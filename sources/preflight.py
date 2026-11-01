@@ -59,7 +59,7 @@ class Preflight:
     reachable: bool = False
     content_type: str = UNKNOWN
     tier: str = ""
-    adapter: str = None
+    adapter: str | None = None
     title: str = ""
     text_chars: int = 0
     images: int = 0

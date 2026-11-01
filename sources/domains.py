@@ -138,7 +138,7 @@ def _notify_unreachable(source: str, display_name: str, lines: list):
 
 
 class SiteDomains:
-    def __init__(self, adapter, base_url: str = None):
+    def __init__(self, adapter, base_url: str | None = None):
         self.adapter = adapter
         self.source = adapter.name
         self.fixed = origin(base_url) if base_url else ""

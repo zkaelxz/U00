@@ -325,7 +325,7 @@ def review_open(drama_id: int) -> bool:
         return int(drama_id) in _REVIEWS
 
 
-def open_review(drama_id: int, kind: str, url: str, html: str, data: dict, report,
+def open_review(drama_id: int, kind: str, url: str, html: str, data: dict | None, report,
                 why: str, candidates=(), pc_only: bool = False, chain=(),
                 follow_stop: str = "", recovery: dict = None) -> bool:
     """Called by an import job instead of writing: keeps what it extracted

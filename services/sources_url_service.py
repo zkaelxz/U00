@@ -84,7 +84,7 @@ def source_client(url: str, job_id: str):
     return client
 
 
-def handoff_error(handoff: dict, url: str) -> dict:
+def handoff_error(handoff: dict | None, url: str) -> dict:
     return {"status": 409, "code": ConflictError.code, "message": HANDOFF_MESSAGE,
             "details": {"reason": str((handoff or {}).get("reason") or ""), "handoff": True,
                         "open_url": safe_url(url)}}

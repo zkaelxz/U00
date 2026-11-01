@@ -28,7 +28,7 @@ import shutil
 from dataclasses import dataclass, field
 
 from . import ladder, registry, store
-from .models import AccessTier
+from .models import AccessTier, SourceCapabilities
 
 LOGIN_PROMPT = ("Authentication required — a browser window will open. Log in normally and "
                 "open the chapter you want.")
@@ -41,7 +41,7 @@ def source_for(url: str) -> str:
     return cls.name if cls else GENERIC
 
 
-def profile_key(url: str, source: str = None) -> str:
+def profile_key(url: str, source: str | None = None) -> str:
     """The adapter's name, or -- for a pasted URL no adapter covers -- the
     site's own host, so two unrelated sites never share a sign-in."""
     source = source or source_for(url)
@@ -51,18 +51,18 @@ def profile_key(url: str, source: str = None) -> str:
     return domain_of(url) or GENERIC
 
 
-def profile_dir(url: str, source: str = None) -> str:
+def profile_dir(url: str, source: str | None = None) -> str:
     return store.browser_profile_dir(profile_key(url, source))
 
 
-def has_profile(url: str, source: str = None) -> bool:
+def has_profile(url: str, source: str | None = None) -> bool:
     """True once the person has opened this source's sign-in window --
     which is what makes later imports read through the signed-in session."""
     d = profile_dir(url, source)
     return os.path.isdir(d) and bool(os.listdir(d))
 
 
-def forget(url: str, source: str = None) -> bool:
+def forget(url: str, source: str | None = None) -> bool:
     """Deletes this source's saved browser profile (sign-in included).
     Later imports go back to the ordinary, signed-out tiers."""
     from page_fetch_profile import ProfileBusy, profile_lock
@@ -79,7 +79,7 @@ def forget(url: str, source: str = None) -> bool:
         lock.release()
 
 
-def _default(source: str):
+def _default(source: str) -> SourceCapabilities | None:
     cls = registry.adapter_classes().get(source)
     return cls().capabilities() if cls else None
 
@@ -95,7 +95,7 @@ class LoginCheck:
     lines: list = field(default_factory=list)
 
 
-def manual_login(url: str, source: str = None, default=None, launcher=None,
+def manual_login(url: str, source: str | None = None, default=None, launcher=None,
                  fetch_with_profile=None) -> LoginCheck:
     """Item 2's flow, end to end. Blocks until the person closes the
     window. Raises TermsProhibited (nothing opened) for a restricted
@@ -108,7 +108,7 @@ def manual_login(url: str, source: str = None, default=None, launcher=None,
     return verify(url, source, default, launcher=launcher, fetch_with_profile=fetch_with_profile)
 
 
-def verify(url: str, source: str = None, default=None, launcher=None,
+def verify(url: str, source: str | None = None, default=None, launcher=None,
            fetch_with_profile=None) -> LoginCheck:
     """Reads `url` through the saved profile and says whether the target
     content is really visible to it. Nothing is extracted here."""
@@ -118,8 +118,9 @@ def verify(url: str, source: str = None, default=None, launcher=None,
     if fetch_with_profile is None:
         from page_fetch_profile import fetch_with_profile as _fetch
 
-        def fetch_with_profile(u, d):
+        def _fetch_with_launcher(u, d):
             return _fetch(u, d, launcher=launcher)
+        fetch_with_profile = _fetch_with_launcher
     tier = ladder.authenticated_tier(profile_dir(url, source), fetch_with_profile=fetch_with_profile)
     result = ladder.run_ladder(url, {AccessTier.AUTHENTICATED_BROWSER: tier}, source=source)
     ladder.record_ladder_result(source, result, default)

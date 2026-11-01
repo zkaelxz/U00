@@ -128,7 +128,7 @@ def _without_page_suffix(url: str) -> tuple:
     return _path_shape(f"{head}/{bare}" + (f"?{parts.query}" if parts.query else "")), bare != last
 
 
-def link_resemblance(link: str, current: str) -> tuple:
+def link_resemblance(link: str | None, current: str) -> tuple:
     """(score, reason): how much a next/previous link looks like another
     chapter of the same book, judged from URL structure alone."""
     if not link:
@@ -253,7 +253,7 @@ class PageModel:
         self.squashed = squash(self.text)
 
     def _build_blocks(self):
-        from bs4 import NavigableString, Tag
+        from bs4.element import NavigableString, Tag
         buf, state = [], {"owner": None, "link_chars": 0}
 
         def flush():
@@ -290,7 +290,8 @@ class PageModel:
 
     def _build_links(self):
         for a in self.soup.find_all("a", href=True):
-            href = (a.get("href") or "").strip()
+            href = a.get("href")
+            href = (href if isinstance(href, str) else "").strip()
             if not href or href.startswith(("javascript:", "#", "mailto:", "tel:")):
                 continue
             self.links.append(Link(id=f"L{len(self.links)}", text=a.get_text(" ", strip=True)[:80],
@@ -385,7 +386,7 @@ def engine_info(engine) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def chapter_num_str(title: str):
+def chapter_num_str(title: str | None):
     n = chapter_order.chapter_number(title or "") if title else None
     if n is None:
         return None

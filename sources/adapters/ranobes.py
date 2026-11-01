@@ -120,7 +120,7 @@ class RanobesSource(SourceAdapter):
     url_patterns = [r"ranobes\.net/(?:novels/\d+[^/\s]*\.html|[^/\s]+-\d+/\d+\.html)"]
     default_headers = {"Referer": BASE_URL + "/"}
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.base_url = base_url or BASE_URL
         self._series_pages = {}
@@ -148,6 +148,8 @@ class RanobesSource(SourceAdapter):
             if a is None:
                 continue
             href = a.get("href", "")
+            if not isinstance(href, str):
+                continue
             m = re.search(r"/novels/(\d+)[^/]*\.html", href)
             if not m or m.group(1) in seen:
                 continue
@@ -182,7 +184,8 @@ class RanobesSource(SourceAdapter):
         cover = ""
         fig = soup.select_one("figure.cover")
         if fig is not None:
-            m = _COVER_URL.search(fig.get("style", ""))
+            style = fig.get("style", "")
+            m = _COVER_URL.search(style) if isinstance(style, str) else None
             if m:
                 cover = urljoin(self.base_url, m.group(1).strip("'\""))
         return SeriesInfo(

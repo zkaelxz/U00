@@ -18,7 +18,7 @@ _UPDATABLE = frozenset({
 })
 
 
-def _row(r) -> dict:
+def _row(r) -> dict | None:
     return dict(r) if r is not None else None
 
 
@@ -31,7 +31,9 @@ def add(owner_user_id, pc_owner: bool, channel_url: str, channel_name: str, mode
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (owner_user_id, int(bool(pc_owner)), channel_url, channel_name, mode,
              int(bool(auto_check)), options, int(poll_minutes), time.time()))
-        return int(cur.lastrowid)
+        if cur.lastrowid is None:       # sqlite3 always sets it after an INSERT
+            raise RuntimeError("INSERT into followed_channels returned no row id")
+        return cur.lastrowid
 
 
 def get(follow_id: int):

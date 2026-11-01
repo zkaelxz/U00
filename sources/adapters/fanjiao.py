@@ -225,7 +225,8 @@ class FanjiaoSource(SourceAdapter):
         cover = _str(info.get("cover"))
         if not cover:
             img = soup.select_one(".titleimg img")
-            cover = (img.get("src") or "") if img is not None else ""
+            src = img.get("src") if img is not None else None
+            cover = src if isinstance(src, str) else ""
 
         cvs = self._cv_names(r, soup)
         if cvs:

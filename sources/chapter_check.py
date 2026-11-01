@@ -65,6 +65,8 @@ def check_series(adapter, row: dict) -> list:
         # the one request it made said "unchanged".
         store.mark_checked(source, series_id)
         return []
+    if chapters is None:
+        raise TypeError("NotModified was raised outside this poll's own request")
     known = store.known_chapter_ids(source, series_id)
     new = [c for c in chapters if c.chapter_id not in known]
     if new:
@@ -83,7 +85,7 @@ def check_series(adapter, row: dict) -> list:
     return new
 
 
-def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = False,
+def run_check_cycle(job_id: str | None = None, adapter_factory=None, scheduled: bool = False,
                     allow_browser: bool = True) -> dict:
     """One pass over every tracked series. `adapter_factory(name)` is
     injectable for tests; defaults to the registry.
@@ -224,7 +226,7 @@ def _save_new(adapter, row, new, summary):
                                            f"retried next check ({failed[0].get('error') or 'failed'})")
 
 
-def check_due(now: float = None) -> bool:
+def check_due(now: float | None = None) -> bool:
     hours = float(store.get_setting("check_interval_hours") or 0)
     if hours <= 0:
         return False

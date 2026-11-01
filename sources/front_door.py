@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from . import detect, generic_import, ladder, registry
 from .base import host_url_search
+from .ladder import LadderResult
 from .models import ContentType, SourceError
 
 VIDEO = "video"
@@ -40,14 +41,14 @@ class Preview:
     title: str = ""
     chapter: str = ""
     language: str = ""
-    chapter_count: int = None
-    adapter: str = None
-    series_id: str = None
-    chapter_id: str = None
-    image_count: int = None
-    text_length: int = None
+    chapter_count: int | None = None
+    adapter: str | None = None
+    series_id: str | None = None
+    chapter_id: str | None = None
+    image_count: int | None = None
+    text_length: int | None = None
     notes: list = field(default_factory=list)
-    ladder: object = None
+    ladder: LadderResult | None = None
     html: str = ""
     # The SourceError a registered adapter raised loading the page, if any.
     load_error: object = None

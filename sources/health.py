@@ -37,7 +37,7 @@ _CATEGORIES = {
 _CATEGORY_OF = {t: c for c, types in _CATEGORIES.items() for t in types}
 
 
-def category(error_type) -> str:
+def category(error_type) -> str | None:
     """blocked / site_down / page_missing / layout_changed / slow /
     needs_sign_in / domains_unreachable, "other" for any other error type,
     None for no error."""
@@ -46,7 +46,7 @@ def category(error_type) -> str:
     return _CATEGORY_OF.get(str(error_type), "other")
 
 
-def record_success(source: str, latency: float, now: float = None):
+def record_success(source: str, latency: float, now: float | None = None):
     now = time.time() if now is None else now
     try:
         with store.connect() as conn:
@@ -61,11 +61,14 @@ def record_success(source: str, latency: float, now: float = None):
         store.log_dropped("a source health record")
 
 
-def record_failure(source: str, error_type: str, error: str, now: float = None,
-                   base_backoff: float = None) -> dict:
+def record_failure(source: str, error_type: str, error: str, now: float | None = None,
+                   base_backoff: float | None = None) -> dict:
     now = time.time() if now is None else now
     if base_backoff is None:
-        base_backoff = float(store.get_setting("unavailable_backoff"))
+        setting = store.get_setting("unavailable_backoff")
+        if setting is None:
+            raise TypeError("unavailable_backoff has no stored value or default")
+        base_backoff = float(setting)
     current = get(source)
     failures = current["consecutive_failures"] + 1
     until = None
@@ -113,7 +116,7 @@ def recent_failures(limit: int = 20) -> list:
             for r in rows]
 
 
-def light(source: str, now: float = None) -> str:
+def light(source: str, now: float | None = None) -> str:
     h = get(source)
     now = time.time() if now is None else now
     if h["unavailable_until"] and h["unavailable_until"] > now:
@@ -125,7 +128,7 @@ def light(source: str, now: float = None) -> str:
     return GREEN
 
 
-def retry_after(source: str, now: float = None):
+def retry_after(source: str, now: float | None = None):
     """Seconds until this source may be tried again, or None if it may be
     tried now."""
     now = time.time() if now is None else now

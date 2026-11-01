@@ -88,7 +88,7 @@ def _claim_page_index(pages_dir: str, idx: int):
     return claim
 
 
-def add_page_images(drama_id: int, images, ids_out: list = None, chapter: dict = None) -> int:
+def add_page_images(drama_id: int, images, ids_out: list | None = None, chapter: dict | None = None) -> int:
     """`images`: iterable of (bytes, ext). Returns how many pages were
     added (and appends each new page's id to `ids_out` when given). Same
     files and rows as Scanlate's own upload path. `chapter`
@@ -577,7 +577,7 @@ def _import_page_chapter(adapter, source: str, ch, drama_id: int, state: dict, p
         return False
     page_ids = []
     try:
-        outcome = {"pages": add_page_images(
+        outcome: dict = {"pages": add_page_images(
             drama_id, images, ids_out=page_ids,
             chapter=comic_chapters.chapter_ref(ch.chapter_id, ch.title, source, ch.url))}
         if skipped:

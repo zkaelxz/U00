@@ -42,7 +42,7 @@ class FollowedPage:
     url: str            # the full URL: kept on the server only
     title: str
     text: str
-    tier: str = None
+    tier: str | None = None
     part: bool = False  # a later page of the chapter on the page before it
 
 
@@ -61,7 +61,7 @@ _PART_MARK = re.compile(
 _PAGE_QUERY_KEYS = ("page", "p", "pn", "pg")
 
 
-def chapter_heading(title: str) -> str:
+def chapter_heading(title: str | None) -> str:
     """A part's heading without its page marker, for the joined chapter."""
     return _PART_MARK.sub("", title or "").strip()
 
@@ -101,7 +101,7 @@ def _maybe_part(link_text: str, link: str, chapter_url: str) -> bool:
     return _said_page(link_text) or _is_part_url(link, chapter_url)
 
 
-def _own_heading(data: dict) -> str:
+def _own_heading(data: dict) -> str | None:
     """The chapter title the page shows, not one taken from its <title>,
     which also names the book and the site."""
     return data.get("chapter_title") if data.get("chapter_title_block") else ""
@@ -132,7 +132,7 @@ class FollowResult:
     report: ExtractionReport
     pages: list = field(default_factory=list)    # FollowedPage, the first included
     stop: str = ""                               # one of FOLLOW_STOPS
-    handoff: dict = None                         # a followed page's hand-off
+    handoff: dict | None = None                         # a followed page's hand-off
 
 
 def _follow_key(url: str) -> tuple:
