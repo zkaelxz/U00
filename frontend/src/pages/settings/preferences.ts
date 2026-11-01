@@ -22,6 +22,7 @@ export const OCR_LABELS: Record<string, string> = {
   manga_ocr: 'manga_ocr (Japanese)',
   paddle: 'PaddleOCR (Chinese, Korean)',
   paddle_vl_manga: 'PaddleOCR-VL for manga (Japanese)',
+  rapidocr: 'RapidOCR (Chinese, Japanese)',
   tesseract: 'Tesseract',
 }
 
