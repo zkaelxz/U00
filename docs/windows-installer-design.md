@@ -675,7 +675,11 @@ per-user.
   Windows accounts, they can use the library and its actions. The engine-key
   form is **off** unless the data folder's `.env` sets
   `BAIHE_API_ALLOW_KEY_WRITES=1`, for that reason (the launcher turns it on
-  by default). Per-account sign-in for this listener is **not built**.
+  by default). Setup's unticked-by-default task under the service, "Allow
+  saving API keys in Settings" (`service\keywrites`), writes that line
+  (postinstall.py `--key-writes on`); unticking it after a run that ticked
+  it removes the line, and a line added by hand is otherwise left alone.
+  Per-account sign-in for this listener is **not built**.
   **Accepted on the condition that only the owner uses this PC. If it has
   other Windows accounts, untick the service task (it is ticked by default
   for now).**
