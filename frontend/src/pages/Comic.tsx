@@ -377,7 +377,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     </ComicViewControl>
   )
 
-  const toggles = !phone && (
+  const toggles = !phone && !empty && (
     <div className="comic-toggles" role="group" aria-label="Show">
       <button
         type="button"

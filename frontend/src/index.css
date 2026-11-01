@@ -225,7 +225,9 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { scrollbar-gutter: stable; font-size: 93.75%; }
+html { font-size: 93.75%; }
+/* Keeps pages from shifting when a scrollbar appears, but only where a bar takes room: a phone-width window reserved 15px as a dead strip beside the page. */
+@media (min-width: 641px) { html { scrollbar-gutter: stable; } }
 /* Display preferences (src/display.ts). Overriding the tokens on html reaches PageShell's --page-* aliases and the dock's cap. */
 html[data-width='wide'] { --content-max: 1800px; }
 html[data-width='full'] { --content-max: none; --content-max-wide: none; }
@@ -441,6 +443,8 @@ dd { margin: 0; }
   border: 1px solid var(--border);
   background: var(--surface);
 }
+/* A banner that is a sentence: as a flex row its bold lead-in and the text after it become separate columns and the lead-in breaks mid-word. */
+.banner.banner-prose { display: block; }
 .error-banner { border-color: var(--bad); color: var(--bad); }
 /* A long message must not squeeze Dismiss into a one-letter column. */
 .error-banner > button.link { flex-shrink: 0; white-space: nowrap; align-self: flex-start; }

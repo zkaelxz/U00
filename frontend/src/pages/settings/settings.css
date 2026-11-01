@@ -17,6 +17,9 @@
 .settings-panel { display: grid; gap: var(--page-gap); min-width: 0; }
 .settings-panel[hidden], .settings-card[hidden], .settings-card:empty { display: none; }
 .settings-card { min-width: 0; scroll-margin-top: var(--space-4); }
+/* A closed card is one 44px summary row: the card's own padding plus the fold's padding left it about 60px taller than its row. */
+.settings-card > .card-fold { padding-block: var(--space-2); }
+.settings-card > .card-fold > details.section { padding-block: 0; }
 
 .settings-tabrow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .settings-tabrow > :first-child { flex: 1 1 auto; min-width: 0; }

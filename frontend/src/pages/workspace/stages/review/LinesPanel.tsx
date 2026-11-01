@@ -392,6 +392,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
                   lines={shown}
                   selected={active}
                   captionVersion={reloads}
+                  englishAbsent={!!counts && counts.all !== null && counts.all > 0 && counts.untranslated === counts.all}
                   panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
                   trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
                 />

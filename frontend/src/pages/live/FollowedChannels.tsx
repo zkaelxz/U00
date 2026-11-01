@@ -114,7 +114,9 @@ export function FollowedChannels({ liveOptions }: Props) {
   const checkAllReason = waiting ?? (changeable.length === 0 ? 'Follow a channel first.' : anyChecking ? 'Checking… wait for the current checks to finish.' : null)
   const addReasonShown = !!text.trim() && !!addReason
   // The same "wait" line would otherwise print twice.
-  const checkAllReasonShown = !!checkAllReason && !(addReasonShown && checkAllReason === addReason)
+  const emptyShown = !!list && !items.length && !loadError
+  // On an empty list the "No channels followed yet" line already says it, so "Follow a channel first." would repeat it.
+  const checkAllReasonShown = !!checkAllReason && !(addReasonShown && checkAllReason === addReason) && !(emptyShown && changeable.length === 0 && !waiting)
   const liveCount = items.filter((f) => f.live_now).length
   const summary = items.length
     ? `${items.length} channel${items.length === 1 ? '' : 's'}${liveCount ? ` · ${liveCount} live now` : ''}`
@@ -175,7 +177,7 @@ export function FollowedChannels({ liveOptions }: Props) {
         {error && <p className="error" role="alert">{error}</p>}
         {note && <p className="muted" role="status">{note}</p>}
         {loadError && <p className="error" role="alert">{loadError}</p>}
-        {list && !items.length && !loadError && (
+        {emptyShown && (
           <p className="muted">No channels followed yet. Paste a channel link or an @handle above.</p>
         )}
         {items.length > 0 && (
