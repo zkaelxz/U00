@@ -61,12 +61,12 @@ def save_translations_of_read(page_id: int, stored, translated) -> list:
 
 
 def save_read_bubbles(page_id: int, bubbles, newly_stored: bool, reused_rev: int) -> list:
-    """Stores a fresh read. A reused page was empty when checked, but the read
-    ran unlocked, so it is only replaced if nobody wrote since. Returns notes."""
+    """Stores a fresh read. The page was empty when checked, but the read ran
+    unlocked (and a new page is editable the moment it is stored), so it is
+    only replaced if nobody wrote since. Returns notes."""
     import db
-    if newly_stored:
-        db.save_bubbles(page_id, bubbles)
-    elif db.replace_bubbles_if_unchanged(page_id, [], bubbles, expected_rev=reused_rev) is None:
+    expected_rev = 0 if newly_stored else reused_rev
+    if db.replace_bubbles_if_unchanged(page_id, [], bubbles, expected_rev=expected_rev) is None:
         return [["warning", "the page changed meanwhile, so this read was not saved"]]
     return []
 

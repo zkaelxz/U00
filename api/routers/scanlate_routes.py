@@ -8,6 +8,12 @@ list and the original/typeset images.
 
 - GET  /dramas/{id}/config                  library.read
 - GET  /dramas/{id}/pages/{pid}             lines.read   (regions carry text)
+- PATCH /dramas/{id}/pages/{pid}/regions/{rid}  lines.edit (one text box, compare-and-set
+                                              on the page rev; 409 when stale)
+- POST /dramas/{id}/pages/{pid}/regions     lines.edit   (a new text box, same check)
+- DELETE /dramas/{id}/pages/{pid}/regions/{rid}?expected_rev=  lines.edit (same check)
+- POST /dramas/{id}/pages/{pid}/undo        lines.edit   (the page's latest box edit, add
+                                              or delete)
 - GET  /dramas/{id}/run-notes               library.read
 - POST /dramas/{id}/pages                   media.upload (admin only; away from the PC only
                                               while the remote-uploads switch is on)
@@ -20,7 +26,7 @@ upload's Content-Length is checked before the body is read (chunked bodies
 are refused) and the body stream itself is counted, like the cover upload.
 """
 
-from fastapi import APIRouter, Path, Request
+from fastapi import APIRouter, Path, Query, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
@@ -28,7 +34,8 @@ from api.auth import is_at_pc, require_engines_allowed, require_permission
 from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
-from api.schemas import error_responses
+from api.schemas import (ComicRegionCreateRequest, ComicRegionEditRequest,
+                         ComicRegionUndoRequest, error_responses)
 from lib.capped_request import read_capped_form
 from services import (model_readiness_service, page_import_limits, scanlate_pages_service,
                       scanlate_render_service, scanlate_run_service)
@@ -55,7 +62,59 @@ def get_page(drama_id: int = Path(ge=1, le=2**31 - 1), page_id: int = Path(ge=1,
     return scanlate_pages_service.get_page_detail(drama_id, page_id)
 
 
-@router.get("/dramas/{drama_id}/run-notes", dependencies=[require_permission("library.read")],
+_EDIT_ERRS = error_responses(404, 409, 422)
+
+
+# lines.edit like the comic viewer's other edits: a text box is the comic's
+# equivalent of a line's English. Re-rendering stays a job (POST .../render).
+@router.patch("/dramas/{drama_id}/pages/{page_id}/regions/{region_id}",
+              dependencies=[require_permission("lines.edit")],
+              response_model=ScanlatePageDetail, responses=_EDIT_ERRS,
+              summary="Change one text box (English, box, font, colour) if the page is still "
+                      "at expected_rev; 409 with the current rev otherwise")
+def patch_region(body: ComicRegionEditRequest, drama_id: int = Path(ge=1, le=2**31 - 1),
+                 page_id: int = Path(ge=1, le=2**31 - 1),
+                 region_id: int = Path(ge=1, le=2**31 - 1)):
+    expected = body.expected.model_dump(exclude_unset=True) if body.expected else None
+    return scanlate_pages_service.edit_region(
+        drama_id, page_id, region_id, body.changes.model_dump(exclude_unset=True),
+        body.expected_rev, expected)
+
+
+@router.post("/dramas/{drama_id}/pages/{page_id}/regions",
+             dependencies=[require_permission("lines.edit")],
+             response_model=ScanlatePageDetail, responses=_EDIT_ERRS,
+             summary="Add one text box inside the page if it is still at expected_rev; the "
+                     "new box is the last region in the answer")
+def post_region(body: ComicRegionCreateRequest, drama_id: int = Path(ge=1, le=2**31 - 1),
+                page_id: int = Path(ge=1, le=2**31 - 1)):
+    return scanlate_pages_service.create_region(
+        drama_id, page_id, body.region.model_dump(exclude_unset=True), body.expected_rev)
+
+
+# The rev is a query parameter: some clients and proxies drop a DELETE body.
+@router.delete("/dramas/{drama_id}/pages/{page_id}/regions/{region_id}",
+               dependencies=[require_permission("lines.edit")],
+               response_model=ScanlatePageDetail, responses=_EDIT_ERRS,
+               summary="Remove one text box if the page is still at expected_rev")
+def delete_region(drama_id: int = Path(ge=1, le=2**31 - 1),
+                  page_id: int = Path(ge=1, le=2**31 - 1),
+                  region_id: int = Path(ge=1, le=2**31 - 1),
+                  expected_rev: int = Query(ge=0, le=2**31 - 1)):
+    return scanlate_pages_service.delete_region(drama_id, page_id, region_id, expected_rev)
+
+
+@router.post("/dramas/{drama_id}/pages/{page_id}/undo",
+             dependencies=[require_permission("lines.edit")],
+             response_model=ScanlatePageDetail, responses=_EDIT_ERRS,
+             summary="Undo the page's latest text-box edit, new box or deletion if nothing "
+                     "else wrote the page since")
+def post_undo(body: ComicRegionUndoRequest, drama_id: int = Path(ge=1, le=2**31 - 1),
+              page_id: int = Path(ge=1, le=2**31 - 1)):
+    return scanlate_pages_service.undo_region_edit(drama_id, page_id, body.expected_rev)
+
+
+@router.get("/dramas/{drama_id}/run-notes",dependencies=[require_permission("library.read")],
             response_model=ScanlateRunNotes, responses=_ERRS,
             summary="Every page's notes from the last run (redacted, no paths)")
 def get_run_notes(drama_id: int = Path(ge=1, le=2**31 - 1)):

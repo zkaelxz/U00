@@ -49,3 +49,4 @@ from api.schemas.queue import *  # noqa: F401,F403
 from api.schemas.disk_usage import *  # noqa: F401,F403
 from api.schemas.series import *  # noqa: F401,F403
 from api.schemas.quick_video import *  # noqa: F401,F403
+from api.schemas.comic_editor import *  # noqa: F401,F403

@@ -137,6 +137,10 @@ def _import_file_ref(folder, value, subdir):
 
 
 def _sanitise_file_refs(table: str, row: dict, import_as):
+    if table == "pages":
+        # The edit history names bubble ids, and restored bubbles get new ones: an undo
+        # could land on a different box that happens to hold the same values.
+        row["edit_history"] = None
     if import_as is None:
         return
     for col, subdir in IMPORT_FILE_COLUMNS.get(table, {}).items():

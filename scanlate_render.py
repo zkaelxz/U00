@@ -298,8 +298,24 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     return image
 
 
+def chosen_color(box: dict):
+    """The region's hand-set text_color ("#rrggbb") as RGB, or None when it
+    has none (or a malformed one, which falls back to the automatic fill)."""
+    value = str(box.get("text_color") or "")
+    if len(value) == 7 and value[0] == "#":
+        try:
+            return tuple(int(value[i:i + 2], 16) for i in (1, 3, 5))
+        except ValueError:
+            return None
+    return None
+
+
 def _text_fill(pil_img, box: dict):
-    """White lettering on a dark balloon, black otherwise."""
+    """The hand-set colour if any; else white lettering on a dark balloon,
+    black otherwise."""
+    chosen = chosen_color(box)
+    if chosen is not None:
+        return chosen
     x, y = max(0, box["x"]), max(0, box["y"])
     roi = np.asarray(pil_img.crop((x, y, x + box["w"], y + box["h"])).convert("L"))
     if roi.size and background_is_dark(roi):
@@ -368,6 +384,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
         captions = [b for b in to_render if b.get("kind") == "caption"]
         to_render = [b for b in to_render if b.get("kind") != "caption"]
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
+        caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
+                          for b, s in zip(captions, caption_styles)]
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
         for b in to_render:

@@ -68,6 +68,8 @@ class ScanlateRegion(BaseModel):
     include_sfx: bool
     language: Optional[str] = None
     orientation: Optional[str] = None
+    # "#rrggbb" set in the editor; None lets the render choose.
+    text_color: Optional[str] = None
 
 
 class ScanlatePageDetail(BaseModel):
@@ -77,6 +79,9 @@ class ScanlatePageDetail(BaseModel):
     width: int
     height: int
     rev: int
+    # Editor edits that can be undone one after another (0 after a job or
+    # another writer changed the page since the latest one).
+    undo_depth: int = 0
     has_rendered: bool
     regions: List[ScanlateRegion]
     run_notes: List[ScanlateNote]
