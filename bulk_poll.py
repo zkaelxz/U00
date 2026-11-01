@@ -160,7 +160,8 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
 
 
 def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = None,
-                      cancel_check_cb=None, window_open=None) -> dict:
+                      cancel_check_cb=None, window_open=None,
+                      monthly_cap_usd: float | None = None) -> dict:
     """DeepSeek off-peak: translates the scheduled lines that still exist
     and whose English hasn't changed since scheduling, as a normal run,
     and finishes it as one (finish_translation_run). Stops at the next
@@ -200,7 +201,11 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
             inp, out, pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
         thinking=args.get("thinking"),
-        cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
+        cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent),
+        # An unattended run is the one nobody can stop, so the logged month
+        # spend (other runs included) is re-read before each batch.
+        month_cap_spent_cb=((lambda: db.get_month_spend() >= monthly_cap_usd)
+                            if monthly_cap_usd else None))
     finish_translation_run(did, lines, engine, job["engine"], args.get("style_preset", ""), terms,
                            errors, cancelled=bool(cancel_check_cb and cancel_check_cb()) or gate.closed, enforce_ids={ln.id for ln in lines})
     return {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
@@ -251,6 +256,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
                 return
             try:
                 summary = run_scheduled_job(bulk_job_id, engine, cost_cap_usd=cap,
+                                            monthly_cap_usd=monthly_cap_usd,
                                             cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
                                             window_open=lambda: is_deepseek_offpeak(now_fn()))
             except Exception as e:

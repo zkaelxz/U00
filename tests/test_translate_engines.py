@@ -3113,6 +3113,25 @@ class TestCostCap:
         assert engine.calls == 3
 
 
+class TestMonthCapReRead:
+    def _lines(self, n=6):
+        return [Line(idx=i, start=i, end=i + 1, zh=f"l{i}") for i in range(n)]
+
+    def test_another_runs_spend_stops_this_run_before_its_next_batch(self):
+        lines, engine, seen = self._lines(), _PricedEngine(), []
+        # Spent by a second run once this one has sent its first batch.
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine, {}, batch_size=2, month_cap_spent_cb=lambda: engine.calls >= 1,
+            cap_cb=seen.append)
+        assert engine.calls == 1
+        assert [ln.en for ln in lines][:2] == ["EN:l0", "EN:l1"] and not lines[2].en
+
+    def test_no_callback_runs_everything(self):
+        lines, engine = self._lines(), _PricedEngine()
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        assert engine.calls == 3
+
+
 class TestResolveCostCap:
     def test_no_caps_means_no_cap(self):
         assert engine_pricing.resolve_cost_cap(None, None, 5.0) == (None, None)

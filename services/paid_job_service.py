@@ -33,6 +33,9 @@ def _cap_spent(engine_name: str, engine):
     return spent
 
 
+paid_calls.set_default_cap_check_factory(_cap_spent)
+
+
 def require_cap_for_unattended(engine_name: str, gemini_free_tier: bool = False) -> None:
     """Refuses paid work started with nobody watching (a batch submit, an
     off-peak run, a bulk series) while no monthly cap is set."""

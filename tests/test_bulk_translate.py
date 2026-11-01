@@ -1323,6 +1323,24 @@ class TestSpokenLanguage:
         bulk_poll.run_scheduled_job(jid, Engine())
         assert contexts and all(contexts)
 
+    def test_offpeak_run_stops_when_the_month_spend_reaches_the_monthly_cap(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        jid = bulk_translate.schedule_offpeak_translation(
+            did, isolated_db.load_line_objects(did), "deepseek", "m", {"batch_size": 1})
+        calls = []
+
+        class Engine:
+            model = "m"
+
+            def translate_batch(self, zh_lines, context):
+                calls.append(zh_lines)
+                # Another run spends the rest of the month's cap meanwhile.
+                isolated_db.log_usage(None, "deepseek", "m", "other", 0, 0, 5.0)
+                return [f"EN:{z}" for z in zh_lines]
+
+        bulk_poll.run_scheduled_job(jid, Engine(), monthly_cap_usd=1.0)
+        assert len(calls) == 1
+
     def test_offpeak_run_keeps_english_typed_while_it_runs(self, isolated_db):
         did = _mixed_drama(isolated_db)
         jid = bulk_translate.schedule_offpeak_translation(did, isolated_db.load_line_objects(did),
