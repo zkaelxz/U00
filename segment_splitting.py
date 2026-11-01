@@ -230,11 +230,11 @@ def split_long_segments(segments, max_seconds: float = SPLIT_MAX_SECONDS,
 
         index = _WordIndex.build(text, seg.get("words")) if seg.get("words") else None
         if index:
-            def fits_words(i, j):
+            def fits_words(i, j, index=index):
                 return ((limit_s is None or index.seconds(i, j) <= limit_s)
                         and (limit_c is None or index.measure(i, j, rules) <= limit_c))
 
-            def fits_real(piece, at):
+            def fits_real(piece, at, index=index):
                 words = index.word_range(at, at + len(piece))
                 return estimated_fits(piece) if words is None else fits_words(*words)
 
@@ -563,8 +563,9 @@ def word_cut_times(index: "_WordIndex", spans, start: float, end: float) -> Opti
     """Cut times between consecutive (a, b) character spans of a line: each
     is the next piece's first word start. None unless every span holds whole
     words and the cuts increase strictly inside (start, end)."""
-    ranges = [index.word_range(a, b) for a, b in spans]
-    if any(r is None for r in ranges):
+    found = [index.word_range(a, b) for a, b in spans]
+    ranges = [r for r in found if r is not None]
+    if len(ranges) != len(found):
         return None
     cuts = [index.ts[i] for i, _j in ranges[1:]]
     if all(start < c < end for c in cuts) and all(x < y for x, y in zip(cuts, cuts[1:])):

@@ -106,6 +106,14 @@ def _spoken_end(seg: dict) -> float:
     return words[-1]["end"] if words else seg["end"]
 
 
+def _progress_reporter(progress_cb, resume: "_Resume", duration: float):
+    """progress_cb adapted to take a faster-whisper segment; None stays None.
+    resume.at is read per call because a retry restarts it."""
+    if not progress_cb:
+        return progress_cb
+    return lambda s: progress_cb(min((s.end + resume.at) / duration, 1.0) if duration else 0.0)
+
+
 class _Resume:
     """What a decode that continues after earlier units needs: where it starts, the segments
     already in hand, and the batching of its own new segments into units for on_unit."""
@@ -350,9 +358,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            hallucination_silence_sec: float = DEFAULT_HALLUCINATION_SILENCE_SEC,
                            repeat_guard: bool = False, sensitivity_preset: str = "normal",
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
-                           difficult_audio: bool = False, no_speech_threshold: float = None,
-                           log_prob_threshold: float = None, speech_pad_ms: int = None,
-                           on_notice=None, chinese_script: str = None, prompt_every_window: bool = True,
+                           difficult_audio: bool = False, no_speech_threshold: float | None = None,
+                           log_prob_threshold: float | None = None, speech_pad_ms: int | None = None,
+                           on_notice=None, chinese_script: str | None = None, prompt_every_window: bool = True,
                            resume_segments=None, on_unit=None):
     """
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
@@ -469,8 +477,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     def _collect(m, segments, info):
         duration = (getattr(info, "duration", None) or 0) + resume.at
         resume.restart()
-        result = _segment_dicts(segments, prompt_keys, progress_cb and (
-            lambda s: progress_cb(min((s.end + resume.at) / duration, 1.0) if duration else 0.0)),
+        result = _segment_dicts(segments, prompt_keys, _progress_reporter(progress_cb, resume, duration),
             on_kept=resume.keep if resume.on_unit and not fast_mode else None)
         result = resume.merged(result)
         settle_overlaps(result)
@@ -579,11 +586,12 @@ def _groq_segments(segments) -> list:
     for seg in segments:
         if not isinstance(seg, dict) or not isinstance(seg.get("text"), str):
             raise GroqTranscriptionError(shape)
-        raw = (seg.get("start"), seg.get("end"))
-        if not all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in raw):
+        raw_start, raw_end = seg.get("start"), seg.get("end")
+        if (not isinstance(raw_start, (int, float)) or isinstance(raw_start, bool)
+                or not isinstance(raw_end, (int, float)) or isinstance(raw_end, bool)):
             raise GroqTranscriptionError(shape)
         try:
-            start, end = float(raw[0]), float(raw[1])
+            start, end = float(raw_start), float(raw_end)
         except OverflowError:   # an integer too large for a float
             raise GroqTranscriptionError(shape) from None
         text = seg["text"].strip()

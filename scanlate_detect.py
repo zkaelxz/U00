@@ -7,6 +7,7 @@ to the database. Inpainting, rendering, OCR and the page pipeline live in scanla
 
 import os
 import time
+from typing import Literal, overload
 
 import numpy as np
 
@@ -45,8 +46,16 @@ def page_gray(image_path: str, image=None):
     return image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
 
-def detect_bubbles_cv(image_path: str, min_area_frac: float = None,
-                       max_area_frac: float = None, debug: bool = False, image=None):
+@overload
+def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
+                      max_area_frac: float | None = None, debug: Literal[False] = False,
+                      image=None) -> list: ...
+@overload
+def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
+                      max_area_frac: float | None = None, *, debug: Literal[True],
+                      image=None) -> tuple[list, list]: ...
+def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
+                       max_area_frac: float | None = None, debug: bool = False, image=None):
     """
     Heuristic speech-bubble detector for a typical comic page.
 
@@ -197,8 +206,8 @@ def _stands_out(gray, filled, x: int, y: int) -> bool:
     return float(roi[local > 0].mean()) - float(roi[ring].mean()) >= scanlate_tuning.CV_EMPTY_CONTRAST
 
 
-def inset_box_for_ocr(box: dict, frac: float = None, min_inset: int = None,
-                      max_inset: int = None) -> dict:
+def inset_box_for_ocr(box: dict, frac: float | None = None, min_inset: int | None = None,
+                      max_inset: int | None = None) -> dict:
     """
     Shrinks a detected bubble box slightly before it's cropped for OCR.
 
@@ -232,7 +241,7 @@ def inset_box_for_ocr(box: dict, frac: float = None, min_inset: int = None,
 _BUBBLE_ML_REPO = "ogkalu/comic-text-and-bubble-detector"
 
 
-def detect_bubbles_ml(image_path: str, confidence: float = None, hf_token: str = None,
+def detect_bubbles_ml(image_path: str, confidence: float | None = None, hf_token: str | None = None,
                       image=None):
     """
     Real trained bubble/text detector, as an upgrade over
@@ -284,7 +293,7 @@ def detect_bubbles_ml(image_path: str, confidence: float = None, hf_token: str =
         except Exception as exc:
             # detect_bubbles remembers only failures to load the model, never a
             # per-page inference error.
-            exc.ml_load_failure = True
+            setattr(exc, "ml_load_failure", True)
             raise
 
     model = globals()["_bubble_ml_model"]
@@ -368,7 +377,7 @@ def _contained_share(a: dict, b: dict) -> float:
 _LABEL_MERGE_PRIORITY = {"bubble": 0, "text_bubble": 1, "text_free": 1}
 
 
-def dedupe_overlapping_boxes(boxes: list, iou_threshold: float = None) -> list:
+def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) -> list:
     """
     Merges boxes that describe the SAME physical balloon detected under
     more than one class -- the shape detect_bubbles_ml()'s 3-class model

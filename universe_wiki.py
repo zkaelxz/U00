@@ -26,7 +26,7 @@ ENTRY_TYPES = {
 }
 
 
-def extract_wiki_entries(lines, engine, up_to_line_idx: int, drama_meta: dict = None,
+def extract_wiki_entries(lines, engine, up_to_line_idx: int, drama_meta: dict | None = None,
                           existing_entries=None, chunk_size: int = 150):
     """
     Reads lines[0 : up_to_line_idx+1] and extracts encyclopedia entries.
