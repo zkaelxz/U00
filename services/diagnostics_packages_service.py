@@ -55,7 +55,8 @@ def _install_commands(name: str) -> list:
     torchaudio on an NVIDIA PC never reaches here: the install plan refuses
     them (install_registry.unqueueable_reason) for the GPU PyTorch setup."""
     # Fresh snapshot: the plan the owner confirmed may be minutes old.
-    install = _pip("install", diagnostics.pip_install_name(name),
+    install = _pip("install", *(["--no-deps"] if name in install_registry.INSTALL_WITHOUT_DEPS else []),
+                   diagnostics.pip_install_name(name),
                    *dependency_updates.constraints_pip_args(default_project_root()))
     swap = install_registry.cv2_swap_names([name], pending_install.snapshot())
     if not swap:
