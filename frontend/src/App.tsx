@@ -152,7 +152,17 @@ function SignInOverlay({ configured }: { configured: boolean }) {
   const returnTo = `${window.location.pathname}${window.location.hash}`
 
   return (
-    <dialog ref={ref} className="signin-overlay" aria-labelledby="signin-overlay-title" onCancel={(e) => e.preventDefault()}>
+    // Escape twice closes a dialog in Chromium whatever onCancel says, so reopen it: the page beneath must stay hidden.
+    <dialog
+      ref={ref}
+      className="signin-overlay"
+      aria-labelledby="signin-overlay-title"
+      onCancel={(e) => e.preventDefault()}
+      onClose={(e) => {
+        const d = e.currentTarget
+        if (!d.open && typeof d.showModal === 'function') d.showModal()
+      }}
+    >
       <section className="panel login-card">
         <h2 id="signin-overlay-title">You've been signed out</h2>
         {configured ? (
