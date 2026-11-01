@@ -170,7 +170,7 @@ class MarumaruSource(SourceAdapter):
 
     def get_chapters(self, series_id: str):
         wid = _safe_id(series_id, "series id")
-        rows, total = [], None
+        rows = []
         for page in range(MAX_PAGES):
             data = self._api(f"/api/works/{wid}/episodes?page={page}&size={PAGE_SIZE}",
                              f"Loading chapters of {wid}")
@@ -178,7 +178,8 @@ class MarumaruSource(SourceAdapter):
             if not isinstance(items, list):
                 raise LayoutChanged("the chapter list")
             rows.extend(i for i in items if isinstance(i, dict))
-            total = data.get("total") if isinstance(data.get("total"), int) else len(rows)
+            reported = data.get("total")
+            total = reported if isinstance(reported, int) else len(rows)
             if not items or len(rows) >= total:
                 break
         if not rows:
