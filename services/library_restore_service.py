@@ -59,6 +59,14 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
     # services.jellyfin_service.SETTING.
     "jellyfin", settings_schema.BY_KEY["tesseract_cmd"].store_key,
     settings_schema.BY_KEY["lncrawl_cmd"].store_key,
+    # Folder and file paths the PC reads or writes (a network path would leak the
+    # Windows login), the web-search server, and the upload size cap.
+    # "comic_save" and "web_search" are sources_save_service.SETTING and
+    # web_search_service.SETTING.
+    "comic_save", "web_search",
+    settings_schema.BY_KEY["whisper_model_path"].store_key,
+    settings_schema.BY_KEY["cookies_file"].store_key,
+    settings_schema.BY_KEY["max_upload_mb"].store_key,
     "remote_uploads", "remote_uploads.on_at")
 
 
