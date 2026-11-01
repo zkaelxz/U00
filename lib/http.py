@@ -27,6 +27,7 @@ body themselves: see GuardedSession.
 
 Standard library plus `requests`.
 """
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -245,8 +246,21 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
             raise FetchError() from None
         from requests.structures import CaseInsensitiveDict  # callers coming from requests use .get("content-type")
         return Response(resp.status_code, CaseInsensitiveDict(resp.headers), body, current,
-                        getattr(resp, "encoding", None) or "utf-8")
+                        _charset(resp, body))
     raise FetchError()  # too many redirects
+
+
+_META_CHARSET = re.compile(rb'<meta[^>]+charset\s*=\s*["\']?\s*([\w-]+)', re.I)
+
+
+def _charset(resp, body: bytes) -> str:
+    """The page's charset. requests reports ISO-8859-1 for any text/* answer
+    without a charset in its header, which turns GBK/Big5/Shift-JIS pages that
+    name theirs only in a <meta> tag into mojibake."""
+    if "charset=" in (resp.headers.get("content-type") or "").lower():
+        return getattr(resp, "encoding", None) or "utf-8"
+    m = _META_CHARSET.search(body[:4096])
+    return m.group(1).decode("ascii") if m else "utf-8"
 
 
 def get(url: str, *, timeout: float | tuple[float, float], max_bytes: int, **kw) -> Response:

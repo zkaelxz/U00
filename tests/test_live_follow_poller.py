@@ -302,6 +302,30 @@ def _auto(env):
     return fid
 
 
+def test_auto_start_turned_off_during_the_check_starts_nothing(env, starts):
+    fid = _auto(env)
+
+    def switched_off_meanwhile():
+        live_follow_store.update(fid, mode="notify", auto_check=0)
+        return live()
+    env["answers"][fid] = switched_off_meanwhile
+    row = _check(fid)
+    assert starts == []
+    assert row["started_stream_id"] in (None, "")
+    assert "started Live automatically" not in row["last_status"]
+
+
+def test_a_follow_removed_during_the_check_is_gone_and_silent(env, starts):
+    fid = _auto(env)
+
+    def removed_meanwhile():
+        live_follow_store.delete(fid)
+        return live()
+    env["answers"][fid] = removed_meanwhile
+    assert poller.check_one(fid, now=NOW) == "gone"
+    assert starts == [] and env["sent"] == []
+
+
 def test_auto_start_starts_once_and_never_restarts_the_same_stream(env, starts):
     fid = _auto(env)
     row = _check(fid)
