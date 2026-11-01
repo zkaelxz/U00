@@ -119,6 +119,19 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
     if (selected && draft) setDraftState({ key: draftKey, value: { ...draft, ...patch } })
   }
 
+  // touch-action alone still lets the browser start a scroll gesture from a drag; its fling then
+  // swallows the next tap. React's touch handlers are passive, so cancel the drag natively.
+  const drawTool = tool === 'draw'
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!drawTool || !stage) return
+    const stop = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault()
+    }
+    stage.addEventListener('touchmove', stop, { passive: false })
+    return () => stage.removeEventListener('touchmove', stop)
+  }, [drawTool, detail])
+
   const run = async (op: (state: EditorState, api: EditorApi) => Promise<EditorState>): Promise<EditorState | null> => {
     if (!api || inFlight.current) return null
     inFlight.current = true
