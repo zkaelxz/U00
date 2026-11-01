@@ -67,7 +67,7 @@ def check_public_url(url) -> str:
     try:
         url_guard.resolve_public(text)
     except url_guard.URLResolveError:
-        raise DependencyUnavailableError(_NO_RESOLVE) from None
+        raise DependencyUnavailableError(_NO_RESOLVE, details={"reason": "address_unresolved"}) from None
     except url_guard.UnsafeURLError:
         raise InvalidInputError(_NOT_PUBLIC) from None
     return text
