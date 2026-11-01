@@ -217,9 +217,9 @@ function savesOnBlur(e: FocusEvent<HTMLLIElement>, editable: boolean): boolean {
   return !(next && e.currentTarget.contains(next) && next.matches('textarea, input, select'))
 }
 
-// Safari and iOS do not focus a pressed button, so relatedTarget would be empty and the
-// press would save before Cancel could warn; keeping focus in the box avoids the blur.
-const keepFocusInBox = (e: MouseEvent<HTMLButtonElement>) => e.preventDefault()
+// A pressed Save or Cancel keeps focus in the box: otherwise the blur saves first, so Save
+// sends a second request and Cancel never gets to warn (Safari and iOS give no relatedTarget).
+const keepFocusInBox = (e: MouseEvent<HTMLElement>) => e.preventDefault()
 
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
@@ -358,10 +358,10 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               rows={2}
             />
             {!isPhone && (
-              <div className="review-actions">
+              <div className="review-actions" onMouseDown={keepFocusInBox}>
                 <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
                 <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
-                <button type="button" className={buttonClass('ghost', 'sm', 'review-cancel')} onMouseDown={keepFocusInBox} onClick={actions.cancelEdit}>Cancel</button>
+                <button type="button" className={buttonClass('ghost', 'sm', 'review-cancel')} onClick={actions.cancelEdit}>Cancel</button>
                 {edit?.discardWarning ? (
                   <span className="review-keys" role="status">{DISCARD_WARNING}</span>
                 ) : (

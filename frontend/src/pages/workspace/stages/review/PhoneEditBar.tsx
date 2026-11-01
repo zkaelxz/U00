@@ -19,11 +19,11 @@ interface Props {
 // The phone action bar for the active line.
 export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCancel, onSave, onSaveAndNext, onPlay, onMove, onEdit }: Props) {
   return (
-    <div className="review-editbar" role="toolbar" aria-label="Line actions">
+    <div className="review-editbar" role="toolbar" aria-label="Line actions" onMouseDown={editing ? (e) => e.preventDefault() : undefined}>
       {editing ? (
         <>
           {discardWarning && <span role="status">{DISCARD_WARNING}</span>}
-          <button type="button" className={buttonClass('ghost', 'md', 'review-cancel')} onMouseDown={(e) => e.preventDefault()} onClick={onCancel}>Cancel</button>
+          <button type="button" className={buttonClass('ghost', 'md', 'review-cancel')} onClick={onCancel}>Cancel</button>
           <button type="button" className={buttonClass('secondary')} onClick={onSave}>Save</button>
           <button type="button" className={buttonClass('primary')} onClick={onSaveAndNext}>Save &amp; next</button>
         </>
