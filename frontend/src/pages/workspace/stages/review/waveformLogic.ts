@@ -72,7 +72,7 @@ export function visibleLines<T extends Pick<ReviewLine, 'start' | 'end'>>(lines:
   return lines.filter((l) => l.end > view.start && l.start < view.start + view.span)
 }
 
-interface EdgeBounds {
+export interface EdgeBounds {
   // The earliest and latest the edge may sit.
   min: number
   max: number
