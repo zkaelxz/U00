@@ -88,16 +88,19 @@ def build_episode_summary_prompt(lines) -> str:
     )
 
 
+def glossary_term_forms(term: dict) -> list:
+    """The source texts a glossary entry is looked for as: the term, then its aliases."""
+    aliases = [a.strip() for a in re.split(r"[|,，、]", term.get("aliases") or "") if a.strip()]
+    return [term.get("term_original", "")] + aliases
+
+
 def matching_glossary_terms(zh: str, glossary_terms) -> list:
     """Glossary entries whose source term (or a recorded alias)
     literally appears in zh -- the same "in play for this line" heuristic
     line_tools.explain_translation already used, factored out so the
     "what happened here?" view can show the same real, non-fabricated
     match set instead of re-deriving it differently."""
-    def _term_forms(t):
-        aliases = [a.strip() for a in re.split(r"[|,，、]", t.get("aliases") or "") if a.strip()]
-        return [t.get("term_original", "")] + aliases
-    return [t for t in (glossary_terms or []) if any(f and f in zh for f in _term_forms(t))]
+    return [t for t in (glossary_terms or []) if any(f and f in zh for f in glossary_term_forms(t))]
 
 
 def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None) -> str:

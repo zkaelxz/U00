@@ -66,7 +66,14 @@ TERM_POLICIES = {
 
 
 GLOSSARY_COLUMNS = ["term_original", "term_translation", "category", "policy",
-                    "enforce_exact", "notes"]
+                    "enforce_exact", "notes", "aliases", "banned_translations"]
+
+
+def _pipe_text(value) -> str:
+    """A cell's "a|b" text, or a JSON row's list, as the stored pipe-separated string."""
+    if isinstance(value, (list, tuple)):
+        value = "|".join(str(v).strip() for v in value if str(v).strip())
+    return str(value or "").strip()
 
 
 def parse_glossary_file(content: str, filename: str = ""):
@@ -152,6 +159,8 @@ def parse_glossary_file(content: str, filename: str = ""):
             "policy": pol or "keep_pinyin",
             "enforce_exact": enforce,
             "notes": (e.get("notes") or "").strip(),
+            "aliases": _pipe_text(e.get("aliases")),
+            "banned_translations": _pipe_text(e.get("banned_translations")),
         })
     return cleaned, warnings
 
@@ -169,5 +178,6 @@ def glossary_to_csv(terms) -> str:
             t.get("term_original", ""), t.get("term_translation", ""),
             t.get("category", ""), t.get("policy", ""),
             "yes" if t.get("enforce_exact") else "", t.get("notes", ""),
+            t.get("aliases") or "", t.get("banned_translations") or "",
         ])
     return buf.getvalue()
