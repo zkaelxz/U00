@@ -27,6 +27,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/assistant/settings` | local_only() |
 | `POST /api/assistant/settings` | local_only() |
 | `GET /api/assistant/tools` | local_only() |
+| `POST /api/auth/app/confirm` | public() |
+| `POST /api/auth/app/redeem` | public() |
+| `GET /api/auth/app/start` | public() |
 | `GET /api/auth/callback` | public() |
 | `GET /api/auth/device-tokens` | authenticated() |
 | `POST /api/auth/device-tokens` | extension.send |

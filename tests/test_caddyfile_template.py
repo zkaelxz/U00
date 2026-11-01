@@ -449,7 +449,8 @@ def test_sign_in_is_rate_limited(routes):
     zones = [z for z in limit["children"] if z["tokens"][0] == "zone"]
     paths = {p for z in zones for n in _walk(z) if n["tokens"][0] == "path"
              for p in n["tokens"][1:]}
-    assert paths == {"/api/auth/login", "/api/auth/callback"}
+    assert paths == {"/api/auth/login", "/api/auth/callback", "/api/auth/app/confirm",
+                     "/api/auth/app/redeem"}
     # A limit on a path the app doesn't serve guards nothing.
     assert paths <= {p for p, _methods, _decls in routes}
     for z in zones:

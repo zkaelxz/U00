@@ -213,7 +213,7 @@
 		rate_limit {
 			zone sign_in {
 				match {
-					path /api/auth/login /api/auth/callback
+					path /api/auth/login /api/auth/callback /api/auth/app/confirm /api/auth/app/redeem
 				}
 				key {remote_host}
 				events 60

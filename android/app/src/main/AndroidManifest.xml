@@ -23,6 +23,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <!-- Chrome's link back after signing the app in (AppSignIn). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="baihe-shell" android:host="signed-in" />
+            </intent-filter>
         </activity>
         <!-- Its own launcher entry: browse a comic site and send its pages to Baihe. -->
         <activity

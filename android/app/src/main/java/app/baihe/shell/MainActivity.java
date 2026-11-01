@@ -14,10 +14,14 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
 
+import java.security.SecureRandom;
+
 /** Shows Baihe in a full-screen WebView and routes shared links to its Sources page. */
 public class MainActivity extends Activity {
     private static final String PREFS = "baihe";
     private static final String ADDRESS = "address";
+    private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
+    private static final String SIGN_IN_STARTED = "sign_in_started";
 
     private WebView web;
 
@@ -35,7 +39,11 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                String address = prefs().getString(ADDRESS, null);
+                String address = savedAddress();
+                if (address != null && AppSignIn.isLoginStart(address, url)) {
+                    startSignIn(address);
+                    return true;
+                }
                 if (address != null && ServerAddress.sameOrigin(address, url)) return false;
                 String scheme = request.getUrl().getScheme();
                 if ("http".equals(scheme) || "https".equals(scheme)) {
@@ -66,9 +74,13 @@ public class MainActivity extends Activity {
     }
 
     private void open(Intent intent) {
-        String address = prefs().getString(ADDRESS, null);
+        String address = savedAddress();
         if (address == null) {
             askAddress(intent);
+            return;
+        }
+        if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
+            finishSignIn(address, intent.getDataString());
             return;
         }
         String link = Intent.ACTION_SEND.equals(intent.getAction())
@@ -95,6 +107,57 @@ public class MainActivity extends Activity {
                     open(intent);
                 })
                 .show();
+    }
+
+    /**
+     * The saved address, checked again: one saved by an older build may predate the
+     * http-only-on-private-hosts rule, so an address that no longer passes is forgotten
+     * and asked for again.
+     */
+    private String savedAddress() {
+        String saved = prefs().getString(ADDRESS, null);
+        if (saved == null) return null;
+        String checked = ServerAddress.shellAddress(saved);
+        if (checked == null) {
+            prefs().edit().remove(ADDRESS).apply();
+        } else if (!checked.equals(saved)) {
+            prefs().edit().putString(ADDRESS, checked).apply();
+        }
+        return checked;
+    }
+
+    private void startSignIn(String address) {
+        byte[] random = new byte[32];
+        new SecureRandom().nextBytes(random);
+        String verifier = AppSignIn.verifier(random);
+        prefs().edit()
+                .putString(SIGN_IN_VERIFIER, verifier)
+                .putLong(SIGN_IN_STARTED, System.currentTimeMillis())
+                .apply();
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(AppSignIn.startUrl(address, verifier))));
+        } catch (RuntimeException e) {
+            // No browser installed: sign-in can't happen, so stay on the current page.
+        }
+    }
+
+    /**
+     * Swaps the code on Chrome's link back for this app's own session. The verifier is
+     * spent whatever happens, and a link that arrives when no sign-in is waiting just
+     * opens Baihe, so a link from anywhere else can't sign the app in.
+     */
+    private void finishSignIn(String address, String link) {
+        SharedPreferences p = prefs();
+        String verifier = AppSignIn.pendingVerifier(
+                p.getString(SIGN_IN_VERIFIER, null), p.getLong(SIGN_IN_STARTED, 0),
+                System.currentTimeMillis());
+        p.edit().remove(SIGN_IN_VERIFIER).remove(SIGN_IN_STARTED).apply();
+        String code = AppSignIn.codeFrom(link);
+        if (verifier == null || code == null) {
+            web.loadUrl(address);
+            return;
+        }
+        web.postUrl(AppSignIn.redeemUrl(address), AppSignIn.redeemBody(code, verifier));
     }
 
     private SharedPreferences prefs() {

@@ -549,9 +549,11 @@ def _is_live(sess: dict, now: float) -> bool:
     return now < _expires_at(sess) and now - sess["last_seen_at"] < IDLE_TIMEOUT_SECONDS
 
 
-def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float | None = None) -> dict:
+def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float | None = None,
+                   label: str | None = None) -> dict:
     """Returns the raw session token and CSRF token exactly once. Of the
-    device, only a coarse label (device_label) and IP prefix are stored."""
+    device, only a coarse label (device_label, or the fixed `label` a
+    caller names) and IP prefix are stored."""
     row = _require_user(user_id)
     if not row["is_active"]:
         raise NotFoundError("User not found.")
@@ -559,7 +561,7 @@ def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float 
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_insert_session(
         _hash(token), user_id, now, now + ABSOLUTE_TIMEOUT_SECONDS,
-        device_label(user_agent), ip_prefix(ip), _hash(csrf))
+        label or device_label(user_agent), ip_prefix(ip), _hash(csrf))
     write_audit(user_id, "session.create", f"session {sid}")
     return {"session_token": token, "csrf_token": csrf, "session_id": sid,
             "expires_at": now + ABSOLUTE_TIMEOUT_SECONDS}
