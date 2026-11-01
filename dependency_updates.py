@@ -67,7 +67,7 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     return results
 
 
-def constraints_pip_args(project_root: str = None) -> list:
+def constraints_pip_args(project_root: str | None = None) -> list:
     """`["-c", <constraints.txt>]` when the file exists, else []. Every pip
     install that resolves dependencies passes this so a transitive pull
     can't cross a cap (e.g. av 19 breaking faster-whisper). Portable and
@@ -77,7 +77,7 @@ def constraints_pip_args(project_root: str = None) -> list:
     return ["-c", constraints_path] if os.path.exists(constraints_path) else []
 
 
-def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
+def upgrade_pip_args(pip_name: str, project_root: str | None = None) -> list:
     """pip args for `python -m pip install --upgrade <pip_name>`, adding
     constraints.txt's existing version caps (pyannote.audio<5,
     transformers<6, torch<3, faster-whisper<2, ...) via pip's
@@ -125,7 +125,7 @@ KNOWN_UPGRADE_LIMITATIONS = {
 }
 
 
-def _constraints_cap(pip_name: str, project_root: str = None):
+def _constraints_cap(pip_name: str, project_root: str | None = None):
     """The raw constraint line (e.g. "torch<3") capping `pip_name` in
     constraints.txt, or None if it isn't capped there. Matches on the
     package name before the operator, normalizing "_"/"-" the same way
@@ -210,8 +210,8 @@ def known_install_limitation_reason(pip_name: str) -> str:
     return f"known not to install on Python {py} -- {known['reason']}"
 
 
-def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
-                           project_root: str = None) -> str:
+def upgrade_blocked_reason(pip_name: str, latest_version: str | None = None,
+                           project_root: str | None = None) -> str:
     """None if a normal "Upgrade" should be offered for `pip_name`.
     Otherwise a short, plain-English reason the row should show INSTEAD
     of the button, so a known-doomed upgrade never just looks like a real
@@ -291,7 +291,7 @@ def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     return out
 
 
-def constraint_specifiers(project_root: str = None) -> dict:
+def constraint_specifiers(project_root: str | None = None) -> dict:
     """{canonical dist: (SpecifierSet, raw line)} from constraints.txt."""
     _v, specifiers, requirements = diagnostics._packaging()
     project_root = project_root or os.path.dirname(os.path.abspath(__file__))
@@ -422,7 +422,7 @@ REQUIREMENTS_FILES = ("requirements-core.txt", "requirements-media.txt",
                       "requirements-optional.txt")
 
 
-def required_min_versions(project_root: str = None) -> dict:
+def required_min_versions(project_root: str | None = None) -> dict:
     """{canonical dist: minimum version} from the requirements files'
     active `>=` lines (commented-out lines are skipped, as pip would)."""
     _v, _s, requirements = diagnostics._packaging()

@@ -159,7 +159,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
         return "failed"
 
 
-def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
+def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = None,
                       cancel_check_cb=None, window_open=None) -> dict:
     """DeepSeek off-peak: translates the scheduled lines that still exist
     and whose English hasn't changed since scheduling, as a normal run,

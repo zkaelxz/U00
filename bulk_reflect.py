@@ -95,8 +95,8 @@ def sibling_stage_job(pipeline_id: str, stage: str, skip_failed: bool = False):
 
 
 def submit_reflect_stage(drama_id: int, stage: str, provider, batches: list, engine_choice: str,
-                         model: str, pipeline_id: str, translate_args: dict = None,
-                         en_at_submit_by_id: dict = None, max_tokens: int = 4000) -> int:
+                         model: str, pipeline_id: str, translate_args: dict | None = None,
+                         en_at_submit_by_id: dict | None = None, max_tokens: int = 4000) -> int:
     """batches: [(id_zh_pairs, prompt_text), ...], id_zh_pairs = [(line_id,
     zh), ...] -- zh is carried alongside each id purely so this stage's
     own bulk_job_lines rows record a real zh_hash to compare against
@@ -423,7 +423,7 @@ def _leave_applying(job_id: int, status: str, **fields) -> str:
     return status
 
 
-def _fail_keeping_drafts(job: dict, message: str, summary: dict = None) -> str:
+def _fail_keeping_drafts(job: dict, message: str, summary: dict | None = None) -> str:
     if job.get("kind") == "reflect" and job.get("stage") in ("reflect", "expressive"):
         # Paid drafts survive an unusable batch, for its own lines only: an
         # earlier-written draft may since have been reverted.

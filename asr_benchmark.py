@@ -111,7 +111,7 @@ def report_payload(results: dict) -> dict:
     return {**results, "stages": stages}
 
 
-def run_benchmark(audio_path: str, language: str, transcript_path: str = None,
+def run_benchmark(audio_path: str, language: str, transcript_path: str | None = None,
                    whisper_size: str = "medium", qwen_model_size: str = "1.7B",
                    use_gpu: bool = False):
     import asr_backend

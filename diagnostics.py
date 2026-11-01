@@ -537,7 +537,7 @@ def scan_hf_cache(cache_dir: str | None = None) -> list:
     return sorted(entries, key=lambda e: -e["size_bytes"])
 
 
-def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
+def delete_hf_cache_revision(revision: str, cache_dir: str | None = None) -> bool:
     """Deletes one cached revision by its commit hash (a thin wrapper
     over huggingface_hub's own delete strategy, which handles the
     blob/symlink bookkeeping). False, not raised, if huggingface_hub
@@ -580,7 +580,7 @@ def model_folder(kind: str) -> str:
 MODEL_FOLDERS = ("torch", "audio_separator")
 
 
-def scan_model_folder(kind: str, folder: str = None) -> list:
+def scan_model_folder(kind: str, folder: str | None = None) -> list:
     """[{"name", "size_bytes"}, ...] for every file or folder directly in
     one of model_folder()'s folders, largest first (symlinks are skipped).
     [] if it doesn't exist yet -- never raises, like scan_hf_cache."""
@@ -603,7 +603,7 @@ def scan_model_folder(kind: str, folder: str = None) -> list:
         return []
 
 
-def delete_model_folder_entry(kind: str, name: str, folder: str = None) -> bool:
+def delete_model_folder_entry(kind: str, name: str, folder: str | None = None) -> bool:
     """Deletes one entry scan_model_folder lists: a plain name directly in
     that folder, never a path or a symlink. False, not raised, if it isn't
     there or the delete fails."""

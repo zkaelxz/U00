@@ -306,9 +306,9 @@ def _free_gpu_memory() -> None:
         pass
 
 
-def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_model: bool = False,
+def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, return_model: bool = False,
            return_embeddings: bool = False, use_gpu: bool = False,
-           min_speakers: int = None, max_speakers: int = None, run_info: dict = None,
+           min_speakers: int | None = None, max_speakers: int | None = None, run_info: dict | None = None,
            on_progress=None):
     """
     Returns a list of {"start": float, "end": float, "speaker": str}

@@ -406,7 +406,7 @@ def recommended_gpu_variant():
     return TORCH_RECOMMENDED_VARIANT_GPU, None
 
 
-def driver_check(driver_version, system: str = None,
+def driver_check(driver_version, system: str | None = None,
                  variant: str = TORCH_RECOMMENDED_VARIANT_GPU) -> dict:
     """{"status": "ok"|"old"|"too_old"|"unknown", "recommended", "minimum",
     "cuda"} for `variant`'s wheels (a CUDA one; the CPU one is judged as the
@@ -499,7 +499,7 @@ def torch_pin_lines() -> list:
     return lines
 
 
-def torch_setup_pip_args(variant: str, project_root: str = None) -> list:
+def torch_setup_pip_args(variant: str, project_root: str | None = None) -> list:
     """Two pip argument lists (after `install`) for the matched triple of
     `variant` (a TORCH_VARIANTS key): first `--force-reinstall --no-deps`
     of all three pinned together, so pip downloads every wheel before it

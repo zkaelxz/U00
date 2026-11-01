@@ -186,7 +186,7 @@ def _checkpoint_ok(path: str) -> bool:
         return False
 
 
-def sweep_interrupted_downloads(model_dir: str = None, model: str = None) -> int:
+def sweep_interrupted_downloads(model_dir: str | None = None, model: str | None = None) -> int:
     """Removes the markers of downloads whose process is gone, and the
     checkpoint beside each one only if it fails _checkpoint_ok. Markers of
     live downloads are left alone. Returns the number of files removed."""

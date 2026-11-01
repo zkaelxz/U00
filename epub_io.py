@@ -19,7 +19,7 @@ from novel_text import RUBY_READING_TAGS, is_chapter_heading
 IMG_TOKEN_RE = re.compile(r"\[\[IMG:([^\]]+)\]\]")
 
 
-def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: str = None) -> str:
+def import_epub_text(epub_path: str, chapter_range: tuple | None = None, images_dir: str | None = None) -> str:
     """Extracts plain text from an EPUB's chapters, in reading order,
     joined with blank lines between chapters. chapter_range: optional
     (start, end) 0-indexed chapter slice, for importing just part of a
@@ -115,7 +115,7 @@ def _chapter_title(heading, part: int, chapter_num: int, field: str) -> str:
 
 
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
-                 lines_per_chapter: int = 200, images_dir: str = None,
+                 lines_per_chapter: int = 200, images_dir: str | None = None,
                  source_language: str | None = None):
     """Exports translated (or original) lines as a proper .epub, split
     into chapters at the novel's own chapter headings, or into chapters of
