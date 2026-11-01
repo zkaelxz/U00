@@ -39,6 +39,7 @@ import { routeHref, useRoute } from './router'
 const AdminPage = lazy(() => import('./pages/Admin'))
 const AssistantPage = lazy(() => import('./pages/Assistant'))
 const ComicPage = lazy(() => import('./pages/Comic'))
+const ComicEditor = lazy(() => import('./pages/comic/ComicEditor'))
 const BenchmarkPage = lazy(() => import('./pages/Benchmark'))
 const DiagnosticsPage = lazy(() => import('./pages/Diagnostics'))
 const DiscoverPage = lazy(() => import('./pages/Discover'))
@@ -180,7 +181,7 @@ function skipToContent(e: React.MouseEvent) {
 
 // Routes that render inside PageShell; the rest (a title's workspace, the readers) manage their own layout and
 // are held to the 1200px column by .app-bounded.
-const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'manga-read'])
+const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'comic-edit', 'manga-read'])
 
 export default function App() {
   const route = useRoute()
@@ -250,6 +251,7 @@ export default function App() {
       {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
       {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
+      {route.name === 'comic-edit' && <ComicEditor key={route.id} id={route.id} page={route.page} />}
       {route.name === 'series' && <SeriesPage key={route.id} id={route.id} tab={route.tab} />}
       {route.name === 'manga' && <SavedMangaPage />}
       {route.name === 'manga-series' && (

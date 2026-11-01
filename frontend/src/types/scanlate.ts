@@ -85,3 +85,52 @@ export interface ScanlateJobStarted {
   engine?: string | null
   mode?: string | null
 }
+
+export interface ScanlateRegion {
+  id: number
+  idx: number
+  x: number
+  y: number
+  w: number
+  h: number
+  source_text: string
+  translated_text: string
+  font_size: number
+  font_category: string
+  kind: string
+  // "#rrggbb" set in the editor; null lets the render choose.
+  text_color: string | null
+}
+
+export interface ScanlatePageDetail {
+  id: number
+  drama_id: number
+  ordinal: number
+  width: number
+  height: number
+  rev: number
+  undo_depth: number
+  has_rendered: boolean
+  regions: ScanlateRegion[]
+}
+
+// The fields a box edit may change; only the ones present count.
+export type ScanlateRegionFields = Partial<
+  Pick<ScanlateRegion, 'translated_text' | 'x' | 'y' | 'w' | 'h' | 'font_size' | 'font_category' | 'kind' | 'text_color'>
+>
+
+export interface ScanlateRegionEdit {
+  expected_rev: number
+  expected?: ScanlateRegionFields
+  changes: ScanlateRegionFields
+}
+
+// A drawn box: only its rectangle; the server fills the rest (empty English, automatic colour).
+export interface ScanlateRegionCreate {
+  expected_rev: number
+  region: { x: number; y: number; w: number; h: number }
+}
+
+export const MAX_REGION_TEXT_CHARS = 2000
+export const MIN_FONT_SIZE = 6
+export const MAX_FONT_SIZE = 200

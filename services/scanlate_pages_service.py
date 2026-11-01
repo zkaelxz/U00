@@ -291,7 +291,7 @@ def list_run_notes(drama_id: int) -> dict:
 # --- Comic editor: one text box at a time ------------------------------------
 
 REGION_EDIT_FIELDS = ("translated_text", "x", "y", "w", "h", "font_size", "font_category",
-                      "text_color")
+                      "kind", "text_color")
 _NULLABLE_EDIT_FIELDS = ("text_color",)          # None = the render picks the colour
 _STALE = ("This page changed since you opened it (a job or another edit wrote it). "
           "Reload the page and make the change again.")
@@ -314,8 +314,21 @@ def _check_region_values(values: dict, label: str):
         if values["font_category"] not in scanlate_render.FONT_CATEGORIES:
             raise InvalidInputError("font_category must be one of "
                                     f"{', '.join(scanlate_render.FONT_CATEGORIES)}.")
+    if values.get("kind") is not None:
+        import scanlate_regions
+        if values["kind"] not in scanlate_regions.REGION_KINDS:
+            raise InvalidInputError("kind must be one of "
+                                    f"{', '.join(scanlate_regions.REGION_KINDS)}.")
     if values.get("text_color") is not None:
         values["text_color"] = values["text_color"].lower()
+
+
+def _include_chosen_sfx(values: dict):
+    # The render and the translate call skip an sfx box unless include_sfx is
+    # set, so a box the user turns into sfx would vanish from the page; picking
+    # the kind by hand is that per-box override.
+    if values.get("kind") == "sfx":
+        values["include_sfx"] = True
 
 
 def _check_inside_page(page: dict, box: dict):
@@ -344,8 +357,8 @@ def _raise_for_write(status: str, rev):
 
 def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
                 expected_rev: int, expected: dict = None) -> dict:
-    """Changes one text box (its English, box, font size and style, colour)
-    only if the page is still at `expected_rev` and, for each field in
+    """Changes one text box (its English, box, font size and style, kind,
+    colour) only if the page is still at `expected_rev` and, for each field in
     `expected`, the box still holds that value; 409 (details: reason
     "stale" and the current rev) otherwise, so a job that rewrote the page
     is never overwritten blind. The box must stay inside the page. The edit
@@ -357,6 +370,7 @@ def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
         raise InvalidInputError("Send at least one change.")
     _check_region_values(changes, "changes")
     _check_region_values(expected, "expected")
+    _include_chosen_sfx(changes)
     _require_rev(page, expected_rev)
     current = next((b for b in db.load_bubbles(page_id) if b["id"] == region_id), None)
     if current is None:
@@ -370,7 +384,7 @@ def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
 
 def create_region(drama_id: int, page_id: int, values: dict, expected_rev: int) -> dict:
     """Adds one text box the user drew (x, y, w, h inside the page; English,
-    font size and style and colour optional) at the end of the page's
+    font size and style, kind and colour optional) at the end of the page's
     reading order, under the same rev check and on the same undo list. 422
     once the page holds MAX_REGIONS_PER_PAGE boxes. Returns the page detail,
     whose last region is the new box."""
@@ -378,6 +392,7 @@ def create_region(drama_id: int, page_id: int, values: dict, expected_rev: int) 
     page = require_page(drama_id, page_id)
     values = dict(values or {})
     _check_region_values(values, "region")
+    _include_chosen_sfx(values)
     missing = [k for k in ("x", "y", "w", "h") if k not in values]
     if missing:
         raise InvalidInputError(f"region: {', '.join(missing)} required.")
