@@ -120,7 +120,7 @@ def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
 
 
 def replace_audio_with_dub_cmd(video_path: str, dub_audio_path: str, out_path: str,
-                               keep_original_at_db: float = None) -> list:
+                               keep_original_at_db: float | None = None) -> list:
     """The ffmpeg argument list the API's dubbed-video export job runs."""
     if keep_original_at_db is not None:
         return [

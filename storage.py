@@ -104,7 +104,7 @@ def _matching_files(drama_dir: str, cfg: dict) -> list:
     return out
 
 
-def format_bytes(n: int) -> str:
+def format_bytes(n: float) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if n < 1024:
             return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} B"
@@ -384,9 +384,11 @@ def record_job_child(job_id, pid: int) -> int:
 
 def _hold_owner_pid(path: str) -> int | None:
     text = _read_small_regular_file(os.path.join(path, HOLD_MARKER), limit=64)
+    if text is None:
+        return None
     try:
         pid = int(text.strip())
-    except (AttributeError, ValueError):
+    except ValueError:
         return None
     return pid if 0 < pid <= _MAX_PID else None
 
@@ -573,7 +575,7 @@ def _sweep_folder(root: str, accept, max_age: float, now: float, live: set,
     return out
 
 
-def sweep_library_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None,
+def sweep_library_temp(max_age: float = STALE_TEMP_SECONDS, now: float | None = None,
                        measure: bool = False) -> dict:
     """{"removed", "freed_bytes"} for <library>/tmp (see sweep_stale_temp).
     freed_bytes is only measured when `measure` is set: it costs a walk."""
@@ -585,8 +587,8 @@ def sweep_library_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None,
     return _sweep_folder(root, lambda name, path: True, max_age, now, live, measure)
 
 
-def sweep_legacy_system_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None,
-                             system_temp: str = None) -> int:
+def sweep_legacy_system_temp(max_age: float = STALE_TEMP_SECONDS, now: float | None = None,
+                             system_temp: str | None = None) -> int:
     """Removes stale folders Baihe left in the system temp folder
     (SYSTEM_TEMP_PREFIXES, folders only). Nothing else there is touched."""
     now = time.time() if now is None else now
@@ -596,7 +598,7 @@ def sweep_legacy_system_temp(max_age: float = STALE_TEMP_SECONDS, now: float = N
         max_age, now, set(), False)["removed"]
 
 
-def sweep_stale_temp(max_age: float = STALE_TEMP_SECONDS, now: float = None) -> int:
+def sweep_stale_temp(max_age: float = STALE_TEMP_SECONDS, now: float | None = None) -> int:
     """Startup sweep of the library temp folder: entries older than
     `max_age` whose owning job is not queued or running. Links (symlinks,
     junctions) are left alone and never followed. Besides the temp folder it

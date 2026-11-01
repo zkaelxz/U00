@@ -77,8 +77,8 @@ def export_vocab_apkg(vocab_rows, deck_name: str, out_path: str):
 
 
 def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
-                                audio_path: str | None = None, clip_timeout: float = None,
-                                audio_budget_seconds: float = None, report: dict = None):
+                                audio_path: str | None = None, clip_timeout: float | None = None,
+                                audio_budget_seconds: float | None = None, report: dict | None = None):
     """Requires `pip install genanki`. Richer companion to
     export_vocab_apkg(): one card per vocab row, front = the full source
     sentence the word was looked up in (plus an embedded audio clip of

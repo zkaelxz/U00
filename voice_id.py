@@ -31,7 +31,7 @@ def cosine_similarity(a: list, b: list) -> float:
 
 
 def suggest_speaker_matches(embeddings_by_speaker: dict, series_characters: list,
-                            already_named: set = None, dismissed: set = None,
+                            already_named: set | None = None, dismissed: set | None = None,
                             threshold: float = DEFAULT_THRESHOLD) -> list:
     """One suggestion per speaker that isn't already named and has a
     candidate above threshold: its single BEST-matching series character,

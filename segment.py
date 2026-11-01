@@ -24,6 +24,7 @@ reading order, ready to render as ruby text. segment_words() is the same
 segmentation without the readings (word boundaries only).
 """
 import re
+from typing import Any
 
 from subtitle_formats import NO_LINE_START
 
@@ -80,6 +81,7 @@ def _cut_traditional(text: str):
     (jieba's own dictionary); the actual words returned are sliced from the
     ORIGINAL Traditional text, not the converted one -- so the reading
     order's characters are always exactly what was in the source."""
+    jieba = _load_jieba()
     simplified = opencc_t2s().convert(text)
     if len(simplified) != len(text):
         # OpenCC's t2s is character-count-preserving for the overwhelming
@@ -88,8 +90,8 @@ def _cut_traditional(text: str):
         # -- fall back to segmenting the original directly rather than risk
         # a bad slice. Still degraded (jieba doesn't know these words), but
         # not actively wrong.
-        return list(_jieba.cut(text))
-    lengths = [len(w) for w in _jieba.cut(simplified)]
+        return list(jieba.cut(text))
+    lengths = [len(w) for w in jieba.cut(simplified)]
     words, pos = [], 0
     for length in lengths:
         words.append(text[pos:pos + length])
@@ -183,19 +185,21 @@ def line_break_tiers(text: str, language: str, chinese_script: str = "simplified
     return tiers or None
 
 
-def _load_jieba():
+def _load_jieba() -> Any:
     global _jieba
     if _jieba is None:
         import jieba
         _jieba = jieba
+    return _jieba
 
 
-def _load_sudachi():
+def _load_sudachi() -> Any:
     global _sudachi_tokenizer
     if _sudachi_tokenizer is None:
         from sudachipy import tokenizer, dictionary
         _sudachi_tokenizer = dictionary.Dictionary().create()
         globals()["_sudachi_mode"] = tokenizer.Tokenizer.SplitMode.B
+    return _sudachi_tokenizer
 
 
 @_per_chunk
@@ -209,17 +213,17 @@ def segment_words(text: str, language: str, chinese_script: str = "simplified"):
     if language == "ko":
         return [w for w in re.split(r"(\s+)", text) if w]
     if language == "ja":
-        _load_sudachi()
-        return [m.surface() for m in _sudachi_tokenizer.tokenize(text, globals()["_sudachi_mode"])]
-    _load_jieba()
-    return _cut_traditional(text) if chinese_script == "traditional" else list(_jieba.cut(text))
+        sudachi = _load_sudachi()
+        return [m.surface() for m in sudachi.tokenize(text, globals()["_sudachi_mode"])]
+    jieba = _load_jieba()
+    return _cut_traditional(text) if chinese_script == "traditional" else list(jieba.cut(text))
 
 
 @_per_chunk
 def segment_zh(text: str, chinese_script: str = "simplified"):
-    _load_jieba()
+    jieba = _load_jieba()
     from pypinyin import pinyin, Style
-    words = _cut_traditional(text) if chinese_script == "traditional" else list(_jieba.cut(text))
+    words = _cut_traditional(text) if chinese_script == "traditional" else list(jieba.cut(text))
     out = []
     for w in words:
         if not w.strip():
@@ -233,13 +237,13 @@ def segment_zh(text: str, chinese_script: str = "simplified"):
 @_per_chunk
 def segment_ja(text: str):
     global _kakasi
-    _load_sudachi()
+    sudachi = _load_sudachi()
     if _kakasi is None:
         import pykakasi
         _kakasi = pykakasi.kakasi()
 
     out = []
-    for m in _sudachi_tokenizer.tokenize(text, globals()["_sudachi_mode"]):
+    for m in sudachi.tokenize(text, globals()["_sudachi_mode"]):
         surface = m.surface()
         if not surface.strip():
             out.append((surface, None))
