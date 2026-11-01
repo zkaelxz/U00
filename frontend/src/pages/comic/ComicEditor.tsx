@@ -16,17 +16,13 @@ import { useJob } from '../../hooks/useJob'
 import { routeHref } from '../../router'
 import type { ComicPagesResponse } from '../../types/comic'
 import { isActiveStatus } from '../../types/jobs'
-import { MAX_REGION_TEXT_CHARS, type ScanlateRegion } from '../../types/scanlate'
+import type { ScanlateRegion } from '../../types/scanlate'
 import { chapterLabel } from './chapterLogic'
 import { drawnBox, moveBox, resizeBox, sameBox, screenToPage, type Box, type Corner } from './editorGeometry'
-import { applyEdit, createBox, deleteBox, draftFields, draftOf, draftValid, undoEdit, type Draft, type EditorApi, type EditorState } from './editorState'
+import { applyEdit, createBox, deleteBox, draftFields, draftOf, undoEdit, type Draft, type EditorApi, type EditorState } from './editorState'
+import { EditorPanel } from './EditorPanel'
 import './comicEditor.css'
 
-// Values the server's font_category accepts (scanlate_render.FONT_CATEGORIES); shown as stored.
-const FONTS = ['regular', 'bold', 'handwritten']
-// Values the server's kind accepts (scanlate_regions.REGION_KINDS); shown as stored.
-const KINDS = ['bubble', 'thought', 'narration', 'caption', 'sign', 'sfx']
-const SWATCHES = ['#111111', '#ffffff', '#b3261e']
 const CORNERS: Corner[] = ['nw', 'ne', 'sw', 'se']
 
 interface Drag {
@@ -367,77 +363,15 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
           )}
         </div>
         {selected && draft && (
-          <aside className="ce-panel" aria-label={`Text box ${regions.indexOf(selected) + 1}`}>
-            <h2 className="ce-panel-title">{`Text box ${regions.indexOf(selected) + 1}`}</h2>
-            <label className="ce-field">
-              <span>English</span>
-              <textarea
-                rows={3}
-                maxLength={MAX_REGION_TEXT_CHARS}
-                value={draft.text}
-                onChange={(e) => setDraft({ text: e.target.value })}
-              />
-            </label>
-            <label className="ce-field">
-              <span>Original</span>
-              <textarea rows={2} readOnly value={selected.source_text} />
-            </label>
-            <div className="ce-row">
-              <label className="ce-field">
-                <span>Font</span>
-                <select value={draft.fontCategory} onChange={(e) => setDraft({ fontCategory: e.target.value })}>
-                  {(FONTS.includes(draft.fontCategory) ? FONTS : [draft.fontCategory, ...FONTS]).map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="ce-field">
-                <span>Kind</span>
-                <select value={draft.kind} onChange={(e) => setDraft({ kind: e.target.value })}>
-                  {(KINDS.includes(draft.kind) ? KINDS : [draft.kind, ...KINDS]).map((k) => (
-                    <option key={k} value={k}>
-                      {k}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="ce-field ce-size">
-                <span>Size</span>
-                <input type="number" inputMode="numeric" min={6} max={200} value={draft.size} onChange={(e) => setDraft({ size: e.target.value })} />
-              </label>
-            </div>
-            <div className="ce-field">
-              <span id="ce-colour">Colour</span>
-              <div className="ce-swatches" role="group" aria-labelledby="ce-colour">
-                {SWATCHES.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    className="ce-swatch"
-                    style={{ background: c }}
-                    aria-label={c}
-                    aria-pressed={draft.color?.toLowerCase() === c}
-                    onClick={() => setDraft({ color: c })}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="ce-row ce-apply">
-              <button type="button" className={buttonClass()} disabled={busy} onClick={() => remove(selected.id)}>
-                Delete box
-              </button>
-              <button
-                type="button"
-                className={buttonClass('primary')}
-                disabled={busy || !draftValid(draft)}
-                onClick={() => run((state, a) => applyEdit(state, a, selected.id, draftFields(draft)))}
-              >
-                Apply
-              </button>
-            </div>
-          </aside>
+          <EditorPanel
+            number={regions.indexOf(selected) + 1}
+            source={selected.source_text}
+            draft={draft}
+            busy={busy}
+            setDraft={setDraft}
+            onDelete={() => remove(selected.id)}
+            onApply={() => run((state, a) => applyEdit(state, a, selected.id, draftFields(draft)))}
+          />
         )}
       </div>
     </div>

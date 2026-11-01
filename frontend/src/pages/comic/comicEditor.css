@@ -1,6 +1,6 @@
 .ce { display: grid; gap: var(--space-3); padding: var(--space-3) 16px; min-width: 0; }
 .ce-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.ce-title { margin: 0; font-size: 1.1rem; }
+.ce-title { margin: 0; font-size: var(--text-lg); }
 .ce-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 /* The shared disabled colour (--muted on a faint tint) blends into the frosted dark background; dashed edge and no hover keep it from reading as enabled. */
 .ce .btn:disabled:not(.btn-primary) { color: color-mix(in srgb, var(--text) 62%, var(--bg)); border-style: dashed; border-color: color-mix(in srgb, var(--text) 40%, var(--bg)); }
@@ -24,9 +24,9 @@
 .ce-handle-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
 .ce-handle-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
 .ce-panel { display: grid; gap: var(--space-3); padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
-.ce-panel-title { margin: 0; font-size: 1rem; }
-.ce-field { display: grid; gap: 4px; min-width: 0; font-size: 0.85rem; color: var(--muted); }
-.ce-field textarea, .ce-field select, .ce-field input { width: 100%; box-sizing: border-box; font-size: 1rem; }
+.ce-panel-title { margin: 0; font-size: var(--text-md); }
+.ce-field { display: grid; gap: 4px; min-width: 0; font-size: var(--text-sm); color: var(--muted); }
+.ce-field textarea, .ce-field select, .ce-field input { width: 100%; box-sizing: border-box; font-size: var(--text-md); }
 .ce-row { display: flex; gap: var(--space-2); align-items: end; }
 .ce-row .ce-field { flex: 1; }
 .ce-row .ce-size { flex: 0 0 5rem; }
