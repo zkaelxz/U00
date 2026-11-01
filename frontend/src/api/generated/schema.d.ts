@@ -7958,6 +7958,23 @@ export interface paths {
         patch: operations["patch_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__patch"];
         trace?: never;
     };
+    "/api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read one text box again and translate it again (mode both), or translate its current source text again (mode translate), then re-render the page */
+        post: operations["post_region_redo_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__redo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scanlate/dramas/{drama_id}/pages/{page_id}/undo": {
         parameters: {
             query?: never;
@@ -8226,6 +8243,40 @@ export interface paths {
         put?: never;
         /** Rename a series (409 if another series has that name, ignoring case) */
         post: operations["rename_series_api_series__series_id__rename_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/{series_id}/translation-memory.tmx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download the series' translation memory as a TMX file */
+        get: operations["export_tmx_api_series__series_id__translation_memory_tmx_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/{series_id}/translation-memory/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add translation-memory pairs from a TMX file; sources already stored are kept */
+        post: operations["import_tmx_api_series__series_id__translation_memory_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -23754,6 +23805,19 @@ export interface components {
             /** Y */
             y: number;
         };
+        /** ScanlateRegionRedoRequest */
+        ScanlateRegionRedoRequest: {
+            /** Engine */
+            engine?: string | null;
+            /** Expected Rev */
+            expected_rev: number;
+            /**
+             * Mode
+             * @default both
+             * @enum {string}
+             */
+            mode: "both" | "translate";
+        };
         /** ScanlateRenderRequest */
         ScanlateRenderRequest: {
             /** Page Id */
@@ -24198,6 +24262,18 @@ export interface components {
              * @default 0
              */
             translated_count: number;
+        };
+        /** SeriesTmxImportResult */
+        SeriesTmxImportResult: {
+            /** Added */
+            added: number;
+            /** Series Id */
+            series_id: number;
+            /**
+             * Skipped
+             * @description Sources the series already had; their stored translation is kept.
+             */
+            skipped: number;
         };
         /** SetPrivateRequest */
         SetPrivateRequest: {
@@ -52174,6 +52250,61 @@ export interface operations {
             };
         };
     };
+    post_region_redo_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__redo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+                region_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanlateRegionRedoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanlatePageDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_undo_api_scanlate_dramas__drama_id__pages__page_id__undo_post: {
         parameters: {
             query?: never;
@@ -53127,6 +53258,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesRenameResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    export_tmx_api_series__series_id__translation_memory_tmx_get: {
+        parameters: {
+            query?: {
+                source_language?: "zh" | "ja" | "ko";
+            };
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/x-tmx+xml": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    import_tmx_api_series__series_id__translation_memory_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The TMX file's text. */
+                    tmx: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesTmxImportResult"];
                 };
             };
             /** @description Forbidden */

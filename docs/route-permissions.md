@@ -516,6 +516,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions` | lines.edit |
 | `DELETE /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}` | lines.edit |
 | `PATCH /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}` | lines.edit |
+| `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo` | jobs.start |
 | `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/undo` | lines.edit |
 | `GET /api/scanlate/dramas/{drama_id}/progress` | library.read |
 | `POST /api/scanlate/dramas/{drama_id}/progress` | lines.edit |
@@ -534,6 +535,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/series/{series_id}/delete` | local_only() |
 | `GET /api/series/{series_id}/delete-preview` | library.read |
 | `POST /api/series/{series_id}/rename` | lines.edit |
+| `GET /api/series/{series_id}/translation-memory.tmx` | library.read |
+| `POST /api/series/{series_id}/translation-memory/import` | lines.edit |
 | `GET /api/settings` | admin.settings |
 | `POST /api/settings` | local_only() |
 | `GET /api/settings/asr-options` | admin.settings |
