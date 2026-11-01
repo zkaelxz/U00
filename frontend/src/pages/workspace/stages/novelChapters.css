@@ -23,3 +23,8 @@
 .chapters-nav button, .chapters-nav select { min-height: 44px; min-width: 44px; }
 .chapters-preview .source-subhead { overflow-wrap: anywhere; }
 a.chapters-row { text-decoration: none; box-sizing: border-box; }
+
+/* The Episodes list of the Simple title view: title left, state right, every episode in view. */
+.episodes-list { max-height: none; }
+.episodes-row { grid-template-columns: minmax(0, 1fr) auto; }
+.episodes-row .chapters-meta { grid-column: auto; text-align: right; }

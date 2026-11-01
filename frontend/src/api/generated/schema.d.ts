@@ -24049,6 +24049,11 @@ export interface components {
             title_en?: string | null;
             /** Title Zh */
             title_zh?: string | null;
+            /**
+             * Translated Count
+             * @default 0
+             */
+            translated_count: number;
         };
         /** SetPrivateRequest */
         SetPrivateRequest: {

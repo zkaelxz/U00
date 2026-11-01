@@ -21,6 +21,7 @@ interface SeriesTitle {
   episode_number: number | null
   release_date: string | null
   line_count: number
+  translated_count: number
 }
 
 export interface SeriesPageData {
