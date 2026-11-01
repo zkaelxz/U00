@@ -509,7 +509,9 @@ def _create_line_ref_indexes():
     conn = db.get_conn()
     try:
         for table in db._LINE_REF_TABLES_WITH_LINE_ID:
-            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_line ON {table}(line_id)")
+            # A table still without the column was left for the next start's migration.
+            if "line_id" in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_line ON {table}(line_id)")
         conn.commit()
     finally:
         conn.close()
