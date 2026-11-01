@@ -6,7 +6,7 @@ grammar) live in services/line_ai_service.py.
 
   - shorten_overlong(): "Auto-shorten overlong lines with LLM":
     lines the pacing check calls too long for their time slot are
-    rewritten more concisely by `translate_engines.rewrite_for_pacing_llm`
+    rewritten more concisely by `llm_tasks.rewrite_for_pacing_llm`
     (id-keyed, never matched back by position). Writes ONLY `en`, one
     compare-and-set UPDATE per line against the text the model was shown,
     so a line edited while the model ran is skipped as stale rather than
@@ -18,11 +18,11 @@ grammar) live in services/line_ai_service.py.
 """
 import db
 import review_thresholds
-import translate_engines
+from engine_backends import llm_tasks
 from engine_backends import paid_calls
 from core import Line
 from services import drama_service, line_ai_service, lines_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 MAX_SHORTEN_LINES = 60
 MAX_SHORTEN_IDS = 1000
@@ -32,7 +32,7 @@ SHORTEN_SNAPSHOT_LABEL = "before auto-shorten"
 def _too_long_lines(lines, drama) -> list:
     # Same thresholds as the Review page's pacing list, so the count it shows
     # is the set this rewrites.
-    found = translate_engines.smart_segment_lines(
+    found = llm_tasks.smart_segment_lines(
         lines, **review_thresholds.thresholds_for(drama).pacing_kwargs())
     too_long = {f["idx"] for f in found
                 if f["issue"] == "too_long_for_slot"}
@@ -115,7 +115,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     before = {ln.id: ln.en for ln in targets}
     work = [Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, en=ln.en, id=ln.id)
             for ln in targets]
-    line_ai_service.run(lambda: translate_engines.rewrite_for_pacing_llm(
+    line_ai_service.run(lambda: llm_tasks.rewrite_for_pacing_llm(
         work, engine, usage_cb=usage))
 
     changed = [w for w in work if (w.en or "").strip() and w.en.strip() != before[w.id].strip()]

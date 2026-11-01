@@ -7,12 +7,13 @@ import pytest
 pytest.importorskip("fastapi")
 
 import db
-import translate_engines
+from engine_backends import local
+from engine_backends import translate_pipeline as engine_translate_pipeline
 from core import Line
 from engine_backends import glossary_check
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
                       settings_service, translate_run_service)
-from services.service_errors import ServiceError, UnsupportedOperationError
+from lib.errors import ServiceError, UnsupportedOperationError
 from tests import fake_engine
 from tests.job_helpers import wait_for_job
 
@@ -22,7 +23,7 @@ ERRORS = [{"batch_index": 0, "lines": [0, 2],
 
 @pytest.fixture(autouse=True)
 def _clean_jobs(monkeypatch):
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+    monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
 
 
 def _title(en=("older 0", "ok 1", "older 2", ""), errors=ERRORS, legacy=False, **drama):
@@ -243,7 +244,7 @@ def test_a_failed_batch_records_line_ids_next_to_indexes(isolated_db):
         def translate_batch(self, zh, context):
             raise ValueError("boom")
     lines = [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", id=50 + i) for i in range(2)]
-    _, errors = translate_engines.translate_lines_with_engine(
+    _, errors = engine_translate_pipeline.translate_lines_with_engine(
         lines, Broken(), drama_meta={"source_language": "zh"}, context_window=0, context_window_ahead=0)
     assert errors[0]["lines"] == [0, 1] and errors[0]["line_ids"] == [50, 51]
 

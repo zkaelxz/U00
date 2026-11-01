@@ -42,7 +42,7 @@ from api.schemas import (GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          NovelGlossaryStatus, error_responses)
 from services import (export_service, glossary_name_report_service, glossary_service,
                       glossary_spelling_service, glossary_variants_service)
-from services.service_errors import ForbiddenError, InvalidInputError
+from lib.errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/glossary", tags=["glossary"])
 

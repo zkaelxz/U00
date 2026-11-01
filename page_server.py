@@ -42,7 +42,7 @@ migration is not a prerequisite.
   Any page in any tab can make requests to localhost, so an
   unauthenticated endpoint would let any site quietly drive this app.
   The token follows this repo's existing secret rule
-  (`translate_engines.redact_secrets`): header only, and never written
+  (`engine_shared.redact_secrets`): header only, and never written
   to a URL, a log line, or a stored error. Compared with
   `secrets.compare_digest`.
 - **A custom header is itself the cross-site defence.** A web page
@@ -289,9 +289,9 @@ def _build_engine(config):
         return None
     if not (config.get("api_key") or "").strip() and name != "ollama":
         return None
-    import translate_engines
+    from engine_backends import engine_registry
     try:
-        return translate_engines.get_engine(
+        return engine_registry.get_engine(
             name, config.get("api_key") or "",
             model=config.get("model") or None,
             free_tier=bool(config.get("free_tier")) and name == "gemini",
@@ -308,17 +308,17 @@ def failure_detail(e: Exception, member: bool) -> str:
     """Shown in a page's notes. A household member's token gets fixed text:
     an engine or detector error can name a host, a path or the model, which
     belong to the owner's PC. The detail stays in the log."""
-    import translate_engines
+    from engine_backends import shared as engine_shared
     if not member:
-        return translate_engines.redact_secrets(str(e))
+        return engine_shared.redact_secrets(str(e))
     page_capture_checks.log_page_failure(e)
     return "the engine did not answer"
 
 
 def _detect_notes(notes, member: bool) -> list:
-    import translate_engines
+    from engine_backends import shared as engine_shared
     return [[n[0], "some text may not have been read" if member
-             else translate_engines.redact_secrets(str(n[1]))] for n in (notes or [])]
+             else engine_shared.redact_secrets(str(n[1]))] for n in (notes or [])]
 
 
 def _page_source_language(drama, requested):
@@ -528,7 +528,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
 def translate_text_block(text: str, source_language: str, target_language: str,
                          store: bool = True, user_id=None, member: bool = False) -> dict:
     """A raw block of page text (text-capture mode), run through
-    the same `translate_engines.standalone_translate` pipeline as the
+    the same `standalone.standalone_translate` pipeline as the
     app's Standalone translate tool -- reused exactly, not reimplemented,
     per this module's own "one pipeline" rule. This function is the text
     equivalent of `translate_image`: it does not detect or OCR anything,
@@ -540,7 +540,7 @@ def translate_text_block(text: str, source_language: str, target_language: str,
     engine and holds no key of its own.
     """
     import db
-    import translate_engines
+    from engine_backends import standalone
 
     config = get_translation_config()
     notes = []
@@ -551,7 +551,7 @@ def translate_text_block(text: str, source_language: str, target_language: str,
                 "source_language": source_language, "target_language": target_language,
                 "notes": notes, "saved_to_history": False}
 
-    ok, message = translate_engines.standalone_direction_support(
+    ok, message = standalone.standalone_direction_support(
         engine.name, source_language, target_language)
     if not ok:
         raise EndpointError(422, message)
@@ -566,7 +566,7 @@ def translate_text_block(text: str, source_language: str, target_language: str,
             engine, config["engine"], text, source_language, target_language)
         if stopped:
             notes.append(["warning", stopped])
-    except translate_engines.UnsupportedDirectionError as e:
+    except standalone.UnsupportedDirectionError as e:
         raise EndpointError(422, str(e)) from None
     except Exception as e:
         # The captured text is still real and still useful, so it is

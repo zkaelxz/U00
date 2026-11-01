@@ -10,7 +10,7 @@ import pytest
 import background_jobs
 from jobs import job_launch, job_table
 from services import diarization_service, transcribe_pipeline, transcribe_service, transcribe_options_service
-from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 from lib.errors import ServiceError
 
 

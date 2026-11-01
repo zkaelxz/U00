@@ -6,7 +6,7 @@ import pytest
 
 from services import (diarization_service, dub_service, media_export_service,
                       media_upload_service, source_service, timing_check_service, transcribe_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 
 @pytest.fixture

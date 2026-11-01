@@ -13,7 +13,7 @@ from jobs import job_table
 import raw_transcript
 from core import Line
 from services import speech_coverage_service as svc
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
 

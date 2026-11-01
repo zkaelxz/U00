@@ -410,7 +410,7 @@ class TestReadingSpeed:
 
     def test_translate_job_puts_dense_lines_in_the_review_queue(self, isolated_db, monkeypatch):
         from jobs import job_table
-        import translate_engines
+        from engine_backends import translate_pipeline
         from services.workspace_job_service import run_translate_job
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=2, zh="你好"),
@@ -422,7 +422,7 @@ class TestReadingSpeed:
             lines[1].en = "Bye."
             kw["save_cb"](lines)
             return lines, []
-        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+        monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
         job_id = "test_cps_translate"
         job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}

@@ -12,7 +12,7 @@ import os
 
 import db
 import background_jobs
-import translate_engines
+from engine_backends import llm_tasks, translate_pipeline
 from engine_backends import paid_calls
 import translation_guide as tguide
 import emotion
@@ -77,7 +77,7 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
     started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
     stats = {}
     with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice, "flag_review") as limits:
-        translate_engines.flag_uncertain_lines(
+        llm_tasks.flag_uncertain_lines(
             lines, engine, source_language=lang, stats=stats,
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
@@ -110,7 +110,7 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice, lang=Non
     """
     with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
                                     "consistency_check") as limits:
-        issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
+        issues, failed_batches, total_batches = llm_tasks.check_consistency_llm(
             lines, engine, batch_size=CONSISTENCY_BATCH_SIZE, source_language=lang,
             usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "consistency_check"),
             cancel_check=lambda: _raise_if_cancelled(job_id))
@@ -183,7 +183,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
         drama_id, drama, lines, style_preset, with_emotions=False,
         include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns, principal=principal)
-    base_context = translate_engines.build_translation_context(
+    base_context = translate_pipeline.build_translation_context(
         engine, drama, style_note=style_note or "", locale=locale,
         glossary_terms=glossary_terms, style_guidelines=style_guidelines)
     base_context["source_language"] = source_language

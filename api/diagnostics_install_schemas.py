@@ -80,7 +80,7 @@ class DiagnosticsDependencyInstallResult(DiagnosticsInstallResult):
 class DiagnosticsDependencyInstallState(BaseModel):
     """The latest package install / GPU PyTorch setup job. Output lines are
     redacted; no paths or keys."""
-    kind: Optional[Literal["package", "upgrade", "gpu_torch", "cuda_runtime"]] = None
+    kind: Optional[Literal["package", "upgrade", "upgrade_outdated", "gpu_torch", "cuda_runtime"]] = None
     package: Optional[str] = None
     result: Optional[DiagnosticsDependencyInstallResult] = None
     job_id: str

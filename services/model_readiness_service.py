@@ -25,7 +25,7 @@ import model_pins
 import whisper_models
 from lib import model_offline
 from lib.model_offline import NOT_DOWNLOADED_MESSAGE
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 _WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
 _WEIGHT_INDEXES = ("model.safetensors.index.json", "pytorch_model.bin.index.json")

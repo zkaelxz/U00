@@ -18,7 +18,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 from services import auth_service
-from services.service_errors import ConflictError, ForbiddenError, NotFoundError
+from lib.errors import ConflictError, ForbiddenError, NotFoundError
 from tests.api_helpers import loopback_client
 
 REMOTE = "https://baihe.example.com"

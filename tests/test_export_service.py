@@ -15,7 +15,7 @@ import pytest
 
 from core import Line, lines_from_rows
 from services import export_service, lines_service
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 

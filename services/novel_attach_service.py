@@ -42,7 +42,7 @@ import novel_text
 import ocr as ocr_module
 import subtitle_parse
 from services import cover_art_service, drama_service, media_upload_service, ownership_service, settings_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 log = logging.getLogger(__name__)
 

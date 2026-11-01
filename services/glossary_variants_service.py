@@ -25,7 +25,7 @@ import db
 import glossary_phonetic as ph
 from services import glossary_service, vdb_names_service
 from services.glossary_common import MAX_TERM_LEN, _drama, _text
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 # --- Tunables (the one place for the numbers) -------------------------------
 SCAN_MAX_LINES = 5000         # a long episode set; keeps a click under a few seconds

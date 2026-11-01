@@ -24,7 +24,7 @@ from services import auth_service
 from services.library_admin_service import (USER_BACKUP_JOB_ID, _artifact_dir, _refuse_duplicate,
                                             refuse_during_maintenance)
 from services.library_backup_service import _sanitized_snapshot, _write_artifact
-from services.service_errors import ConflictError, NotFoundError
+from lib.errors import ConflictError, NotFoundError
 
 log = logging.getLogger(__name__)
 

@@ -29,7 +29,7 @@ Search first, read little, change little. A module over 64 KB only draws a warni
    `docs/testing-and-ci.md`, section "Guard set and lean output". CI runs the full suite; don't run it locally.
 8. Rules that bite most:
    - Match LLM results to lines by id, never by position.
-   - Pass error text through `translate_engines.redact_secrets`; keys in headers only.
+   - Pass error text through `engine_backends.shared.redact_secrets`; keys in headers only.
    - Every HTTP call has `timeout=` (`lib.http.get`/`post` apply it).
    - Jobs save only their fields: `db.save_lines(id, lines, fields=("en",))`, declared with `start_job(..., line_fields=("en",))`.
    - Every route declares exactly one permission.
@@ -232,7 +232,7 @@ Goal: docs/STATUS.md, "Where the app is" > "Transcription and models", says the 
 the label says turbo is weaker on Japanese and Korean. The code now uses the same default on CPU too, and the label is
 the per-language note in whisperModelWarning. Make that sentence true.
 Files: docs/STATUS.md only. Read `default_whisper_size` in services/transcribe_options_service.py and `whisperModelWarning` in frontend/src/pages/workspace/sourceForm.ts first.
-Test: python -m pytest -q tests/test_file_organization.py tests/test_agent_docs.py
+Test: python -m pytest -q tests/test_agent_docs.py
 Rules: docs say what is true now; keep the edit to that one sentence; no PR or Step ids in code comments.
 Do not touch any other file. Stop and tell me if the code says something different from what I described.
 ```

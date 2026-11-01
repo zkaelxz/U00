@@ -16,7 +16,7 @@ import sqlite3
 
 from lib import ids as lib_ids
 import db
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import ownership_service
 
 

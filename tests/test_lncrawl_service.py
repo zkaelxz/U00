@@ -16,7 +16,7 @@ import diagnostics
 from services import lncrawl_service as svc
 from services import novel_attach_service, settings_service
 from lib import url_guard
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from tests.job_helpers import wait_for_job
 

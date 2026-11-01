@@ -17,7 +17,7 @@ from services import auto_backup_settings as abt_
 from services import drama_service
 from services import library_admin_service as las
 from services import library_backup_service as lbs
-from services.service_errors import InvalidInputError, ServiceError
+from lib.errors import InvalidInputError, ServiceError
 from tests.auto_backup_helpers import (
     UTC, _conn, _copy_names, _default_dir, _default_path, _delete_drama, _enable, _patch_now,
     _put_job, _read, _restore, _snap, _state, _wait_job,
