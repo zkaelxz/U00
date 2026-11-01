@@ -1,52 +1,13 @@
-// /api/language-packs (api/schemas/language_packs.py).
+// /api/language-packs, from the generated schema (api/schemas/language_packs.py).
+import type { components } from '../api/generated/schema'
 
-interface LanguagePackStyles {
-  /** Empty, with no options, for a pack that has a single rendering. */
-  default: string
-  options: Record<string, string>
-}
+type Schemas = components['schemas']
 
-export interface LanguagePackSummary {
-  id: string
-  version: number
-  /** zh, ja, ko, or any. */
-  language: string
-  title: string
-  description: string
-  entry_count: number
-  styles: LanguagePackStyles
-}
-
-export interface LanguagePackEntry {
-  source: string
-  /** Text, or one rendering per style id. */
-  en: string | Record<string, string>
-  category: string
-  note: string
-  context: string
-}
-
-export interface LanguagePack extends LanguagePackSummary {
-  entries: LanguagePackEntry[]
-}
-
-export interface TitleLanguagePack extends LanguagePackSummary {
-  enabled: boolean
-  style: string | null
-}
-
-export interface TitleLanguagePacks {
-  source_language: string
-  uses_default: boolean
-  packs: TitleLanguagePack[]
-}
-
+export type LanguagePackSummary = Schemas['LanguagePackSummary']
+export type LanguagePackEntry = Schemas['LanguagePackEntry']
+export type LanguagePack = Schemas['LanguagePack']
+export type TitleLanguagePack = Schemas['TitleLanguagePack']
+export type TitleLanguagePacks = Schemas['TitleLanguagePacks']
 /** Pack id -> style id (null for the pack's default). Packs left out are off. */
-export interface LanguagePackChoice {
-  packs: Record<string, string | null>
-}
-
-export interface LanguagePackDefaultResult {
-  language: string
-  packs: string[]
-}
+export type LanguagePackChoice = Schemas['LanguagePackChoice']
+export type LanguagePackDefaultResult = Schemas['LanguagePackDefaultResult']
