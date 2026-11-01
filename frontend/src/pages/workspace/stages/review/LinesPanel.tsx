@@ -90,8 +90,7 @@ const STATUS_MS = 8000
 
 export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
-  // Tablets and wider: a source video gets its own sticky card beside the lines.
-  const isWide = useMediaQuery(WIDE)
+  const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
   const isShort = useMediaQuery(SHORT)
   const collapsed = useScrollCollapse(isPhone)
   const suspects = useSourceSuspects(dramaId, reloads)
