@@ -54,6 +54,7 @@ import background_jobs
 from jobs import job_launch
 import benchmark
 import db
+import diagnostics
 from engine_backends import engine_registry, pricing, local
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
@@ -69,11 +70,13 @@ from services import benchmark_hardsub_read_service as hardsub
 from services import benchmark_runs_service
 from services import benchmark_vision_service as vision
 from services import benchmark_scene_service as scene_service
+from services.transcribe_pipeline import MISSING_TRANSCRIPTION_MESSAGE
 from services.benchmark_runs_service import MAX_CONFIGS, arena, close_stale_runs, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  script_normaliser)
 from lib.errors import (
     ConflictError,
+    DependencyUnavailableError,
     InvalidInputError,
     NotFoundError,
     UnsupportedOperationError,
@@ -400,6 +403,9 @@ def check_config(stage: str, cfg) -> dict:
                 raise InvalidInputError(_NO_MODEL_FOLDER)
         elif size not in whisper_models.WHISPER_MODELS:
             raise InvalidInputError("Unknown Whisper size.")
+        # Refused here, before a run row exists: otherwise every case fails to a 0% "Done" run.
+        if not diagnostics.check_dependency("faster_whisper"):
+            raise DependencyUnavailableError(MISSING_TRANSCRIPTION_MESSAGE)
         return {"engine": "whisper", "model": size, "options": options}
     if engine in vision.VISION_ENGINES:
         return vision.checked_vision_config(engine, model, cfg.get("translate"))
