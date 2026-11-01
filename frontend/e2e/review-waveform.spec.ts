@@ -192,12 +192,17 @@ test('can be hidden', async ({ page }) => {
 })
 
 test('Frame timing steps an edge one frame at a time and saves it', async ({ page }) => {
+  // The pictures are not decoded here (the CI image has no ffmpeg): a placeholder file makes the title
+  // a video title, and the probe answer is mocked.
   python(`
-import os, subprocess
+import os
 p = os.path.join(db.drama_dir(3), 'e2e.mp4')
-subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=24:duration=12', '-pix_fmt', 'yuv420p', p], check=True)
+open(p, 'wb').write(b'not a real video')
 db.update_drama(3, source_video_filename='e2e.mp4')
 `)
+  await page.route('**/api/metadata/dramas/3/analyze-media', (route) =>
+    route.fulfill({ json: { drama_id: 3, duration_seconds: 12, has_video: true, has_audio: true, audio_track_count: 1, sample_rate: 8000, fps: 24 } }),
+  )
   const { ids } = await open(page)
   await page.getByTestId(`line-${ids[1]}`).click()
   await page.getByTestId('wave-frame-timing').click()
