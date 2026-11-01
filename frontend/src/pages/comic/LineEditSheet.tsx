@@ -9,17 +9,21 @@ import { buttonClass } from '../../components/uiClasses'
 import { MAX_REGION_TEXT_CHARS, type ScanlatePageDetail } from '../../types/scanlate'
 import { applyEdit, type EditorApi } from './editorState'
 
-interface Props {
-  dramaId: number
+export interface TappedLine {
   pageId: number
   number: number
   idx: number
+}
+
+interface Props {
+  dramaId: number
+  line: TappedLine
   onClose: () => void
   // The render job started by Save page, so the reader can reload when it finishes.
   onSaved: (jobId: string) => void
 }
 
-export function LineEditSheet({ dramaId, pageId, number, idx, onClose, onSaved }: Props) {
+export function LineEditSheet({ dramaId, line: { pageId, number, idx }, onClose, onSaved }: Props) {
   const [detail, setDetail] = useState<ScanlatePageDetail | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
