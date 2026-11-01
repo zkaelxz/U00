@@ -10,11 +10,16 @@ import { installChunkReload } from './chunkReload'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import { installCapture } from './report/capture'
 import { applyDisplay, loadDisplay } from './display'
+import { shareRedirect } from './shareTarget'
 import { applyTheme, loadTheme } from './theme'
 
 // The saved theme (index.html already set it before paint; this covers dev/HMR).
 applyTheme(loadTheme())
 applyDisplay(loadDisplay())
+
+// The app is a hash router; the installed app's share entry opens /share, so move to the hash route before the first render.
+const shared = shareRedirect(window.location.pathname, window.location.search)
+if (shared) window.history.replaceState(null, '', `/${shared}`)
 
 const rootEl = document.getElementById('root')!
 // Installed before the first render so a crash in it still shows a message.

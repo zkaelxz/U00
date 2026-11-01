@@ -64,6 +64,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/sources?tab=new')).toEqual({ name: 'sources', tab: 'new' })
     expect(parseRoute('#/sources?tab=manage')).toEqual({ name: 'sources', tab: 'manage' })
     expect(parseRoute('#/sources?tab=nope')).toEqual({ name: 'sources' })
+    expect(parseRoute('#/sources?url=https%3A%2F%2Fsite.example%2Fc%2F1')).toEqual({ name: 'sources', url: 'https://site.example/c/1' })
+    expect(parseRoute('#/sources?url=javascript%3Aalert(1)')).toEqual({ name: 'sources' })
     expect(parseRoute('#/sources/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/sources/manage')).toEqual({ name: 'sources-manage' })
     expect(parseRoute('#/sources/manage?tab=network')).toEqual({ name: 'sources-manage', tab: 'network' })
