@@ -294,8 +294,10 @@ def _stage_library_db(staging_dir: str, library_dir: str) -> tuple:
         try:
             conn = _open_carry_conn(staged)
             try:
-                conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
-                             "cancel_requested = 0 WHERE status IN ('queued', 'running')",
+                conn.execute("UPDATE job_records SET status = 'cancelled', "
+                             "finished_at = COALESCE(updated_at, ?), cancel_requested = 0, "
+                             "detail_state = 'interrupted' "
+                             "WHERE status IN ('queued', 'running')",
                              (time.time(),))
                 gpu_slots.clear(conn)
                 queue_service.clear_schedule(conn)
