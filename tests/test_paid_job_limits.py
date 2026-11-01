@@ -191,6 +191,28 @@ class TestCallLimits:
             self._call(engine, usage_cb=lambda i, o, *_: own.append((i, o)))
         assert own == [(10, 5)] and _usage_rows() == []
 
+    def test_the_api_server_registers_the_out_of_job_cap_check(self):
+        import subprocess
+        import sys
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import api.server\nfrom engine_backends import paid_calls\n"
+             "print(paid_calls._default_cap_check_factory is not None)"],
+            capture_output=True, text=True, timeout=120)
+        assert out.stdout.strip().endswith("True"), out.stderr[-500:]
+
+    def test_logged_calls_outside_a_job_refuse_once_the_monthly_cap_is_spent(self, monkeypatch):
+        # Registered here, not by whichever test module imported paid_job_service.
+        monkeypatch.setattr(paid_calls, "_default_cap_check_factory",
+                            paid_job_service._cap_spent)
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 1.0)
+        db.log_usage(None, "claude", "claude-sonnet-5-5", "seed", 0, 0, 1.5)
+        engine = FakeClaude()
+        with paid_calls.logged_calls(engine, "reader_tool") as limits:
+            with pytest.raises(TranslateRunStopped):
+                limits.call(lambda cb, late: engine._create(), None)
+        assert engine.requests == 0 and limits.stop_reason == CAP_REACHED
+
     def test_logged_calls_inside_a_job_scope_uses_the_jobs_limits(self):
         engine = FakeClaude()
         with paid_calls.call_limits(engine, "claude", "job") as outer:
