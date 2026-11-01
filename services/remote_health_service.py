@@ -146,7 +146,7 @@ def _peer_certificate(host, port) -> dict:
     ctx = ssl.create_default_context()
     with socket.create_connection((LOCAL_CADDY_HOST, port), timeout=CONNECT_TIMEOUT) as raw:
         with ctx.wrap_socket(raw, server_hostname=host) as tls:
-            return tls.getpeercert()
+            return tls.getpeercert() or {}
 
 
 def check_certificate(host, port) -> dict:
@@ -207,7 +207,7 @@ def _resolve(host):
     """Every address `host` resolves to; getaddrinfo has no timeout of its
     own, so it is bounded by RESOLVE_TIMEOUT."""
     try:
-        return _bounded(lambda: {ipaddress.ip_address(i[4][0].split("%")[0])
+        return _bounded(lambda: {ipaddress.ip_address(str(i[4][0]).split("%")[0])
                                  for i in socket.getaddrinfo(host, None,
                                                              type=socket.SOCK_STREAM)},
                         RESOLVE_TIMEOUT)
@@ -323,14 +323,15 @@ def run_check(public_url, household_port, listener_host="127.0.0.1", stop=None):
             return None
         previous = _load()
         read_failed = previous is _READ_FAILED
-        stored = None if read_failed else previous
-        if not remote_access_enabled(public_url, household_port):
+        stored = previous if isinstance(previous, dict) else None
+        target = public_target(public_url)
+        if target is None or not remote_access_enabled(public_url, household_port):
             snapshot = _off_snapshot()
             if not read_failed and (stored or {}).get("state") != "off":
                 _save(snapshot)
             _memory = None
             return snapshot
-        host, port = public_target(public_url)
+        host, port = target
         try:
             checks = _bounded(lambda: _gather(host, port, listener_host, household_port),
                               CYCLE_DEADLINE, stop)
@@ -372,7 +373,7 @@ def get_status(public_url, household_port) -> dict:
     if not remote_access_enabled(public_url, household_port):
         return _off_snapshot()
     stored = _load()
-    if not stored or stored is _READ_FAILED or stored.get("state") == "off":
+    if not isinstance(stored, dict) or stored.get("state") == "off":
         return _not_checked_snapshot()
     return stored
 

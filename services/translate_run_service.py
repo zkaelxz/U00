@@ -110,7 +110,7 @@ def get_translate_config(drama_id: int) -> dict:
     has_novel = novel_files_service.has_reference(drama_id, drama)
     line_count = len(db.load_line_ids(drama_id))
     monthly_cap = month_cap_usd()
-    free_tier = settings_service.get("gemini_free_tier")
+    free_tier = bool(settings_service.get("gemini_free_tier"))
     engine_name = (drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     return {
@@ -128,7 +128,7 @@ def get_translate_config(drama_id: int) -> dict:
              "engine_model": t["engine_model"], "reflect": bool(t["reflect"]),
              "auto_qc": bool(t["auto_qc"])}
             for k in engine_registry.WORKFLOW_TIERS
-            for t in [engine_registry.effective_tier(k)]],
+            for t in [engine_registry.effective_tier(k)] if t is not None],
         "defaults": get_translate_config_defaults(is_novel, engine_name),
         "default_locale": settings_service.get("default_locale"),
         "default_style_note": settings_service.get("default_style_note"),
@@ -267,7 +267,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
     allow_paid=False (an API caller without engines.paid) also skips a pick
     outside engine_registry.FREE_ENGINES: it would spend the owner's key.
     run_engine/run_model: an Ollama run's summary reuses its model, so no second one loads."""
-    choice = settings_service.get("episode_summary_engine")
+    choice = str(settings_service.get("episode_summary_engine"))
     if not allow_paid and choice not in engine_registry.FREE_ENGINES:
         return None, None
     try:
@@ -279,7 +279,7 @@ def pick_summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = Tru
         if not api_key:
             return None, None
         return engine_registry.get_engine(
-            choice, api_key, free_tier=choice == "gemini" and settings_service.get("gemini_free_tier")
+            choice, api_key, free_tier=choice == "gemini" and bool(settings_service.get("gemini_free_tier"))
         ), choice
     except Exception as exc:
         from applog import get_logger
@@ -600,7 +600,7 @@ def resume_bulk_translations(drama_id: int) -> dict:
 
 
 def _spend_cap_used_up(engine_name: str) -> bool:
-    if not engine_cap_applies(engine_name, settings_service.get("gemini_free_tier")):
+    if not engine_cap_applies(engine_name, bool(settings_service.get("gemini_free_tier"))):
         return False
     monthly = month_cap_usd()
     _cap, refusal = pricing.resolve_cost_cap(

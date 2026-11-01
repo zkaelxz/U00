@@ -66,9 +66,9 @@ def get_source_config(drama_id: int) -> dict:
     }
 
 
-def update_source_config(drama_id: int, *, source_language: str = None,
-                         chinese_script: str = None, content_mode: str = None,
-                         transcript_mode: str = None) -> dict:
+def update_source_config(drama_id: int, *, source_language: str | None = None,
+                         chinese_script: str | None = None, content_mode: str | None = None,
+                         transcript_mode: str | None = None) -> dict:
     """Field-scoped partial update -- only the fields actually passed are
     validated and written, mirroring db.update_drama's own partial-update
     shape. content_mode=="streamer_vod" also sets media_type: one-directional,

@@ -358,7 +358,7 @@ def for_scanlate(drama_id: int, detect_backend: str = "auto", art_captions: bool
         return []
     language = drama.get("source_language") or "zh"
     backend = settings_service.resolve_ocr_backend(language)
-    needs = [_need(ocr_ready, backend, ocr._PADDLE_LANG_BY_SOURCE.get(language, "ch"))]
+    needs: list = [_need(ocr_ready, backend, ocr._PADDLE_LANG_BY_SOURCE.get(language, "ch"))]
     # "auto" uses the ML detector only once it is cached; "ml" downloads it.
     if detect_backend == "ml":
         needs.append(bubble_detector_ready)

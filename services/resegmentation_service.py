@@ -202,7 +202,7 @@ def _make_on_done(drama_id, guard, engine_name, engine):
 
 def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str]):
     from services import translate_run_service   # lazy: heavy import
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
+    engine_name = engine_name or drama.get("translation_engine") or str(settings_service.get("default_engine"))
     if engine_name not in engine_registry.ENGINES:
         raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     if engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:
@@ -213,11 +213,11 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
         raise MissingKeyError(engine_name)
     engine = engine_registry.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get("gemini_free_tier"),
+        free_tier=bool(settings_service.get("gemini_free_tier")),
         base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     translate_run_service.refuse_when_cap_spent(engine_name,
-                                                settings_service.get("gemini_free_tier"))
+                                                bool(settings_service.get("gemini_free_tier")))
     return engine_name, engine
 
 

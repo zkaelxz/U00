@@ -28,8 +28,12 @@ import os
 import secrets
 import sys
 import time
+from typing import TYPE_CHECKING, Any, cast
 
 from lib import proc
+
+if TYPE_CHECKING:
+    from yt_dlp import _Params
 
 MAX_DURATION_SECONDS = 6 * 60 * 60
 # A confirmed "Download anyway" raises the cap for that one download only, never past this.
@@ -85,7 +89,7 @@ def estimate_bytes(info, audio_only, seconds):
     return int(seconds * ((video_kbps + audio_kbps) * 125 * 2 + 32_000))
 
 
-def refusal_detail(info, max_seconds=MAX_DURATION_SECONDS, part=None):
+def refusal_detail(info, max_seconds=MAX_DURATION_SECONDS, part=None) -> dict[str, Any] | None:
     """Why a link is not downloaded, as {"reason": code, ...}, else None.
     Codes: playlist, live, upcoming, too_long (with "duration", the seconds
     that would be downloaded, and "limit"), part_outside (with "duration", the
@@ -143,7 +147,8 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
         opts["proxy"] = proxy
     if part:
         from yt_dlp.utils import download_range_func
-        opts["download_ranges"] = download_range_func(
+        # The stub wants int ranges and no None; yt-dlp takes None chapters and float seconds.
+        opts["download_ranges"] = cast(Any, download_range_func)(
             None, [(part[0], float("inf") if part[1] is None else part[1])])
         # Without a re-encode a cut can only start on a keyframe, and only an
         # H.264 stream cuts cleanly into the mp4 the rest of the app reads.
@@ -244,7 +249,7 @@ def run_probe_worker(spec: dict, emit) -> None:
     if spec.get("proxy"):
         opts["proxy"] = spec["proxy"]
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with yt_dlp.YoutubeDL(cast("_Params", opts)) as ydl:
             info = ydl.extract_info(spec["url"], download=False)
     except Exception as exc:
         emit({"error": str(exc.__cause__ or exc)[:2000]})

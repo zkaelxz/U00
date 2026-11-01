@@ -257,7 +257,7 @@ def llm_engine(engine_name=None, model=None):
         raise MissingKeyError(engine_name)
     engine = engine_registry.get_engine(
         engine_name, api_key, model,
-        free_tier=settings_service.get("gemini_free_tier"),
+        free_tier=bool(settings_service.get("gemini_free_tier")),
         base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
@@ -491,7 +491,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
 
 
 def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
-                            use_llm: bool = False, engine_name: str = None, model: str = None) -> dict:
+                            use_llm: bool = False, engine_name: str | None = None, model: str | None = None) -> dict:
     """"Load / refresh this page" as an explicit action:
     segments the page, defines every word (CC-CEDICT locally for Chinese;
     the LLM fallback only when use_llm, since that is a paid call), and
@@ -630,8 +630,8 @@ def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = T
 # Story tools (paid LLM calls; never write)
 # ---------------------------------------------------------------------------
 
-def who_is_character(drama_id: int, name: str, up_to_line_idx: int = None,
-                     engine_name: str = None, model: str = None) -> dict:
+def who_is_character(drama_id: int, name: str, up_to_line_idx: int | None = None,
+                     engine_name: str | None = None, model: str | None = None) -> dict:
     drama = _require_drama(drama_id)
     name = _text_arg(name, "name", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
@@ -641,8 +641,8 @@ def who_is_character(drama_id: int, name: str, up_to_line_idx: int = None,
     return {"drama_id": drama_id, "answer": answer}
 
 
-def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
-                      engine_name: str = None, model: str = None) -> dict:
+def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int | None = None,
+                      engine_name: str | None = None, model: str | None = None) -> dict:
     drama = _require_drama(drama_id)
     phrase = _text_arg(phrase, "phrase", MAX_LOOKUP_TEXT_CHARS)
     scoped, _ = _scope(_require_lines(drama_id), up_to_line_idx)
@@ -654,7 +654,7 @@ def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
 
 
 def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
-          engine_name: str = None, model: str = None) -> dict:
+          engine_name: str | None = None, model: str | None = None) -> dict:
     """Summary of what came before `page` (the first page's lines when on
     page 1) ("Recap what I've read so far"). Bounded to the
     last MAX_RECAP_LINES lines before the page and MAX_RECAP_CHARS of
@@ -677,8 +677,8 @@ def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
     return {"drama_id": drama_id, "summary": summary, "truncated": len(section) < full}
 
 
-def relationship_map(drama_id: int, up_to_line_idx: int = None,
-                     engine_name: str = None, model: str = None) -> dict:
+def relationship_map(drama_id: int, up_to_line_idx: int | None = None,
+                     engine_name: str | None = None, model: str | None = None) -> dict:
     """{drama_id, characters: [{name, role, description}], relationships,
     mermaid} -- characters/relationships are keyed by name, not position."""
     _require_drama(drama_id)
@@ -704,7 +704,7 @@ def _wiki_row(e: dict) -> dict:
             "known_through_line_idx": e.get("known_through_line_idx")}
 
 
-def list_wiki(drama_id: int, up_to_line_idx: int = None, entry_type: str = None) -> dict:
+def list_wiki(drama_id: int, up_to_line_idx: int | None = None, entry_type: str | None = None) -> dict:
     """{drama_id, entry_types, entries} -- entries first introduced after
     up_to_line_idx are hidden (spoiler-free); None means no spoiler
     limit and shows everything -- pass the boundary for spoiler-free."""
@@ -718,8 +718,8 @@ def list_wiki(drama_id: int, up_to_line_idx: int = None, entry_type: str = None)
             "entries": [_wiki_row(e) for e in rows]}
 
 
-def update_wiki(drama_id: int, up_to_line_idx: int = None,
-                engine_name: str = None, model: str = None, from_line_idx: int = 0) -> dict:
+def update_wiki(drama_id: int, up_to_line_idx: int | None = None,
+                engine_name: str | None = None, model: str | None = None, from_line_idx: int = 0) -> dict:
     """Extracts entries from the lines up to the boundary and upserts each
     by its own (entry_type, name) key -- never by list position. One call
     reads at most MAX_WIKI_CHUNKS_PER_CALL chunks of text lines starting
@@ -759,7 +759,7 @@ def clear_wiki(drama_id: int, confirm: bool = False) -> dict:
     return {"drama_id": drama_id, "cleared": True}
 
 
-def export_wiki_markdown(drama_id: int, up_to_line_idx: int = None, entry_type: str = None) -> dict:
+def export_wiki_markdown(drama_id: int, up_to_line_idx: int | None = None, entry_type: str | None = None) -> dict:
     """{filename, media_type, content} -- the shown entries as Markdown,
     with a spoiler note when a boundary is set."""
     drama = _require_drama(drama_id)
@@ -774,8 +774,8 @@ def export_wiki_markdown(drama_id: int, up_to_line_idx: int = None, entry_type: 
 # Q&A
 # ---------------------------------------------------------------------------
 
-def ask_about_drama(drama_id: int, question: str, chat_history: list = None,
-                    engine_name: str = None, model: str = None) -> dict:
+def ask_about_drama(drama_id: int, question: str, chat_history: list | None = None,
+                    engine_name: str | None = None, model: str | None = None) -> dict:
     """One grounded Q&A turn. Stateless: the client keeps the history and
     sends it back ([{role: user|assistant, content}]). Grounded in the
     whole drama's lines (not spoiler-scoped)."""

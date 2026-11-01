@@ -19,6 +19,7 @@ ladder record are never returned. A verification page stops it with the
 """
 
 import re
+from typing import NoReturn
 from urllib.parse import urlsplit
 
 import background_jobs
@@ -101,7 +102,7 @@ def without_urls(err: dict) -> dict:
     return out
 
 
-def fail_job(job_id: str, kind: str, err: dict):
+def fail_job(job_id: str, kind: str, err: dict) -> NoReturn:
     err = without_urls(err)
     background_jobs.set_result(job_id, {"kind": kind, "error": err})
     raise JobFailed(err["message"])

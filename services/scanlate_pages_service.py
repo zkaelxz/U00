@@ -155,7 +155,7 @@ def require_page(drama_id: int, page_id: int) -> dict:
     return page
 
 
-def ocr_backend_installed(backend: str, tesseract_cmd: str = None) -> bool:
+def ocr_backend_installed(backend: str, tesseract_cmd: str | None = None) -> bool:
     import ocr
     return ocr.backend_problem(backend, tesseract_cmd) is None
 
@@ -169,7 +169,7 @@ def _weights_cached():
         return False, False
 
 
-def default_engine(engines: list = None) -> str:
+def default_engine(engines: list | None = None) -> str:
     """The engine a Scanlate run starts with: the Settings default when the
     person saved one that can run, otherwise the cheapest engine that can --
     the stock default is Claude, the dearest, and a page run translates a
@@ -182,7 +182,7 @@ def default_engine(engines: list = None) -> str:
     from services import settings_service, translate_service
     engines = translate_service.list_engines() if engines is None else engines
     usable = [e["name"] for e in engines if e["key_configured"]]
-    chosen = settings_service.get("default_engine")
+    chosen = str(settings_service.get("default_engine"))
     if settings_service.is_saved("default_engine") and chosen in usable:
         return chosen
     gemini_free = bool(settings_service.get("gemini_free_tier"))
@@ -223,7 +223,7 @@ def get_config(drama_id: int) -> dict:
         "lama_weights_cached": lama_cached,
         "ocr_backend": ocr_backend,
         "ocr_backend_installed": ocr_backend_installed(
-            ocr_backend, settings_service.get("tesseract_cmd") or None),
+            ocr_backend, str(settings_service.get("tesseract_cmd")) or None),
         "page_count": len(pages),
         "pages_with_regions": sum(1 for p in pages if p["id"] in with_regions),
         "pages_rendered": sum(1 for p in pages if p.get("rendered_filename")),
@@ -356,7 +356,7 @@ def _raise_for_write(status: str, rev):
 
 
 def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
-                expected_rev: int, expected: dict = None) -> dict:
+                expected_rev: int, expected: dict | None = None) -> dict:
     """Changes one text box (its English, box, font size and style, kind,
     colour) only if the page is still at `expected_rev` and, for each field in
     `expected`, the box still holds that value; 409 (details: reason
@@ -507,8 +507,8 @@ def _pdf_best_image(page):
     res = page.get("/Resources")
     res = res.get_object() if res is not None else None
     xobjs = res.get("/XObject") if res is not None else None
-    xobjs = xobjs.get_object() if xobjs is not None else None
-    for name in (xobjs or {}):
+    xobjs = (xobjs.get_object() if xobjs is not None else None) or {}
+    for name in xobjs:
         obj = xobjs[name].get_object()
         if obj.get("/Subtype") != "/Image":
             continue
@@ -573,7 +573,8 @@ def _stage_pdf(src: str, out_dir: str, stem: str) -> tuple:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 img = page.images[best[1]].image
-                _check_pixels(*img.size, f"PDF page {i + 1}'s image")
+                width, height = img.size
+                _check_pixels(width, height, f"PDF page {i + 1}'s image")
                 clean = _normalise(img)
         except InvalidInputError:
             raise

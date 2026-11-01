@@ -83,7 +83,7 @@ def get_production(capability: str = "translation") -> dict:
     """The model re-evaluations compare against: the recorded production
     model, or Settings' default engine with its built-in default model."""
     _check_capability(capability)
-    engine = settings_service.get("default_engine")
+    engine = str(settings_service.get("default_engine"))
     saved = _json_setting(_PRODUCTION_KEY, {}).get(capability)
     # The promoted record counts only while Settings still uses its engine: a
     # later change of the default engine in Settings wins.
@@ -113,8 +113,8 @@ def _spend_limit_set(max_cost_usd) -> bool:
     return max_cost_usd is not None or settings_service.get_monthly_cap_usd() > 0
 
 
-def set_settings(schedule_enabled: bool, interval_days: int, tier: str = None,
-                 set_name: str = None, max_cost_usd: float = None) -> dict:
+def set_settings(schedule_enabled: bool, interval_days: int, tier: str | None = None,
+                 set_name: str | None = None, max_cost_usd: float | None = None) -> dict:
     """max_cost_usd: a scheduled run whose estimate is above it is skipped,
     and a scheduled run that starts stops (stopped_cap) once its real spend
     across all models reaches it; 0 means free engines only. None = only
@@ -171,6 +171,8 @@ def next_due_at():
     stamps = []
     for stamp in (_last_run().get("started_at"),
                   _json_setting(_LAST_ATTEMPT_KEY, {}).get("started_at"), s["enabled_at"]):
+        if not isinstance(stamp, str):
+            continue
         try:
             stamps.append(datetime.datetime.fromisoformat(stamp))
         except (TypeError, ValueError):
@@ -183,7 +185,7 @@ def next_due_at():
     return (started + datetime.timedelta(days=s["interval_days"])).isoformat()
 
 
-def is_due(now: datetime.datetime = None) -> bool:
+def is_due(now: datetime.datetime | None = None) -> bool:
     due = next_due_at()
     if due is None or not open_candidates():
         return False
@@ -228,7 +230,7 @@ def list_candidates(capability: str = "translation") -> dict:
     return {"candidates": [_candidate_out(c) for c in db.list_model_candidates(capability)]}
 
 
-def add_candidate(engine: str, model: str = None, note: str = "",
+def add_candidate(engine: str, model: str | None = None, note: str = "",
                   capability: str = "translation") -> dict:
     """Registers a candidate. A model already registered (open, promoted or
     rejected) comes back as-is with its recorded decision rather than being
@@ -252,7 +254,7 @@ def _add_candidate_locked(capability, cfg, model, note) -> dict:
         raise UnsupportedOperationError(
             f"At most {MAX_OPEN_CANDIDATES} open candidates; promote or reject one first.")
     cid = db.create_model_candidate(capability, cfg["engine"], model, note)
-    return {"candidate": _candidate_out(db.get_model_candidate(cid)), "already_registered": False}
+    return {"candidate": _candidate_out(_require_candidate(cid)), "already_registered": False}
 
 
 def reopen_candidate(candidate_id: int) -> dict:
@@ -265,7 +267,7 @@ def reopen_candidate(candidate_id: int) -> dict:
         if len(open_candidates(c["capability"])) >= MAX_OPEN_CANDIDATES:
             raise UnsupportedOperationError(f"At most {MAX_OPEN_CANDIDATES} open candidates.")
         db.set_model_candidate_status(candidate_id, "candidate")
-        return _candidate_out(db.get_model_candidate(candidate_id))
+        return _candidate_out(_require_candidate(candidate_id))
 
 
 def _require_candidate(candidate_id: int) -> dict:
@@ -471,7 +473,7 @@ def _promote_locked(candidate_id: int, reason: str) -> dict:
                              json.dumps({**_scores_for(candidate_id), "previous": previous}))
     return {"production": get_production(c["capability"]), "previous": previous,
             "default_engine_changed": engine_changed,
-            "candidate": _candidate_out(db.get_model_candidate(candidate_id))}
+            "candidate": _candidate_out(_require_candidate(candidate_id))}
 
 
 def reject(candidate_id: int, reason: str = "") -> dict:
@@ -483,7 +485,7 @@ def reject(candidate_id: int, reason: str = "") -> dict:
         db.set_model_candidate_status(candidate_id, "rejected")
         db.record_model_decision(candidate_id, "rejected", reason,
                                  json.dumps(_scores_for(candidate_id)))
-        return {"candidate": _candidate_out(db.get_model_candidate(candidate_id))}
+        return {"candidate": _candidate_out(_require_candidate(candidate_id))}
 
 
 def list_decisions(capability: str = "translation") -> dict:

@@ -240,9 +240,10 @@ def filter_visible_drama_ids(principal, drama_ids) -> list:
 def get_share_by_default(principal) -> bool:
     """Off unless chosen: new items are private by default (user decision
     2026-09-30). A stored value, even from before that decision, is kept."""
-    if principal is None or principal.get("is_local_owner") or user_id(principal) is None:
+    uid = None if principal is None or principal.get("is_local_owner") else user_id(principal)
+    if uid is None:
         return bool(db.get_app_setting(HOUSEHOLD_SHARE_KEY, False))
-    user = db.auth_get_user(user_id(principal))
+    user = db.auth_get_user(uid)
     if not user:
         raise NotFoundError("User not found.")
     return bool(user.get("share_by_default"))
@@ -250,9 +251,10 @@ def get_share_by_default(principal) -> bool:
 
 def set_share_by_default(principal, share: bool) -> bool:
     share = bool(share)
-    if principal is None or principal.get("is_local_owner") or user_id(principal) is None:
+    uid = None if principal is None or principal.get("is_local_owner") else user_id(principal)
+    if uid is None:
         db.set_app_setting(HOUSEHOLD_SHARE_KEY, share)
-    elif not db.auth_update_user(user_id(principal), share_by_default=int(share)):
+    elif not db.auth_update_user(uid, share_by_default=int(share)):
         raise NotFoundError("User not found.")
     return share
 
@@ -423,7 +425,7 @@ def get_or_create_series_for(principal, name: str) -> int:
 # threadpool copies of the request's context: a set() there wouldn't reach
 # the handler, but a mutation of the shared holder does. Threads a job
 # starts get a fresh context, so a job started by a job has no owner.
-_ACTING = contextvars.ContextVar("baihe_acting_principal", default=None)
+_ACTING: contextvars.ContextVar[dict | None] = contextvars.ContextVar("baihe_acting_principal", default=None)
 
 
 def bind_request():

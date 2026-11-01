@@ -85,7 +85,7 @@ def _with_evidence(question: str, evidence: str) -> str:
             "returned (redacted; check it rather than trusting it):\n" + evidence)
 
 
-def ask(question: str, chat_history=None, engine_name: str = None, model: str = None,
+def ask(question: str, chat_history=None, engine_name: str | None = None, model: str | None = None,
         chat=None, escalate: bool = False, consent: bool = False, evidence: str = "") -> dict:
     """One assistant turn. Stateless: the client keeps the history (and
     the evidence it may hand to the next tier). `escalate` re-asks on a
@@ -204,7 +204,7 @@ def build_review_engine():
     model = settings["review_model"]
     require_cloud_consent(name, model)  # the reviewer reads the same code and logs
     engine = reader_service.llm_engine(name, model)
-    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get("gemini_free_tier"))
+    line_ai_service.refuse_if_over_monthly_cap(name, bool(settings_service.get("gemini_free_tier")))
     return engine, name, model
 
 
@@ -243,14 +243,14 @@ def independent_review(question: str, answer: str, patches: list, implement_engi
 MAX_CHANGELOG_COMMITS = 300
 
 
-def changelog(from_ref: str, to_ref: str = "HEAD", engine_name: str = None, model: str = None,
+def changelog(from_ref: str, to_ref: str = "HEAD", engine_name: str | None = None, model: str | None = None,
               chat=None) -> dict:
     """A plain-English summary of the commits in from_ref..to_ref. Uses
     commit subjects (bodies would crowd out older commits); the count
     comes from rev-list, and `truncated` says when the newest
     MAX_CHANGELOG_COMMITS were all the model saw."""
     _require_developer_mode()
-    from_ref = _ref_arg({"r": from_ref}, "r")
+    from_ref = _ref_arg({"r": from_ref}, "r") or ""
     to_ref = _ref_arg({"r": to_ref or "HEAD"}, "r", "HEAD")
     if not from_ref:
         raise InvalidInputError("from_ref is required.")

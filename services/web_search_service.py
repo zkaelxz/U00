@@ -130,8 +130,8 @@ def _check_target(url: str):
     if not infos:
         raise DependencyUnavailableError(_UNREACHABLE)
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if getattr(ip, "ipv4_mapped", None):
+        ip = ipaddress.ip_address(str(info[4][0]).split("%")[0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
             ip = ip.ipv4_mapped
         if (ip.is_link_local or ip.is_multicast or ip.is_unspecified
                 or (ip.is_reserved and not ip.is_private)):

@@ -55,7 +55,7 @@ def require_monthly_cap(engine_names) -> float:
 @contextlib.contextmanager
 def job_calls(job_id: str, drama_id, engine, engine_name: str, operation: str, *,
               log_usage: bool = False, lenient_empty: bool = True, on_wait=None,
-              no_thinking: bool = False, deadline: float = None):
+              no_thinking: bool = False, deadline: float | None = None):
     """Yields the CallLimits; read stop_reason from it, or stop_fields, once
     the job's calls are done. log_usage: write each call's usage row here, for
     a job whose callers pass no usage_cb of their own."""

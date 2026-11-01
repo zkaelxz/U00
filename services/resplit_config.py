@@ -34,7 +34,7 @@ class _Resplit:
 
     @property
     def label(self) -> str:
-        return RESPLIT_SENSITIVITIES.get(self.sensitivity, "Default limits") + (
+        return RESPLIT_SENSITIVITIES.get(self.sensitivity or "", "Default limits") + (
             f", {self.max_seconds:g} s cap" if self.max_seconds else "")
 
     def rules(self, ln) -> Optional[SplitRules]:

@@ -62,7 +62,7 @@ def _custom_fonts(drama_id: int) -> dict:
             and not os.path.islink(os.path.join(folder, f"{cat}.ttf"))}
 
 
-def render_page(drama_id: int, page_id: int, notes: list = None, cancel_check=None) -> dict:
+def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_check=None) -> dict:
     """Typesets one page now (call from a job). Returns {rendered, blank}:
     rendered False when the page has no region with text to place (nothing
     is written then); blank counts regions left as the original for having
@@ -147,7 +147,7 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
     background_jobs.update_progress(jid, 1.0, msg + ".")
 
 
-def start_render(drama_id: int, page_id: int = None) -> dict:
+def start_render(drama_id: int, page_id: int | None = None) -> dict:
     """Re-renders one page, or every page that has regions. 409 while the
     drama's Scanlate job or an import runs."""
     pages_svc.require_drama(drama_id)
@@ -226,7 +226,7 @@ def _export_job(jid: str, drama_id: int, formats: list, typeset: bool = True):
             if typeset and path is None and page["id"] in with_regions:
                 notes = []
                 if render_page(drama_id, page["id"], notes, lambda: check_cancel(jid))["rendered"]:
-                    path = _rendered_path(drama_id, db.get_page(page["id"]))
+                    path = _rendered_path(drama_id, pages_svc.require_page(drama_id, page["id"]))
                 append_notes(page["id"], notes)
             if path is None:
                 path = original_path(drama_id, page)

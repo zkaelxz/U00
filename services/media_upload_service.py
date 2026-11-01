@@ -177,7 +177,8 @@ def max_upload_bytes() -> int:
     read (api.auth.EarlyAuthGate)."""
     mb = _env_limit_mb()
     if mb is None:
-        mb = settings_service.get("max_upload_mb")
+        stored = settings_service.get("max_upload_mb")
+        mb = stored if isinstance(stored, (int, float)) else settings_schema.UPLOAD_MB_DEFAULT
     return int(mb * _MB)
 
 

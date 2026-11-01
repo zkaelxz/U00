@@ -79,7 +79,7 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
     and models. Only the engine picker's route asks for it."""
     from services import model_registry_service  # imports this module at load time
     key_status = settings_service.key_status(env_path)
-    gemini_free_tier = settings_service.get("gemini_free_tier")
+    gemini_free_tier = bool(settings_service.get("gemini_free_tier"))
     engines = []
     for name in engine_registry.ENGINES:
         model_dict = ENGINE_MODEL_DICTS.get(name)
@@ -262,7 +262,7 @@ def _checked_request(text, engine_name, source_language, target_language, model,
     ok, message = engine_standalone.standalone_direction_support(
         engine_name, source_language, target_language)
     if not ok:
-        raise UnsupportedOperationError(message)
+        raise UnsupportedOperationError(message or "")
     # A free-form model string would otherwise reach the engine, priced at $0 or a guess.
     translate_run_service._require_offered_model(engine_name, model)
     return (engine_name == "gemini"

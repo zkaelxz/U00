@@ -50,7 +50,7 @@ def _find_aborted(exc):
 COOKIE_BROWSERS = ["chrome", "firefox", "edge", "brave", "opera", "vivaldi", "safari"]
 
 
-def cookie_options(browser: str = None, cookies_file: str = None) -> dict:
+def cookie_options(browser: str | None = None, cookies_file: str | None = None) -> dict:
     """yt-dlp options for cookie-based login, for a site that blocks
     unauthenticated requests (TikTok and Instagram in particular, far
     more aggressively than YouTube does) -- previously only ever
@@ -66,7 +66,7 @@ def cookie_options(browser: str = None, cookies_file: str = None) -> dict:
 
 
 def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
-             title_cb=None, cookies_browser: str = None, cookies_file: str = None,
+             title_cb=None, cookies_browser: str | None = None, cookies_file: str | None = None,
              extra_opts: dict = None) -> str:
     """Downloads `url` into `out_dir` and returns the path to the
     resulting file.

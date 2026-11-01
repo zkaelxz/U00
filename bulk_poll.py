@@ -85,7 +85,7 @@ def _check_lock(bulk_job_id: int) -> threading.Lock:
         return _check_locks.setdefault(bulk_job_id, threading.Lock())
 
 
-def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float = None,
+def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float | None = None,
                cancel_check=None) -> str:
     """One status check. Returns the job's new status. Applies results
     as soon as the provider reports the batch ended. Raises BulkAuthError
@@ -210,7 +210,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
 
 def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
                     interval: float = POLL_INTERVAL_SECONDS, sleep=time.sleep, now_fn=None,
-                    monthly_cap_usd: float = None):
+                    monthly_cap_usd: float | None = None):
     """Background-thread target: polls a submitted batch until it's
     applied, or waits for a scheduled DeepSeek job's off-peak window and
     runs it. Stops on cancel, on a terminal status, or on an auth error
@@ -288,7 +288,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             return
 
 
-def start_poller(bulk_job_id: int, provider=None, engine=None, monthly_cap_usd: float = None) -> bool:
+def start_poller(bulk_job_id: int, provider=None, engine=None, monthly_cap_usd: float | None = None) -> bool:
     """Starts (or leaves running) the background poller for one job."""
     job_id = poll_job_id(bulk_job_id)
     return job_launch.start_job(job_id, run_bulk_poller, job_id, bulk_job_id,
@@ -310,7 +310,7 @@ def resumable_engines(drama_id: int) -> list:
             for job in db.list_bulk_jobs(drama_id, statuses=RESUMABLE_STATUSES)]
 
 
-def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float = None) -> dict:
+def resume_pending(drama_id: int, engine_factory, monthly_cap_usd: float | None = None) -> dict:
     """After a restart the in-memory job tracker is empty, but pending
     bulk jobs are on disk: start a poller for each one that isn't already
     being polled. engine_factory(engine_choice, model) returns an engine

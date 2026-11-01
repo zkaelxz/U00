@@ -499,7 +499,9 @@ def list_candidates(drama_id: int) -> dict:
             cands.append({"id": c["id"], "start": start, "end": end,
                           "duration": round(end - start, 2),
                           "ref_text": texts.get(c.get("line_id"), "")})
-        skip = entry.get("skip") if isinstance(entry.get("skip"), dict) else {}
+        skip = entry.get("skip")
+        if not isinstance(skip, dict):
+            skip = {}
         reason = skip.get("reason")
         closest = skip.get("closest_duration")
         speakers.append({

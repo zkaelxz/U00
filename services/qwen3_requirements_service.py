@@ -15,7 +15,7 @@ from lib.errors import DependencyUnavailableError
 MISSING_QWEN_MESSAGE = "Qwen3 speech recognition isn't installed yet. Open Diagnostics to install it."
 
 
-def require_qwen3_packages(feature: str, aligner_language: str = None) -> None:
+def require_qwen3_packages(feature: str, aligner_language: str | None = None) -> None:
     """Raises DependencyUnavailableError when torch is missing or transformers
     is missing or older than qwen3_native.MIN_TRANSFORMERS (the message says
     what to do in Diagnostics), so a Qwen3 choice never silently degrades to

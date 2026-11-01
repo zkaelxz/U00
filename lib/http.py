@@ -249,11 +249,11 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
     raise FetchError()  # too many redirects
 
 
-def get(url: str, *, timeout: float, max_bytes: int, **kw) -> Response:
+def get(url: str, *, timeout: float | tuple[float, float], max_bytes: int, **kw) -> Response:
     return request("GET", url, timeout=timeout, max_bytes=max_bytes, **kw)
 
 
-def post(url: str, *, timeout: float, max_bytes: int, **kw) -> Response:
+def post(url: str, *, timeout: float | tuple[float, float], max_bytes: int, **kw) -> Response:
     return request("POST", url, timeout=timeout, max_bytes=max_bytes, **kw)
 
 

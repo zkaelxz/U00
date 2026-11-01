@@ -103,7 +103,7 @@ def _with_other(entries: list) -> list:
     if len(entries) <= MAX_BREAKDOWN_ROWS:
         return entries
     keep, rest = entries[:MAX_BREAKDOWN_ROWS], entries[MAX_BREAKDOWN_ROWS:]
-    other = {f: sum(e[f] for e in rest) for f in
+    other: dict[str, object] = {f: sum(e[f] for e in rest) for f in
              ("calls", "input_tokens", "output_tokens", "cache_read_tokens")}
     other.update(key=None, label="Other", is_other=True,
                  cost_usd=round(sum(e["cost_usd"] for e in rest), 6))
@@ -160,7 +160,7 @@ def _months(conn, now, scope, reset_at):
     return out
 
 
-def get_spend_history(month: str = None, principal=None, now: datetime.datetime = None) -> dict:
+def get_spend_history(month: str | None = None, principal=None, now: datetime.datetime | None = None) -> dict:
     """Month table (newest first, at most MAX_MONTHS) plus the three
     breakdowns for `month` ("YYYY-MM"; default the newest month with spend)."""
     if month is not None and not _valid_month(month):
@@ -182,7 +182,7 @@ def get_spend_history(month: str = None, principal=None, now: datetime.datetime 
             "max_months": MAX_MONTHS, **breakdowns}
 
 
-def export_months_csv(principal=None, now: datetime.datetime = None) -> str:
+def export_months_csv(principal=None, now: datetime.datetime | None = None) -> str:
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     writer.writerow(["month", "estimated_cost_usd", "calls", "input_tokens", "output_tokens",

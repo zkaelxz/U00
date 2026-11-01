@@ -40,6 +40,7 @@ import threading
 import time
 import warnings
 from collections import OrderedDict
+from typing import Any, cast
 from urllib.parse import urlencode, urlsplit
 
 from services import auth_service
@@ -145,8 +146,11 @@ class GoogleProvider:
         """Server-to-server code exchange. Returns the token response dict."""
         from authlib.integrations.httpx_client import OAuth2Client as AuthlibOAuth2Client
         timeout = self.timeout
+        # Authlib's inline types derive its client from `httpx2`, which the
+        # type checker can't resolve when only httpx is installed.
+        authlib_client = cast("type[Any]", AuthlibOAuth2Client)
 
-        class OAuth2Client(AuthlibOAuth2Client):
+        class OAuth2Client(authlib_client):
             # Authlib reads the token reply itself, so the cap goes on every send.
             def send(self, request, **kwargs):
                 kwargs["stream"] = True
@@ -298,14 +302,15 @@ class SignIn:
         return txn_id
 
     def _busiest_source(self) -> str:
-        nets, sources = {}, {}
+        nets: dict[str, int] = {}
+        sources: dict[str, int] = {}
         for rec in self._pending.values():
             nets[rec["net"]] = nets.get(rec["net"], 0) + 1
-        net = max(nets, key=nets.get)
+        net = max(nets, key=lambda n: nets[n])
         for rec in self._pending.values():
             if rec["net"] == net:
                 sources[rec["source"]] = sources.get(rec["source"], 0) + 1
-        return max(sources, key=sources.get)
+        return max(sources, key=lambda s: sources[s])
 
     def _evict_oldest_of(self, source: str):
         for key, rec in self._pending.items():
@@ -407,8 +412,8 @@ class SignIn:
         with self._jwks_lock:
             now = self._clock()
             cached = self._jwks
-            fresh = cached is not None and now - self._jwks_at < JWKS_TTL_SECONDS
-            if fresh and any(k.get("kid") == kid for k in cached["keys"]):
+            if (cached is not None and now - self._jwks_at < JWKS_TTL_SECONDS
+                    and any(k.get("kid") == kid for k in cached["keys"])):
                 return cached
             if cached is not None and now - self._jwks_at < JWKS_MIN_REFETCH_SECONDS:
                 return cached

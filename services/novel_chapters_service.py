@@ -187,7 +187,7 @@ def read_chapter(drama_id: int, number: int, offset: int = 0,
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {MAX_SLICE_CHARS}.")
     raw = _raw_file(drama_id)
     blocks, _split = file_blocks(drama_id, raw[2]) if raw else ([], False)
-    if not 1 <= number <= len(blocks):
+    if raw is None or not 1 <= number <= len(blocks):
         raise NotFoundError("No such saved chapter.")
     path, raw_key, _size = raw
     b = blocks[number - 1]

@@ -129,10 +129,12 @@ def _usage() -> dict:
     saved = saved if isinstance(saved, dict) else {}
     today = _today()
     same_day = saved.get("date") == today
-    models = saved.get("models") if same_day and isinstance(saved.get("models"), dict) else {}
-    used_up = saved.get("used_up") if same_day and isinstance(saved.get("used_up"), list) else []
-    learned = saved.get("learned_rpd") if same_day and isinstance(saved.get("learned_rpd"), dict) \
-        else {}
+    models = saved.get("models")
+    models = models if same_day and isinstance(models, dict) else {}
+    used_up = saved.get("used_up")
+    used_up = used_up if same_day and isinstance(used_up, list) else []
+    learned = saved.get("learned_rpd")
+    learned = learned if same_day and isinstance(learned, dict) else {}
     return {"date": today, "count": _whole(saved.get("count")) if same_day else 0,
             "month": today[:7],
             "month_count": _whole(saved.get("month_count"))
@@ -374,7 +376,8 @@ def _daily_quota(body: bytes) -> Optional[dict]:
             if "PerDay" not in quota_id:
                 continue
             metric = f'{quota_id} {v.get("quotaMetric") or ""}'.lower()
-            dims = v.get("quotaDimensions") if isinstance(v.get("quotaDimensions"), dict) else {}
+            dims = v.get("quotaDimensions")
+            dims = dims if isinstance(dims, dict) else {}
             return {"searches": "search" in metric or "ground" in metric,
                     "model": dims.get("model") if dims.get("model") in MODELS else None,
                     # Only a requests-a-day quota is a model's request limit
@@ -476,7 +479,8 @@ def _parse_response(data: dict) -> dict:
             supports.append((seg, idx, max(scores) if scores else None))
 
     parsed = _parse_json(text)
-    raw_fields = parsed.get("fields") if isinstance(parsed.get("fields"), dict) else {}
+    raw_fields = parsed.get("fields")
+    raw_fields = raw_fields if isinstance(raw_fields, dict) else {}
     fields = {}
     for key in RESEARCH_FIELDS:  # by name; anything else the model sent is ignored
         item = raw_fields.get(key)
@@ -663,7 +667,7 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     api_key = settings_service.resolve_key("gemini")
     if not api_key:
         raise MissingKeyError("Gemini")
-    free_tier = settings_service.get("gemini_free_tier")
+    free_tier = bool(settings_service.get("gemini_free_tier"))
     paid_search, free_before, reserved_on = _reserve_search(mode, model, allow_paid, free_tier)
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))

@@ -132,7 +132,10 @@ def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bo
     chain = uuid.uuid4().hex
     try:
         # The new title has no transcript to paste, so it transcribes the downloaded audio.
-        if not db.get_drama(drama_id).get("transcript_mode"):
+        drama = db.get_drama(drama_id)
+        if drama is None:
+            raise NotFoundError("Title not found.")
+        if not drama.get("transcript_mode"):
             db.update_drama(drama_id, transcript_mode="whisper")
         packs = options.get("quick_language_packs") or []
         if packs:
@@ -189,7 +192,7 @@ def delete_temporary(principal, drama_id: int, confirm=False) -> dict:
     return result
 
 
-def sweep_temporary(now: float = None) -> int:
+def sweep_temporary(now: float | None = None) -> int:
     """Removes watch-once titles older than TEMPORARY_MAX_AGE_SECONDS that are not running; returns how
     many. A run whose title is already gone is just forgotten. Never raises."""
     now = time.time() if now is None else now

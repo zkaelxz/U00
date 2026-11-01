@@ -79,7 +79,7 @@ def scope_for(drama_id, worker_args: tuple, audio_path) -> str:
     settings["model_stamp"] = _model_stamp(settings.get("local_model_path"))
     return job_checkpoint_service.checkpoint_scope(
         JOB_KIND, drama_id, input_hash=media_hash(audio_path),
-        model=settings.get("local_model_path") or settings.get("whisper_size"), settings=settings)
+        model=settings.get("local_model_path") or settings.get("whisper_size") or "", settings=settings)
 
 
 def _words_usable(seg) -> bool:
@@ -126,7 +126,7 @@ def resume_from(scope: str) -> dict:
     return {"scope": scope, "segments": segments, "resumed_units": count, "record": True}
 
 
-def for_run(drama_id, worker_args: tuple, audio_path) -> dict:
+def for_run(drama_id, worker_args: tuple, audio_path) -> dict | None:
     """The `checkpoint` argument of the transcription worker, or None when this run is not
     resumable (see applies) or its input cannot be read."""
     names = list(inspect.signature(_transcribe_worker).parameters)

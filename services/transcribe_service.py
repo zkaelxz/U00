@@ -147,11 +147,11 @@ def get_transcribe_config(drama_id: int) -> dict:
         "whisper_exclusions": whisper_models.whisper_language_exclusions(),
         "selectable_whisper_sizes": selectable_whisper_sizes("transcribe"),
         "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_size),
-        "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get("use_gpu")),
-        "measured_speed_runs": measured_transcribe_runs(whisper_size, settings_service.get("use_gpu")),
-        "measured_stage_seconds": measured_stage_seconds(whisper_size, settings_service.get("use_gpu")),
-        "measured_diarize_speed": measured_diarize_speed(settings_service.get("use_gpu")),
-        "measured_diarize_runs": measured_diarize_runs(settings_service.get("use_gpu")),
+        "measured_speed": measured_transcribe_speed(whisper_size, bool(settings_service.get("use_gpu"))),
+        "measured_speed_runs": measured_transcribe_runs(whisper_size, bool(settings_service.get("use_gpu"))),
+        "measured_stage_seconds": measured_stage_seconds(whisper_size, bool(settings_service.get("use_gpu"))),
+        "measured_diarize_speed": measured_diarize_speed(bool(settings_service.get("use_gpu"))),
+        "measured_diarize_runs": measured_diarize_runs(bool(settings_service.get("use_gpu"))),
         "whisper_installed": diagnostics.check_dependency("faster_whisper"),
         # Loading ctranslate2 or cuBLAS here would lock their DLLs in the
         # server; the isolated GPU check measures it in a child.
@@ -668,7 +668,7 @@ def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_
                 speakers_at_start=diarization_service.speakers_snapshot(drama_id)),
             run_settings=run_settings_service.for_diarize(
                 expected_speakers, min_speakers, max_speakers,
-                settings_service.get("use_gpu")), line_fields=("speaker", "speaker_manual"))
+                bool(settings_service.get("use_gpu"))), line_fields=("speaker", "speaker_manual"))
     except ConflictError:
         # A clean stop cancels every job and refuses new ones, so one
         # that began after the lines were saved refuses the follow-up
