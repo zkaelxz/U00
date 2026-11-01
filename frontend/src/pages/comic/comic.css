@@ -88,6 +88,7 @@
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--comic-box-line) 8%, transparent);
 }
+.comic-box[data-tappable] { pointer-events: auto; cursor: pointer; }
 .comic-box-text {
   display: flex;
   align-items: center;
@@ -221,3 +222,5 @@
   margin: 0;
   padding-left: 1.25rem;
 }
+
+.comic-line-edit { display: grid; gap: var(--space-3); }
