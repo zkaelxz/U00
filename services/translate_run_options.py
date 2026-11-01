@@ -40,7 +40,7 @@ def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_ch
         raise UnsupportedOperationError("Bulk Reflect needs Claude or Gemini's batch API.")
 
 
-_BULK_IN_FLIGHT_STATUSES = db.BULK_PENDING_STATUSES + ("submitting", "running", "applying")
+BULK_IN_FLIGHT_STATUSES = db.BULK_PENDING_STATUSES + ("submitting", "running", "applying")
 
 
 def select_lines(drama_id, line_ids, expected_en, force_retranslate):
@@ -87,7 +87,7 @@ def require_no_pending_bulk_overlap(drama_id, eligible) -> None:
     the batch into a charge for nothing: its results are discarded for every
     line whose English changed since submission."""
     ours = {ln.id for ln in eligible}
-    for job in db.list_bulk_jobs(drama_id, statuses=_BULK_IN_FLIGHT_STATUSES):
+    for job in db.list_bulk_jobs(drama_id, statuses=BULK_IN_FLIGHT_STATUSES):
         if (job.get("kind") or "translate") != "translate":
             continue
         if ours & {r["line_id"] for r in db.list_bulk_job_lines(job["id"])}:
