@@ -352,8 +352,8 @@ export interface AdvancedValues {
   source_language?: string
 }
 
-// ocr.default_hardsub_backend: PaddleOCR for Chinese, Tesseract otherwise.
-const defaultHardsubBackend = (language?: string) => (language === 'zh' ? 'paddle' : 'tesseract')
+// ocr.default_hardsub_backend: RapidOCR for Chinese, Tesseract otherwise.
+const defaultHardsubBackend = (language?: string) => (language === 'zh' ? 'rapidocr' : 'tesseract')
 const hardsubChanged = (v: AdvancedValues) => (v.hardsub_ocr_backend ?? defaultHardsubBackend(v.source_language)) !== defaultHardsubBackend(v.source_language)
 
 // The knobs only Developer Mode shows. Their values still ride along in every save and run.

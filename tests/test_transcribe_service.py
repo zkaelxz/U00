@@ -126,7 +126,7 @@ class TestGetTranscribeConfig:
             "vocabulary_hint": False,
             "use_groq": False,
             "has_video_source": False,
-            "hardsub_ocr_backend": "paddle",
+            "hardsub_ocr_backend": "rapidocr",
             "hardsub_interval_sec": 1.0,
             "auto_initial_prompt": "",
             "source_language": "zh",
@@ -212,7 +212,7 @@ class TestUpdateTranscribeConfig:
         with pytest.raises(InvalidInputError):
             transcribe_service.update_transcribe_config(did, asr_backend_choice="nonsense")
 
-    @pytest.mark.parametrize("choice", ["tesseract", "paddle", "auto"])
+    @pytest.mark.parametrize("choice", ["tesseract", "paddle", "rapidocr", "auto"])
     def test_hardsub_ocr_backend_choices_are_saved(self, isolated_db, choice):
         did = isolated_db.create_drama(title_en="D")
         result = transcribe_service.update_transcribe_config(did, hardsub_ocr_backend=choice)

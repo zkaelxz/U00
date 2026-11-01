@@ -33,13 +33,13 @@ OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "rapido
 
 # Burned-in video captions only: manga_ocr and paddle_vl_manga are trained on
 # manga bubbles, so they are not offered here.
-HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "auto"]
+HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "rapidocr", "auto"]
 
 
 def default_hardsub_backend(source_language: str) -> str:
-    """PaddleOCR for Chinese (confirmed more accurate on
-    stylized/small captions), Tesseract otherwise."""
-    return "paddle" if source_language == "zh" else "tesseract"
+    """RapidOCR for Chinese (on real hard-sub frames it read the captions as well as
+    PaddleOCR and kept lines whole where PaddleOCR split them), Tesseract otherwise."""
+    return "rapidocr" if source_language == "zh" else "tesseract"
 
 
 def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
