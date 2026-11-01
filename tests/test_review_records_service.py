@@ -175,6 +175,18 @@ def test_tendencies_without_profile_and_with(isolated_db):
     assert svc.get_edit_tendencies(did)["profile"] is None
 
 
+def test_an_exact_match_is_found_even_when_it_falls_outside_the_entry_cap(isolated_db, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_TM_ENTRIES_SCANNED", 1)
+    sid = isolated_db.get_or_create_series("S")
+    did = _drama(isolated_db, series_id=sid)
+    lines = _lines(isolated_db, did, ens=("Old", "Old"))
+    isolated_db.record_translation_memory(sid, "中0", "Rare")
+    for _ in range(3):  # a more used entry takes the one capped slot
+        isolated_db.record_translation_memory(sid, "别的", "Popular")
+    res = svc.list_tm_suggestions(did, line_ids=[lines[0].id])
+    assert [(r["suggestion"], r["exact"]) for r in res] == [("Rare", True)]
+
+
 def test_tm_suggestions(isolated_db):
     sid = isolated_db.get_or_create_series("S")
     did = _drama(isolated_db, series_id=sid)

@@ -118,10 +118,28 @@ def record_translation_memory(series_id: int, source_text: str, translation: str
         conn.commit()
 
 
-def list_translation_memory(series_id: int):
+def list_translation_memory(series_id: int, limit: int | None = None):
+    """limit: only the most used (then newest) entries, for a caller whose
+    matching cost grows with the number of entries."""
+    order = "ORDER BY id" if limit is None else "ORDER BY use_count DESC, id DESC LIMIT ?"
     with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM translation_memory WHERE series_id = ? ORDER BY id",
-                            (series_id,)).fetchall()
+        rows = conn.execute(f"SELECT * FROM translation_memory WHERE series_id = ? {order}",
+                            (series_id,) if limit is None else (series_id, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_translation_memory_for_sources(series_id: int, sources) -> list:
+    """The entries whose stored source is exactly one of `sources`, so an exact
+    match is found however many entries the series holds."""
+    wanted = sorted({s for s in sources if s})
+    rows = []
+    with contextlib.closing(db.get_conn()) as conn:
+        for i in range(0, len(wanted), 500):  # under SQLite's bound-parameter limit
+            chunk = wanted[i:i + 500]
+            marks = ", ".join("?" for _ in chunk)
+            rows += conn.execute(
+                f"SELECT * FROM translation_memory WHERE series_id = ? AND source_text IN ({marks})",
+                [series_id, *chunk]).fetchall()
     return [dict(r) for r in rows]
 
 
