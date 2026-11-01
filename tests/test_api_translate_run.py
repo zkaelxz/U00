@@ -213,3 +213,12 @@ def test_estimate_refuses_model_not_offered(local_client):
                    params={"engine": "fake", "model": "someone/evil-repo"})
     assert r.status_code == 422
     assert "evil-repo" not in r.text
+
+
+def test_estimate_counts_only_the_chosen_lines(local_client):
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"第{i}句", en="") for i in range(4)])
+    ids = [ln["id"] for ln in db.load_lines(did)]
+    whole = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "fake"}).json()
+    some = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "fake", "line_ids": ids[:2]}).json()
+    assert whole["target_line_count"] == 4 and some["target_line_count"] == 2

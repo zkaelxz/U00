@@ -53,7 +53,7 @@ export const scanLinkedText = (scan: Pick<DiskUsageScan, 'linked_bytes' | 'linke
   scan.linked_bytes > 0 ? `plus ${scan.linked_complete ? '' : 'at least '}${formatDecimalBytes(scan.linked_bytes)} in linked folders` : ''
 
 /** A title's size by kind, in the order the user thinks about them; line history lives in the database. */
-export function titleSizesText(sizes: DiskUsageTitleSizes | null): string | null {
+export function titleSizesText(sizes: DiskUsageTitleSizes | null | undefined): string | null {
   if (!sizes) return null
   const atLeast = sizes.complete ? '' : 'at least '
   return [

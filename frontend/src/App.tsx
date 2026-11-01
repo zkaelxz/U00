@@ -270,7 +270,7 @@ export default function App() {
       {route.name === 'translate' && <TranslatePage />}
       {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
       {(route.name === 'sources' || route.name === 'sources-manage') && featureOn('sources', features) && (
-        <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} area={route.name === 'sources-manage' ? route.tab : undefined} />
+        <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} sharedUrl={route.name === 'sources' ? route.url : undefined} area={route.name === 'sources-manage' ? route.tab : undefined} />
       )}
       {route.name === 'discover' && <DiscoverPage />}
       {route.name === 'live' && <LivePage />}

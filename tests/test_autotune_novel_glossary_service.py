@@ -287,8 +287,10 @@ class TestNovelGlossary:
 
     def test_start_refusals(self, isolated_db, monkeypatch):
         nos = isolated_db.create_drama(title_en="x")
-        with pytest.raises(UnsupportedOperationError):
+        # Refused for having no novel text, not for having no series.
+        with pytest.raises(UnsupportedOperationError, match="novel"):
             gs.start_novel_glossary_run(nos)
+        assert not isolated_db.get_drama(nos)["series_id"]   # a run only reads the glossary; applying proposals makes the series
         did, _ = _novel_drama(isolated_db, orig=None, novel=None)
         with pytest.raises(UnsupportedOperationError):
             gs.start_novel_glossary_run(did)
