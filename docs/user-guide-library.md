@@ -27,7 +27,7 @@ Raw and translated text side by side, for proofing and language learning.
 ### Library
 
 - **Baihe unreachable**: the Library says so once, with Retry, and reloads itself within a few seconds of Baihe answering again; a page you have not opened yet in that tab shows the same "Could not reach Baihe" text and reloads when Baihe is back, instead of the browser's error page.
-- **Continue shelf** with cover art and progress; reading history (clearable); the shelf's heading, tiles and More/Less button line up with even padding.
+- **Continue shelf** with cover art and progress; a title on that shelf shows **Continue** instead of **Read** on its Library card; reading history (clearable); the shelf's heading, tiles and More/Less button line up with even padding.
 - **Cards** show a line-progress bar ("12 left" or "40 translated") and a Translate or Review button for the title's next step, beside Open.
 - **Metadata**: cover, genre, publication status, chapter count, custom tags, private notes, reading/listening time estimates.
 - **Stream / release date**: set it in a title's Media > Details (empty = unknown; Baihe never guesses it from the date added). The Library can sort by it (titles without a date last) and **Group by** series, media type or status, with each series' titles oldest first so you can watch in order; a series page has its own **Sort titles by**, and both remember your choice in this browser.
