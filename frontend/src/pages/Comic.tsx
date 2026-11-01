@@ -15,7 +15,6 @@ import { Breadcrumbs } from '../nav/BreadcrumbNav'
 import { routeCrumbs } from '../nav/breadcrumbs'
 import { api, keepaliveFetch } from '../api/client'
 import { comicApi, comicImageUrl } from '../api/comic'
-import { ButtonLink } from '../components/Button'
 import { RetryBanner } from '../components/RetryBanner'
 import { Sheet } from '../components/Sheet'
 import { buttonClass } from '../components/uiClasses'
@@ -543,7 +542,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       {empty ? (
         <div className="comic-scanlate comic-empty">
           <p>No pages to read yet. Upload page images or a PDF to translate them.</p>
-          <ButtonLink href={routeHref({ name: 'drama', id, stage: 'source' })}>Add pages on Media</ButtonLink>
           {panel}
         </div>
       ) : !data || current === null ? (
