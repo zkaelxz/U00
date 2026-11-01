@@ -74,6 +74,18 @@ export interface ComicProgress {
   percent_complete: number | null
 }
 
+// GET and POST /view-prefs: how the title was last shown, kept on the server so it follows the reader to another device.
+export interface ComicViewPrefsView {
+  view_prefs: ComicViewPrefs | null
+}
+export interface ComicViewPrefs {
+  mode: 'vertical' | 'paged'
+  rtl: boolean
+  fit: 'width' | 'height' | 'original'
+  typeset: boolean
+  text: boolean
+}
+
 // POST /pages/visibility: page ids, or the first/last `count` pages of a chapter.
 export interface ComicVisibilityRequest {
   hidden: boolean
