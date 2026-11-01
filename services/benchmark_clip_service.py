@@ -25,7 +25,7 @@ from core import SOURCE_LANGUAGES
 from services.benchmark_lab_service import (MAX_IMPORT_CASES, MAX_LABEL_CHARS, MAX_SET_NAME_CHARS,
                                             _case_out, _clean_text, _refuse_while_running)
 from services.media_upload_service import AUDIO_EXTENSIONS, check_room_for
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 # A clip makes at most two cases, and an import is held to MAX_IMPORT_CASES.
 MAX_CLIPS = MAX_IMPORT_CASES // 2

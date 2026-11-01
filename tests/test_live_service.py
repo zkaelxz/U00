@@ -13,7 +13,7 @@ from jobs import job_launch, job_runner
 import live_pipeline
 import live_translate
 from services import live_service, translate_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
 _REAL_CAPTURE = live_translate.start_segment_capture
@@ -180,7 +180,7 @@ def test_each_start_gets_own_session_and_dir(live, monkeypatch):
 
 
 def test_second_start_while_one_runs_is_conflict(live):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     a = _start()
     assert _wait(lambda: "out_dir" in live)
     with pytest.raises(ConflictError):
@@ -204,7 +204,7 @@ def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live)
 
 
 def test_refused_second_start_builds_no_engine(live, monkeypatch):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     _start()
     assert _wait(lambda: "out_dir" in live)
     built = []
@@ -642,10 +642,10 @@ def test_model_not_offered_for_the_engine_is_refused(live, monkeypatch):
 
 
 def test_a_model_pulled_on_the_ollama_server_is_accepted(live, monkeypatch):
-    import translate_engines
+    from engine_backends import local as engine_local
     seen = _capture_engine(live, monkeypatch)
-    monkeypatch.setattr(translate_engines, "check_ollama_model_installed", lambda base, model: None)
-    monkeypatch.setattr(translate_engines, "pulled_ollama_models", lambda base: ["qwen3:4b"])
+    monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda base, model: None)
+    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["qwen3:4b"])
     sid = _start(engine="ollama", model="qwen3:4b")
     assert _terminal(sid)
     assert seen["engine"].model == "qwen3:4b"
@@ -654,10 +654,10 @@ def test_a_model_pulled_on_the_ollama_server_is_accepted(live, monkeypatch):
 
 
 def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
-    import translate_engines
+    from engine_backends import local as engine_local
     seen = _capture_engine(live, monkeypatch)
-    monkeypatch.setattr(translate_engines, "check_ollama_model_installed",
-                        lambda base, model: (_ for _ in ()).throw(translate_engines.OllamaUnavailableError(
+    monkeypatch.setattr(engine_local, "check_ollama_model_installed",
+                        lambda base, model: (_ for _ in ()).throw(engine_local.OllamaUnavailableError(
                             "ollama_model_missing", f'Ollama doesn\'t have the model {model}. Run "ollama pull {model}" first.')))
     with pytest.raises(DependencyUnavailableError) as exc:
         _start(engine="ollama", model="gemma4:12b")
@@ -666,15 +666,15 @@ def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
 
 
 def test_ollama_default_model_is_checked_and_used(live, monkeypatch):
-    import translate_engines
+    from engine_backends import local as engine_local
     seen = _capture_engine(live, monkeypatch)
     checked = []
-    monkeypatch.setattr(translate_engines, "check_ollama_model_installed",
+    monkeypatch.setattr(engine_local, "check_ollama_model_installed",
                         lambda base, model: checked.append(model))
     sid = _start(engine="ollama")
     assert _terminal(sid)
-    assert checked == [translate_engines.OLLAMA_DEFAULT_MODEL]
-    assert seen["engine"].model == translate_engines.OLLAMA_DEFAULT_MODEL
+    assert checked == [engine_local.OLLAMA_DEFAULT_MODEL]
+    assert seen["engine"].model == engine_local.OLLAMA_DEFAULT_MODEL
 
 
 def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):

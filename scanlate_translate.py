@@ -36,7 +36,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
     Engines without the JSON prompt path (pure MT, or no LLM client) are called
     once per region with a single text, so each answer belongs to exactly
     one id; they carry no rolling context."""
-    from translate_engines import build_translation_context
+    from engine_backends.translate_pipeline import build_translation_context
 
     ids = [str(k) for k in texts_by_id]
     if not ids:
@@ -77,7 +77,9 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     exactly the ids sent, each with a string."""
     import json
     import re
-    from translate_engines import LANGUAGE_NAMES, extract_first_json_value, call_llm_json
+    from core import LANGUAGE_NAMES
+    from engine_backends.shared import extract_first_json_value
+    from engine_backends.llm_tasks import call_llm_json
     from translation_guide import build_glossary_block
 
     ids = [k for k, _ in items]

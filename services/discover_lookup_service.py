@@ -13,12 +13,12 @@ Rules (spec sections 3 and 5):
     `smart_fetch` or a rendered browser.
   - `ladder.check_terms` is called at the fetch boundary (currently a
     no-op by user decision; re-enabling it covers this service too).
-  - Errors are `service_errors` with fixed messages; any user-visible text
+  - Errors are `lib.errors` with fixed messages; any user-visible text
     passes `redact_secrets`.
   - Nothing here writes except `bulk_commit` (known_titles only, deduped).
 
 Paid-engine spending: see PAID_ENGINE_FUNCTIONS. They spend only when the
-chosen engine is not in `translate_engines.FREE_ENGINES`.
+chosen engine is not in `engine_registry.FREE_ENGINES`.
 """
 import threading
 import uuid
@@ -31,11 +31,12 @@ import db
 import metadata_lookup
 import navigator
 import title_library
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 from services import discover_catalog_service as _catalog
 from services import engine_failure_service, metadata_service, ownership_service, safe_fetch, settings_service
-from services.service_errors import (
+from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,
     MissingKeyError,
@@ -72,13 +73,13 @@ _start_lock = threading.Lock()
 
 
 def _redact(text) -> str:
-    return translate_engines.redact_secrets(text or "")
+    return engine_shared.redact_secrets(text or "")
 
 
 # ----- engine ---------------------------------------------------------------
 
 def allowed_engines() -> list:
-    return [e for e, cls in translate_engines.ENGINES.items()
+    return [e for e, cls in engine_registry.ENGINES.items()
             if getattr(cls, "supports_reference", False)]
 
 
@@ -93,14 +94,14 @@ def _check_engine(engine_name) -> str:
 def _build_engine(engine_name: str):
     """Server-side key resolution. The key stays inside the engine object."""
     if engine_name == "ollama":
-        return translate_engines.get_engine(
+        return engine_registry.get_engine(
             "ollama", "local", base_url=settings_service.ollama_url())
-    if engine_name in translate_engines.FREE_ENGINES:
-        return translate_engines.get_engine(engine_name, None)
+    if engine_name in engine_registry.FREE_ENGINES:
+        return engine_registry.get_engine(engine_name, None)
     api_key = settings_service.resolve_key(engine_name)
     if not api_key:
         raise MissingKeyError(engine_name)
-    return translate_engines.get_engine(
+    return engine_registry.get_engine(
         engine_name, api_key, free_tier=settings_service.get("gemini_free_tier"))
 
 
@@ -194,7 +195,7 @@ def import_suggestion(url, engine_name: Optional[str] = None) -> dict:
     suggestion = {k: _redact(v.strip()) for k, v in (found or {}).items()
                   if k in _SUGGEST_FIELDS and isinstance(v, str) and v.strip()}
     if suggestion:
-        suggestion["source_url"] = translate_engines.safe_url(url)
+        suggestion["source_url"] = engine_shared.safe_url(url)
     return {"suggestion": suggestion, "found": bool(suggestion), "needs_manual": False,
             "message": "" if suggestion else "Read the page but found no metadata in it."}
 
@@ -261,7 +262,7 @@ def _extract_pages(job_id, urls, source_label, engine):
     for i, url in enumerate(urls):
         if background_jobs.is_cancel_requested(job_id):
             break
-        row = {"url": translate_engines.safe_url(url), "ok": False, "needs_manual": False, "count": 0, "message": ""}
+        row = {"url": engine_shared.safe_url(url), "ok": False, "needs_manual": False, "count": 0, "message": ""}
         try:
             page = _fetch(url)
             if page.needs_manual or not page.text.strip():
@@ -275,7 +276,7 @@ def _extract_pages(job_id, urls, source_label, engine):
                         continue
                     seen.add(e["title"])
                     e["entry_id"] = f"{run}-{len(entries)}"
-                    e["source_url"] = translate_engines.safe_url(url)      # display only
+                    e["source_url"] = engine_shared.safe_url(url)      # display only
                     full_urls[e["entry_id"]] = url          # what commit stores
                     entries.append(e)
                     row["count"] += 1

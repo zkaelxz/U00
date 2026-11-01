@@ -37,7 +37,7 @@ benchmark_cases table) rather than beside it:
   toward the monthly cap like any other run.
 
 Keys are resolved server-side (translate_service.resolve_api_key) and never
-returned; errors are passed through translate_engines.redact_secrets before
+returned; errors are passed through shared.redact_secrets before
 they are stored.
 
 Not built here: scoped translation-memory saves,
@@ -54,7 +54,7 @@ import background_jobs
 from jobs import job_launch
 import benchmark
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing, local
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
@@ -72,7 +72,7 @@ from services import benchmark_scene_service as scene_service
 from services.benchmark_runs_service import MAX_CONFIGS, arena, close_stale_runs, get_run, session_out as _session_out  # noqa: F401
 from services.benchmark_scoring_service import (CHRF_PASS_THRESHOLD, MAX_TEXT_CHARS, PASS_THRESHOLD, pass_threshold,
                                                  script_normaliser)
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     NotFoundError,
@@ -432,10 +432,10 @@ def _estimate_config(cfg: dict, cases: list):
     chars-per-token heuristic as a normal translation estimate), or 0.0."""
     if not _cap_applies(cfg["engine"]):
         return 0.0
-    engine_cls = translate_engines.ENGINES[cfg["engine"]]
+    engine_cls = engine_registry.ENGINES[cfg["engine"]]
     probe = type("Probe", (), {})()
     probe.name = getattr(engine_cls, "name", cfg["engine"])
-    probe.model = cfg["model"] or translate_engines.effective_default_model(cfg["engine"])
+    probe.model = cfg["model"] or engine_registry.effective_default_model(cfg["engine"])
     probe.free_tier = False
     if cfg.get("options") is not None:
         return scene_service.estimate_cost(probe, cfg["options"], cases)
@@ -458,7 +458,7 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
     monthly_cap = settings_service.get_monthly_cap_usd()
     spend = db.get_month_spend()
     any_capped = any(p["cap_applies"] for p in per_config)
-    cap, refusal = translate_engines.resolve_cost_cap(None, monthly_cap, spend) if any_capped else (None, None)
+    cap, refusal = pricing.resolve_cost_cap(None, monthly_cap, spend) if any_capped else (None, None)
     return {
         "stage": stage, "case_count": len(cases), "configs": per_config,
         "estimated_cost_usd": round(total, 6), "monthly_cap_usd": monthly_cap,
@@ -505,7 +505,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         started = job_launch.start_job(
             JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
             gpu_touching=vision.needs_gpu(stage, checked) or any(
-                c.get("transcribe") or translate_engines.ollama_touches_local_gpu(c["engine"], c["model"])
+                c.get("transcribe") or local.ollama_touches_local_gpu(c["engine"], c["model"])
                 for c in checked),
             description="Benchmark run", line_fields=())
     if not started:
@@ -547,7 +547,7 @@ def create_session(stage: str, cfg: dict, cases: list, use_gpu, label: str = "",
                    case_filter: dict = None, arena_group: str = None, extra_context: dict = None) -> int:
     """One queued benchmark_sessions row for one checked config over these cases."""
     model = (benchmark.LOCAL_FOLDER_LABEL if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else cfg["model"]) \
-        or (translate_engines.effective_default_model(cfg["engine"])
+        or (engine_registry.effective_default_model(cfg["engine"])
             if vision.paid_arm(stage, cfg) else None)
     return db.create_benchmark_session({
         "label": label, "stage": stage, "engine": cfg["engine"], "model": model,
@@ -615,7 +615,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
         engine, cap, capped, scenes = None, None, False, None
         if vision.paid_arm(stage, cfg):
             try:
-                engine = translate_engines.get_engine(
+                engine = engine_registry.get_engine(
                     cfg["engine"], api_key, cfg["model"],
                     free_tier=cfg["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
                     base_url=settings_service.ollama_url()
@@ -633,7 +633,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                 if job_left is not None and job_left <= 0:
                     cap, refusal = None, "This run's spending limit is reached."
                 else:
-                    cap, refusal = translate_engines.resolve_cost_cap(
+                    cap, refusal = pricing.resolve_cost_cap(
                         job_left, monthly, db.get_month_spend() if monthly else 0.0)
                 if refusal:
                     db.update_benchmark_session(session_id, status="stopped_cap", note=refusal,

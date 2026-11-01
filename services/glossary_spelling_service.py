@@ -22,7 +22,7 @@ from typing import List, Optional
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import shared
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.shared import TranslationCancelled, language_name
 from services import glossary_extract_service as extract
@@ -30,7 +30,7 @@ from services import glossary_service
 from services.glossary_common import MAX_TERM_LEN, _drama, _text
 from services.glossary_variants_service import (_LATIN_STOPWORDS, SCAN_MAX_CHARS, SCAN_MAX_LINES, _norm,
                                                 _snippet, _source_lines)
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 # Functions that call an LLM engine (and so may spend on a paid one).
 PAID_ENGINE_FUNCTIONS = ("start_spelling_suggestions",)
@@ -174,7 +174,7 @@ def _run_job(job_id, run_id, drama_id, engine, engine_name, term_text, aliases, 
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError("Suggesting spellings failed. "
-                           + translate_engines.redact_secrets(str(exc))) from None
+                           + shared.redact_secrets(str(exc))) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
     spellings = parse_spellings(reply)
@@ -237,7 +237,7 @@ def get_spelling_status(drama_id: int) -> dict:
         elif not r.get("proposals"):
             message = NO_MATCH_MESSAGE
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
-            "message": translate_engines.redact_secrets(str(message)) if message else "",
+            "message": shared.redact_secrets(str(message)) if message else "",
             "run_id": extract._current_run_id(job_id, job), "result": result}
 
 

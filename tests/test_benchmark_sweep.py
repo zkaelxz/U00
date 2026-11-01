@@ -17,7 +17,7 @@ from services import benchmark_lab_service as lab
 from services import benchmark_sweep_core as sweep_core
 from services import benchmark_sweep_service as sweep
 from services import model_readiness_service, translate_preset_service
-from services.service_errors import ConflictError, DependencyUnavailableError, UnsupportedOperationError
+from lib.errors import ConflictError, DependencyUnavailableError, UnsupportedOperationError
 from tests.job_helpers import wait_for_job
 
 REF = "你好世界今天天气很好"

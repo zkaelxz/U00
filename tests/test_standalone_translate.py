@@ -1,6 +1,6 @@
 """
 tests/test_standalone_translate.py -- Step 26b: the standalone translate
-tool. Covers translate_engines.build_standalone_instructions,
+tool. Covers engine_backends.prompts.build_standalone_instructions,
 standalone_direction_support, chunk_standalone_text, and
 standalone_translate -- the drama-translation prompt/pipeline itself
 (build_llm_instructions, translate_lines_with_engine) is covered by
@@ -13,17 +13,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-import translate_engines as te
+from engine_backends import prompts, engine_registry, shared
+from engine_backends import standalone as engine_standalone
 
 
 class TestBuildStandaloneInstructions:
     def test_to_english_names_both_languages(self):
-        instructions = te.build_standalone_instructions("zh", "en")
+        instructions = prompts.build_standalone_instructions("zh", "en")
         assert "Chinese" in instructions
         assert "English" in instructions
 
     def test_from_english_names_both_languages(self):
-        instructions = te.build_standalone_instructions("en", "ja")
+        instructions = prompts.build_standalone_instructions("en", "ja")
         assert "English" in instructions
         assert "Japanese" in instructions
 
@@ -31,7 +32,7 @@ class TestBuildStandaloneInstructions:
         """Unlike build_llm_instructions (the drama prompt), this must
         never assume subtitles or the baihe/GL genre -- it's a generic
         text-translation prompt."""
-        instructions = te.build_standalone_instructions("zh", "en")
+        instructions = prompts.build_standalone_instructions("zh", "en")
         assert "baihe" not in instructions
         assert "subtitle" not in instructions.lower()
 
@@ -42,17 +43,17 @@ class TestBuildStablePromptStandaloneFlag:
     keeps using build_llm_instructions completely unchanged."""
 
     def test_standalone_flag_uses_the_generic_prompt(self):
-        instructions, novel_block = te.build_stable_prompt(
+        instructions, novel_block = prompts.build_stable_prompt(
             {"standalone": True, "source_language": "zh", "target_language": "en"})
         assert "baihe" not in instructions
         assert novel_block == ""
 
     def test_drama_context_without_the_flag_is_unchanged(self):
-        instructions, _ = te.build_stable_prompt({"source_language": "zh", "drama_meta": {}})
+        instructions, _ = prompts.build_stable_prompt({"source_language": "zh", "drama_meta": {}})
         assert "baihe" in instructions
 
     def test_from_english_direction_reaches_the_generic_prompt(self):
-        instructions, _ = te.build_stable_prompt(
+        instructions, _ = prompts.build_stable_prompt(
             {"standalone": True, "source_language": "en", "target_language": "ko"})
         assert "English" in instructions
         assert "Korean" in instructions
@@ -68,25 +69,25 @@ class TestStandaloneDirectionSupport:
     loaded (attempted, with a warning)."""
 
     def test_to_english_is_always_supported_for_every_engine(self):
-        for name in te.ENGINES:
-            ok, message = te.standalone_direction_support(name, "zh", "en")
+        for name in engine_registry.ENGINES:
+            ok, message = engine_standalone.standalone_direction_support(name, "zh", "en")
             assert ok is True
             assert message is None
 
     def test_pure_mt_engine_supports_english_to_cjk(self):
         for name in ("fake_mt",):
-            ok, message = te.standalone_direction_support(name, "en", "zh")
+            ok, message = engine_standalone.standalone_direction_support(name, "en", "zh")
             assert ok is True
             assert message is None
 
     def test_llm_engines_support_english_to_cjk(self):
         for name in ("claude", "deepseek", "gemini", "fake"):
-            ok, message = te.standalone_direction_support(name, "en", "ja")
+            ok, message = engine_standalone.standalone_direction_support(name, "en", "ja")
             assert ok is True
             assert message is None
 
     def test_ollama_is_attempted_with_a_warning_not_refused(self):
-        ok, message = te.standalone_direction_support("ollama", "en", "zh")
+        ok, message = engine_standalone.standalone_direction_support("ollama", "en", "zh")
         assert ok is True
         assert message
         assert "model" in message.lower()
@@ -94,20 +95,20 @@ class TestStandaloneDirectionSupport:
 
 class TestChunkStandaloneText:
     def test_short_text_is_a_single_chunk(self):
-        assert te.chunk_standalone_text("Just one short paragraph.") == ["Just one short paragraph."]
+        assert engine_standalone.chunk_standalone_text("Just one short paragraph.") == ["Just one short paragraph."]
 
     def test_empty_text_produces_no_chunks(self):
-        assert te.chunk_standalone_text("   ") == []
+        assert engine_standalone.chunk_standalone_text("   ") == []
 
     def test_paragraph_breaks_are_preserved_within_a_chunk(self):
         text = "Para one.\n\nPara two."
-        chunks = te.chunk_standalone_text(text, max_chars_per_chunk=1000)
+        chunks = engine_standalone.chunk_standalone_text(text, max_chars_per_chunk=1000)
         assert chunks == ["Para one.\n\nPara two."]
 
     def test_long_text_splits_into_multiple_chunks(self):
         paragraphs = [f"Paragraph {i} " + "x" * 500 for i in range(6)]
         text = "\n\n".join(paragraphs)
-        chunks = te.chunk_standalone_text(text, max_chars_per_chunk=1000)
+        chunks = engine_standalone.chunk_standalone_text(text, max_chars_per_chunk=1000)
         assert len(chunks) > 1
         rejoined = "\n\n".join(chunks)
         for p in paragraphs:
@@ -115,7 +116,7 @@ class TestChunkStandaloneText:
 
     def test_a_single_paragraph_longer_than_the_limit_is_kept_whole(self):
         long_paragraph = "y" * 5000
-        chunks = te.chunk_standalone_text(long_paragraph, max_chars_per_chunk=1000)
+        chunks = engine_standalone.chunk_standalone_text(long_paragraph, max_chars_per_chunk=1000)
         assert chunks == [long_paragraph]
 
 
@@ -134,7 +135,7 @@ class _ShufflingEngine:
             pairs = {str(i): f"OUT:{zh_lines[i - 1]}" for i in ids}
             shuffled = dict(reversed(list(pairs.items())))
             return json.dumps(shuffled)
-        return te.request_translations_with_retry(zh_lines, None, call_model)
+        return shared.request_translations_with_retry(zh_lines, None, call_model)
 
 
 class _CountingEngine:
@@ -159,17 +160,17 @@ class TestStandaloneTranslate:
         # once for the whole chunk, not once per paragraph.
         engine = _ShufflingEngine()
         text = "First paragraph.\n\nSecond paragraph."
-        result = te.standalone_translate(text, engine, "zh", "en")
+        result = engine_standalone.standalone_translate(text, engine, "zh", "en")
         assert result == f"OUT:{text}"
 
     def test_long_text_is_chunked_and_reassembled_by_id_not_position(self):
         paragraphs = [f"Paragraph {i} " + "x" * 300 for i in range(8)]
         text = "\n\n".join(paragraphs)
         engine = _ShufflingEngine()
-        expected_chunks = te.chunk_standalone_text(text)
+        expected_chunks = engine_standalone.chunk_standalone_text(text)
         assert len(expected_chunks) > 1  # otherwise this test proves nothing
 
-        result = te.standalone_translate(text, engine, "zh", "en")
+        result = engine_standalone.standalone_translate(text, engine, "zh", "en")
         # Compared against the exact expected reassembly (not split back
         # apart) since a chunk can itself contain "\n\n" internally
         # (preserved paragraph breaks), which would make a naive re-split
@@ -178,20 +179,20 @@ class TestStandaloneTranslate:
 
     def test_empty_text_returns_empty_string_without_calling_the_engine(self):
         engine = _CountingEngine("claude")
-        assert te.standalone_translate("   ", engine, "zh", "en") == ""
+        assert engine_standalone.standalone_translate("   ", engine, "zh", "en") == ""
         assert engine.called is False
 
     def test_unsupported_engine_direction_is_refused_before_translate_batch_runs(self, monkeypatch):
         monkeypatch.setattr("engine_backends.standalone.standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         engine = _CountingEngine("fake_mt")
-        with pytest.raises(te.UnsupportedDirectionError):
-            te.standalone_translate("Hello there.", engine, "en", "zh")
+        with pytest.raises(engine_standalone.UnsupportedDirectionError):
+            engine_standalone.standalone_translate("Hello there.", engine, "en", "zh")
         assert engine.called is False  # refused, never attempted
 
     def test_from_english_direction_reaches_the_engine(self):
         engine = _ShufflingEngine()
-        result = te.standalone_translate("Hello world.", engine, "en", "ja")
+        result = engine_standalone.standalone_translate("Hello world.", engine, "en", "ja")
         assert result == "OUT:Hello world."
 
     def test_batches_chunks_in_groups_not_all_in_one_call(self):
@@ -208,7 +209,7 @@ class TestStandaloneTranslate:
 
         paragraphs = [f"Paragraph {i} " + "x" * 300 for i in range(20)]
         text = "\n\n".join(paragraphs)
-        te.standalone_translate(text, _BatchCountingEngine(), "zh", "en", batch_size=3)
+        engine_standalone.standalone_translate(text, _BatchCountingEngine(), "zh", "en", batch_size=3)
         assert len(calls) > 1
         assert all(n <= 3 for n in calls)
 
@@ -240,21 +241,21 @@ class _BlobMergingEngine:
 class TestOneTranslatedLinePerInputLine:
     def test_twenty_plain_lines_stay_twenty_when_the_engine_merges_two(self):
         text = "\n".join(f"line {i}" for i in range(1, 21))
-        result = te.standalone_translate(text, _BlobMergingEngine(), "ja", "en")
+        result = engine_standalone.standalone_translate(text, _BlobMergingEngine(), "ja", "en")
         assert result.split("\n") == [f"OUT:line {i}" for i in range(1, 21)]
 
     def test_numbered_lines_are_not_collapsed_into_one(self):
         text = "\n".join(f"{i}. line {i}" for i in range(1, 6))
-        result = te.standalone_translate(text, _BlobMergingEngine(collapse_numbered=True), "ja", "en")
+        result = engine_standalone.standalone_translate(text, _BlobMergingEngine(collapse_numbered=True), "ja", "en")
         assert result.split("\n") == [f"OUT:{i}. line {i}" for i in range(1, 6)]
 
     def test_blank_lines_between_paragraphs_are_kept(self):
-        result = te.standalone_translate("a\nb\n\nc\nd", _BlobMergingEngine(), "ja", "en")
+        result = engine_standalone.standalone_translate("a\nb\n\nc\nd", _BlobMergingEngine(), "ja", "en")
         assert result == "OUT:a\nOUT:b\n\nOUT:c\nOUT:d"
 
     def test_bullets_and_punctuation_only_lines_keep_their_place(self):
         engine = _BlobMergingEngine()
-        result = te.standalone_translate("- one\n...\n- two", engine, "ja", "en")
+        result = engine_standalone.standalone_translate("- one\n...\n- two", engine, "ja", "en")
         assert result == "OUT:- one\n...\nOUT:- two"
         assert ["..."] not in engine.calls and all("..." not in c for c in engine.calls)
 
@@ -265,7 +266,7 @@ class TestOneTranslatedLinePerInputLine:
             def translate_batch(self, zh_lines, context):
                 return [f"OUT:{z}" + ("\nextra" if "\n\n" in z else "") for z in zh_lines]
 
-        result = te.standalone_translate("a\n\nb", _Verbose(), "ja", "en")
+        result = engine_standalone.standalone_translate("a\n\nb", _Verbose(), "ja", "en")
         assert result == "OUT:a\n\nOUT:b"
 
     def test_a_line_the_engine_never_answers_is_marked_and_reported(self):
@@ -275,7 +276,7 @@ class TestOneTranslatedLinePerInputLine:
             def translate_batch(self, zh_lines, context):
                 return ["" if z == "b" else f"OUT:{z}" for z in zh_lines]
 
-        result, message = te.standalone_translate_partial("a\nb\nc", _Dropping(), "ja", "en")
+        result, message = engine_standalone.standalone_translate_partial("a\nb\nc", _Dropping(), "ja", "en")
         assert result == "OUT:a\n[untranslated] b\nOUT:c"
         assert message == "1 line could not be translated and is marked [untranslated]."
 
@@ -286,7 +287,7 @@ class TestOneTranslatedLinePerInputLine:
             def translate_batch(self, zh_lines, context):
                 return [f"OUT:{z}" for z in zh_lines][:-1]
 
-        result, message = te.standalone_translate_partial("a\nb", _Short(), "ja", "en")
+        result, message = engine_standalone.standalone_translate_partial("a\nb", _Short(), "ja", "en")
         assert result == "[untranslated] a\n[untranslated] b"
         assert "2 lines" in message
 
@@ -303,7 +304,7 @@ class TestOneTranslatedLinePerInputLine:
                 pass
 
         text = "\n".join(f"l{i}" for i in range(1, 5))
-        result, message = te.standalone_translate_partial(
+        result, message = engine_standalone.standalone_translate_partial(
             text, _BlobMergingEngine(), "ja", "en", batch_size=2, budget=_StopAfterOne())
         # The chunk the stop landed in is dropped whole, as before, not half merged.
         assert (result, message) == ("", "stopped")

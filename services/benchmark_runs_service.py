@@ -13,7 +13,7 @@ from services import asr_timing_service
 from services.benchmark_hardsub_read_service import is_unreadable
 from services.benchmark_case_service import redact
 from services.benchmark_script_service import add_counts, count_scripts, empty_counts
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 MAX_CONFIGS = 4
 

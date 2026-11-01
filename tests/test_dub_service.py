@@ -11,7 +11,7 @@ import pytest
 import dub
 from core import Line
 from services import dub_service
-from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError
+from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError
 
 # A GPT-SoVITS address left in .env by an older version.
 FAKE_URL = "http://secret-host.example:9999"

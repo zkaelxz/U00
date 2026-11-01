@@ -48,12 +48,13 @@ import db
 import en_cleanup
 import sensevoice_tags
 import subtitle_formats
-import translate_engines
+from engine_backends import engine_registry, shared
+from engine_backends import gemini as engine_gemini
 from engine_backends import paid_calls
 from services import (export_service, media_playback_service, ownership_service,
                       restructure_service, settings_service, translate_run_service, translate_service,
                       workspace_audio_job_service)
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,
@@ -302,18 +303,18 @@ def get_style(drama_id: int, principal=None) -> dict:
 def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
-    if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
+    if engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't learn a style.")
     if (gemini_free_tier and engine_name == "gemini"
-            and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
+            and model in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
         free_tier=engine_name == "gemini" and gemini_free_tier,
         base_url=settings_service.ollama_url()
@@ -356,7 +357,7 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
         raise
     except Exception as e:  # engine/network failure: never leak a key
         raise ServiceError("The engine call failed: "
-                           + translate_engines.redact_secrets(str(e))[:300]) from None
+                           + shared.redact_secrets(str(e))[:300]) from None
     prefs = [str(p) for p in (result.get("preferences") or []) if str(p).strip()]
     if not prefs:
         return _style_view(drama_id, drama, message=str(result.get("summary")

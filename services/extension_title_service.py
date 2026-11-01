@@ -25,7 +25,7 @@ from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoun
 from services import (drama_service, extension_novel_service, link_details_service, ownership_service,
                       source_link_service)
 from services.series_service import term_key
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 MAX_NAME_CHARS = drama_service.MAX_NAME_LEN
 MAX_CANDIDATES = 12

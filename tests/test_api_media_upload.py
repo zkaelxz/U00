@@ -447,7 +447,7 @@ def test_confirm_flag_must_be_a_bool(isolated_db):
     import io
     import db
     from services import media_upload_service
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     did = db.create_drama(title_en="D")
     with pytest.raises(InvalidInputError):
         media_upload_service.upload_media(did, "a.mp3", io.BytesIO(b"x"), confirm_replace_audio="yes")
@@ -1101,3 +1101,11 @@ def test_a_plain_upload_on_an_empty_title_means_transcribe_it(client, isolated_d
     r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("a.mp3", b"media")})
     assert r.status_code == 200, r.text
     assert db.get_drama(did)["transcript_mode"] == "whisper"
+
+
+def test_a_video_uploaded_to_a_title_with_a_chosen_mode_keeps_it(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    db.update_drama(did, transcript_mode="hardsub_ocr")
+    _video_title(client, did)
+    assert db.get_drama(did)["transcript_mode"] == "hardsub_ocr"

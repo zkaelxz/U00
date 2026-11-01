@@ -5,7 +5,7 @@ Moved out of services/sources_extraction_service.py to keep it under the size ce
 first, because it needs `services.sources_extraction_service` fully defined.
 """
 
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 from services.sources_registry_service import scrub
 from sources import adaptive, ai_extract, ai_extract_comic as axc, ai_extract_novel as axn, profiles
 from services.sources_extraction_service import (MAX_PAGE_NUMBER, NUMBER_FROM, _LOCK, _NOT_OFFERED, _Review, _STALE, _get, _new_revision, _require_drama)

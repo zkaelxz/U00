@@ -12,7 +12,7 @@ pytest.importorskip("httpx")
 import storage
 
 from services import artifact_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 
 @pytest.fixture

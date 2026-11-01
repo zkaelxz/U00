@@ -719,7 +719,7 @@ class TestDubTrackTimeStretch:
 
     def test_the_pacing_rewrite_runs_first_and_the_stretch_only_closes_what_is_left(
             self, timed, monkeypatch, tmp_path):
-        import translate_engines
+        from engine_backends import llm_tasks
         long_text = "x" * 30  # 3s -- would hit the cap and overflow
         lines = [_line(0, long_text)]
         dub.build_dub_track(lines, str(tmp_path), ALL)
@@ -728,7 +728,7 @@ class TestDubTrackTimeStretch:
         # Section 7's pacing rewrite, with a fake LLM, shortens the line...
         monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json",
                             lambda *a, **k: json.dumps({"1": "x" * 11}))
-        translate_engines.rewrite_for_pacing_llm(lines, types.SimpleNamespace(supports_reference=True))
+        llm_tasks.rewrite_for_pacing_llm(lines, types.SimpleNamespace(supports_reference=True))
         assert lines[0].en == "x" * 11
 
         # ...so the next dub voices the rewritten line (not the old clip) and

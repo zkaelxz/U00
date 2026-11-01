@@ -1,7 +1,7 @@
 """
 services/disk_usage_trash_service.py -- the Trash list, Restore and the two
 permanent deletes (purge one entry, empty the Trash) of the data-folder disk
-usage feature. UI-free; raises services/service_errors.
+usage feature. UI-free; raises lib/errors.
 
 The rename into Trash, the manifests and the entry measuring stay in
 services/disk_usage_trash_store.py, which the scan and clear also use; this module
@@ -25,7 +25,7 @@ from services.disk_usage_trash_store import (TRASH_DELETE_FAILED, TRASH_MANIFEST
                                              _drop_entry_shell, _entry_path, _measure_payload,
                                              _read_manifest, _rename_no_overwrite, _same_volume,
                                              _too_deep, _trash_entries, _trash_root)
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 TRASH_WORD = "DELETE"

@@ -750,7 +750,7 @@ class TestSecretsNeverLeak:
         assert SECRET not in repr(s) and CLIENT_ID not in repr(s)
 
     def test_redact_secrets_knows_google_client_secrets(self):
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         assert SECRET not in redact_secrets(f"error: {SECRET} bad")
 
 

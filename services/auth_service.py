@@ -2,7 +2,7 @@
 services/auth_service.py -- users, allowlist, permissions, server-side
 sessions and the audit log (see docs/remote-access-decision.md).
 
-UI-free: plain dicts in and out, errors from `service_errors`. Nothing
+UI-free: plain dicts in and out, errors from `lib.errors`. Nothing
 here knows about HTTP; `api/auth.py` is the FastAPI layer on top.
 
 Security rules kept here:
@@ -15,7 +15,7 @@ Security rules kept here:
 - The allowlist is keyed by email for administration only. Matching a
   future Google login to a user is by `google_sub`, never by email alone
   (`bind_google_sub` refuses to rebind an already-bound user).
-- Audit details go through `translate_engines.redact_secrets` plus a
+- Audit details go through `engine_backends.shared.redact_secrets` plus a
   scrub of long token-like runs, and are length-capped.
 """
 
@@ -31,7 +31,7 @@ from collections import OrderedDict, deque
 
 import db
 from lib.device_label import device_label
-from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError, RateLimitedError, UnauthenticatedError)
 
 # One catalogue, one place. Household defaults are granted to a newly
@@ -137,7 +137,7 @@ def _require_user(user_id: int) -> dict:
 # --- audit ---------------------------------------------------------------
 
 def _scrub_detail(detail) -> str:
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     text = redact_secrets(str(detail or ""))
     return _TOKENISH_RE.sub("[REDACTED]", text)[:_MAX_AUDIT_DETAIL]
 

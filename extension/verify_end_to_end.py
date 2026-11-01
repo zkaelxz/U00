@@ -41,7 +41,7 @@ this script covers it with the same rigor:
     paragraph text is captured -- and a <nav>'s links are not, even
     though the nav sits on the same page,
   * that text is translated for real through
-    translate_engines.standalone_translate (not mocked -- FakeEngine
+    standalone.standalone_translate (not mocked -- FakeEngine
     needs no network or key, so the real function runs end to end),
   * the result is drawn into a panel on the page itself and saved to the
     Standalone translate tab's own history table,
@@ -122,7 +122,7 @@ def _install_fakes():
     import page_server
     import scanlate
     import scanlate_translate
-    import translate_engines
+    from engine_backends import engine_registry
 
     calls = []
 
@@ -151,7 +151,7 @@ def _install_fakes():
     # API-key bookkeeping the image checks don't exercise either.
     from tests import fake_engine
     fake_engine.install()
-    translate_engines.get_engine = lambda *a, **kw: fake_engine.FakeEngine()
+    engine_registry.get_engine = lambda *a, **kw: fake_engine.FakeEngine()
     page_server.set_translation_config(engine="fake", api_key="x")
     return calls
 

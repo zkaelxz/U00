@@ -13,14 +13,14 @@ from PIL import Image
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import pricing, engine_registry
 from jobs import job_launch
 from services import benchmark_hardsub_read_service as reads
 from services import benchmark_hardsub_service as band_pictures
 from services import hardsub_speaker_compare, hardsub_speaker_groups, image_text_service, ownership_service
 from services import settings_service, translate_run_service, translate_service
 from services.benchmark_case_service import redact
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     InvalidInputError,
@@ -114,7 +114,7 @@ def start(principal, drama_id: int, engine: str, model=None, speaker_groups=None
         if max_cost_usd == 0:
             raise UnsupportedOperationError("This engine is paid, so a spending limit of 0 allows no reading.")
         # Without a limit of its own the run may spend no more than the estimate just shown.
-        cap, refusal = translate_engines.resolve_cost_cap(
+        cap, refusal = pricing.resolve_cost_cap(
             max_cost_usd or priced["estimated_usd"], translate_run_service.month_cap_usd(), db.get_month_spend())
         if refusal:
             raise UnsupportedOperationError(refusal)
@@ -124,7 +124,7 @@ def start(principal, drama_id: int, engine: str, model=None, speaker_groups=None
     api_key = translate_service.resolve_api_key(engine)
     if api_key is None:
         raise MissingKeyError(engine)
-    reader = translate_engines.get_engine(
+    reader = engine_registry.get_engine(
         engine, api_key, priced["model"], free_tier=use_free_tier,
         base_url=settings_service.ollama_url() if engine == "ollama" else None)
     language = drama.get("source_language") or "zh"

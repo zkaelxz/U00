@@ -16,7 +16,7 @@ from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
 from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 

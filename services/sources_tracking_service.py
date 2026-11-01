@@ -28,7 +28,7 @@ by `sources_search_service.get_job_result`.
 import background_jobs
 import db
 from services import ownership_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_registry_service import (require_link_editable, require_source,
                                                list_tracked)

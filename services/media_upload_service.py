@@ -62,7 +62,7 @@ from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
 from services import drama_service, ownership_service, settings_service
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
@@ -582,7 +582,7 @@ def _log_media_failure(drama_id, exc) -> None:
     """Server-log the real reason behind an upload's fixed _EXTRACT_FAILED or
     _SAVE_FAILED sentence, which the user sees instead of ffmpeg's or the OS's text."""
     import applog
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     detail = f"{type(exc).__name__}: {exc}"
     stderr = getattr(exc, "stderr", None)
     if isinstance(stderr, bytes):

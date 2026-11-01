@@ -18,7 +18,7 @@ from api.server import create_app
 from services import settings_service
 from lib import capped_body
 from services import web_search_service as ws
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
 URL = "http://192.168.1.30:8888"
@@ -286,7 +286,7 @@ def test_concurrent_searches_are_capped(fake):
 
 
 def test_each_caller_has_its_own_bucket_inside_the_global_cap(fake, monkeypatch):
-    from services.service_errors import RateLimitedError
+    from lib.errors import RateLimitedError
     monkeypatch.setattr(ws, "_caller_rate", ws.SlidingWindowRateLimiter(ws.PER_CALLER_MAX,
                                                                         ws.RATE_WINDOW))
     _on()
@@ -305,7 +305,7 @@ def test_each_caller_has_its_own_bucket_inside_the_global_cap(fake, monkeypatch)
 
 
 def test_the_pc_test_is_not_blocked_by_searches(fake):
-    from services.service_errors import RateLimitedError
+    from lib.errors import RateLimitedError
     _on()
     for i in range(ws.RATE_MAX):
         ws.search("x", caller=f"user:{i}")

@@ -230,7 +230,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 - *Lines are referenced by `lines.id`, never position.* Notes, emotions and
   reading history moved from `line_idx` to `line_id` because a merge or split
   renumbers `idx`. Match LLM results to lines by explicit id
-  (`translate_engines.request_translations_with_retry`, `parse_id_keyed_json`).
+  (`engine_backends.shared.request_translations_with_retry`, `parse_id_keyed_json`).
 
 **Dramas and ownership**
 
@@ -253,7 +253,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 **Secrets and errors**
 
 - *Redact at write time.* Error text passes through
-  `translate_engines.redact_secrets` (or `redact_for_storage`, which also strips
+  `engine_backends.shared.redact_secrets` (or `redact_for_storage`, which also strips
   URL query strings) before it is stored, shown or logged: `jobs/job_store.py`
   (`_storage_text`, because `job_records` lands in backups), `auth_service`
   (`_scrub_detail` for `audit_log.detail_redacted`), `translate_run_service`

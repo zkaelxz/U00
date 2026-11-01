@@ -108,6 +108,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
 
+      # The checked-in API types must match the routes and models; fix a
+      # failure with `cd frontend/openapi-gen && npm ci`, then
+      # `cd .. && npm run gen:api`, and commit the result.
+      - name: Generated API types are current
+        run: |
+          (cd frontend/openapi-gen && npm ci)
+          (cd frontend && npm run gen:api)
+          git diff --exit-code -- frontend/src/api/generated
+
       # S113 (requests call without timeout=) lives in ruff.toml; the pinned
       # version matches .pre-commit-config.yaml.
       - name: Lint (ruff)
@@ -242,7 +251,7 @@ jobs:
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, test-shard, windows-scripts, e2e, smoke, caddy]
+    needs: [changes, guards, frontend, test-shard, windows-scripts, e2e, smoke, caddy]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -250,14 +259,18 @@ jobs:
       - name: Every shard passed or was skipped
         env:
           CHANGES: ${{ needs.changes.result }}
+          GUARDS: ${{ needs.guards.result }}
+          FRONTEND: ${{ needs.frontend.result }}
           SHARDS: ${{ needs.test-shard.result }}
           WINDOWS_SCRIPTS: ${{ needs.windows-scripts.result }}
           E2E: ${{ needs.e2e.result }}
           SMOKE: ${{ needs.smoke.result }}
           CADDY: ${{ needs.caddy.result }}
         run: |
-          echo "changes=$CHANGES test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
+          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
           [ "$CHANGES" = success ] || exit 1
+          [ "$GUARDS" = success ] || [ "$GUARDS" = skipped ] || exit 1
+          [ "$FRONTEND" = success ] || [ "$FRONTEND" = skipped ] || exit 1
           [ "$SHARDS" = success ] || [ "$SHARDS" = skipped ] || exit 1
           [ "$WINDOWS_SCRIPTS" = success ] || [ "$WINDOWS_SCRIPTS" = skipped ] || exit 1
           [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1

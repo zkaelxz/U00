@@ -14,7 +14,7 @@ from api.server import create_app
 from core import Line
 from services import auth_service, speech_coverage_service
 from services import transcribe_gap_service as svc
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
 

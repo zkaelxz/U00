@@ -6,10 +6,10 @@ import pytest
 
 import core
 import line_alignment
-import translate_engines
+from engine_backends import llm_tasks
 from core import Line
 from services import review_lines_service as svc
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _seed(db, lines):
@@ -168,7 +168,7 @@ class TestChecks:
     def test_pacing_matches_underlying(self, isolated_db):
         did = _seed(isolated_db, self._lines())
         loaded = core.lines_from_rows(isolated_db.load_lines(did))
-        expected = translate_engines.smart_segment_lines(loaded)
+        expected = llm_tasks.smart_segment_lines(loaded)
         got = svc.get_pacing_flags(did)
         assert got["count"] == len(expected) and expected
         # Same flags, worst first.

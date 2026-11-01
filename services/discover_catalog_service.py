@@ -1,7 +1,7 @@
 """
 services/discover_catalog_service.py -- the Discover "Known titles" catalog.
 
-UI-free, plain dicts, errors from `service_errors`. No network and no LLM:
+UI-free, plain dicts, errors from `lib.errors`. No network and no LLM:
 platform listing and search links are pure string building
 (`known_sites`). Writes use whitelisted fields only, and the id is
 verified to exist before every write or delete. Responses never carry a
@@ -13,9 +13,9 @@ import db
 from core import SOURCE_LANGUAGES
 import known_sites
 import title_library
-import translate_engines
+from engine_backends import shared
 from services import drama_service, ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 # The catalog also accepts "game" (schema comment) on top of the drama types.
 TITLE_MEDIA_TYPES = tuple(drama_service.MEDIA_TYPE_OPTIONS) + ("game",)
@@ -61,7 +61,7 @@ def _public(row: dict) -> dict:
     out = {k: row.get(k) for k in ("id",) + _TITLE_FIELDS + ("created_at",)}
     # Every library.read member sees the catalogue, so a pasted link's query
     # string (often a share token) must not reach them.
-    out["source_url"] = translate_engines.display_url(out["source_url"])
+    out["source_url"] = shared.display_url(out["source_url"])
     return out
 
 

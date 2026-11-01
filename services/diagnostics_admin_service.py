@@ -17,7 +17,7 @@ import background_jobs
 from jobs import job_launch, job_runner
 import db
 import diagnostics
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 
 # ---------------------------------------------------------------------------
 # Admin actions (router: local_only). Each requires confirm=True and

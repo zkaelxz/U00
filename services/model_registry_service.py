@@ -22,14 +22,14 @@ automatically (a settled decision: no automatic model switching).
   the user saw (409 otherwise).
 - A built-in default or a workflow tier's model is code, so the user can
   instead choose a replacement for it (set_model_override), stored as app
-  settings that translate_engines reads everywhere the built-in is used,
+  settings that engine_backends reads everywhere the built-in is used,
   and clear it to go back to the built-in (clear_model_override). Same
   rules as the switch: explicit, confirmed, 409 if the model changed since
   the user looked, and only a model the engine could offer. Saved presets
   are never touched by it, and nothing changes by itself.
 
 Keys never leave this module: not returned, not logged, not stored. Error
-text from a provider is passed through translate_engines.redact_secrets.
+text from a provider is passed through shared.redact_secrets.
 """
 from lib import clock
 import json
@@ -39,15 +39,15 @@ import threading
 import time
 
 import db
-import translate_engines
+from engine_backends import shared, pricing, engine_registry, local
 from services import settings_service, translate_service
 from lib import http
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      RateLimitedError)
 
 REGISTRY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_registry.json")
 STATUSES = ("current", "legacy", "deprecated", "retired")
-CHECK_CACHE_KEY = translate_engines.PROVIDER_CHECK_CACHE_KEY
+CHECK_CACHE_KEY = pricing.PROVIDER_CHECK_CACHE_KEY
 CHECK_MIN_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 15
 MAX_RESPONSE_BYTES = 2_000_000
@@ -107,15 +107,15 @@ def configured_models() -> list:
     for e in translate_service.list_engines():
         if e["name"] not in _PROVIDER_LISTS and e["models"] is None:
             continue
-        model = translate_engines.effective_default_model(e["name"])
+        model = engine_registry.effective_default_model(e["name"])
         if model:
-            builtin = translate_engines.builtin_default_model(e["name"])
+            builtin = engine_registry.builtin_default_model(e["name"])
             out.append({"engine": e["name"], "model": model, "kind": "default",
                         "where": f"{e['name']} built-in default", "key": e["name"],
                         "builtin_model": builtin, "is_override": model != builtin})
-    for key, tier in translate_engines.WORKFLOW_TIERS.items():
+    for key, tier in engine_registry.WORKFLOW_TIERS.items():
         if tier.get("engine_model"):
-            model = translate_engines.effective_tier_model(key)
+            model = engine_registry.effective_tier_model(key)
             out.append({"engine": tier["translation_engine"], "model": model,
                         "kind": "tier", "where": f"Workflow tier: {tier.get('label') or key}",
                         "key": key, "builtin_model": tier["engine_model"],
@@ -172,12 +172,12 @@ def _listed_extras(engine: str) -> list:
     if prefix is None:
         return []
     if engine == "openai":
-        return translate_engines.openai_listed_extra_models()
+        return pricing.openai_listed_extra_models()
     provider = (_cached_check().get("engines") or {}).get(engine) or {}
     if not provider.get("ok"):
         return []
-    cls_models = getattr(translate_engines, f"{engine.upper()}_MODELS", {})
-    known = set(cls_models) | {translate_engines.builtin_default_model(engine)}
+    cls_models = getattr(pricing, f"{engine.upper()}_MODELS", {})
+    known = set(cls_models) | {engine_registry.builtin_default_model(engine)}
     out = []
     for m in provider.get("models") or []:
         if (isinstance(m, str) and m.startswith(prefix) and _EXTRA_ID.match(m) and m not in known
@@ -188,7 +188,7 @@ def _listed_extras(engine: str) -> list:
 
 def extra_model_label(engine: str, model: str) -> str:
     name = _PROVIDER_NAMES.get(engine, engine)
-    if model in translate_engines.PRICING_PER_MILLION_TOKENS:
+    if model in pricing.PRICING_PER_MILLION_TOKENS:
         return f"{model} -- listed by {name}"
     if engine == "openai":
         return f"{model} -- newly listed (cost estimated at a high ceiling, not its real price)"
@@ -204,7 +204,7 @@ def _offered(engine: str) -> list:
         return []
     if entry["models"] is not None:
         return list(entry["models"])
-    default = translate_engines.effective_default_model(engine)
+    default = engine_registry.effective_default_model(engine)
     return [default] if default else []
 
 
@@ -275,7 +275,7 @@ def _assess(engine: str, model: str, registry: dict, check: dict) -> dict:
         status = "not_offered"
         msg = (f"{model} ({engine}) isn't a model this app offers any more, so a run with it "
                "is refused.")
-        replacement = replacement or (translate_engines.effective_default_model(engine) if engine in translate_engines.ENGINES
+        replacement = replacement or (engine_registry.effective_default_model(engine) if engine in engine_registry.ENGINES
                                       else None)
     elif entry and entry["status"] == "legacy":
         status = "legacy"
@@ -392,7 +392,7 @@ def check_providers(now: float = None) -> dict:
             try:
                 results[engine] = {"ok": True, "models": _fetch_models(engine, key)}
             except Exception as exc:
-                msg = translate_engines.redact_secrets(f"{type(exc).__name__}: {exc}")
+                msg = shared.redact_secrets(f"{type(exc).__name__}: {exc}")
                 if key and key in msg:
                     msg = msg.replace(key, "[redacted]")
                 results[engine] = {"ok": False, "models": [], "error": msg[:300]}
@@ -431,18 +431,18 @@ def switch_preset_model(preset_id: int, from_model: str, to_model: str) -> dict:
 # ---------------------------------------------------------------------------
 
 _override_lock = threading.Lock()
-_OVERRIDE_SETTING_KEYS = {"default": translate_engines.MODEL_OVERRIDE_DEFAULTS_KEY,
-                          "tier": translate_engines.MODEL_OVERRIDE_TIERS_KEY}
+_OVERRIDE_SETTING_KEYS = {"default": engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY,
+                          "tier": engine_registry.MODEL_OVERRIDE_TIERS_KEY}
 
 
 def _override_error(engine: str, model) -> "str | None":
     """Why `model` can't replace one of `engine`'s models, or None. An engine
     with a picker takes its picker models or ones its provider listed in the
     last check; one without (DeepSeek) takes a same-provider id of a safe shape."""
-    if not isinstance(model, str) or not translate_engines.MODEL_ID_RE.fullmatch(model) \
+    if not isinstance(model, str) or not engine_registry.MODEL_ID_RE.fullmatch(model) \
             or ".." in model:
         return "That isn't a valid model name."
-    if engine == "ollama" and translate_engines.is_ollama_cloud_model(model):
+    if engine == "ollama" and local.is_ollama_cloud_model(model):
         # A default is used by every call that names Ollama without a model,
         # so a hosted tag there would send text off this PC with no notice.
         return "A cloud model can't be the default; pick it per run."
@@ -459,15 +459,15 @@ def _override_error(engine: str, model) -> "str | None":
 def _override_target(kind: str, key: str) -> tuple:
     """(engine, built-in model, current effective model, setting key)."""
     if kind == "default":
-        builtin = translate_engines.builtin_default_model(key) if key in translate_engines.ENGINES else None
+        builtin = engine_registry.builtin_default_model(key) if key in engine_registry.ENGINES else None
         if not builtin:
             raise InvalidInputError("That engine has no built-in model to replace.")
-        return key, builtin, translate_engines.effective_default_model(key), _OVERRIDE_SETTING_KEYS[kind]
-    tier = translate_engines.WORKFLOW_TIERS.get(key) if kind == "tier" else None
+        return key, builtin, engine_registry.effective_default_model(key), _OVERRIDE_SETTING_KEYS[kind]
+    tier = engine_registry.WORKFLOW_TIERS.get(key) if kind == "tier" else None
     if tier is None or not tier.get("engine_model"):
         raise InvalidInputError("There is no model to replace there.")
     return (tier["translation_engine"], tier["engine_model"],
-            translate_engines.effective_tier_model(key), _OVERRIDE_SETTING_KEYS[kind])
+            engine_registry.effective_tier_model(key), _OVERRIDE_SETTING_KEYS[kind])
 
 
 def _stored_overrides(setting_key: str) -> dict:

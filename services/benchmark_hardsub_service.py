@@ -22,7 +22,7 @@ from services import ownership_service
 from services.benchmark_hardsub_read_service import remove_files, remove_frames
 from services.benchmark_reference_service import MAX_LINE_SECONDS, adding_to_set
 from services.media_upload_service import check_room_for
-from services.service_errors import DependencyUnavailableError, InvalidInputError, NotFoundError
+from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError
 
 SET_NAME = "hard-sub"
 # Where in the line's time span the three pictures are taken. A hard sub often appears a moment after the

@@ -64,7 +64,7 @@ import portable
 import process_guard
 from lib import capped_body, release_signature
 from lib import storage_errors
-from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
+from lib.errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
 REPO_ENV = "BAIHE_UPDATE_REPO"
@@ -298,7 +298,7 @@ def copy_problem(exc):
 def _plain_error(exc) -> str:
     """User-facing text for a failure: our own messages as they are, and a
     generic line for network errors (whose text carries the URL)."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     if isinstance(exc, ServiceError):
         return redact_secrets(exc.message)
     problem = copy_problem(exc)

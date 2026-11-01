@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
-import translate_engines as _translate_engines
+from engine_backends import engine_registry
 
 from api.schemas.common import LibraryPreset, TranslateEngine
 
@@ -421,7 +421,7 @@ class TranslateBulkCancelResult(BaseModel):
 # Apply a workflow tier, save translate settings as a preset
 # (services/translate_preset_service.py apply_workflow_tier / save_translate_preset).
 # ---------------------------------------------------------------------------
-WorkflowTierKey = Literal[tuple(_translate_engines.WORKFLOW_TIERS)]
+WorkflowTierKey = Literal[tuple(engine_registry.WORKFLOW_TIERS)]
 
 
 class WorkflowTierApply(BaseModel):

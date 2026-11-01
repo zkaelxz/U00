@@ -15,7 +15,7 @@ import sensitivity_preset
 from services import (difficult_audio_service, run_settings_service, series_defaults_service,
                       timing_settings_service, transcribe_pipeline, transcribe_service,
                       transcribe_options_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 
 def _title(isolated_db, **fields):
