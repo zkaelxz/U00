@@ -50,6 +50,8 @@ jobs:
       run_full_pytest: ${{ steps.diff.outputs.run_full_pytest }}
       run_windows_scripts: ${{ steps.diff.outputs.run_windows_scripts }}
       run_caddy: ${{ steps.diff.outputs.run_caddy }}
+      run_app_checks: ${{ steps.diff.outputs.run_app_checks }}
+      run_sources_subset: ${{ steps.diff.outputs.run_sources_subset }}
       pytest_shards: ${{ steps.shards.outputs.pytest_shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -62,7 +64,7 @@ jobs:
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true'
+          all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false'
           # The checkout is the merge commit; its first parent is the base.
           # --no-renames lists both ends of a rename, so moving a file out
           # of frontend/ still counts as touching it. tools/ci_changes.py
@@ -73,7 +75,9 @@ jobs:
             printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_full_pytest=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_windows_scripts=\(true\|false\)' && \
-            printf '%s\n' "$out" | grep -qx 'run_caddy=\(true\|false\)' || out=$all_true
+            printf '%s\n' "$out" | grep -qx 'run_caddy=\(true\|false\)' && \
+            printf '%s\n' "$out" | grep -qx 'run_app_checks=\(true\|false\)' && \
+            printf '%s\n' "$out" | grep -qx 'run_sources_subset=\(true\|false\)' || out=$all_true
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
 
       # The frontend-only subset of `test` is a few files, so it gets one job
@@ -82,8 +86,9 @@ jobs:
         id: shards
         env:
           RUN_FULL_PYTEST: ${{ steps.diff.outputs.run_full_pytest }}
+          RUN_SOURCES_SUBSET: ${{ steps.diff.outputs.run_sources_subset }}
         run: |
-          if [ "$RUN_FULL_PYTEST" = true ]; then
+          if [ "$RUN_FULL_PYTEST" = true ] && [ "$RUN_SOURCES_SUBSET" != true ]; then
             echo 'pytest_shards=[1,2,3,4]' >> "$GITHUB_OUTPUT"
           else
             echo 'pytest_shards=[1]' >> "$GITHUB_OUTPUT"
@@ -222,7 +227,7 @@ jobs:
       # The `guards` job (a required check) runs the files in tests/ci_guards.txt, so this
       # job skips them instead of running them twice.
       - name: Run tests (shard ${{ matrix.shard }} of 4)
-        if: needs.changes.outputs.run_full_pytest == 'true'
+        if: needs.changes.outputs.run_full_pytest == 'true' && needs.changes.outputs.run_sources_subset != 'true'
         run: |
           set -o pipefail
           python run_tests.py -q -n auto --ff --durations=25 \
@@ -230,6 +235,17 @@ jobs:
             --splits 4 --group ${{ matrix.shard }} \
             --splitting-algorithm least_duration --durations-path .test_durations \
             $(sed 's/^/--ignore=/' tests/ci_guards.txt) 2>&1 | tee pytest.log
+
+      # A change confined to site adapters and their tests: one shard runs the
+      # adapter tests and the tests of rules every adapter must obey
+      # (tools/ci_changes.py SOURCES_TEST_*). `guards` still runs on its own.
+      - name: Run adapter tests
+        if: needs.changes.outputs.run_sources_subset == 'true'
+        run: |
+          set -o pipefail
+          python run_tests.py -q -n auto --ff --durations=25 \
+            --timeout=300 --timeout-method=thread \
+            $(python tools/ci_changes.py --sources-tests) 2>&1 | tee pytest.log
 
       # A change under frontend/ and docs/ only: run the tests that read
       # frontend files (so backend/frontend drift still fails) plus the
@@ -354,7 +370,7 @@ jobs:
   # cache; the step limit is the "under 5 minutes" budget.
   smoke:
     needs: changes
-    if: needs.changes.outputs.notes_only != 'true'
+    if: needs.changes.outputs.notes_only != 'true' && needs.changes.outputs.run_app_checks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -483,7 +499,7 @@ jobs:
   # now only headroom against a hung install or build.
   frontend:
     needs: changes
-    if: needs.changes.outputs.notes_only != 'true'
+    if: needs.changes.outputs.notes_only != 'true' && needs.changes.outputs.run_app_checks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
