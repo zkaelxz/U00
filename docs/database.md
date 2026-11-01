@@ -147,7 +147,7 @@ or `series` go when the parent goes.
 
 | Table | Purpose and key columns | Written by | How rows are written |
 |---|---|---|---|
-| `dramas` | One title: titles, language, `media_type`, `status`, per-drama engine and ASR settings, media filenames, `series_id`, `episode_number`, `release_date` (ISO `YYYY-MM-DD`, NULL = unknown), `owner_user_id`, `is_private`, `updated_at` | `services/drama_service.py` (metadata); `transcribe_service`, `dub_service`, `export_service` (status and settings) | `create_drama` / `update_drama` (kwarg keys become SQL: whitelist in the service) |
+| `dramas` | One title: titles, language, `media_type`, `status`, per-drama engine and ASR settings, media filenames, `series_id`, `episode_number`, `release_date` (ISO `YYYY-MM-DD`, NULL = unknown), `owner_user_id`, `is_private`, `updated_at` | `services/drama_service.py` (metadata); `transcribe_service`, `listen_service`, `export_service` (status and settings) | `create_drama` / `update_drama` (kwarg keys become SQL: whitelist in the service) |
 | `lines` | Subtitle lines: stable `id`, `drama_id`, `idx`, `start`, `end`, `zh` (source text, any language), `en`, `speaker`, `speaker_manual`, `flag`, `flag_note`, `sfx`, `lang`, `dub_filename` | `lines_service`, `diarization_service`, `export_service`, `translate_run_service`, jobs | `save_lines` (full sync or field-scoped), `update_line_fields_if` (compare-and-set) |
 | `characters` | Per-drama speaker: `speaker_label` (unique per drama), `character_name`, voices, clone reference (`ref_audio_filename`, `ref_text`), `series_character_id` | `characters_service` | `upsert_character`, `rename_speaker_atomic`, `merge_speakers_atomic` |
 | `series` | Groups titles; `name` (unique), `instructions`, `owner_user_id`, `is_private` | `services/ownership_service.py` (`get_or_create_series_for`) | `create_series`, `get_or_create_series` |
@@ -411,8 +411,8 @@ checkout, the repo root).
 ```
 
 Inside `dramas/<id>/`: source audio/video and `audio.wav`, `transcript.txt`,
-`novel_reference.txt`, cover art, the mixed `dub_track.wav`, `dub_clips/`
-(per-line TTS), `voice_refs/` (clone samples), `pages/` (comic scans and
+`novel_reference.txt`, cover art, `narration_track.wav` (an older `dub_track.wav` is kept and still read), `dub_clips/`
+(per-chunk TTS), `voice_refs/` (clone samples), `pages/` (comic scans and
 typeset output). `drama_dir(id)` creates the folder on demand.
 
 **Regenerable vs irreplaceable** (`services/disk_usage_measure.py`, with the
@@ -421,7 +421,7 @@ categories in `storage.CLEANABLE_CATEGORIES`):
 | Regenerable (rebuilt by the app or re-downloaded) | Irreplaceable (cannot be recreated inside Baihe) |
 |---|---|
 | `model_cache/` | `library.db`, `sources.db` (protected: never cleared or moved) |
-| `library/tmp/`, `source_cache/`, `source_review_tmp/`, `updates/`, `logs/`, `piper_voices/` | a title's own files: source media, reference novel, `voice_refs/`, mixed dub track, pages |
+| `library/tmp/`, `source_cache/`, `source_review_tmp/`, `updates/`, `logs/`, `piper_voices/` | a title's own files: source media, reference novel, `voice_refs/`, narration or dub track, pages |
 | per title: `dub_clips/`, OCR temp (`ocr_*`, `_bubble_crop*`), rendered `typeset_*` pages, `*.tmp` files | `voice_bank/`, `benchmark_cases/`, `source_profiles/`, `saved_comics/`, `backups/` (except `backups/exports/`) |
 | `backups/exports/` (make again from the Library) | `profiles/` (site sign-ins) is protected outright |
 

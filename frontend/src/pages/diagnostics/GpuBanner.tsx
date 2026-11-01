@@ -10,7 +10,7 @@ import { GPU_BANNER_REMOTE, GPU_BANNER_TEXT, gpuBannerState } from './gpuBannerS
 
 /**
  * A calm one-click "Turn on GPU" once GPU PyTorch is there and the setting is
- * still off. It saves the same `use_gpu` setting as Settings > System and the
+ * still off. It saves the same `use_gpu` setting as Settings > Performance and advanced and the
  * stage toggle, and hides itself once on. `status` is the caller's own read of
  * GPU PyTorch (the Diagnostics card has one); without it the banner reads it.
  */

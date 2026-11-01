@@ -456,7 +456,7 @@ checked against it, and a span that disagrees is retried once in the title's
 language. A line is given a `lang` only when it differs from the title's, and
 one that still can't be confirmed gets the `language_uncertain` flag.
 
-**Model folders and offline use.** Settings > System > Offline, paths and limits > "Offline Whisper model folder"
+**Model folders and offline use.** Settings > Performance and advanced > Offline, paths and limits > "Offline Whisper model folder"
 (`whisper_model_path`, read by `settings_service.get("whisper_model_path")`) is
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects
@@ -467,7 +467,7 @@ and the Qwen3 aligner download from Hugging Face on first use; a blocked
 
 ## 4. TTS and dubbing at a glance
 
-All in `dub.py`; this page only maps them.
+Voices are in `dub.py` and narration in `dub_narration.py`; this page only maps them.
 
 - **Voices:** `CLONE_ENGINES` = `omnivoice` only. It is in
   `LOCAL_MODEL_ENGINES` and runs one clip at a time on one model.
@@ -478,9 +478,10 @@ All in `dub.py`; this page only maps them.
 - **Removed engines:** `REMOVED_VOICE_ENGINES` (Edge TTS, Piper, F5-TTS, TADA, Chatterbox, GPT-SoVITS). A
   stored `clone_engine` or request naming one gets `removed_engine_message`;
   nothing is rewritten or deleted.
-- **Timing:** `build_dub_track` fits each clip to its subtitle window with
-  `stretch_for_window` (speed-up capped at `DUB_MAX_SPEEDUP`, slow-down at
-  `DUB_MAX_SLOWDOWN`) and writes `pacing.json`.
+- **Narration:** `dub_narration.build_narration_track` (in `dub_narration.py`)
+  synthesizes the lines in order and concatenates the clips into
+  `narration_track.wav`; there is no fitting to subtitle timing. The run is
+  `services/listen_service.py`. `export_narration_m4b` builds the audiobook.
 - The optional packages for this (`omnivoice`, `pydub`) are in
   `diagnostics.OPTIONAL_DEPENDENCIES`.
 

@@ -261,6 +261,50 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The shards install only requirements-core.txt (so a hard import of an
+  # optional library still fails there), which makes every test that
+  # importorskips Chinese segmentation, EPUB, Anki, audio or OpenCV skip
+  # silently. This job installs those libraries and runs just those files with
+  # skips reported, so a regression in them cannot merge green. torch,
+  # paddleocr, Tesseract and Hugging Face models stay out: too heavy, and
+  # tests/test_diarize.py needs torch, so it is left out too.
+  optional-tests:
+    needs: changes
+    if: needs.changes.outputs.run_full_pytest == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements-core.txt
+            constraints.txt
+
+      # opencv headless: the runner has no libGL for the full wheel.
+      - name: Install dependencies
+        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-timeout==2.4.0" "jsonschema==4.26.0" httpx jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile opencv-contrib-python-headless -c constraints.txt
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get install -y --no-install-recommends ffmpeg \
+            || { sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg; }
+
+      - name: Run tests that need optional libraries
+        run: |
+          python run_tests.py -q -n auto -rs --timeout=300 --timeout-method=thread \
+            tests/test_audio_preprocess.py tests/test_emotion_manhua_ui.py tests/test_epub_io.py \
+            tests/test_export_service.py tests/test_hardsub_ocr.py tests/test_reader_service.py \
+            tests/test_resegment.py tests/test_scanlate.py tests/test_scanlate_art_text.py \
+            tests/test_scanlate_bench.py tests/test_scanlate_ocr_deps.py tests/test_scanlate_quality.py \
+            tests/test_scanlate_regions.py tests/test_segment.py tests/test_transcription_quality.py \
+            tests/test_video_export.py tests/test_vocab_export.py
+
   # The one required check name. It stays `test` so branch protection does not
   # change: it passes when every shard passed or the whole matrix was skipped
   # (a notes-only change), and fails if any shard failed or was cancelled, or
@@ -268,7 +312,7 @@ jobs:
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, guards, frontend, test-shard, windows-scripts, e2e, smoke, caddy]
+    needs: [changes, guards, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy]
     # Skipped with its needs on a draft: a draft cannot be merged, and marking
     # it ready starts a full run.
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
@@ -281,16 +325,18 @@ jobs:
           GUARDS: ${{ needs.guards.result }}
           FRONTEND: ${{ needs.frontend.result }}
           SHARDS: ${{ needs.test-shard.result }}
+          OPTIONAL: ${{ needs.optional-tests.result }}
           WINDOWS_SCRIPTS: ${{ needs.windows-scripts.result }}
           E2E: ${{ needs.e2e.result }}
           SMOKE: ${{ needs.smoke.result }}
           CADDY: ${{ needs.caddy.result }}
         run: |
-          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
+          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
           [ "$CHANGES" = success ] || exit 1
           [ "$GUARDS" = success ] || [ "$GUARDS" = skipped ] || exit 1
           [ "$FRONTEND" = success ] || [ "$FRONTEND" = skipped ] || exit 1
           [ "$SHARDS" = success ] || [ "$SHARDS" = skipped ] || exit 1
+          [ "$OPTIONAL" = success ] || [ "$OPTIONAL" = skipped ] || exit 1
           [ "$WINDOWS_SCRIPTS" = success ] || [ "$WINDOWS_SCRIPTS" = skipped ] || exit 1
           [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1
           [ "$SMOKE" = success ] || [ "$SMOKE" = skipped ] || exit 1
