@@ -72,9 +72,11 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
     conditional UPDATE keyed on the value the job started with
     (db.update_lines_fields_if_many), so a line the user changed while the
     job ran -- even between the job's last read and its write -- keeps the
-    user's value; the job's result for that line is dropped.
+    user's value; the job's result for that line is dropped. A line whose
+    English was corrected meanwhile is dropped too: the flag judged the old text.
     """
     started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
+    english_at_start = {ln.id: ln.en for ln in lines}
     stats = {}
     with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice, "flag_review") as limits:
         llm_tasks.flag_uncertain_lines(
@@ -91,7 +93,8 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice, lang=None):
         before = started_with[ln.id]
         if (ln.flag or "", ln.flag_note or "") != before:
             items.append((ln.id, {"flag": ln.flag or None, "flag_note": ln.flag_note or ""},
-                          {"flag": before[0], "flag_note": before[1]}))
+                          {"flag": before[0], "flag_note": before[1],
+                           "en": english_at_start[ln.id]}))
     db.update_lines_fields_if_many(drama_id, items)
     # Counted from the saved rows, so flags the user set or cleared by hand
     # while the job ran are reflected (read-only; nothing is written here).

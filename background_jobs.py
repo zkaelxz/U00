@@ -217,11 +217,24 @@ def is_running(job_id: str) -> bool:
 LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_", "retranscribe_", "timingchk_")
 
 
+# Review passes that save rows keyed by line id; unlike the jobs above they
+# are not safe beside a blocked retry, but a replace leaves them writing for
+# lines that no longer exist.
+REPLACE_CANCELS_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + ("notes_", "emotion_")
+
+
+def _is_active(job_id: str) -> bool:
+    with _lock:
+        job = _jobs.get(job_id)
+        return bool(job and job["status"] in ("queued", "running"))
+
+
 def cancel_line_jobs(drama_id):
-    """Asks every running line-writing job for this drama to stop -- for
-    when its lines are about to be replaced wholesale."""
-    for prefix in LINE_WRITING_JOB_PREFIXES:
-        if is_running(f"{prefix}{drama_id}"):
+    """Asks every running or queued line-writing job for this drama to stop --
+    for when its lines are about to be replaced wholesale. A job still in the
+    GPU queue would otherwise start afterwards on the old lines."""
+    for prefix in REPLACE_CANCELS_JOB_PREFIXES:
+        if _is_active(f"{prefix}{drama_id}"):
             request_cancel(f"{prefix}{drama_id}")
 
 
