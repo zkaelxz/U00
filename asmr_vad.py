@@ -245,7 +245,7 @@ def coverage(audio_path: str, load_asmr=load_detector) -> dict:
     from asr_backend import load_audio_16k
     audio = load_audio_16k(audio_path)
     total = len(audio) / SAMPLE_RATE
-    out = {"total_s": round(total, 2)}
+    out: dict = {"total_s": round(total, 2)}
     detectors = {"standard": lambda: None, "asmr": load_asmr}
     for name, make in detectors.items():
         failures = []

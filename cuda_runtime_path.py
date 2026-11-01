@@ -80,7 +80,8 @@ def _register(folder: str) -> bool:
     changed = False
     if folder not in _added_dirs:
         try:
-            _dll_handles.append(os.add_dll_directory(folder))
+            # Windows-only; the AttributeError elsewhere is caught below.
+            _dll_handles.append(getattr(os, "add_dll_directory")(folder))
         except (OSError, AttributeError):
             pass
         _added_dirs.add(folder)

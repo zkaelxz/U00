@@ -10,7 +10,7 @@ import time
 import background_jobs
 from jobs import job_launch, job_table
 from bulk_apply import (apply_bulk_results, apply_consistency_results, apply_emotion_results,
-                        apply_flag_results, apply_notes_results)
+                        apply_flag_results, apply_notes_results, require_bulk_job)
 from bulk_providers import (BulkAuthError, PollGuard, is_deepseek_offpeak,
                             make_provider, next_deepseek_offpeak_start, reschedule_for_next_window,
                             WindowGate, offpeak_cap)
@@ -59,7 +59,7 @@ def apply_results_for_job(bulk_job_id: int, results) -> dict:
     provider never answered (a short result stream, an empty inlined list)
     counts as failed, with its lines missing, instead of vanishing."""
     results = list(results)
-    kind = db.get_bulk_job(bulk_job_id).get("kind") or "translate"
+    kind = require_bulk_job(bulk_job_id).get("kind") or "translate"
     if kind not in _APPLIERS:
         raise ValueError(f"Unknown bulk job kind: {kind}")
     counts = _APPLIERS[kind](bulk_job_id, results)
@@ -107,7 +107,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
     job = db.get_bulk_job(bulk_job_id)
     if job is not None and job["status"] == "needs_resubmit":
         if not db.set_bulk_job_status_if(bulk_job_id, ("needs_resubmit",), "applying"):
-            return db.get_bulk_job(bulk_job_id)["status"]
+            return require_bulk_job(bulk_job_id)["status"]
         try:
             return _advance_pipeline(job, engine, monthly_cap_usd, job.get("result_summary") or {},
                                      cancel_check)
@@ -121,7 +121,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
         if state == "pending":
             if job["status"] != "submitted":
                 if not db.set_bulk_job_status_if(bulk_job_id, ("auth_error",), "submitted"):
-                    return db.get_bulk_job(bulk_job_id)["status"]
+                    return require_bulk_job(bulk_job_id)["status"]
                 db.update_bulk_job(bulk_job_id, last_error=None)
             return "submitted"
         failure = state.startswith("failed") and f"The provider reported the batch {state[7:] or 'failed'}."
@@ -135,7 +135,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
     # were downloading wins, and an apply that fails part-way is never
     # retried (a retry would bill and submit everything again).
     if not db.set_bulk_job_status_if(bulk_job_id, ("submitted", "auth_error"), "applying"):
-        return db.get_bulk_job(bulk_job_id)["status"]
+        return require_bulk_job(bulk_job_id)["status"]
     try:
         if failure:
             return _fail_keeping_drafts(job, failure)
@@ -148,25 +148,25 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
         if not db.set_bulk_job_status_if(bulk_job_id, ("applying",), "applied"):
             # Cancelled during the apply: it stays cancelled, but what landed is recorded.
             db.update_bulk_job(bulk_job_id, result_summary=summary)
-            return db.get_bulk_job(bulk_job_id)["status"]
+            return require_bulk_job(bulk_job_id)["status"]
         db.update_bulk_job(bulk_job_id, result_summary=summary, last_error=None)
         return "applied"
     except Exception as e:
         if not db.set_bulk_job_status_if(bulk_job_id, ("applying",), "failed"):
-            return db.get_bulk_job(bulk_job_id)["status"]
+            return require_bulk_job(bulk_job_id)["status"]
         db.update_bulk_job(bulk_job_id, last_error=shared.redact_secrets(
             f"Applying the results failed part-way, so they won't be applied again: {e}"))
         return "failed"
 
 
-def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
+def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = None,
                       cancel_check_cb=None, window_open=None) -> dict:
     """DeepSeek off-peak: translates the scheduled lines that still exist
     and whose English hasn't changed since scheduling, as a normal run,
     and finishes it as one (finish_translation_run). Stops at the next
     batch once cancel_check_cb() is true or window_open() is false."""
     gate = WindowGate(window_open)
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     args = job.get("translate_args") or {}
     did = job["drama_id"]
     rows = {r["line_id"]: r for r in db.list_bulk_job_lines(bulk_job_id)}
@@ -352,7 +352,7 @@ def _recover_stranded_apply(job: dict) -> str:
     poller can't re-enter applying in between."""
     lock = _check_lock(job["id"])
     if not lock.acquire(blocking=False):
-        return db.get_bulk_job(job["id"])["status"]
+        return require_bulk_job(job["id"])["status"]
     try:
         if _resumable_stage(job):
             if db.set_bulk_job_status_if(job["id"], ("applying",), "needs_resubmit"):
@@ -363,7 +363,7 @@ def _recover_stranded_apply(job: dict) -> str:
             db.update_bulk_job(job["id"], last_error=(
                 "The app stopped while applying these results; lines without a result can be "
                 "run again."))
-        return db.get_bulk_job(job["id"])["status"]
+        return require_bulk_job(job["id"])["status"]
     finally:
         lock.release()
 

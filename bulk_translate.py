@@ -82,7 +82,7 @@ def _copy_english_lines(drama_id: int, targets: list) -> list:
 
 def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_size: int,
                         force_retranslate: bool = False, context_window: int = 6,
-                        context_window_ahead: int = 3, character_names: dict = None):
+                        context_window_ahead: int = 3, character_names: dict | None = None):
     """(requests, line_rows) for every batch at once. Each request's
     lines are numbered by their permanent line id, and its key is
     request_key(drama_id, batch_index). Look-back context can only use
@@ -130,7 +130,7 @@ def _require_batch_engine(provider, engine_choice: str,
 
 
 def submit_bulk_translation(drama_id: int, lines, engine, engine_choice: str, context: dict,
-                            provider=None, translate_args: dict = None, **build_kwargs) -> int:
+                            provider=None, translate_args: dict | None = None, **build_kwargs) -> int:
     """Submits every batch in one provider batch and records it. Returns
     the bulk job id. The row is written before submitting and marked
     failed if submission raises, so a crash mid-submit never leaves a
@@ -156,7 +156,7 @@ def submit_bulk_translation(drama_id: int, lines, engine, engine_choice: str, co
 
 def schedule_offpeak_translation(drama_id: int, lines, engine_choice: str, model: str,
                                  translate_args: dict, force_retranslate: bool = False,
-                                 now: datetime.datetime = None) -> int:
+                                 now: datetime.datetime | None = None) -> int:
     """DeepSeek: records the lines to translate and the next off-peak
     start; the poller runs it as a normal translation once that arrives."""
     targets = _target_lines(lines, force_retranslate)
@@ -204,8 +204,8 @@ def build_generic_bulk_requests(drama_id: int, provider, batches: list, max_toke
 
 
 def submit_generic_bulk_job(drama_id: int, kind: str, provider, batches: list, engine_choice: str,
-                            model: str, state_fn=None, translate_args: dict = None,
-                            stage: str = None, pipeline_id: str = None,
+                            model: str, state_fn=None, translate_args: dict | None = None,
+                            stage: str | None = None, pipeline_id: str | None = None,
                             max_tokens: int = 3000) -> int:
     """Shared submission path for every generic kind above plus each
     Reflect stage. state_fn(ln), if given, snapshots whatever field(s)

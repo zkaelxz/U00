@@ -343,7 +343,7 @@ def language_mismatch_notice(model, audio_path, title_language):
 
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str | None = None,
-                           hf_token: str = None, initial_prompt: str = "",
+                           hf_token: str | None = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
                            on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False,

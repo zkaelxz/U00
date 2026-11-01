@@ -466,7 +466,7 @@ def _span_groups(transcribed, tuning, long_windows, flag_estimated) -> dict:
                 [{**seg, "text": text}], flag_estimated=flag_estimated,
                 max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
                 floors=tuning.floors,
-                **({"rules": sentence_split_rules(tuning)} if long_windows else {})))
+                rules=sentence_split_rules(tuning) if long_windows else None))
     pieces = filter_hallucinated_segments(pieces, tuning.repeat_min_repeats,
                                           tuning.stock_isolation_sec)
     groups = {}

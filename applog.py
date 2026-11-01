@@ -66,7 +66,7 @@ def get_logger():
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
         logger.propagate = False
-        logger._baihe_log_path = log_path
+        setattr(logger, "_baihe_log_path", log_path)
     return logger
 
 

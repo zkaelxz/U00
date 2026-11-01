@@ -13,7 +13,15 @@ import emotion
 import source_change
 from engine_backends import pricing, shared, flag_reasons
 import translation_guide as tguide
+from lib.errors import NotFoundError
 from translation_finish import mark_translated_if_complete, untranslated_line_count
+
+
+def require_bulk_job(bulk_job_id: int) -> dict:
+    job = db.get_bulk_job(bulk_job_id)
+    if job is None:
+        raise NotFoundError(f"Bulk job {bulk_job_id} no longer exists.")
+    return job
 
 
 class _ApplyContext(NamedTuple):
@@ -94,7 +102,7 @@ def _save_applied_english(job: dict, current: list, counts: dict, label: str):
 def apply_bulk_results(bulk_job_id: int, results) -> dict:
     """Applies (request_key, text, usage, error) results to the drama's
     CURRENT lines, by line id. Returns counts of what happened."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
@@ -165,7 +173,7 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
     plus its own "kept your edit" check: a line whose .flag/.flag_note the
     user already changed since submission (state_at_submit) is left
     alone rather than overwritten."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0,
@@ -186,7 +194,7 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
         for lid in ids_by_key[key]:
             row = row_by_id[lid]
             ln = cur_by_id.get(lid)
-            if _stale_line(ln, row["zh_hash"]):
+            if ln is None or _stale_line(ln, row["zh_hash"]):
                 if ln is not None:
                     counts["flagged_source_changed"] += 1
                     if not ln.flag:
@@ -227,7 +235,7 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
     does (db.save_consistency_issues) -- but only once at least one
     window's results were actually usable, so a bulk job that turned out
     entirely stale doesn't wipe out a still-valid earlier check."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, _, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"issues_found": 0, "dropped_windows": 0, "failed_requests": 0, "unknown_requests": 0}
     issues = []
@@ -263,7 +271,7 @@ def apply_emotion_results(bulk_job_id: int, results) -> dict:
     already had at submission (db.save_emotions is itself a per-line
     upsert, so applying this incrementally never disturbs any OTHER
     line's tag, live-set or from a different bulk job)."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     existing = db.load_emotions(job["drama_id"])
     existing_by_id = {ln.id: existing.get(ln.idx) for ln in current}
@@ -325,7 +333,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
     source changed or was deleted since submission is still dropped, same
     as every other kind, since a note about since-changed text would be
     about the wrong thing."""
-    job = db.get_bulk_job(bulk_job_id)
+    job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, _, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "failed_requests": 0, "unknown_requests": 0}

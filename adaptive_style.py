@@ -21,7 +21,7 @@ from engine_backends.llm_tasks import call_llm_json
 MIN_SAMPLES_TO_LEARN = 8
 
 
-def analyze_edit_patterns(edit_samples, engine, existing_profile: dict = None, usage_cb=None):
+def analyze_edit_patterns(edit_samples, engine, existing_profile: dict | None = None, usage_cb=None):
     """
     Looks at before/after pairs and extracts consistent preferences.
 

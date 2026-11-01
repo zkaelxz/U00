@@ -50,6 +50,8 @@ def wanted_browser_folders():
     it. None when the package or manifest can't be read."""
     try:
         spec = importlib.util.find_spec("playwright")
+        if spec is None:
+            raise ImportError("playwright is not installed")
         pkg = list(spec.submodule_search_locations or [])[0]
         with open(os.path.join(pkg, "driver", "package", "browsers.json"), encoding="utf-8") as f:
             browsers = json.load(f)["browsers"]
