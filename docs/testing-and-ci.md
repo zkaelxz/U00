@@ -151,6 +151,8 @@ it prints the last 40 lines of the server log.
 it is synthetic and carries no third-party content. `python -m tools.self_test` also runs a "Library round trip" check
 (save a line and export SRT in a throwaway library; the real one is not opened).
 
+Any PR that changes a route or a response model reruns `cd frontend && npm run gen:api` (after `npm ci` in `frontend/openapi-gen`) and commits `frontend/src/api/generated/schema.d.ts`; CI regenerates it and fails on a diff. A merge conflict in that file is resolved by regenerating, never by hand-merging.
+
 ## Guard set and lean output
 
 The guard set is what to run before pushing, next to the area's tests. CI's `guards` job runs the first five; the rest are

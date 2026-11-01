@@ -108,6 +108,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
 
+      # The checked-in API types must match the routes and models; fix a
+      # failure with `cd frontend/openapi-gen && npm ci`, then
+      # `cd .. && npm run gen:api`, and commit the result.
+      - name: Generated API types are current
+        run: |
+          (cd frontend/openapi-gen && npm ci)
+          (cd frontend && npm run gen:api)
+          git diff --exit-code -- frontend/src/api/generated
+
       # S113 (requests call without timeout=) lives in ruff.toml; the pinned
       # version matches .pre-commit-config.yaml.
       - name: Lint (ruff)
