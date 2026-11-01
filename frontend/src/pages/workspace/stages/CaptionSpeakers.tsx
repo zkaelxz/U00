@@ -13,7 +13,7 @@ import type { HardSubApplyResult, HardSubReadingEstimate } from '../../../types/
 import type { TranslateEngine } from '../../../types/translate'
 import { formatCost } from '../../benchmark/benchmarkForm'
 import { useStage } from '../StageContext'
-import { canStartReading, captionEngine, READING_POLL_MS, readyVisionEngines } from './captionSpeakers'
+import { canStartReading, captionEngine, READING_POLL_MS, readyVisionEngines } from './captionSpeakersModel'
 
 /** Transcribe → read the burned-in captions by speaker colour and put them on the lines as speakers. PC only. */
 export function CaptionSpeakers({ hasVideo, hasLines, busy }: { hasVideo: boolean; hasLines: boolean; busy: boolean }) {

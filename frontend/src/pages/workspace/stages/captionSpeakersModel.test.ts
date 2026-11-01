@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TranslateEngine } from '../../../types/translate'
-import { canStartReading, captionEngine, readyVisionEngines } from './captionSpeakers'
+import { canStartReading, captionEngine, readyVisionEngines } from './captionSpeakersModel'
 
 const engine = (name: string, key_configured: boolean): TranslateEngine => ({
   name, label: name, free: false, models: null, key_configured,
