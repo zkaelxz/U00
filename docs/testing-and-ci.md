@@ -24,7 +24,7 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 `changes` treats like a push to the base: everything runs): `changes` (decides which of the others are needed), `guards`
 (the five quick guard files, about a minute, so a broken rule is red first), `test-shard` (the mocked suite with xdist, minus
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
-through `--ff` and a restored `.pytest_cache`), `test` (the one required check: it passes when every shard passed or the
+through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba, pypinyin, opencc, ebooklib, genanki, soundfile and headless OpenCV, which the shards leave out, and runs only the files that skip without them; torch, paddleocr and Tesseract tests still skip, and `tests/test_diarize.py` needs torch so it is not in the list), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
 `frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; runs unless the change is
 notes-only, and `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
