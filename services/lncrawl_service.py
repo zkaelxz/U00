@@ -516,7 +516,7 @@ def _run_job(job_id, drama_id, program, url, chapters, count, mode):
             raise background_jobs.JobCancelled(job_id)
         background_jobs.update_progress(job_id, 0.9, "Attaching the EPUB text...")
         with open(epub, "rb") as f:
-            result = novel_attach_service.attach_epub_from_job(drama_id, f, mode)
+            result = novel_attach_service.attach_epub_from_job(drama_id, f, mode, job_id=job_id)
         background_jobs.set_result(job_id, {"char_count": result["char_count"],
                                             "epub_chapters": result["epub_chapters"]})
     finally:

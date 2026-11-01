@@ -320,3 +320,41 @@ def test_a_bad_summary_engine_setting_gives_a_reason_not_a_failure(isolated_db, 
 
 def test_prune_and_dismiss_share_one_lock(isolated_db):
     assert failed_lines_service.translate_run_service.ERRORS_LOCK is translate_run_service.ERRORS_LOCK
+
+
+class _CutOffWhenBig(fake_engine.FakeEngine):
+    """Returns empty text for every line of a batch bigger than `limit`."""
+
+    def __init__(self, limit):
+        super().__init__()
+        self.limit = limit
+        self.sizes = []
+
+    def translate_batch(self, zh, context):
+        self.sizes.append(len(zh))
+        if len(zh) > self.limit:
+            return ["" for _ in zh]
+        return [f"T:{z}" for z in zh]
+
+
+def _run_big_batch(engine, n=8):
+    lines = [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", id=70 + i) for i in range(n)]
+    _, errors = engine_translate_pipeline.translate_lines_with_engine(
+        lines, engine, drama_meta={"source_language": "zh"}, context_window=0, context_window_ahead=0)
+    return lines, errors
+
+
+def test_a_cut_off_batch_is_retried_in_smaller_pieces(isolated_db):
+    engine = _CutOffWhenBig(limit=4)
+    lines, errors = _run_big_batch(engine)
+    assert errors == []
+    assert all(ln.en == f"T:z{i}" for i, ln in enumerate(lines))
+    assert max(engine.sizes[1:]) <= 4
+
+
+def test_lines_still_empty_after_the_retry_are_reported(isolated_db):
+    engine = _CutOffWhenBig(limit=0)
+    lines, errors = _run_big_batch(engine)
+    assert [ln.en for ln in lines] == [""] * 8
+    assert errors and "got no translation" in errors[0]["error"]
+    assert len(engine.sizes) <= 1 + 2 + 4  # first ask plus two halving levels

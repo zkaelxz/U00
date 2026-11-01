@@ -25,7 +25,7 @@ test('audiobook and dubbed video are disabled with the reason when there is no n
   await openExportBlock(page, 'Video with the dub audio')
   const dubbed = exportBlock(page, 'Video with the dub audio')
   await expect(dubbed.getByRole('button', { name: 'Start dubbed video export' })).toBeDisabled()
-  await expect(dubbed).toContainText('There is no dub yet. Create it in Dub first.')
+  await expect(dubbed).toContainText('There is no dub track for this title.')
 })
 
 test('with a narration and a dub the buttons are enabled', async ({ page }) => {

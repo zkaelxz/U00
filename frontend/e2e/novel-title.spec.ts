@@ -30,12 +30,12 @@ test('a novel opens on its chapter list with Translate, Add chapters, Glossary, 
   await expect(page.getByRole('link', { name: 'Read' })).toHaveAttribute('href', '#/read/2')
 })
 
-test('Translate and Read open Media while the novel has no lines yet', async ({ page }) => {
+test('Translate opens Media while the novel has no lines yet, and Read still opens the Reader', async ({ page }) => {
   await mockChapters(page, listBody([row(1)]))
   await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(0) }))
   await page.goto('/#/drama/2')
   await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('href', '#/drama/2/source')
-  await expect(page.getByRole('link', { name: 'Read' })).toHaveAttribute('href', '#/drama/2/source')
+  await expect(page.getByRole('link', { name: 'Read' })).toHaveAttribute('href', '#/read/2')
 })
 
 test('a novel with no chapters says so', async ({ page }) => {
