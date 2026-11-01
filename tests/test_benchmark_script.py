@@ -5,6 +5,10 @@ from services import benchmark_lab_service as svc
 from services import benchmark_script_service as scripts
 from tests.test_benchmark_lab import _run
 
+import pytest
+
+pytestmark = pytest.mark.usefixtures("whisper_present")
+
 
 def test_table_is_one_to_one_and_disjoint():
     assert len(scripts.SIMPLIFIED_ONLY) == len(scripts.TRADITIONAL_ONLY) == len(scripts._PAIRS)

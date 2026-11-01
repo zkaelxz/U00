@@ -23,6 +23,8 @@ from lib.errors import DependencyUnavailableError, InvalidInputError
 from tests.saved_settings import patch_setting
 from tests.job_helpers import wait_for_job
 
+pytestmark = pytest.mark.usefixtures("whisper_present")
+
 
 def _run(configs, **kw):
     started = svc.start_run("transcription", configs, **kw)

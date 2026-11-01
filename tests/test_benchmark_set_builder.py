@@ -142,6 +142,12 @@ class TestLanguagesAndSets:
         langs = [c["source_language"] for c in db.list_benchmark_cases("translation")]
         assert langs == ["zh", "ja"]
 
+    def test_cases_carry_the_title_and_their_place_so_the_translation_sweep_runs_them_as_scenes(self, isolated_db):
+        did = _drama(_lines(4))
+        builder.build_set(None, did, "moon", include="all", lines_per_case=2)
+        cases = db.list_benchmark_cases("translation")
+        assert [(c["title"], c["scene_order"]) for c in cases] == [("Moon Drama", 1), ("Moon Drama", 3)]
+
     def test_building_twice_skips_existing_cases(self, isolated_db):
         did = _drama(_lines(4))
         assert builder.build_set(None, did, "moon", include="all")["added"] == 1

@@ -77,14 +77,15 @@ def list_benchmark_runs(case_id: int):
 def create_benchmark_lab_case(label: str, stage: str, source_language: str, source_text: str,
                               reference_text: str | None, tier: str, set_name: str,
                               content_type: str = "novel", origin_drama_id: int | None = None,
-                              origin_line_id: int | None = None) -> int:
+                              origin_line_id: int | None = None, title: str | None = None,
+                              scene_order: int | None = None) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(
             "INSERT INTO benchmark_cases (label, stage, content_type, source_language, source_text, "
-            "reference_text, tier, set_name, origin_drama_id, origin_line_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "reference_text, tier, set_name, origin_drama_id, origin_line_id, title, scene_order, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (label, stage, content_type, source_language, source_text, reference_text, tier,
-             set_name, origin_drama_id, origin_line_id, clock.utcnow().isoformat()))
+             set_name, origin_drama_id, origin_line_id, title, scene_order, clock.utcnow().isoformat()))
         conn.commit()
         return db.inserted_id(cur)
 

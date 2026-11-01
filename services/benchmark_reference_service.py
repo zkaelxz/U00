@@ -20,6 +20,7 @@ import threading
 import uuid
 
 import db
+import media_inspect
 import raw_transcript
 import video_export
 from core import SOURCE_LANGUAGES
@@ -256,6 +257,15 @@ def _add_title_lines(principal, drama_id: int, set_name: str, dry_run: bool, inc
         wanted = found["lines"]
     candidates = [r for r in wanted if MIN_LINE_SECONDS <= r["end"] - r["start"] <= MAX_LINE_SECONDS]
     too_long = len(wanted) - len(candidates)
+    past_end = 0
+    audio = _drama_audio_path(drama_id, drama)
+    # A line overrunning the audio (common after an SRT import) cannot be cut; skipping it
+    # keeps one bad line from throwing away every good clip, and keeps the dry-run count true.
+    length = media_inspect.duration_seconds(audio) if audio else None
+    if length:
+        fits = [r for r in candidates if r["end"] <= length + CLIP_PAD_SECONDS]
+        past_end, candidates = len(candidates) - len(fits), fits
+        too_long += past_end
     if not candidates:
         raise InvalidInputError(
             "This title has no spoken lines to add." if include_all else
