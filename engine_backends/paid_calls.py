@@ -163,6 +163,17 @@ class CallLimits:
             self._stop(failure_stop_reason(self._streak.count))
 
 
+# Set by services.paid_job_service, which knows the Settings cap that
+# engine_backends must not import. Called as factory(engine_name, engine) and
+# returns the cap_spent callable for an engine the cap covers, else None.
+_default_cap_check_factory = None
+
+
+def set_default_cap_check_factory(factory) -> None:
+    global _default_cap_check_factory
+    _default_cap_check_factory = factory
+
+
 _limits_var: contextvars.ContextVar["CallLimits | None"] = contextvars.ContextVar("paid_call_limits", default=None)
 
 
@@ -192,6 +203,11 @@ def logged_calls(engine, operation: str, *, drama_id: int | None = None):
     if current_limits() is not None:
         yield current_limits()
         return
-    with call_limits(engine, None, operation, drama_id=drama_id, log_usage=True) as limits:
+    # A block outside any job (Reader tools, Discover, metadata autofill, the
+    # wiki loop) has no per-run cap, so the monthly cap is the only brake.
+    name = getattr(engine, "name", None) or type(engine).__name__
+    cap_spent = _default_cap_check_factory(name, engine) if _default_cap_check_factory else None
+    with call_limits(engine, None, operation, drama_id=drama_id, cap_spent=cap_spent,
+                     log_usage=True) as limits:
         yield limits
 

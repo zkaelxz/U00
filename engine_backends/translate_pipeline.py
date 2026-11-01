@@ -213,7 +213,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  context_window: int = 6, context_window_ahead: int = 3,
                                  character_names: dict | None = None, ollama_num_ctx_override: int | None = None,
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float | None = None,
-                                 cap_cb=None, target_ids=None, detail_cb=None,
+                                 cap_cb=None, month_cap_spent_cb=None, target_ids=None, detail_cb=None,
                                  scene_aware_batches: bool = False, thinking: bool | None = None,
                                  translate_by_sentence=None, check_replies: bool | None = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
@@ -581,8 +581,16 @@ class _TranslateRun:
         a = self.args
         return bool(self.stop_run or (a.cancel_check_cb and a.cancel_check_cb())
                     or (a.stop_before_batch and a.stop_before_batch())
-                    or (a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd)
+                    or self._cap_reached()
                     or (isinstance(self.engine, FallbackEngine) and self.engine.cap_exhausted()))
+
+    def _cap_reached(self) -> bool:
+        """This run's own cap, or the monthly one re-read from the usage log:
+        other runs spend against the same month while this one is going, and
+        the cap may have been lowered since the run started."""
+        a = self.args
+        return bool((a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd)
+                    or (a.month_cap_spent_cb and a.month_cap_spent_cb()))
 
     def _check_glossary(self, chunk):
         engine = self.engine
@@ -671,7 +679,7 @@ class _TranslateRun:
             if a.cap_cb:
                 a.cap_cb(self.engine.spent[self.engine.active])
             return True
-        if a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd and more:
+        if self._cap_reached() and more:
             if a.cap_cb:
                 a.cap_cb(self.spent)
             return True
@@ -685,8 +693,7 @@ class _TranslateRun:
             _recheck_male_pronouns(
                 self.engine, self.lines, self.translated, self.context, self.character_names,
                 self.size, a.save_cb, self._record_usage,
-                lambda: a.cost_cap_usd is not None and self.spent >= a.cost_cap_usd,
-                a.cancel_check_cb)
+                self._cap_reached, a.cancel_check_cb)
         except Exception as e:
             if not stops_translate_run(e):
                 raise
