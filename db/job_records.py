@@ -11,10 +11,10 @@ import db
 # Job records
 # ---------------------------------------------------------------------------
 
-def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
-                    error: str = None, description: str = None, gpu_touching: bool = False,
-                    started_at: float = None, finished_at: float = None,
-                    result_json: str = None, owner_user_id: int = None, owner_pid: int = None,
+def save_job_record(job_id: str, status: str, progress: float | None = None, message: str | None = None,
+                    error: str | None = None, description: str | None = None, gpu_touching: bool = False,
+                    started_at: float | None = None, finished_at: float | None = None,
+                    result_json: str | None = None, owner_user_id: int | None = None, owner_pid: int | None = None,
                     conn=None):
     """Mirrors one background_jobs.py job's status-transition fields into
     the cross-process job_records table -- records
