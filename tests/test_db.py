@@ -2310,6 +2310,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "vocab_lookups": ("export_rich",),
     "style_profile": ("history_json",),
     "users": ("share_by_default",),
+    "progress": ("view_prefs",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label",),
     "benchmark_results": ("scorer", "ref_version", "timing", "judge_scores", "recognised_text",

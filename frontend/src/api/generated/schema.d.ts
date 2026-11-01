@@ -8098,6 +8098,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scanlate/dramas/{drama_id}/view-prefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How this title was last shown in the viewer */
+        get: operations["get_view_prefs_api_scanlate_dramas__drama_id__view_prefs_get"];
+        put?: never;
+        /** Remember how this title is shown in the viewer */
+        post: operations["post_view_prefs_api_scanlate_dramas__drama_id__view_prefs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series": {
         parameters: {
             query?: never;
@@ -14481,6 +14499,32 @@ export interface components {
              * @default
              */
             source: string;
+        };
+        /**
+         * ComicViewPrefs
+         * @description How the reader shows a title: the same choices the viewer keeps per title.
+         */
+        ComicViewPrefs: {
+            /**
+             * Fit
+             * @enum {string}
+             */
+            fit: "width" | "height" | "original";
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "vertical" | "paged";
+            /** Rtl */
+            rtl: boolean;
+            /** Text */
+            text: boolean;
+            /** Typeset */
+            typeset: boolean;
+        };
+        /** ComicViewPrefsView */
+        ComicViewPrefsView: {
+            view_prefs?: components["schemas"]["ComicViewPrefs"] | null;
         };
         /**
          * ComicVisibilityRequest
@@ -52763,6 +52807,90 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_view_prefs_api_scanlate_dramas__drama_id__view_prefs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicViewPrefsView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_view_prefs_api_scanlate_dramas__drama_id__view_prefs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicViewPrefs"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicViewPrefs"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
