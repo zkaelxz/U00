@@ -68,6 +68,7 @@ def test_novel_instructions_ask_for_native_prose():
     assert "Add no image, detail or flourish" in text
     assert "sound spoken" in text and "Dialogue tags" in text
     assert "always keep their quotation marks" in text
+    assert "Never cut a line short" in text
     assert "syllable by syllable" in text and "plain noun" in text
     reflection = build_reflect_reflection_task("", [1], {1: "x"}, {1: "y"}, kind="novel")
     assert "translationese" in reflection

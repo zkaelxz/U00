@@ -70,7 +70,9 @@ _LENGTH_RULE = {
         "- Put dialogue in standard English form: double quotation marks, with the dialogue "
         "tag and punctuation placed as an English novel would, and no CJK quotation marks. "
         "Spoken words always keep their quotation marks, and a line that has a speaker tag in "
-        "the source keeps it in the translation.\n"
+        "the source keeps it in the translation. Never cut a line short or end it on an "
+        "ellipsis the source lacks, and never change a creature or term the line names (a "
+        "妖 is not a 兽) unless the glossary says so.\n"
     ),
     "stream": (
         "- Keep each caption short enough to read in a glance while the stream continues.\n"
