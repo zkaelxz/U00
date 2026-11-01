@@ -22,9 +22,14 @@ copied:
    JS runtime, CUDA) for the log only -- a missing optional tool is not
    an install failure.
 
+With --key-writes on|off (Setup's "Allow saving API keys in Settings"
+box), it also sets or removes BAIHE_API_ALLOW_KEY_WRITES=1 in the data
+folder's .env, which the background service reads when Setup creates it.
+
 Everything is logged to <data>\\launcher\\install.log. Exit codes: 0 ok,
 2 bad arguments, 3 pip bootstrap failed, 4 core install failed, 5 the
-installed packages don't import, 6 a bundled wheel failed the hash check.
+installed packages don't import, 6 a bundled wheel failed the hash check,
+7 the .env couldn't be updated for --key-writes.
 
 Standard library only (nothing else is installed yet).
 """
@@ -36,6 +41,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent.parent
@@ -261,6 +267,42 @@ def restrict_new_data_dir(data_dir: Path, new: bool, log, run=subprocess.run,
     return result.returncode == 0
 
 
+KEY_WRITES_VAR = "BAIHE_API_ALLOW_KEY_WRITES"
+
+
+def set_key_writes(data_dir: Path, on: bool) -> None:
+    """Leaves exactly one `BAIHE_API_ALLOW_KEY_WRITES=1` line in .env (on)
+    or none (off), keeping every other line. Read and saved the way
+    settings_service._rewrite_env_locked does (saved as UTF-8 with LF line
+    ends), which can't be imported here: nothing is installed yet."""
+    env_path = data_dir / ".env"
+    lines = []
+    if env_path.exists():
+        with open(env_path, "rb") as fh:
+            head = fh.read(4)
+        utf16 = head[:2] in (b"\xff\xfe", b"\xfe\xff") and head != b"\xff\xfe\x00\x00"
+        with open(env_path, encoding="utf-16" if utf16 else "utf-8-sig",
+                  errors="replace" if utf16 else "surrogateescape") as fh:
+            lines = fh.readlines()
+    out = [line for line in lines if line.strip().split("=", 1)[0].strip() != KEY_WRITES_VAR]
+    if not on and len(out) == len(lines):
+        return
+    if on:
+        if out and not out[-1].endswith("\n"):
+            out[-1] += "\n"
+        out.append(f"{KEY_WRITES_VAR}=1\n")
+    # In launcher\, not beside .env: a leftover file there would make the
+    # service step refuse the data folder as not Baihe's own.
+    fd, name = tempfile.mkstemp(prefix="env.", suffix=".tmp", dir=data_dir / "launcher")
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as fh:
+            fh.writelines(out)
+        os.replace(tmp, env_path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def pip_env(base=None) -> dict:
     """The install must use the bundled wheels and nothing else: every
     PIP_* setting from the user's environment is dropped, and pip.ini
@@ -331,7 +373,8 @@ def _run(cmd, log, env, cwd):
 
 
 def run(wheels_dir, data_dir, python_exe=None, app_dir=None, runner=_run,
-        created: bool = False, new: bool = False, restrict=restrict_new_data_dir) -> int:
+        created: bool = False, new: bool = False, restrict=restrict_new_data_dir,
+        key_writes=None) -> int:
     python_exe = python_exe or sys.executable
     app_dir = app_dir or APP_DIR
     wheels_dir = Path(wheels_dir)
@@ -349,6 +392,13 @@ def run(wheels_dir, data_dir, python_exe=None, app_dir=None, runner=_run,
         log.write(f"\n=== Baihe Studio install step, {datetime.datetime.now().isoformat(timespec='seconds')} ===\n")
         log.write(f"app: {app_dir}\ndata: {data}\npython: {python_exe}\n")
         restrict(data, new, log)
+        if key_writes is not None:
+            try:
+                set_key_writes(data, key_writes)
+            except (OSError, UnicodeError) as e:
+                log.write(f"FAILED: couldn't update .env for key writes: {e}\n")
+                raise PostInstallError(f"Couldn't update {data / '.env'}: {e}", 7)
+            log.write(f"Key writes in Settings: {'on' if key_writes else 'off'}.\n")
         try:
             if not lock_path.is_file():
                 raise LockError(f"{LOCK_NAME} isn't in {wheels_dir}; the installer payload is incomplete.")
@@ -391,10 +441,13 @@ def main(argv=None) -> int:
                         help="Setup created the data folder (it's Baihe Studio's own)")
     parser.add_argument("--data-dir-new", action="store_true",
                         help="Setup created it just now: limit it to this account")
+    parser.add_argument("--key-writes", choices=("on", "off"),
+                        help="set or remove BAIHE_API_ALLOW_KEY_WRITES=1 in the data folder's .env")
     args = parser.parse_args(argv)
+    key_writes = None if args.key_writes is None else args.key_writes == "on"
     try:
         return run(args.wheels, args.data_dir, created=args.data_dir_created,
-                   new=args.data_dir_new)
+                   new=args.data_dir_new, key_writes=key_writes)
     except OSError as e:
         _report_failure(args.data_dir, f"ERROR: {e}")
         return 2
