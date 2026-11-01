@@ -412,6 +412,15 @@ class TestCancelLineJobs:
             _wait(jid)
             bg.clear_job(jid)
 
+    def test_a_dub_job_is_cancelled_too(self):
+        release = threading.Event()
+        job_launch.start_job("dub_621", release.wait)
+        bg.cancel_line_jobs(621)
+        assert bg.is_cancel_requested("dub_621")
+        release.set()
+        _wait("dub_621")
+        bg.clear_job("dub_621")
+
     def test_a_queued_job_is_cancelled_before_it_starts(self):
         with bg._lock:
             bg._jobs["translate_612"] = {"status": "queued", "progress": 0, "message": ""}

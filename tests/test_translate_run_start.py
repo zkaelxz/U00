@@ -285,3 +285,30 @@ def test_a_new_run_shows_its_own_settings_not_the_previous_runs(isolated_db):
                                      batch_size=9)
     wait_for_job(second["job_id"])
     assert _settings(second["job_id"])["batch_size"] == 9
+
+
+def test_live_run_is_refused_over_lines_a_bulk_batch_is_translating(isolated_db):
+    did = _seed([("你好", ""), ("谢谢", "")])
+    first, second = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "submitted", [(first, "k", "h", "")])
+    with pytest.raises(ConflictError):
+        svc.start_translate_run(did, engine_name="fake")
+    # Lines the batch does not cover are free to translate live.
+    out = svc.start_translate_run(did, engine_name="fake", line_ids=[second])
+    assert wait_for_job(out["job_id"])["status"] == "done"
+
+
+def test_live_run_is_allowed_beside_a_finished_or_non_translate_bulk_job(isolated_db):
+    did = _seed([("你好", "")])
+    [lid] = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "applied", [(lid, "k", "h", "")])
+    db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k2", "h", "")], kind="flag")
+    assert wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])["status"] == "done"
+
+
+def test_live_run_is_refused_beside_a_pending_reflect_batch(isolated_db):
+    did = _seed([("你好", "")])
+    [lid] = [r["id"] for r in db.load_lines(did)]
+    db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k", "h", "")], kind="reflect")
+    with pytest.raises(ConflictError):
+        svc.start_translate_run(did, engine_name="fake")

@@ -57,11 +57,14 @@ def _log_generic_usage(job: dict, usage: dict, usage_kind: str):
 
 def _parse_strict(text: str, expected_ids: list) -> dict:
     """Only an id-keyed JSON object is accepted for a bulk result (as on
-    the live path). Keys outside this request's own ids are ignored."""
+    the live path). Keys outside this request's own ids are ignored. A reply
+    the provider cut off at its output limit keeps its finished pairs, which
+    a plain malformed reply must not (a half-written string is not a line)."""
+    truncated = isinstance(text, shared.TruncatedReply)
     stripped = (text or "").strip()
     for fence in ("```json", "```"):
         stripped = stripped.replace(fence, "")
-    return shared.parse_id_keyed_json(stripped, expected_ids)
+    return shared.parse_id_keyed_json(stripped, expected_ids, truncated=truncated)
 
 
 def _save_flags(job: dict, current: list, counts: dict, guard=()) -> set:

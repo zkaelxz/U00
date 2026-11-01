@@ -64,6 +64,8 @@ class ClaudeBatchProvider:
             if r.result.type == "succeeded":
                 msg = r.result.message
                 text = "".join(b.text for b in msg.content if b.type == "text").strip()
+                if getattr(msg, "stop_reason", None) in ("max_tokens", "model_context_window_exceeded"):
+                    text = shared.TruncatedReply(text)
                 yield r.custom_id, text, shared.claude_usage(msg.usage), None
             else:
                 yield r.custom_id, None, {}, r.result.type
@@ -151,10 +153,13 @@ class GeminiBatchProvider:
                 continue
             r = item["response"]
             try:
-                text = r["candidates"][0]["content"]["parts"][0]["text"].strip()
+                candidate = r["candidates"][0]
+                text = candidate["content"]["parts"][0]["text"].strip()
             except (KeyError, IndexError, TypeError):
                 yield key, None, {}, "empty response"
                 continue
+            if candidate.get("finishReason") == "MAX_TOKENS":
+                text = shared.TruncatedReply(text)
             yield key, text, shared.gemini_usage(r.get("usageMetadata")), None
 
     def cancel(self, batch_id: str):

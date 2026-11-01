@@ -40,6 +40,9 @@ def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_ch
         raise UnsupportedOperationError("Bulk Reflect needs Claude or Gemini's batch API.")
 
 
+BULK_IN_FLIGHT_STATUSES = db.BULK_PENDING_STATUSES + ("submitting", "running", "applying")
+
+
 def select_lines(drama_id, line_ids, expected_en, force_retranslate):
     """(all lines, target ids or None, lines this run will translate)."""
     lines = db.load_line_objects(drama_id)
@@ -77,6 +80,20 @@ def instantiate_engines(built, chain, caps):
         engine = engine_fallback.FallbackEngine(engines, [c["engine"] for c in chain], caps)
         return engines, engine, None  # each engine's own cap is enforced by the FallbackEngine
     return engines, engines[0], caps[0]
+
+
+def require_no_pending_bulk_overlap(drama_id, eligible) -> None:
+    """A live run over lines a paid bulk batch is still translating would turn
+    the batch into a charge for nothing: its results are discarded for every
+    line whose English changed since submission."""
+    ours = {ln.id for ln in eligible}
+    for job in db.list_bulk_jobs(drama_id, statuses=BULK_IN_FLIGHT_STATUSES):
+        if (job.get("kind") or "translate") not in ("translate", "reflect"):
+            continue
+        if ours & {r["line_id"] for r in db.list_bulk_job_lines(job["id"])}:
+            raise ConflictError(
+                "A bulk translation is still pending for some of these lines. "
+                "Wait for it to finish, or cancel it first.")
 
 
 def require_bulk_ready(drama_id, engine_name, model, main_cap, reflect, force_retranslate,

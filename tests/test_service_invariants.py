@@ -306,6 +306,18 @@ class TestNarrationResultInvariants:
         [ln] = db.load_line_objects(did)
         assert (ln.en, ln.flag, ln.dub_filename) == ("edited", "idiom", "line_0.mp3")
 
+    def test_a_result_for_replaced_lines_does_not_mark_the_title_dubbed(self):
+        from services import listen_service
+        did = db.create_drama(title_en="D", source_language="zh", content_mode="novel_narration",
+                              status="aligned")
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a", en="")])
+        old = db.load_line_objects(did)
+        old[0].dub_filename = "line_0.mp3"
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="new")])   # Chunk & tag replaced them
+        listen_service.apply_narration_result(did, {"lines": old})
+        assert db.get_drama(did)["status"] == "aligned"
+        assert not db.load_line_objects(did)[0].dub_filename
+
 
 # ---------------------------------------------------------------------------
 # From TestNewDramaLanguageSelector
