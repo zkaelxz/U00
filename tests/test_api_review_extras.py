@@ -295,9 +295,9 @@ def _style_drama(samples=8):
 @pytest.fixture
 def fake_engine(monkeypatch):
     from services import translate_service
-    import translate_engines
+    from engine_backends import engine_registry
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda _n: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _FakeEngine())
 
 
 class TestLearnStyle:

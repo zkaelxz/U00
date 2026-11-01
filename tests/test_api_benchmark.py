@@ -8,7 +8,7 @@ ever leaves the server.
 
 FastAPI TestClient against an isolated library. Runs use the free
 `fake` engine or a fake class patched into
-translate_engines.ENGINES; no network, no real keys, no models.
+engine_registry.ENGINES; no network, no real keys, no models.
 """
 
 import time
@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_table
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -353,7 +353,7 @@ class TestRuns:
 
             def translate_batch(self, zh_lines, context):
                 return ["Hello" for _ in zh_lines]
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Echo)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Echo)
         monkeypatch.setattr(translate_service, "resolve_api_key",
                             lambda name, env_path=None: "fake-key" if name == "claude" else "offline")
         _case()
@@ -454,7 +454,7 @@ class TestNoKeyInResponses:
         assert r.status_code == 200, r.text
         assert SECRET_CORE not in r.text
         engines = {e["name"]: e for e in r.json()["translation_engines"]}
-        assert set(engines) == set(translate_engines.ENGINES)
+        assert set(engines) == set(engine_registry.ENGINES)
         for e in engines.values():
             assert set(e) == {"name", "label", "free", "models", "model_labels", "key_configured",
                               "package_installed"}
@@ -479,7 +479,7 @@ class TestNoKeyInResponses:
 
             def translate_batch(self, zh_lines, context):
                 raise RuntimeError(f"401 Unauthorized: invalid x-api-key {self.api_key}")
-        monkeypatch.setitem(translate_engines.ENGINES, "claude", Leaky)
+        monkeypatch.setitem(engine_registry.ENGINES, "claude", Leaky)
         monkeypatch.setattr(translate_service, "resolve_api_key",
                             lambda name, env_path=None: SECRET if name == "claude" else "offline")
         _case()

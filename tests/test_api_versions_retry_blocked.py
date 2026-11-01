@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from jobs import job_launch, job_runner
 import db
-import translate_engines
+from engine_backends import shared, engine_registry
 from api import llm_slots
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -224,7 +224,7 @@ def _use_engine(monkeypatch, engine, key=FAKE_KEY):
     def fake_get_engine(name, api_key, model=None, **kw):
         seen.update(name=name, api_key=api_key, model=model, **kw)
         return engine
-    monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
+    monkeypatch.setattr(engine_registry, "get_engine", fake_get_engine)
     return seen
 
 
@@ -255,7 +255,7 @@ class TestRetryService:
         did, ids = _blocked()
 
         def block(zh, ctx):
-            raise translate_engines.ContentModerationBlocked("gemini", f"SAFETY {FAKE_KEY}")
+            raise shared.ContentModerationBlocked("gemini", f"SAFETY {FAKE_KEY}")
         _use_engine(monkeypatch, FakeEngine(block))
         out = blocked_retry_service.retry_blocked_line(did, ids[1], "gemini")
         assert out["retried"] is False and out["blocked"] is True
@@ -276,7 +276,7 @@ class TestRetryService:
 
         def dismiss_meanwhile(zh, ctx):
             db.update_line_fields_if(did, ids[1], {"flag": None, "flag_note": ""}, {})
-            raise translate_engines.ContentModerationBlocked("gemini", "SAFETY")
+            raise shared.ContentModerationBlocked("gemini", "SAFETY")
         _use_engine(monkeypatch, FakeEngine(dismiss_meanwhile))
         with pytest.raises(ConflictError):
             blocked_retry_service.retry_blocked_line(did, ids[1], "gemini")
@@ -286,7 +286,7 @@ class TestRetryService:
     def test_409_while_translate_job_runs_before_engine_built(self, isolated_db, monkeypatch):
         did, ids = _blocked()
         built = []
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: built.append(a))
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: built.append(a))
         with _hold_job(f"translate_{did}"):
             with pytest.raises(ConflictError):
                 blocked_retry_service.retry_blocked_line(did, ids[1], "fake")
@@ -592,7 +592,7 @@ class TestRetrySpokenLanguage:
 
     def test_english_line_is_copied_without_building_an_engine(self, isolated_db, monkeypatch):
         did, lid = self._seed_lang("en")
-        monkeypatch.setattr(translate_engines, "get_engine",
+        monkeypatch.setattr(engine_registry, "get_engine",
                             lambda *a, **k: pytest.fail("no engine for an English line"))
         out = blocked_retry_service.retry_blocked_line(did, lid, "deepseek")
         assert out["retried"] is True and out["line"]["en"] == "안녕"

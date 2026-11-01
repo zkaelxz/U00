@@ -29,7 +29,7 @@ Search first, read little, change little. A module over 64 KB only draws a warni
    `docs/testing-and-ci.md`, section "Guard set and lean output". CI runs the full suite; don't run it locally.
 8. Rules that bite most:
    - Match LLM results to lines by id, never by position.
-   - Pass error text through `translate_engines.redact_secrets`; keys in headers only.
+   - Pass error text through `engine_backends.shared.redact_secrets`; keys in headers only.
    - Every HTTP call has `timeout=` (`lib.http.get`/`post` apply it).
    - Jobs save only their fields: `db.save_lines(id, lines, fields=("en",))`, declared with `start_job(..., line_fields=("en",))`.
    - Every route declares exactly one permission.

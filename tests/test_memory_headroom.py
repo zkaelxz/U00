@@ -287,7 +287,7 @@ class TestRefusalStopsTheRun:
         assert not is_fallback_error(mh.HeadroomError("no room"))
 
     def test_multi_batch_run_stops_after_one_attempt(self, monkeypatch):
-        import translate_engines as te
+        from engine_backends import translate_pipeline
         from core import Line
         monkeypatch.setattr("engine_backends.shared._cancellable_sleep",
                             lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not retry")))
@@ -301,7 +301,7 @@ class TestRefusalStopsTheRun:
                 Engine.calls += 1
                 raise mh.HeadroomError("Not loading the Ollama model x: no room.")
 
-        _, errors = te.translate_lines_with_engine(lines, Engine(), {}, batch_size=2)
+        _, errors = translate_pipeline.translate_lines_with_engine(lines, Engine(), {}, batch_size=2)
         assert Engine.calls == 1
         assert len(errors) == 1 and "no room" in errors[0]["error"]
         assert not any(l.en for l in lines)

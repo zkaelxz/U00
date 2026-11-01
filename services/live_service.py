@@ -21,7 +21,7 @@ cookies; see start_session); keys are resolved server-side, never taken
 from the caller. No FastAPI import.
 
 Router contract: start/get are gated like media.import_url, and an engine
-outside translate_engines.FREE_ENGINES (Gemini counts as paid: whether a key
+outside engine_registry.FREE_ENGINES (Gemini counts as paid: whether a key
 is free-tier isn't known server-side) additionally needs the engines.paid
 capability; stop is gated like jobs.cancel.
 """
@@ -42,7 +42,8 @@ import live_player
 import language_packs
 import live_translate
 import storage
-import translate_engines
+from engine_backends import engine_registry, shared, llm_tasks
+from engine_backends import local as engine_local
 import whisper_models
 from engine_backends import thinking
 from core import LANGUAGE_NAMES, SOURCE_LANGUAGES
@@ -98,13 +99,13 @@ def clean_message(text) -> str:
     # Not jobs_service.scrub_text: its username redaction rewrites ordinary
     # words in transcripts and errors ("li" -> "[USER]kely").
     text = jobs_service.URL_PATTERN.sub("[URL]", str(text))
-    text = _PATH_RE.sub("<path>", translate_engines.redact_secrets(text))
+    text = _PATH_RE.sub("<path>", shared.redact_secrets(text))
     return text.splitlines()[0][:500] if text.strip() else ""
 
 
 def _cue_text(text) -> str:
     """Cue text keeps its wording; only a failure note is path-stripped."""
-    text = translate_engines.redact_secrets(str(text or ""))
+    text = shared.redact_secrets(str(text or ""))
     return clean_message(text) if text.startswith("[translation failed") else text
 
 
@@ -128,7 +129,7 @@ def _require_offered_model(engine_name: str, model: Optional[str]):
     entry = next((e for e in translate_service.list_engines() if e["name"] == engine_name), None)
     offered = list((entry or {}).get("models") or ())
     if engine_name == "ollama" and entry is not None and model not in offered:
-        offered += translate_engines.pulled_ollama_models(settings_service.ollama_url())
+        offered += engine_local.pulled_ollama_models(settings_service.ollama_url())
     if entry is None or model not in offered:
         raise InvalidInputError("That model isn't offered for this engine.")
 
@@ -138,25 +139,25 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
     # request without an engine (API client, extension, stale bundle) must not
     # send the stream's text off this PC unasked.
     engine_name = engine_name or LIVE_DEFAULT_ENGINE
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     _require_offered_model(engine_name, model)
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
     try:
-        engine = translate_engines.get_engine(
+        engine = engine_registry.get_engine(
             engine_name, api_key, model or None,
             free_tier=settings_service.get("gemini_free_tier"),
             base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
         if engine_name == "ollama":
-            translate_engines.check_ollama_model_installed(engine.base_url, engine.model)
+            engine_local.check_ollama_model_installed(engine.base_url, engine.model)
     except ServiceError:
         raise
-    except translate_engines.OllamaUnavailableError as exc:
+    except engine_local.OllamaUnavailableError as exc:
         raise DependencyUnavailableError(
-            translate_engines.redact_secrets(exc.message), details={"reason": exc.reason}) from None
+            shared.redact_secrets(exc.message), details={"reason": exc.reason}) from None
     except Exception as exc:
         raise DependencyUnavailableError(
             clean_message(f"Could not start {engine_name}: {exc}")) from None
@@ -169,14 +170,14 @@ def check_ollama(model: Optional[str] = None) -> dict:
     call uses and never carries the Ollama address."""
     from services import translate_run_service
     # The model Start would run when none is chosen, so the note describes it.
-    model = model or translate_engines.effective_default_model("ollama")
+    model = model or engine_registry.effective_default_model("ollama")
     if not translate_run_service._is_safe_ollama_model(model):
         raise InvalidInputError("That model isn't offered for this engine.")
     try:
-        translate_engines.check_ollama_model_installed(
+        engine_local.check_ollama_model_installed(
             settings_service.ollama_url(), model)
-    except translate_engines.OllamaUnavailableError as exc:
-        return {"ok": False, "model": model, "message": translate_engines.redact_secrets(exc.message)}
+    except engine_local.OllamaUnavailableError as exc:
+        return {"ok": False, "model": model, "message": shared.redact_secrets(exc.message)}
     return {"ok": True, "model": model, "message": None}
 
 
@@ -194,7 +195,7 @@ def form_options() -> dict:
         "player_heights": list(live_player.HEIGHTS),
         "default_engine": LIVE_DEFAULT_ENGINE,
         # The model Start runs when none is chosen, which Settings can change.
-        "default_model": translate_engines.effective_default_model(LIVE_DEFAULT_ENGINE),
+        "default_model": engine_registry.effective_default_model(LIVE_DEFAULT_ENGINE),
         "thinking_switch_engines": list(thinking.NO_THINKING_ENGINES),
         "defaults": {k: defaults[k].default for k in (
             "source_language", "whisper_size", "segment_seconds", "overlap_seconds",
@@ -377,7 +378,7 @@ def _hint_function(series_id, pack_title, source_language):
     def hints(texts):
         text = "\n".join(t for t in texts if isinstance(t, str))
         found = [(t["term_original"], t["term_translation"], (t.get("notes") or "")[:HINT_NOTE_CHARS])
-                 for t in translate_engines.matching_glossary_terms(text, glossary)]
+                 for t in llm_tasks.matching_glossary_terms(text, glossary)]
         if packs_apply:
             for e in language_pack_service.entries_for_text(drama, text, glossary):
                 found.append((e["source"], e["en"], "; ".join(

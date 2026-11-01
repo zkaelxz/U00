@@ -12,14 +12,21 @@ from bulk_translate import (_character_names, _copy_english_lines, _require_batc
 from engine_backends.medium_prompts import kind_for
 import db
 import source_change
-import translate_engines
+from engine_backends import (
+    translate_pipeline,
+    shared,
+    engine_registry,
+    reflect_prompts,
+    pricing,
+)
+from engine_backends import prompts as engine_prompts
 import translation_guide as tguide
 from translation_finish import mark_translated_if_complete
 
 
 # ---------------------------------------------------------------------------
 # Reflect mode, bulk -- the same faithfulness -> reflection ->
-# expressiveness pipeline as translate_engines.reflect_translate_batch,
+# expressiveness pipeline as reflect_pass.reflect_translate_batch,
 # but as three SEQUENTIAL bulk submissions instead of three in-process
 # calls. Confirmed directly against both Claude's Message Batches and
 # Gemini's Batch API: neither has a way to submit pass 2 once pass 1's
@@ -52,7 +59,7 @@ def _reflect_prompt_parts(drama_id: int, translate_args: dict, engine, batch: li
     the live prompt: novel-reference block, speaker names, and the she/her
     default's note and hidden 他/她."""
     args = translate_args or {}
-    ctx = translate_engines.build_translation_context(
+    ctx = translate_pipeline.build_translation_context(
         engine, args.get("drama_meta") or db.get_drama(drama_id) or {},
         style_note=args.get("style_note", ""), novel_reference=args.get("novel_reference"),
         locale=args.get("locale", "en-US"), glossary_terms=args.get("glossary_terms"),
@@ -60,13 +67,13 @@ def _reflect_prompt_parts(drama_id: int, translate_args: dict, engine, batch: li
     ids = [ln.id for ln in batch]
     ctx.update(speaker_labels=[names.get(ln.speaker) for ln in batch], line_ids=ids,
                batch_source_lines=[ln.zh for ln in batch])
-    instructions, novel_block = translate_engines.build_stable_prompt(ctx)
+    instructions, novel_block = engine_prompts.build_stable_prompt(ctx)
     if novel_block:
         instructions = instructions + "\n\n" + novel_block
     lang = ctx["source_language"]
-    sources = translate_engines.pronoun_neutral_texts(
-        ctx, translate_engines.tagged_source_texts(batch, lang))
-    return (instructions, translate_engines.pronoun_batch_note(ctx.get("style_guidelines"), lang),
+    sources = engine_prompts.pronoun_neutral_texts(
+        ctx, shared.tagged_source_texts(batch, lang))
+    return (instructions, engine_prompts.pronoun_batch_note(ctx.get("style_guidelines"), lang),
             dict(zip(ids, sources)), dict(zip(ids, ctx["speaker_labels"])))
 
 
@@ -114,7 +121,7 @@ def submit_reflect_stage(drama_id: int, stage: str, provider, batches: list, eng
         batch_id = provider.submit(requests_)
     except Exception as e:
         db.update_bulk_job(bulk_job_id, status="failed",
-                           last_error=translate_engines.redact_secrets(str(e)))
+                           last_error=shared.redact_secrets(str(e)))
         raise
     db.update_bulk_job(bulk_job_id, status="submitted", provider_batch_id=batch_id)
     return bulk_job_id
@@ -131,7 +138,7 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
     targets = _copy_english_lines(drama_id, _target_lines(lines, force_retranslate))
     if not targets:
         raise ValueError("Nothing to translate -- every line already has a translation.")
-    batch_size = batch_size or translate_engines.default_batch_size(engine)
+    batch_size = batch_size or engine_registry.default_batch_size(engine)
     pipeline_id = f"reflect_{drama_id}_{uuid.uuid4().hex[:12]}"
     names = _character_names(drama_id)
     batches = []
@@ -140,7 +147,7 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
         ids = [ln.id for ln in batch]
         instructions, batch_ctx, source_by_id, speaker_by_id = _reflect_prompt_parts(
             drama_id, translate_args, engine, batch, names)
-        prompt = translate_engines.build_reflect_faithful_prompt(
+        prompt = reflect_prompts.build_reflect_faithful_prompt(
             instructions, batch_ctx, ids, source_by_id, speaker_by_id,
             _reflect_kind(drama_id, translate_args))
         batches.append(([(ln.id, ln.zh) for ln in batch], prompt))
@@ -220,7 +227,7 @@ def _stage_chunks(job: dict, ids: list, engine):
     current = db.load_line_objects(job["drama_id"])
     wanted, names = set(ids), _character_names(job["drama_id"])
     alive = [ln for ln in current if ln.id in wanted]
-    n = translate_engines.default_batch_size(engine)
+    n = engine_registry.default_batch_size(engine)
     for start in range(0, len(alive), n):
         batch = alive[start:start + n]
         instructions, batch_ctx, source_by_id, _speakers = _reflect_prompt_parts(
@@ -245,7 +252,7 @@ def _submit_next_stage(job: dict, stage: str, build_batches, ids: list, en_at_su
                              max_tokens=max_tokens)
         return None
     except Exception as exc:
-        reason = translate_engines.redact_secrets(str(exc))
+        reason = shared.redact_secrets(str(exc))
         # Only a provider.submit failure is recorded on the new job row by
         # submit_reflect_stage; failures before that (building requests,
         # creating the row) leave no trace, so log them.
@@ -266,7 +273,7 @@ def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_
     kind = _reflect_kind(job["drama_id"], job.get("translate_args"))
 
     def batches():
-        return [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_reflection_prompt(
+        return [([(lid, zh_by_id[lid]) for lid in chunk], reflect_prompts.build_reflect_reflection_prompt(
                     instructions, batch_ctx, chunk, source_by_id, {lid: draft_by_id[lid] for lid in chunk}, kind))
                 for chunk, zh_by_id, instructions, batch_ctx, source_by_id in _stage_chunks(job, ids, engine)]
     return _submit_next_stage(job, "reflect", batches, ids, en_at_submit_by_id, provider, 2000)
@@ -316,7 +323,7 @@ def _advance_to_expressive_stage(job: dict, ids: list, draft_by_id: dict, critiq
     kind = _reflect_kind(job["drama_id"], job.get("translate_args"))
 
     def batches():
-        return [([(lid, zh_by_id[lid]) for lid in chunk], translate_engines.build_reflect_expressive_prompt(
+        return [([(lid, zh_by_id[lid]) for lid in chunk], reflect_prompts.build_reflect_expressive_prompt(
                     instructions, batch_ctx, chunk, source_by_id,
                     {lid: draft_by_id.get(lid, "") for lid in chunk},
                     {lid: critique_by_id.get(lid) for lid in chunk}, kind))
@@ -352,7 +359,7 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_
     if engine is None:
         return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
                                last_error="Waiting for an API key to send the next Reflect stage.")
-    _cap, error = translate_engines.resolve_cost_cap(
+    _cap, error = pricing.resolve_cost_cap(
         None, monthly_cap_usd, db.get_month_spend() if monthly_cap_usd else 0.0)
     if _cancelled(job["id"], cancel_check):
         # Cancelled while this stage's results were being applied: the next
@@ -404,7 +411,7 @@ def _cancel_orphaned_stage(job: dict, stage: str, engine):
     except Exception as e:
         note = ("Cancelled here with the stage before it, but the provider's own cancel call "
                 f"failed -- results that still arrive will be ignored. "
-                f"({translate_engines.redact_secrets(str(e))})")
+                f"({shared.redact_secrets(str(e))})")
     db.update_bulk_job(child["id"], last_error=note)
 
 

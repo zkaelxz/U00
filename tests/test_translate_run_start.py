@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from jobs import job_launch, job_runner, job_table
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api.server import create_app
 from core import Line
 from services import settings_service, translate_run_service as svc
@@ -147,7 +147,7 @@ def test_secret_not_in_job_error(isolated_db, monkeypatch):
 
         def translate_batch(self, *a, **k):
             raise RuntimeError("bad key sk-ant-SECRETSECRETSECRET1234")
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", lambda *a, **k: Boom())
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", lambda *a, **k: Boom())
     out = svc.start_translate_run(did, engine_name="claude")
     job = wait_for_job(out["job_id"])
     assert "SECRETSECRET" not in repr(job)
@@ -241,7 +241,7 @@ def test_empty_engine_reply_finishes_with_errors(isolated_db, monkeypatch):
         def translate_batch(self, zh_lines, context):
             return [""] * len(zh_lines)
 
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Empty())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: Empty())
     did = _seed([("你好", ""), ("再见", "")])
     job = wait_for_job(svc.start_translate_run(did, engine_name="fake")["job_id"])
     assert job["status"] == "done"

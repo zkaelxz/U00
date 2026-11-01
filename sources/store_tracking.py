@@ -8,7 +8,7 @@ this module first, because it needs `sources.store` fully defined.
 import json
 import time
 
-from translate_engines import redact_for_storage
+from engine_backends.shared import redact_for_storage
 from sources.store import (connect)
 
 

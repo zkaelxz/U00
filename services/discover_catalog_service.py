@@ -13,7 +13,7 @@ import db
 from core import SOURCE_LANGUAGES
 import known_sites
 import title_library
-import translate_engines
+from engine_backends import shared
 from services import drama_service, ownership_service
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
@@ -61,7 +61,7 @@ def _public(row: dict) -> dict:
     out = {k: row.get(k) for k in ("id",) + _TITLE_FIELDS + ("created_at",)}
     # Every library.read member sees the catalogue, so a pasted link's query
     # string (often a share token) must not reach them.
-    out["source_url"] = translate_engines.display_url(out["source_url"])
+    out["source_url"] = shared.display_url(out["source_url"])
     return out
 
 

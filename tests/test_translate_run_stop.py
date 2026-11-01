@@ -2,7 +2,7 @@
 keeps rate-limiting, whichever engine it is, and keeps what it already saved."""
 import pytest
 
-import translate_engines as te
+from engine_backends import translate_pipeline
 from core import Line
 from engine_backends.fallback import FallbackEngine
 from engine_backends.shared import ContentModerationBlocked, TranslationCancelled
@@ -45,7 +45,7 @@ def _no_real_sleep(monkeypatch):
 def _run(engine, lines=None, **kw):
     lines = lines or _lines()
     saved = []
-    out, errors = te.translate_lines_with_engine(
+    out, errors = translate_pipeline.translate_lines_with_engine(
         lines, engine, {}, batch_size=1, check_replies=False,
         save_cb=lambda ls: saved.append([ln.en for ln in ls]), **kw)
     return out, errors, saved
