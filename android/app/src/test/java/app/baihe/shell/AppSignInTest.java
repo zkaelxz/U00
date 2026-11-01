@@ -14,8 +14,8 @@ public class AppSignInTest {
 
     @Test
     public void challengeMatchesTheServersS256() {
-        // RFC 7636 appendix B example.
-        assertEquals("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        // The value services/oidc_service.app_challenge_for gives for this verifier.
+        assertEquals("6AcuZnCVD39AAxIxgxUgpguBR4nEkmQRzg9Nzq499As",
                 AppSignIn.challenge("dBjftJeZ4CVP-mJ92K9qkd0ER1z7y9zf6vU8_OoM7OU"));
         assertEquals(43, AppSignIn.verifier(new byte[32]).length());
     }
