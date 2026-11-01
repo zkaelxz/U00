@@ -7,6 +7,7 @@ import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard, novel_batch_chars
 from . import glossary_check
 from .fallback import FallbackEngine
+from . import medium_prompts
 from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragraph_batches
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
@@ -25,6 +26,7 @@ from .shared import (
     _cancel_check_var,
     call_with_backoff,
     is_english_line,
+    strip_echoed_label,
     tagged_line_languages,
     redact_secrets,
     LLMTaskTimeout,
@@ -67,7 +69,7 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
 
 # Recorded with each translated line (line_provenance).
 # Bump it whenever the translate prompt or its batching changes meaning.
-TRANSLATE_PROMPT_VERSION = "4"
+TRANSLATE_PROMPT_VERSION = "5"
 
 
 # A pause this long between two lines is treated as a scene break. Matches
@@ -516,7 +518,7 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = tr
+                ln.en = strip_echoed_label(self.character_names.get(ln.speaker), tr)
                 source_change.clear_for_new_english(ln)
                 self.translated.append(ln)
                 fresh.append(ln)
@@ -626,8 +628,10 @@ class _TranslateRun:
                 applog.get_logger().warning(f"merge/shift re-ask skipped for batch {self.bi}: {redacted}")
                 return None
 
-        for ln, _reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs):
-            if not ln.flag:
+        novel = medium_prompts.kind_for(self.args.drama_meta) == "novel"
+        for ln, reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs, novel):
+            # The merged-or-shifted note would be wrong for a lost quote, so that is retried only.
+            if reason != "dialogue" and not ln.flag:
                 ln.flag = "uncertain_translation"
                 ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 
