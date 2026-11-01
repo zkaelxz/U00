@@ -471,6 +471,13 @@ def get(key: str):
         return settings_schema.default_of(setting)
 
 
+def is_saved(key: str) -> bool:
+    """True when the person saved a value for `key`, as opposed to it reading as the schema default."""
+    import db
+    setting = settings_schema.BY_KEY[key]
+    return setting.store == "db" and db.get_app_setting(setting.store_key) is not None
+
+
 def get_preferences() -> dict:
     return {key: get(key) for key in _preference_keys()}
 

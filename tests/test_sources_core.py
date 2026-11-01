@@ -140,6 +140,28 @@ class TestPacing:
         # break lands before the 4th and 7th requests (every 3 requests).
         assert gaps == pytest.approx([0.0, 0.0, 45.0, 0.0, 0.0, 45.0])
 
+    def test_image_downloads_use_their_own_short_gap_and_skip_the_break(self, isolated_db):
+        clock = FakeClock()
+        urls = [f"https://img.invalid/p{i}" for i in range(7)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        c = make_client("image_pace", t, clock, rng=FixedRng(1.0), min_delay=3.0, max_delay=8.0,
+                        session_break_min_requests=3, session_break_max_requests=3,
+                        session_break_min_delay=45.0, session_break_max_delay=45.0)
+        for u in urls:
+            c.get(u, image_pace=(0.5, 1.5))
+        gaps = [b["t"] - a["t"] for a, b in zip(t.calls, t.calls[1:])]
+        assert gaps == pytest.approx([1.5] * 6)
+
+    def test_image_pace_is_never_slower_than_the_persons_own_pace(self, isolated_db):
+        clock = FakeClock()
+        urls = [f"https://img2.invalid/p{i}" for i in range(3)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        c = make_client("image_pace_slow", t, clock, rng=FixedRng(1.0), min_delay=0.2, max_delay=0.4)
+        for u in urls:
+            c.get(u, image_pace=(0.5, 1.5))
+        gaps = [b["t"] - a["t"] for a, b in zip(t.calls, t.calls[1:])]
+        assert gaps == pytest.approx([0.4, 0.4])
+
     def test_zero_disables_the_session_break(self, isolated_db):
         clock = FakeClock()
         urls = [f"https://no_break.invalid/p{i}" for i in range(25)]

@@ -45,16 +45,16 @@ test('Library: cards, title opens the workspace', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
-for (const stage of ['source', 'translate', 'review', 'dub', 'export']) {
+for (const stage of ['source', 'translate', 'review', 'export']) {
   test(`Workspace ${stage} stage`, async ({ page }) => {
     await page.goto(`/#/drama/1/${stage}`)
     await expect(page.locator('nav.stage-tabs')).toBeVisible()
     await page.waitForLoadState('networkidle')
     await checkScreen(page, ['nav.stage-tabs a', '.workspace-header .ws-back'])
-    // All five stages in one row: none cut off or pushed off-screen.
+    // All four stages in one row: none cut off or pushed off-screen.
     const boxes = await page.locator('nav.stage-tabs a').evaluateAll((els) =>
       els.map((e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), right: r.right } }))
-    expect(boxes).toHaveLength(5)
+    expect(boxes).toHaveLength(4)
     expect(new Set(boxes.map((b) => b.top)).size).toBe(1)
     for (const b of boxes) expect(b.right).toBeLessThanOrEqual(390)
     // §3.3: the app header and Workspace header are compact enough that stage content starts by y=300.

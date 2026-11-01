@@ -148,7 +148,7 @@ export default function ReviewStage() {
                     </>
                   ),
                   coverage: parts.coverage,
-                  voices: <VoiceClonePanel cfg={null} onChanged={() => undefined} />,
+                  voices: <VoiceClonePanel />,
                   restructure: !!lineCount && (
                     <>
                       <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />

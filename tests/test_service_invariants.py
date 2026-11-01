@@ -291,10 +291,10 @@ class TestDeleteDramaInvariants:
 # From TestDubGenerationRealMidRunStop::test_done_job_result_is_applied_via_field_scoped_save
 # ---------------------------------------------------------------------------
 
-class TestDubResultInvariants:
-    def test_done_result_touches_only_dub_filename(self):
-        from services import dub_service
-        did = db.create_drama(title_en="D", source_language="zh", content_mode="audio_drama")
+class TestNarrationResultInvariants:
+    def test_done_result_touches_only_the_narration_fields(self):
+        from services import listen_service
+        did = db.create_drama(title_en="D", source_language="zh", content_mode="novel_narration")
         db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a", en="A")])
         job_copy = db.load_line_objects(did)
         # the user edits the line while the dub job runs
@@ -302,7 +302,7 @@ class TestDubResultInvariants:
         live[0].en, live[0].flag = "edited", "idiom"
         db.save_lines(did, live, fields=("en", "flag"))
         job_copy[0].dub_filename = "line_0.mp3"
-        dub_service.apply_dub_result(did, {"lines": job_copy})
+        listen_service.apply_narration_result(did, {"lines": job_copy})
         [ln] = db.load_line_objects(did)
         assert (ln.en, ln.flag, ln.dub_filename) == ("edited", "idiom", "line_0.mp3")
 
