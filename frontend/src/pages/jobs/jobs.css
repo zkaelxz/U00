@@ -6,6 +6,8 @@
 /* Five chips wrap on a phone: a dense button's hit area reaches 6px past its box, so rows need 12px between them. */
 @media (pointer: coarse), (max-width: 640px) { .jobs-chips { row-gap: var(--space-3); } }
 .jobs-chip-count { font-variant-numeric: tabular-nums; opacity: 0.8; }
+/* On the selected chip the count is white on the accent: fading it to 80% left it at 3.8:1 in the light theme. */
+.jobs-chips button[aria-pressed='true'] .jobs-chip-count { opacity: 1; }
 .jobs-search { flex: 1 1 12rem; min-width: 0; }
 .jobs-search input { width: 100%; }
 .jobs-mine { display: inline-flex; align-items: center; gap: var(--space-1); }

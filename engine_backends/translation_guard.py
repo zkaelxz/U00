@@ -34,6 +34,10 @@ _CJK = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ]")
 _CJK_RUN = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ]+")
 _QUOTED = re.compile(r'"[^"]*"|“[^”]*”|「[^」]*」|『[^』]*』')
 _WORD = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?")
+_SOURCE_SPOKEN = re.compile(r'“[^”]*[぀-ヿ㐀-䶿一-鿿가-힯][^”]*”|「[^」]*」|『[^』]*』')
+_ENGLISH_QUOTE = re.compile(r'["“”]')
+# 道/说/问... right before the colon that opens a quote, or right after one that closes it.
+_SOURCE_TAG = re.compile(r'[道說说问問叫喊答][：:]\s*[“「"『]|[”」"』][，,]?[^“”「」『』，。！？]{1,8}[道說说问問叫喊答]')
 _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
 
 
@@ -152,11 +156,28 @@ def duplicate_positions(sources: list, replies: list) -> set:
     return found
 
 
-def line_problems(source: str, reply: str, allowed_runs=()) -> list:
-    """Problems visible from one line alone."""
+def dialogue_lost(source: str, reply: str) -> bool:
+    """A novel reply that dropped what its source line has: quotation marks
+    around spoken words, or the speaker tag beside them. The tag is judged by
+    the words left outside the quotes, so a bare quote with no "he said" fails."""
+    if not _SOURCE_SPOKEN.search(source):
+        return False
+    if not _ENGLISH_QUOTE.search(reply):
+        return True
+    if not _SOURCE_TAG.search(source):
+        return False
+    outside = re.sub(r'"[^"]*"|“[^”]*”', " ", reply)
+    return _english_words(outside) < 2
+
+
+def line_problems(source: str, reply: str, allowed_runs=(), novel: bool = False) -> list:
+    """Problems visible from one line alone. novel: also check that spoken
+    words keep their quotation marks and speaker tag."""
     problems = []
     if not reply.strip():
         return problems
+    if novel and dialogue_lost(source, reply):
+        problems.append("dialogue")
     issue = length_issue(source, reply)
     if issue:
         problems.append(issue)
@@ -165,13 +186,13 @@ def line_problems(source: str, reply: str, allowed_runs=()) -> list:
     return problems
 
 
-def suspect_positions(sources: list, replies: list, allowed_runs=()) -> dict:
+def suspect_positions(sources: list, replies: list, allowed_runs=(), novel: bool = False) -> dict:
     """{position: reason} for replies in this batch that look merged, shifted or
     untranslated. Positions are indexes into the two parallel lists; an empty
     reply is never suspect here (a missing translation is reported elsewhere)."""
     suspects = {}
     for i, (src, rep) in enumerate(zip(sources, replies)):
-        problems = line_problems(src, rep, allowed_runs)
+        problems = line_problems(src, rep, allowed_runs, novel)
         if problems:
             suspects[i] = problems[0]
     for i in duplicate_positions(sources, [r if r.strip() else "" for r in replies]):
@@ -179,7 +200,8 @@ def suspect_positions(sources: list, replies: list, allowed_runs=()) -> dict:
 
     # Shift pattern: a line that is only mildly off, next to one that is clearly
     # off, is the other half of the same displaced text.
-    hard = set(suspects)
+    # A lost quote says nothing about neighbouring lines, so it is not a shift signal.
+    hard = {i for i, reason in suspects.items() if reason != "dialogue"}
     for i in range(len(replies)):
         if i in suspects or not replies[i].strip():
             continue
@@ -202,7 +224,7 @@ def suspect_positions(sources: list, replies: list, allowed_runs=()) -> dict:
     return suspects
 
 
-def guard_batch(chunk: list, redo, stop, allowed_runs=()) -> list:
+def guard_batch(chunk: list, redo, stop, allowed_runs=(), novel: bool = False) -> list:
     """Checks a translated batch (Lines whose .en is set) and re-asks only the
     suspect ones, in chunks of at most half the batch, so one batch costs at
     most two extra requests and the re-ask is never itself re-checked or looped.
@@ -217,7 +239,7 @@ def guard_batch(chunk: list, redo, stop, allowed_runs=()) -> list:
     live = [ln for ln in chunk if (ln.en or "").strip()]
     sources = [ln.zh for ln in live]
     replies = [ln.en for ln in live]
-    suspects = suspect_positions(sources, replies, allowed_runs)
+    suspects = suspect_positions(sources, replies, allowed_runs, novel)
     if not suspects:
         return []
     half = max(1, math.ceil(len(chunk) / 2))
@@ -236,12 +258,13 @@ def guard_batch(chunk: list, redo, stop, allowed_runs=()) -> list:
         for p, new in zip(part, redone):
             if (new or "").strip():
                 candidate[p] = new
-        still = suspect_positions(sources, candidate, allowed_runs)
+        still = suspect_positions(sources, candidate, allowed_runs, novel)
         for p in part:
             if candidate[p] is replies[p]:
                 continue
-            if p not in still or len(line_problems(sources[p], candidate[p], allowed_runs)) < len(
-                    line_problems(sources[p], replies[p], allowed_runs)):
+            if p not in still or len(line_problems(sources[p], candidate[p], allowed_runs, novel)) < len(
+                    line_problems(sources[p], replies[p], allowed_runs, novel)):
                 replies[p] = candidate[p]
                 live[p].en = candidate[p]
-    return [(live[p], reason) for p, reason in suspect_positions(sources, replies, allowed_runs).items()]
+    return [(live[p], reason)
+            for p, reason in suspect_positions(sources, replies, allowed_runs, novel).items()]

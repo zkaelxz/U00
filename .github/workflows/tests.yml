@@ -125,6 +125,15 @@ jobs:
       - name: Quick guards
         run: python run_tests.py -q -n auto $(cat tests/ci_guards.txt)
 
+      # Fails on a type error missing from .basedpyright/baseline.json. A fixed error
+      # drops out of the baseline on the run, so the diff fails until the smaller
+      # baseline is committed: it can only shrink without a visible --writebaseline.
+      - name: Type check (basedpyright)
+        run: |
+          pip install basedpyright==1.40.2
+          basedpyright
+          git diff --exit-code -- .basedpyright/baseline.json
+
       # Dependabot edits the requirements floors but not constraints.txt or the
       # installer lock; this fails the PR when they stop agreeing.
       - name: Check requirements, constraints and installer lock agree
@@ -178,7 +187,7 @@ jobs:
       # tools, so they are pinned here, not in constraints.txt (which describes the
       # app's environment).
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-split==0.10.0" "jsonschema==4.26.0" httpx -c constraints.txt
+        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-split==0.10.0" "pytest-timeout==2.4.0" "jsonschema==4.26.0" httpx -c constraints.txt
 
       # Tests guarded by shutil.which("ffmpeg") / ("ffprobe") skip without the
       # binaries, and the runner image does not reliably ship them. apt's
@@ -203,6 +212,9 @@ jobs:
             pytest-lastfailed-${{ matrix.shard }}-${{ github.head_ref || github.ref_name }}-
             pytest-lastfailed-${{ matrix.shard }}-${{ github.base_ref || 'baihe-subtitler' }}-
 
+      # A hung test used to stall the shard until someone cancelled it, with a
+      # -q log that never named the test. The thread method works under xdist
+      # and dumps every thread's stack; the crashed worker names the test.
       # The `guards` job (a required check) runs the files in tests/ci_guards.txt, so this
       # job skips them instead of running them twice.
       - name: Run tests (shard ${{ matrix.shard }} of 4)
@@ -210,6 +222,7 @@ jobs:
         run: |
           set -o pipefail
           python run_tests.py -q -n auto --ff --durations=25 \
+            --timeout=300 --timeout-method=thread \
             --splits 4 --group ${{ matrix.shard }} \
             --splitting-algorithm least_duration --durations-path .test_durations \
             $(sed 's/^/--ignore=/' tests/ci_guards.txt) 2>&1 | tee pytest.log
