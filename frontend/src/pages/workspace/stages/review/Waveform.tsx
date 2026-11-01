@@ -12,9 +12,10 @@ import { gapLabel, gapsInView } from './retranscribeLinesLogic'
 import { formatTime } from './reviewLogic'
 import { labelFits } from './waveLabel'
 import {
-  bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, NUDGE_SECONDS, panView, peakColumns, round3, timeToX, viewAround,
+  bucketsFor, clampEdge, clampSpan, DEFAULT_SPAN, edgeBounds, NUDGE_SECONDS, panView, peakColumns, round3, snapToCut, timeToX, viewAround,
   viewForLine, visibleLines, xToTime, zoomView, type View,
 } from './waveformLogic'
+import { useShotChanges } from './useShotChanges'
 
 export type Edge = 'start' | 'end'
 
@@ -64,6 +65,7 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
   const [message, setMessage] = useState<string | null>(null)
   const cache = useRef(new Map<string, number[]>())
   const busy = useRef(false)
+  const shots = useShotChanges(dramaId)
   const duration = () => player.current?.getDuration() ?? NaN
 
   // Re-centre when another line becomes active, not when its times change.
@@ -227,12 +229,12 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
   }
   const onMove = (edge: Edge) => (e: PointerEvent<HTMLDivElement>) => {
     if (!drag || drag.edge !== edge || !bounds) return
-    setDrag({ edge, t: clampEdge(timeAt(e.clientX), bounds[edge]) })
+    setDrag({ edge, t: clampEdge(snapToCut(timeAt(e.clientX), shots.cuts, view, width), bounds[edge]) })
   }
   const onUp = (edge: Edge) => (e: PointerEvent<HTMLDivElement>) => {
     if (!drag || drag.edge !== edge || !active || !bounds) return
     e.currentTarget.releasePointerCapture?.(e.pointerId)
-    const t = clampEdge(timeAt(e.clientX), bounds[edge])
+    const t = clampEdge(snapToCut(timeAt(e.clientX), shots.cuts, view, width), bounds[edge])
     if (Math.abs(t - active[edge]) < 0.005) setDrag(null)
     else {
       setDrag({ edge, t })
@@ -278,6 +280,9 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
             Centre on line #{lineNumber(active.idx)}
           </button>
         )}
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={shots.busy} onClick={() => void shots.find(view)} data-testid="wave-find-shots">
+          Find shot changes
+        </button>
         <span className="muted review-wave-range" data-testid="wave-range">
           {formatTime(view.start)} – {formatTime(view.start + view.span)}
         </span>
@@ -302,6 +307,9 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
             </div>
           )
         })}
+        {shots.cuts.filter((c) => c >= view.start && c <= view.start + view.span).map((c) => (
+          <div key={c} className="review-wave-cut" data-testid="wave-cut" title={`Shot change at ${formatTime(c)}`} style={{ left: timeToX(c, view, width) }} />
+        ))}
         {gapsInView(gaps, view).map((g) => {
           const left = timeToX(Math.max(g.start, view.start), view, width)
           const right = timeToX(Math.min(g.end, view.start + view.span), view, width)
@@ -355,9 +363,9 @@ export default function Waveform({ dramaId, lines, active, player, onRetime, edi
       {gapBlocked && gapsInView(gaps, view).length > 0 && (
         <p className="muted" data-testid="wave-gap-note">{gapBlocked}</p>
       )}
-      {message && (
+      {(message ?? shots.error) && (
         <p className="error" role="alert">
-          {message}
+          {message ?? shots.error}
         </p>
       )}
     </div>
