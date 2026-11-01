@@ -235,3 +235,18 @@ class TestOwnSeries:
         did = isolated_db.create_drama(title_en="Solo")
         assert ge.restore_glossary_proposals(did, ["a"]) == {"changed": 0}
         assert not isolated_db.get_drama(did)["series_id"]
+
+
+class TestCsvRoundTrip:
+    def test_aliases_and_banned_translations_survive_export_and_import(self, isolated_db):
+        did, _ = _drama(isolated_db)
+        gs.upsert_glossary_term(did, {"term_original": "沈清仪", "term_translation": "Shen Qingyi",
+                                      "aliases": ["清仪", "小沈"], "banned_translations": ["Chen"]})
+        csv_text = gs.glossary_csv(did)
+        other, _ = _drama(isolated_db, name="B")
+        gs.import_glossary_text(other, csv_text, "g.csv")
+        [term] = gs.list_glossary_terms(other)
+        assert term["aliases"] == ["清仪", "小沈"] and term["banned_translations"] == ["Chen"]
+
+    def test_the_import_limit_covers_what_the_export_can_hold(self):
+        assert gs.MAX_IMPORT_TERMS >= 10_000
