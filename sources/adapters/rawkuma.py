@@ -32,7 +32,6 @@ from ..base import SourceAdapter, layout_changed_class
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
-from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 
 BASE_URL = "https://rawkuma.net"
@@ -95,13 +94,9 @@ class RawkumaSource(SourceAdapter):
     content_types = [ContentType.MANGA.value]
     languages = ["ja"]
     url_patterns = [r"rawkuma\.net/manga/[A-Za-z0-9]"]
-    # Slow on purpose: the site asks for nothing, so the floor is ours.
+    # Fast stays off: the site has no terms page to vet, and the sources pacing tests allow Fast
+    # only for sites whose evidence was recorded on the vetting date.
     host_min_interval = {HOST: 2.5}
-    pacing_profile = PacingProfile(
-        fast=PaceLevel(min_delay=1.5, max_delay=2.5, max_concurrent=1),
-        evidence="robots.txt fetched 2026-11-01: only /wp-admin/ disallowed (admin-ajax allowed), "
-                 "no Crawl-delay; no terms page found.",
-        fast_allowed=True)
     default_headers = {"Referer": REFERER}
 
     def _nonce(self) -> str:

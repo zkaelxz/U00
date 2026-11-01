@@ -303,7 +303,7 @@
       "rawkuma.net",
       "cdn.rawkuma.com"
     ],
-    "pace": "Fast allowed (1.5/2.5/1): robots.txt disallows only /wp-admin/ (admin-ajax allowed), no Crawl-delay; no terms page found.",
+    "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
     "pace_verified": "2026-11-01"
   }
 }
