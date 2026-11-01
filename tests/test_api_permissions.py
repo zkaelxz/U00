@@ -793,6 +793,8 @@ class TestPaidEngines:
                                  "fallback_chain": [{"engine": "claude"}]},
                       headers=_h(s)).status_code == 403
         assert c.post(url, json={"engine": "ollama"}, headers=_h(s)).status_code not in (401, 403)
+        db.update_drama(did, translation_engine="ollama")
+        assert c.post(url, json={}, headers=_h(s)).status_code not in (401, 403)   # default is free
         assert c.post(f"/api/review-jobs/dramas/{did}/flag", json={"engine": "gemini"},
                       headers=_h(s)).status_code == 403
 
