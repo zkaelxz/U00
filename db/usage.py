@@ -23,7 +23,7 @@ def on_spend(listener):
     _spend_listeners.append(listener)
 
 
-def log_usage(drama_id: int, engine: str, model: str, operation: str,
+def log_usage(drama_id: int | None, engine: str, model: str, operation: str,
               input_tokens: int = 0, output_tokens: int = 0, estimated_cost_usd: float = 0.0,
               cache_read_tokens: int = 0):
     """input_tokens is the whole prompt; cache_read_tokens is the part of

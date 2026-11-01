@@ -117,7 +117,7 @@ class OpenAIEngine:
     def build_request_body(self, messages: list) -> dict:
         return {"model": self.model, "messages": messages}
 
-    def chat(self, messages: list, usage_cb=None, extra: dict = None) -> str:
+    def chat(self, messages: list, usage_cb=None, extra: dict | None = None) -> str:
         """One Chat Completions call: the reply text. Raises
         ContentModerationBlocked on a refusal or a content_filter stop, and
         requests.HTTPError (message already redacted, response kept so rate

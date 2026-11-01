@@ -71,7 +71,9 @@ def _is_embedding_model(entry: dict) -> bool:
     """Embedding models (nomic-embed-text, mxbai-embed-large, bge-m3) can't
     chat, so they are not offered as translators. /api/tags has no capability
     field; the BERT families and the "embed" in their names mark them."""
-    details = entry.get("details") if isinstance(entry.get("details"), dict) else {}
+    details = entry.get("details")
+    if not isinstance(details, dict):
+        details = {}
     families = [details.get("family")] + list(details.get("families") or [])
     if any(isinstance(f, str) and "bert" in f.lower() for f in families):
         return True

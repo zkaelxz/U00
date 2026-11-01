@@ -238,7 +238,7 @@ def _is_strong_model(engine_name: str, name: str) -> bool:
                for engine, fragments in _STRONG_BATCH_MODELS)
 
 
-def default_batch_size(engine, model: str = None) -> int:
+def default_batch_size(engine, model: str | None = None) -> int:
     """Lines per request to use when the user hasn't chosen a batch size.
     `engine` is an engine name or an engine instance (the pipeline holds the
     instance); `model` None means the instance's model, else the engine's
@@ -275,7 +275,7 @@ def novel_batch_chars(engine, model: str | None = None) -> int:
     return NOVEL_BATCH_CHARS_DEFAULT
 
 
-def default_reply_guard(engine, model: str = None) -> bool:
+def default_reply_guard(engine, model: str | None = None) -> bool:
     """Whether the merged/shifted-reply guard runs when the caller doesn't say.
     Off for Claude (including Haiku and a claude-* id served by another
     engine) and the Gemini Pro class: 2,700 real replies from Claude-class
@@ -320,8 +320,8 @@ def effective_tier(tier_key: str):
     return {**tier, "engine_model": model}
 
 
-def get_engine(engine_name: str, api_key: str = None, model: str = None,
-               free_tier: bool = False, base_url: str = None):
+def get_engine(engine_name: str, api_key: str | None = None, model: str | None = None,
+               free_tier: bool = False, base_url: str | None = None):
     cls = ENGINES[engine_name]
     model = model or model_override_for_default(engine_name)
     kwargs = {}
