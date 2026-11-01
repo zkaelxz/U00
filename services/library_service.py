@@ -18,6 +18,7 @@ from lib import ids as lib_ids
 import db
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import ownership_service
+from sources import store as sources_store
 
 
 def cache_hit_share(usage: dict) -> float:
@@ -63,11 +64,22 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
 
 
 def _with_progress(dramas: list) -> list:
-    """Add `line_count` and `translated_count` so a card can show where a
-    title stands without opening it."""
+    """Add `line_count`, `translated_count` and `new_chapters` so a card can
+    show where a title stands without opening it."""
     counts = db.line_progress_by_drama() if dramas else {}
+    new = _new_chapter_counts() if dramas else {}
     return [{**d, "line_count": counts.get(d["id"], (0, 0))[0],
-             "translated_count": counts.get(d["id"], (0, 0))[1]} for d in dramas]
+             "translated_count": counts.get(d["id"], (0, 0))[1],
+             "new_chapters": new.get(d["id"], 0)} for d in dramas]
+
+
+def _new_chapter_counts() -> dict:
+    # sources.db is a separate file that can be locked or unreadable (e.g.
+    # during a restore); the Library list must still load without the badge.
+    try:
+        return sources_store.new_chapter_counts_by_drama()
+    except sqlite3.Error:
+        return {}
 
 
 def _with_sharing(dramas: list, principal) -> list:

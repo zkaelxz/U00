@@ -16258,6 +16258,12 @@ export interface components {
             /** Narration Language */
             narration_language?: string | null;
             /**
+             * New Chapters
+             * @description New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.
+             * @default 0
+             */
+            new_chapters: number;
+            /**
              * Owned By Me
              * @description The signed-in viewer created it. Only set in the Library list.
              */
@@ -16386,6 +16392,12 @@ export interface components {
             media_type?: string | null;
             /** Narration Language */
             narration_language?: string | null;
+            /**
+             * New Chapters
+             * @description New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.
+             * @default 0
+             */
+            new_chapters: number;
             /**
              * Owned By Me
              * @description The signed-in viewer created it. Only set in the Library list.
