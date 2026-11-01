@@ -7,7 +7,7 @@ import pytest
 
 import db
 from services import ownership_service as own
-from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError)
 
 LOCAL = {"user_id": None, "is_admin": True, "is_local_owner": True}

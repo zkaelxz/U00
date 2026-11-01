@@ -8,7 +8,7 @@ report and a capped log tail.
 No HTTP types. Every string that could carry a
 secret, a token, the OS username or a local path goes through
 diagnostics_report.redact_for_support (which applies
-translate_engines.redact_secrets first); nothing here returns a path.
+engine_backends.shared.redact_secrets first); nothing here returns a path.
 
 The confirm-gated admin actions live in diagnostics_admin_service (guard,
 library reset, model-cache delete), diagnostics_packages_service

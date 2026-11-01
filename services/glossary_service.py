@@ -64,7 +64,7 @@ import csv
 import db
 import translation_guide as tguide
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, parse_glossary_file
-from translate_engines import WORKFLOW_TIERS, effective_tier
+from engine_backends.engine_registry import WORKFLOW_TIERS, effective_tier
 from services.glossary_common import (
     MAX_NOTES_LEN,
     MAX_TERM_LEN,
@@ -72,14 +72,14 @@ from services.glossary_common import (
     _series_id,
     _text,
 )
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     NotFoundError,
 )
 
 # Functions that call an LLM engine (and so may spend on a paid one, i.e.
-# any engine outside translate_engines.FREE_ENGINES).
+# any engine outside engine_backends.engine_registry.FREE_ENGINES).
 PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run")
 
 MAX_LIST_ITEMS = 50

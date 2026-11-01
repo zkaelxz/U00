@@ -24,7 +24,7 @@ from api.server import create_app
 from core import Line
 from services import (auth_service, jobs_service, ownership_service, retranscribe_many_service as svc,
                       retranscribe_worker, retranscribe_line_service)
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"

@@ -14,7 +14,7 @@ from services import auto_backup_settings as abt_
 from services import drama_restore_service as drs
 from services import library_backup_restore_service as lbr
 from services import library_restore_service as lrs
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests.auto_backup_helpers import (
     _conn, _ddir, _default_path, _delete_drama, _delete_series, _dump_all, _insert, _read,
     _restore, _seed_world, _series_rows, _snap,

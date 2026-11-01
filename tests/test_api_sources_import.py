@@ -19,7 +19,7 @@ from api.server import create_app
 from services import auth_service, drama_service
 from services import sources_import_service as imp
 from services import sources_search_service as search
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 from sources import chapter_check, pipeline, registry, store
 from sources.adapters.missevan import MissEvanSource
 from sources.base import SourceAdapter

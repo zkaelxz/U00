@@ -39,7 +39,7 @@ from services import (autotune_service, transcribe_options_service, compare_tran
                       retime_service, retranscribe_many_service, speech_coverage_service,
                       settings_service, transcribe_gap_service, transcribe_service,
                       retranscribe_line_service)
-from services.service_errors import ForbiddenError
+from lib.errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
 

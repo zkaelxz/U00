@@ -21,7 +21,7 @@ import sensitivity_preset as presets
 import source_change
 from services import difficult_audio_service, gpu_process_job, retranscribe_worker, timing_settings_service, transcribe_options_service
 from services import transcribe_service as ts
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 
 def use_heard_text(ln, text) -> bool:

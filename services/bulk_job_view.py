@@ -1,6 +1,6 @@
 """The public view of a bulk_jobs row (services/translate_run_service)."""
 import db
-import translate_engines
+from engine_backends import shared
 
 # "applying" too: a Cancel while results apply stops the next paid Reflect stage.
 CANCELLABLE = ("submitting",) + db.BULK_PENDING_STATUSES + ("applying",)
@@ -20,6 +20,6 @@ def bulk_entry(job: dict) -> dict:
         "line_count": db.count_bulk_job_lines(job["id"]),
         "scheduled_for": job.get("scheduled_for"),
         "result_summary": summary if isinstance(summary, dict) else None,
-        "last_error": translate_engines.redact_secrets(err) if err else None,
+        "last_error": shared.redact_secrets(err) if err else None,
         "submitted_at": job.get("submitted_at"), "updated_at": job.get("updated_at"),
     }

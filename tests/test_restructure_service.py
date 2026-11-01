@@ -12,7 +12,7 @@ import db
 import resegment
 from core import Line
 from services import drama_service, resegmentation_service, restructure_service as svc
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from tests.job_helpers import wait_for_job
 
 LONG = "我今天早上很早就起床了然后去公园跑步。" * 3  # well over the zh cap, splits at 。

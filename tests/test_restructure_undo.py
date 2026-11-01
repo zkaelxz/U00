@@ -12,7 +12,7 @@ from core import Line
 from services import review_extras_service as extras
 from services import lines_service
 from services import resplit_service, restructure_service as svc
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 SENT = "我今天早上很早就起床了然后去公园跑步。"
 LONG = SENT * 3

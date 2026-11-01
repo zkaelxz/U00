@@ -29,7 +29,8 @@ import uuid
 from typing import Optional
 
 import db
-import translate_engines
+from engine_backends import shared as engine_shared
+from engine_backends import engine_registry
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
@@ -178,7 +179,7 @@ def _save(doc: dict) -> None:
 def _short(text) -> str:
     if not text:
         return ""
-    return translate_engines.redact_secrets(str(text))[:_MAX_REASON]
+    return engine_shared.redact_secrets(str(text))[:_MAX_REASON]
 
 
 def _find(doc: dict, item_id: int) -> dict:
@@ -264,7 +265,7 @@ def _view_item(principal, item: dict, drama: Optional[dict], owner_of) -> dict:
     if item["step"] == "translate" and drama:
         engine = _translate_engine(drama)
         out["engine"] = engine
-        out["paid"] = engine not in translate_engines.FREE_ENGINES
+        out["paid"] = engine not in engine_registry.FREE_ENGINES
     return out
 
 
@@ -301,7 +302,6 @@ def get_queue(principal) -> dict:
 # --- saved settings of a step -------------------------------------------------
 
 def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
-    from engine_backends import engine_registry
     import translation_guide
     from services import language_pack_service, vdb_names_service
     drama_id = drama["id"]
@@ -313,7 +313,7 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
     # The item's own model and batch size, so the cost line prices what the run will spend.
     saved_model = (settings or {}).get("model", saved_model)
     saved_batch = (settings or {}).get("batch_size", saved_batch)
-    model = saved_model or translate_engines.effective_default_model(engine)
+    model = saved_model or engine_registry.effective_default_model(engine)
     novel = drama.get("content_mode") == "novel_narration"
     preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
     options = translate_run_service.get_translate_config_defaults(novel, engine, model)
@@ -380,7 +380,7 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
     if drama is None or not _owns_title(principal, drama_id):
         raise NotFoundError("Title not found.")
     if step == "translate" and not holds_paid \
-            and _translate_engine(drama) not in translate_engines.FREE_ENGINES:
+            and _translate_engine(drama) not in engine_registry.FREE_ENGINES:
         raise ForbiddenError("This title translates with a paid engine, which your account "
                              "can't use. Ask the owner, or pick a free engine for the title.")
     if step == "translate":
@@ -642,7 +642,7 @@ def _translate_run_args(drama: dict) -> dict:
 def _start_translate(principal, drama: dict, settings: Optional[dict] = None) -> str:
     args = _translate_run_args(drama)
     holds_paid = _holds(principal, "engines.paid")
-    if args["engine"] not in translate_engines.FREE_ENGINES and not holds_paid:
+    if args["engine"] not in engine_registry.FREE_ENGINES and not holds_paid:
         raise ForbiddenError("This title translates with a paid engine, which the account "
                              "that added it can't use.")
     # Checked again at start: the adder's permission and the title's engine may have changed since.
@@ -816,7 +816,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
             status, reason = INTERRUPTED, ""
     except Exception as exc:     # a bug in a start path must not stop the queue
         _log.warning("Queue item %s did not start: %s", claimed["id"],
-                     translate_engines.redact_secrets(str(exc)))
+                     engine_shared.redact_secrets(str(exc)))
         status, reason = SKIPPED, "It could not start because of an unexpected error."
     with _lock:
         doc = _load()
@@ -866,7 +866,7 @@ def _loop() -> None:
         try:
             tick()
         except Exception as exc:
-            _log.warning("Job queue tick failed: %s", translate_engines.redact_secrets(str(exc)))
+            _log.warning("Job queue tick failed: %s", engine_shared.redact_secrets(str(exc)))
         _wake.wait(POLL_SECONDS)
         _wake.clear()
 
@@ -879,7 +879,7 @@ def start_runner() -> bool:
     try:
         restore_at_startup()
     except Exception as exc:     # _load settles the document on every read regardless
-        _log.warning("Job queue restore failed: %s", translate_engines.redact_secrets(str(exc)))
+        _log.warning("Job queue restore failed: %s", engine_shared.redact_secrets(str(exc)))
     _stop.clear()
     _runner = threading.Thread(target=_loop, daemon=True, name="api-job-queue")
     _runner.start()

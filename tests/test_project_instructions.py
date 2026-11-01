@@ -4,11 +4,11 @@ that reach the translation prompt, and the Draft / Standard / Release
 starting tiers.
 """
 
-import translate_engines as te
+from engine_backends import prompts, engine_registry, pricing
 
 
 def _prompt(drama_meta, style_note=""):
-    return te.build_llm_instructions(style_note, drama_meta)
+    return prompts.build_llm_instructions(style_note, drama_meta)
 
 
 class TestInstructionsInPrompt:
@@ -32,7 +32,7 @@ class TestInstructionsInPrompt:
     def test_no_instructions_means_no_block(self):
         for meta in ({}, {"project_instructions": "   ", "series_instructions": None}):
             assert "Project instructions" not in _prompt(meta)
-        assert te.build_project_instructions_block({}) == ""
+        assert prompts.build_project_instructions_block({}) == ""
 
     def test_instructions_stay_before_the_output_format_rule(self):
         prompt = _prompt({"project_instructions": "DRAMA RULE"})
@@ -87,12 +87,12 @@ class TestWorkflowTiers:
     }
 
     def test_tier_definitions(self):
-        assert set(te.WORKFLOW_TIERS) == set(self.EXPECTED)
+        assert set(engine_registry.WORKFLOW_TIERS) == set(self.EXPECTED)
         for name, (engine, model, reflect, auto_qc) in self.EXPECTED.items():
-            t = te.WORKFLOW_TIERS[name]
+            t = engine_registry.WORKFLOW_TIERS[name]
             assert (t["translation_engine"], t["engine_model"], t["reflect"], t["auto_qc"]) == (
                 engine, model, reflect, auto_qc)
-            assert t["translation_engine"] in te.ENGINES
-            assert model is None or model in te.CLAUDE_MODELS
+            assert t["translation_engine"] in engine_registry.ENGINES
+            assert model is None or model in pricing.CLAUDE_MODELS
 
 

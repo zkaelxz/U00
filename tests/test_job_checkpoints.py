@@ -11,7 +11,7 @@ import pytest
 import background_jobs
 from jobs import gpu_queue, job_launch, job_runner
 import debug_view
-import translate_engines
+from engine_backends import translate_pipeline, fallback, engine_registry, llm_tasks
 import translation_guide as tguide
 from core import Line
 from services import (glossary_service, job_checkpoint_service as cp, job_timing_service,
@@ -78,7 +78,7 @@ class _Engine:
 
 def _narration_setup(isolated_db, monkeypatch, chunks=40):
     did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
     monkeypatch.setattr(narration_service.novel_text, "chunk_novel_text",
                         lambda text, n: [f"段落{i}" for i in range(chunks)])
     return did
@@ -219,13 +219,13 @@ def test_translate_job_records_provenance_for_translated_lines(isolated_db, monk
         kw["save_cb"](ls)
         return ls, []
 
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
     monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", lambda *a, **k: False)
     wjs.run_translate_job("translate_x", did, lines, _Engine(), {}, "", "", False, "en-US",
                           [], "", "claude", "default")
     prov = line_provenance_service.get(did, lines[0].id)
     assert prov["engine"] == "claude" and prov["model"] == "fake-model"
-    assert prov["prompt_version"] == translate_engines.TRANSLATE_PROMPT_VERSION
+    assert prov["prompt_version"] == translate_pipeline.TRANSLATE_PROMPT_VERSION
     assert isolated_db.load_line_objects(did)[0].en == "hello"
 
 
@@ -410,7 +410,7 @@ def test_provenance_follows_a_mid_run_engine_fallback(isolated_db, monkeypatch):
     class DeepSeek:
         model = "deepseek-chat"
 
-    engine = translate_engines.FallbackEngine([Claude(), DeepSeek()], ["claude", "deepseek"])
+    engine = fallback.FallbackEngine([Claude(), DeepSeek()], ["claude", "deepseek"])
     did = isolated_db.create_drama(title_en="F")
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="一", en=""),
                                  Line(idx=1, start=1, end=2, zh="二", en="")])
@@ -424,7 +424,7 @@ def test_provenance_follows_a_mid_run_engine_fallback(isolated_db, monkeypatch):
         kw["save_cb"](ls)
         return ls, []
 
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
     monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", lambda *a, **k: False)
     wjs.run_translate_job("translate_f", did, lines, engine, {}, "", "", False, "en-US",
                           [], "", "claude>deepseek", "default")
@@ -573,7 +573,7 @@ def test_changed_characters_or_prompt_version_invalidate_narration_checkpoints(
     on_batch({0: "Ann"})
     assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann"])[0] == {0: "Ann"}
     assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann", "Bo"])[0] == {}
-    monkeypatch.setattr(translate_engines, "TAG_SPEAKERS_PROMPT_VERSION", "2")
+    monkeypatch.setattr(llm_tasks, "TAG_SPEAKERS_PROMPT_VERSION", "2")
     assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann"])[0] == {}
 
 

@@ -20,7 +20,7 @@ import whisper_models
 import memory_headroom
 from lib import http
 from services import settings_service
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 # llama.cpp's server default; one fixed probe rather than another setting.
 LLAMA_CPP_PORT = 8080
