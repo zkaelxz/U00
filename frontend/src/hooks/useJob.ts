@@ -138,14 +138,32 @@ export function pickRunState<T extends { id: string; runKey?: number }>(
   return state && state.id === id && state.runKey === runKey ? state : null
 }
 
+// True when a running job's progress moved and the last notification is at
+// least throttleMs old, so a page list reloads a few times per job, not per tick.
+export function makeProgressGate(throttleMs: number, now: () => number = Date.now): (job: JobRecord) => boolean {
+  let lastProgress: number | null = null
+  let lastAt = -Infinity
+  return (job) => {
+    if (isTerminalStatus(job.status) || job.progress === null) return false
+    if (job.progress === lastProgress || now() - lastAt < throttleMs) return false
+    lastProgress = job.progress
+    lastAt = now()
+    return true
+  }
+}
+
+const PROGRESS_THROTTLE_MS = 5000
+
 export function useJob(
   jobId: string | null,
-  opts: { intervalMs?: number; onDone?: (job: JobRecord) => void; runKey?: number } = {},
+  opts: { intervalMs?: number; onDone?: (job: JobRecord) => void; onProgress?: (job: JobRecord) => void; runKey?: number } = {},
 ) {
   // State is tagged with the id it belongs to, so switching id never shows
   // the previous job's data without needing a synchronous reset in the effect.
   const [state, setState] = useState<{ id: string; runKey?: number; job?: JobRecord; error?: ApiError } | null>(null)
   const onDoneRef = useRef(opts.onDone)
+  const onProgressRef = useRef(opts.onProgress)
+  const gate = useRef<ReturnType<typeof makeProgressGate> | null>(null)
   // The run (id + runKey) that already finished: its later events and
   // resyncs are ignored, the way polling stopped at a terminal status.
   const finished = useRef<string | null>(null)
@@ -153,6 +171,7 @@ export function useJob(
 
   useEffect(() => {
     onDoneRef.current = opts.onDone
+    onProgressRef.current = opts.onProgress
   })
 
   // Pushed updates (GET /api/events). A job's record arrives as its GET
@@ -208,6 +227,14 @@ export function useJob(
 
   const cur = pickRunState(state, jobId, runKey)
   const job = cur?.job ?? null
+
+  // A fresh gate per run so the previous run's last progress can't suppress this one.
+  useEffect(() => {
+    gate.current = makeProgressGate(PROGRESS_THROTTLE_MS)
+  }, [jobId, runKey])
+  useEffect(() => {
+    if (job && gate.current?.(job)) onProgressRef.current?.(job)
+  }, [job])
   const status = job?.status ?? null
   return {
     job,
