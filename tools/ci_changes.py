@@ -2,6 +2,7 @@
 
     python tools/ci_changes.py --event pull_request [--labels-json '["full-ci"]'] < changed-files
     python tools/ci_changes.py --frontend-tests
+    python tools/ci_changes.py --sources-tests
 
 Prints `name=true|false` lines for $GITHUB_OUTPUT. The rules are tabled in docs/testing-and-ci.md.
 Any error prints everything as true: a broken classifier may cost minutes, never skip a job.
@@ -34,7 +35,30 @@ WINDOWS_SCRIPT_PATTERNS = ("*.bat", "*.ps1")
 # whatever changes that file, how it is rendered, or the Caddy build.
 CADDY_PREFIXES = ("deploy/caddy/", "installer/caddy/")
 CADDY_FILES = frozenset({"installer/service_config.py", "tools/caddy_check.py"})
-OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy")
+# The real-app smoke test and the frontend build neither import nor serve anything a site adapter
+# changes beyond what the pytest shards already cover, so a diff confined to these skips them.
+APP_CHECK_FREE_PREFIXES = ("sources/", "tests/")
+# A diff confined to site adapters and their own tests runs this subset in one shard instead of the
+# whole suite: the adapter and API-sources tests plus the tests of rules every adapter must obey
+# (redaction, SSRF, domains, install payload, feature switches, page serving, db and library isolation).
+# `guards` still runs on every PR.
+SOURCES_TEST_GLOBS = ("test_sources_*.py", "test_api_sources_*.py")
+SOURCES_TEST_FILES = (
+    "test_secret_redaction.py", "test_b25_redirect_ssrf.py", "test_b28_browser_tier_ssrf.py",
+    "test_source_domains.py", "test_feature_switches.py", "test_adaptive_extraction.py",
+    "test_installer_service.py", "test_installer_payload.py", "test_page_server.py", "test_db.py",
+    "test_library_isolation_guard.py", "test_ci_changes.py",
+)
+OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks",
+           "run_sources_subset")
+
+
+def _is_sources_only_file(path):
+    name = path.rsplit("/", 1)[-1]
+    if path.startswith("sources/adapters/"):
+        return True
+    return path.startswith("tests/") and path.count("/") == 1 and any(
+        fnmatch.fnmatchcase(name, g) for g in SOURCES_TEST_GLOBS)
 
 
 def _starts(path, prefixes):
@@ -65,6 +89,8 @@ def classify(files, event, labels=()):
         "run_full_pytest": not all(_starts(f, ("frontend/", "docs/")) for f in files),
         "run_windows_scripts": any(_touches_windows_scripts(f) for f in files),
         "run_caddy": any(_starts(f, CADDY_PREFIXES) or f in CADDY_FILES for f in files),
+        "run_app_checks": not all(_starts(f, APP_CHECK_FREE_PREFIXES) for f in files),
+        "run_sources_subset": all(_is_sources_only_file(f) for f in files),
     }
 
 
@@ -82,9 +108,16 @@ def frontend_reading_tests(root):
     return found
 
 
+def sources_tests(root):
+    tests_dir = os.path.join(root, "tests")
+    found = {n for g in SOURCES_TEST_GLOBS for n in fnmatch.filter(os.listdir(tests_dir), g)}
+    found.update(n for n in SOURCES_TEST_FILES if os.path.exists(os.path.join(tests_dir, n)))
+    return [f"tests/{n}" for n in sorted(found)]
+
+
 def _all_true():
     return {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
-            "run_caddy": True}
+            "run_caddy": True, "run_app_checks": True, "run_sources_subset": False}
 
 
 def main(argv=None, stdin=None):
@@ -92,10 +125,14 @@ def main(argv=None, stdin=None):
     parser.add_argument("--event", default="")
     parser.add_argument("--labels-json", default="[]")
     parser.add_argument("--frontend-tests", action="store_true")
+    parser.add_argument("--sources-tests", action="store_true")
     args = parser.parse_args(argv)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if args.frontend_tests:
         print(" ".join(frontend_reading_tests(root)))
+        return 0
+    if args.sources_tests:
+        print(" ".join(sources_tests(root)))
         return 0
     try:
         labels = json.loads(args.labels_json or "[]")

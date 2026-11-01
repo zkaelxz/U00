@@ -88,6 +88,16 @@ Rows combine by "any rule that says true wins". A rename counts as touching both
 label `full-ci` (the workflow also listens for `labeled`, so adding it starts a new full run). Anything that makes you doubt a
 skipped job: add the label, or push a trivial change under `.github/`.
 
+A sixth output, `run_app_checks` (the `smoke` and `frontend` jobs), is true unless every changed file on a pull request is under
+`sources/` or `tests/` (and it is true for the "everything" rows). Such a diff still runs `guards`, all four pytest shards and
+`optional-tests`; `test` passes with the two jobs skipped.
+
+A seventh output, `run_sources_subset`, is true when every changed file on a pull request is under `sources/adapters/` or is a
+`tests/test_sources_*.py` / `tests/test_api_sources_*.py` file. `test-shard` then runs one shard with only the adapter tests and the
+tests of rules every adapter must obey (`tools/ci_changes.py --sources-tests`; the lists are `SOURCES_TEST_GLOBS` and
+`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and a push to the base branch runs the whole
+suite, so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
+
 A fifth output, `run_caddy` (the `caddy` job), is true for every row that says "everything", and otherwise only when a changed
 file is under `deploy/caddy/` or `installer/caddy/`, or is `installer/service_config.py` or `tools/caddy_check.py`.
 
