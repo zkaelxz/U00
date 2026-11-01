@@ -27,6 +27,7 @@ import {
   type SeriesTab,
 } from './seriesModel'
 import { DefaultsTab } from './DefaultsTab'
+import { TmxCard } from './TmxCard'
 import { TITLE_SORTS, defaultSeriesSort, isTitleSort, sortTitles, type TitleSort } from '../titleOrder'
 import './seriesPage.css'
 
@@ -182,6 +183,7 @@ function GlossaryTab({ data, onCopied }: { data: SeriesPageData; onCopied: () =>
         )}
       </Card>
       <CopyTermsCard data={data} onCopied={onCopied} />
+      <TmxCard seriesId={data.id} canEdit={data.can_edit} onImported={onCopied} />
       <p className="muted" data-testid="series-no-series-hint">
         A title with no series gets one of its own when its first glossary term is saved. To share terms with it, open
         that title's Glossary and pick this series (or “New series…”) in its Series picker.

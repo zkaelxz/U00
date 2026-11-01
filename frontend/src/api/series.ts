@@ -1,4 +1,4 @@
-import { getJson, postJson, type Fetch } from './client'
+import { fetchBody, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 // The Series page (api/routers/series_routes.py): list, page, rename,
@@ -98,6 +98,19 @@ export const getCopyTermsPreview = (id: number, sourceId: number, f?: Fetch) =>
 
 export const copyTerms = (id: number, sourceId: number, f?: Fetch) =>
   postJson<SeriesCopyTermsResult>(`/api/series/${id}/copy-terms`, { source_series_id: sourceId }, f)
+
+/** The series' translation memory as TMX text. */
+export const exportTmx = (id: number, f?: Fetch) =>
+  fetchBody(`/api/series/${id}/translation-memory.tmx`, { method: 'GET' }, (r) => r.text(), f)
+
+export interface SeriesTmxImportResult {
+  series_id: number
+  added: number
+  skipped: number
+}
+
+export const importTmx = (id: number, tmx: string, f?: Fetch) =>
+  postJson<SeriesTmxImportResult>(`/api/series/${id}/translation-memory/import`, { tmx }, f)
 
 // Series default title settings (api/routers/series_routes.py, series_defaults_service).
 export type SettingValue = boolean | number | string
