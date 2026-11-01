@@ -241,9 +241,10 @@ class TestExtractTextFromImagesUsesResolvedLang:
     def test_rapidocr_backend_is_dispatched(self, monkeypatch):
         called = []
         monkeypatch.setattr(ocr, "extract_text_rapidocr",
-                            lambda p, source_language="zh": called.append((p, source_language)) or "x")
+                            lambda p, source_language="zh", medium=False:
+                            called.append((p, source_language, medium)) or "x")
         ocr.extract_text_from_images(["/fake/page1.png"], backend="rapidocr", source_language="ja")
-        assert called == [("/fake/page1.png", "ja")]
+        assert called == [("/fake/page1.png", "ja", True)], "pages read with the medium models"
 
     def test_rapidocr_joins_the_recognised_lines(self, monkeypatch):
         rapidocr = pytest.importorskip("rapidocr")
@@ -274,6 +275,25 @@ class TestExtractTextFromImagesUsesResolvedLang:
         assert ocr.extract_text_rapidocr("/fake/page.png", "zh") == "안녕"
         assert built[0]["Rec.model_path"] == str(tmp_path / "korean_PP-OCRv5_rec_mobile.onnx")
         assert "Rec.model_path" not in built[1], "Chinese keeps the wheel's own models"
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
+
+    def test_rapidocr_medium_uses_the_downloaded_larger_pair_and_hard_sub_stays_small(
+            self, monkeypatch, tmp_path):
+        rapidocr = pytest.importorskip("rapidocr")
+
+        class FakeResult:
+            txts = ("你好",)
+
+        built = []
+        monkeypatch.setattr(rapidocr, "RapidOCR",
+                            lambda params=None: built.append(params) or (lambda path: FakeResult()))
+        monkeypatch.setattr(ocr, "ensure_rapidocr_model", lambda spec: str(tmp_path / spec["file"]))
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
+        ocr.extract_text_rapidocr("/fake/page.png", "zh", medium=True)
+        ocr.extract_text_rapidocr("/fake/frame.png", "zh")
+        assert built[0]["Det.model_path"] == str(tmp_path / "PP-OCRv6_det_medium.onnx")
+        assert built[0]["Rec.model_path"] == str(tmp_path / "PP-OCRv6_rec_medium.onnx")
+        assert "Det.model_path" not in built[1] and "Rec.model_path" not in built[1]
         monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
 
     def test_rapidocr_model_download_is_checked_before_it_is_kept(self, monkeypatch, tmp_path):

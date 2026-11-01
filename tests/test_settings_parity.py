@@ -121,8 +121,8 @@ def test_monthly_cap_saved_value_wins_over_env(isolated_db, env_file):
 
 
 @pytest.mark.parametrize("lang,prefer,expected", [
-    ("ja", False, "manga_ocr"), ("ja", True, "paddle_vl_manga"), ("zh", False, "paddle"),
-    ("ko", False, "paddle"), ("en", False, "tesseract")])
+    ("ja", False, "manga_ocr"), ("ja", True, "paddle_vl_manga"), ("zh", False, "rapidocr"),
+    ("ko", False, "rapidocr"), ("en", False, "tesseract")])
 def test_resolve_ocr_backend_auto(isolated_db, lang, prefer, expected):
     import scanlate
     settings_service.set_settings({"ocr_prefer_paddle_vl_manga": prefer})

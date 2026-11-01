@@ -46,8 +46,10 @@ def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False)
     """
     Default OCR backend by source language, the way comic-translate does
     but with maintained choices -- manga_ocr for Japanese (already a
-    Baihe dependency), paddle for Chinese, paddle for Korean too
-    (PaddleOCR supports both, unlike Tesseract-vs-nothing before this).
+    Baihe dependency; it reads vertical columns in order and skips
+    furigana, which RapidOCR does not), RapidOCR for Chinese and Korean
+    (PP-OCRv6 and its Korean recognizer matched PaddleOCR on real pages
+    without PaddleOCR's numpy and OpenCV downgrades).
     Explicitly not Pororo for Korean (comic-translate's own choice) --
     checked its maintenance status directly: even a Hugging Face mirror
     of just its OCR piece exists specifically because people are worried
@@ -65,7 +67,7 @@ def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False)
     if source_language == "ja":
         return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
     if source_language in ("zh", "ko"):
-        return "paddle"
+        return "rapidocr"
     return "tesseract"
 
 
@@ -246,7 +248,25 @@ RAPIDOCR_KOREAN_MODEL = {
     "sha256": "cd6e2ea50f6943ca7271eb8c56a877a5a90720b7047fe9c41a2e541a25773c9b",
     "max_bytes": 32 * 1024 * 1024,
 }
+# Comic and novel pages read with the larger PP-OCRv6 pair: on real Chinese pages and
+# captions it fixed misreads the wheel's small pair made, at about 3x the time per page,
+# which a chapter can afford and a video's thousand frames can't (hard-sub stays small).
+RAPIDOCR_MEDIUM_DET_MODEL = {
+    "file": "PP-OCRv6_det_medium.onnx",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "onnx/PP-OCRv6/det/PP-OCRv6_det_medium.onnx"),
+    "sha256": "92078b7355007ccfffcd4c8cd441a3afd4538904d06881b29a155e1e679907c2",
+    "max_bytes": 96 * 1024 * 1024,
+}
+RAPIDOCR_MEDIUM_REC_MODEL = {
+    "file": "PP-OCRv6_rec_medium.onnx",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx"),
+    "sha256": "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b",
+    "max_bytes": 128 * 1024 * 1024,
+}
 _RAPIDOCR_DOWNLOAD_TIMEOUT = (15, 60)
+_RAPIDOCR_DOWNLOAD_DEADLINE = 15 * 60
 
 
 class RapidOcrModelUnavailable(RuntimeError):
@@ -271,7 +291,8 @@ def ensure_rapidocr_model(spec: dict) -> str:
         return path
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
-        resp = http.get(spec["url"], timeout=_RAPIDOCR_DOWNLOAD_TIMEOUT, max_bytes=spec["max_bytes"])
+        resp = http.get(spec["url"], timeout=_RAPIDOCR_DOWNLOAD_TIMEOUT, max_bytes=spec["max_bytes"],
+                        deadline=_RAPIDOCR_DOWNLOAD_DEADLINE)
     except Exception as exc:
         raise RapidOcrModelUnavailable("Could not download the RapidOCR model.") from exc
     if not resp.ok or hashlib.sha256(resp.body).hexdigest() != spec["sha256"]:
@@ -288,29 +309,34 @@ def ensure_rapidocr_model(spec: dict) -> str:
     return path
 
 
-def _rapidocr_params(source_language: str) -> dict:
+def _rapidocr_params(key: str) -> dict:
     # The text-orientation classifier flips some upright lines and they come back as
     # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
     # subtitle lines are upright, so it is left off.
     params = {"Global.log_level": "warning", "Global.use_cls": False}
-    if source_language == "ko":
-        from rapidocr import LangRec, ModelType, OCRVersion
+    from rapidocr import LangRec, ModelType, OCRVersion
+    if key == "ko":
         params.update({"Rec.model_path": ensure_rapidocr_model(RAPIDOCR_KOREAN_MODEL),
                        "Rec.ocr_version": OCRVersion.PPOCRV5, "Rec.model_type": ModelType.MOBILE,
                        "Rec.lang_type": LangRec.KOREAN})
+    elif key == "medium":
+        params.update({"Det.model_path": ensure_rapidocr_model(RAPIDOCR_MEDIUM_DET_MODEL),
+                       "Det.model_type": ModelType.MEDIUM,
+                       "Rec.model_path": ensure_rapidocr_model(RAPIDOCR_MEDIUM_REC_MODEL),
+                       "Rec.model_type": ModelType.MEDIUM})
     return params
 
 
-def extract_text_rapidocr(image_path: str, source_language: str = "zh") -> str:
-    """Chinese and Japanese text through RapidOCR's PP-OCRv6 models, which ship inside its
-    wheel; Korean through its Korean recognizer (ensure_rapidocr_model). One engine is kept
-    per language, since the recognizer is fixed when the engine is built."""
+def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: bool = False) -> str:
+    """Chinese and Japanese text through RapidOCR's PP-OCRv6 models: the small pair inside its
+    wheel, or with `medium` the larger pair (RAPIDOCR_MEDIUM_*). Korean always uses its own
+    recognizer. One engine is kept per model set, since the models are fixed when it is built."""
     from rapidocr import RapidOCR
-    key = "ko" if source_language == "ko" else "default"
+    key = "ko" if source_language == "ko" else ("medium" if medium else "small")
     with _MODEL_LOCK:
         engines = globals().setdefault("_rapidocr_instances", {})
         if key not in engines:
-            engines[key] = RapidOCR(params=_rapidocr_params(source_language))
+            engines[key] = RapidOCR(params=_rapidocr_params(key))
         result = engines[key](image_path)
     return "\n".join(result.txts or ())
 
@@ -567,7 +593,7 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
         paddle_lang = _PADDLE_LANG_BY_SOURCE.get(source_language, "ch")
         fn = lambda p: extract_text_paddle(p, lang=paddle_lang)
     elif backend == "rapidocr":
-        fn = lambda p: extract_text_rapidocr(p, source_language)
+        fn = lambda p: extract_text_rapidocr(p, source_language, medium=True)
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
         vertical_pack = (vertical and source_language in TESSERACT_LANG

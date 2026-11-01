@@ -135,17 +135,17 @@ def test_config_has_key_booleans_only(client, monkeypatch):
 
 def test_config_names_the_auto_backend_and_whether_it_is_installed(client, monkeypatch):
     """Scanlate never swaps backends silently: a zh page under "auto" reports
-    paddle even when it's missing, so the UI can say "(not installed)"."""
+    rapidocr even when it's missing, so the UI can say "(not installed)"."""
     did = _drama()
-    present = {"paddleocr"}
+    present = {"rapidocr"}
     monkeypatch.setattr(pages_svc.importlib.util, "find_spec",
                         lambda name: object() if name in present else None)
     body = client.get(f"/api/scanlate/dramas/{did}/config").json()
-    # paddleocr 3.x alone isn't enough: the paddlepaddle module is separate.
-    assert body["ocr_backend"] == "paddle" and body["ocr_backend_installed"] is False
-    present.add("paddle")
+    # rapidocr is installed without its dependencies, so those count too.
+    assert body["ocr_backend"] == "rapidocr" and body["ocr_backend_installed"] is False
+    present.update({"onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "yaml"})
     body = client.get(f"/api/scanlate/dramas/{did}/config").json()
-    assert body["ocr_backend"] == "paddle" and body["ocr_backend_installed"] is True
+    assert body["ocr_backend"] == "rapidocr" and body["ocr_backend_installed"] is True
 
 
 def test_page_detail_keyed_by_id_and_scoped(client):
