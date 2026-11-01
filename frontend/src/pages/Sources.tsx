@@ -222,11 +222,14 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
       }
     : null
   // A link shared to the installed app fills the box; the user still presses Preview.
-  useEffect(() => {
-    if (!sharedUrl || !canLink) return
-    setLinkHandoff((cur) => ({ url: sharedUrl, n: (cur?.n ?? 0) + 1 }))
-    setStoredMode('link')
-  }, [sharedUrl, canLink, setStoredMode])
+  const [seenShared, setSeenShared] = useState<string | undefined>(undefined)
+  if (seenShared !== sharedUrl) {
+    setSeenShared(sharedUrl)
+    if (sharedUrl && canLink) {
+      setLinkHandoff((cur) => ({ url: sharedUrl, n: (cur?.n ?? 0) + 1 }))
+      setStoredMode('link')
+    }
+  }
 
   // Manage sources is PC only: away from the PC the tab, its link and its panel are left out.
   const shownTab = remote && tab === 'manage' ? 'find' : tab
