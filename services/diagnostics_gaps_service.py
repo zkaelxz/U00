@@ -27,6 +27,7 @@ import diagnostics
 import diagnostics_report
 from diagnostics_report import redact_for_support
 import diagnostics_torch as gpu_torch
+from sources import store as sources_store
 
 LOG_TAIL_DEFAULT = 50
 
@@ -45,6 +46,14 @@ _JOB_LABELS = {
     "notes": "Generating translation notes",
     "diarize": "Detecting speakers",
 }
+
+
+def _browser_needed():
+    """None when the sources database can't be read: unknown reads as needed in the UI."""
+    try:
+        return sources_store.browser_source_in_use()
+    except Exception:
+        return None
 
 
 def default_project_root() -> str:
@@ -88,7 +97,8 @@ def get_setup_checks(project_root: str | None = None, library_dir: str | None = 
                    "libass": ff.get("libass") if ff.get("found") else None},
         "js_runtime": {"found": bool(js.get("found")), "name": js.get("name")},
         "browser": {"found": bool(browser.get("found")), "name": browser.get("name"),
-                    "package": bool(browser.get("package"))},
+                    "package": bool(browser.get("package")),
+                    "needed": _browser_needed()},
         "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
                  "cuda_available": cuda.get("cuda_available")},
         "files": {"all_present": bool(files["all_present"]),
