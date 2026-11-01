@@ -184,6 +184,10 @@ async def _lifespan(app: FastAPI):
         auth_service.sweep_stale_sessions()
     except Exception:
         logging.getLogger(__name__).warning("Stale session sweep failed", exc_info=True)
+    try:
+        auth_service.prune_audit_log()
+    except Exception:
+        logging.getLogger(__name__).warning("Activity log pruning failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
                                 start_reeval_scheduler, start_remote_health_monitor,
                                 stop_gpu_queue_poller, stop_reeval_scheduler,
