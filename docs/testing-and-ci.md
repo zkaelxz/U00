@@ -163,6 +163,15 @@ tests that CI's shards run and that a short list tends to miss (`tests/test_diag
     tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
     tests/test_db.py tests/test_diagnostics_and_export.py
 
+The `guards` job also runs `basedpyright` (pinned to 1.40.2) over the packages in `pyrightconfig.json`'s `include`.
+It fails on any type error not in `.basedpyright/baseline.json`, the errors that predate the checker. A run drops fixed
+errors from the baseline file, and the job then fails until that smaller file is committed, so the baseline only
+shrinks; growing it takes a deliberate `basedpyright --writebaseline` that shows in the diff. Results depend on the
+installed packages and the platform, so the config pins `pythonPlatform` to Linux and the baseline is written against
+`requirements-core.txt` only, as in CI: run it from an environment without the optional packages, or let CI be the check.
+A per-line ignore must name its rule (`# pyright: ignore[reportOptionalMemberAccess]`); a bare one is an error.
+`python tools/check_change.py` prints the command when a changed `.py` file is in scope.
+
 `pytest.ini` sets `-v`, so a passing run prints hundreds of lines. The lean form prints a few hundred bytes and is what
 `tools/start-local-coder.ps1` exports as `PYTEST_ADDOPTS` for the local model:
 
