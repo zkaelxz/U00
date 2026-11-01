@@ -20,7 +20,7 @@ service checks the source series of a copy, which comes in the query or
 body. Delete is PC only, like every other delete.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Path, Query, Request, Response
 
@@ -38,6 +38,8 @@ from services import tm_service
 router = APIRouter(prefix="/api/series", tags=["series"])
 
 _ERRS = error_responses(403, 404, 409, 422)
+# error_responses is untyped, so a route's own `responses` literal is annotated to satisfy the type checker.
+_TMX_ERRS: dict[int | str, dict[str, Any]] = {**_ERRS}
 _MAX_ID = 2**31 - 1
 
 
@@ -127,7 +129,7 @@ def apply_defaults(body: SeriesDefaultsApplyRequest, request: Request, series_id
 
 
 @router.get("/{series_id}/translation-memory.tmx", dependencies=[require_permission("library.read")],
-            responses={200: {"content": {"application/x-tmx+xml": {}}}, **_ERRS},
+            responses={200: {"content": {"application/x-tmx+xml": {}}}, **_TMX_ERRS},
             summary="Download the series' translation memory as a TMX file")
 def export_tmx(request: Request, series_id: int = _id(),
                source_language: Literal["zh", "ja", "ko"] = Query("zh")):
@@ -137,7 +139,7 @@ def export_tmx(request: Request, series_id: int = _id(),
 
 
 @router.post("/{series_id}/translation-memory/import", dependencies=[require_permission("lines.edit")],
-             response_model=SeriesTmxImportResult, responses=_ERRS,
+             response_model=SeriesTmxImportResult, responses=_TMX_ERRS,
              summary="Add translation-memory pairs from a TMX file; sources already stored are kept")
 def import_tmx(body: SeriesTmxImportRequest, request: Request, series_id: int = _id()):
     return tm_service.import_tmx(request.state.principal, series_id, body.tmx)
