@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import translate_engines as te
+from engine_backends import translate_pipeline
 from core import Line
 from engine_backends import llm_tasks, shared
 from engine_backends.shared import TranslationCancelled, TruncatedReply
@@ -116,7 +116,7 @@ def test_usage_billed_by_a_failed_attempt_is_counted(monkeypatch):
     seen = []
     engine = _FlakyEngine()
     lines = [Line(idx=i, start=i, end=i + 1, zh=f"第{i}句", id=10 + i) for i in range(2)]
-    te.translate_lines_with_engine(
+    translate_pipeline.translate_lines_with_engine(
         lines, engine, {}, batch_size=2,
         usage_cb=lambda inp, out, *rest: seen.append((inp, out)))
     assert engine.attempts == 2

@@ -17,7 +17,7 @@ import bulk_poll
 import bulk_providers
 import bulk_translate
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -64,7 +64,7 @@ def _env(isolated_db, monkeypatch):
     # A batch is refused without a monthly cap.
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     yield
     background_jobs.clear_all_jobs()
 

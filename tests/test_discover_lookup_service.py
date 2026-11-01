@@ -10,7 +10,7 @@ import db
 import metadata_lookup
 import navigator
 import title_library
-import translate_engines
+from engine_backends import engine_registry
 from services import discover_lookup_service as svc
 from services import metadata_service, safe_fetch, settings_service
 from lib.errors import (DependencyUnavailableError, InvalidInputError,
@@ -40,7 +40,7 @@ def paid(monkeypatch):
     def fake_get_engine(name, key=None, model=None, **kw):
         made.append((name, key))
         return FakeEngine(key)
-    monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
+    monkeypatch.setattr(engine_registry, "get_engine", fake_get_engine)
     return made
 
 

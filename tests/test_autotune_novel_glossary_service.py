@@ -1,6 +1,7 @@
 """Auto-tune (transcribe_service) and glossary-from-novel (glossary_service)
 service jobs. Fully mocked: no audio models, no LLM, no network."""
 import os
+from engine_backends import engine_registry
 
 import pytest
 
@@ -11,7 +12,7 @@ import line_alignment
 import whisper_models
 import whisper_transcribe
 import translation_guide as tguide
-from services import glossary_extract_service, glossary_service as gs
+from services import glossary_service as gs
 from services import autotune_service as at, settings_service, translate_service
 from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, UnsupportedOperationError)
@@ -224,7 +225,7 @@ def _novel_drama(db, orig="原文", novel="English", engine="claude"):
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 

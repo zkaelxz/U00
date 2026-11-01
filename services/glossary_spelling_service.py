@@ -22,7 +22,7 @@ from typing import List, Optional
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import shared
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.shared import TranslationCancelled, language_name
 from services import glossary_extract_service as extract
@@ -174,7 +174,7 @@ def _run_job(job_id, run_id, drama_id, engine, engine_name, term_text, aliases, 
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError("Suggesting spellings failed. "
-                           + translate_engines.redact_secrets(str(exc))) from None
+                           + shared.redact_secrets(str(exc))) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
     spellings = parse_spellings(reply)
@@ -237,7 +237,7 @@ def get_spelling_status(drama_id: int) -> dict:
         elif not r.get("proposals"):
             message = NO_MATCH_MESSAGE
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
-            "message": translate_engines.redact_secrets(str(message)) if message else "",
+            "message": shared.redact_secrets(str(message)) if message else "",
             "run_id": extract._current_run_id(job_id, job), "result": result}
 
 

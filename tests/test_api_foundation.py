@@ -499,8 +499,8 @@ class TestTranslateEndpoints:
         assert "No claude key is configured" in _error(resp)["message"]
 
     def test_translate_unsupported_direction_is_400(self, local_client, isolated_db, monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+        from engine_backends import standalone as engine_standalone
+        monkeypatch.setattr(engine_standalone, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
         resp = local_client.post("/api/translate", json={
             "text": "hello", "engine": "fake_mt",

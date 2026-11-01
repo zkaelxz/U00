@@ -95,8 +95,8 @@ def redact_text(text: str) -> str:
     try:
         return diagnostics_report.redact_for_support(text)
     except Exception:
-        import translate_engines
-        text = translate_engines.redact_secrets(text or "")
+        from engine_backends import shared as engine_shared
+        text = engine_shared.redact_secrets(text or "")
         return diagnostics_report.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
 
 

@@ -360,8 +360,8 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
             raise UnsupportedOperationError("cap")
         monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", over)
     elif gate == "engine":
-        import translate_engines
-        monkeypatch.delitem(translate_engines.ENGINES, "fake")
+        from engine_backends import engine_registry
+        monkeypatch.delitem(engine_registry.ENGINES, "fake")
     elif gate == "default_engine":
         live_follow_store.update(fid, options=json.dumps({"max_minutes": 7}))
         monkeypatch.setattr(live_service, "LIVE_DEFAULT_ENGINE", "gone")

@@ -13,7 +13,7 @@ import logging
 
 import requests
 
-import translate_engines
+from engine_backends import shared, local
 from engine_backends.shared import LLMTaskTimeout
 from lib import http
 from lib.errors import DependencyUnavailableError
@@ -33,10 +33,10 @@ def _status(exc) -> int:
 
 def _reason(exc) -> tuple:
     """(reason, sentence with {name} for the engine), or (None, None)."""
-    if isinstance(exc, translate_engines.FreeTierDailyLimitReached):
+    if isinstance(exc, shared.FreeTierDailyLimitReached):
         return "daily_limit", ("{name}'s daily request limit for this model is used up. "
                                "Try again tomorrow, or pick another engine.")
-    if isinstance(exc, translate_engines.ContentModerationBlocked):
+    if isinstance(exc, shared.ContentModerationBlocked):
         return "blocked", "{name} withheld its answer (a safety filter)."
     # SDK errors are matched by class name so no SDK import is needed here;
     # openai's and anthropic's APITimeoutError subclass APIConnectionError.
@@ -59,13 +59,13 @@ def _reason(exc) -> tuple:
 def engine_failure(exc: BaseException, engine_name: str, fallback: str) -> DependencyUnavailableError:
     """The error to raise for `exc`, a failed call to `engine_name`;
     `fallback` (fixed text) when the cause is not one the user can act on."""
-    if isinstance(exc, translate_engines.OllamaUnavailableError):
-        return DependencyUnavailableError(translate_engines.redact_secrets(exc.message),
+    if isinstance(exc, local.OllamaUnavailableError):
+        return DependencyUnavailableError(shared.redact_secrets(exc.message),
                                           details={"reason": exc.reason})
     name = _LABELS.get(engine_name, "The AI engine")
     reason, sentence = _reason(exc)
     log.warning("%s call failed (%s): %s", name, reason or "failed",
-                translate_engines.redact_secrets(f"{type(exc).__name__}: {exc}")[:300])
+                shared.redact_secrets(f"{type(exc).__name__}: {exc}")[:300])
     if reason is None:
         return DependencyUnavailableError(fallback, details={"reason": "failed", "engine": name})
     return DependencyUnavailableError(sentence.format(name=name),

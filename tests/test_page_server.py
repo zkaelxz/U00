@@ -369,8 +369,8 @@ class TestTranslatingAPage:
     def test_a_configured_engine_is_used_and_the_translation_returned(self, token,
                                                                      fake_pipeline,
                                                                      isolated_db, monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "get_engine",
+        from engine_backends import engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine",
                             lambda *a, **kw: object())
         page_server.set_translation_config(engine="claude", api_key="test-key")
         handler = _post(token, {"images": [{"data": _b64(_png_bytes()),
@@ -382,8 +382,8 @@ class TestTranslatingAPage:
     def test_translation_runs_outside_the_pipeline_lock(self, token, fake_pipeline,
                                                         isolated_db, monkeypatch):
         import scanlate_translate
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: object())
+        from engine_backends import engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
         held_during = []
 
         def translate(bubbles, engine, drama_meta, **kwargs):
@@ -400,8 +400,8 @@ class TestTranslatingAPage:
                                                                    isolated_db, monkeypatch):
         import db
         import scanlate_translate
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: object())
+        from engine_backends import engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
         page_server.set_translation_config(engine="claude", api_key="test-key")
         drama_id = db.create_drama(title_en="Strip", media_type="manga", source_language="ja")
         body = {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
@@ -424,8 +424,8 @@ class TestTranslatingAPage:
         """A translation failure must not throw away real OCR text -- the
         same choice the Scanlate tab makes."""
         import scanlate_translate
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: object())
+        from engine_backends import engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
 
         def boom(*a, **kw):
             raise ValueError("the engine returned nothing")
@@ -561,7 +561,7 @@ class TestTranslatingCapturedText:
     """Step 96's text-capture mode: `/text` runs the same security checks
     as `/page`/`/pages` (covered generically above, since `_check_access`
     is shared code) plus its own input rules, then funnels into
-    `translate_engines.standalone_translate` -- the same function
+    `standalone.standalone_translate` -- the same function
     `tabs/translate_tab.py` already uses -- rather than a second
     translation path.
     """
@@ -603,7 +603,7 @@ class TestTranslatingCapturedText:
 
     def test_a_configured_engine_translates_and_saves_to_history(self, token, isolated_db,
                                                                  monkeypatch):
-        import translate_engines
+        from engine_backends import engine_registry
 
         class _FakeEngine:
             name = "claude"
@@ -611,7 +611,7 @@ class TestTranslatingCapturedText:
             def translate_batch(self, chunks, context):
                 return [f"[TEST] {c}" for c in chunks]
 
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: _FakeEngine())
         page_server.set_translation_config(engine="claude", api_key="test-key")
         handler = self._post_text(token, text="原文内容", source_language="zh",
                                   target_language="en")
@@ -626,7 +626,7 @@ class TestTranslatingCapturedText:
         assert history[0]["translated_text"] == "[TEST] 原文内容"
 
     def test_store_false_skips_history(self, token, isolated_db, monkeypatch):
-        import translate_engines
+        from engine_backends import engine_registry
 
         class _FakeEngine:
             name = "claude"
@@ -634,7 +634,7 @@ class TestTranslatingCapturedText:
             def translate_batch(self, chunks, context):
                 return [f"[TEST] {c}" for c in chunks]
 
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: _FakeEngine())
         page_server.set_translation_config(engine="claude", api_key="test-key")
         handler = self._post_text(token, text="原文内容", store=False)
         assert handler.payload["saved_to_history"] is False
@@ -646,7 +646,7 @@ class TestTranslatingCapturedText:
                                                               monkeypatch):
         """A translation failure must not throw away the captured text --
         the same choice translate_image makes on this failure."""
-        import translate_engines
+        from engine_backends import engine_registry
 
         class _BoomEngine:
             name = "claude"
@@ -654,7 +654,7 @@ class TestTranslatingCapturedText:
             def translate_batch(self, chunks, context):
                 raise ValueError("the engine returned nothing")
 
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _BoomEngine())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: _BoomEngine())
         page_server.set_translation_config(engine="claude", api_key="test-key")
         handler = self._post_text(token, text="原文内容")
         assert handler.status == 200
@@ -666,8 +666,8 @@ class TestTranslatingCapturedText:
 
     def test_an_unsupported_direction_is_refused_with_a_clear_message(self, token, isolated_db,
                                                                       monkeypatch):
-        import translate_engines
-        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+        from engine_backends import standalone, engine_registry
+        monkeypatch.setattr(standalone, "standalone_direction_support",
                             lambda *a: (False, "Not supported."))
 
         class _FakeEngine:
@@ -676,7 +676,7 @@ class TestTranslatingCapturedText:
             def translate_batch(self, chunks, context):
                 return list(chunks)
 
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: _FakeEngine())
         page_server.set_translation_config(engine="fake_mt", api_key="local")
         handler = self._post_text(token, text="hello there", source_language="en",
                                   target_language="zh")

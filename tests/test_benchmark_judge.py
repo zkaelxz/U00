@@ -9,7 +9,7 @@ import re
 import pytest
 
 import db
-import translate_engines
+from engine_backends import engine_registry, llm_tasks
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
@@ -48,9 +48,9 @@ def engines(monkeypatch):
     """claude/openai stand in for the tested engines, deepseek (priced) for the judge."""
     _Tested.answers = {"你好": "good morning", "再见": "bad"}
     _TestedB.answers = {"你好": "bad", "再见": "good bye"}
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", _Tested)
-    monkeypatch.setitem(translate_engines.ENGINES, "openai", _TestedB)
-    monkeypatch.setitem(translate_engines.ENGINES, "deepseek", _JudgeEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", _Tested)
+    monkeypatch.setitem(engine_registry.ENGINES, "openai", _TestedB)
+    monkeypatch.setitem(engine_registry.ENGINES, "deepseek", _JudgeEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test")
     prompts = []
@@ -63,7 +63,7 @@ def engines(monkeypatch):
         return json.dumps({i: {"accuracy": 0.9 if "good" in t else 0.2,
                                "tone": 0.8, "naturalness": 0.7} for i, t in ids})
 
-    monkeypatch.setattr(translate_engines, "call_llm_json", fake_llm)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", fake_llm)
     return prompts
 
 
@@ -82,7 +82,7 @@ class TestCheckJudge:
             judge_svc.check_judge({"engine": "claude"}, CONFIGS)
 
     def test_a_named_model_equal_to_the_default_is_the_same_model(self, isolated_db, engines):
-        assert translate_engines.effective_default_model("claude") == "claude-sonnet-5-5"
+        assert engine_registry.effective_default_model("claude") == "claude-sonnet-5-5"
         with pytest.raises(UnsupportedOperationError):
             judge_svc.check_judge({"engine": "claude", "model": "claude-sonnet-5-5"},
                                   [{"engine": "claude"}])
@@ -160,12 +160,12 @@ class TestJudgeCase:
             ok = {"accuracy": 1, "tone": 1, "naturalness": 1}
             return json.dumps({ids[0]: ok} if len(calls) == 1 else {i: ok for i in ids})
 
-        monkeypatch.setattr(translate_engines, "call_llm_json", partial)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", partial)
         out = judge_svc.judge_case(_JudgeEngine(), self.CASE, {1: "a", 2: "b"}, rng=random.Random(0))
         assert len(calls) == 2 and out[1] and out[2]
 
     def test_a_candidate_still_missing_stays_unscored(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(translate_engines, "call_llm_json",
+        monkeypatch.setattr(llm_tasks, "call_llm_json",
                             lambda *a, **k: json.dumps({}))
         out = judge_svc.judge_case(_JudgeEngine(), self.CASE, {1: "a"})
         assert out[1] is None
@@ -232,7 +232,7 @@ class TestJudgedRun:
         _cases()
         def fail(*a, **k):
             raise RuntimeError(f"401 for key {SECRET}")
-        monkeypatch.setattr(translate_engines, "call_llm_json", fail)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fail)
         started = judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
         assert wait_for_job(lab.JOB_ID, timeout=15)["status"] == "done"
         sid = started["session_ids"][0]
@@ -249,7 +249,7 @@ class TestJudgedRun:
             calls.append(prompt)
             usage_cb(100, 10)
             return "Candidate 1 is better."
-        monkeypatch.setattr(translate_engines, "call_llm_json", prose)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", prose)
         return calls
 
     def test_an_unreadable_reply_is_named_in_the_note(self, isolated_db, engines, monkeypatch):
@@ -343,7 +343,7 @@ class _Local:
 
 @pytest.fixture
 def uncapped(engines, monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "ollama", _Local)
+    monkeypatch.setitem(engine_registry.ENGINES, "ollama", _Local)
     return [{"engine": "ollama", "model": "a"}, {"engine": "ollama", "model": "b"}]
 
 
@@ -415,7 +415,7 @@ class TestUsageSurvivesFailures:
             usage_cb(1000, 100)
             return "{}"  # nothing scored, so a retry is made and fails
 
-        monkeypatch.setattr(translate_engines, "call_llm_json", flaky)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", flaky)
         judge_svc.start_run("translation", CONFIGS, judge=JUDGE)
         wait_for_job(lab.JOB_ID, timeout=15)
         assert calls and sum(c[0] for c in calls) == 1000 * len(calls)
@@ -428,7 +428,7 @@ class TestUsageSurvivesFailures:
             usage_cb(500, 50)
             return "x"
 
-        monkeypatch.setattr(translate_engines, "call_llm_json", billed)
+        monkeypatch.setattr(llm_tasks, "call_llm_json", billed)
         monkeypatch.setattr(judge_svc, "parse_scores",
                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("bad")))
         judge_svc.start_run("translation", CONFIGS, judge=JUDGE)

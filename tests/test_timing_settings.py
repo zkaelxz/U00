@@ -649,7 +649,7 @@ class TestSentenceGrouping:
 
     @staticmethod
     def _batches(lines, **kw):
-        import translate_engines as te
+        from engine_backends import translate_pipeline as engine_translate_pipeline
 
         class Recorder:
             supports_reference = True
@@ -662,13 +662,13 @@ class TestSentenceGrouping:
                 self.batches.append(list(zh_lines))
                 return [f"en {z}" for z in zh_lines]
         engine = Recorder()
-        te.translate_lines_with_engine([Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, id=ln.id)
+        engine_translate_pipeline.translate_lines_with_engine([Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, id=ln.id)
                                         for ln in lines], engine, {}, batch_size=8,
                                        scene_aware_batches=True, **kw)
         return [len(b) for b in engine.batches]
 
     def test_translate_by_sentence_takes_the_saved_limits(self, developer_mode):
-        import translate_engines as te
+        from engine_backends import translate_pipeline as engine_translate_pipeline
         lines = _fragments()
 
         class Recorder:
@@ -682,11 +682,11 @@ class TestSentenceGrouping:
                 self.contexts.append(context.get("sentence_groups"))
                 return [f"en {z}" for z in zh_lines]
         engine = Recorder()
-        te.translate_lines_with_engine(lines, engine, {}, translate_by_sentence=True)
+        engine_translate_pipeline.translate_lines_with_engine(lines, engine, {}, translate_by_sentence=True)
         assert engine.contexts == [[[0, 1, 2, 3]]]
         settings_service.set_settings({"sentence_group_max_lines": 2})
         engine = Recorder()
-        te.translate_lines_with_engine(_fragments(), engine, {}, translate_by_sentence=True,
+        engine_translate_pipeline.translate_lines_with_engine(_fragments(), engine, {}, translate_by_sentence=True,
                                        **timing_settings_service.translate_limits())
         assert engine.contexts == [[[0, 1], [2, 3]]]
 

@@ -1,9 +1,9 @@
 """B-26: every provider key format the app resolves is redacted by both
-translate_engines.redact_secrets and diagnostics_report.redact_for_support."""
+shared.redact_secrets and diagnostics_report.redact_for_support."""
 import pytest
 
 import diagnostics_report
-import translate_engines
+from engine_backends import shared
 
 SECRETS = {
     "hf": "hf_" + "aB3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gI3k",
@@ -15,7 +15,7 @@ SECRETS = {
     "anthropic": "sk-ant-api03-" + "Ab12Cd34Ef56Gh78Ij90Kl12",
 }
 
-REDACTORS = [translate_engines.redact_secrets, diagnostics_report.redact_for_support]
+REDACTORS = [shared.redact_secrets, diagnostics_report.redact_for_support]
 
 
 @pytest.mark.parametrize("redactor", REDACTORS)
@@ -63,7 +63,7 @@ def test_signed_url_and_bare_signature_params_are_stripped_for_support():
 def test_fetch_and_adaptive_modules_use_the_shared_redactor(text):
     from services import safe_fetch
     from sources import adaptive
-    expected = translate_engines.redact_secrets(text)
+    expected = shared.redact_secrets(text)
     assert expected != text
     assert safe_fetch.redact_secrets(text) == expected
     assert adaptive.redact_secrets(text) == expected

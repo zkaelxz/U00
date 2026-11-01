@@ -1,5 +1,6 @@
 """tools/translate_context_bench.py: dry run, spend gate, nothing saved, report content, redaction."""
 import inspect
+from engine_backends import engine_registry, pricing
 import json
 import re
 from types import SimpleNamespace
@@ -69,7 +70,7 @@ class FakeClaude(ClaudeEngine):
 def live(monkeypatch):
     """One shared fake client for the whole run, so tests can count real calls."""
     client = FakeClient()
-    monkeypatch.setattr(bench.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, model=None, **kw: FakeClaude(key, model or "claude-sonnet-5-5", client))
     monkeypatch.setattr(bench.translate_service, "resolve_api_key", lambda name: FAKE_KEY)
     monkeypatch.setattr("engine_backends.shared.time.sleep", lambda s: None)
@@ -232,7 +233,7 @@ def test_non_finite_or_non_positive_max_usd_is_refused(title, live, writes, caps
 
 
 def test_a_nan_estimate_refuses(title, live, writes, capsys, tmp_path, monkeypatch):
-    monkeypatch.setattr(bench.translate_engines, "estimate_cost_for_engine",
+    monkeypatch.setattr(pricing, "estimate_cost_for_engine",
                         lambda *a, **k: float("nan"))
     assert bench.main([str(title), "--yes", "--out", str(tmp_path / "r.md")]) == 2
     assert live.calls == 0 and writes == []

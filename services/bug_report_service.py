@@ -13,7 +13,7 @@ Stored as files, not in the database, under
 `<library>/bug_reports/<UTC timestamp>_<n>/`: `report.json`, `report.md`
 and `screenshot.png`/`.jpg`. The old db.bug_reports table is unrelated and no longer written.
 
-Every stored string passes `_scrub`: translate_engines.redact_secrets and
+Every stored string passes `_scrub`: shared.redact_secrets and
 diagnostics_report.redact_for_support (OS user name, absolute paths), plus
 session-cookie / CSRF / Cookie-header / URL-userinfo / credential-query
 parameter / long-token and user-home-folder redaction. App
@@ -102,9 +102,9 @@ def _scrub_route(value, limit: int = 300) -> str:
     text = _pre_scrub(text)
     if _FS_LIKE_RE.search(text):
         return diagnostics_report.redact_for_support(text)
-    import translate_engines
+    from engine_backends import shared
     import getpass
-    text = translate_engines.redact_secrets(text)
+    text = shared.redact_secrets(text)
     user = getpass.getuser()
     if user and len(user) > 2:
         text = re.sub(re.escape(user), "[USER]", text, flags=re.IGNORECASE)

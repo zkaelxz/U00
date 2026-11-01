@@ -32,7 +32,7 @@ import threading
 
 import db
 import page_server
-import translate_engines
+from engine_backends import engine_registry
 from services import settings_service, translate_service
 from lib.errors import InvalidInputError
 from sources import store as src_store
@@ -90,7 +90,7 @@ def _saved_engine() -> tuple:
     if not isinstance(saved, dict):
         return None, None
     engine = saved.get("engine")
-    if engine not in translate_engines.ENGINES:
+    if engine not in engine_registry.ENGINES:
         return None, None
     model = saved.get("model")
     return engine, (model if isinstance(model, str) and model else None)
@@ -157,8 +157,8 @@ def set_translation_settings(engine, model=None) -> dict:
     and optional model key, then pushes it to page_server. Messages never
     echo the input."""
     if engine is not None:
-        if not isinstance(engine, str) or engine not in translate_engines.ENGINES:
-            raise InvalidInputError(translate_engines.unknown_engine_message(engine))
+        if not isinstance(engine, str) or engine not in engine_registry.ENGINES:
+            raise InvalidInputError(engine_registry.unknown_engine_message(engine))
     if model is not None:
         entry = _engine_entry(translate_service.list_engines(), engine) if engine else None
         if not isinstance(model, str) or not entry or model not in (entry["models"] or ()):

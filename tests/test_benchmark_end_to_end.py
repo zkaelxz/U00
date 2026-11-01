@@ -9,7 +9,7 @@ import pytest
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
 import whisper_transcribe
 from api.benchmark_schemas import BenchmarkRunRequest
 from services import benchmark_lab_service as lab
@@ -37,7 +37,7 @@ class EchoEngine:
 
 @pytest.fixture(autouse=True)
 def mocks(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", EchoEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", EchoEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test" if name == "claude" else "offline")
     monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: True)

@@ -192,7 +192,7 @@ def redact_output(text: str, hide=()) -> str:
     """Printable, secret-free text: ANSI codes removed, keys/tokens
     redacted, the given paths (temp folder, program) and the home folder
     replaced, and every URL cut to scheme and host."""
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     text = _ANSI.sub("", text or "").replace("\r\n", "\n").replace("\r", "\n")
     text = "".join(c for c in text if c in "\n\t" or ord(c) >= 32)
     home = os.path.expanduser("~")

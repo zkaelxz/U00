@@ -15,7 +15,7 @@ import audio_extract
 import whisper_transcribe
 import whisper_models
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -49,7 +49,7 @@ def _env(isolated_db, monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
     monkeypatch.setattr(transcribe_service.diagnostics, "check_dependency", lambda name: True)
     engine = FakeEngine()
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: engine)
     calls = {"slices": [], "transcribe": [], "text": "新的"}
 
     def fake_slice(audio_path, start, end, out_path, timeout=None):
@@ -390,7 +390,7 @@ class TestRun:
 class TestTranslation:
     def test_translates_candidate_and_missing_current_only(self, _env, monkeypatch):
         did, _ = _drama(2)
-        monkeypatch.setattr(translate_engines, "estimate_cost_for_engine", lambda *a, **k: 0.01)
+        monkeypatch.setattr(pricing, "estimate_cost_for_engine", lambda *a, **k: 0.01)
         _run(did, translate=True, engine_name="claude",
              selection={"kind": "range", "from_number": 1, "to_number": 2})
         p0, p1 = svc.get_compare_result(did)["proposals"]
@@ -417,7 +417,7 @@ class TestTranslation:
 
     def test_job_cost_cap_stops_translation_but_keeps_candidates(self, monkeypatch, _env):
         did, _ = _drama(3)
-        monkeypatch.setattr(translate_engines, "estimate_cost_for_engine", lambda *a, **k: 0.5)
+        monkeypatch.setattr(pricing, "estimate_cost_for_engine", lambda *a, **k: 0.5)
         _run(did, translate=True, engine_name="claude", job_cost_cap_usd=0.5)
         res = svc.get_compare_result(did)
         assert [p["translated"] for p in res["proposals"]] == [True, False, False]
@@ -446,7 +446,7 @@ class TestTranslation:
 
     def test_estimate(self, monkeypatch):
         did, _ = _drama(3)
-        monkeypatch.setattr(translate_engines, "estimate_translation_cost", lambda e, t: 0.1)
+        monkeypatch.setattr(pricing, "estimate_translation_cost", lambda e, t: 0.1)
         assert svc.estimate_compare(did, {"kind": "flagged"})["estimated_usd"] is None
         est = svc.estimate_compare(did, {"kind": "range", "from_number": 1, "to_number": 3},
                                    translate=True, engine="claude")

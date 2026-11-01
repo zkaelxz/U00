@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import background_jobs
 from jobs import job_launch, job_table
 import live_cue_translation as lct
-import translate_engines as te
+from engine_backends import shared, openai_compat, engine_registry, pricing
+from engine_backends import local as engine_local
 from engine_backends import local, thinking
 from engine_backends.prompts import build_batch_user_message, build_stable_system_text
 from services import job_stage_service, live_service
@@ -93,7 +94,7 @@ class TestCueContext:
     def test_a_cancel_becomes_job_cancelled(self):
         class Cancelling:
             def translate_batch(self, lines, context):
-                raise te.TranslationCancelled("cancelled")
+                raise shared.TranslationCancelled("cancelled")
         with pytest.raises(background_jobs.JobCancelled):
             lct.CueTranslator(Cancelling(), "zh").translate("x")
 
@@ -198,9 +199,9 @@ class TestOllamaThinking:
 
 class TestDeepSeekThinking:
     def _engine(self):
-        engine = te.DeepSeekEngine.__new__(te.DeepSeekEngine)
+        engine = openai_compat.DeepSeekEngine.__new__(openai_compat.DeepSeekEngine)
         engine.model = "deepseek-flash"
-        engine.last_usage = te._empty_usage()
+        engine.last_usage = shared._empty_usage()
         seen = []
         message = type("M", (), {"content": '{"1": "Hello."}', "refusal": None,
                                  "reasoning_content": "thought"})()
@@ -226,8 +227,8 @@ class TestDeepSeekThinking:
 
     def test_the_default_model_is_deepseek_flash_and_the_old_id_is_still_accepted(self):
         from services import translate_run_service as run
-        assert te.builtin_default_model("deepseek") == "deepseek-flash"
-        assert "deepseek-flash" in te.PRICING_PER_MILLION_TOKENS
+        assert engine_registry.builtin_default_model("deepseek") == "deepseek-flash"
+        assert "deepseek-flash" in pricing.PRICING_PER_MILLION_TOKENS
         run._require_offered_model("deepseek", "deepseek-v4-flash")
 
 
@@ -251,17 +252,17 @@ class TestLiveServiceWiring:
 
     def test_ollama_check_reports_a_missing_model_without_the_address(self, monkeypatch):
         def missing(base_url, model):
-            raise te.OllamaUnavailableError(
+            raise engine_local.OllamaUnavailableError(
                 "ollama_model_missing", f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first.")
-        monkeypatch.setattr(te, "check_ollama_model_installed", missing)
+        monkeypatch.setattr(engine_local, "check_ollama_model_installed", missing)
         out = live_service.check_ollama()
         assert out["ok"] is False and out["model"] == "gemma4:12b"
         assert "ollama pull gemma4:12b" in out["message"] and "localhost" not in out["message"]
 
     def test_ollama_check_without_a_model_uses_the_model_start_would_use(self, monkeypatch):
         seen = []
-        monkeypatch.setattr(te, "check_ollama_model_installed", lambda b, m: seen.append(m))
-        monkeypatch.setattr(te, "effective_default_model", lambda name: "override:7b")
+        monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: seen.append(m))
+        monkeypatch.setattr(engine_registry, "effective_default_model", lambda name: "override:7b")
         assert live_service.check_ollama()["model"] == "override:7b"
         assert seen == ["override:7b"]
 
@@ -269,15 +270,15 @@ class TestLiveServiceWiring:
         from services import translate_service
         patch_setting(monkeypatch, "default_engine", "deepseek")
         built = []
-        monkeypatch.setattr(te, "get_engine", lambda name, *a, **k: built.append(name) or type(
+        monkeypatch.setattr(engine_registry, "get_engine", lambda name, *a, **k: built.append(name) or type(
             "E", (), {"base_url": "http://x", "model": "gemma4:12b"})())
-        monkeypatch.setattr(te, "check_ollama_model_installed", lambda b, m: None)
+        monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "")
         name, _ = live_service._build_engine(None, None)
         assert name == "ollama" and built == ["ollama"]
 
     def test_ollama_check_ok_and_bad_model_name(self, monkeypatch):
-        monkeypatch.setattr(te, "check_ollama_model_installed", lambda b, m: None)
+        monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
         assert live_service.check_ollama("qwen3.5:9b") == {"ok": True, "model": "qwen3.5:9b", "message": None}
         from lib.errors import InvalidInputError
         with pytest.raises(InvalidInputError):

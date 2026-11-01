@@ -7,11 +7,10 @@ line numbers so the page survives edits. Measured ASR results live in
 
 ## 1. Translation engines
 
-### The front door and the package
+### The package
 
-`translate_engines.py` holds no logic. It re-exports every public and private
-name from the `engine_backends/` package so `import translate_engines` and
-`translate_engines.X` keep working. The package is split by provider and role
+Callers import the `engine_backends` module that defines a name
+(`from engine_backends import shared`). The package is split by provider and role
 (its `__init__.py` docstring has the same list):
 
 | Module | Holds |
@@ -190,7 +189,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
 
 ### Pictures
 
-`engine_backends/vision.py` (`read_image_text`, re-exported by `translate_engines`) sends one picture and a fixed "copy the text, do not translate" prompt to Claude, Gemini, OpenAI or Ollama, each in its own image shape (Claude image block, Gemini `inlineData`, OpenAI `image_url` data URL, Ollama `images`), and returns the text plus the provider's token counts. DeepSeek is refused. OpenAI's request carries `max_completion_tokens` and a low `reasoning_effort`. A request logs its own usage from its worker thread (`on_done`), so a call the deadline abandons is still billed in the log. `services/image_text_service.py` owns the limits, the worst-case price estimate and the cap check; the route is `POST /api/translate/read-image` (PC only).
+`engine_backends/vision.py` (`read_image_text`, ) sends one picture and a fixed "copy the text, do not translate" prompt to Claude, Gemini, OpenAI or Ollama, each in its own image shape (Claude image block, Gemini `inlineData`, OpenAI `image_url` data URL, Ollama `images`), and returns the text plus the provider's token counts. DeepSeek is refused. OpenAI's request carries `max_completion_tokens` and a low `reasoning_effort`. A request logs its own usage from its worker thread (`on_done`), so a call the deadline abandons is still billed in the log. `services/image_text_service.py` owns the limits, the worst-case price estimate and the cap check; the route is `POST /api/translate/read-image` (PC only).
 
 ### Cost caps and bulk batches
 
@@ -353,15 +352,14 @@ backward. 0 disables this.
    shown, stored or logged. API responses carry booleans for "key set", not the
    key, a path or a fetched URL.
 3. **Every outbound call has `timeout=`.** `tests/test_static_analysis.py`
-   enforces it for `translate_engines.py`, everything under `engine_backends/`,
+   enforces it for everything under `engine_backends/`,
    `services/`, `api/` and a list of other modules; a new HTTP-calling module
    outside those goes on that list. Bodies of unknown size are read with
    `post_json` (see above).
-4. **Patch the module that uses a name, not the front door.** A test patches
+4. **Patch the module that uses a name.** A test patches
    `engine_backends.llm_tasks.call_llm_json`, `engine_backends.local._ollama_reachability_cache`,
-   and so on. Patching `translate_engines.X` only affects code that reads `X`
-   from `translate_engines` at call time, so it silently does nothing for
-   engine-internal callers.
+   and so on. A caller that did `from engine_backends.x import name` holds its own
+   copy, so patch it in the caller's namespace.
 5. **Moderation is its own error.** Raise `ContentModerationBlocked` from the
    structural signal in `translate_batch` instead of returning empty text, so
    the caller can flag the line with the provider's real reason.
@@ -488,7 +486,7 @@ All in `dub.py`; this page only maps them.
 
 ## 5. Shared paths
 
-The API calls these shared functions: `translate_engines.get_engine`,
+The API calls these shared functions: `engine_backends.engine_registry.get_engine`,
 `FallbackEngine`, `redact_secrets`, `estimate_cost_for_engine`,
 `settings_service.resolve_key`, `transcribe_service` (including
 `stored_whisper_size`, `build_auto_initial_prompt`, `require_qwen3_packages`),
@@ -509,8 +507,7 @@ fall back to `GOOGLE_API_KEY`). Ollama's URL comes from `ollama_url` /
    and, if free or keyless, `FREE_ENGINES` / `KEYLESS_ENGINES`; if it cannot
    follow instructions, `TRANSLATION_ONLY_ENGINES`. Add models and prices to
    `pricing.py` (`PRICING_PER_MILLION_TOKENS`) so cost estimates and caps work,
-   and to `_CAP_ENGINES` in `translate_run_service` if it is paid. Re-export
-   new public names from `translate_engines.py`. Add a bulk provider only if
+   and to `_CAP_ENGINES` in `translate_run_service` if it is paid. Add a bulk provider only if
    the vendor has a batch API (`bulk_translate.BULK_ENGINES`).
 3. **Settings and keys:** an `ENV_NAMES` entry in `settings_service`, the
    matching `SECRET_ENGINES` entry in `frontend/src/pages/settingsKeys.ts` and

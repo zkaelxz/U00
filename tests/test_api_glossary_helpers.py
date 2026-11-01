@@ -7,6 +7,7 @@ LLM call are faked -- no network.
 """
 
 import time
+from engine_backends import engine_registry
 
 import pytest
 
@@ -64,7 +65,7 @@ class _Engine:
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
-    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
     return built
 

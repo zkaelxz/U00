@@ -101,7 +101,7 @@ _worker = None      # the manual-check worker, while its queue has something in 
 def _log(fmt, *args):
     try:
         import applog
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         applog.get_logger().warning(fmt, *(redact_secrets(str(a)) for a in args))
     except Exception:
         pass
@@ -421,8 +421,8 @@ def _gate_refusal(engine) -> str:
     if any(j.get("gpu_touching") and j.get("status") in ("queued", "running")
            for j in background_jobs.list_all_jobs().values()):
         return "not started: a GPU job is running"
-    import translate_engines
-    if engine not in translate_engines.ENGINES:
+    from engine_backends import engine_registry
+    if engine not in engine_registry.ENGINES:
         return "not started: that engine is not available"
     try:
         paid_job_service.require_cap_for_unattended(engine, bool(settings_service.get("gemini_free_tier")))

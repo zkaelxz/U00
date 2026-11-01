@@ -16,7 +16,7 @@ future translation.
 """
 
 from engine_backends.shared import load_json_reply
-from translate_engines import call_llm_json
+from engine_backends.llm_tasks import call_llm_json
 
 MIN_SAMPLES_TO_LEARN = 8
 
