@@ -25,6 +25,8 @@ import type {
   BuildSetRequest,
   BuildSetResult,
   CaseEdit,
+  HardSubApplyResult,
+  HardSubReadingEstimate,
   HardSubReadingResult,
   ClipImportResult,
   ClipNote,
@@ -111,6 +113,19 @@ export const addHardSubCases = (dramaId: number, lineIds: number[], f?: Fetch) =
 // with the transcript. 404 when none has run. PC only.
 export const getHardSubReading = (dramaId: number, f?: Fetch) =>
   getJson<HardSubReadingResult>(`${BASE}/dramas/${dramaId}/hard-sub-reading`, f)
+
+// Reads a title's burned-in captions by speaker group. The estimate spends nothing; starting needs confirm.
+// PC only.
+export const estimateHardSubReading = (dramaId: number, body: { engine: string; model?: string | null }, f?: Fetch) =>
+  postJson<HardSubReadingEstimate>(`${BASE}/dramas/${dramaId}/hard-sub-reading/estimate`, body, pcOnlyFetch(f))
+
+export const startHardSubReading = (dramaId: number, body: { engine: string; model?: string | null }, f?: Fetch) =>
+  postJson<{ job_id: string; windows: number; estimated_usd: number }>(
+    `${BASE}/dramas/${dramaId}/hard-sub-reading`, { ...body, confirm: true }, pcOnlyFetch(f))
+
+// Puts the finished reading's speaker groups on the title's lines. PC only.
+export const applyHardSubReading = (dramaId: number, f?: Fetch) =>
+  postJson<HardSubApplyResult>(`${BASE}/dramas/${dramaId}/hard-sub-reading/apply`, {}, pcOnlyFetch(f))
 
 // Reads pasted text only; nothing is downloaded.
 export const importGoldenSet = (body: BenchmarkImportRequest, f?: Fetch) =>

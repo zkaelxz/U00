@@ -684,3 +684,23 @@ export interface HardSubReadingResult {
   /** null while the reading is still going. */
   result: HardSubReadingOutcome | null
 }
+
+export interface HardSubReadingEstimate {
+  engine: string
+  model: string | null
+  windows: number
+  speaker_groups: number
+  reads_at_most: number
+  estimated_usd: number
+  cap_applies: boolean
+  monthly_cap_usd: number | null
+  cap_left_usd: number | null
+  fits_cap: boolean
+}
+
+export interface HardSubApplyResult {
+  labelled: number
+  kept_manual: number
+  unplaced: number
+  speakers: string[]
+}
