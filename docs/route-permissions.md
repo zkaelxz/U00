@@ -516,6 +516,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions` | lines.edit |
 | `DELETE /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}` | lines.edit |
 | `PATCH /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}` | lines.edit |
+| `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo` | jobs.start |
 | `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/undo` | lines.edit |
 | `GET /api/scanlate/dramas/{drama_id}/progress` | library.read |
 | `POST /api/scanlate/dramas/{drama_id}/progress` | lines.edit |

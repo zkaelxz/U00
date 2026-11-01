@@ -7958,6 +7958,23 @@ export interface paths {
         patch: operations["patch_region_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__patch"];
         trace?: never;
     };
+    "/api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read one text box again and translate it again (mode both), or translate its current source text again (mode translate), then re-render the page */
+        post: operations["post_region_redo_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__redo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scanlate/dramas/{drama_id}/pages/{page_id}/undo": {
         parameters: {
             query?: never;
@@ -23787,6 +23804,19 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /** ScanlateRegionRedoRequest */
+        ScanlateRegionRedoRequest: {
+            /** Engine */
+            engine?: string | null;
+            /** Expected Rev */
+            expected_rev: number;
+            /**
+             * Mode
+             * @default both
+             * @enum {string}
+             */
+            mode: "both" | "translate";
         };
         /** ScanlateRenderRequest */
         ScanlateRenderRequest: {
@@ -52179,6 +52209,61 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ComicRegionEditRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanlatePageDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_region_redo_api_scanlate_dramas__drama_id__pages__page_id__regions__region_id__redo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+                region_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanlateRegionRedoRequest"];
             };
         };
         responses: {
