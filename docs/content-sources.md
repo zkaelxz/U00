@@ -357,6 +357,20 @@ work".
 | Terms | robots.txt (2026-11-01): `Disallow: /wp-admin/` with `Allow: /wp-admin/admin-ajax.php`, no Crawl-delay. No terms page found, so `automation_permission` stays `UNKNOWN`. |
 | Tests | `tests/test_sources_rawkuma.py` (small invented fixtures; no network). |
 
+## Marumaru (마루마루) — `sources/adapters/marumaru.py`
+
+| | |
+|---|---|
+| URL patterns | `marumaru<n>.<tld>/webtoon/<work id>` (series), `.../webtoon/<work id>/<episode id>` (chapter) |
+| Content type / language | manhwa (webtoons); ko |
+| Status | **Read against the live site 2026-11-01** (plain GETs, no login; the viewer also loaded in a real browser): search, a 267-chapter series, its paged chapter list and one chapter's image list. No image download or import has been run through the app. |
+| Access tier | `STATIC_HTTP`. The site is a JavaScript app over public JSON endpoints; nothing needs JavaScript on our side. |
+| Extraction | **Search:** `/api/search?q=`, WEBTOON and MANHWA items only (novels and anime are skipped). **Series:** `/api/works/<id>`. **Chapters:** `/api/works/<id>/episodes?page=<n>&size=100` (size is capped at 100), sorted by number. **Pages:** `api.storagewebtoon.store/api/v1/reader/A2/episodes/<episode id>`, `item.body[]` image urls (webp on `peer.storagewebtoon.store`). |
+| Domains | The site moves. The list (`sources/domains.py`) holds the current address. If every listed domain fails, the landing page (마루마루주소.com) is read and each https address on it whose home page passes `verify_site` (마루마루 in the title) becomes a pending proposal. Only the owner's confirmation on the PC adds it. |
+| Failures | Missing keys, an empty chapter list or a chapter with no images -> `LayoutChanged`. An id that isn't numeric is refused before it reaches a URL. |
+| Terms | robots.txt (2026-11-01): disallows `/search`, `/account`, `/bookmarks`, `/favorites`, `/recent`; no Crawl-delay. The adapter uses `/api/search`, which is not listed. No terms page found, so `automation_permission` stays `UNKNOWN`. Only chapters served without a login are read; nothing paid or protected is touched. |
+| Tests | `tests/test_sources_marumaru.py` (small invented fixtures; no network). |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
