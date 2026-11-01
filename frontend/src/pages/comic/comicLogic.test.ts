@@ -10,6 +10,7 @@ import {
   isComicType,
   keyAction,
   loadComicPrefs,
+  savedComicPrefs,
   NO_ZOOM,
   orderedLines,
   inRenderWindow,
@@ -67,6 +68,15 @@ describe('comic types and defaults', () => {
     expect(loadComicPrefs(s, 7, d).mode).toBe('paged')
     expect(loadComicPrefs(s, 8, d).mode).toBe('vertical')
     expect(loadComicPrefs(null, 7, d)).toEqual(d)
+  })
+
+  it('tells whether this browser ever saved prefs for a title', () => {
+    const s = memoryStorage()
+    const d = defaultPrefs('manhua')
+    expect(savedComicPrefs(s, 7)).toBeNull()
+    saveComicPrefs(s, 7, { ...d, mode: 'paged', rtl: true })
+    expect(savedComicPrefs(s, 7)).toEqual({ ...d, mode: 'paged', rtl: true })
+    expect(savedComicPrefs(null, 7)).toBeNull()
   })
 })
 

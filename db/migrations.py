@@ -423,6 +423,12 @@ def _grant_lines_read_for_reader_page(conn):
         conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
 
 
+def _migrate_progress_view_prefs(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(progress)").fetchall()}
+    if "view_prefs" not in cols:
+        db._safe_alter(conn, "ALTER TABLE progress ADD COLUMN view_prefs TEXT")
+
+
 def _migrate_auth_session_columns(conn):
     session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
     if "device_label" not in session_cols:
@@ -558,6 +564,7 @@ def _migrate_step26e_profiles():
                     last_page INTEGER DEFAULT 1,
                     percent_complete REAL DEFAULT 0,
                     last_accessed_at TEXT,
+                    view_prefs TEXT,
                     PRIMARY KEY (drama_id, profile_id),
                     FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
                     FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE

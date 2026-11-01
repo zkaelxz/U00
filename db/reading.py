@@ -194,3 +194,26 @@ def clear_reading_history(drama_id: int | None = None, profile_id: int | None = 
         else:
             conn.execute("DELETE FROM reading_history WHERE profile_id = ?", (profile_id,))
         conn.commit()
+
+
+def get_view_prefs(drama_id: int, profile_id: int | None = None) -> str | None:
+    """The stored reader view preferences (a JSON string the service validated), or None."""
+    with contextlib.closing(db.get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        row = conn.execute("SELECT view_prefs FROM progress WHERE drama_id = ? AND profile_id = ?",
+                           (drama_id, profile_id)).fetchone()
+    return row["view_prefs"] if row else None
+
+
+def save_view_prefs(drama_id: int, view_prefs: str, profile_id: int | None = None):
+    """Stores the view preferences without touching the resume point, and without
+    giving a never-read title a progress above 0 (the Continue shelf needs > 0)."""
+    with contextlib.closing(db.get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        conn.execute("""
+            INSERT INTO progress (drama_id, profile_id, view_prefs) VALUES (?, ?, ?)
+            ON CONFLICT(drama_id, profile_id) DO UPDATE SET view_prefs = excluded.view_prefs
+        """, (drama_id, profile_id, view_prefs))
+        conn.commit()

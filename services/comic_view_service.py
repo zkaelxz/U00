@@ -16,6 +16,7 @@ Security:
 - Every image refusal is the same generic NotFoundError with no path.
 Returns plain dicts; no FastAPI import.
 """
+import json
 import os
 import stat
 
@@ -172,6 +173,30 @@ def get_page_regions(drama_id: int, page_id: int) -> dict:
             "height": int(page.get("height") or 0), "regions": regions}
 
 
+_PREF_CHOICES = {"mode": ("vertical", "paged"), "fit": ("width", "height", "original")}
+_PREF_FLAGS = ("rtl", "typeset", "text")
+
+
+def _clean_view_prefs(raw) -> dict | None:
+    """Only the known keys with allowed values; anything else means "no saved prefs",
+    so a stale or hand-edited row can never reach the viewer as a half-valid object."""
+    if not isinstance(raw, dict):
+        return None
+    out = {k: raw.get(k) for k in (*_PREF_CHOICES, *_PREF_FLAGS)}
+    if any(out[k] not in allowed for k, allowed in _PREF_CHOICES.items()):
+        return None
+    if any(not isinstance(out[k], bool) for k in _PREF_FLAGS):
+        return None
+    return out
+
+
+def _stored_view_prefs(drama_id: int) -> dict | None:
+    try:
+        return _clean_view_prefs(json.loads(db.get_view_prefs(drama_id) or "null"))
+    except ValueError:
+        return None
+
+
 def _progress_view(drama_id: int) -> dict:
     row = db.get_progress(drama_id) or {}
     return {"last_page": int(row.get("last_page") or 1),
@@ -196,3 +221,20 @@ def save_progress(drama_id: int, page: int) -> dict:
     db.save_progress(drama_id, last_page=page,
                      percent_complete=round(page / count * 100, 2))
     return _progress_view(drama_id)
+
+
+def get_view_prefs(drama_id: int) -> dict:
+    ownership_service.require_drama(drama_id)
+    return {"view_prefs": _stored_view_prefs(drama_id)}
+
+
+def save_view_prefs(drama_id: int, prefs: dict) -> dict:
+    """Stores how this title is shown (mode, direction, fit, typeset, text), so the
+    choice follows the reader to another device. Same household profile as the
+    resume page."""
+    ownership_service.require_drama(drama_id)
+    clean = _clean_view_prefs(prefs)
+    if clean is None:
+        raise InvalidInputError("Those reader settings are not valid.")
+    db.save_view_prefs(drama_id, json.dumps(clean))
+    return clean

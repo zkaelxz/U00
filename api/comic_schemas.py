@@ -6,7 +6,7 @@ any model.
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 
 class ComicPage(BaseModel):
@@ -61,9 +61,23 @@ class ComicPageRegions(BaseModel):
     regions: List[ComicRegion]
 
 
+class ComicViewPrefs(BaseModel):
+    """How the reader shows a title: the same choices the viewer keeps per title."""
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["vertical", "paged"]
+    rtl: StrictBool
+    fit: Literal["width", "height", "original"]
+    typeset: StrictBool
+    text: StrictBool
+
+
 class ComicProgress(BaseModel):
     last_page: int
     percent_complete: float
+
+
+class ComicViewPrefsView(BaseModel):
+    view_prefs: ComicViewPrefs | None = None
 
 
 class ComicProgressRequest(BaseModel):

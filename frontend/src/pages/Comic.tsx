@@ -49,7 +49,9 @@ import {
   defaultPrefs,
   inRenderWindow,
   loadComicPrefs,
+  sanitizePrefs,
   saveComicPrefs,
+  savedComicPrefs,
   textPages,
   ZOOM,
   type ComicPrefs,
@@ -143,6 +145,21 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       // Unknown (refused or failed): start at page 1 but don't save it.
       () => setSavedPage(1),
     )
+    // The server's choice wins so every device shows the title the same way; a
+    // browser that already had its own pushes it up once instead.
+    comicApi.viewPrefs(id).then(
+      ({ view_prefs }) => {
+        if (view_prefs) {
+          const server = sanitizePrefs(view_prefs, view_prefs)
+          setStored((now) => now ?? server)
+          saveComicPrefs(browserStorage(), id, server)
+        } else {
+          const local = savedComicPrefs(browserStorage(), id)
+          if (local) comicApi.saveViewPrefs(id, local).catch(() => {})
+        }
+      },
+      () => {},
+    )
   }, [id, loadPages])
 
   // After an upload or a Scanlate job: reload the page list (new pages, new
@@ -219,6 +236,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     if (next.mode !== prefs.mode && current !== null) requestJump(current)
     setStored(next)
     saveComicPrefs(browserStorage(), id, next)
+    // Best effort: a refused or failed save leaves the browser copy, which still works here.
+    comicApi.saveViewPrefs(id, next).catch(() => {})
   }
 
   const go = useCallback(

@@ -8,6 +8,8 @@ services/comic_view_service.py:
 - GET  /dramas/{id}/pages/{pid}/regions          lines.read
 - GET  /dramas/{id}/progress                     library.read
 - POST /dramas/{id}/progress                     lines.edit
+- GET  /dramas/{id}/view-prefs                   library.read
+- POST /dramas/{id}/view-prefs                   lines.edit
 - POST /dramas/{id}/pages/visibility             lines.edit
 - GET  /dramas/{id}/source-chapters              library.read
 
@@ -24,7 +26,7 @@ from fastapi.responses import FileResponse, Response
 
 from api.auth import require_permission
 from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
-                              ComicVisibilityRequest, ComicVisibilityResult)
+                              ComicViewPrefs, ComicViewPrefsView, ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import error_responses
 from services import comic_chapters_service, comic_source_chapters_service, comic_view_service
 
@@ -94,6 +96,20 @@ def get_progress(drama_id: int = Path(ge=1)):
              summary="Record the page being read (last_page and percent only)", responses=_ERRS)
 def post_progress(body: ComicProgressRequest, drama_id: int = Path(ge=1)):
     return comic_view_service.save_progress(drama_id, body.page)
+
+
+@router.get("/dramas/{drama_id}/view-prefs", dependencies=[require_permission("library.read")],
+            response_model=ComicViewPrefsView, summary="How this title was last shown in the viewer",
+            responses=_ERRS)
+def get_view_prefs(drama_id: int = Path(ge=1)):
+    return comic_view_service.get_view_prefs(drama_id)
+
+
+@router.post("/dramas/{drama_id}/view-prefs", dependencies=[require_permission("lines.edit")],
+             response_model=ComicViewPrefs, summary="Remember how this title is shown in the viewer",
+             responses=_ERRS)
+def post_view_prefs(body: ComicViewPrefs, drama_id: int = Path(ge=1)):
+    return comic_view_service.save_view_prefs(drama_id, body.model_dump())
 
 
 @router.post("/dramas/{drama_id}/pages/visibility", dependencies=[require_permission("lines.edit")],
