@@ -198,7 +198,10 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     background_jobs.update_progress(job_id, 0.9, "Saving lines...")
     for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
-    background_jobs.cancel_line_jobs(drama_id)
+    background_jobs.cancel_line_jobs(drama_id, except_job_id=job_id)
+    # Last look before the full sync: a replace by another job has asked this
+    # one to stop, and its new lines must not be overwritten by these.
+    _raise_if_cancelled(job_id)
     existing = db.load_line_objects(drama_id)
     if existing:
         db.save_line_history_snapshot(drama_id, existing, "before chunk & tag speakers")

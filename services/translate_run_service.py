@@ -425,6 +425,8 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
                  force_retranslate, own_lines_only, thinking, include_genre_notes,
                  default_female_pronouns):
     """(response, run settings, novel reference, glossary terms, style guidelines)."""
+    if not bulk:
+        translate_run_options.require_no_pending_bulk_overlap(drama_id, eligible)
     glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, opts.style_preset,
         include_genre_notes=include_genre_notes,

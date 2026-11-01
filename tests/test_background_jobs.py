@@ -412,6 +412,17 @@ class TestCancelLineJobs:
             _wait(jid)
             bg.clear_job(jid)
 
+    def test_a_narration_job_is_cancelled_except_the_replacing_one(self):
+        release = threading.Event()
+        job_launch.start_job("narration_621", release.wait)
+        bg.cancel_line_jobs(621, except_job_id="narration_621")
+        assert not bg.is_cancel_requested("narration_621")
+        bg.cancel_line_jobs(621)
+        assert bg.is_cancel_requested("narration_621")
+        release.set()
+        _wait("narration_621")
+        bg.clear_job("narration_621")
+
     def test_a_queued_job_is_cancelled_before_it_starts(self):
         with bg._lock:
             bg._jobs["translate_612"] = {"status": "queued", "progress": 0, "message": ""}

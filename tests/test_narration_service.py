@@ -196,6 +196,46 @@ class TestNarrationCancel:
         assert [ln.zh for ln in isolated_db.load_line_objects(did)] == ["旧"]
         assert isolated_db.get_drama(did)["status"] != "aligned"
 
+    def _running(self, job_id):
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                   "error": None, "cancel_requested": False, "result": None}
+
+    def test_a_replace_by_another_job_late_in_the_run_stops_the_save(self, isolated_db, monkeypatch):
+        from engine_backends import llm_tasks, engine_registry
+        from core import Line
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="新", en="")])
+        job_id = f"narration_{did}"
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", lambda chunks, *a, **k: {})
+        real = isolated_db.upsert_character
+
+        def other_job_replaces_lines(*a, **k):
+            job_table._jobs[job_id]["cancel_requested"] = True
+            return real(*a, **k)
+        monkeypatch.setattr(isolated_db, "upsert_character", other_job_replaces_lines)
+        self._running(job_id)
+        try:
+            with pytest.raises(background_jobs.JobCancelled):
+                narration_service._run_narration_job(job_id, did, NOVEL, "claude", "k", None)
+        finally:
+            job_table._jobs.pop(job_id, None)
+        assert [ln.zh for ln in isolated_db.load_line_objects(did)] == ["新"]
+
+    def test_the_run_does_not_cancel_itself_when_it_replaces_the_lines(self, isolated_db, monkeypatch):
+        from engine_backends import llm_tasks, engine_registry
+        did = _drama(isolated_db)
+        job_id = f"narration_{did}"
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", lambda chunks, *a, **k: {})
+        self._running(job_id)
+        try:
+            narration_service._run_narration_job(job_id, did, NOVEL, "claude", "k", None)
+            assert not job_table._jobs[job_id]["cancel_requested"]
+        finally:
+            job_table._jobs.pop(job_id, None)
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+
 
 class TestGpuSlot:
     def _start(self, isolated_db, key, monkeypatch, engine, model=None):
