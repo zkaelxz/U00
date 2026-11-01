@@ -37,9 +37,9 @@ HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "rapidocr", "auto"]
 
 
 def default_hardsub_backend(source_language: str) -> str:
-    """RapidOCR for Chinese (on real hard-sub frames it read the captions as well as
-    PaddleOCR and kept lines whole where PaddleOCR split them), Tesseract otherwise."""
-    return "rapidocr" if source_language == "zh" else "tesseract"
+    """RapidOCR for Chinese and Korean (on real hard-sub frames it read Chinese captions
+    as well as PaddleOCR and kept lines whole where PaddleOCR split them), Tesseract otherwise."""
+    return "rapidocr" if source_language in ("zh", "ko") else "tesseract"
 
 
 def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
