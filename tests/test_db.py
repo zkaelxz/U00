@@ -2310,6 +2310,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "vocab_lookups": ("export_rich",),
     "style_profile": ("history_json",),
     "users": ("share_by_default",),
+    "progress": ("view_prefs",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label",),
     "benchmark_results": ("scorer", "ref_version", "timing", "judge_scores", "recognised_text",
@@ -3022,6 +3023,19 @@ class TestInterruptedRestoreRecovery:
         assert sorted(p.name for p in tmp_path.iterdir()
                       if not p.name.endswith(".restore-lock")) == ["library"]
 
+    def test_a_look_alike_folder_is_not_taken_for_the_library(self, tmp_path):
+        self._aside(tmp_path, "library.pre_restore_copy")
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) is None
+        assert db.library_startup_notes(str(tmp_path / "library")) == []
+        assert not (tmp_path / "library").exists()
+        assert (tmp_path / "library.pre_restore_copy" / "library.db").exists()
+
+    def test_a_look_alike_folder_does_not_count_toward_several(self, tmp_path):
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        self._aside(tmp_path, "library.pre_restore_100 (2)")
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
+        assert (tmp_path / "library" / "library.db").read_bytes() == b"old"
+
     def test_a_present_library_is_left_alone(self, tmp_path):
         (tmp_path / "library").mkdir()
         (tmp_path / "library" / "library.db").write_bytes(b"current")
@@ -3108,6 +3122,20 @@ class TestInterruptedRestoreRecovery:
         assert not lock.exists()
         self._aside(tmp_path, "library.pre_restore_100", b"old")
         db.library_startup_notes(str(tmp_path / "library"))
+        assert not lock.exists()
+
+    def test_a_lock_file_left_by_a_crashed_restore_blocks_nothing(self, tmp_path):
+        """A restore that died keeps its lock file but no OS lock: the next
+        recovery and restore take it and remove it at their clean finish."""
+        lock = tmp_path / "library.restore-lock"
+        lock.write_bytes(b"")
+        self._aside(tmp_path, "library.pre_restore_100", b"old")
+        assert db.recover_interrupted_restore(str(tmp_path / "library")) == "library.pre_restore_100"
+        assert not lock.exists()
+        lock.write_bytes(b"")
+        holder = db.hold_restore_lock(str(tmp_path / "library"))
+        assert holder is not None
+        db.release_restore_lock(holder)
         assert not lock.exists()
 
     def test_the_lock_file_stays_while_a_restore_holds_it(self, tmp_path):
