@@ -183,8 +183,8 @@ function GlossaryTab({ data, onCopied }: { data: SeriesPageData; onCopied: () =>
       </Card>
       <CopyTermsCard data={data} onCopied={onCopied} />
       <p className="muted" data-testid="series-no-series-hint">
-        A title with no series can't hold glossary terms. To give one these terms, open that title's Glossary and pick
-        this series (or “New series…”) in its Series picker.
+        A title with no series gets one of its own when its first glossary term is saved. To share terms with it, open
+        that title's Glossary and pick this series (or “New series…”) in its Series picker.
       </p>
     </>
   )
