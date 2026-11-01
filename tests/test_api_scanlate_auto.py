@@ -1393,3 +1393,33 @@ def test_read_ahead_detection_keeps_the_runs_offline_switch(isolated_db, monkeyp
     finally:
         model_offline.reset(token)
     assert seen == [(p1, True), (p2, True)]
+
+
+@needs_cv2
+def test_a_missing_lama_model_is_noted_once_per_page(tmp_path, monkeypatch):
+    src = tmp_path / "p.png"
+    src.write_bytes(_png(200, 80))
+    bubbles = [_region(x, translated_text="Hi") for x in (0, 60, 120)]
+    monkeypatch.setattr(scanlate_render, "inpaint_region", lambda *a, **k: None)
+
+    def run(cached):
+        monkeypatch.setattr(scanlate_render, "lama_ml_weights_cached", lambda: cached)
+        notes = []
+        scanlate_render.process_page(str(src), [dict(b) for b in bubbles],
+                                     str(tmp_path / f"out_{cached}.png"), notes=notes)
+        return notes
+
+    missing = ("error", "inpaint_unavailable", scanlate_render.LAMA_MISSING_NOTE)
+    assert run(False).count(missing) == 1
+    assert [n for n in run(True) if len(n) > 1 and n[1] == "inpaint_unavailable"] == []
+
+
+def test_blank_regions_note_names_regions_by_position_among_all_bubbles():
+    from services import scanlate_render_service as render_svc
+    bubbles = [_region(i) for i in range(5)]
+    note = render_svc._blank_regions_note
+    assert note([bubbles[2]], bubbles) == "Region 3 had no translation and was left as the original."
+    assert note([bubbles[1], bubbles[3], bubbles[4]], bubbles) == (
+        "Regions 2, 4 and 5 had no translation and were left as the original.")
+    assert note([bubbles[0], bubbles[1]], bubbles) == (
+        "Regions 1 and 2 had no translation and were left as the original.")
