@@ -69,6 +69,9 @@ class DiagnosticsSetupBrowser(BaseModel):
     found: bool
     name: Optional[str] = None
     package: Optional[bool] = None
+    needed: Optional[bool] = Field(None, description=(
+        "A saved source works only through a browser tier; false means no source needs one yet, "
+        "so a missing browser tool is not a setup problem."))
 
 
 class DiagnosticsSetupCuda(BaseModel):
