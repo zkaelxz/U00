@@ -34,7 +34,7 @@ from services.source_service import drama_file_path
 import dub_narration
 import storage
 import video_export
-from services import artifact_service, export_service, ownership_service
+from services import artifact_service, export_service, listen_service, ownership_service
 from services.media_upload_service import VIDEO_EXTENSIONS
 from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError)
@@ -301,9 +301,10 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
     if not isinstance(keep_original, bool):
         raise InvalidInputError("keep_original must be true or false.")
     _require_ffmpeg()
-    # The dub job rewrites dub_track.wav in place, so wait for it to finish.
-    dub_job = background_jobs.get_status(f"dub_{drama_id}")
-    if dub_job and dub_job["status"] in ("running", "queued"):
+    # The narration run rewrites the title's line timings and audio, so a video
+    # exported mid-run would mix old and new.
+    narration_job = background_jobs.get_status(listen_service.narration_job_id(drama_id))
+    if narration_job and narration_job["status"] in ("running", "queued"):
         raise ConflictError("The dub is still being generated; export the video when it finishes.")
     job_id = f"dubbed_video_{drama_id}"
     ext = os.path.splitext(video_path)[1].lower()
