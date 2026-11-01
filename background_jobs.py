@@ -220,7 +220,7 @@ LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_", "retranscribe_",
 # Review passes that save rows keyed by line id; unlike the jobs above they
 # are not safe beside a blocked retry, but a replace leaves them writing for
 # lines that no longer exist.
-REPLACE_CANCELS_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + ("notes_", "emotion_", "narration_")
+REPLACE_CANCELS_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + ("notes_", "emotion_", "dub_")
 
 
 def _is_active(job_id: str) -> bool:
@@ -229,16 +229,13 @@ def _is_active(job_id: str) -> bool:
         return bool(job and job["status"] in ("queued", "running"))
 
 
-def cancel_line_jobs(drama_id, except_job_id=None):
+def cancel_line_jobs(drama_id):
     """Asks every running or queued line-writing job for this drama to stop --
     for when its lines are about to be replaced wholesale. A job still in the
-    GPU queue would otherwise start afterwards on the old lines. except_job_id:
-    the replacing job itself, which is on the list because it would otherwise
-    finish over a replace made by another job."""
+    GPU queue would otherwise start afterwards on the old lines."""
     for prefix in REPLACE_CANCELS_JOB_PREFIXES:
-        job_id = f"{prefix}{drama_id}"
-        if job_id != except_job_id and _is_active(job_id):
-            request_cancel(job_id)
+        if _is_active(f"{prefix}{drama_id}"):
+            request_cancel(f"{prefix}{drama_id}")
 
 
 # Every job id this app starts that's scoped to one
