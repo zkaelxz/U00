@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -60,7 +60,7 @@ class FakeFetch:
 
 
 class Engines:
-    """translate_engines.get_engine stand-in: records (name, key) and hands
+    """engine_registry.get_engine stand-in: records (name, key) and hands
     out one FakeEngine per call."""
 
     def __init__(self, answer=None):
@@ -82,7 +82,7 @@ def env(isolated_db, monkeypatch, fake_llm):  # noqa: F811
     keys = {"claude": SECRET}
     monkeypatch.setattr(settings_service, "resolve_key", lambda name, env_path=None: keys.get(name))
     engines = Engines()
-    monkeypatch.setattr(translate_engines, "get_engine", engines)
+    monkeypatch.setattr(engine_registry, "get_engine", engines)
     from services import sources_extraction_service as svc
     monkeypatch.setattr(svc, "_REVIEWS", {})    # reviews are per process, drama ids per test DB
     yield {"fetch": fetch, "keys": keys, "engines": engines}
@@ -194,7 +194,7 @@ def test_engine_checks_before_any_job(client, env):
 def test_engine_setup_failure_is_redacted(client, env, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError(f"bad key {SECRET}")
-    monkeypatch.setattr(translate_engines, "get_engine", boom)
+    monkeypatch.setattr(engine_registry, "get_engine", boom)
     url = _novel_page(env)
     did = db.create_drama(title_en="N", media_type="novel")
     r = client.post("/api/sources/url/import",

@@ -19,7 +19,7 @@ from bulk_reflect import (_advance_pipeline, _fail_keeping_drafts, apply_reflect
 from bulk_translate import _character_names, _utcnow
 import db
 import job_force_stop
-import translate_engines
+from engine_backends import shared, translate_pipeline, pricing
 from translation_finish import finish_translation_run, own_lines_callbacks
 
 POLL_INTERVAL_SECONDS = 60
@@ -154,7 +154,7 @@ def _check_once_locked(bulk_job_id: int, provider, engine=None, monthly_cap_usd=
     except Exception as e:
         if not db.set_bulk_job_status_if(bulk_job_id, ("applying",), "failed"):
             return db.get_bulk_job(bulk_job_id)["status"]
-        db.update_bulk_job(bulk_job_id, last_error=translate_engines.redact_secrets(
+        db.update_bulk_job(bulk_job_id, last_error=shared.redact_secrets(
             f"Applying the results failed part-way, so they won't be applied again: {e}"))
         return "failed"
 
@@ -187,7 +187,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
 
     save, _notes, kept = own_lines_callbacks(did, lines, provenance)
     cap = {}
-    _, errors = translate_engines.translate_lines_with_engine(
+    _, errors = translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta=drama, style_note=args.get("style_note", ""),
         novel_reference=args.get("novel_reference"), force_retranslate=True,
         target_ids=eligible, locale=args.get("locale", "en-US"),
@@ -197,7 +197,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None,
         check_replies=args.get("check_replies"),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
             did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
+            inp, out, pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
         thinking=args.get("thinking"),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
@@ -255,7 +255,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
                                             window_open=lambda: is_deepseek_offpeak(now_fn()))
             except Exception as e:
                 if db.set_bulk_job_status_if(bulk_job_id, ("running",), "failed"):
-                    db.update_bulk_job(bulk_job_id, last_error=translate_engines.redact_secrets(str(e)))
+                    db.update_bulk_job(bulk_job_id, last_error=shared.redact_secrets(str(e)))
                 return
             if summary.pop("window_closed"):
                 reschedule_for_next_window(bulk_job_id, now_fn())
@@ -276,7 +276,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             return
         except Exception as e:
             # Transient (network, 5xx): note it and keep polling.
-            db.update_bulk_job(bulk_job_id, last_error=translate_engines.redact_secrets(str(e)))
+            db.update_bulk_job(bulk_job_id, last_error=shared.redact_secrets(str(e)))
             status = "submitted"
             if why := guard.failed(bulk_job_id):
                 background_jobs.set_result(job_id, {"stopped": why})
@@ -417,7 +417,7 @@ def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
             note = "Cancelled at the provider and here."
         except Exception as e:
             note = ("Stopped here, but the provider's own cancel call failed -- results that "
-                    f"still arrive will be ignored. ({translate_engines.redact_secrets(str(e))})")
+                    f"still arrive will be ignored. ({shared.redact_secrets(str(e))})")
     db.update_bulk_job(bulk_job_id, last_error=None)
     return note
 

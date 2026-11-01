@@ -18,12 +18,12 @@ import db
 import long_line_split
 import raw_transcript
 import resegment
-import translate_engines
+from engine_backends import engine_registry
 from engine_backends import llm_tasks, paid_calls
 from services import paid_job_service, settings_service, transcribe_options_service, translate_service
 from services.restructure_service import (_check_expected, _commit, _drama_lock, _id_list,
                                           _refuse_if_job_running, _require_drama, note_ids)
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,
@@ -203,15 +203,15 @@ def _make_on_done(drama_id, guard, engine_name, engine):
 def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str]):
     from services import translate_run_service   # lazy: heavy import
     engine_name = engine_name or drama.get("translation_engine") or settings_service.get("default_engine")
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
-    if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
+    if engine_name in engine_registry.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't suggest split points.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get("gemini_free_tier"),
         base_url=settings_service.ollama_url()

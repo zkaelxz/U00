@@ -19,7 +19,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import export_service, library_backup_service
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 HOSTILE_TITLES = ["../../etc/passwd", "..", "...", "a/b\\c", "CON.txt", "x\x00y.srt",
                   "‮txt.srt", "日本語" * 80, " . ", "NUL"]

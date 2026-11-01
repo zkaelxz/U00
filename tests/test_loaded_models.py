@@ -11,7 +11,7 @@ import pytest
 import background_jobs
 import whisper_models
 from services import loaded_models_service as svc
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 
 class _Resp:

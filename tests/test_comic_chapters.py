@@ -152,7 +152,7 @@ def test_run_chapter_scope_is_validated(drama, monkeypatch):
     _add(drama, ("c1", "One", "src"), 2)
     import db
     pid = db.list_pages(drama)[0]["id"]
-    from services.service_errors import InvalidInputError, NotFoundError
+    from lib.errors import InvalidInputError, NotFoundError
     with pytest.raises(InvalidInputError):
         run.start_run(drama, mode="page", page_id=pid, chapter_id="src:c1")
     with pytest.raises(NotFoundError):

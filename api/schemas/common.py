@@ -67,7 +67,7 @@ class JobStarted(BaseModel):
 
 
 class TranslateEngine(BaseModel):
-    """One entry from translate_engines.ENGINES --
+    """One entry from engine_backends.engine_registry.ENGINES --
     key_configured is a boolean only, never a key value."""
     name: str
     label: str

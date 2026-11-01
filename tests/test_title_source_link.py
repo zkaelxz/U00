@@ -197,7 +197,7 @@ def test_title_from_url(url, label):
     ("https://cdn.example/token/short/001.png", "https://cdn.example/token/short/001.png"),
 ])
 def test_display_url_keeps_slugs_and_drops_token_paths(url, shown):
-    from translate_engines import display_url
+    from engine_backends.shared import display_url
     assert display_url(url) == shown
 
 

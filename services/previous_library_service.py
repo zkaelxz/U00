@@ -20,7 +20,7 @@ from jobs import job_launch
 import db
 from services import disk_usage_measure as measure
 from services import disk_usage_trash_service as trash_svc
-from services.service_errors import ConflictError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, ServiceError
 
 LABEL = "Previous library kept after restore"
 DELETE_WORD = "DELETE"

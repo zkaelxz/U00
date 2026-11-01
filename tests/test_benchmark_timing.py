@@ -17,7 +17,7 @@ from services import benchmark_reference_service as refs
 from services import benchmark_runs_service as runs
 from services import model_readiness_service
 from services import transcribe_options_service as opts
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from tests.test_benchmark_references import _title, fake_ffmpeg  # noqa: F401  (fixture re-used)
 from tests.job_helpers import wait_for_job
 

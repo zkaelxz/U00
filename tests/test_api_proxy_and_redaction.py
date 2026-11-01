@@ -21,7 +21,7 @@ def test_unlisted_proxy_headers_make_a_request_non_local(header):
 
 def test_service_error_message_hides_local_paths(isolated_db, monkeypatch):
     from services import library_service
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
 
     def fail(**_):
         raise ServiceError(r"Could not read C:\Users\alice\Baihe\library.db")

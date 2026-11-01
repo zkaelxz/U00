@@ -6,7 +6,7 @@ import os
 import pytest
 
 import background_jobs
-import translate_engines
+from engine_backends import local
 from services import settings_service
 from services import diagnostics_gaps_service as gaps
 from services import diagnostics_admin_service as admin_svc
@@ -305,8 +305,8 @@ def ollama(monkeypatch):
         if state["chat_error"]:
             raise state["chat_error"]
         return state["reply"]
-    monkeypatch.setattr(translate_engines, "check_ollama_model_installed", installed)
-    monkeypatch.setattr(translate_engines, "_ollama_chat", chat)
+    monkeypatch.setattr(local, "check_ollama_model_installed", installed)
+    monkeypatch.setattr(local, "_ollama_chat", chat)
     return state
 
 
@@ -330,7 +330,7 @@ def test_translate_headroom_refusal_halts_the_run_without_chatting(ollama, monke
 
 
 def test_translate_skips_when_ollama_unreachable(ollama):
-    ollama["installed_error"] = translate_engines.OllamaUnavailableError(
+    ollama["installed_error"] = local.OllamaUnavailableError(
         "ollama_unreachable", "Ollama isn't running. Start it, or pick another translator in Settings.")
     r = _run("translate")
     assert r["status"] == svc.SKIPPED and "isn't running" in r["reason"]
@@ -338,13 +338,13 @@ def test_translate_skips_when_ollama_unreachable(ollama):
 
 
 def test_translate_skips_when_model_not_pulled(ollama):
-    ollama["installed_error"] = translate_engines.OllamaUnavailableError(
+    ollama["installed_error"] = local.OllamaUnavailableError(
         "ollama_model_missing", "Ollama doesn't have the model m.")
     assert _run("translate")["status"] == svc.SKIPPED
 
 
 def test_translate_fails_on_timeout_and_empty_answer(ollama):
-    ollama["chat_error"] = translate_engines.OllamaUnavailableError("ollama_timeout", "too slow")
+    ollama["chat_error"] = local.OllamaUnavailableError("ollama_timeout", "too slow")
     assert _run("translate")["status"] == svc.FAIL
     ollama["chat_error"] = None
     ollama["reply"] = {"message": {"content": "<think>hm</think>"}}
@@ -354,7 +354,7 @@ def test_translate_fails_on_timeout_and_empty_answer(ollama):
 def test_translate_uses_the_configured_ollama_url_without_leaking_it(ollama, monkeypatch):
     seen = []
     monkeypatch.setattr(settings_service, "resolve_key", lambda k: "http://192.168.1.9:11434/")
-    monkeypatch.setattr(translate_engines, "_ollama_chat",
+    monkeypatch.setattr(local, "_ollama_chat",
                         lambda url, payload: seen.append(url) or {"message": {"content": "Hi"}})
     r = _run("translate")
     assert seen == ["http://192.168.1.9:11434"] and "192.168" not in r["reason"]

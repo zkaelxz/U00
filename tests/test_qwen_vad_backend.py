@@ -285,7 +285,7 @@ def test_backend_is_registered():
 
 def test_refine_option_defaults_off_and_saves(isolated_db):
     from services import asr_options_service
-    from services.service_errors import InvalidInputError
+    from lib.errors import InvalidInputError
     assert asr_options_service.get_asr_options()["qwen_vad_refine_timing"] is False
     assert asr_options_service.set_asr_options(qwen_vad_refine_timing=True)[
         "qwen_vad_refine_timing"] is True
@@ -297,7 +297,7 @@ def test_run_start_and_validate_refuse_vad_backend_without_faster_whisper(isolat
     import importlib.util
     import os
     from services import transcribe_service, transcribe_options_service
-    from services.service_errors import DependencyUnavailableError
+    from lib.errors import DependencyUnavailableError
     did = isolated_db.create_drama(title_en="D", audio_filename="audio.wav",
                                    transcript_mode="whisper", asr_backend_choice="qwen3_asr_vad")
     ddir = isolated_db.drama_dir(did)

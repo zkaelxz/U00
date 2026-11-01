@@ -16,7 +16,7 @@ import pytest
 
 from lib import settings_schema as schema
 from services import settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -138,7 +138,7 @@ def _resolve_expression(rel, expr, modules, seen=()):
         found = _resolve_constant(modules[dotted.group(1)], dotted.group(2), modules, seen)
         if found is not None:
             return found
-        # A front door such as translate_engines re-exports the name from elsewhere.
+        # A front door such as db re-exports the name from elsewhere.
         for rel_other in modules.values():
             found = _resolve_constant(rel_other, dotted.group(2), modules, seen)
             if found is not None:

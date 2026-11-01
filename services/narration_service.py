@@ -26,7 +26,8 @@ import background_jobs
 from jobs import job_launch
 import novel_text
 import db
-import translate_engines
+from engine_backends import llm_tasks, engine_registry
+from engine_backends import local as engine_local
 from engine_backends import paid_calls
 from core import Line
 from engine_backends.run_limits import TranslateRunStopped
@@ -37,7 +38,7 @@ from services import (
     paid_job_service,
     settings_service,
 )
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,
@@ -107,7 +108,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
-        gpu_touching=translate_engines.ollama_touches_local_gpu(engine_name, model),
+        gpu_touching=engine_local.ollama_touches_local_gpu(engine_name, model),
         description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh), line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
@@ -125,7 +126,7 @@ def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
         "narration_tag", drama_id, job_checkpoint_service.hash_text(text),
         f"{engine_name}:{model or ''}",
         {"max_chunk_chars": max_chunk_chars, "known": sorted(known),
-         "prompt_version": translate_engines.TAG_SPEAKERS_PROMPT_VERSION})
+         "prompt_version": llm_tasks.TAG_SPEAKERS_PROMPT_VERSION})
     try:
         if fresh:
             job_checkpoint_service.clear_prefix("narration_tag", drama_id)
@@ -167,7 +168,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
 
     job_timing_service.mark_stage(job_id, "Tag speakers")
     background_jobs.update_progress(job_id, 0.2, "Tagging speakers with the LLM...")
-    engine = translate_engines.get_engine(
+    engine = engine_registry.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get("gemini_free_tier"),
         base_url=(settings_service.ollama_url() if engine_name == "ollama" else None))
@@ -180,7 +181,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
 
     try:
         with paid_job_service.job_calls(job_id, drama_id, engine, engine_name, "tag_speakers"):
-            by_idx = translate_engines.tag_speakers_by_id(
+            by_idx = llm_tasks.tag_speakers_by_id(
                 {ln.idx: ln.zh for ln in lines}, engine, known,
                 usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "tag_speakers"),
                 done=done, on_batch=_checkpoint,

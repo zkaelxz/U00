@@ -23,7 +23,7 @@ from api.schemas import (ErrorResponse, MediaPeaks, MediaStatus, MediaUploadResu
                          MediaUrlDownloadStarted, TranscribeRunRequest, UploadAndTranscribeResult, error_responses)
 from services import (media_peaks_service, media_playback_service, media_upload_service, url_media_service,
                       transcribe_options_service)
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/media", tags=["media"])

@@ -1,9 +1,7 @@
 """
-The translation engines behind translate_engines.py, split by provider and role.
-Import from translate_engines to use these names: that module re-exports every one.
-A test must patch the module that uses the name (engine_backends.<module>.<name>);
-a patch on translate_engines only affects code that reads the name from
-translate_engines at call time.
+The translation engines, split by provider and role. Import the module that
+defines a name. A test must patch the module that uses the name
+(engine_backends.<module>.<name>).
 
   pricing.py            model lists, per-million-token prices, cost estimates
   shared.py             usage totals, retry/backoff, secret redaction, id-keyed

@@ -14,7 +14,7 @@ import json
 import db
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_runs_service as runs_svc
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 FORMATS = ("csv", "json")
 _RUN_COLUMNS = ("run_id", "run_label", "stage", "engine", "model", "prompt_version", "settings")

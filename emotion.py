@@ -17,7 +17,7 @@ Two things happen here:
 
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import load_json_reply
-from translate_engines import call_llm_json
+from engine_backends.llm_tasks import call_llm_json
 
 # Registers worth distinguishing because they change word choice in English.
 EMOTION_TAGS = {

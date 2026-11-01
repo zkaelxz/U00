@@ -41,7 +41,7 @@ import novel_text
 import ocr as ocr_module
 import subtitle_parse
 from services import drama_service, media_upload_service, ownership_service, settings_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_TEXT_CHARS = 2_000_000
 MAX_EPUB_BYTES = 50 * 1024 * 1024

@@ -22,7 +22,7 @@ from lib.safe_paths import plain_file_in
 import dub
 import dub_narration
 from services import ownership_service
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
 NARRATION_LANGUAGE_OPTIONS = ["translation", "original"]
