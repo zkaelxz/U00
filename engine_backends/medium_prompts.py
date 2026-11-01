@@ -49,6 +49,8 @@ _LENGTH_RULE = {
         "not their words: give the natural English with the same force, and avoid stock "
         "translationese (\"a hint of\", \"couldn't help but\", \"the corner of her mouth "
         "curled\") when the source is plainer.\n"
+        "- Add no image, detail or flourish the source does not have, and prefer plain wording "
+        "to ornate: fluent means natural, not embellished.\n"
         "- Put dialogue in standard English form: double quotation marks, with the dialogue "
         "tag and punctuation placed as an English novel would, and no CJK quotation marks.\n"
     ),
