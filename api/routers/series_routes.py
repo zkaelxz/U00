@@ -20,20 +20,32 @@ service checks the source series of a copy, which comes in the query or
 body. Delete is PC only, like every other delete.
 """
 
-from fastapi import APIRouter, Path, Query, Request
+from typing import Any, Literal
+
+from fastapi import APIRouter, Path, Query, Request, Response
+
+from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.auth import local_only, require_permission
 from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
                          SeriesCopyTermsResult, SeriesDefaults, SeriesDefaultsApplyRequest,
                          SeriesDefaultsApplyResult, SeriesDefaultsPreview, SeriesDefaultsUpdate,
                          SeriesDeletePreview, SeriesDeleteRequest, SeriesDeleteResult,
-                         SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult, error_responses)
+                         SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult,
+                         SeriesTmxImportRequest, SeriesTmxImportResult, error_responses)
+from lib.capped_request import BodyTooLarge, capped, check_content_length
+from lib.errors import InvalidInputError
 from services import series_defaults_service as defaults_svc
 from services import series_service as svc
+from services import tm_service
 
 router = APIRouter(prefix="/api/series", tags=["series"])
 
 _ERRS = error_responses(403, 404, 409, 422)
+# error_responses is untyped, so a route's own `responses` literal is annotated to satisfy the type checker.
+_TMX_ERRS: dict[int | str, dict[str, Any]] = {**_ERRS}
 _MAX_ID = 2**31 - 1
 
 
@@ -120,3 +132,38 @@ def apply_defaults_preview(request: Request, series_id: int = _id(),
              summary="Apply the defaults to every title in the series (409 while a job runs)")
 def apply_defaults(body: SeriesDefaultsApplyRequest, request: Request, series_id: int = _id()):
     return defaults_svc.apply_defaults(request.state.principal, series_id, body.mode)
+
+
+@router.get("/{series_id}/translation-memory.tmx", dependencies=[require_permission("library.read")],
+            responses={200: {"content": {"application/x-tmx+xml": {}}}, **_TMX_ERRS},
+            summary="Download the series' translation memory as a TMX file")
+def export_tmx(request: Request, series_id: int = _id(),
+               source_language: Literal["zh", "ja", "ko"] = Query("zh")):
+    text = tm_service.export_tmx(request.state.principal, series_id, source_language)
+    return Response(content=text, media_type="application/x-tmx+xml",
+                    headers={"Content-Disposition": f'attachment; filename="series-{series_id}-memory.tmx"'})
+
+
+# The body is JSON, so each TMX character can take up to six bytes once escaped; the cap is that for the 5 MB text limit plus the wrapper.
+_TMX_BODY_CAP = 6 * 5_000_000 + 4096
+_TMX_TOO_LARGE = "This TMX file is too large."
+_TMX_BODY = {"requestBody": {"required": True, "content": {"application/json": {"schema": {
+    "type": "object", "required": ["tmx"], "additionalProperties": False,
+    "properties": {"tmx": {"type": "string", "description": "The TMX file's text."}}}}}}}
+
+
+@router.post("/{series_id}/translation-memory/import", dependencies=[require_permission("lines.edit")],
+             response_model=SeriesTmxImportResult, responses=_TMX_ERRS, openapi_extra=_TMX_BODY,
+             summary="Add translation-memory pairs from a TMX file; sources already stored are kept")
+async def import_tmx(request: Request, series_id: int = _id()):
+    # Read here, not as a typed body, so the size is checked before any of it is read.
+    check_content_length(request, _TMX_BODY_CAP, "the file", _TMX_TOO_LARGE)
+    try:
+        raw = await capped(request, _TMX_BODY_CAP).body()
+    except BodyTooLarge:
+        raise StarletteHTTPException(413, _TMX_TOO_LARGE) from None
+    try:
+        body = SeriesTmxImportRequest.model_validate_json(raw)
+    except ValidationError:
+        raise InvalidInputError("Send a JSON object with a tmx text.") from None
+    return await run_in_threadpool(tm_service.import_tmx, request.state.principal, series_id, body.tmx)

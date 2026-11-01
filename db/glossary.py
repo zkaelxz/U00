@@ -125,6 +125,35 @@ def list_translation_memory(series_id: int):
     return [dict(r) for r in rows]
 
 
+def import_translation_memory(series_id: int, pairs) -> dict:
+    """Adds (source, translation, use_count) pairs in one transaction. A source the series
+    already has keeps its stored translation (that one was approved by hand); when the
+    translations agree the larger use_count wins. Returns {"added", "skipped"}."""
+    added = skipped = 0
+    now = clock.utcnow().isoformat()
+    with contextlib.closing(db.get_conn()) as conn:
+        # The write lock is taken before the read, so a concurrent record_translation_memory
+        # cannot add a source between the SELECT and the INSERT below.
+        conn.execute("BEGIN IMMEDIATE")
+        have = {r["source_text"]: r["translation"] for r in conn.execute(
+            "SELECT source_text, translation FROM translation_memory WHERE series_id = ?", (series_id,))}
+        for source, translation, uses in pairs:
+            if source in have:
+                skipped += 1
+                conn.execute(
+                    "UPDATE translation_memory SET use_count = MAX(use_count, ?) "
+                    "WHERE series_id = ? AND source_text = ? AND translation = ?",
+                    (uses, series_id, source, translation))
+                continue
+            conn.execute(
+                "INSERT INTO translation_memory (series_id, source_text, translation, use_count, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)", (series_id, source, translation, uses, now))
+            have[source] = translation
+            added += 1
+        conn.commit()
+    return {"added": added, "skipped": skipped}
+
+
 def bump_translation_memory_use(entry_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE translation_memory SET use_count = use_count + 1, updated_at = ? WHERE id = ?",
