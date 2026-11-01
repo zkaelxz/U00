@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import types
 
 from expected_files import EXPECTED_TOP_LEVEL_FILES
 
@@ -348,7 +349,7 @@ PYANNOTE_MIN_VRAM_GB = 12
 PYANNOTE_VRAM_MARGIN_GB = 0.5
 
 
-def _ints(text: str, n: int):
+def _ints(text: str | None, n: int):
     m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text or "")
     return tuple(int(g or 0) for g in m.groups()[:n]) if m else None
 
@@ -649,7 +650,7 @@ PIP_CACHE_PERMISSION_HINT = (
     "or delete %LOCALAPPDATA%\\pip\\cache, then try again.")
 
 
-def pip_cache_permission_hint(lines) -> str:
+def pip_cache_permission_hint(lines) -> str | None:
     """PIP_CACHE_PERMISSION_HINT when pip's output shows a permission error
     inside its own cache folder, else None."""
     for line in lines:
@@ -725,7 +726,7 @@ def _version_sort_key(version: str):
     return key
 
 
-def _packaging():
+def _packaging() -> tuple[types.ModuleType, types.ModuleType, types.ModuleType]:
     """packaging's version/specifier/requirement modules: the standalone
     package when installed, else the copy pip vendors (pip is always there
     when these installs can run at all)."""

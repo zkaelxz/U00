@@ -56,6 +56,8 @@ def import_epub_text(epub_path: str, chapter_range: tuple | None = None, images_
                 if not src:
                     img_tag.decompose()
                     continue
+                if not isinstance(src, str):
+                    raise TypeError("an <img> src is a single-valued attribute")
                 resolved_href = posixpath.normpath(posixpath.join(chapter_dir, src))
                 image_item = book.get_item_with_href(resolved_href)
                 if image_item is None:

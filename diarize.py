@@ -36,7 +36,7 @@ from lib import clock
 import json
 import os
 import time
-from typing import Optional
+from typing import Literal, Optional, overload
 
 DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
                       "pyannote/speaker-diarization-3.1")
@@ -68,7 +68,8 @@ def load_pipeline(hf_token: str):
     neither loads."""
     from pyannote.audio import Pipeline
     from lib import model_offline
-    first_error = last_error = None
+    first_error: Exception | None = None
+    last_error: Exception | None = None
     # Offline (a run started away from the PC) there is no fallback: 3.1
     # pulls in two more repos, which would be a download.
     for model in DIARIZATION_MODELS[:1] if model_offline.active() else DIARIZATION_MODELS:
@@ -82,6 +83,8 @@ def load_pipeline(hf_token: str):
         first_error = first_error or last_error
     if model_offline.active():
         raise RuntimeError(model_offline.NOT_DOWNLOADED_MESSAGE) from last_error
+    if last_error is None:
+        raise RuntimeError("DIARIZATION_MODELS is empty")
     if first_error is not last_error and last_error.__cause__ is None:
         # The first model's failure is usually the one to fix (its terms not
         # accepted); chained, it reaches the server log with the traceback.
@@ -306,10 +309,20 @@ def _free_gpu_memory() -> None:
         pass
 
 
+@overload
+def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, *,
+            return_model: Literal[True], return_embeddings: Literal[True], use_gpu: bool = False,
+            min_speakers: int | None = None, max_speakers: int | None = None,
+            run_info: dict | None = None, on_progress=None) -> tuple[list[dict], str, dict]: ...
+@overload
+def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, return_model: bool = False,
+            return_embeddings: bool = False, use_gpu: bool = False,
+            min_speakers: int | None = None, max_speakers: int | None = None,
+            run_info: dict | None = None, on_progress=None) -> list[dict] | tuple: ...
 def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, return_model: bool = False,
            return_embeddings: bool = False, use_gpu: bool = False,
            min_speakers: int | None = None, max_speakers: int | None = None, run_info: dict | None = None,
-           on_progress=None):
+           on_progress=None) -> list[dict] | tuple:
     """
     Returns a list of {"start": float, "end": float, "speaker": str}
     covering who spoke when, e.g. "SPEAKER_00", "SPEAKER_01", ... --
@@ -388,7 +401,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, ret
     # instead of an Annotation directly, so .itertracks() would otherwise
     # break on 4.x with an AttributeError. 3.x's plain Annotation has no
     # such attribute, so this falls through to using it directly.
-    annotation = getattr(result, "speaker_diarization", result)
+    annotation = result.speaker_diarization if hasattr(result, "speaker_diarization") else result
 
     segments = []
     for turn, _, speaker in annotation.itertracks(yield_label=True):

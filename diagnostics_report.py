@@ -238,7 +238,8 @@ _URL_SLOT = "\x00URL{}\x00"
 
 
 # Set inside reusing_account_names(): the names read once for a whole list.
-_reused_names = contextvars.ContextVar("reused_account_names", default=None)
+_reused_names: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar(
+    "reused_account_names", default=None)
 
 
 @contextlib.contextmanager

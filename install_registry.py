@@ -40,7 +40,7 @@ def installable_packages() -> set:
             not in diagnostics.NOT_OFFERED_FOR_INSTALL}
 
 
-def unqueueable_reason(keys) -> str:
+def unqueueable_reason(keys) -> str | None:
     """Why these keys can't be planned or queued, else None. The CUDA torch
     triple comes from a fixed index through its own GPU PyTorch setup; a plain
     `pip install torch` here would swap it for the CPU wheel."""

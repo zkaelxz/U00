@@ -93,7 +93,7 @@ _active_markers = set()
 def _windows_kernel32():
     import ctypes
     from ctypes import wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     k32.OpenProcess.restype = wintypes.HANDLE
     k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     k32.GetExitCodeProcess.restype = wintypes.BOOL
@@ -224,7 +224,7 @@ def _other_live_download(model_dir: str, model: str, own_marker: str = "") -> bo
 
 def _marker_key(path: str):
     pid, start = _read_marker(path)
-    return (int(start) if str(start).isdigit() else 0, pid or 0, path)
+    return (int(start) if start is not None and str(start).isdigit() else 0, pid or 0, path)
 
 
 def _earlier_live_marker(model_dir: str, model: str, own_marker: str) -> bool:
@@ -611,7 +611,7 @@ def _separate_vocals_chunked(audio_path: str, out_path: str, process_chunk_fn,
             sf.write(chunk_in, waveform[start:end], in_sr)
             process_chunk_fn(chunk_in, chunk_out)
             chunk_vocals, chunk_sr = sf.read(chunk_out, dtype="float32", always_2d=True)
-            if combined is None:
+            if combined is None or out_sr is None:
                 combined, out_sr = chunk_vocals, chunk_sr
             else:
                 combined = _crossfade_append(combined, chunk_vocals, int(overlap_seconds * out_sr))

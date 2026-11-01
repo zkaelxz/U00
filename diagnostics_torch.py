@@ -14,7 +14,8 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Optional
+from types import EllipsisType
+from typing import Any, Optional
 
 from jobs import job_launch
 import dependency_updates
@@ -68,7 +69,7 @@ def get_gpu_status() -> dict:
 # a wedged nvidia-smi from collecting one stuck child per poll.
 DRIVER_LOAD_CACHE_SECONDS = 2.0
 _driver_load_lock = threading.Lock()
-_driver_load_cache = {"at": None, "value": None}
+_driver_load_cache: dict[str, Any] = {"at": None, "value": None}
 
 
 def forget_driver_load() -> None:
@@ -138,7 +139,7 @@ GPU_STATUS_CACHE_SECONDS = 3600
 GPU_STATUS_RETRY_SECONDS = 30
 GPU_CHECK_PAUSED_MESSAGE = "GPU check paused while an install runs."
 _gpu_status_lock = threading.Lock()
-_gpu_status_cache = {"at": None, "value": None}
+_gpu_status_cache: dict[str, Any] = {"at": None, "value": None}
 
 
 def _gpu_status_unavailable(message: str = "GPU info unavailable.") -> dict:
@@ -240,7 +241,7 @@ def external_gpu_load() -> dict | None:
         # Name last: it is the one text column and may hold a comma.
         fields = [x.strip() for x in line.split(",", 3)]
         util_percent, used_mb, total_mb = (float(x) for x in fields[:3])
-        load = {"utilization_percent": util_percent, "memory_used_mb": used_mb,
+        load: dict[str, float | str] = {"utilization_percent": util_percent, "memory_used_mb": used_mb,
                 "memory_total_mb": total_mb, "memory_free_mb": total_mb - used_mb}
         if len(fields) == 4 and fields[3]:
             load["name"] = fields[3][:120]
@@ -249,7 +250,7 @@ def external_gpu_load() -> dict | None:
         return None
 
 
-def external_gpu_is_busy(load=...):
+def external_gpu_is_busy(load: dict | None | EllipsisType = ...):
     """True if the GPU looks meaningfully loaded by *something* right now,
     per nvidia-smi -- whether or not Baihe itself started it. False (never
     blocks a job) if nvidia-smi isn't available: this is a belt-and-suspenders

@@ -273,6 +273,8 @@ def dedupe_into_cues(timed_texts, interval_sec: float, min_chars: int = 1,
 
     def flush():
         if confirmed_text and len(_normalize_for_compare(confirmed_text)) >= min_chars:
+            if confirmed_end is None:
+                raise ValueError("a confirmed caption always has an end time")
             cues.append({"start": confirmed_start, "end": confirmed_end + interval_sec,
                         "text": confirmed_text})
 

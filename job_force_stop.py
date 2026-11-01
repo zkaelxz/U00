@@ -135,7 +135,7 @@ def force_stop(job_id: str) -> dict:
             raise ConflictError("Cancel the job first and give it a minute to stop on its own.")
         _, worker = job_table._workers.get(job_id, (None, None))
         alive = worker is not None and worker.is_alive()
-        if alive:
+        if alive and worker is not None:
             worker.baihe_abandoned = True
             worker.baihe_abandoned_gpu = bool(job.get("gpu_touching"))
             worker.baihe_abandoned_owner = job.get("owner_user_id")
