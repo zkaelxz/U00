@@ -46,6 +46,7 @@ import {
   clampPage,
   comicHref,
   hashIsComic,
+  isReadTranslated,
   defaultPrefs,
   inRenderWindow,
   loadComicPrefs,
@@ -557,7 +558,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
       {empty ? (
         <div className="comic-scanlate comic-empty">
-          <p>No pages to read yet. Upload page images or a PDF to translate them.</p>
+          <p>{isReadTranslated(browserStorage(), id) ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
           {panel}
         </div>
       ) : !data || current === null ? (
