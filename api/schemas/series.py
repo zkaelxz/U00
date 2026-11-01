@@ -38,6 +38,7 @@ class SeriesTitle(BaseModel):
     episode_number: Optional[int] = None
     release_date: Optional[str] = None
     line_count: int
+    translated_count: int = 0
 
 
 class SeriesPage(BaseModel):

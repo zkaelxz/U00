@@ -52,7 +52,7 @@ class TestPage:
         db.create_drama(title_en="Two", source_language="zh", series_id=s,
                         owner_user_id=people["a_id"])
         db.create_drama(title_en="Elsewhere", source_language="zh")
-        db.save_lines(d1, [Line(idx=0, start=0, end=1, zh="一"), Line(idx=1, start=1, end=2, zh="二")])
+        db.save_lines(d1, [Line(idx=0, start=0, end=1, zh="一", en="One"), Line(idx=1, start=1, end=2, zh="二")])
         db.upsert_glossary_term(s, "林", "Lin")
         db.update_series_instructions(s, "Keep it formal.")
 
@@ -65,8 +65,10 @@ class TestPage:
         titles = {t["title_en"]: t for t in page["titles"]}
         assert set(titles) == {"One", "Two"}
         assert titles["One"]["line_count"] == 2
+        assert titles["One"]["translated_count"] == 1
         assert titles["One"]["media_type"] == "novel"
         assert titles["Two"]["line_count"] == 0
+        assert titles["Two"]["translated_count"] == 0
 
     def test_other_users_private_series_is_not_found(self, people):
         s = db.create_series("Mine", owner_user_id=people["a_id"], is_private=True)
