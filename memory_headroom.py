@@ -72,7 +72,8 @@ def reserved_mb(memory: str) -> float:
         if not os.path.exists(db.DB_PATH):
             return 0.0  # no library yet means no saved setting; reading would create one
         from services import settings_service
-        return max(0.0, float(settings_service.get(KEEP_FREE_KEYS[memory]) or 0)) * 1024
+        gb = settings_service.get(KEEP_FREE_KEYS[memory])
+        return max(0.0, float(gb) if isinstance(gb, (int, float)) else 0.0) * 1024
     except Exception:
         return 0.0
 
@@ -225,7 +226,8 @@ def estimate_mb(kind: str, name: str):
     model folder, a new size): an unknown model is never blocked."""
     name = str(name or "")
     if kind == "whisper":
-        return _WHISPER_MB.get(whisper_key(name))
+        key = whisper_key(name)
+        return _WHISPER_MB.get(key) if key else None
     if kind == "qwen_asr":
         return _QWEN_ASR_MB.get(name)
     return _ESTIMATES_MB.get(kind, {}).get(name)
@@ -237,7 +239,7 @@ def check(kind: str, name: str, use_gpu: bool) -> None:
     if need is None:
         return
     if kind == "whisper":
-        name = whisper_key(name)
+        name = whisper_key(name) or name
     label = f"{_LABELS.get(kind, kind)} {name}" if kind in ("whisper", "qwen_asr") else _LABELS[kind]
     if (kind, name) == ("aligner", "mms"):
         label = "the MMS word aligner"

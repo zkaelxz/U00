@@ -274,8 +274,8 @@ class StreamPump:
     so ffmpeg sees end of input. `error` is the first failure (a fixed
     message), None after a clean end or a halt()."""
 
-    def __init__(self, url: str, sink, proxy: str = None, stall_timeout: float = None,
-                 align: SequenceAlign = None):
+    def __init__(self, url: str, sink, proxy: str | None = None, stall_timeout: float | None = None,
+                 align: SequenceAlign | None = None):
         self.url = url
         self._align = align
         self.error = None
@@ -594,13 +594,13 @@ class StreamPump:
                     raise StreamFetchError(UNSUPPORTED)
                 key_bytes = self._key(init_key["uri"], keys) if init_key else None
                 data, _ = self._read(init["uri"], MAX_SEGMENT_BYTES)
-                if init_key:
+                if key_bytes is not None:
                     data = _decrypt(data, key_bytes, init_key["iv"])
                 self._emit(data)
             key = segment["key"]
             key_bytes = self._key(key["uri"], keys) if key else None
             data, _ = self._read(segment["uri"], MAX_SEGMENT_BYTES)
-            if key:
+            if key_bytes is not None:
                 data = _decrypt(data, key_bytes, key["iv"] or segment["seq"].to_bytes(16, "big"))
             self._emit(data)
         except _FetchFailed:

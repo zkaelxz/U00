@@ -5,6 +5,8 @@ board, stage, runner, skips ...) and the Whisper call itself, so the
 patch targets tests use on live_translate stay where they are.
 """
 import os
+from collections.abc import Callable
+from typing import Any
 
 import live_audio
 import live_cue_feed
@@ -20,6 +22,20 @@ CHUNK_CONTEXT_CARRY_CHARS = 200
 
 
 class ChunkCaptioner:
+    # Provided by _LiveRun; declared so this mixin type-checks on its own.
+    out_dir: str
+    segment_seconds: int
+    overlap_seconds: float
+    state: dict[str, Any]
+    note: Callable[..., Any]
+    runner: live_whisper.WhisperRunner
+    board: live_pipeline.CueBoard
+    skips: live_whisper.SkipNotes
+    stage: live_pipeline.Stage
+    stats: live_pipeline.LagStats
+    _transcribe_window: Callable[..., tuple[list[dict[str, Any]], Any]]
+    _superseded: Callable[[], bool]
+
     def caption(self, idx, path, worker, final=False):
         """Whisper for one chunk, its lines onto the board and its translation
         handed to the worker. Raises JobCancelled once the session is cancelled."""
