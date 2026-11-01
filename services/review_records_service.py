@@ -28,6 +28,7 @@ from services import ownership_service
 from lib.errors import NotFoundError
 
 MAX_TM_LINES_SCANNED = 2000  # cap on lines fed to the TM scan (roughly lines x entries)
+MAX_TM_ENTRIES_SCANNED = 5000  # the most used entries; the other factor of lines x entries
 
 
 def _newest_first(rows: list) -> list:
@@ -227,7 +228,7 @@ def list_tm_suggestions(drama_id: int, line_ids: Optional[list] = None) -> list:
     series_id = drama.get("series_id")
     if not series_id:
         return []
-    entries = db.list_translation_memory(series_id)
+    entries = db.list_translation_memory(series_id, limit=MAX_TM_ENTRIES_SCANNED)
     lines = db.load_line_objects(drama_id)
     if line_ids is not None:
         wanted = set(line_ids)

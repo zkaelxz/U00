@@ -118,10 +118,13 @@ def record_translation_memory(series_id: int, source_text: str, translation: str
         conn.commit()
 
 
-def list_translation_memory(series_id: int):
+def list_translation_memory(series_id: int, limit: int | None = None):
+    """limit: only the most used (then newest) entries, for a caller whose
+    matching cost grows with the number of entries."""
+    order = "ORDER BY id" if limit is None else "ORDER BY use_count DESC, id DESC LIMIT ?"
     with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM translation_memory WHERE series_id = ? ORDER BY id",
-                            (series_id,)).fetchall()
+        rows = conn.execute(f"SELECT * FROM translation_memory WHERE series_id = ? {order}",
+                            (series_id,) if limit is None else (series_id, limit)).fetchall()
     return [dict(r) for r in rows]
 
 

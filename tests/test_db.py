@@ -3147,3 +3147,26 @@ class TestInterruptedRestoreRecovery:
         monkeypatch.setattr(os, "open", lambda *a, **k: opened.append(a))
         db.fsync_dir(str(tmp_path))
         assert opened == []
+
+
+class TestLineRefIndexesAndOrphans:
+    def test_the_per_line_tables_are_indexed_by_line_id(self, isolated_db):
+        import contextlib
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            for table in ("translation_notes", "line_emotions", "reading_history"):
+                plan = " ".join(r[3] for r in conn.execute(
+                    f"EXPLAIN QUERY PLAN DELETE FROM {table} WHERE line_id = 1"))
+                assert "USING INDEX" in plan or "USING COVERING INDEX" in plan, table
+
+    def test_notes_and_emotions_for_a_removed_line_are_not_saved(self, isolated_db):
+        from core import Line
+        did = isolated_db.create_drama(title_en="T")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="A")])
+        gone = isolated_db.load_lines(did)[0]["id"]
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="b", en="B")], fields=None)
+        assert isolated_db.load_lines(did)[0]["id"] != gone
+        isolated_db.save_translation_notes(
+            did, [{"line_id": gone, "line_idx": 0, "term": "t", "note": "n"}])
+        isolated_db.save_emotions(did, {0: {"emotion": "sad"}}, id_by_idx={0: gone})
+        assert isolated_db.list_translation_notes(did) == []
+        assert isolated_db.line_emotion_ids(did) == set()

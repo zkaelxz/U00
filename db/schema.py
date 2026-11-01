@@ -656,6 +656,10 @@ def _create_core_indexes(conn):
         CREATE INDEX IF NOT EXISTS idx_usage_drama ON usage_log(drama_id);
         CREATE INDEX IF NOT EXISTS idx_history_drama ON line_history(drama_id);
         CREATE INDEX IF NOT EXISTS idx_reading_history_drama ON reading_history(drama_id);
+        -- A full sync deletes or unlinks these per removed line, by line_id alone.
+        CREATE INDEX IF NOT EXISTS idx_translation_notes_line ON translation_notes(line_id);
+        CREATE INDEX IF NOT EXISTS idx_line_emotions_line ON line_emotions(line_id);
+        CREATE INDEX IF NOT EXISTS idx_reading_history_line ON reading_history(line_id);
         CREATE INDEX IF NOT EXISTS idx_versions_drama ON translation_versions(drama_id);
         CREATE INDEX IF NOT EXISTS idx_wiki_drama ON wiki_entries(drama_id);
         CREATE INDEX IF NOT EXISTS idx_edits_drama ON edit_samples(drama_id);
