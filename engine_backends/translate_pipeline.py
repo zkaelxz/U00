@@ -522,10 +522,9 @@ class _TranslateRun:
                 fresh.append(ln)
             else:
                 empty.append(ln)
-        # A forced re-translate leaves an omitted line on its current English
-        # (maybe the user's edit); asking again would overwrite it.
-        if (empty and not self.args.force_retranslate
-                and (len(chunk) > 1 or len(empty) < len(chunk))):
+        # A forced rerun keeps the old English on a line the reply omitted (it may be the
+        # user's own edit), so re-asking it would be the only path that rewrites it.
+        if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
             empty = self._retry_smaller(empty, fresh, depth=0)
         flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
         if empty:
