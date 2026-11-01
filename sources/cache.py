@@ -45,7 +45,7 @@ _STALE_TEMPORARY_SECONDS = 86400
 
 
 class RawCache:
-    def __init__(self, mode: str = None):
+    def __init__(self, mode: str | None = None):
         self.mode = mode or store.get_setting("cache_mode") or "temporary"
         if self.mode not in MODES:
             raise ValueError(f"Unknown cache mode {self.mode!r}; expected one of {MODES}")
@@ -148,7 +148,7 @@ class RawCache:
             except FileNotFoundError:
                 pass
 
-    def enforce_ceiling(self, max_mb: float = None):
+    def enforce_ceiling(self, max_mb: float | None = None):
         """Roadmap 111: shrink what the keep modes retain to the
         `cache_max_mb` setting (0 = no limit). Works per distinct content
         (one file can back several URLs), least recently used first, and

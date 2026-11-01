@@ -161,7 +161,7 @@ class PacingPolicy:
     session_break_max_delay: float = 90.0
 
     @classmethod
-    def from_settings(cls, host_min_interval: dict = None) -> "PacingPolicy":
+    def from_settings(cls, host_min_interval: dict | None = None) -> "PacingPolicy":
         s = store.all_settings()
         lo = max(0.0, float(s["pace_min_delay"]))
         hi = max(lo, float(s["pace_max_delay"]))
@@ -279,7 +279,7 @@ class SourceClient:
 
     def __init__(self, source: str, policy: PacingPolicy = None, transport=None,
                  sleep=time.sleep, clock=time.monotonic, rng=None, cache: RawCache = None,
-                 default_headers: dict = None, cancel_check=None, status_cb=None,
+                 default_headers: dict | None = None, cancel_check=None, status_cb=None,
                  timeout: float = DEFAULT_TIMEOUT, max_page_bytes: int = MAX_PAGE_BYTES,
                  max_image_bytes: int = MAX_IMAGE_BYTES,
                  request_deadline: float = REQUEST_DEADLINE):
@@ -315,7 +315,7 @@ class SourceClient:
         return bool(self.cancel_check and self.cancel_check())
 
     # -- status view plumbing --------------------------------------------
-    def _status(self, action: str = None, delay: float = None):
+    def _status(self, action: str | None = None, delay: float | None = None):
         if action is not None:
             self.stats["current_action"] = action
         if delay is not None:
@@ -343,7 +343,7 @@ class SourceClient:
             self.sleep(min(left, 0.5))
 
     # -- pacing ------------------------------------------------------------
-    def _wait_turn(self, host: str, st: dict, image_pace: tuple = None):
+    def _wait_turn(self, host: str, st: dict, image_pace: tuple | None = None):
         """Takes the source's session break, then waits for the host's
         turn. The two locks are never held together, and the host lock
         only blocks other requests to that host. `image_pace`: (min, max)
@@ -399,9 +399,9 @@ class SourceClient:
         st["since_break"] += 1
 
     # -- the request -------------------------------------------------------
-    def request(self, method: str, url: str, headers: dict = None, data=None,
+    def request(self, method: str, url: str, headers: dict | None = None, data=None,
                 use_cache: bool = True, classify_body: bool = True, record_health: bool = True,
-                action: str = None, image_pace: tuple = None) -> Response:
+                action: str | None = None, image_pace: tuple | None = None) -> Response:
         self._check_cancel()
         wait = health.retry_after(self.source)
         if wait is not None:
@@ -562,7 +562,7 @@ class SourceClient:
             self._status(notice)
         return slowed or bool(notice)
 
-    def paced(self, fn, url: str, access_method: str, action: str = None):
+    def paced(self, fn, url: str, access_method: str, action: str | None = None):
         """Runs a non-HTTP fetch (e.g. a headless-browser render) under the
         same per-host pace and per-source concurrency limit as ordinary
         requests, so a higher ladder tier can't be used to hit a source

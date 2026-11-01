@@ -125,7 +125,7 @@ class ToonkorSource(PlainImageDownload, SourceAdapter):
     url_patterns = [r"toonkor\d*\.(?:org|com|net)"]
     base_urls = [BASE_URL]
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.site = SiteDomains(self, base_url)
         self._series_pages = {}

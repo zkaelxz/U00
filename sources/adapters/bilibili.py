@@ -193,7 +193,7 @@ class BilibiliSource(SourceAdapter):
 
     # -- metadata/info ----------------------------------------------------------
 
-    def _extract(self, url: str, download: bool = False, extra_opts: dict = None) -> dict:
+    def _extract(self, url: str, download: bool = False, extra_opts: dict | None = None) -> dict:
         opts = {"quiet": True, "no_warnings": True, "skip_download": not download}
         if extra_opts:
             opts.update(extra_opts)
@@ -307,7 +307,7 @@ class BilibiliSource(SourceAdapter):
 
     # -- download -----------------------------------------------------------
 
-    def download(self, url: str, out_dir: str, options: dict = None) -> dict:
+    def download(self, url: str, out_dir: str, options: dict | None = None) -> dict:
         """Downloads and returns the standardized media-output object
         (item 9): source, source_url, bvid, title, duration, part/
         part_title, path, thumbnail, subtitles, raw_metadata.

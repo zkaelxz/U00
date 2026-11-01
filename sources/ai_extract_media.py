@@ -136,8 +136,8 @@ MEDIA_PROMPT = (
     "No preamble, no markdown fences.\n\n")
 
 
-def media_data(page: PageModel, candidates, roles: dict, *, method: str, languages: dict = None,
-               confidences: dict = None, title=None, protection=()) -> dict:
+def media_data(page: PageModel, candidates, roles: dict, *, method: str, languages: dict | None = None,
+               confidences: dict | None = None, title=None, protection=()) -> dict:
     languages, confidences = languages or {}, confidences or {}
     resources = [{"index": i, "resource_url": c.url, "kind": c.kind,
                   "role": roles.get(c.url, "unrelated"),

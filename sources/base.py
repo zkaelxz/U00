@@ -196,7 +196,7 @@ class SourceAdapter:
     #: Search and Import off until the browser is available.
     needs_browser = False
 
-    def __init__(self, client: SourceClient = None, allow_adult: bool = None, **client_kwargs):
+    def __init__(self, client: SourceClient = None, allow_adult: bool | None = None, **client_kwargs):
         if client is None:
             client_kwargs.setdefault("policy", pacing.for_source(PacingPolicy.from_settings(self.host_min_interval), self.name, self.pacing_profile))
             client_kwargs.setdefault("default_headers", dict(self.default_headers))

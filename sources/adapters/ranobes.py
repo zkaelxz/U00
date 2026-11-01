@@ -120,7 +120,7 @@ class RanobesSource(SourceAdapter):
     url_patterns = [r"ranobes\.net/(?:novels/\d+[^/\s]*\.html|[^/\s]+-\d+/\d+\.html)"]
     default_headers = {"Referer": BASE_URL + "/"}
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.base_url = base_url or BASE_URL
         self._series_pages = {}

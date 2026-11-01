@@ -67,7 +67,7 @@ class FiftyTwoShukuSource(SourceAdapter):
     url_patterns = [r"52shuku\.(?:net|top|vip|org)/[^/]+/(?:\d+_)?b/[A-Za-z0-9]+"]
     default_headers = {"Referer": BASE_URL + "/", "Accept-Language": "zh-CN,zh;q=0.9"}
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         if client is None and "policy" not in client_kwargs:
             policy = pacing.for_source(PacingPolicy.from_settings(self.host_min_interval), self.name, self.pacing_profile)
             # Concurrency-sensitive (Cloudflare) per the module docstring --

@@ -72,7 +72,7 @@ _META_CHARSET = re.compile(rb"""<meta[^>]+charset=["']?([\w-]+)""", re.I)
 _GB_SUBSETS = {"gb2312", "gb_2312", "gb_2312-80", "gbk", "x-gbk", "cp936", "gb-2312", "euc-cn", "euccn"}
 
 
-def decode_html(content: bytes, headers: dict = None) -> str:
+def decode_html(content: bytes, headers: dict | None = None) -> str:
     """Decodes a page the way a browser would: the header's charset, else
     the page's own <meta charset>, else a sniff (UTF-8, then legacy CJK
     encodings). A declared charset is authoritative. (requests' own fallback

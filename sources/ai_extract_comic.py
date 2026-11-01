@@ -63,8 +63,8 @@ COMIC_PROMPT = (
     "preamble, no markdown fences.\n\n")
 
 
-def comic_data(page: PageModel, candidates, roles: dict, *, method: str, order: dict = None,
-               reasons: dict = None, confidences: dict = None, title=None, chapter_title=None,
+def comic_data(page: PageModel, candidates, roles: dict, *, method: str, order: dict | None = None,
+               reasons: dict | None = None, confidences: dict | None = None, title=None, chapter_title=None,
                chapter_number=None) -> dict:
     """Result in the roadmap's shape. `roles`, `order`, `reasons` and
     `confidences` are keyed by candidate URL (never list position)."""
@@ -172,7 +172,7 @@ def comic_needs_review(data: dict, candidates) -> list:
     return why
 
 
-def validate_comic(data: dict, page: PageModel, measured: dict = None, model_conf: dict = None) -> dict:
+def validate_comic(data: dict, page: PageModel, measured: dict | None = None, model_conf: dict | None = None) -> dict:
     """Independent checks on a comic result. `measured` maps resource URL
     -> {"width", "height", "sha256"} for images the downloader has
     fetched (never fetched here)."""

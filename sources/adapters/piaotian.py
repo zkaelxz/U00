@@ -147,7 +147,7 @@ class PiaotianSource(SourceAdapter):
     host_min_interval = {HOST: 2.5}
     default_headers = {"Referer": BASE_URL + "/"}
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.base_url = (base_url or BASE_URL).rstrip("/")
         self._pages = {}

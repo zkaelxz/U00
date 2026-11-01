@@ -211,7 +211,7 @@ class ManhuaguiSource(SourceAdapter):
 
     supports_adult_toggle = True
 
-    def __init__(self, client=None, allow_adult: bool = None, mirrors=None, **client_kwargs):
+    def __init__(self, client=None, allow_adult: bool | None = None, mirrors=None, **client_kwargs):
         super().__init__(client, allow_adult=allow_adult, **client_kwargs)
         self.mirrors = list(mirrors or MIRRORS)
         # get_series() and get_chapters() read the same page; one adapter

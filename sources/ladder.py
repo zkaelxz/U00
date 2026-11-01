@@ -253,7 +253,7 @@ def _refused_address(url: str):
     return False
 
 
-def run_ladder(url: str, tiers: dict, source: str = None, log: bool = True) -> LadderResult:
+def run_ladder(url: str, tiers: dict, source: str | None = None, log: bool = True) -> LadderResult:
     """
     `tiers` maps AccessTier -> callable(url) -> TierOutcome. A tier with no
     entry is skipped (not recorded as a failure). USER_ASSISTED_BROWSER is
@@ -419,7 +419,7 @@ def _refusal(caps: SourceCapabilities, name: str) -> TermsProhibited:
         "them manually instead.")
 
 
-def check_terms(source: str, default: SourceCapabilities = None, url: str = None):
+def check_terms(source: str, default: SourceCapabilities = None, url: str | None = None):
     """The enforcement hook for written terms restrictions, called before an
     import sends anything and before a sign-in window is opened. Currently a
     no-op: it never raises, so a TOS_PROHIBITED record blocks nothing. When

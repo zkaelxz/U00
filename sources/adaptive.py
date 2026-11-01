@@ -370,7 +370,7 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
     return None, report
 
 
-def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
+def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_html: str | None = None,
                  use_cache: bool = True, allow_signed_in: bool = True,
                  allow_browser: bool = True, remember: bool = True,
                  hold_profiles: bool = False):
@@ -577,7 +577,7 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
     return None, report
 
 
-def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
+def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_html: str | None = None,
                  remember: bool = True, use_cache: bool = True, allow_signed_in: bool = True,
                  allow_browser: bool = True, budget=None, hold_profiles: bool = False,
                  learn: bool = True):

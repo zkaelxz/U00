@@ -87,7 +87,7 @@ class XbanxiaSource(SourceAdapter):
     # another host and counts as failed, so www (first) is the one used.
     base_urls = [BASE_URL, "https://xbanxia.cc"]
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.site = SiteDomains(self, base_url)
         self._series_pages = {}

@@ -114,7 +114,7 @@ class MiaoqumhSource(PlainImageDownload, SourceAdapter):
     languages = ["zh"]
     url_patterns = [r"(?:^|//|\.)miaoqumh\.org/\d+/\d+\.html", r"(?:^|//|\.)miaoqumh\.org/[^/?#]+/?$"]
 
-    def __init__(self, client=None, base_url: str = None, mobile_base_url: str = None,
+    def __init__(self, client=None, base_url: str | None = None, mobile_base_url: str | None = None,
                 **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.base_url = base_url or BASE_URL

@@ -41,7 +41,7 @@ def source_for(url: str) -> str:
     return cls.name if cls else GENERIC
 
 
-def profile_key(url: str, source: str = None) -> str:
+def profile_key(url: str, source: str | None = None) -> str:
     """The adapter's name, or -- for a pasted URL no adapter covers -- the
     site's own host, so two unrelated sites never share a sign-in."""
     source = source or source_for(url)
@@ -51,18 +51,18 @@ def profile_key(url: str, source: str = None) -> str:
     return domain_of(url) or GENERIC
 
 
-def profile_dir(url: str, source: str = None) -> str:
+def profile_dir(url: str, source: str | None = None) -> str:
     return store.browser_profile_dir(profile_key(url, source))
 
 
-def has_profile(url: str, source: str = None) -> bool:
+def has_profile(url: str, source: str | None = None) -> bool:
     """True once the person has opened this source's sign-in window --
     which is what makes later imports read through the signed-in session."""
     d = profile_dir(url, source)
     return os.path.isdir(d) and bool(os.listdir(d))
 
 
-def forget(url: str, source: str = None) -> bool:
+def forget(url: str, source: str | None = None) -> bool:
     """Deletes this source's saved browser profile (sign-in included).
     Later imports go back to the ordinary, signed-out tiers."""
     from page_fetch_profile import ProfileBusy, profile_lock
@@ -95,7 +95,7 @@ class LoginCheck:
     lines: list = field(default_factory=list)
 
 
-def manual_login(url: str, source: str = None, default=None, launcher=None,
+def manual_login(url: str, source: str | None = None, default=None, launcher=None,
                  fetch_with_profile=None) -> LoginCheck:
     """Item 2's flow, end to end. Blocks until the person closes the
     window. Raises TermsProhibited (nothing opened) for a restricted
@@ -108,7 +108,7 @@ def manual_login(url: str, source: str = None, default=None, launcher=None,
     return verify(url, source, default, launcher=launcher, fetch_with_profile=fetch_with_profile)
 
 
-def verify(url: str, source: str = None, default=None, launcher=None,
+def verify(url: str, source: str | None = None, default=None, launcher=None,
            fetch_with_profile=None) -> LoginCheck:
     """Reads `url` through the saved profile and says whether the target
     content is really visible to it. Nothing is extracted here."""

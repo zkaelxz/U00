@@ -74,7 +74,7 @@ def works_without_extension(marked_at, tiers: dict) -> bool:
     return False
 
 
-def view(source: str, tiers: dict = None) -> dict:
+def view(source: str, tiers: dict | None = None) -> dict:
     """The marker fields a source detail carries (booleans, a date and the note)."""
     row = get(source)
     if row is None:

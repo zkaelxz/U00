@@ -93,7 +93,7 @@ def list_domains() -> list:
     return [n[:-5] for n in names if n.endswith(".json")]
 
 
-def versions(domain: str, kind: str = None) -> list:
+def versions(domain: str, kind: str | None = None) -> list:
     return [v for v in load(domain)["versions"] if kind is None or v["kind"] == kind]
 
 
@@ -380,8 +380,8 @@ def exclusion_options(page, content_selector: str, limit: int = 15) -> list:
 
 
 def novel_rules_from_choices(page, content_selector: str, exclude_selectors=(),
-                             title_block_id: str = None, next_link_id: str = None,
-                             previous_link_id: str = None, number_from: str = "title") -> dict:
+                             title_block_id: str | None = None, next_link_id: str | None = None,
+                             previous_link_id: str | None = None, number_from: str = "title") -> dict:
     """The Review screen's corrections, as a profile. Corrections are
     structure (which element, which link) -- never edits to the text."""
     tb = page.block(title_block_id) if title_block_id else None
@@ -474,7 +474,7 @@ def apply_comic_rules(candidates, rules: dict) -> tuple:
     return picked, ""
 
 
-def comic_data_from_roles(page, candidates, roles: dict, positions: dict = None,
+def comic_data_from_roles(page, candidates, roles: dict, positions: dict | None = None,
                           method: str = "correction") -> dict:
     """The Review screen's comic corrections (include/exclude, cover/ad/
     content, reorder) as a result -- which images, in which order; the

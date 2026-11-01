@@ -88,7 +88,7 @@ class ManhuakuSource(SourceAdapter):
     needs_browser = True
     url_patterns = [r"manhuaku\.net/chapter/[^/?#]+\.html", r"manhuaku\.net/[^/?#]+/?$"]
 
-    def __init__(self, client=None, base_url: str = None, rendered_fetch=None, **client_kwargs):
+    def __init__(self, client=None, base_url: str | None = None, rendered_fetch=None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.base_url = base_url or BASE_URL
         self._rendered_fetch = rendered_fetch

@@ -341,7 +341,7 @@ def _default_capabilities(client: SourceClient):
     return cls(client=client).capabilities() if cls else None
 
 
-def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None,
+def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str | None = None,
                authenticated_fetch=None, allow_signed_in: bool = True,
                allow_browser: bool = True, record: bool = True):
     """Runs the ladder for one URL: static HTTP, then a real browser if
@@ -500,7 +500,7 @@ def filter_candidates(candidates, page_url: str, remember: bool = True,
     return kept, rejected
 
 
-def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str = None,
+def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str | None = None,
                       remember: bool = True) -> ComicImportResult:
     """Fetches a chapter URL and returns its page images, filtered. Raises
     NoContentFound (with the ladder's per-tier lines in the message) when
