@@ -338,10 +338,13 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     added = pipeline.add_page_images(drama_id, [(data, ext)], ids_out=ids)
     if not added or not ids:
         raise EndpointError(500, "the image could not be saved as a page")
-    return db.get_page(ids[0], drama_id)
+    page = db.get_page(ids[0], drama_id)
+    if page is None:
+        raise EndpointError(500, "the image could not be saved as a page")
+    return page
 
 
-def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_url: str,
+def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, source_url: str,
                        config: dict, member: bool = False) -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
@@ -361,6 +364,14 @@ def _translate_missing(saved: list, page_id: int, drama: dict, drama_id, source_
     except Exception as e:
         return [["warning", f"translation failed ({failure_detail(e, member)})"]]
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
+
+
+def _stored(page: dict | None, drama_id) -> tuple[dict, int]:
+    """The page the store branch found or saved, and its drama id; only that
+    branch waits on or reuses another capture's read, so None is a bug here."""
+    if page is None or drama_id is None:
+        raise EndpointError(500, "the page could not be found")
+    return page, int(drama_id)
 
 
 def _drama_or_404(drama_id):
@@ -396,15 +407,15 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         raise EndpointError(400, "the image was empty")
     if len(data) > MAX_IMAGE_BYTES:
         raise EndpointError(413, f"image is larger than {MAX_IMAGE_BYTES // (1024 * 1024)}MB")
-    ext, refusal = page_capture_checks.sniff_image(data)
-    if refusal:
-        raise EndpointError(*refusal)
-    data, ext = page_capture_checks.upright(data, ext)
+    sniffed = page_capture_checks.sniff_image(data)
+    if sniffed[1] is not None:
+        raise EndpointError(*sniffed[1])
+    data, ext = page_capture_checks.upright(data, sniffed[0])
     drama = _drama_or_404(drama_id)
 
     config = get_translation_config()
     notes = []
-    page = None
+    page: dict | None = None
     newly_stored = False
     reused_rev = 0
     temp_path = None
@@ -416,9 +427,13 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         # The discard runs before the lock is released, while no other
         # request can have seen the page.
         with PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
-            if store and drama is not None:
+            if store and drama is not None and drama_id is not None:
                 page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
-                if page is not None:
+                if page is None:
+                    newly_stored = True
+                    page = _store_page(int(drama_id), data, ext)
+                    added.append(page["id"])
+                else:
                     # Re-reading would replace bubbles the person corrected in
                     # Scanlate; a page without bubbles has nothing to lose.
                     # Capture sends no chapter labels, so an identical page
@@ -427,10 +442,6 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     reused_rev = int((db.get_page(page["id"]) or {}).get("rev") or 0)
                     reuse_saved = db.load_bubbles(page["id"]) or None
                 if reuse_saved is None:
-                    newly_stored = page is None
-                    if newly_stored:
-                        page = _store_page(int(drama_id), data, ext)
-                        added.append(page["id"])
                     image_path = os.path.join(db.drama_dir(int(drama_id)), page["filename"])
                 # Claimed under the lock, where a re-capture looks the page up.
                 busy, mine = page_turns.claim_page(page["id"])
@@ -475,18 +486,20 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         # under the lock would stall every other page and a Cancel. From here
         # on a failure keeps the page: a re-capture fills what is missing.
         if busy is not None:
+            page, drama_pk = _stored(page, drama_id)
             # Byte-identical, so the other capture's read stands for this one
             # even when it found no text.
             reuse_saved, mine = page_turns.await_other_capture(page["id"], busy)
             if mine is None:
                 return page_capture_checks.reused_page_response(
                     data, reuse_saved, [page_turns.STILL_TRANSLATING_NOTE],
-                    int(drama_id), page["id"])
+                    drama_pk, page["id"])
             claim = (page["id"], mine)
         if reuse_saved is not None:
+            page, drama_pk = _stored(page, drama_id)
             reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member)
             return page_capture_checks.reused_page_response(
-                data, reuse_saved, reuse_notes, int(drama_id), page["id"])
+                data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
@@ -554,7 +567,7 @@ def translate_text_block(text: str, source_language: str, target_language: str,
     ok, message = standalone.standalone_direction_support(
         engine.name, source_language, target_language)
     if not ok:
-        raise EndpointError(422, message)
+        raise EndpointError(422, message or "")
     if message:
         notes.append(["warning", message])
 

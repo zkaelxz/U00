@@ -13,10 +13,11 @@ Backends:
     Tesseract on stylized fonts and bubble layouts, Japanese only.
 """
 
+import functools
 import importlib.util
 import shutil
 import threading
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 import model_pins
 from lib import proc
@@ -487,10 +488,16 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
         lang = resolve_tesseract_lang(source_language, chinese_script)
         vertical_pack = (vertical and source_language in TESSERACT_LANG
                          and lang + "_vert" in tesseract_languages(tesseract_cmd))
+
+        def tesseract_options(p) -> dict[str, Any]:
+            options: dict[str, Any] = {"psm": 5} if vertical_pack else {}
+            if on_skip is not None:
+                options["on_timeout"] = functools.partial(on_skip, p)
+            return options
+
         fn = lambda p: extract_text_tesseract(
             p, lang=lang + "_vert" if vertical_pack else lang, tesseract_cmd=tesseract_cmd,
-            **({"psm": 5} if vertical_pack else {}),
-            **({"on_timeout": lambda: on_skip(p)} if on_skip is not None else {}))
+            **tesseract_options(p))
 
     chunks = []
     for path in image_paths:

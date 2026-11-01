@@ -78,10 +78,10 @@ def transcribe_spans(spans, source_language, run_span, retry_span, cancel_check=
     retry keeps that text with no lang and a language_uncertain flag.
     cancel_check() should raise to stop."""
     out = []
-    trusted = {}
+    trusted: dict[str, int] = {}
 
     def fallback():
-        return source_language or max(trusted, key=trusted.get, default=None)
+        return source_language or max(trusted, key=trusted.__getitem__, default=None)
 
     for n, span in enumerate(spans):
         if cancel_check:
@@ -97,7 +97,7 @@ def transcribe_spans(spans, source_language, run_span, retry_span, cancel_check=
             else:
                 segments = retry_span(span, lang)
                 uncertain = not all(text_matches_language(s["text"], lang) for s in segments)
-        if segments and not uncertain:
+        if segments and not uncertain and lang is not None:
             trusted[lang] = trusted.get(lang, 0) + 1
         for seg in segments:
             seg = dict(seg)
