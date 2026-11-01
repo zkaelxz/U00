@@ -106,6 +106,22 @@ def _until_peer_closes(conn) -> bool:
         return False
 
 
+def _only_request_deadline(monkeypatch, nth=None):
+    """The request deadline is the same stall_timeout the tests shrink to
+    exercise one stall, so a slow runner could trip it on an unrelated
+    request. This gives every request's deadline a 60 s margin except the
+    nth one (1-based: the playlist fetch is 1, the segment read after it is
+    2), or none when nth is None."""
+    original = live_fetch.StreamPump._deadline
+    calls = []
+
+    def deadline(self, when):
+        calls.append(when)
+        return original(self, when if len(calls) == nth else when + 60)
+
+    monkeypatch.setattr(live_fetch.StreamPump, "_deadline", deadline)
+
+
 def _run(url, sink=None, timeout=10, **kw):
     sink = sink or _Sink()
     pump = live_fetch.StreamPump(url, sink, **kw).start()
@@ -346,7 +362,8 @@ def test_errors_are_fixed_text_without_the_url(serve):
 
 # --- latency, backpressure, stalls, stop ------------------------------------
 
-def test_a_live_playlist_that_stops_growing_ends_as_stalled(serve):
+def test_a_live_playlist_that_stops_growing_ends_as_stalled(serve, monkeypatch):
+    _only_request_deadline(monkeypatch)
     s = serve({"/live.m3u8": (200, _M3U8, _segments(["a.ts"], end=False)),
                **_seg_routes(["a.ts"])})
     started = time.monotonic()
@@ -371,6 +388,7 @@ def test_a_body_that_stops_arriving_ends_as_stalled(serve, monkeypatch):
 
 
 def test_backpressure_bounds_the_queue_then_a_stuck_ffmpeg_ends_the_capture(serve, monkeypatch):
+    _only_request_deadline(monkeypatch)
     monkeypatch.setattr(live_fetch, "QUEUE_CHUNKS", 2)
     monkeypatch.setattr(live_fetch, "CHUNK_BYTES", 1024)
     gate = threading.Event()
@@ -482,7 +500,8 @@ def test_stop_while_waiting_for_response_headers_is_prompt():
         server.close()
 
 
-def test_a_segment_that_trickles_past_the_stall_timeout_ends_the_capture(serve):
+def test_a_segment_that_trickles_past_the_stall_timeout_ends_the_capture(serve, monkeypatch):
+    _only_request_deadline(monkeypatch, nth=2)
     """Each byte arrives well inside READ_TIMEOUT; the request as a whole
     is still bounded."""
     def trickle(handler, server):
@@ -499,6 +518,7 @@ def test_a_segment_that_trickles_past_the_stall_timeout_ends_the_capture(serve):
     started = time.monotonic()
     pump, sink = _run(f"{s.base}/p.m3u8", stall_timeout=0.5)
     assert pump.error == live_fetch.STALLED and bytes(sink.data) == b""
+    assert "/slow.ts" in s.hits  # the segment's own deadline ended it, not the playlist's
     assert time.monotonic() - started < 5
 
 
@@ -543,7 +563,8 @@ def _slow_chunked_trailer(handler, server):
 
 
 @pytest.mark.parametrize("slow", ["playlist", "segment"])
-def test_a_body_whose_chunked_trailers_trickle_ends_at_the_deadline(serve, slow):
+def test_a_body_whose_chunked_trailers_trickle_ends_at_the_deadline(serve, monkeypatch, slow):
+    _only_request_deadline(monkeypatch, nth=1 if slow == "playlist" else 2)
     chunked = {"Transfer-Encoding": "chunked"}
     routes = {"/p.m3u8": (200, _M3U8, _segments(["a.ts"])), "/a.ts": (200, {}, b"a")}
     path = "/p.m3u8" if slow == "playlist" else "/a.ts"
@@ -552,6 +573,7 @@ def test_a_body_whose_chunked_trailers_trickle_ends_at_the_deadline(serve, slow)
     started = time.monotonic()
     pump, sink = _run(f"{s.base}/p.m3u8", stall_timeout=1.0, timeout=8)
     assert pump.error == live_fetch.STALLED and bytes(sink.data) == b""
+    assert "/a.ts" in s.hits or slow == "playlist"  # the segment case reached the segment
     assert time.monotonic() - started < 5  # the server would keep going for 10 s
     assert s.closed_by_client.wait(5)
 
