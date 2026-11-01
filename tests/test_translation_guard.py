@@ -393,3 +393,66 @@ class TestReaskFailuresAndForcedRetranslate:
         _run(engine, lines, force_retranslate=True)
         assert lines[2].en == "My own hand-edited English 吗" and not lines[2].flag
         assert len(engine.calls) == 1
+
+
+TAGGED = "童楚驚恐叫道：“姑娘！下面有妖……”"
+NOVEL = {"content_mode": "novel_narration"}
+
+
+class TestLostDialogue:
+    def test_lost_quotes_and_lost_tags_are_caught(self):
+        assert guard.dialogue_lost(TAGGED, "Miss! There's a beast down...")
+        assert guard.dialogue_lost(TAGGED, '"Miss! There is a monster below!"')
+        assert not guard.dialogue_lost(TAGGED, 'Tong Chu cried out in terror, "Miss! A monster!"')
+        assert not guard.dialogue_lost(TAGGED, '"Miss! A monster!" Tong Chu cried out.')
+
+    def test_a_tagless_quote_only_needs_its_quotes(self):
+        assert not guard.dialogue_lost("“我也是！”", '"Me too!"')
+        assert guard.dialogue_lost("“我也是！”", "Me too!")
+
+    def test_narration_and_subtitle_lines_are_never_flagged(self):
+        assert not guard.dialogue_lost("晨霧霭霭，林寒澗肅。", "Morning mist hung low.")
+        assert guard.line_problems(TAGGED, "Miss! There's a beast down...") == []
+
+    def test_a_novel_line_reports_dialogue_as_its_problem(self):
+        assert guard.line_problems(TAGGED, "Miss! A monster!", novel=True) == ["dialogue"]
+
+    def test_a_lost_quote_does_not_make_its_neighbour_look_shifted(self):
+        sources = [TAGGED, "今天晚上我们一起去吃饭吧"]
+        found = guard.suspect_positions(sources, ["Miss! A monster!", "Let us all go out for dinner together tonight."], novel=True)
+        assert found == {0: "dialogue"}
+
+
+class TestNovelDialogueRetry:
+    def _lines(self):
+        sources = [TAGGED, "晨霧霭霭，林寒澗肅，琅琊山啼聲清脆"]
+        return [Line(idx=i, start=i, end=i + 1, zh=sources[i], id=200 + i) for i in range(2)]
+
+    class Engine(Scripted):
+        def translate_batch(self, zh_lines, context):
+            ids = list(context["line_ids"])
+            self.calls.append(ids)
+            replies = self.script.pop(0) if self.script else {}
+            return [replies.get(i, "Morning mist hung low over the cold forest, birds crying.")
+                    for i in ids]
+
+    def test_only_the_line_that_lost_its_quotes_is_asked_again(self):
+        engine = self.Engine({200: "Miss! A monster below!"}, {200: 'Tong Chu cried out, "Miss! A monster!"'})
+        lines = self._lines()
+        translate_pipeline.translate_lines_with_engine(lines, engine, NOVEL, batch_size=2)
+        assert engine.calls == [[200, 201], [200]]
+        assert lines[0].en == 'Tong Chu cried out, "Miss! A monster!"'
+        assert not lines[0].flag
+
+    def test_a_second_miss_is_kept_unflagged_and_not_asked_again(self):
+        engine = self.Engine({200: "Miss! A monster below!"}, {200: "Miss! A monster below!"})
+        lines = self._lines()
+        translate_pipeline.translate_lines_with_engine(lines, engine, NOVEL, batch_size=2)
+        assert len(engine.calls) == 2
+        assert lines[0].en == "Miss! A monster below!"
+        assert not lines[0].flag
+
+    def test_a_subtitle_title_is_not_checked(self):
+        engine = self.Engine({200: "Miss! A monster below!"})
+        translate_pipeline.translate_lines_with_engine(self._lines(), engine, {}, batch_size=2)
+        assert len(engine.calls) == 1

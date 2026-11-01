@@ -7,6 +7,7 @@ import sentence_groups
 from .engine_registry import default_batch_size, default_reply_guard
 from . import glossary_check
 from .fallback import FallbackEngine
+from . import medium_prompts
 from .novel_batches import novel_paragraph_ends, plan_paragraph_batches
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
@@ -584,8 +585,10 @@ class _TranslateRun:
                 applog.get_logger().warning(f"merge/shift re-ask skipped for batch {self.bi}: {redacted}")
                 return None
 
-        for ln, _reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs):
-            if not ln.flag:
+        novel = medium_prompts.kind_for(self.args.drama_meta) == "novel"
+        for ln, reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs, novel):
+            # The merged-or-shifted note would be wrong for a lost quote, so that is retried only.
+            if reason != "dialogue" and not ln.flag:
                 ln.flag = "uncertain_translation"
                 ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 
