@@ -49,6 +49,7 @@ from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCas
                          BenchmarkHardSubAddRequest, BenchmarkHardSubAddResult,
                          BenchmarkHardSubReadEstimate, BenchmarkHardSubReadRequest,
                          BenchmarkHardSubReadStarted,
+                         BenchmarkHardSubReadResult,
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
                          BenchmarkPairNext, BenchmarkPickRequest, BenchmarkPickSummary,
@@ -200,6 +201,13 @@ def post_hard_sub_reading(body: BenchmarkHardSubReadRequest, request: Request, d
     require_confirm(body.confirm)
     return hardsub_read_svc.start(request.state.principal, drama_id, body.engine, body.model,
                                   body.speaker_groups, body.band_top, body.band_bottom, body.max_cost_usd)
+
+
+@router.get("/dramas/{drama_id}/hard-sub-reading", dependencies=[local_only()],
+            response_model=BenchmarkHardSubReadResult, responses=_ERRS,
+            summary="PC only: a title's latest hard-sub reading by speaker (progress, or the lines and comparison)")
+def get_hard_sub_reading(request: Request, drama_id: int = Path(ge=1)):
+    return hardsub_read_svc.result(request.state.principal, drama_id)
 
 
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,
