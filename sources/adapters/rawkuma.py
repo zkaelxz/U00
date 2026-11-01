@@ -145,16 +145,17 @@ class RawkumaSource(SourceAdapter):
         if not ld.get("name"):
             raise LayoutChanged("this series's details")
         author = ld.get("author")
-        authors = [a.get("name") for a in (author if isinstance(author, list) else [author])
-                   if isinstance(a, dict) and a.get("name")]
-        genres = ld.get("genre") if isinstance(ld.get("genre"), list) else []
+        author_list = author if isinstance(author, list) else [author]
+        authors = [a["name"] for a in author_list if isinstance(a, dict) and a.get("name")]
+        raw_genres = ld.get("genre")
+        genres = [str(g) for g in raw_genres] if isinstance(raw_genres, list) else []
         image = ld.get("image")
         cover = image.get("url") if isinstance(image, dict) else image
         done = str(ld.get("isCompleted")).lower() == "true"
         return SeriesInfo(
             self.name, series_id, unescape(str(ld["name"])), f"{BASE_URL}/manga/{series_id}/",
             _https(cover), authors=authors, description=unescape(str(ld.get("description") or "")),
-            genres=[str(g) for g in genres],
+            genres=genres,
             status="completed" if done else "ongoing",
             content_type=ContentType.MANGA.value, language="ja")
 
