@@ -28,6 +28,7 @@ import sqlite3
 import threading
 import time
 from collections import OrderedDict, deque
+from typing import Any
 
 import db
 from lib.device_label import device_label
@@ -582,7 +583,8 @@ def _lookup(token, now: float):
     return sess, user
 
 
-def resolve_session(token, now: float | None = None, touch: bool = True):
+def resolve_session(token, now: float | None = None,
+                    touch: bool = True) -> dict[str, Any] | None:
     """Live session -> {session_id, user_id, email, is_admin, permissions};
     otherwise None (expired, revoked, unknown, or inactive user).
     touch=False re-checks without counting as activity (the SSE stream's

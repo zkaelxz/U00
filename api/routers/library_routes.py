@@ -11,7 +11,7 @@ blocking `sqlite3`, and FastAPI runs a sync handler in its threadpool
 instead of on the event loop.
 """
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 
@@ -35,7 +35,8 @@ _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
 
 def _to_summary(drama: dict) -> DramaSummary:
     # Only the Library list counts lines; a series or recent row has no counts and keeps the default.
-    return DramaSummary(**{f: drama.get(f) for f in _SUMMARY_FIELDS},
+    fields: dict[str, Any] = {f: drama.get(f) for f in _SUMMARY_FIELDS}
+    return DramaSummary(**fields,
                         is_private=drama.get("sharing_private"),
                         owned_by_me=drama.get("sharing_owned"),
                         line_count=drama.get("line_count") or 0,
@@ -44,7 +45,8 @@ def _to_summary(drama: dict) -> DramaSummary:
 
 
 def to_detail(drama: dict) -> DramaDetail:
-    return DramaDetail(**{f: drama.get(f) for f in _DETAIL_FIELDS},
+    fields: dict[str, Any] = {f: drama.get(f) for f in _DETAIL_FIELDS}
+    return DramaDetail(**fields,
                        custom_tags=library_service.split_custom_tags(drama),
                        # Never the query: a pasted download link can carry a token.
                        source_url=shared.display_url(drama.get("source_url")) or None,

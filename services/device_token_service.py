@@ -122,8 +122,8 @@ def _require_pc_for_admin(is_admin: bool, at_pc: bool):
 
 # --- the signed-in user's own tokens -------------------------------------------
 
-def create_token(principal: dict, label, expires_in_days=DEFAULT_EXPIRY_DAYS, ip: str = "",
-                 at_pc: bool = False, now: float | None = None) -> dict:
+def create_token(principal: dict, label, expires_in_days: int | None = DEFAULT_EXPIRY_DAYS,
+                 ip: str = "", at_pc: bool = False, now: float | None = None) -> dict:
     """{"token": <shown once>, "device_token": <public row>}. 404 without an
     account (the owner at the PC with sign-in off has none), 403 without
     `extension.send` or for an admin away from the PC, 429 past the

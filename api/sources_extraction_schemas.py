@@ -6,7 +6,7 @@ shared SourcesUrlImportRequest lives in api/schemas/sources.py. No model
 carries a key, and no response carries one.
 """
 
-from typing import List, Literal, Optional
+from typing import TYPE_CHECKING, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
@@ -164,11 +164,18 @@ class ExtractionFollowedPage(BaseModel):
     host: str
 
 
+# The choices come from a runtime tuple, which a type checker can't read as a Literal.
+if TYPE_CHECKING:
+    FollowStop = str
+else:
+    FollowStop = Literal[FOLLOW_STOPS]
+
+
 class ExtractionFollow(BaseModel):
     """The pages a followed import read, in reading order, and why it
     stopped following."""
     pages: List[ExtractionFollowedPage]
-    stop: Literal[FOLLOW_STOPS]
+    stop: FollowStop
 
 
 class ExtractionReview(BaseModel):

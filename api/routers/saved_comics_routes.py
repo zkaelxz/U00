@@ -18,7 +18,7 @@ existing name under the save folder. A member sees only the series they
 saved (services/saved_comics_service.py).
 """
 
-from typing import List
+from typing import Any, List
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
@@ -33,7 +33,7 @@ from services import sources_save_service as saves
 router = APIRouter(prefix="/api/saved-comics", tags=["saved-comics"])
 
 _ERRS = error_responses(404, 422)
-_NAME = {"min_length": 1, "max_length": library.MAX_NAME_LEN}
+_NAME: dict[str, Any] = {"min_length": 1, "max_length": library.MAX_NAME_LEN}
 
 
 @router.get("/folder", dependencies=[local_only()], response_model=SavedComicsFolder,

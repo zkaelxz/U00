@@ -433,17 +433,20 @@ class GlossaryProposalEdit(BaseModel):
     policy: Optional[Annotated[str, Field(max_length=50)]] = None
 
 
-class GlossaryProposalsApplyRequest(NovelGlossaryApplyRequest):
+class _GlossaryProposalsApplyBase(NovelGlossaryApplyRequest):
+    overrides: Dict[Annotated[str, Field(min_length=1, max_length=200)], GlossaryProposalEdit] = Field(
+        default_factory=dict, max_length=1000)
+
+
+class GlossaryProposalsApplyRequest(_GlossaryProposalsApplyBase):
     """NovelGlossaryApplyRequest plus optional edits keyed by term text
     (never by position); edits for terms not in `terms` are ignored.
     run_id: the status's run_id the user reviewed; a different held run is
     refused with 409 (optional here for older from-novel callers)."""
-    overrides: Dict[Annotated[str, Field(min_length=1, max_length=200)], GlossaryProposalEdit] = Field(
-        default_factory=dict, max_length=1000)
     run_id: Optional[Annotated[str, Field(min_length=1, max_length=64)]] = None
 
 
-class LinesGlossaryApplyRequest(GlossaryProposalsApplyRequest):
+class LinesGlossaryApplyRequest(_GlossaryProposalsApplyBase):
     """GlossaryProposalsApplyRequest with run_id required (from-lines)."""
     run_id: Annotated[str, Field(min_length=1, max_length=64)]
 

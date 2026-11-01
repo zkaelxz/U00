@@ -285,7 +285,7 @@ def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
         app.add_middleware(HouseholdGate, public_url=settings.public_url)
 
 
-def create_app(settings: ApiSettings = None, frontend_dist=None,
+def create_app(settings: ApiSettings | None = None, frontend_dist=None,
                listener: str = "admin") -> FastAPI:
     """Builds the app. Touches no database or optional package, so it's
     safe to call at import time and in tests; the library is opened

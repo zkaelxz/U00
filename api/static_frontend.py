@@ -17,6 +17,7 @@ than `index.html`. Only files that resolve inside the dist folder are
 ever served.
 """
 
+import inspect
 import logging
 from pathlib import Path
 
@@ -71,14 +72,16 @@ def install_unbuilt_page(app: FastAPI):
     # An exception handler, not a route: the route list and the permission
     # table must stay the same whether or not the frontend is built.
     previous = app.exception_handlers.get(HTTPException)
+    if previous is None:
+        return
 
     async def handler(request: Request, exc: HTTPException):
         if exc.status_code == 404 and request.method == "GET" and request.url.path == "/":
             return HTMLResponse(_UNBUILT_HTML, status_code=200)
-        return await previous(request, exc)
+        result = previous(request, exc)
+        return await result if inspect.isawaitable(result) else result
 
-    if previous is not None:
-        app.add_exception_handler(HTTPException, handler)
+    app.exception_handler(HTTPException)(handler)
 
 
 def install_frontend(app: FastAPI, dist_dir=None) -> bool:
