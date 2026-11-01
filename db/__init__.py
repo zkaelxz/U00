@@ -790,6 +790,7 @@ from db.auth import (  # noqa: F401
     auth_delete_stale_sessions,
     auth_list_sessions,
     auth_insert_audit,
+    auth_delete_audit_before,
     auth_list_audit,
     auth_list_audit_actions,
     auth_deactivate_user_keeping_an_admin,
