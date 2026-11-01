@@ -10,6 +10,8 @@ require_engines_allowed for Gemini, and takes a slot from the shared LLM cap
 write). Budget and provenance are library.read.
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Path, Request
 
 from api.auth import require_engines_allowed, require_permission
@@ -45,7 +47,7 @@ def research(payload: ResearchRequest, request: Request, drama_id: int = Path(ge
 
 
 @router.get("/dramas/{drama_id}/research/cached", dependencies=[require_permission("library.read")],
-            response_model=ResearchResult,
+            response_model=Optional[ResearchResult],
             summary="The earlier lookup's result for these settings, from the cache (no search is run)",
             responses=_ERRS)
 def cached_research(drama_id: int = Path(ge=1), mode: str = "quick", model: str | None = None):

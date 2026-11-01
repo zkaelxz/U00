@@ -181,7 +181,7 @@ const FALLBACK_SELECTABLE_SIZES = ['large-v3', 'large-v3-turbo']
 /** {model: {language: reason}} from the server (whisper_models.WHISPER_LANGUAGE_RULES): the only place the rules live. */
 export type WhisperExclusions = Record<string, Record<string, string>>
 
-export interface WhisperChoice {
+interface WhisperChoice {
   size: string
   /** Why the model is not selectable for the language, or null when it is. */
   reason: string | null
@@ -357,7 +357,7 @@ const defaultHardsubBackend = (language?: string) => (language === 'zh' ? 'paddl
 const hardsubChanged = (v: AdvancedValues) => (v.hardsub_ocr_backend ?? defaultHardsubBackend(v.source_language)) !== defaultHardsubBackend(v.source_language)
 
 // The knobs only Developer Mode shows. Their values still ride along in every save and run.
-export function developerOptionsChanged(v: AdvancedValues): number {
+function developerOptionsChanged(v: AdvancedValues): number {
   return [
     Number(v.beam_size) !== BEAM_SIZE_DEFAULT,
     Number(v.vad_threshold) !== VAD_THRESHOLD_DEFAULT,

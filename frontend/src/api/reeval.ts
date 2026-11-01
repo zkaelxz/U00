@@ -11,7 +11,7 @@ import { pcOnlyFetch } from './pcOnly'
 
 const BASE = '/api/models/reeval'
 
-export type CandidateStatus = 'candidate' | 'promoted' | 'rejected'
+type CandidateStatus = 'candidate' | 'promoted' | 'rejected'
 
 export interface ModelDecision {
   id: number
@@ -79,7 +79,7 @@ interface ReevalProductionRun {
   model: string | null
 }
 
-export interface ReevalReport {
+interface ReevalReport {
   production: ProductionModel
   production_run: ReevalProductionRun | null
   started_at: string | null

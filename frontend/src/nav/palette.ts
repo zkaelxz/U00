@@ -5,6 +5,7 @@
  * list the workspace already has. Pure, so the matching is testable without a DOM.
  */
 import type { DramaSummary } from '../api/types'
+import type { ReviewLine } from '../types/review'
 import { dramaName } from '../components/libraryView'
 import { canReadSettings, canUpdateApp } from '../hooks/useSession'
 import { PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS } from '../pages/settings/settingsIndex'
@@ -40,7 +41,11 @@ const PAGE_KEYWORDS: Record<string, string> = {
   assistant: 'help maintain fix',
 }
 
-export const TITLE_RESULT_LIMIT = 8
+const TITLE_RESULT_LIMIT = 8
+const LINE_RESULT_LIMIT = 5
+const LINE_LABEL_LENGTH = 80
+// Two characters is the shortest word worth a search over every line of a title.
+export const MIN_LINE_QUERY = 2
 
 // A member (or anyone whose settings cannot be read) sees only the Sharing tab's cards, as on the page.
 const MEMBER_CARDS: ReadonlySet<string> = new Set(
@@ -87,6 +92,30 @@ export function titleEntries(items: readonly DramaSummary[], query: string): Pal
       href: routeHref({ name: 'drama', id: d.id, stage: null }),
       keywords: `${d.title_zh ?? ''} ${d.title_en ?? ''}`,
     }))
+}
+
+/** The title a line search applies to: the open title's workspace, reader or comic page. */
+export function lineSearchTitle(route: Route): number | null {
+  return route.name === 'drama' || route.name === 'read' || route.name === 'comic' ? route.id : null
+}
+
+/**
+ * Line hits for the open title. Each opens Review searched for the typed words (Review has no
+ * line-jump URL), so the row shows the line and Review shows it among the others that match.
+ */
+export function lineEntries(lines: readonly ReviewLine[], dramaId: number, query: string): PaletteEntry[] {
+  const term = query.trim()
+  return lines.slice(0, LINE_RESULT_LIMIT).map((l) => {
+    const text = (l.en || l.zh).replace(/\s+/g, ' ').trim()
+    return {
+      id: `line-${l.id}`,
+      label: text.length > LINE_LABEL_LENGTH ? `${text.slice(0, LINE_LABEL_LENGTH)}…` : text,
+      hint: 'Line',
+      href: routeHref({ name: 'drama', id: dramaId, stage: 'review', find: term }),
+      // The search already matched this line; the query rides along so the row survives the palette's own filter.
+      keywords: `${l.en} ${l.zh} ${term}`,
+    }
+  })
 }
 
 export function paletteEntries(ctx: NavContext, route: Route): PaletteEntry[] {
@@ -156,7 +185,7 @@ export function isPaletteShortcut(e: KeyLike): boolean {
 
 const SEARCH_ROUTES: ReadonlySet<Route['name']> = new Set(['library', 'settings', 'sources', 'discover'])
 
-export type GlobalShortcut = 'search' | 'sheet'
+type GlobalShortcut = 'search' | 'sheet'
 
 /** What a key does on this page, or null. Pure, so the mapping is testable without a DOM. */
 export function globalShortcut(combo: string, route: Route): GlobalShortcut | null {

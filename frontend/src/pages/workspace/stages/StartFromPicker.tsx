@@ -19,12 +19,12 @@ import { useStage } from '../StageContext'
 import { engineGate } from './engineReady'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
-export interface StartOption {
+interface StartOption {
   // "tier:<key>" or "preset:<id>": one select value tells the Apply button which call to make.
   value: string
   label: string
 }
-export interface StartGroups {
+interface StartGroups {
   tiers: StartOption[]
   presets: StartOption[]
 }
@@ -52,14 +52,14 @@ export function parseStartValue(value: string): { kind: 'tier'; key: string } | 
   return null
 }
 
-export function appliedText(t: WorkflowTierApplied): string {
+function appliedText(t: WorkflowTierApplied): string {
   const model = t.engine_model ? ` (${t.engine_model})` : ''
   const name = t.tier.charAt(0).toUpperCase() + t.tier.slice(1)
   const qc = t.auto_qc ? ` ${name} recommends Auto QC; run it from the Export stage.` : ''
   return `Applied ${t.label}: ${humanize('engine', t.translation_engine)}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
 }
 
-export type StartApplied =
+type StartApplied =
   | { kind: 'tier'; tier: WorkflowTierApplied }
   | { kind: 'preset'; preset: TranslatePresetApplied }
 

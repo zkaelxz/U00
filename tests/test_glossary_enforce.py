@@ -1,7 +1,7 @@
 """Glossary check after each translate batch: lines whose English lacks a
 glossary name go back once to the same engine (matched by line id), and a
 line still wrong is flagged for Review. Mocked engine, no network."""
-import translate_engines as te
+from engine_backends import translate_pipeline, prompts
 from core import Line
 from engine_backends import glossary_check
 
@@ -32,7 +32,7 @@ def _lines():
 
 
 def _run(engine, lines, **kw):
-    return te.translate_lines_with_engine(
+    return translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta={"source_language": "zh"}, glossary_terms=TERMS,
         context_window=0, context_window_ahead=0, **kw)
 
@@ -51,7 +51,7 @@ def test_the_retry_prompt_lists_the_missed_terms_first():
     engine = ScriptedEngine({10: "x", 11: "y", 12: "z"},
                             {10: "Shirakami Fubuki came.", 12: "Hello, Shirakami Fubuki."})
     _run(engine, _lines())
-    msg = te.build_batch_user_message(engine.calls[1]["context"], "1. a")
+    msg = prompts.build_batch_user_message(engine.calls[1]["context"], "1. a")
     assert msg.startswith("GLOSSARY CORRECTION") and "白上吹雪 -> Shirakami Fubuki" in msg
 
 
@@ -77,7 +77,7 @@ def test_no_retry_when_every_name_is_present_or_there_is_no_glossary():
     _run(engine, _lines())
     assert len(engine.calls) == 1
     other = ScriptedEngine({10: "a", 11: "b", 12: "c"})
-    te.translate_lines_with_engine(_lines(), other, drama_meta={"source_language": "zh"},
+    translate_pipeline.translate_lines_with_engine(_lines(), other, drama_meta={"source_language": "zh"},
                                    context_window=0, context_window_ahead=0)
     assert len(other.calls) == 1
 
@@ -99,7 +99,7 @@ def test_a_local_model_gets_the_names_in_the_first_request_too():
     _run(engine, _lines())
     first = engine.calls[0]["context"]
     assert first["glossary_required"] == [("白上吹雪", "Shirakami Fubuki"), ("白上吹雪", "Shirakami Fubuki")]
-    assert te.build_batch_user_message(first, "1. a").startswith("REQUIRED NAMES")
+    assert prompts.build_batch_user_message(first, "1. a").startswith("REQUIRED NAMES")
 
 
 def test_a_cloud_engine_first_request_has_no_extra_block():

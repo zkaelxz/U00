@@ -16,7 +16,7 @@ export interface ClipRow {
   translation: string
 }
 
-export interface NewRows {
+interface NewRows {
   rows: ClipRow[]
   /** Names left out: not audio, already in the table, or over the clip limit. */
   skipped: string[]

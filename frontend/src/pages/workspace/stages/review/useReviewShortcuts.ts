@@ -11,7 +11,7 @@ import type { LineSelection } from './useLineSelection'
 
 const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
 
-export interface ReviewShortcutsDeps {
+interface ReviewShortcutsDeps {
   ctl: ReturnType<typeof createLinesController>
   actions: RowActions
   selection: LineSelection
@@ -146,6 +146,10 @@ export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
       case 'f':
         if (!active.flag) return false
         actions.dismissFlag(active.id)
+        return true
+      case 'r':
+        if (!active.en) return false
+        actions.setReviewed(active.id, !active.reviewed)
         return true
       case 'i':
         if (!active.en) return false

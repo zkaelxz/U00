@@ -479,12 +479,19 @@ def _new_entry(status, kind, gpu_touching, description, owner_user_id, run_setti
 
 
 def _apply_progress_item(job_id, item, stage=None) -> bool:
-    """True if `item` was a ("progress", frac, message) or ("stage", frac,
-    message) tuple (applied to the job, with the message secret-redacted);
+    """True if `item` was a ("progress", frac, message), ("stage", frac,
+    message) or ("unit", scope, unit_id, payload) tuple (applied to the job,
+    with the message secret-redacted; a unit is recorded as a checkpoint);
     False for anything else, which is the worker's final result tuple.
     `stage` holds the watcher's running stage_ticker under "ticker": any
     progress or stage item stops it, a stage item with a message starts a
     new one."""
+    if isinstance(item, tuple) and item and item[0] == "unit":
+        try:
+            db.record_checkpoint_unit(*item[1:])
+        except Exception as exc:
+            _warn(f"job {job_id}: a checkpoint unit was not recorded", exc)
+        return True
     if not (isinstance(item, tuple) and item and item[0] in ("progress", "stage")):
         return False
     try:

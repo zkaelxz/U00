@@ -26,7 +26,7 @@
 
 import { apiUrl } from './client'
 
-export type StreamMode = 'connecting' | 'push' | 'poll'
+type StreamMode = 'connecting' | 'push' | 'poll'
 
 const EVENTS_PATH = '/api/events?topics=jobs,notifications,live'
 const STREAM_EVENTS = ['job', 'job_gone', 'notifications', 'live', 'resync', 'ping'] as const
@@ -44,7 +44,7 @@ export interface StreamState {
   syncs: number
 }
 
-export interface StreamListener {
+interface StreamListener {
   onEvent?: (type: string, data: unknown) => void
   onState?: (state: StreamState) => void
 }

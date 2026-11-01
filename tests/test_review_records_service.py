@@ -10,7 +10,7 @@ import pytest
 
 from core import Line, lines_from_rows
 from services import review_records_service as svc
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 WRITE_RE = re.compile(r"^(save|update|delete|set|record|bump|upsert)_")
 

@@ -165,11 +165,11 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
     real quota on a paid engine -- one short line, not a batch -- so call
     it only from an explicit "Test" action or right before starting a
     job, never on every page load. Any error message is passed through
-    translate_engines.redact_secrets first, matching every other place
+    shared.redact_secrets first, matching every other place
     in this app that shows an engine error."""
-    import translate_engines
+    from engine_backends import shared, engine_registry, standalone
     try:
-        engine = translate_engines.get_engine(engine_name, api_key, model, base_url=base_url)
+        engine = engine_registry.get_engine(engine_name, api_key, model, base_url=base_url)
     except Exception as e:
         details = getattr(e, "details", None)
         if isinstance(details, dict) and details.get("reason") == "missing_package":
@@ -178,21 +178,21 @@ def check_engine_reachable(engine_name: str, api_key: str = None, model: str = N
             return {"engine": engine_name, "ok": False,
                     "error": f"The Python package {details['package']} is not installed."}
         return {"engine": engine_name, "ok": False,
-                "error": translate_engines.redact_secrets(str(e))}
+                "error": shared.redact_secrets(str(e))}
     try:
-        result = translate_engines.standalone_translate("你好", engine, "zh", "en")
+        result = standalone.standalone_translate("你好", engine, "zh", "en")
         if not (result or "").strip():
             return {"engine": engine_name, "ok": False,
                     "error": "Reached the engine, but it returned an empty translation."}
         return {"engine": engine_name, "ok": True, "error": None}
     except Exception as e:
         return {"engine": engine_name, "ok": False,
-                "error": translate_engines.redact_secrets(str(e))}
+                "error": shared.redact_secrets(str(e))}
 
 
 # ---------------------------------------------------------------------------
 # "Copy diagnostics for support" -- the existing key/token
-# redaction (translate_engines.redact_secrets) plus stripping local file
+# redaction (shared.redact_secrets) plus stripping local file
 # paths and the OS username, since a raw library path or a home directory
 # can leak the machine's username into a support conversation.
 # ---------------------------------------------------------------------------
@@ -272,14 +272,14 @@ def _account_names() -> set:
 
 def redact_for_support(text) -> str:
     """Same secret redaction the rest of the app already uses for stored
-    errors (translate_engines.redact_secrets), plus: signed-link query
+    errors (shared.redact_secrets), plus: signed-link query
     parameters, every URL cut to scheme, host and path, the OS username
     and profile folder name replaced with [USER], and every absolute
     filesystem path (POSIX or Windows) collapsed to just its last path
     segment prefixed with ".../" -- enough to stay readable without
     exposing the folder structure (or a username embedded in it)
     underneath. ANSI colour codes are stripped first."""
-    import translate_engines
+    from engine_backends import shared
     text = _ANSI_PATTERN.sub("", "" if text is None else str(text))
     # NUL marks the URL placeholders below, so one in the input could forge
     # one; callers run this inside except blocks, so it must never raise.
@@ -289,12 +289,12 @@ def redact_for_support(text) -> str:
     def _park(m):
         # Before redact_secrets: its "[REDACTED]" would end the URL match early
         # and leave the rest of the query string behind.
-        url = translate_engines.display_url(m.group(0))
-        urls.append(translate_engines.redact_secrets(url) or "[URL]")
+        url = shared.display_url(m.group(0))
+        urls.append(shared.redact_secrets(url) or "[URL]")
         return _URL_SLOT.format(len(urls) - 1)
 
     text = _URL_PATTERN.sub(_park, text)
-    text = translate_engines.redact_secrets(text)
+    text = shared.redact_secrets(text)
     text = CREDENTIAL_PARAM_PATTERN.sub(r"\1[REDACTED]", text)
     text = PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
     text = re.sub("\x00URL(\\d{1,9})\x00",

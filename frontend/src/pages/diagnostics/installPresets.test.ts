@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
 import {
   belowMinText, firstHint, formatApproxMb, groupTasks, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel,
-  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone,
+  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone, updateOutdatedLabel, updateOutdatedText,
   type TaskRunResult,
 } from './installPresets'
 
@@ -126,5 +126,18 @@ describe('missingTranscription', () => {
     expect(missingTranscription({ tasks: [t], packages: {} })).toBeNull()
     expect(missingTranscription({ tasks: [task()], packages: { faster_whisper: pkg() } })).toBeNull()
     expect(missingTranscription(null)).toBeNull()
+  })
+})
+
+describe('Update these', () => {
+  it('labels the confirm step with the count', () => {
+    expect(updateOutdatedLabel(1)).toBe('Confirm update 1 package')
+    expect(updateOutdatedLabel(9)).toBe('Confirm update 9 packages')
+  })
+  it('says how it ended, keeping a failed browser step visible after the packages went in', () => {
+    expect(updateOutdatedText(true, false, null)).toBe('Packages updated. Restart Baihe to load the new versions.')
+    expect(updateOutdatedText(true, false, 'The browser download failed; see the output.')).toContain('The browser download failed')
+    expect(updateOutdatedText(false, false, null)).toBe('Updating packages failed.')
+    expect(updateOutdatedText(false, true, null)).toBe('Cancelled updating packages.')
   })
 })

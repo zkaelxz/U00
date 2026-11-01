@@ -21,7 +21,7 @@ import { jellyfinMediaReason, type ExportInputs } from '../exportBlocks'
 import { useStage } from '../StageContext'
 
 type Target = 'item' | 'folder'
-export type AssRequestResult = { request: AssExportRequest; error?: undefined } | { request?: undefined; error: string }
+type AssRequestResult = { request: AssExportRequest; error?: undefined } | { request?: undefined; error: string }
 
 export function ExportJellyfin({ field, inputs, assRequest }: {
   field: 'en' | 'zh' | 'bilingual'

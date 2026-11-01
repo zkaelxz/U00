@@ -7,7 +7,7 @@ export const PACK_LANGUAGES = [
   { id: 'any', label: 'Any language' },
 ] as const
 
-export interface PackGroup {
+interface PackGroup {
   id: string
   label: string
   packs: { pack: LanguagePackSummary; onByDefault: boolean | null }[]

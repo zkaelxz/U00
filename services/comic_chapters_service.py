@@ -11,7 +11,7 @@ skip them.
 import comic_chapters
 import db
 from services import ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _groups(drama_id: int):

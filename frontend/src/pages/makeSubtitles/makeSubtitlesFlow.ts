@@ -23,7 +23,7 @@ export type Flow =
   | { phase: 'error'; dramaId: number | null; step: FlowStep; error: unknown }
   | { phase: 'done'; dramaId: number }
 
-export type FlowAction =
+type FlowAction =
   | { type: 'start' }
   | { type: 'created'; dramaId: number }
   | { type: 'advance' }
@@ -33,7 +33,7 @@ export type FlowAction =
   | { type: 'reset' }
 
 /** What survives a reload: the title being made and the step it was on. */
-export interface SavedRun {
+interface SavedRun {
   dramaId: number
   step: FlowStep
 }
@@ -96,7 +96,7 @@ export const mediaTypeFor = (filename: string): 'video_drama' | 'audio_drama' =>
   isVideoFile(filename) ? 'video_drama' : 'audio_drama'
 
 /** The file name without its extension: the title when none is typed. */
-export function titleStem(filename: string): string {
+function titleStem(filename: string): string {
   const dot = filename.lastIndexOf('.')
   return (dot > 0 ? filename.slice(0, dot) : filename).trim()
 }

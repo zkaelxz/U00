@@ -72,7 +72,7 @@ export function visibleLines<T extends Pick<ReviewLine, 'start' | 'end'>>(lines:
   return lines.filter((l) => l.end > view.start && l.start < view.start + view.span)
 }
 
-export interface EdgeBounds {
+interface EdgeBounds {
   // The earliest and latest the edge may sit.
   min: number
   max: number
@@ -81,12 +81,17 @@ export interface EdgeBounds {
 // Where each edge of `line` may go. A neighbour that isn't on screen (another
 // page, a filter, a search) makes the side facing it locked: the line could
 // otherwise be dragged over a line we can't see. That includes the end of the
-// last line of the title, since the page doesn't say whether it is the last.
-export function edgeBounds(lines: Timed[], line: Timed): { start: EdgeBounds; end: EdgeBounds } {
+// last line of the title unless lineCount (every line in the title, not just
+// this page) says it is the last: then nothing follows it, so its end may run
+// to the end of the media.
+export function edgeBounds(
+  lines: Timed[], line: Timed, lineCount: number | null = null, mediaSeconds = NaN,
+): { start: EdgeBounds; end: EdgeBounds } {
   const prev = lines.find((l) => l.idx === line.idx - 1)
   const next = lines.find((l) => l.idx === line.idx + 1)
   const floor = line.idx === 0 ? 0 : prev ? prev.end : line.start
-  const ceil = next ? next.start : line.end
+  const isLast = lineCount !== null && line.idx === lineCount - 1
+  const ceil = next ? next.start : isLast && Number.isFinite(mediaSeconds) ? mediaSeconds : line.end
   return {
     start: { min: Math.min(floor, line.start), max: Math.max(line.start, line.end - MIN_LINE_SECONDS) },
     end: { min: Math.min(line.end, line.start + MIN_LINE_SECONDS), max: Math.max(ceil, line.end) },

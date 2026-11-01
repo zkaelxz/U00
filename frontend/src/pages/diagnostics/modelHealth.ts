@@ -137,7 +137,7 @@ export function offerModelsNote(status: Pick<ModelStatus, 'checked_at' | 'offer_
   return n > 0 ? `${n} extra ${n === 1 ? 'model is' : 'models are'} offered from the last check.` : 'The last check listed no extra models.'
 }
 
-export interface EngineCheckLine {
+interface EngineCheckLine {
   engine: string
   label: string
   ok: boolean

@@ -35,6 +35,20 @@ describe('DramaCards', () => {
     expect(out).not.toMatch(/audio_drama|>zh</)
   })
 
+  it('shows line progress and the next stage, nothing without lines', () => {
+    const out = html([drama({ line_count: 40, translated_count: 8, status: 'aligned' })])
+    expect(out).toContain('32 left')
+    expect(out).toContain('width:20%')
+    expect(out).toContain('href="#/drama/7/translate" aria-label="Translate Moonlit"')
+    const done = html([drama({ line_count: 40, translated_count: 40, status: 'translated' })])
+    expect(done).toContain('40 translated')
+    expect(done).toContain('href="#/drama/7/review" aria-label="Review Moonlit"')
+    const none = html([drama({ line_count: 0, translated_count: 0 })])
+    expect(none).not.toContain('card-progress')
+    expect(none).not.toContain('drama-card-next')
+    expect(html([drama({ line_count: 4, translated_count: 4, status: 'exported' })])).not.toContain('drama-card-next')
+  })
+
   it('shows two tags then +N', () => {
     const out = html([drama({ custom_tags: ['a', 'b', 'c', 'd'] })])
     expect(out).toContain('>a</span>')

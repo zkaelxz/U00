@@ -9,10 +9,8 @@ transcribe process job, so it stays a top-level function with plain
 arguments and starts its own process group first (Windows starts it in a
 fresh interpreter that imports only this module).
 """
-import contextlib
-import glob
 import os
-import shutil
+import shutil  # noqa: F401  (tests patch shutil.move through this module)
 import tempfile
 import time
 import types
@@ -36,7 +34,7 @@ from services.qwen3_requirements_service import MISSING_VAD_MESSAGE as _MISSING_
 from services.qwen3_requirements_service import import_failure_message
 from services.transcribe_run_config import run_config
 from services.transcribe_reporters import _ProcessReporter, _ThreadReporter  # noqa: F401 (re-exported)
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 VAD_BACKENDS = ("qwen3_asr_vad", "qwen3_asr_long", "anime_whisper")
 
@@ -71,72 +69,6 @@ def missing_package_outcome(message: str = MISSING_TRANSCRIPTION_MESSAGE) -> dic
     return {"failed_reason": "dependency_missing", "detail": message}
 
 
-_MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v3-turbo": "~1.6 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
-                         "large": "~3 GB", "ja-1.5b": "~3.1 GB", "kotoba-v2": "~1.5 GB", "medium": "~1.5 GB", "small": "~500 MB",
-                         "base": "~150 MB", "tiny": "~75 MB"}
-
-
-def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep, qwen_device,
-                                    on_fallback, notices, mixed, stage_max) -> list:
-    """Word timing for a Whisper model that cannot give it: the Qwen3 forced aligner
-    refines the segment times. Where it cannot run (not installed, a mixed-language run
-    whose spans have different languages, or any error while loading or running it) the segment
-    times are kept and the job reports why, so the transcription itself is never lost
-    to the optional step. Lines are not flagged: plain Whisper segment times are normal
-    timing, and a flag on every line would bury the ones that really need a check."""
-    import forced_align
-    import qwen3_native
-    problem = ("Mixed-language runs are not refined by the forced aligner." if mixed
-               else qwen3_native.aligner_language_problem(language)
-               or qwen3_native.transformers_problem("Qwen3 forced alignment"))
-    if not problem:
-        # Whisper has finished: its VRAM must be free before the aligner loads, or the
-        # headroom check refuses the load while the transcription is already done.
-        whisper_models.release_gpu_models()
-        ticker = rep.stage("Refining line timing with the Qwen3 forced aligner").start()
-        try:
-            def _on_device(label):
-                qwen_device["Qwen3 forced alignment"] = label
-
-            def _progress(frac):
-                ticker.stop()
-                rep.progress(stage_max * (REALIGN_START + (1 - REALIGN_START) * frac),
-                             f"Refining line timing... {frac * 100:.0f}%")
-
-            return forced_align.refine_whisper_segments(
-                audio_path, segments, language, use_gpu=use_gpu, cancel_check=rep.raise_if_cancelled,
-                progress_cb=_progress, on_device=_on_device,
-                on_gpu_fallback=lambda exc: on_fallback("Qwen3 forced alignment", exc))
-        except background_jobs.JobCancelled:
-            whisper_models.release_gpu_models()
-            raise
-        except ImportError as exc:
-            problem = import_failure_message(exc)
-        except Exception as exc:
-            # Nothing here may cost the finished transcription.
-            problem = forced_align.refine_failure_reason(exc)
-        finally:
-            ticker.stop()
-    notices.append(f"Line timing was not refined ({problem})")
-    return segments
-
-
-def _separation_device_label(kind: str) -> str:
-    return {"gpu": "on GPU", "cpu": "on CPU (slow)"}.get(kind, "")
-
-
-def _stage_summary(stage_counts: dict) -> str:
-    return "; ".join(f"{label}: {count}" for label, count in stage_counts.items())
-
-
-def _model_loading_message(whisper_size: str, cached: bool) -> str:
-    if cached:
-        return f"Loading Whisper model {whisper_size}..."
-    size = _MODEL_DOWNLOAD_SIZES.get(whisper_size)
-    hint = f", {size}" if size else ""
-    return f"Loading Whisper model {whisper_size} (downloading on first use{hint})"
-
-
 def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_language,
                        chinese_script, whisper_size, beam_size, min_silence_ms, vad_threshold,
                        separate_vocals_first, separation_backend, realign_long_segments,
@@ -144,7 +76,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
                        alignment_method, local_model_path, qwen_batch_size, vad_refine_timing,
                        mixed_languages, hallucination_silence_sec, min_pause_sec, repeat_guard,
                        split_by_sentences, sensitivity_preset, voice_detector, qwen_prompt,
-                       timing, scratch_dir, result_queue):
+                       timing, checkpoint, scratch_dir, result_queue):
     """Process-job target, started with spawn on every platform (top level
     and plain arguments only, so it pickles; nothing here may depend on
     state set up in the parent process after import): runs the pipeline for
@@ -179,7 +111,7 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
             repeat_guard=repeat_guard, split_by_sentences=split_by_sentences,
             sensitivity_preset=sensitivity_preset, voice_detector=voice_detector,
-            qwen_prompt=qwen_prompt, timing=lev.timing)
+            qwen_prompt=qwen_prompt, timing=lev.timing, checkpoint=checkpoint)
         result_queue.put(("ok", lev.annotate(outcome)))
     except memory_headroom.HeadroomError as exc:
         # Its message is written for the user; the type name in front of it is not.
@@ -194,16 +126,6 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
 
 
 _move_into_place = storage.move_into_place
-
-
-def _remove_scratch_dir(path, _job_id=None, part_dir=None):
-    shutil.rmtree(path, ignore_errors=True)
-    if part_dir:
-        # A worker killed during _move_into_place's cross-volume copy leaves
-        # its .part- file beside vocals.wav, outside the scratch folder.
-        for leftover in glob.glob(os.path.join(glob.escape(part_dir), ".part-*.wav")):
-            with contextlib.suppress(OSError):
-                os.remove(leftover)
 
 
 class _PipelineRun:
@@ -227,6 +149,7 @@ class _PipelineRun:
         self.detector_notices = []
         self.coarse_whisper_timing = False
         self.groq_usage = None
+        self.units_recorded = 0
         self.device_msg = ""
         self.device_suffix = ""
         # The other backends, and a supplied transcript, bring their own lines.
@@ -540,8 +463,15 @@ class _PipelineRun:
             progress_cb=self._whisper_progress, cancel_check=self.rep.raise_if_cancelled,
             repeat_guard=o.repeat_guard, sensitivity_preset=o.sensitivity_preset)
 
+    def _record_unit(self, segments):
+        # Unit ids continue after the resumed ones; the loader refuses a set that doubles back.
+        cp = self.o.checkpoint
+        self.rep.checkpoint_unit(cp["scope"], cp["resumed_units"] + self.units_recorded, segments)
+        self.units_recorded += 1
+
     def _decode_whisper(self):
         o, tuning = self.o, self.tuning
+        cp = o.checkpoint
         return transcribe_for_timing(
             self.audio_path, o.whisper_size, language=o.source_language, use_gpu=o.use_gpu,
             local_model_path=o.local_model_path, hf_token=None,
@@ -557,6 +487,7 @@ class _PipelineRun:
             repeat_guard=o.repeat_guard, sensitivity_preset=o.sensitivity_preset,
             filter_hallucination_repeats=tuning.repeat_min_repeats,
             stock_isolation_sec=tuning.stock_isolation_sec,
+            resume_segments=cp and cp["segments"], on_unit=(cp and cp["record"] and self._record_unit) or None,
             **difficult.whisper_kwargs(o.timing))
 
     def _realign_long_segments(self):
@@ -740,7 +671,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
                          hallucination_silence_sec=core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
                          min_pause_sec=segment_splitting.MIN_WORD_GAP_SECONDS, repeat_guard=False,
                          split_by_sentences=False, sensitivity_preset="normal",
-                         voice_detector="standard", qwen_prompt=None, timing=None) -> dict:
+                         voice_detector="standard", qwen_prompt=None, timing=None,
+                         checkpoint=None) -> dict:
     """Runs ASR (or hardsub OCR, thread jobs only) and returns a plain dict:
     {"failed_reason", ...} when nothing should be applied, else the lines
     and everything _apply_transcription needs. Touches no database row.
@@ -757,6 +689,10 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     "Vocabulary: ..." hint (vocabulary_hint_service) for the Qwen3 backends, or None.
     timing: timing_settings_service.values() read by the caller (a worker process must
     not read the database), or None for the built-in thresholds.
+    checkpoint: None, or {"scope", "segments", "resumed_units", "record"} (transcribe_checkpoint_service):
+    the plain Whisper decode continues after `segments`, those of an earlier run over the same
+    input and settings, and when `record` is set reports each finished unit of its own through the
+    reporter.
 
     asr_backend_choice / alignment_method are the drama's stored
     choices: "qwen3_asr" only applies in whisper transcript_mode, and
@@ -767,3 +703,9 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
     # Everything the stages read is an argument; the class gets them by name
     # so adding an option stays a one-line change here.
     return _PipelineRun(rep, types.SimpleNamespace(**locals())).run()
+
+
+# Defined in the modules below; re-exported so `services.transcribe_pipeline.<name>` keeps working.
+from services.transcribe_pipeline_helpers import (  # noqa: E402,F401
+    _MODEL_DOWNLOAD_SIZES, _refine_without_word_timestamps, _separation_device_label,
+    _stage_summary, _model_loading_message, _remove_scratch_dir)

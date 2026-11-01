@@ -22,3 +22,4 @@
 .chapters-nav select { flex: 1; min-width: 0; }
 .chapters-nav button, .chapters-nav select { min-height: 44px; min-width: 44px; }
 .chapters-preview .source-subhead { overflow-wrap: anywhere; }
+a.chapters-row { text-decoration: none; box-sizing: border-box; }

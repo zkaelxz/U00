@@ -223,12 +223,23 @@ def test_pumps_sharing_an_align_start_on_the_same_media_sequence(serve):
     picks the start (its newest three), the other follows it, not its own edge."""
     video = [f"v{i}.ts" for i in range(10, 15)]
     audio = [f"a{i}.ts" for i in range(8, 17)]
-    s = serve({"/video.m3u8": (200, _M3U8, _segments(video, seq=10, end=False)),
-               "/audio.m3u8": (200, _M3U8, _segments(audio, seq=8, end=False)),
-               **_seg_routes(video + audio)})
+    # Live on the first load, ended on the reload: the pumps finish when the
+    # broadcast ends, not by a short stall timeout that a slow request on a
+    # loaded runner would also trip (leaving the sink empty).
+    reloads = {"n": 0}
+
+    def playlist(names, seq):
+        def route():
+            reloads["n"] += 1
+            return 200, _M3U8, _segments(names, seq=seq, end=reloads["n"] > 1)
+        return route
+
     align = live_fetch.SequenceAlign()
-    _, video_sink = _run(f"{s.base}/video.m3u8", stall_timeout=1, align=align)
-    _, audio_sink = _run(f"{s.base}/audio.m3u8", stall_timeout=1, align=align)
+    s = serve({"/video.m3u8": playlist(video, 10), **_seg_routes(video)})
+    _, video_sink = _run(f"{s.base}/video.m3u8", align=align)
+    reloads["n"] = 0
+    s = serve({"/audio.m3u8": playlist(audio, 8), **_seg_routes(audio)})
+    _, audio_sink = _run(f"{s.base}/audio.m3u8", align=align)
     assert bytes(video_sink.data) == b"v12.ts;v13.ts;v14.ts;"
     assert bytes(audio_sink.data) == b"a12.ts;a13.ts;a14.ts;a15.ts;a16.ts;"
 

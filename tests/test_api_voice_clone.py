@@ -29,6 +29,7 @@ from core import Line
 from services import auth_service
 from services import voice_clone_service as vcs
 from tests.api_helpers import error_of
+from tests.job_helpers import wait_for_job
 
 BASE = "/api/characters/dramas"
 REMOTE = "https://baihe.example.com"
@@ -57,7 +58,6 @@ def tools(monkeypatch):
     return probe
 
 
-
 def _drama(speakers=("A", "B"), durations=None, audio=True, **fields):
     did = db.create_drama(title_en="Drama", **fields)
     durations = durations or [5.0] * len(speakers)
@@ -82,16 +82,6 @@ def _upload(client, did, label="A", name="clip.wav", data=b"RIFFclip", **form):
 
 def _char(did, label):
     return next(c for c in db.list_characters(did) if c["speaker_label"] == label)
-
-
-def _wait(job_id, timeout=120):
-    end = time.time() + timeout
-    while time.time() < end:
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _no_leak(text, did):
@@ -268,7 +258,7 @@ class TestExtract:
     def _run(self, client, did, label="A", **body):
         r = client.post(f"{BASE}/{did}/reference-clips/extract", json={"speaker_label": label, **body})
         assert r.status_code == 200, r.text
-        return _wait(r.json()["job_id"])
+        return wait_for_job(r.json()["job_id"], timeout=120)
 
     def test_extract_from_lines_list_preview_choose(self, client, isolated_db, tools):
         did = _drama(speakers=("A", "A", "A", "B"), durations=[6.0, 2.0, 10.0, 5.0])
@@ -532,7 +522,7 @@ class TestAuthOn:
         h = _household()
         r = c.post(f"{BASE}/{did}/reference-clips/extract", headers=h, json={"speaker_label": "A"})
         assert r.status_code == 200, r.text
-        _wait(r.json()["job_id"])
+        wait_for_job(r.json()["job_id"], timeout=120)
         cands = c.get(f"{BASE}/{did}/reference-clips/candidates", headers=h).json()["speakers"][0]["candidates"]
         cid = cands[0]["id"]
         # preview needs media.stream (off by default)
@@ -554,8 +544,8 @@ class TestAuthOn:
         uploaded = _char(did, "A")["ref_audio_filename"]
         c = _remote()
         h = _household()
-        _wait(c.post(f"{BASE}/{did}/reference-clips/extract", headers=h,
-                     json={"speaker_label": "A"}).json()["job_id"])
+        wait_for_job(c.post(f"{BASE}/{did}/reference-clips/extract", headers=h,
+                     json={"speaker_label": "A"}).json()["job_id"], timeout=120)
         cid = c.get(f"{BASE}/{did}/reference-clips/candidates",
                     headers=h).json()["speakers"][0]["candidates"][0]["id"]
         assert c.post(f"{BASE}/{did}/reference-clips/candidates/{cid}/choose",
@@ -573,8 +563,8 @@ class TestAuthOn:
         did = _drama(speakers=("A", "A", "A"), durations=[6.0, 5.0, 7.0])
         c = _remote()
         h = _household()
-        _wait(c.post(f"{BASE}/{did}/reference-clips/extract", headers=h,
-                     json={"speaker_label": "A"}).json()["job_id"])
+        wait_for_job(c.post(f"{BASE}/{did}/reference-clips/extract", headers=h,
+                     json={"speaker_label": "A"}).json()["job_id"], timeout=120)
         cids = [x["id"] for x in c.get(f"{BASE}/{did}/reference-clips/candidates",
                                        headers=h).json()["speakers"][0]["candidates"]]
         assert len(cids) == 3
@@ -590,8 +580,8 @@ class TestAuthOn:
 
     def test_choose_keeps_a_pick_shared_with_another_speaker(self, client, isolated_db, tools):
         did = _drama(speakers=("A", "A", "B"), durations=[6.0, 5.0, 5.0])
-        _wait(client.post(f"{BASE}/{did}/reference-clips/extract",
-                          json={"speaker_label": "A"}).json()["job_id"])
+        wait_for_job(client.post(f"{BASE}/{did}/reference-clips/extract",
+                          json={"speaker_label": "A"}).json()["job_id"], timeout=120)
         first, second = [x["id"] for x in client.get(f"{BASE}/{did}/reference-clips/candidates")
                          .json()["speakers"][0]["candidates"]]
         url = f"{BASE}/{did}/reference-clips/candidates/{{}}/choose"
@@ -605,8 +595,8 @@ class TestAuthOn:
     @pytest.mark.parametrize("prefix", ["dub_", "narration_", "audiobook_"])
     def test_choose_keeps_old_pick_while_clip_job_active(self, client, isolated_db, tools, prefix):
         did = _drama(speakers=("A", "A"), durations=[6.0, 5.0])
-        _wait(client.post(f"{BASE}/{did}/reference-clips/extract",
-                          json={"speaker_label": "A"}).json()["job_id"])
+        wait_for_job(client.post(f"{BASE}/{did}/reference-clips/extract",
+                          json={"speaker_label": "A"}).json()["job_id"], timeout=120)
         first, second = [x["id"] for x in client.get(f"{BASE}/{did}/reference-clips/candidates")
                          .json()["speakers"][0]["candidates"]]
         url = f"{BASE}/{did}/reference-clips/candidates/{{}}/choose"
@@ -621,8 +611,8 @@ class TestAuthOn:
         c = _remote()
         did = _drama(speakers=("A",), durations=[6.0])
         h = _household("media.stream")
-        _wait(c.post(f"{BASE}/{did}/reference-clips/extract", headers=h,
-                     json={"speaker_label": "A"}).json()["job_id"])
+        wait_for_job(c.post(f"{BASE}/{did}/reference-clips/extract", headers=h,
+                     json={"speaker_label": "A"}).json()["job_id"], timeout=120)
         cid = c.get(f"{BASE}/{did}/reference-clips/candidates", headers=h).json()["speakers"][0]["candidates"][0]["id"]
         assert c.get(f"{BASE}/{did}/reference-clips/candidates/{cid}/audio", headers=h).status_code == 200
         c.post(f"{BASE}/{did}/reference-clips/candidates/{cid}/choose", headers=h)

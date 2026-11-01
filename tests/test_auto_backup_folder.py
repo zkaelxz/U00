@@ -14,7 +14,7 @@ from services import auto_backup_service as abs_
 from services import auto_backup_settings as abt_
 from services import drama_service
 from services import library_admin_service as las
-from services.service_errors import ConflictError, ServiceError
+from lib.errors import ConflictError, ServiceError
 from tests.auto_backup_helpers import (
     _COPY_RE, _at, _copy_names, _ddir, _default_dir, _default_path, _delete_drama, _make_legacy,
     _newest, _put_job, _read, _run_at, _snap, _untag,

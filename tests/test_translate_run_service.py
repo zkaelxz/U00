@@ -4,10 +4,12 @@ import json
 import pytest
 
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import gemini as engine_gemini
+from engine_backends import local as engine_local
 from core import Line
 from services import settings_service, translate_run_service as svc
-from services.service_errors import (InvalidInputError, NotFoundError,
+from lib.errors import (InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 from tests.saved_settings import patch_setting
 
@@ -25,7 +27,7 @@ def _seed(did, texts):
 def _no_ollama_probe(monkeypatch):
     """No test here touches the network: the Ollama health check is
     stubbed (unreachable) unless a test swaps in its own."""
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda url: False)
 
 
 @pytest.fixture
@@ -53,11 +55,11 @@ def test_config_defaults_audio_vs_novel(isolated_db):
     assert a["default_style_preset"] == "audio_drama"
     assert a["translation_engine"] == "claude"
     n = svc.get_translate_config(_drama(content_mode="novel_narration"))
-    assert n["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 60}
+    assert n["defaults"] == {"context_window": 30, "context_window_ahead": 15, "batch_size": 60}
     assert n["default_style_preset"] == "novel"
     assert {"key": "novel", "label": "Novel / prose"} in [{"key": p["key"], "label": p["label"]} for p in n["style_presets"]]
     assert "en-US" in n["locales"]
-    assert {t["key"] for t in n["workflow_tiers"]} == set(translate_engines.WORKFLOW_TIERS)
+    assert {t["key"] for t in n["workflow_tiers"]} == set(engine_registry.WORKFLOW_TIERS)
 
 
 def test_counts(isolated_db):
@@ -176,7 +178,7 @@ def test_validation(isolated_db, monkeypatch):
         svc.estimate_translate_cost(did, "nope")
     with pytest.raises(UnsupportedOperationError):
         svc.estimate_translate_cost(did, "fake_mt", reflect=True)
-    bad = next(iter(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
+    bad = next(iter(engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
     with pytest.raises(UnsupportedOperationError):
         svc.estimate_translate_cost(did, "gemini", model=bad, gemini_free_tier=True)
     with pytest.raises(InvalidInputError):
@@ -200,12 +202,12 @@ def test_config_reports_ollama_reachable_boolean_only(isolated_db, monkeypatch):
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda k, *a, **kw: "http://10.9.8.7:11434" if k == "ollama_url"
                         else real(k, *a, **kw))
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable",
+    monkeypatch.setattr(engine_local, "check_ollama_reachable",
                         lambda url: seen.append(url) or True)
     cfg = svc.get_translate_config(_drama(translation_engine="ollama"))
     assert cfg["ollama_reachable"] is True and seen == ["http://10.9.8.7:11434"]
     assert "10.9.8.7" not in json.dumps(cfg)
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda url: False)
     assert svc.get_translate_config(_drama(translation_engine="ollama"))["ollama_reachable"] is False
 
 
@@ -214,7 +216,7 @@ def test_config_probes_ollama_only_for_an_ollama_drama(isolated_db, monkeypatch)
     another engine (or the default engine, when it isn't Ollama) gets
     None -- not probed -- and no request is made."""
     seen = []
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable",
+    monkeypatch.setattr(engine_local, "check_ollama_reachable",
                         lambda url: seen.append(url) or True)
     assert svc.get_translate_config(_drama(translation_engine="claude"))["ollama_reachable"] is None
     patch_setting(monkeypatch, "default_engine", "gemini")
@@ -231,7 +233,7 @@ def test_api_config_carries_ollama_reachable(isolated_db, monkeypatch):
     from fastapi.testclient import TestClient
     from api.api_config import ApiSettings
     from api.server import create_app
-    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: True)
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda url: True)
     c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     r = c.get(f"/api/translate-run/dramas/{_drama(translation_engine='ollama')}/config")
     assert r.status_code == 200 and r.json()["ollama_reachable"] is True
@@ -241,7 +243,7 @@ def test_api_config_carries_ollama_reachable(isolated_db, monkeypatch):
 
 def test_summary_engine_build_failure_is_logged_without_key(isolated_db, monkeypatch):
     import applog
-    import translate_engines
+    from engine_backends import engine_registry
     from services import translate_service, translate_run_service as trs
     seen = []
 
@@ -254,7 +256,7 @@ def test_summary_engine_build_failure_is_logged_without_key(isolated_db, monkeyp
 
     def boom(*a, **k):
         raise ValueError("bad config sk-ant-abcdefghijklmnopqrstuvwxyz0123")
-    monkeypatch.setattr(translate_engines, "get_engine", boom)
+    monkeypatch.setattr(engine_registry, "get_engine", boom)
     assert trs.pick_summary_engine() == (None, None)
     assert len(seen) == 1 and "bad config" in seen[0] and "sk-ant-abcdef" not in seen[0]
 
@@ -281,7 +283,7 @@ def test_validate_run_options_refuses_bad_values(override, error, text):
 
 
 def test_validate_run_options_blocks_gemini_free_tier_models():
-    model = sorted(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)[0]
+    model = sorted(engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)[0]
     with pytest.raises(UnsupportedOperationError, match="free tier"):
         svc.validate_run_options("gemini", model, **{**_OK, "gemini_free_tier": True})
     svc.validate_run_options("gemini", model, **_OK)
@@ -300,7 +302,7 @@ def _started_run_sizes(monkeypatch, did, **sizes):
         seen["args"], seen["kwargs"] = args, kwargs
         return True
     monkeypatch.setattr(svc.job_launch, "start_job", fake_start_job)
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
     patch_setting(monkeypatch, "ollama_num_ctx_override", 0)
     svc.start_translate_run(did, engine_name="ollama", **sizes)
     return seen["args"][13], seen["kwargs"]["context_window_ahead"], seen["kwargs"]["batch_size"]
@@ -358,15 +360,15 @@ def test_save_style_toggles_stores_translate_by_sentence_and_none_keeps_it(isola
     ("claude", "something-new", 30),              # unknown model: safe default
 ])
 def test_default_batch_size_by_engine_and_model(isolated_db, engine, model, expected):
-    assert translate_engines.default_batch_size(engine, model) == expected
+    assert engine_registry.default_batch_size(engine, model) == expected
 
 
 def test_default_batch_size_accepts_an_engine_instance(isolated_db):
-    strong = translate_engines.ENGINES["claude"]("k", model="claude-opus-5-5")
-    small = translate_engines.ENGINES["claude"]("k", model="claude-haiku-4-5-20251001")
-    assert translate_engines.default_batch_size(strong) == 60
-    assert translate_engines.default_batch_size(small) == 30
-    assert translate_engines.default_batch_size(object()) == 30
+    strong = engine_registry.ENGINES["claude"]("k", model="claude-opus-5-5")
+    small = engine_registry.ENGINES["claude"]("k", model="claude-haiku-4-5-20251001")
+    assert engine_registry.default_batch_size(strong) == 60
+    assert engine_registry.default_batch_size(small) == 30
+    assert engine_registry.default_batch_size(object()) == 30
 
 
 def test_config_offers_a_batch_default_per_engine_and_model(isolated_db):

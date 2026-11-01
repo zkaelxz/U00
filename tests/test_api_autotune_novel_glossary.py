@@ -6,6 +6,7 @@ LLM call are faked -- no audio model, no network.
 """
 
 import os
+from engine_backends import engine_registry
 import time
 
 import pytest
@@ -15,16 +16,16 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import background_jobs
 from jobs import job_launch, job_table
 import whisper_transcribe
 import translation_guide as tguide
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import (auth_service, autotune_service, glossary_extract_service, glossary_service, translate_service)
-from services.service_errors import ConflictError
+from services import (auth_service, autotune_service, glossary_service, translate_service)
+from lib.errors import ConflictError
 from tests.api_helpers import error_of
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 REMOTE = "https://baihe.example.com"
@@ -82,7 +83,7 @@ class _Engine:
 @pytest.fixture
 def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
-    monkeypatch.setattr(glossary_extract_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key, **kw: _Engine())
 
 
@@ -224,14 +225,6 @@ class TestAutotuneApply:
 
 # ----- glossary from novel -------------------------------------------------------
 
-def _wait(job_id):
-    for _ in range(200):
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
 
 class TestNovelGlossaryStart:
     def test_success_and_status_hide_key(self, local_client, isolated_db, monkeypatch, fake_engine):
@@ -243,7 +236,7 @@ class TestNovelGlossaryStart:
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"novel_glossary_{did}", "engine": "claude",
                             "paired": True}
-        _wait(f"novel_glossary_{did}")
+        wait_for_job(f"novel_glossary_{did}", timeout=4.0)
         r = local_client.get(_gl(did))
         assert r.status_code == 200
         body = r.json()
@@ -259,7 +252,7 @@ class TestNovelGlossaryStart:
         monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: [
             {"term": "师尊", "suggested_translation": "Master", "reason": "r"}])
         local_client.post(_gl(did))
-        _wait(f"novel_glossary_{did}")
+        wait_for_job(f"novel_glossary_{did}", timeout=4.0)
         r = local_client.get(_gl(did))
         assert r.status_code == 200 and SECRET not in r.text
 
@@ -271,7 +264,7 @@ class TestNovelGlossaryStart:
             raise RuntimeError(f"401 for key {SECRET}")
         monkeypatch.setattr(tguide, "extract_glossary_from_novel", boom)
         local_client.post(_gl(did))
-        _wait(f"novel_glossary_{did}")
+        wait_for_job(f"novel_glossary_{did}", timeout=4.0)
         r = local_client.get(_gl(did))
         assert r.json()["status"] == "error"
         assert SECRET not in r.text

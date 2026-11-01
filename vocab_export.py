@@ -57,7 +57,7 @@ def export_vocab_apkg(vocab_rows, deck_name: str, out_path: str):
     deck_id = random.randrange(1 << 30, 1 << 31)
 
     model = genanki.Model(
-        model_id, "Baihe Subtitler Vocab",
+        model_id, "Baihe Studio Vocab",
         fields=[{"name": "Front"}, {"name": "Back"}],
         templates=[{
             "name": "Card 1",
@@ -115,7 +115,7 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
         model_id = random.randrange(1 << 30, 1 << 31)
         deck_id = random.randrange(1 << 30, 1 << 31)
         model = genanki.Model(
-            model_id, "Baihe Subtitler Vocab (sentence)",
+            model_id, "Baihe Studio Vocab (sentence)",
             fields=[{"name": "Sentence"}, {"name": "Back"}],
             templates=[{
                 "name": "Card 1",

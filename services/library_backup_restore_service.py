@@ -30,7 +30,7 @@ from services.library_admin_service import (RESTORE_CONFIRM_TEXT, any_job_runnin
                                             require_confirm)
 from services.library_backup_service import _backup_excluded_top_level
 from services.library_restore_sql import _unsafe_member
-from services.service_errors import ConflictError, InvalidInputError, ServiceError
+from lib.errors import ConflictError, InvalidInputError, ServiceError
 
 log = logging.getLogger(__name__)
 

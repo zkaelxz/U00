@@ -26,10 +26,10 @@ import json
 import math
 
 import db
-import translate_engines
+from engine_backends import engine_registry, local
 import translation_guide
 from services import series_defaults_service, settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 # Settings the presets table already stores as columns; the rest of the series
 # defaults keys (transcribe options, translate-by-sentence) go in options_json.
@@ -47,6 +47,16 @@ _BOOLS = ("reflect", "bulk", "thinking")
 _STYLE_NOTE_MAX = 4000
 _COST_CAP_MAX = 100000
 RUN_OPTIONS = frozenset(_INT_RANGES) | set(_BOOLS) | {"style_note", "cost_cap", "fallback_engines"}
+
+# What Quick video translate needs that a title does not store: the language to create the title in,
+# the export it ends with and the language packs. apply_to_title never reads these, so applying a
+# profile still never touches a title's language or packs.
+QUICK_OPTIONS = frozenset({"quick_source_language", "quick_export_format", "quick_export_language",
+                           "quick_language_packs"})
+QUICK_SOURCE_LANGUAGES = ("zh", "ja", "ko")
+QUICK_EXPORT_FORMATS = ("srt", "vtt", "lrc")
+QUICK_EXPORT_LANGUAGES = ("en", "zh", "bilingual")
+MAX_QUICK_PACKS = 20
 
 
 def _check_run_option(key, value):
@@ -70,10 +80,29 @@ def _check_run_option(key, value):
             raise InvalidInputError("cost_cap is a dollar amount of 0 or more.")
     elif key == "fallback_engines":
         ok = (isinstance(value, list) and len(value) <= MAX_FALLBACKS
-              and all(isinstance(e, str) and e in translate_engines.ENGINES for e in value)
+              and all(isinstance(e, str) and e in engine_registry.ENGINES for e in value)
               and len(set(value)) == len(value))
         if not ok:
             raise InvalidInputError(f"fallback_engines is up to {MAX_FALLBACKS} different known engines.")
+
+
+def _check_quick_option(key, value, options):
+    if key == "quick_source_language":
+        ok = value in QUICK_SOURCE_LANGUAGES
+        msg = "quick_source_language is zh, ja or ko."
+    elif key == "quick_export_format":
+        ok, msg = value in QUICK_EXPORT_FORMATS, "quick_export_format is srt, vtt or lrc."
+    elif key == "quick_export_language":
+        ok, msg = value in QUICK_EXPORT_LANGUAGES, "quick_export_language is en, zh or bilingual."
+    else:
+        import language_packs
+        language = options.get("quick_source_language")
+        known = {p["id"] for p in language_packs.packs_for_language(language)} if language in QUICK_SOURCE_LANGUAGES else set()
+        ok = (isinstance(value, list) and len(value) <= MAX_QUICK_PACKS and len(set(map(str, value))) == len(value)
+              and all(isinstance(v, str) and v in known for v in value))
+        msg = "quick_language_packs are packs for the profile's source language."
+    if not ok:
+        raise InvalidInputError(msg)
 
 
 def validate_options(options) -> dict:
@@ -84,12 +113,14 @@ def validate_options(options) -> dict:
         return {}
     if not isinstance(options, dict):
         raise InvalidInputError("Profile options must be an object of setting: value.")
-    unknown = set(options) - TITLE_OPTIONS - RUN_OPTIONS
+    unknown = set(options) - TITLE_OPTIONS - RUN_OPTIONS - QUICK_OPTIONS
     if unknown:
         raise InvalidInputError("Unknown profile option: " + ", ".join(sorted(map(str, unknown))[:5]))
     series_defaults_service.validate({k: v for k, v in options.items() if k in TITLE_OPTIONS})
     for key in RUN_OPTIONS & set(options):
         _check_run_option(key, options[key])
+    for key in QUICK_OPTIONS & set(options):
+        _check_quick_option(key, options[key], options)
     if len(json.dumps(options)) > MAX_OPTIONS_BYTES:
         raise InvalidInputError("Too many profile options.")
     return dict(options)
@@ -106,8 +137,11 @@ def _lenient(raw) -> dict:
         return {}
     out = {}
     for key, value in stored.items():
+        # The packs belong to the source language stored beside them.
+        context = {"quick_source_language": stored.get("quick_source_language")} \
+            if key == "quick_language_packs" else {}
         try:
-            validate_options({key: value})
+            validate_options({**context, key: value})
         except InvalidInputError:
             continue
         out[key] = value
@@ -163,7 +197,7 @@ def title_run_defaults(drama: dict, engine_name: str, title_engine: str) -> dict
     # A cloud tag is paid work the request's own gate only sees when the client sends it,
     # so a run that was handed no model never picks one up here.
     if (engine_name == title_engine and model
-            and not (engine_name == "ollama" and translate_engines.is_ollama_cloud_model(model))):
+            and not (engine_name == "ollama" and local.is_ollama_cloud_model(model))):
         out["model"] = model
     return out
 
@@ -207,7 +241,7 @@ def plan(preset: dict, drama: dict) -> dict:
     values; the language itself is never written."""
     options = stored_options(preset)
     engine = preset.get("translation_engine")
-    if engine not in translate_engines.ENGINES:
+    if engine not in engine_registry.ENGINES:
         engine = None   # an engine this build no longer has: leave the title's own
     genre = preset.get("include_genre_notes")
     genre = True if genre is None else bool(genre)

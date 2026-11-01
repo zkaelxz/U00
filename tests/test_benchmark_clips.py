@@ -12,23 +12,13 @@ import time
 
 import pytest
 
-import background_jobs
 import db
 from services import benchmark_clip_service as clips
 from services import benchmark_export_service as export
 from services import benchmark_lab_service as svc
 from services import benchmark_scoring_service as scoring
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
-
-
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(svc.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
+from tests.job_helpers import wait_for_job
 
 
 def _audio(data=b"RIFFfake"):
@@ -55,7 +45,7 @@ def _scored_run(monkeypatch, outputs, **kw):
     monkeypatch.setattr(svc, "_run_file_case", lambda stage, cfg, case, gpu, folder=None: {
         "output_text": outputs(case), "duration_seconds": 0.1})
     started = svc.start_run("transcription", [{"engine": "whisper", "model": "small"}], **kw)
-    assert _wait()["status"] == "done"
+    assert wait_for_job(svc.JOB_ID, timeout=15)["status"] == "done"
     return started["session_ids"][0]
 
 

@@ -308,6 +308,11 @@ class TestStorage:
 
 # ---- re-split (sensitivity presets) ---------------------------------------------
 
+def _flat(pairs):
+    # pytest.approx compares flat sequences only (9.2 refuses nested ones).
+    return [t for pair in pairs for t in pair]
+
+
 class TestResplit:
     def test_owner_case_cuts_at_real_pauses_with_real_times(self):
         did, ids = _seed()
@@ -317,7 +322,7 @@ class TestResplit:
         assert (r["split_lines"], r["line_count"]) == (1, dry["line_count"])
         rows = db.load_lines(did)
         assert [x["zh"] for x in rows] == PHRASES
-        assert [(x["start"], x["end"]) for x in rows] == pytest.approx(_phrase_times())
+        assert _flat((x["start"], x["end"]) for x in rows) == pytest.approx(_flat(_phrase_times()))
         assert rows[0]["id"] == ids[0]
         # every piece got exactly its own words, so it can be cut again
         words = _valid_words(did)
@@ -332,7 +337,7 @@ class TestResplit:
         assert r["split_lines"] == 2
         rows = db.load_lines(did)
         assert [x["zh"] for x in rows] == PHRASES
-        assert [(x["start"], x["end"]) for x in rows] == pytest.approx(_phrase_times())
+        assert _flat((x["start"], x["end"]) for x in rows) == pytest.approx(_flat(_phrase_times()))
         assert all(_valid_words(did))
 
     def test_no_pause_long_enough_means_no_cut(self, monkeypatch):
@@ -393,7 +398,7 @@ class TestResplit:
         # outer edges stay where the user put them; the cuts still come from the words
         times = _phrase_times()
         expected = [(START - 1.0, times[0][1]), *times[1:-1], (times[-1][0], END + 0.6)]
-        assert [(x["start"], x["end"]) for x in rows] == pytest.approx(expected)
+        assert _flat((x["start"], x["end"]) for x in rows) == pytest.approx(_flat(expected))
         assert all(_valid_words(did))
 
 

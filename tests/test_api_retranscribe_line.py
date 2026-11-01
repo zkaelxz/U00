@@ -22,7 +22,7 @@ import whisper_models
 import db
 from core import Line
 from services import jobs_service, transcribe_service, retranscribe_line_service, transcribe_options_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from tests.saved_settings import patch_setting
 from tests.api_helpers import error_of
@@ -888,7 +888,7 @@ def test_the_timeout_give_up_works_with_a_real_result_channel(tmp_path, monkeypa
     def run_worker():
         try:
             rw.retranscribe_worker(
-                "a.wav", 0, 1, "zh", "tiny", 1, 100, 0.5, False, None, None, False, "auto", "", 0.05,
+                "a.wav", 0, 1, "zh", "tiny", 1, 100, 0.5, False, None, None, False, "auto", {}, "", 0.05,
                 str(tmp_path / "scratch"), channel)
         except ValueError:
             # The give-up closed the queue; the real process would already have exited.

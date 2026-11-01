@@ -83,7 +83,7 @@ export interface BenchmarkCaseTiming {
 }
 
 /** Arena only: whether a run's timing beat the first run's by more than the measured noise without a worse text score. */
-export interface BenchmarkTimingVerdict {
+interface BenchmarkTimingVerdict {
   state: 'baseline' | 'repeat' | 'untimed' | 'no_margin' | 'no_gain' | 'cer_worse' | 'gain'
   text: string
   margin_within: number | null
@@ -92,7 +92,7 @@ export interface BenchmarkTimingVerdict {
   score_change?: number | null
 }
 
-export interface BenchmarkBackendOption {
+interface BenchmarkBackendOption {
   name: string
   label: string
   /** What it still needs on this PC (a package or a model to download); null when it can run. */
@@ -176,7 +176,7 @@ export interface BenchmarkRequestConfig {
 }
 
 /** The engine that scores a translation run's outputs. allow_same_model must be true to judge with a tested model. */
-export interface BenchmarkJudgeConfig {
+interface BenchmarkJudgeConfig {
   engine: string
   model?: string
   allow_same_model?: boolean
@@ -212,7 +212,7 @@ export interface BenchmarkJudgeSummary {
   note: string | null
 }
 
-export interface BenchmarkJudgeEstimate {
+interface BenchmarkJudgeEstimate {
   engine: string
   model: string | null
   estimated_cost_usd: number
@@ -221,7 +221,7 @@ export interface BenchmarkJudgeEstimate {
   warning: string | null
 }
 
-export interface BenchmarkConfigEstimate {
+interface BenchmarkConfigEstimate {
   engine: string
   model: string | null
   estimated_cost_usd: number
@@ -322,7 +322,7 @@ export interface BenchmarkResult {
   read_score?: number | null
 }
 
-export interface BenchmarkArenaRow {
+interface BenchmarkArenaRow {
   case_id: number | null
   label: string
   source_text: string | null
@@ -468,7 +468,7 @@ export interface SweepRequest {
   use_gpu?: boolean | null
 }
 
-export interface SweepModel {
+interface SweepModel {
   engine: string
   model: string | null
   label: string
@@ -476,7 +476,7 @@ export interface SweepModel {
   reason: string | null
 }
 
-export interface SweepKnob {
+interface SweepKnob {
   key: string
   label: string
   values: SweepValue[]
@@ -507,7 +507,7 @@ export interface SweepEstimate {
   monthly_refusal: string | null
 }
 
-export interface SweepSetup {
+interface SweepSetup {
   engine: string
   model: string | null
   changes: Record<string, SweepValue | string>
@@ -525,7 +525,7 @@ export interface SweepStep {
   kept: boolean | null
 }
 
-export interface SweepTag {
+interface SweepTag {
   tag: string
   cases: number
   default_score: number | null
@@ -534,7 +534,7 @@ export interface SweepTag {
   too_small: boolean
 }
 
-export interface SweepHoldout {
+interface SweepHoldout {
   default_score: number | null
   winner_score: number | null
   delta: number | null
@@ -544,7 +544,7 @@ export interface SweepHoldout {
   winner_errors: number
 }
 
-export type SweepState = 'keep_default' | 'adopt' | 'not_confirmed'
+type SweepState = 'keep_default' | 'adopt' | 'not_confirmed'
 
 export interface SweepRecommendation {
   state: SweepState
@@ -563,13 +563,13 @@ export interface SweepRecommendation {
 }
 
 /** One title setting the approved profile writes when it is applied to a title. */
-export interface SweepApplies {
+interface SweepApplies {
   key: string
   label: string
   value: string
 }
 
-export interface SweepDecision {
+interface SweepDecision {
   decision: 'promoted' | 'rejected'
   reason: string
   decided_at: string | null
@@ -614,7 +614,7 @@ export interface TranslateSweepRequest {
   series_id?: number | null
 }
 
-export interface TranslateSweepKnob {
+interface TranslateSweepKnob {
   key: string
   label: string
   values: (boolean | number | string | null)[]

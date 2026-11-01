@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from 'react'
 
-export const APP_NAME = 'Baihe Studio'
+const APP_NAME = 'Baihe Studio'
 
 /** "Settings · Baihe Studio": the page first, so a narrow tab strip still says which page it is. */
 export function formatDocumentTitle(heading: string | null | undefined): string {

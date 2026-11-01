@@ -11,7 +11,7 @@ error rather than leaking its traceback to a client.
 
 `message` is shown to people, so it must never contain an API key, a
 token, or a filesystem path -- the API layer runs it through
-`translate_engines.redact_secrets` as a second line of defence, but the
+`engine_backends.shared.redact_secrets` as a second line of defence, but the
 first line is not putting one there.
 """
 

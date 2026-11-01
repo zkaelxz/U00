@@ -96,7 +96,8 @@ test('an empty title shows the upload panel; picking files uploads them', async 
   await page.goto('/#/comic/7')
   const panel = page.getByRole('region', { name: 'Translate pages' })
   await expect(panel).toBeVisible()
-  await expect(panel.getByText('Upload pages first.')).toBeVisible()
+  // Until a page exists the engine, run and export controls stay hidden; only the upload shows.
+  await expect(panel.getByRole('button', { name: 'Translate all pages' })).toHaveCount(0)
   await panel.getByLabel('Page images or PDFs').setInputFiles([
     { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('x') },
     { name: 'b.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') },

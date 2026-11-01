@@ -14,7 +14,7 @@ from api.server import create_app
 from core import Line
 from services import auth_service, speech_coverage_service
 from services import transcribe_gap_service as svc
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 
 
@@ -119,6 +119,29 @@ class TestListGaps:
         assert out["gaps"] == [{"start": 6.0, "end": 20.0, "seconds": 14.0, "pieces": 1,
                                 "part": 1, "parts": 1, "after_line_id": ids[1], "before_line_id": ids[2],
                                 "speech": None}]
+
+    def test_the_stretch_after_the_last_line_shows_when_the_speech_check_heard_speech_in_it(
+            self, isolated_db, monkeypatch):
+        did, ids = _drama(isolated_db)
+        monkeypatch.setattr(svc.transcribe_pipeline, "_audio_duration_seconds", lambda p: 60.0)
+        _coverage(monkeypatch, [(40.0, 45.0)])
+        tail = svc.list_gaps(did)["gaps"][-1]
+        assert (tail["start"], tail["end"], tail["after_line_id"]) == (30.0, 60.0, ids[-1])
+        assert tail["before_line_id"] is None and tail["speech"] is True
+        assert "tail" not in tail
+
+    def test_closing_music_after_the_last_line_is_not_a_gap(self, isolated_db, monkeypatch):
+        did, _ = _drama(isolated_db)
+        monkeypatch.setattr(svc.transcribe_pipeline, "_audio_duration_seconds", lambda p: 60.0)
+        for coverage in ([], [(5.0, 6.0)]):
+            _coverage(monkeypatch, coverage)
+            assert not any(g["start"] >= 30.0 for g in svc.list_gaps(did)["gaps"])
+
+    def test_no_tail_when_the_last_line_reaches_the_end_of_the_audio(self, isolated_db, monkeypatch):
+        did, _ = _drama(isolated_db)
+        end = max(ln.end for ln in isolated_db.load_line_objects(did))
+        monkeypatch.setattr(svc.transcribe_pipeline, "_audio_duration_seconds", lambda p: end + 0.4)
+        assert all(g["end"] <= end for g in svc.list_gaps(did)["gaps"])
 
     def test_long_gap_reports_its_pieces(self, isolated_db):
         did, _ = _drama(isolated_db, spans=((0, 3), (100, 103)))

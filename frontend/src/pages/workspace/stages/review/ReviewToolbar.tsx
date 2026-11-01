@@ -2,13 +2,14 @@ import { useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import type { LineFilter } from '../../../../types/review'
-import { gapChipLabel } from './gapModel'
+import { gapChipLabel, gapStepText } from './gapModel'
 import { chipLabel, parseJump } from './reviewLogic'
 
 interface FilterCounts {
   all: number | null
   flagged: number
   untranslated: number
+  unreviewed: number
 }
 
 interface Props {
@@ -46,8 +47,8 @@ interface Props {
   player: ReactNode
 }
 
-const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated']
-const FULL: Record<LineFilter, string> = { all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated' }
+const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed']
+const FULL: Record<LineFilter, string> = { all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed' }
 
 // A number you can type into: Enter or leaving the box jumps (clamped to 1..max), Escape puts the old value back.
 function JumpInput({ value, max, label, describedBy, placeholder, className, onJump }: {
@@ -134,7 +135,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   const chips = (
     <div className="review-chips" role="radiogroup" aria-label="Show">
       {FILTERS.map((f) => {
-        const count = !p.counts ? null : f === 'all' ? p.counts.all : f === 'flagged' ? p.counts.flagged : p.counts.untranslated
+        const count = !p.counts ? null : f === 'all' ? p.counts.all : p.counts[f]
         return (
           <label key={f} className="review-chip">
             <input
@@ -222,9 +223,15 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
           <span className="review-gap-step" role="group" aria-label="Gaps: stretches with no line">
             <button type="button" className="review-gap-arrow" aria-label="Previous gap" title="Previous stretch with no line" onClick={p.onPrevGap}>‹</button>
             <span className="review-gaps-chip" role="group" aria-label={gapChipLabel(p.gapIndex, p.gapCount)}>
-              <span>Gaps</span>
-              <JumpInput className="review-gap-input" label="Go to gap number" placeholder="#" value={p.gapIndex === null ? '' : String(p.gapIndex)} max={p.gapCount} onJump={p.onGoGap} />
-              <span aria-hidden="true">/{p.gapCount}</span>
+              {p.isPhone ? (
+                <span>{gapStepText(p.gapIndex, p.gapCount)}</span>
+              ) : (
+                <>
+                  <span>Gaps</span>
+                  <JumpInput className="review-gap-input" label="Go to gap number" placeholder="#" value={p.gapIndex === null ? '' : String(p.gapIndex)} max={p.gapCount} onJump={p.onGoGap} />
+                  <span aria-hidden="true">/{p.gapCount}</span>
+                </>
+              )}
             </span>
             <button type="button" className="review-gap-arrow" aria-label="Next gap" title="Next stretch with no line" onClick={p.onNextGap}>›</button>
           </span>

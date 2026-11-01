@@ -3,13 +3,12 @@ error mapping, redaction and the known-chapters helper. Adapters are fakes
 served by a scripted transport through the real SourceClient; no network."""
 
 import json
-import time
 
 import pytest
 
 import background_jobs
 from services import sources_search_service as svc
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from sources import generic_import, registry
@@ -21,6 +20,7 @@ from sources.models import (ChallengeDetected, ChapterInfo, ContentHidden, Failu
                             FetchFailed, NotSupportedError, SearchResult, SeriesInfo,
                             SourceError, SourceUnavailable, TermsProhibited)
 from tests.sources_helpers import ScriptedTransport, html
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 HOST = "https://fake.invalid"
@@ -86,16 +86,6 @@ def fakes(isolated_db, monkeypatch):
             background_jobs.clear_job(jid)
 
 
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
-
-
 def _ok_routes(name):
     return {f"{HOST}/{name}/search/{i}?q=abc&token={SECRET}": html("<html>ok</html>")
             for i in (1, 2)}
@@ -105,7 +95,7 @@ def test_partial_results_when_one_source_fails(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     fakes["beta"] = _make("beta", search_exc=SourceUnavailable("down", retry_after=42.0))
     assert svc.start_search("abc") == {"job_id": "sources_search"}
-    _wait("sources_search")
+    wait_for_job("sources_search")
     out = svc.get_job_result("sources_search")
     r = out["result"]
     assert out["status"] == "done" and r["per_source_counts"] == {"alpha": 2, "beta": 0}
@@ -118,7 +108,7 @@ def test_sources_filter_and_validation(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     fakes["beta"] = _make("beta", search_exc=RuntimeError("never called"))
     svc.start_search("abc", sources=["alpha"])
-    _wait("sources_search")
+    wait_for_job("sources_search")
     assert svc.get_job_result("sources_search")["result"]["errors"] == {}
     with pytest.raises(NotFoundError):
         svc.start_search("abc", sources=["nope"])
@@ -145,7 +135,7 @@ def test_series_id_with_a_relative_path_is_allowed(fakes):
     fakes["alpha"] = _make("alpha")
     assert svc.start_series("alpha", "KeHuan/20_b/bkceK.html") == {
         "job_id": svc.SERIES_JOB_PREFIX + "alpha"}
-    _wait(svc.SERIES_JOB_PREFIX + "alpha")
+    wait_for_job(svc.SERIES_JOB_PREFIX + "alpha")
 
 
 def test_cancel_mid_search(fakes):
@@ -154,7 +144,7 @@ def test_cancel_mid_search(fakes):
 
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"), on_request=cancel_on_first)
     svc.start_search("abc")
-    _wait("sources_search")
+    wait_for_job("sources_search")
     r = svc.get_job_result("sources_search")["result"]
     assert r["cancelled"] is True
     assert r["results"] == [] and r["errors"] == {}
@@ -168,9 +158,9 @@ def test_second_start_conflicts_and_finished_is_cleared(fakes, monkeypatch):
     with pytest.raises(ConflictError):
         svc.start_search("abc")
     gate.set()
-    _wait("sources_search")
+    wait_for_job("sources_search")
     assert svc.start_search("abc") == {"job_id": "sources_search"}
-    _wait("sources_search")
+    wait_for_job("sources_search")
 
 
 def test_concurrent_starts_give_one_run_and_one_conflict(fakes, monkeypatch):
@@ -180,7 +170,7 @@ def test_concurrent_starts_give_one_run_and_one_conflict(fakes, monkeypatch):
     # A finished entry under the id: the case where a start used to clear it.
     svc.start_search("first")
     gate.set()
-    _wait("sources_search")
+    wait_for_job("sources_search")
     runs.clear()
     gate.clear()
     barrier = threading.Barrier(2)
@@ -198,7 +188,7 @@ def test_concurrent_starts_give_one_run_and_one_conflict(fakes, monkeypatch):
     for t in threads:
         t.join(5)
     gate.set()
-    _wait("sources_search")
+    wait_for_job("sources_search")
     assert sorted(map(str, outcomes)) == ["409", str({"job_id": "sources_search"})]
     assert len(runs) == 1
 
@@ -209,7 +199,7 @@ def test_starting_over_a_finished_search_never_clears_the_entry(fakes, monkeypat
     # making any clear fail rather than by racing two threads.
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("first")
-    _wait("sources_search")
+    wait_for_job("sources_search")
 
     def no_clear(*a, **k):
         raise AssertionError("start_search must not clear the job entry")
@@ -217,13 +207,13 @@ def test_starting_over_a_finished_search_never_clears_the_entry(fakes, monkeypat
     with monkeypatch.context() as m:
         m.setattr(background_jobs, "clear_job", no_clear)
         assert svc.start_search("second") == {"job_id": "sources_search"}
-    _wait("sources_search")
+    wait_for_job("sources_search")
 
 
 def test_result_idle_after_clear_and_404_for_foreign_ids(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("abc")
-    _wait("sources_search")
+    wait_for_job("sources_search")
     background_jobs.clear_job("sources_search")
     assert svc.get_job_result("sources_search") == {
         "job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None}
@@ -252,7 +242,7 @@ def test_result_idle_after_clear_and_404_for_foreign_ids(fakes):
 def test_series_exception_mapping(fakes, exc, cls, status, check):
     fakes["alpha"] = _make("alpha", series_exc=exc)
     svc.start_series("alpha", "s1")
-    st = _wait("sources_series_alpha")
+    st = wait_for_job("sources_series_alpha")
     assert st["status"] == "error" and SECRET not in (st["error"] or "")
     with pytest.raises(cls) as ei:
         svc.get_job_result("sources_series_alpha")
@@ -276,7 +266,7 @@ class _Layout(SourceError):
 def test_failure_kinds_map_to_reason_codes(fakes, exc, cls, status, reason):
     fakes["alpha"] = _make("alpha", series_exc=exc)
     svc.start_series("alpha", "s1")
-    _wait("sources_series_alpha")
+    wait_for_job("sources_series_alpha")
     with pytest.raises(cls) as ei:
         svc.get_job_result("sources_series_alpha")
     assert ei.value.details["reason"] == reason
@@ -297,7 +287,7 @@ def test_search_exception_mapping_per_source(fakes):
     fakes["beta"] = _make("beta", search_exc=ChallengeDetected(
         "c", f"{HOST}/x?a={SECRET}", FailureReason.BOT_CHALLENGE))
     svc.start_search("abc")
-    _wait("sources_search")
+    wait_for_job("sources_search")
     errs = svc.get_job_result("sources_search")["result"]["errors"]
     assert errs["alpha"]["status"] == 400 and errs["alpha"]["details"]["reason"] == "TOS_PROHIBITED"
     assert errs["beta"]["status"] == 409 and errs["beta"]["details"]["open_url"] == f"{HOST}/x"
@@ -306,7 +296,7 @@ def test_search_exception_mapping_per_source(fakes):
 def test_series_result_in_site_order_and_redacted(fakes):
     fakes["alpha"] = _make("alpha")
     svc.start_series("alpha", "s1")
-    _wait("sources_series_alpha")
+    wait_for_job("sources_series_alpha")
     out = svc.get_job_result("sources_series_alpha")
     r = out["result"]
     assert [c["chapter_id"] for c in r["chapters"]] == ["c1", "c2", "c10"]
@@ -334,7 +324,7 @@ def test_series_download_links_are_listed_without_their_query(fakes):
     fake.get_series = get_series
     fakes["alpha"] = fake
     svc.start_series("alpha", "s1")
-    _wait("sources_series_alpha")
+    wait_for_job("sources_series_alpha")
     out = svc.get_job_result("sources_series_alpha")
     assert out["result"]["info"]["links"] == [
         {"label": "百度网盘 (Baidu Pan)", "url": "https://pan.baidu.com/s/1abc", "password": "roh1"}]
@@ -344,7 +334,7 @@ def test_series_download_links_are_listed_without_their_query(fakes):
 def test_search_result_has_no_query_strings_or_secrets(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("abc")
-    _wait("sources_search")
+    wait_for_job("sources_search")
     dumped = json.dumps(svc.get_job_result("sources_search"), ensure_ascii=False)
     assert SECRET not in dumped and "?" not in dumped and "#frag" not in dumped
     assert f"{HOST}/alpha/series/1" in dumped
@@ -380,7 +370,7 @@ def test_running_series_job_names_its_series(fakes):
         assert r["result"] is None
     finally:
         gate.set()
-    _wait("sources_series_alpha")
+    wait_for_job("sources_series_alpha")
     done = svc.get_job_result("sources_series_alpha")
     assert (done["source"], done["series_id"]) == ("alpha", "A")
 
@@ -388,7 +378,7 @@ def test_running_series_job_names_its_series(fakes):
 def test_search_job_has_no_series_identity(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("abc")
-    _wait("sources_search")
+    wait_for_job("sources_search")
     r = svc.get_job_result("sources_search")
     assert "source" not in r and "series_id" not in r
 
@@ -415,7 +405,7 @@ def test_series_job_passes_local_as_allow_browser(fakes, local):
     Fake.get_series = get_series
     fakes["alpha"] = Fake
     svc.start_series("alpha", "s1", local=local)
-    assert _wait("sources_series_alpha")["status"] == "done"
+    assert wait_for_job("sources_series_alpha")["status"] == "done"
     assert seen == [local]
 
 
@@ -435,7 +425,7 @@ def test_series_chapters_keep_the_adapters_order(fakes):
         for cid, t in titles]
     fakes["alpha"] = Fake
     svc.start_series("alpha", "s1")
-    _wait("sources_series_alpha")
+    wait_for_job("sources_series_alpha")
     r = svc.get_job_result("sources_series_alpha")["result"]
     assert [c["chapter_id"] for c in r["chapters"]] == ["p", "c1", "sp", "c2", "af"]
 
@@ -475,10 +465,10 @@ def test_every_mirror_failing_does_not_list_the_mirrors():
 
 
 def test_a_rate_limited_job_result_is_a_429(fakes):
-    from services.service_errors import RateLimitedError
+    from lib.errors import RateLimitedError
     fakes["alpha"] = _make("alpha", series_exc=FetchFailed("x", FailureReason.RATE_LIMIT))
     svc.start_series("alpha", "s1")
-    _wait("sources_series_alpha")
+    wait_for_job("sources_series_alpha")
     with pytest.raises(RateLimitedError):
         svc.get_job_result("sources_series_alpha")
 

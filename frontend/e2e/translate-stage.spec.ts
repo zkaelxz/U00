@@ -132,6 +132,7 @@ test('with every line translated, the reason offers Re-translate in one tap', as
   const run = page.getByRole('region', { name: 'Translate run' })
   await expect(run.getByRole('button', { name: 'Translate 0 lines' })).toBeDisabled()
   await expect(run.getByTestId('translate-blocker')).toContainText('All 4 lines have English.')
+  await expect(run.getByTestId('translate-blocker').getByRole('link', { name: 'Next: Review' })).toHaveAttribute('href', '#/drama/1/review')
   await run.getByRole('button', { name: 'Re-translate existing…' }).click()
   await run.getByLabel(/I understand this replaces/).check()
   await expect(run.getByRole('button', { name: 'Translate 4 lines' })).toBeEnabled()

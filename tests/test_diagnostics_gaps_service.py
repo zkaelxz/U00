@@ -535,7 +535,7 @@ def test_reset_keeps_the_last_library_beside_it(isolated_db):
 
 
 def test_reset_changes_nothing_when_the_copy_cannot_be_kept(isolated_db, monkeypatch):
-    from services.service_errors import ServiceError
+    from lib.errors import ServiceError
     did = isolated_db.create_drama(title_en="Kept")
 
     def full_disk(dest):

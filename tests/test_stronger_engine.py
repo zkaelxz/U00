@@ -4,12 +4,12 @@ switch or write). Mocked throughout: no network, no real keys."""
 import pytest
 
 import db
-import translate_engines
+from engine_backends import engine_registry
 from core import Line
 from services import engine_routing_service as routing
 from services import settings_service
 from services import stronger_engine_service as svc
-from services.service_errors import (DependencyUnavailableError, NotFoundError, ServiceError,
+from lib.errors import (DependencyUnavailableError, NotFoundError, ServiceError,
                                       UnsupportedOperationError)
 
 
@@ -122,7 +122,7 @@ class TestTryLine:
     @pytest.fixture
     def engine(self, monkeypatch):
         fake = FakeEngine()
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: fake)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: fake)
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "sk-test-123")
         return fake
 
@@ -159,7 +159,7 @@ class TestTryLine:
 
     def test_a_changed_engine_is_refused(self, drama, engine):
         did, ids, _ = drama
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         with pytest.raises(ConflictError):
             svc.try_line(did, ids[1], "gemini")
         assert engine.contexts == []
@@ -237,7 +237,7 @@ class TestRoutes:
         did, ids, _ = drama
         body = client.get(f"/api/stronger-engine/dramas/{did}").json()
         assert body["engine"] == "claude" and body["lines"]
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "sk-test-123")
         r = client.post(f"/api/stronger-engine/dramas/{did}/lines/{ids[1]}/try", json={})
         assert r.status_code == 200 and r.json()["text"] == "Lin Wan smiled."
@@ -253,7 +253,7 @@ class TestSpokenLanguage:
     @pytest.fixture
     def engine(self, monkeypatch):
         fake = FakeEngine()
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: fake)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: fake)
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: "sk-test-123")
         return fake
 

@@ -9,7 +9,7 @@ export function showGetStarted(totalDramas: number | null | undefined, dismissed
   return totalDramas === 0 && !dismissed
 }
 
-export interface FirstRunStep {
+interface FirstRunStep {
   id: 'key' | 'transcription' | 'subtitles'
   label: string
   done: boolean
@@ -17,14 +17,14 @@ export interface FirstRunStep {
   href: string | null
 }
 
-export interface FirstRunFacts {
+interface FirstRunFacts {
   canSetUp: boolean
   canCreate: boolean
   readiness: Pick<SetupReadiness, 'faster_whisper' | 'ollama_reachable' | 'key_claude' | 'key_deepseek' | 'key_gemini' | 'key_openai' | 'key_groq'> | null
   totalDramas: number
 }
 
-export const hasTranslationEngine = (r: NonNullable<FirstRunFacts['readiness']>): boolean =>
+const hasTranslationEngine = (r: NonNullable<FirstRunFacts['readiness']>): boolean =>
   r.ollama_reachable || r.key_claude || r.key_deepseek || r.key_gemini || r.key_openai || r.key_groq
 
 /** The steps this person can act on. The key step goes away once an engine can run (and

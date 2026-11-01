@@ -6,7 +6,6 @@ anime-whisper when they are already installed, and records what it ran with.
 Mocked: no GPU, no models, no network.
 """
 import json
-import time
 
 import pytest
 
@@ -20,23 +19,14 @@ from api.benchmark_schemas import BenchmarkRunRequest
 from services import benchmark_case_service as cases_svc
 from services import benchmark_lab_service as svc
 from services import asr_options_service, model_readiness_service, transcribe_options_service as opts
-from services.service_errors import DependencyUnavailableError, InvalidInputError
+from lib.errors import DependencyUnavailableError, InvalidInputError
 from tests.saved_settings import patch_setting
-
-
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(svc.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
+from tests.job_helpers import wait_for_job
 
 
 def _run(configs, **kw):
     started = svc.start_run("transcription", configs, **kw)
-    assert _wait()["status"] == "done"
+    assert wait_for_job(svc.JOB_ID, timeout=15)["status"] == "done"
     return started
 
 
@@ -402,7 +392,7 @@ class TestRunSafety:
             return [{"start": 0, "end": 1, "text": "こんにちは"}]
         monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", fake)
         started = svc.start_run("transcription", [{"engine": "whisper", "model": "small"}])
-        _wait()
+        wait_for_job(svc.JOB_ID, timeout=15)
         detail = svc.get_run(started["session_ids"][0])
         assert detail["run"]["status"] == "cancelled"
         assert detail["results"] == [] and len(seen) == 1

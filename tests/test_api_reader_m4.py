@@ -2,7 +2,7 @@
 Route batch 2B (M4): the Reader API over services/reader_service.py.
 
 Fully mocked: no network, no models, no real LLM. Engines are faked by
-patching translate_service.resolve_api_key / translate_engines.get_engine
+patching translate_service.resolve_api_key / engine_registry.get_engine
 and the story/wiki/QA helpers the service calls.
 """
 import os
@@ -53,9 +53,9 @@ class _FakeEngine:
 @pytest.fixture
 def fake_engine(monkeypatch):
     from services import translate_service
-    import translate_engines
+    from engine_backends import engine_registry
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _FakeEngine())
 
 
 def _code(r):
@@ -66,6 +66,7 @@ def _code(r):
 # is the only reason to fail.
 ROUTES = [
     ("GET", "/page", None),
+    ("GET", "/page.html", None),
     ("GET", "/overview", None),
     ("POST", "/progress", {"page": 1}),
     ("GET", "/notes", None),
@@ -185,10 +186,10 @@ def lookup_drama(isolated_db, monkeypatch):
 
 
 def test_lookup_without_llm_makes_no_llm_call(client, lookup_drama, monkeypatch):
-    import translate_engines
-    monkeypatch.setattr(translate_engines, "call_llm_json",
+    from engine_backends import engine_registry, llm_tasks
+    monkeypatch.setattr(llm_tasks, "call_llm_json",
                         lambda *a, **k: pytest.fail("no LLM call without use_llm"))
-    monkeypatch.setattr(translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda *a, **k: pytest.fail("no engine without use_llm"))
     r = client.post(f"{BASE}/{lookup_drama}/lookup", json={"page": 1, "use_llm": False})
     assert r.status_code == 200
@@ -198,8 +199,8 @@ def test_lookup_without_llm_makes_no_llm_call(client, lookup_drama, monkeypatch)
 
 
 def test_lookup_with_llm_matches_by_id(client, lookup_drama, fake_engine, monkeypatch):
-    import translate_engines
-    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k:
+    from engine_backends import llm_tasks
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k:
                         '{"2": {"reading": "niǎo", "definitions": ["bird"]}}')
     r = client.post(f"{BASE}/{lookup_drama}/lookup",
                     json={"page": 1, "use_llm": True, "engine": "ollama"})
@@ -531,7 +532,7 @@ def test_permissions_per_route(on_client, drama):
     for path in ("/overview", "/notes", "/media", "/vocab", "/wiki"):
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(reader_only)).status_code == 200
     # lines.read: the page (it carries line text), captions, exports
-    for path in ("/page", "/captions/Source", "/wiki/export.md"):
+    for path in ("/page", "/page.html", "/captions/Source", "/wiki/export.md"):
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(reader_only)).status_code == 403
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(lines_read)).status_code == 200
     for path in ("/vocab/export.csv", "/vocab/export.apkg"):
@@ -884,3 +885,34 @@ def test_rich_apkg_header_flags_missing_clips_without_a_count(client, isolated_d
     monkeypatch.setattr(vocab_export, "export_vocab_apkg_sentence", fake)
     r = client.get(f"{BASE}/{did}/vocab/export.apkg", params={"rich": True})
     assert r.status_code == 200 and r.headers["x-clips-missing"] == "true"
+
+
+class TestPageDocument:
+    """The Reader's iframe loads the page from its own URL so the document
+    can carry its own Content-Security-Policy; the JSON route then skips
+    building the html the web app no longer reads."""
+
+    def test_page_html_is_a_document_with_its_own_policy(self, client, drama):
+        r = client.get(f"{BASE}/{drama}/page.html?page=1&theme=dark")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/html")
+        assert r.text.lstrip().lower().startswith("<!doctype html") and "你好" in r.text
+        csp = r.headers["content-security-policy"]
+        assert csp.startswith("default-src 'none'") and "frame-ancestors 'self'" in csp
+        assert r.headers["x-frame-options"] == "SAMEORIGIN"
+        assert r.headers["cache-control"] == "no-store"
+
+    def test_page_html_matches_the_json_html(self, client, drama):
+        as_json = client.get(f"{BASE}/{drama}/page?page=1").json()
+        as_doc = client.get(f"{BASE}/{drama}/page.html?page=1").text
+        assert as_json["html"] == as_doc
+
+    def test_json_page_without_html_keeps_the_counts(self, client, drama):
+        r = client.get(f"{BASE}/{drama}/page?page=1&html=false")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["html"] == "" and body["page_count"] == 1 and body["total_lines"] == 10
+
+    def test_page_html_bad_page_is_the_same_422(self, client, drama):
+        r = client.get(f"{BASE}/{drama}/page.html?page=7")
+        assert r.status_code == 422 and r.json()["error"]["details"]["page_count"] == 1

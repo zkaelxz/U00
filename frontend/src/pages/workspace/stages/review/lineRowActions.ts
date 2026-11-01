@@ -1,5 +1,5 @@
 import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
-import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine } from '../../../../api/review'
+import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setReviewed } from '../../../../api/review'
 import type { NoteDraft, RowActions } from './LineRow'
 import type { LinesControllerDeps, LinesCore } from './linesController'
 import { isDirty, type LineDraft } from './reviewDraft'
@@ -107,6 +107,16 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
       // Save any draft first: under the Flagged filter the line leaves the view.
       if (!(await leaveEdit())) return
       dismissFlag(dramaId, id).then((saved) => {
+        replaceLine(saved)
+        setIssue(null)
+        st.current.onChanged()
+      }, (e) => failLine(id, e))
+    },
+    setReviewed: async (id, reviewed) => {
+      // Save any draft first: under the Unreviewed filter the line leaves the view.
+      if (!(await leaveEdit())) return
+      // The English the reviewer is looking at: the server refuses if it changed since.
+      setReviewed(dramaId, id, reviewed, find(id)?.en).then((saved) => {
         replaceLine(saved)
         setIssue(null)
         st.current.onChanged()

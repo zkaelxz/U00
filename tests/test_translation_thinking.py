@@ -11,15 +11,16 @@ import requests
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
-import translate_engines as te
+from engine_backends import translate_pipeline, openai_compat, shared
 from core import Line
 from engine_backends import local, thinking
 from services import (line_provenance_service, translate_run_service as run,
                       translate_thinking_service as tts)
+from tests.job_helpers import wait_for_job
 
 
 def _ctx(**kw):
-    return te.build_translation_context(types.SimpleNamespace(supports_reference=True), {}, **kw)
+    return translate_pipeline.build_translation_context(types.SimpleNamespace(supports_reference=True), {}, **kw)
 
 
 class _Ollama:
@@ -42,9 +43,9 @@ def _fresh_think_memory():
 
 
 def _deepseek(content, usage=None, reasoning="Let me think: {\"1\": \"wrong\"}"):
-    engine = te.DeepSeekEngine.__new__(te.DeepSeekEngine)
+    engine = openai_compat.DeepSeekEngine.__new__(openai_compat.DeepSeekEngine)
     engine.model = "deepseek-flash"
-    engine.last_usage = te._empty_usage()
+    engine.last_usage = shared._empty_usage()
     seen = []
     message = types.SimpleNamespace(content=content, refusal=None, reasoning_content=reasoning)
     resp = types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)], usage=usage)
@@ -158,7 +159,7 @@ class _Capturing:
 def test_the_pipeline_hands_the_choice_to_every_batch(asked):
     lines = [Line(idx=i, start=i, end=i + 1, zh=f"行{i}", en="") for i in range(3)]
     engine = _Capturing()
-    te.translate_lines_with_engine(lines, engine, drama_meta={}, batch_size=2, thinking=asked)
+    translate_pipeline.translate_lines_with_engine(lines, engine, drama_meta={}, batch_size=2, thinking=asked)
     assert len(engine.contexts) == 2
     assert all(c["reply_with_thinking"] is asked and c["reply_without_thinking"] is not asked
                for c in engine.contexts)
@@ -168,7 +169,7 @@ def test_the_pipeline_hands_the_choice_to_every_batch(asked):
 def test_a_default_pipeline_run_is_off():
     lines = [Line(idx=0, start=0, end=1, zh="行", en="")]
     engine = _Capturing()
-    te.translate_lines_with_engine(lines, engine, drama_meta={})
+    translate_pipeline.translate_lines_with_engine(lines, engine, drama_meta={})
     assert engine.contexts[0]["reply_without_thinking"] is True
 
 
@@ -201,8 +202,8 @@ class TestTitleChoice:
         did = db.create_drama(title_zh="D")
         tts.save_title_choice(did, True)
         engine = types.SimpleNamespace(supports_reference=True)
-        assert te.build_translation_context(engine, {"id": did})["reply_with_thinking"] is True
-        assert te.build_translation_context(engine, {"id": did}, thinking=False)["reply_with_thinking"] is False
+        assert translate_pipeline.build_translation_context(engine, {"id": did})["reply_with_thinking"] is True
+        assert translate_pipeline.build_translation_context(engine, {"id": did}, thinking=False)["reply_with_thinking"] is False
 
     def test_the_choice_is_saved_with_the_other_toggles(self, isolated_db):
         did = db.create_drama(title_zh="D")
@@ -329,17 +330,6 @@ def run_contexts(monkeypatch):
     return seen
 
 
-def _wait_job(job_id):
-    import time
-    import background_jobs
-    for _ in range(400):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] not in ("running", "queued"):
-            return job
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 def _drama_with_lines():
     did = db.create_drama(title_zh="D")
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
@@ -349,14 +339,14 @@ def _drama_with_lines():
 def test_a_run_uses_its_own_choice_and_saves_it_once_accepted(isolated_db, run_contexts):
     did = _drama_with_lines()
     started = _fake_run(did, thinking=True)
-    _wait_job(started["job_id"])
+    wait_for_job(started["job_id"], timeout=20.0)
     assert run_contexts == [True] and tts.get_title_choice(did) is True
     assert started["thinking"] is False  # the fake engine has no switch
 
 
 def test_a_refused_request_leaves_the_saved_choice_alone(isolated_db, monkeypatch):
     import background_jobs
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     did = _drama_with_lines()
     tts.save_title_choice(did, False)
     monkeypatch.setattr(background_jobs, "is_running", lambda job_id: True)
@@ -374,7 +364,7 @@ def test_a_caller_without_paid_engines_cannot_make_thinking_stick_for_paid_runs(
         isolated_db, run_contexts):
     did = _drama_with_lines()
     started = _fake_run(did, thinking=True, remember=False)
-    _wait_job(started["job_id"])
+    wait_for_job(started["job_id"], timeout=20.0)
     assert run_contexts == [True]  # this run still thinks
     assert tts.get_title_choice(did) is False
 
@@ -445,7 +435,7 @@ def test_the_deepseek_off_peak_job_reads_the_title_when_it_runs(isolated_db):
     did = db.create_drama(title_zh="D")
     tts.save_title_choice(did, True)
     engine = types.SimpleNamespace(supports_reference=True)
-    assert te.build_translation_context(engine, db.get_drama(did))["reply_with_thinking"] is True
+    assert translate_pipeline.build_translation_context(engine, db.get_drama(did))["reply_with_thinking"] is True
 
 
 def test_a_glossary_retranslate_run_gets_the_same_thinking_value(isolated_db, monkeypatch):

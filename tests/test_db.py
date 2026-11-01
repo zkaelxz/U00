@@ -252,6 +252,55 @@ class TestLinesSaveLoad:
         assert loaded[0]["flag"] is None
 
 
+class TestReviewedClearsWithNewEnglish:
+    """Every writer of `en` goes through save_lines or the compare-and-set
+    update, so the uncheck rule lives in the SQL (db.lines._UNCHECK_ON_NEW_EN)
+    rather than in each service (find-and-replace, accept-tm, shorten, the
+    translate and retranscribe jobs, a version restore)."""
+
+    def _checked(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello"),
+                                     Line(idx=1, start=1, end=2, zh="再见", en="Bye")])
+        rows = isolated_db.load_line_objects(did)
+        for ln in rows:
+            ln.reviewed = True
+        isolated_db.save_lines(did, rows, fields=("reviewed",))
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [1, 1]
+        return did, isolated_db.load_line_objects(did)
+
+    def test_a_field_scoped_en_write_unchecks_only_the_line_whose_english_changed(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en = "Hi"
+        rows[1].orig = None  # a job's copy without `orig` writes every field: the same text keeps the mark
+        isolated_db.save_lines(did, rows, fields=("en", "flag", "flag_note"))
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [0, 1]
+        # The saved object follows the row, so a later save can't put the mark back.
+        assert rows[0].reviewed is False and rows[1].reviewed is True
+
+    def test_only_if_unchanged_and_a_full_sync_uncheck_too(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en = "Hi"
+        isolated_db.save_lines(did, rows[:1], fields=("en",), only_if_unchanged=True)
+        rows = isolated_db.load_line_objects(did)
+        assert [ln.reviewed for ln in rows] == [False, True]
+        rows[1].en = "Goodbye"
+        isolated_db.save_lines(did, rows)
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [0, 0]
+
+    def test_compare_and_set_unchecks_on_a_new_english_and_keeps_it_on_the_same(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        assert isolated_db.update_line_fields_if(did, rows[0].id, {"en": "Hello"}, {"en": "Hello"})
+        assert isolated_db.update_line_fields_if(did, rows[1].id, {"en": "Later"}, {"en": "Bye"})
+        assert [r["reviewed"] for r in isolated_db.load_lines(did)] == [1, 0]
+
+    def test_a_write_that_sets_reviewed_itself_wins(self, isolated_db):
+        did, rows = self._checked(isolated_db)
+        rows[0].en, rows[0].reviewed = "Hi", True
+        isolated_db.save_lines(did, rows[:1], fields=("en", "reviewed"))
+        assert isolated_db.load_lines(did)[0]["reviewed"] == 1
+
+
 class TestSaveLinesExpectUnchanged:
     """A full sync computed from an earlier read refuses, inside its own
     transaction, when the lines or a removed line's notes changed since."""
@@ -2146,6 +2195,27 @@ class TestAppSettings:
         assert n == 1
         assert db.get_app_setting("k") == 2
 
+    def test_update_changes_the_stored_value_and_returns_it(self, isolated_db):
+        assert db.update_app_setting("doc", lambda v: {**v, "a": 1}, default={}) == {"a": 1}
+        db.update_app_setting("doc", lambda v: {**v, "b": 2}, default={})
+        assert db.get_app_setting("doc") == {"a": 1, "b": 2}
+
+    def test_concurrent_updates_to_different_fields_both_land(self, isolated_db):
+        import threading
+        errors = []
+
+        def add(field):
+            try:
+                for i in range(15):
+                    db.update_app_setting("doc", lambda v: {**v, f"{field}{i}": i}, default={})
+            except Exception as exc:
+                errors.append(exc)
+        threads = [threading.Thread(target=add, args=(f,)) for f in "abc"]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        assert not errors
+        assert len(db.get_app_setting("doc")) == 45
+
     def test_value_types_round_trip_via_json(self, isolated_db):
         db.set_app_setting("a_string", "hello")
         db.set_app_setting("a_number", 3.5)
@@ -2209,7 +2279,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
     "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
-              "word_timings"),
+              "word_timings", "reviewed"),
     "dramas": (
         "translation_engine", "content_mode", "narration_language", "source_video_filename",
         "source_language", "chinese_script", "media_type", "series_id", "episode_number",

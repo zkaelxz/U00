@@ -141,11 +141,29 @@ test('a 403 while polling stops the polling and says why', async ({ page }) => {
     reads += 1
     return route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
   })
+  // The hub needs two failed connects (the retry sits behind a 500 ms timer) before it falls back to polling.
+  let streamTries = 0
+  await page.route('**/api/events?*', (route) => {
+    streamTries += 1
+    return route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'No stream in this test.' } } })
+  })
   const live = await openLive(page)
   await expect(live.getByRole('alert')).toContainText('owner')
-  // The event stream failing over to polling re-reads once; after that, no timer.
-  await runClock(page, 1000)
+  await expect.poll(async () => {
+    await runClock(page, 1000)
+    return streamTries
+  }).toBeGreaterThanOrEqual(2)
+  // Whether the fall-over lands before or after the first read, at most one extra read follows; wait for it to settle.
+  let last = -1
+  await expect.poll(async () => {
+    await runClock(page, 500)
+    await page.waitForLoadState('networkidle')
+    const settled = reads === last
+    last = reads
+    return settled
+  }).toBe(true)
   const seen = reads
+  expect(seen).toBeLessThanOrEqual(2)
   await runClock(page, 5000)
   expect(reads).toBe(seen)
 })

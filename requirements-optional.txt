@@ -14,14 +14,14 @@ sentencepiece>=0.2.2      # tokenizer PaddleOCR-VL-For-Manga declares (LlamaToke
                          # tokenizer.model)
 
 # --- download audio/video directly from a URL (video_download.py) ---
-yt-dlp>=2026.8.19          # YouTube and many other sites. Update often
+yt-dlp>=2026.10.26          # YouTube and many other sites. Update often
                           # (pip install -U yt-dlp) -- sites change and
                           # break older versions regularly.
 
 # --- ASMR voice detector (asmr_vad.py) ---
 # Runs the optional ~119 MB ASMR speech-detection model on the CPU. The model
 # itself is downloaded from Settings > Transcription experiments, never by pip.
-onnxruntime>=1.31.0
+onnxruntime>=1.31.1
 
 # --- speaker diarization ---
 pyannote.audio>=3.1
@@ -50,7 +50,7 @@ soynlp>=0.0.493
 # livestreams) before Whisper sees it. audio-separator runs a Mel-Band
 # RoFormer vocal model (cleaner, preferred); Demucs is the fallback (its
 # project is archived). Each downloads its own model on first use.
-audio-separator>=0.47.0
+audio-separator>=0.47.1
 demucs>=4.1.0
 
 # --- word-level forced alignment (word_align.py), EXPERIMENTAL ---
@@ -75,7 +75,7 @@ paddlepaddle==3.3.1     # PaddlePaddle publishes wheels for Python 3.9-3.13 only
 # manga-ocr>=0.1        # Japanese manga speech bubbles
 
 # --- reader: segmentation, pinyin, furigana ---
-jieba>=0.42             # Chinese. Ships no prebuilt wheel -- pip must build
+jieba>=0.42.1            # Chinese. Ships no prebuilt wheel -- pip must build
                          # its legacy setup.py from source, which fails on
                          # modern setuptools with "AttributeError:
                          # install_layout" (confirmed directly: setuptools
@@ -94,8 +94,8 @@ opencc-python-reimplemented>=0.1.7  # Traditional<->Simplified conversion for
 sudachipy>=0.7.0          # Japanese
 sudachidict_core>=20261015
 pykakasi>=2.3           # Japanese furigana
-kiwipiepy>=0.24.0         # Korean
-budoux>=0.9.3           # Japanese/Chinese phrase-aware subtitle line breaking
+kiwipiepy>=0.24.1         # Korean
+budoux>=0.10.1           # Japanese/Chinese phrase-aware subtitle line breaking
 
 # --- scanlate: ML bubble detection + inpainting ---
 # transformers (above) loads the bubble detector; torch+safetensors load
@@ -108,7 +108,7 @@ torch>=2.0
 safetensors>=0.8.0
 
 # --- scanlate: PDF import (splits a PDF into per-page images) ---
-pypdf>=6.21.1       # 6.x caps how far a stream may inflate (PDF bombs)
+pypdf>=6.21.3       # 6.x caps how far a stream may inflate (PDF bombs)
 
 # --- exports ---
 genanki>=0.13.1           # Anki decks
@@ -118,7 +118,7 @@ ebooklib>=0.20          # EPUB
 plyer>=2.1
 
 # --- JavaScript-rendered sites (baihehub, Fanjiao) ---
-playwright>=1.64.0        # uses an installed Chrome or Edge; no browser download needed then
+playwright>=1.64.1        # uses an installed Chrome or Edge; no browser download needed then
 
 # --- Sources tab: main-text extraction from a pasted novel-chapter URL ---
 # Apache-2.0. Optional -- without it a simpler built-in extractor is used.
@@ -140,7 +140,7 @@ sacrebleu>=2.6.0
 cryptography>=50.0.2
 
 # --- development ---
-pytest>=9.1.1
+pytest>=9.2.0
 httpx>=0.27             # FastAPI's TestClient (tests/test_api_foundation.py)
 
 # --- audio emotion / sound-event tags (sensevoice_tags.py) ---

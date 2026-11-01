@@ -2,7 +2,7 @@
 // search/series jobs. No proxy URL, path, key or
 // query string is ever part of these shapes.
 
-export interface SourceSupports {
+interface SourceSupports {
   search: boolean
   get_series: boolean
   get_chapters: boolean
@@ -15,7 +15,7 @@ export interface SourceSupports {
 
 export type SourcePace = 'careful' | 'normal' | 'fast'
 
-export type HealthLight = 'green' | 'yellow' | 'red'
+type HealthLight = 'green' | 'yellow' | 'red'
 
 export interface SourceSummary {
   name: string
@@ -209,7 +209,7 @@ interface SearchEntry {
   cover_url: string // never rendered: loading it would bypass pacing
 }
 
-export interface SearchMatch {
+interface SearchMatch {
   title: string
   key: string
   sources: string[]

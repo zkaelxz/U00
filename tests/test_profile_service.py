@@ -16,7 +16,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import (auth_service, drama_service, profile_service, series_defaults_service,
                       translate_preset_service, translate_run_service)
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 PRESETS = "/api/translate-run/presets"
 OPTIONS = {"beam_size": 7, "whisper_fast_mode": True, "translate_by_sentence": True,
@@ -290,3 +290,19 @@ def test_each_module_imports_first_without_a_cycle(module):
     import sys
     r = subprocess.run([sys.executable, "-c", f"import {module}"], capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr[-400:]
+
+
+def test_quick_video_options_are_validated_and_never_applied_to_a_title():
+    options = {"quick_source_language": "ja", "quick_export_format": "vtt",
+               "quick_export_language": "bilingual"}
+    assert profile_service.validate_options(options) == options
+    for bad in ({"quick_source_language": "en"}, {"quick_export_format": "ass"},
+                {"quick_export_language": "fr"}, {"quick_language_packs": ["nope"]},
+                {"quick_source_language": "ja", "quick_language_packs": "ja-honorifics"}):
+        with pytest.raises(InvalidInputError):
+            profile_service.validate_options(bad)
+    preset = {"translation_engine": "ollama", "options_json": profile_service.dump_options(options)}
+    planned = profile_service.plan(preset, {"source_language": "ko"})
+    assert "source_language" not in planned["columns"]
+    assert not any(k.startswith("quick_") for k in planned["columns"]["translate_start_json"])
+    assert profile_service.stored_options(preset) == options

@@ -41,7 +41,7 @@ export interface ScanlateConfig {
   upload_limits: ScanlateUploadLimits
 }
 
-export interface ScanlateNote {
+interface ScanlateNote {
   level: 'info' | 'warning' | 'error' | string
   message: string
 }

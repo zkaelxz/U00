@@ -133,7 +133,7 @@ def env(isolated_db, monkeypatch):
     yield types.SimpleNamespace(ffmpeg=ffmpeg, writes=writes)
     for jid in list(background_jobs.list_all_jobs()):
         if jid.startswith("urlmedia_"):
-            _wait(jid)
+            wait_for_job(jid, missing_ok=True)
             background_jobs.clear_job(jid)
 
 
@@ -142,16 +142,6 @@ def client(env):
     return TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
                       client=("127.0.0.1", 5000), raise_server_exceptions=False,
                       headers=LOCAL_HEADERS)
-
-
-def _wait(job_id, timeout=10.0):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if not st or st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 def _drama(**kw):
@@ -166,7 +156,7 @@ def _start(client, did, **body):
 def _run(client, did, **body):
     r = _start(client, did, **body)
     assert r.status_code == 200 and r.json() == {"job_id": f"urlmedia_{did}"}, r.text
-    return _wait(f"urlmedia_{did}")
+    return wait_for_job(f"urlmedia_{did}", missing_ok=True)
 
 
 def _no_tmp(did):
@@ -180,7 +170,7 @@ def test_audio_only_download(client, env):
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.wav"))
     assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
-                           "title_zh": "Clip Title"}]
+                           "transcript_mode": "whisper", "title_zh": "Clip Title"}]
     # The link is stored cleaned; the raw one (it needs ?v=) only in the PC-only column.
     stored = db.get_drama(did)
     assert stored["source_url"] == "https://video.example/watch"
@@ -214,7 +204,8 @@ def test_video_download_extracts_audio_and_keeps_title(client, env):
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.mp4"))
     assert os.path.exists(os.path.join(ddir, "audio.wav"))
-    assert env.writes == [{"audio_filename": "audio.wav", "source_video_filename": "source.mp4"}]
+    assert env.writes == [{"audio_filename": "audio.wav", "source_video_filename": "source.mp4",
+                           "transcript_mode": "whisper"}]
     assert db.get_drama(did)["source_url"] == "https://video.example/watch"
     assert db.get_drama(did)["title_en"] == "Mine" and not db.get_drama(did)["title_zh"]
     cmd = env.ffmpeg[0]
@@ -408,7 +399,7 @@ def test_ytdlp_missing_503(client, env, monkeypatch):
 
 def test_a_second_press_for_the_same_title_and_delete_are_refused(client, env):
     from services import drama_service
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     gate = threading.Event()
     FakeYDL.script = {"before": lambda: gate.wait(5)}
     a = _drama()
@@ -417,7 +408,7 @@ def test_a_second_press_for_the_same_title_and_delete_are_refused(client, env):
     with pytest.raises(ConflictError):
         drama_service.delete_drama(a, confirm=True, confirm_text="DELETE")
     gate.set()
-    _wait(f"urlmedia_{a}")
+    wait_for_job(f"urlmedia_{a}", missing_ok=True)
     assert "urlmedia_" in background_jobs.DRAMA_JOB_PREFIXES
 
 
@@ -486,14 +477,15 @@ def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     r = client.post(f"/api/media/dramas/{did}/download-url",
                     json={"url": DIRECT, "audio_only": True})
     assert r.status_code == 200, r.text
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "done", st
     assert FakeYDL.calls == [] and direct.hops == [(DIRECT, "93.184.216.34")]
     cmd = env.ffmpeg[0]
     i = cmd.index("-i")
     assert cmd[i - 4:i] == video_export.local_input()
     assert os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
-    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None}]
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "transcript_mode": "whisper"}]
     assert db.get_drama(did)["source_url"] == "https://cdn.example/media/ep1.mp3"
     assert db.get_drama(did)["source_url_full"] == DIRECT
     _no_tmp(did)
@@ -504,8 +496,9 @@ def test_direct_audio_link_with_audio_only_off_still_installs_audio_only(client,
     r = client.post(f"/api/media/dramas/{did}/download-url",
                     json={"url": DIRECT, "audio_only": False})
     assert r.status_code == 200, r.text
-    assert _wait(f"urlmedia_{did}")["status"] == "done"
-    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None}]
+    assert wait_for_job(f"urlmedia_{did}", missing_ok=True)["status"] == "done"
+    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+                           "transcript_mode": "whisper"}]
     assert db.get_drama(did)["source_url"] == "https://cdn.example/media/ep1.mp3"
 
 
@@ -515,7 +508,7 @@ def test_direct_video_link_keeps_video(client, env, direct):
     r = client.post(f"/api/media/dramas/{did}/download-url",
                     json={"url": url, "audio_only": False})
     assert r.status_code == 200
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "done", st
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.mp4"))
@@ -532,7 +525,7 @@ def test_direct_link_redirect_to_private_address_refused(client, env, direct, mo
     monkeypatch.setattr(url_guard.socket, "getaddrinfo", dns)
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
     assert [h[0] for h in direct.hops] == [DIRECT]   # never connected to the private hop
     assert env.writes == [] and env.ffmpeg == []
@@ -555,7 +548,7 @@ def test_direct_link_http_failure_names_the_reason(client, env, direct, status, 
     direct.script[DIRECT] = _Resp(status)
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
     assert shown in st["error"] and SECRET not in st["error"]
     assert env.writes == [] and env.ffmpeg == []
@@ -567,7 +560,7 @@ def test_direct_link_that_answers_with_a_web_page_is_refused_before_saving(clien
                                   chunks=[b"<html>preview</html>"])
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._WEB_PAGE)
     assert env.writes == [] and env.ffmpeg == []
     _no_tmp(did)
@@ -579,7 +572,7 @@ def test_direct_link_with_ffmpeg_missing_says_so(client, env, direct, monkeypatc
     monkeypatch.setattr(background_jobs, "run_cancellable", missing)
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(media_upload_service.FFMPEG_MISSING)
     assert env.writes == []
     _no_tmp(did)
@@ -590,11 +583,11 @@ def test_direct_link_byte_cap(client, env, direct, monkeypatch):
     direct.script[DIRECT] = _Resp(chunks=[b"x" * 60] * 5)
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._TOO_LARGE)
     direct.script[DIRECT] = _Resp(headers={"Content-Length": "101"})
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._TOO_LARGE)
     assert env.writes == []
     _no_tmp(did)
@@ -614,6 +607,7 @@ def test_direct_media_ext():
 
 import gzip  # noqa: E402
 import io  # noqa: E402
+from tests.job_helpers import wait_for_job
 
 EMPTY_BLOCK = b"\x00\x00\x00\xff\xff"
 
@@ -668,7 +662,7 @@ def test_direct_link_cancelled_mid_stream(client, env, direct, monkeypatch):
     resp = _endless(on_read)
     direct.script[DIRECT] = resp
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "cancelled", st
     assert resp.closed and resp.raw.reads < 10
     assert direct.sent[0]["Accept-Encoding"] == "identity"
@@ -683,7 +677,7 @@ def test_direct_link_wall_clock_limit(client, env, direct, monkeypatch):
     direct.script[DIRECT] = resp
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._TOO_SLOW), st
     assert resp.closed and env.writes == []
     _no_tmp(did)
@@ -695,7 +689,7 @@ def test_direct_link_endless_empty_blocks_hit_the_raw_cap(client, env, direct, m
     direct.script[DIRECT] = resp
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._TOO_LARGE), st
     assert resp.closed and resp.raw.reads <= 100_000 // 8192 + 2
     _no_tmp(did)
@@ -708,7 +702,7 @@ def test_direct_link_compressed_body_decoded_bytes_capped(client, env, direct, m
     direct.script[DIRECT] = _Resp(headers={"Content-Encoding": "gzip"}, chunks=[bomb])
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._TOO_LARGE), st
     assert env.writes == []
     _no_tmp(did)
@@ -719,14 +713,24 @@ def test_direct_link_gzip_decoded_and_other_encoding_refused(client, env, direct
                                   chunks=[gzip.compress(b"ID3data")])
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    assert _wait(f"urlmedia_{did}")["status"] == "done"
+    assert wait_for_job(f"urlmedia_{did}", missing_ok=True)["status"] == "done"
     background_jobs.clear_job(f"urlmedia_{did}")
     direct.script[DIRECT] = _Resp(headers={"Content-Encoding": "br"})
     did2 = _drama()
     client.post(f"/api/media/dramas/{did2}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did2}")
+    st = wait_for_job(f"urlmedia_{did2}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED), st
     _no_tmp(did2)
+
+
+def test_ogv_download_is_remuxed_to_mkv(client, env):
+    FakeYDL.script = {"ext": "ogv"}
+    did = _drama()
+    st = _run(client, did, audio_only=False)
+    assert st["status"] == "done", st
+    remux = [c for c in env.ffmpeg if c[-1].endswith("remuxed.mkv")]
+    assert len(remux) == 1 and remux[0][remux[0].index("-i") + 1].endswith(".ogv")
+    assert env.writes[0]["source_video_filename"].endswith(".mkv")
 
 
 def test_direct_link_more_than_five_redirects_refused(client, env, direct):
@@ -736,7 +740,7 @@ def test_direct_link_more_than_five_redirects_refused(client, env, direct):
         direct.script[a] = _Resp(302, {"Location": b})
     did = _drama()
     client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
-    st = _wait(f"urlmedia_{did}")
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED), st
     assert len(direct.hops) == svc.MAX_DIRECT_REDIRECTS + 1
     assert env.writes == [] and env.ffmpeg == []
@@ -972,7 +976,7 @@ def test_up_to_three_run_at_once_and_the_fourth_waits_in_line(client, env):
     assert _message(ids[1]) != "Queued: 1st in line"
     gate.open()
     for did in ids:
-        assert _wait(f"urlmedia_{did}")["status"] == "done"
+        assert wait_for_job(f"urlmedia_{did}", missing_ok=True)["status"] == "done"
     # Slots are taken first come, first served; the order the fake yt-dlp is
     # reached in after that depends on thread scheduling, so only the split holds.
     assert set(FakeYDL.calls[:3]) == {_link(n) for n in range(3)}
@@ -991,7 +995,7 @@ def test_starts_are_spaced_apart(client, env, monkeypatch):
     _until(lambda: len(gate.starts) == 2)
     assert gate.starts[1][0] - gate.starts[0][0] >= 0.45
     gate.open()
-    assert _wait(f"urlmedia_{b}")["status"] == "done"
+    assert wait_for_job(f"urlmedia_{b}", missing_ok=True)["status"] == "done"
 
 
 def test_cancelling_a_queued_download_never_starts_it_and_moves_the_line_up(client, env, monkeypatch):
@@ -1003,12 +1007,12 @@ def test_cancelling_a_queued_download_never_starts_it_and_moves_the_line_up(clie
     _until(lambda: _message(c) == "Queued: 2nd in line")
     r = client.post(f"/api/jobs/urlmedia_{b}/cancel")
     assert r.status_code == 200, r.text
-    assert _wait(f"urlmedia_{b}")["status"] == "cancelled"
+    assert wait_for_job(f"urlmedia_{b}", missing_ok=True)["status"] == "cancelled"
     _until(lambda: _message(c) == "Queued: 1st in line")
     gate.open()
-    assert _wait(f"urlmedia_{c}")["status"] == "done"
+    assert wait_for_job(f"urlmedia_{c}", missing_ok=True)["status"] == "done"
     assert _link(1) not in FakeYDL.calls
-    assert _wait(f"urlmedia_{a}")["status"] == "done"
+    assert wait_for_job(f"urlmedia_{a}", missing_ok=True)["status"] == "done"
 
 
 def test_a_failed_download_does_not_block_the_line(client, env, monkeypatch):
@@ -1025,8 +1029,8 @@ def test_a_failed_download_does_not_block_the_line(client, env, monkeypatch):
     a, b = _drama(), _drama()
     assert _start(client, a, url=_link(1)).status_code == 200
     assert _start(client, b, url=_link(2)).status_code == 200
-    assert _wait(f"urlmedia_{a}")["status"] == "error"
-    assert _wait(f"urlmedia_{b}")["status"] == "done"
+    assert wait_for_job(f"urlmedia_{a}", missing_ok=True)["status"] == "error"
+    assert wait_for_job(f"urlmedia_{b}", missing_ok=True)["status"] == "done"
 
 
 def test_the_same_title_cannot_queue_twice_but_another_title_can(client, env, monkeypatch):
@@ -1037,8 +1041,8 @@ def test_the_same_title_cannot_queue_twice_but_another_title_can(client, env, mo
     assert _start(client, b, url=_link(2)).status_code == 200
     assert _start(client, b, url=_link(3)).status_code == 409
     gate.open()
-    _wait(f"urlmedia_{a}")
-    _wait(f"urlmedia_{b}")
+    wait_for_job(f"urlmedia_{a}", missing_ok=True)
+    wait_for_job(f"urlmedia_{b}", missing_ok=True)
 
 
 def test_the_queue_has_a_size_limit(client, env, monkeypatch):
@@ -1051,7 +1055,7 @@ def test_the_queue_has_a_size_limit(client, env, monkeypatch):
     assert _start(client, ids[2], url=_link(2)).status_code == 409
     gate.open()
     for did in ids[:2]:
-        _wait(f"urlmedia_{did}")
+        wait_for_job(f"urlmedia_{did}", missing_ok=True)
 
 
 def test_a_queued_download_fails_with_the_busy_text_when_its_title_got_a_job(client, env, monkeypatch):
@@ -1065,12 +1069,12 @@ def test_a_queued_download_fails_with_the_busy_text_when_its_title_got_a_job(cli
     job_launch.start_job(f"translate_{b}", lambda: other.wait(10))
     try:
         gate.open()
-        st = _wait(f"urlmedia_{b}")
+        st = wait_for_job(f"urlmedia_{b}", missing_ok=True)
         assert st["status"] == "error" and st["error"].endswith(svc._BUSY)
         assert _link(2) not in FakeYDL.calls
     finally:
         other.set()
-        _wait(f"translate_{b}")
+        wait_for_job(f"translate_{b}", missing_ok=True)
         background_jobs.clear_job(f"translate_{b}")
 
 
@@ -1082,7 +1086,7 @@ def test_a_queued_download_rechecks_replace_confirmation_at_start(client, env, m
     assert _start(client, b, url=_link(2)).status_code == 200
     monkeypatch.setattr(media_upload_service, "has_media", lambda drama, did: did == b)
     gate.open()
-    st = _wait(f"urlmedia_{b}")
+    st = wait_for_job(f"urlmedia_{b}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._NOW_BUSY)
 
 
@@ -1094,11 +1098,11 @@ def test_the_free_disk_floor_counts_the_downloads_already_running(client, env, m
     assert _start(client, a, url=_link(1)).status_code == 200
     _until(lambda: len(gate.starts) == 1)
     assert _start(client, b, url=_link(2)).status_code == 200
-    st = _wait(f"urlmedia_{b}")
+    st = wait_for_job(f"urlmedia_{b}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._NO_ROOM)
     assert FakeYDL.calls == [_link(1)]
     gate.open()
-    assert _wait(f"urlmedia_{a}")["status"] == "done"
+    assert wait_for_job(f"urlmedia_{a}", missing_ok=True)["status"] == "done"
 
 
 @pytest.mark.parametrize("n, word", [(1, "1st"), (2, "2nd"), (3, "3rd"), (4, "4th"), (11, "11th"),
@@ -1263,7 +1267,7 @@ def test_cookies_turned_on_while_a_part_waits_stop_it_at_start(client, env, monk
     monkeypatch.setattr(svc.settings_service, "get_cookie_settings",
                         lambda: {"cookies_browser": None, "cookies_file": "cookies.txt"})
     gate.open()
-    st = _wait(f"urlmedia_{b}")
+    st = wait_for_job(f"urlmedia_{b}", missing_ok=True)
     assert st["status"] == "error" and st["error"].endswith(svc._PART_NO_COOKIES)
     assert _link(2) not in FakeYDL.calls
 

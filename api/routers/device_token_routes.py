@@ -30,7 +30,7 @@ from api.no_store import no_store_json
 from api.schemas import (AdminDeviceTokenList, DeviceTokenCreated, DeviceTokenCreateRequest,
                          DeviceTokenList, DeviceTokenRevoked, error_responses)
 from services import device_token_service as svc
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 
 router = APIRouter(tags=["auth"])
 

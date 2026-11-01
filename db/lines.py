@@ -73,7 +73,7 @@ def _refuse_undeclared(columns):
 
 def line_value(ln, f):
     v = getattr(ln, f, None)
-    if f in ("speaker_manual", "sfx"):
+    if f in ("speaker_manual", "sfx", "reviewed"):
         return int(bool(v))
     if f == "lang":
         # "" and None both mean "the title's language"; store one of them.
@@ -135,6 +135,10 @@ def update_lines_fields_if_many(drama_id: int, items) -> list:
 # The fingerprint in the payload already makes stale words unusable; this keeps
 # them from lingering in the row.
 _CLEAR_STALE_WORDS = "word_timings = CASE WHEN zh IS ? THEN word_timings ELSE NULL END"
+# A reviewer checked the English as it was; any writer that changes it (an
+# edit, find-and-replace, a translate job, a restore) leaves the line
+# unchecked. Living here, no service can forget it.
+_UNCHECK_ON_NEW_EN = "reviewed = CASE WHEN COALESCE(en, '') = COALESCE(?, '') THEN reviewed ELSE 0 END"
 
 
 def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
@@ -148,6 +152,9 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     if "zh" in values:
         sets.append(_CLEAR_STALE_WORDS)
         args.append(values["zh"])
+    if "en" in values and "reviewed" not in values:
+        sets.append(_UNCHECK_ON_NEW_EN)
+        args.append(values["en"])
     conds, cargs = ["id = ?", "drama_id = ?"], [line_id, drama_id]
     for col, val in (expected or {}).items():
         if col in ("start", "end"):
@@ -311,6 +318,9 @@ def _update_line(conn, drama_id: int, ln, cols, full_sync: bool, only_if_unchang
         sets.append(_CLEAR_STALE_WORDS)
         values.append(db.line_value(ln, "zh"))
         outcome = "cleared"
+    if "en" in changed and _unchecks(cols, full_sync, "reviewed" in changed):
+        sets.append(_UNCHECK_ON_NEW_EN)
+        values.append(db.line_value(ln, "en"))
     if changed and only_if_unchanged:
         if orig is None:
             return False, None
@@ -369,13 +379,28 @@ def _delete_dropped_lines(conn, drama_id: int, lines, existing: set, kept: set, 
     conn.executemany("DELETE FROM lines WHERE id = ?", [(lid,) for lid in removed])
 
 
+def _unchecks(cols, full_sync: bool, reviewed_changed: bool) -> bool:
+    """Whether a save that changes `en` also clears the Checked mark: yes unless
+    the writer set `reviewed` itself (a field-scoped save naming it, or a full
+    sync whose Line carries a new value)."""
+    if reviewed_changed:
+        return False
+    return full_sync or "reviewed" not in cols
+
+
 def _rebase_saved_lines(lines, cols, full_sync: bool, words: dict):
     for ln in lines:
         if getattr(ln, "id", None) is None or not hasattr(ln, "orig"):
             continue
         # What this caller last wrote/saw is now the baseline, so its next
         # save only writes what changes after this point.
+        new_en = ("en" in cols and ln.orig is not None and ln.orig.get("en") != db.line_value(ln, "en")
+                  and _unchecks(cols, full_sync, db.line_value(ln, "reviewed") != ln.orig.get("reviewed")))
         ln.orig = {**(ln.orig or {}), **{f: db.line_value(ln, f) for f in cols}}
+        if new_en and getattr(ln, "reviewed", False):
+            # The row was just unchecked (_UNCHECK_ON_NEW_EN); keep the object in step.
+            ln.reviewed = False
+            ln.orig["reviewed"] = False
         if words.get(id(ln)) == "written":
             ln.orig["word_timings"] = ln.word_timings
         elif words.get(id(ln)) == "cleared":
@@ -456,7 +481,7 @@ def _delete_line_refs(conn, line_id):
 
 
 _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, "
-                 "speaker_manual, sfx, lang")
+                 "speaker_manual, sfx, lang, reviewed")
 
 
 def load_lines(drama_id: int, with_words: bool = False, ids=None):
@@ -482,7 +507,7 @@ def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     return lines_from_rows(db.load_lines(drama_id, with_words, ids))
 
 
-LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note")
+LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note reviewed")
 
 
 def load_line_texts(drama_id: int) -> list:

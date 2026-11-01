@@ -11,7 +11,7 @@ Hard rules, each enforced here, not only in the UI:
   settings_service writer the engine keys use), sent only as an
   Authorization header, never returned, logged, put in a URL or an error;
   every error text passes through _scrub (the token itself, plus
-  translate_engines.redact_secrets and GitHub token patterns).
+  shared.redact_secrets and GitHub token patterns).
 - Never pushes to an existing branch: the only ref write is POST
   /git/refs creating a brand-new `baihe-assistant/...` branch; there is
   no PATCH/PUT of a ref anywhere. The PR is a draft into the configured
@@ -40,7 +40,7 @@ import time
 import action_tiers
 import db
 from lib import http
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, ServiceError)
 
 API = "https://api.github.com"
@@ -159,11 +159,11 @@ def _require_ready() -> tuple:
 # ---------------------------------------------------------------------------
 
 def _scrub(text, token=None) -> str:
-    import translate_engines
+    from engine_backends import shared
     text = "" if text is None else str(text)
     if token:
         text = text.replace(token, "[REDACTED]")
-    text = translate_engines.redact_secrets(text) or ""
+    text = shared.redact_secrets(text) or ""
     for pattern in _TOKEN_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
     return text

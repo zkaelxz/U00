@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-NOTES_PREFIXES = ("docs/archive/research/", "docs/archive/session-harvest/")
+NOTES_PREFIXES = ("docs/archive/research/",)
 FULL_CI_LABEL = "full-ci"
 # Changes to CI itself, test plumbing or dependencies can break any job, so they run all of them.
 EVERYTHING_PREFIXES = (".github/",)

@@ -29,7 +29,7 @@ import time
 
 import core
 import db
-from translate_engines import display_url, redact_for_storage
+from engine_backends.shared import display_url, redact_for_storage
 
 MANIFEST_NAME = "chapters.json"
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024

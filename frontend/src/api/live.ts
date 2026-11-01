@@ -201,7 +201,7 @@ export function buildStartBody(form: LiveForm, opts: LiveFormOptions = LIVE_FORM
 
 const isId = (v: number | null): v is number => Number.isInteger(v) && (v as number) > 0
 
-export interface GlossaryOption {
+interface GlossaryOption {
   /** 's:<series id>' or 't:<title id>'. */
   value: string
   label: string

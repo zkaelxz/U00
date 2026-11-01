@@ -17,7 +17,7 @@ export interface CapabilityRoute {
 
 export type EngineStatus = 'not_configured' | 'untested' | 'working' | 'failed'
 
-export interface EngineTestOutcome {
+interface EngineTestOutcome {
   ok: boolean
   tested_at: string // ISO 8601, UTC
   error: string | null

@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 
 import background_jobs
 from lib import url_guard
-from services.service_errors import (ConflictError, DependencyUnavailableError,
+from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 from services.sources_extension_service import require_url_not_extension_only
 from services.sources_registry_service import scrub, safe_url

@@ -27,6 +27,7 @@ import { nextGap, prevGap } from './gapModel'
 import { useGapFocus } from './useGapFocus'
 import { buildSheetActions } from './lineSheetActions'
 import { useLinesLoad } from './useLinesLoad'
+import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
 import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
@@ -58,6 +59,8 @@ interface Props {
   sourceLanguage: string | null
   // The title's own translation engine, which "Read & translate" uses.
   translationEngine?: string | null
+  // A narrated novel: lines are paragraphs, so their fake timestamps and speaker stay out of the row.
+  prose?: boolean
   // The drama's whole line count, whenever the "all" view reports it.
   onLineCount?: (n: number) => void
   // The drama's flagged-line count, whenever a page reports it.
@@ -84,7 +87,7 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
@@ -97,8 +100,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [filter, setFilter] = useState<LineFilter>(() =>
     route.name === 'drama' && route.focus === 'flagged' ? 'flagged' : 'all')
   const [page, setPage] = useState(1)
-  const [input, setInput] = useState('')
-  const [term, setTerm] = useState('')
+  const { input, setInput, term, setTerm } = useLinkedFind(dramaId)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
   const [issue, setIssue] = useState<RowIssue | null>(null)
@@ -289,7 +291,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
 
   const counts = data
-    ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count }
+    ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count, unreviewed: data.unreviewed_count ?? 0 }
     : null
   const selectionCtx = {
     dramaId,
@@ -341,7 +343,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         onRetime={ctl.retime}
         editingActive={!!active && edit !== null && edit.lineId === active.id}
         gaps={gaps}
-        focusGap={gapFocus}
+        focusGap={gapFocus} lineCount={allTotal}
         jobRunning={jobRunning}
         canTranscribe={canRetranscribeLine}
         need={retranscribeNeed}
@@ -403,7 +405,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {isPhone && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
-            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated
+            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed
           </p>
         )}
         {suspectOpen && suspects.length > 0 && (
@@ -476,7 +478,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               key={l.id}
               dramaId={dramaId}
               line={l}
-              sourceLanguage={sourceLanguage}
+              sourceLanguage={sourceLanguage} prose={prose}
               active={l.id === activeId}
               selected={selection.selectedSet.has(l.id)}
               isPhone={isPhone}

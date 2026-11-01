@@ -23,7 +23,7 @@ from api.server import create_app
 from services import auth_service, shutdown_service
 from services import source_update_service as su
 from services import update_service as us
-from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 
 OLD = "a" * 40
 NEW = "b" * 40
@@ -281,9 +281,38 @@ class TestRestartHelper:
         order = []
         monkeypatch.setattr(r, "process_gone", lambda pid, seconds: order.append("exit") or True)
         monkeypatch.setattr(r, "port_free", lambda port, seconds: order.append("port") or True)
-        monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: order.append(cmd[-1]))
+        seen = {}
+        monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: (order.append(cmd[-1]), seen.update(k)))
         assert r.main(["--root", str(tmp_path), "--pid", "1", "--port", "8600"]) == 0
         assert order == ["exit", "port", str(tmp_path / "start.bat")]
+        assert seen["env"]["BAIHE_NO_APP_WINDOW"] == "1"
+
+    def test_a_failing_start_bat_exits_and_leaves_its_output_in_a_file(self, tmp_path, monkeypatch):
+        from tools import restart_after_update as r
+        (tmp_path / "start.bat").write_text("")
+        monkeypatch.setattr(r, "process_gone", lambda pid, seconds: True)
+        seen = {}
+        monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: seen.update(k))
+        assert r.main(["--root", str(tmp_path), "--pid", "1"]) == 0
+        assert seen["env"]["BAIHE_NOPAUSE"] == "1"
+        assert seen["stdout"].name == str(tmp_path / su.HELPER_LOG)
+        assert su.HELPER_LOG == r.LOG_NAME
+
+    def test_the_copy_started_after_an_update_prints_no_second_banner(self):
+        text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
+        assert text.count("echo   Baihe Studio") == 1
+        before = text[:text.index("echo   Baihe Studio")].rstrip().splitlines()
+        assert before[-2].strip() == "if not defined BAIHE_UPDATE_OLD ("
+
+    def test_every_pause_in_start_bat_respects_nopause(self):
+        text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
+        bare = [n for n, line in enumerate(text.splitlines(), 1) if line.strip().lower() == "pause"]
+        assert bare == []
+
+    def test_start_bat_opens_no_window_for_an_update_restart(self):
+        text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
+        body = text[text.index("\n:open_window\n"):]
+        assert body.index("if defined BAIHE_NO_APP_WINDOW") < body.index("msedge.exe")
 
     def test_the_server_starts_the_helper_outside_its_job(self, checkout, monkeypatch):
         seen = {}

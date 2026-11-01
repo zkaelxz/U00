@@ -13,7 +13,9 @@ Timing flags never reach the engine: rewording the English can't move a
 subtitle onto its audio, so split_timing_flags drops them before any call.
 """
 import db
-import translate_engines
+from engine_backends import flag_reasons, shared, pricing
+from engine_backends import prompts as engine_prompts
+from engine_backends import llm_tasks as engine_llm_tasks
 from engine_backends import llm_tasks
 from engine_backends.run_limits import TranslateRunStopped
 from services import fixflag_transcribe
@@ -38,7 +40,7 @@ def split_timing_flags(flagged: list):
 
 
 def _reason_text(ln) -> str:
-    reason = translate_engines.flag_reason_label(ln.flag)
+    reason = flag_reasons.flag_reason_label(ln.flag)
     return f"{reason}: {ln.flag_note}" if (ln.flag_note or "").strip() else reason
 
 
@@ -95,10 +97,10 @@ def build_fix_prompt(batch: list, ids: dict, instructions: str, batch_context: s
 
 def _llm_batch(batch, engine, base_context, usage_cb, context_lines, reasons=None) -> dict:
     ids = {ln.idx: n for n, ln in enumerate(batch, 1)}
-    instructions, _novel = translate_engines.build_stable_prompt(base_context)
+    instructions, _novel = engine_prompts.build_stable_prompt(base_context)
 
     def call_model(text):
-        return translate_engines.call_llm_json(engine, text, max_tokens=4000, fallback="{}",
+        return engine_llm_tasks.call_llm_json(engine, text, max_tokens=4000, fallback="{}",
                                                usage_cb=usage_cb)
 
     by_idx = {ln.idx: ln for ln in batch}
@@ -108,7 +110,7 @@ def _llm_batch(batch, engine, base_context, usage_cb, context_lines, reasons=Non
         return build_fix_prompt([by_idx[by_number[n]] for n in numbers], ids, instructions,
                                 context_lines=context_lines, reasons=reasons)
 
-    result = translate_engines._id_keyed_batch_request(list(by_number), build, call_model)
+    result = shared._id_keyed_batch_request(list(by_number), build, call_model)
     return {by_number[int(k)]: v for k, v in result.items() if isinstance(v, str)}
 
 
@@ -118,7 +120,7 @@ def _translate_batch(batch, engine, base_context, character_names, source_langua
             [ln.zh for ln in batch],
             {**base_context, "speaker_labels": [character_names.get(ln.speaker) for ln in batch],
              "line_ids": [ln.idx for ln in batch],
-             "line_languages": translate_engines.tagged_line_languages(batch, source_language)})
+             "line_languages": shared.tagged_line_languages(batch, source_language)})
 
     out = llm_tasks.call_batch_bounded(engine, send)
     # An engine API that only returns a list can't be matched by id, so a short
@@ -156,7 +158,7 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
                         and own_flag != ln.flag:
                     reasons[ln.idx] = reason
                     ln.flag_note = reason
-        if ln.zh.strip() and translate_engines.is_english_line(ln):
+        if ln.zh.strip() and shared.is_english_line(ln):
             ln.en = ln.zh
             ln.flag, ln.flag_note = None, ""
             fixed += 1
@@ -165,7 +167,7 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
 
     def log_usage(inp, out):
         nonlocal spent
-        cost = translate_engines.estimate_cost_for_engine(engine, inp, out)
+        cost = pricing.estimate_cost_for_engine(engine, inp, out)
         spent += cost
         db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
                      "fix_flagged_line", inp, out, cost)
@@ -188,7 +190,7 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
             break  # the job's result names the reason; the lines stay flagged
         except Exception as e:
             for ln in batch:
-                errors.append(translate_engines.redact_secrets(
+                errors.append(shared.redact_secrets(
                     f"line {ln.idx + 1} translation: {e}"))
             replies = {}
         for ln in batch:

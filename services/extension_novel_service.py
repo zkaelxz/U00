@@ -7,7 +7,7 @@ chapters panel lists (`sources.pipeline.save_novel_text`).
 The answer goes back through `page_server.py` to a script on a third-party
 page, so it carries booleans and ids only: never the text, the page URL or a
 filesystem path, and every message is a fixed sentence run through
-`translate_engines.redact_secrets`.
+`engine_backends.shared.redact_secrets`.
 """
 
 import re
@@ -19,7 +19,7 @@ from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFou
                         ServiceError)
 from services import drama_service, ownership_service
 from sources import pipeline
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 # A long web-novel chapter page is tens of thousands of characters; this
 # leaves room for the longest while refusing a whole book or a runaway page

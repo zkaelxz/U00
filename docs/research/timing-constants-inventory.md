@@ -129,7 +129,7 @@ Legend used in the tables
 | Live chunk length | `services/live_service.py:279`, range `:56` | 20 s (3–60) | Audio length transcribed at a time; longer is more accurate but lags more. | L | **Per session** (Live page) | Looks | existing | (existing) | E (already) |
 | Live overlap | `live_translate.py:427`, range `live_service.py:57` | 3 s (0–8, ≤ chunk/2) | Audio re-heard at each chunk start so words cut at the boundary aren't lost. | L | **Per session** | Looks | existing | (existing) | E (already) |
 | Live backlog / lag window | `live_translate.py:432`; `live_pipeline.py:22-31` | 2 chunks; translate backlog 2; lag median over 5; min final chunk 0.5 s; idle 0.25 s | Queue limits that keep captions near the live edge. | L | Hardcoded | Looks | — | — | F (stability) |
-| LocalAgreement line rules | `live_agreement.py:16-29` | window 2–15 s, force commit 6 s, edge guard 1 s, line close 0.7 s, line max 7 s / 40 chars | Streaming line commit rules. **Not imported by any production module today** (only tests), so not live in the app. | (none) | Hardcoded | — | — | — | Out of scope until wired |
+| LocalAgreement line rules | `live_agreement.py:16-29` (module removed 2026-10-31, unused) | window 2–15 s, force commit 6 s, edge guard 1 s, line close 0.7 s, line max 7 s / 40 chars | Streaming line commit rules. Was never imported by a production module; removed. | (none) | Hardcoded | — | — | — | Out of scope until wired |
 | Dub pacing | `dub.py:324-325`; bounds `services/dub_service.py:264` | speed-up ≤ 1.4×, slow-down ≥ 0.85× | How much a dubbed clip may be stretched to fit its line. | D. CLI same (`--max-speedup/--max-slowdown`) | **Per run** (Dub form `dubForm.ts`) | Looks (audio) | 1.0–2.0 / 0.5–1.0 (existing) | (existing) | E (already) |
 | Hard-sub frame interval | `hardsub_ocr.py:51`; `transcribe_service.py:319,409` | 1.0 s (0.5–3.0) | How often a video frame is read for burned-in captions. | T (hard-sub mode) | **Per title**, Dev Mode (`TranscribeStage.tsx:731`) | Looks | existing | (existing) | D (already) |
 | Hard-sub stability | `hardsub_ocr.py:296` | 2 consecutive frames | A caption must appear on at least 2 sampled frames to become a cue. | T | Hardcoded | Looks | 1–4 | "A caption must appear on this many frames in a row to count. Lower catches brief captions but adds OCR noise." | D |
@@ -149,7 +149,7 @@ Legend used in the tables
 | All `*_TIMEOUT*`, `_CHUNK_SECONDS` decode chunk (600 s), live fetch limits | various | — | Process and network safety. |
 | Progress fractions `RUNNING_MAX`, `QWEN_SPLIT`, `REALIGN_START` | `services/transcribe_pipeline.py:51-55` | 0.99 / 0.85 / 0.9 | Progress bar only; not timing. |
 | `audio_preprocess` chunk 30 s / overlap 1 s | `audio_preprocess.py:66-67` | — | Vocal separation chunking. Not subtitle timing (**uncertain** whether worth exposing; I'd say no). |
-| `stereo_cues.py` constants | `stereo_cues.py:16-33` | — | Audio rendering DSP, not line timing. |
+| `stereo_cues.py` constants | `stereo_cues.py:16-33` (module removed 2026-10-31, unused) | — | Audio rendering DSP, not line timing. |
 
 `auto_qc.py` has **no** timing thresholds (numbers, names and banned terms only). `qa.py` and `line_tools.py` have none either.
 
@@ -223,7 +223,7 @@ Legend used in the tables
 - Static guards before pushing.
 
 **Phase 3: per-title overrides (about 2 days).**
-- `services/timing_overrides_service.py` (new file, needs a `FILE_ORGANIZATION.md` line). Get/set/clear, validated by the schema rows, merged over globals.
+- `services/timing_overrides_service.py` (new file, needs a docstring). Get/set/clear, validated by the schema rows, merged over globals.
 - Two routes with `require_permission`, plus the `route-permissions.md` regen.
 - A "Timing and splitting" fold in the Transcribe stage (or Review), showing "global value / this title" with a reset per item.
 - Delete-hook cleanup.
@@ -250,7 +250,7 @@ Legend used in the tables
 3. **Presets vs numbers:** keep "Normal / Relaxed / Off" reading speed and the automatic streamer profile as presets, with custom numbers as an extra "Custom" choice? Or replace the presets?
 4. **Who may change them:** global settings are PC-owner-only (local_only) today. Should household members be able to change per-title overrides on titles they own?
 5. **Export:** the exporter has no minimum or maximum cue duration and no minimum gap between cues. Do you want those added (that would be a new feature, not exposing an existing number)?
-6. **LocalAgreement live rules** (`live_agreement.py`) aren't used by the live pipeline yet. Ignore them for now?
+6. **LocalAgreement live rules** (`live_agreement.py`) were never used by the live pipeline; the module was removed on 2026-10-31.
 7. **Data-dropping filters** (stock-phrase isolation, repeat collapse, hallucination guard): keep them in Developer Mode only, as proposed?
 8. **Autotune scoring** uses the coverage thresholds. Should it follow the user's custom numbers or stay on the fixed defaults so results are comparable?
 9. **Whisper speech pad** (library default ~400 ms, not set by the app today): expose it? That changes the call to faster-whisper, so the installed version must accept it (**uncertain** which versions are installed on user PCs).

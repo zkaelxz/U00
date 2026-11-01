@@ -9,7 +9,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 
 import { api, ApiError, keepaliveFetch } from '../api/client'
 import { mediaStreamUrl } from '../api/media'
-import { captionUrl, dubTrackUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
+import { listenTrackUrl } from '../api/listen'
+import { captionUrl, dubTrackUrl, pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
+import { patchLine } from '../api/review'
 import { translateApi } from '../api/translate'
 import { getGlossaryTerms } from '../api/translateStage'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -36,6 +38,11 @@ import type { TranslateEngine } from '../types/translate'
 import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
+import { ListenSection } from './reader/ListenSection'
+import { lineEditPatch } from './reader/readerLineEdit'
+import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
+import { useSession } from '../hooks/useSession'
+import { holds } from './diagnostics/adminUsers'
 import { useAction } from './reader/useReaderAction'
 import { ReaderPrefsControl } from './reader/ReaderPrefs'
 import { StorySection } from './reader/ReaderStory'
@@ -136,7 +143,7 @@ function WatchSection({ dramaId, media, sourceLanguage }: { dramaId: number; med
       {(media.dub || media.narration) && (
         <div className="stack">
           <span className="muted">{media.narration && !media.dub ? 'Narration' : 'Dub'}</span>
-          <audio controls preload="none" src={dubTrackUrl(dramaId)} onError={() => setFailed(true)} />
+          <audio controls preload="none" src={media.dub ? dubTrackUrl(dramaId) : listenTrackUrl(dramaId)} onError={() => setFailed(true)} />
         </div>
       )}
       {failed && <p className="muted">Can't play this here. It needs media playback permission, or the file is missing.</p>}
@@ -202,6 +209,11 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [mediaType, setMediaType] = useState<string | null>(null)
   const [overview, setOverview] = useState<ReaderOverview | null>(null)
   const [data, setData] = useState<ReaderPageData | null>(null)
+  // The iframe's document URL, set with the counts it belongs to, so a failed
+  // page load never swaps the text that is still on screen. The count goes up
+  // on every load so the same URL (a lookup or Retry on the same page) still
+  // reloads the frame, which a src that did not change would not.
+  const [pageSrc, setPageSrc] = useState<{ url: string; load: number } | null>(null)
   // The title or the overview failed to load. Separate from a page failure so a
   // page that loads fine can't clear it.
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -280,10 +292,54 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   }, [routePage, overview, empty, id, prefs.chapterSize])
 
   const page = routePage
+  const [editMode, setEditMode] = useState(false)
   const params = useMemo(
-    () => (page === null ? null : pageParams(prefs, page, { phone, appLook })),
-    [prefs, page, phone, appLook],
+    () => (page === null ? null : { ...pageParams(prefs, page, { phone, appLook }), ...(editMode ? { edit: true } : {}) }),
+    [prefs, page, phone, appLook, editMode],
   )
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const session = useSession()
+  const canEdit = holds(session, 'lines.edit')
+  const [editing, setEditing] = useState<{ lineId: number; seen: string; en: string; page: number } | null>(null)
+  const [editNote, setEditNote] = useState<string | null>(null)
+  const save = useAction(async (lineId: number, seen: string, en: string) => {
+    const patch = lineEditPatch(seen, en)
+    if (patch) {
+      try {
+        await patchLine(id, lineId, patch)
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          setEditNote(LINES_CHANGED_MESSAGE)
+          setEditing((cur) => (cur?.lineId === lineId ? null : cur))
+          setPageTick((n) => n + 1)
+          return
+        }
+        throw e
+      }
+    }
+    // A save for one line never closes the box of another.
+    setEditing((cur) => (cur?.lineId === lineId ? null : cur))
+    if (patch) setPageTick((n) => n + 1)
+  })
+  const closeEdit = () => {
+    setEditing(null)
+    save.clearError()
+  }
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      // The frame is sandboxed to an opaque origin, so its window is the only way to know it sent this.
+      if (!editMode || e.source !== frameRef.current?.contentWindow) return
+      const m = e.data as { baiheReader?: string; lineId?: unknown; en?: unknown }
+      if (m?.baiheReader !== 'edit' || typeof m.lineId !== 'number' || page === null) return
+      const lineId = m.lineId
+      const seen = typeof m.en === 'string' ? m.en : ''
+      // An open draft is never replaced by another line's pencil, and nothing opens while a save is out.
+      setEditing((cur) => (cur && (cur.en !== cur.seen || save.busy) ? cur : { lineId, seen, en: seen, page }))
+      setEditNote(null)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [editMode, page, save.busy])
 
   const overviewReady = overview !== null
   // Read inside the page effect without re-running it when the shown page changes.
@@ -298,6 +354,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       (d) => {
         if (!live) return
         setData(d)
+        setPageSrc((s) => ({ url: pageHtmlUrl(id, params), load: (s?.load ?? 0) + 1 }))
         // Reloading the page we fell back to must not wipe the failure we are showing.
         setPageFailure((f) => (f && f.page === d.page ? null : f))
       },
@@ -376,6 +433,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const onGo = (n: number) => {
     setResumed(null)
     setPageFailure(null)
+    setEditing(null)
     goToPage(id, clampPage(n, count))
   }
   const workspaceHref = routeHref({ name: 'drama', id, stage: 'source' })
@@ -392,6 +450,24 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     </ReaderPrefsControl>
   )
 
+  const editToggle = !empty && canEdit && (
+    <button
+      data-testid="reader-edit-toggle"
+      type="button"
+      className="reader-edit-toggle"
+      aria-label="Edit"
+      aria-pressed={editMode}
+      title="Edit"
+      onClick={() => {
+        setEditMode((v) => !v)
+        setEditing(null)
+        setEditNote(null)
+      }}
+    >
+      ✎
+    </button>
+  )
+
   return (
     <div className={phone ? 'reader reader-phone' : 'reader'}>
       {phone ? (
@@ -399,6 +475,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           <a href={routeHref({ name: 'library' })} className="reader-back" aria-label="Back to Library">‹</a>
           <h1 className="reader-title">{title ?? (titleFailed ? 'This title' : 'Loading…')}</h1>
           <SourceLink href={sourceUrl} dramaId={id} />
+          {editToggle}
           {aa}
         </header>
       ) : (
@@ -426,20 +503,49 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         </section>
       ) : (
         <>
+          <ListenSection dramaId={id} onReady={() => void readerApi.media(id).then(setMedia, () => setMedia(null))} />
           {hasMedia && media && <WatchSection dramaId={id} media={media} sourceLanguage={sourceLanguage} />}
           {!phone && page !== null && (
             <div className="reader-bar">
               <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo />
+              {editToggle}
               {metrics && <span className="muted" data-testid="reader-metrics">{metrics}</span>}
             </div>
           )}
-          {data && !(stale && pageError !== null) && (
+          {editNote && <p className="error" role="alert">{editNote}</p>}
+          {editing && editing.page === page && (
+            <form
+              className="reader-edit-form"
+              onSubmit={(e: FormEvent) => {
+                e.preventDefault()
+                void save.run(editing.lineId, editing.seen, editing.en)
+              }}
+            >
+              <textarea
+                data-testid="reader-edit-box"
+                aria-label="Edit"
+                value={editing.en}
+                rows={4}
+                autoFocus
+                onChange={(e) => setEditing({ ...editing, en: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && !save.busy) closeEdit()
+                }}
+              />
+              <button type="submit" className={buttonClass()} disabled={save.busy}>Save</button>
+              <button type="button" className={buttonClass()} disabled={save.busy} onClick={closeEdit}>Cancel</button>
+              <ActionError action={save} />
+            </form>
+          )}
+          {data && pageSrc && !(stale && pageError !== null) && (
             <iframe
+              ref={frameRef}
+              key={pageSrc.load}
               className={pageLoading ? 'reader-frame reader-frame-loading' : 'reader-frame'}
               title={`Page ${data.page} text`}
               sandbox="allow-scripts"
               referrerPolicy="no-referrer"
-              srcDoc={data.html}
+              src={pageSrc.url}
               aria-busy={pageLoading}
             />
           )}

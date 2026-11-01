@@ -8,7 +8,7 @@ tests call through it.
 import importlib.util
 
 import qwen3_native
-from services.service_errors import DependencyUnavailableError
+from lib.errors import DependencyUnavailableError
 
 # A fixed sentence, never the ImportError text: that names a module and reads
 # as a crash. The Diagnostics page is where the install and update buttons are.

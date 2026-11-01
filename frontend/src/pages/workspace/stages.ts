@@ -67,7 +67,7 @@ export function stageCount(
 // that is neither blocked nor already done (the stepper marks it done, so a
 // "Next" pointing there would contradict it), worded from the progress counts only ("Translate 32 lines",
 // "Review 12 flagged"). null when the open stage isn't done or nothing follows.
-export interface NextAction {
+interface NextAction {
   stage: StageId
   label: string
 }

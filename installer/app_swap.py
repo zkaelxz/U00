@@ -12,7 +12,7 @@ journal and starts a copy of this file from `<install dir>\\app-update\\`:
     app_swap.py recover --root <install dir>   finish or roll back after a crash
                                                (Windows' RunOnce runs this at the next sign-in)
 
-`app\\` keeps its name for whatever version is current: python312._pth,
+`app\\` keeps its name for whatever version is current: the interpreter's ._pth,
 the Start-menu shortcuts, the boot service and Setup all name it, so the
 switch is two renames (`app` -> `app-<old>`, `app-<new>` -> `app`) recorded
 in a journal before each step. A crash at any point leaves a journal that

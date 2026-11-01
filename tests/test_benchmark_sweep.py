@@ -5,7 +5,6 @@ the hold-out check and margin rule, and the owner's approve/reject. Mocked: no G
 no network; the recogniser is a fake whose output depends on the model and options it is given.
 """
 import json
-import time
 
 import pytest
 
@@ -18,7 +17,8 @@ from services import benchmark_lab_service as lab
 from services import benchmark_sweep_core as sweep_core
 from services import benchmark_sweep_service as sweep
 from services import model_readiness_service, translate_preset_service
-from services.service_errors import ConflictError, DependencyUnavailableError, UnsupportedOperationError
+from lib.errors import ConflictError, DependencyUnavailableError, UnsupportedOperationError
+from tests.job_helpers import wait_for_job
 
 REF = "你好世界今天天气很好"
 
@@ -61,19 +61,9 @@ def _cases(titles=("A", "B", "C", "D"), per_title=2, language="zh", set_name="s"
     return db.create_benchmark_clip_cases(rows)
 
 
-def _wait(timeout=30):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(sweep.JOB_ID)
-        if st and st["status"] in ("done", "error", "cancelled"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("sweep did not finish")
-
-
 def _sweep(set_name="s", language="zh"):
     sweep.start(set_name, language, use_gpu=False)
-    _wait()
+    wait_for_job(sweep.JOB_ID, timeout=30)
     background_jobs.clear_all_jobs()
     return sweep.get_sweep()["sweep"]
 
@@ -431,7 +421,7 @@ def test_a_crash_marks_the_sweep_failed_and_its_unfinished_run_stopped(isolated_
         raise RuntimeError("boom")
     monkeypatch.setattr(lab, "_run_plan", crash)
     sweep.start("s", "zh", use_gpu=False)
-    st = _wait()
+    st = wait_for_job(sweep.JOB_ID, timeout=30)
     assert st["status"] == "error"
     (sid,) = st["result"]["session_ids"]
     run = db.get_benchmark_session(sid)
@@ -473,7 +463,7 @@ def test_a_crash_with_no_readable_message_names_its_type(isolated_db, recogniser
         raise exc
     monkeypatch.setattr(lab, "_run_plan", crash)
     sweep.start("s", "zh", use_gpu=False)
-    st = _wait()
+    st = wait_for_job(sweep.JOB_ID, timeout=30)
     (sid,) = st["result"]["session_ids"]
     assert db.get_benchmark_session(sid)["note"] == f"The run stopped: {shown}"
     assert sweep.get_sweep()["sweep"]["note"] == shown

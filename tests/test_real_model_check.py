@@ -2,29 +2,19 @@
 model, backend and Ollama call is faked: no GPU, no models, no network."""
 import whisper_models
 import os
-import time
 
 import pytest
 
 import background_jobs
-import translate_engines
+from engine_backends import local
 from services import settings_service
 from services import diagnostics_gaps_service as gaps
 from services import diagnostics_admin_service as admin_svc
 from services import real_model_check_service as svc
 from tests.saved_settings import patch_setting
+from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
-
-
-def _wait(timeout=10):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(svc.JOB_ID)
-        if st and st["status"] not in ("running", "queued"):
-            return st
-        time.sleep(0.02)
-    raise AssertionError("job did not finish")
 
 
 @pytest.fixture
@@ -315,8 +305,8 @@ def ollama(monkeypatch):
         if state["chat_error"]:
             raise state["chat_error"]
         return state["reply"]
-    monkeypatch.setattr(translate_engines, "check_ollama_model_installed", installed)
-    monkeypatch.setattr(translate_engines, "_ollama_chat", chat)
+    monkeypatch.setattr(local, "check_ollama_model_installed", installed)
+    monkeypatch.setattr(local, "_ollama_chat", chat)
     return state
 
 
@@ -340,7 +330,7 @@ def test_translate_headroom_refusal_halts_the_run_without_chatting(ollama, monke
 
 
 def test_translate_skips_when_ollama_unreachable(ollama):
-    ollama["installed_error"] = translate_engines.OllamaUnavailableError(
+    ollama["installed_error"] = local.OllamaUnavailableError(
         "ollama_unreachable", "Ollama isn't running. Start it, or pick another translator in Settings.")
     r = _run("translate")
     assert r["status"] == svc.SKIPPED and "isn't running" in r["reason"]
@@ -348,13 +338,13 @@ def test_translate_skips_when_ollama_unreachable(ollama):
 
 
 def test_translate_skips_when_model_not_pulled(ollama):
-    ollama["installed_error"] = translate_engines.OllamaUnavailableError(
+    ollama["installed_error"] = local.OllamaUnavailableError(
         "ollama_model_missing", "Ollama doesn't have the model m.")
     assert _run("translate")["status"] == svc.SKIPPED
 
 
 def test_translate_fails_on_timeout_and_empty_answer(ollama):
-    ollama["chat_error"] = translate_engines.OllamaUnavailableError("ollama_timeout", "too slow")
+    ollama["chat_error"] = local.OllamaUnavailableError("ollama_timeout", "too slow")
     assert _run("translate")["status"] == svc.FAIL
     ollama["chat_error"] = None
     ollama["reply"] = {"message": {"content": "<think>hm</think>"}}
@@ -364,7 +354,7 @@ def test_translate_fails_on_timeout_and_empty_answer(ollama):
 def test_translate_uses_the_configured_ollama_url_without_leaking_it(ollama, monkeypatch):
     seen = []
     monkeypatch.setattr(settings_service, "resolve_key", lambda k: "http://192.168.1.9:11434/")
-    monkeypatch.setattr(translate_engines, "_ollama_chat",
+    monkeypatch.setattr(local, "_ollama_chat",
                         lambda url, payload: seen.append(url) or {"message": {"content": "Hi"}})
     r = _run("translate")
     assert seen == ["http://192.168.1.9:11434"] and "192.168" not in r["reason"]
@@ -385,7 +375,7 @@ def test_job_runs_all_checks_independently(env, monkeypatch):
         ("ocr", "OCR", boom),
         ("translate", "Translation (Ollama)", lambda: (_ for _ in ()).throw(svc._Skip("no ollama")))))
     assert svc.start(confirm=True) == {"job_id": svc.JOB_ID, "started": True}
-    _wait()
+    wait_for_job(svc.JOB_ID)
     state = svc.get_state()
     assert [(c["id"], c["status"]) for c in state["checks"]] == [
         ("asr", "pass"), ("ocr", "fail"), ("translate", "skipped")]
@@ -397,7 +387,7 @@ def test_could_not_check_does_not_fail_the_job(env, monkeypatch):
         raise svc._CouldNotCheck("cannot tell")
     monkeypatch.setattr(svc, "_CHECKS", (("ocr", "OCR", unsure),))
     svc.start(confirm=True)
-    assert _wait()["result"] == {"status": svc.PASS}
+    assert wait_for_job(svc.JOB_ID)["result"] == {"status": svc.PASS}
     assert svc.get_state()["checks"][0]["status"] == "could_not_check"
 
 
@@ -422,7 +412,7 @@ def test_a_second_start_while_running_is_refused(env, monkeypatch):
             svc.start(confirm=True)
     finally:
         gate.set()
-        _wait()
+        wait_for_job(svc.JOB_ID)
 
 
 # --- Route -----------------------------------------------------------------
@@ -437,7 +427,7 @@ def test_routes_are_declared_and_start(env, monkeypatch):
     assert client.post("/api/diagnostics/real-model-check", json={}).status_code == 422
     r = client.post("/api/diagnostics/real-model-check", json={"confirm": True})
     assert r.status_code == 200, r.text
-    _wait()
+    wait_for_job(svc.JOB_ID)
     body = client.get("/api/diagnostics/real-model-check").json()
     assert body["checks"][0]["status"] == "pass" and body["finished"] is True
 
@@ -506,7 +496,7 @@ def test_api_result_carries_no_url(env, monkeypatch, ollama):
         "500 for url: http://private-host:11434/api/chat")
     monkeypatch.setattr(svc, "_CHECKS", tuple(c for c in svc._CHECKS if c[0] == "translate"))
     svc.start(confirm=True)
-    _wait()
+    wait_for_job(svc.JOB_ID)
     state = svc.get_state()
     assert state["checks"][0]["status"] == svc.FAIL
     _no_url(str(state))

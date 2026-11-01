@@ -36,7 +36,7 @@ export interface RestructureResult {
   lines_fingerprint?: string | null
 }
 
-export interface ResegmentChange {
+interface ResegmentChange {
   line_id: number | null
   idx: number
   zh: string

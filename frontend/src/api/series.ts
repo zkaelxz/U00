@@ -12,7 +12,7 @@ export interface SeriesListItem {
   glossary_term_count: number
 }
 
-export interface SeriesTitle {
+interface SeriesTitle {
   id: number
   title_en: string | null
   title_zh: string | null
@@ -49,7 +49,7 @@ export interface SeriesDeletePreview {
   job_running: boolean
 }
 
-export interface SeriesDeleteResult {
+interface SeriesDeleteResult {
   deleted: boolean
   series_id: number
   titles_kept: number
@@ -66,7 +66,7 @@ export interface SeriesCopyTermsPreview {
   skipped_terms: string[]
 }
 
-export interface SeriesCopyTermsResult {
+interface SeriesCopyTermsResult {
   series_id: number
   source_series_id: number
   added: number
@@ -135,7 +135,7 @@ export interface SeriesDefaultsPreview {
   }[]
 }
 
-export interface SeriesDefaultsApplyResult {
+interface SeriesDefaultsApplyResult {
   series_id: number
   mode: ApplyMode
   title_count: number

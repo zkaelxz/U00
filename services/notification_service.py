@@ -18,7 +18,7 @@ the drama title (looked up from a "(drama #N)" reference) and the outcome.
 The push leaves the title out for a drama a household member couldn't see
 (private, or in a private series): the channel may be shared.
 Never line text, keys or paths; the result also goes through
-`translate_engines.redact_secrets`.
+`engine_backends.shared.redact_secrets`.
 
 Rate limit: events arriving within BURST_WINDOW seconds of the first one
 are collapsed into one message ("3 background jobs ended: 2 finished,
@@ -74,7 +74,7 @@ from urllib.parse import urlsplit
 
 from engine_backends.redaction import redact_secrets
 from lib import url_guard
-from services.service_errors import InvalidInputError, RateLimitedError
+from lib.errors import InvalidInputError, RateLimitedError
 
 CHANNELS = ("discord", "ntfy")
 CATEGORIES = ("jobs", "chapters", "remote")
@@ -93,7 +93,7 @@ MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
 _KIND_MAX = 60
 _TITLE_MAX = 80
-APP_NAME = "Baihe Subtitler"
+APP_NAME = "Baihe Studio"
 
 DISCORD_HOSTS = frozenset({"discord.com", "discordapp.com", "ptb.discord.com",
                            "canary.discord.com"})
@@ -156,11 +156,14 @@ def get_categories() -> dict:
 def set_categories(jobs=None, chapters=None, remote=None) -> dict:
     """Switches the external-push categories. None leaves one unchanged."""
     import db
-    current = get_categories()
-    for name, value in (("jobs", jobs), ("chapters", chapters), ("remote", remote)):
-        if value is not None:
-            current[name] = bool(value)
-    db.set_app_setting(CATEGORY_SETTING, current)
+    changes = {name: bool(value) for name, value in
+               (("jobs", jobs), ("chapters", chapters), ("remote", remote)) if value is not None}
+
+    def apply(stored):
+        # Same normalising as get_categories: anything but False reads as on.
+        stored = stored if isinstance(stored, dict) else {}
+        return {**{c: stored.get(c) is not False for c in CATEGORIES}, **changes}
+    db.update_app_setting(CATEGORY_SETTING, apply)
     return get_status()
 
 

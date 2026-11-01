@@ -23,15 +23,15 @@ const okFetch = (body: unknown) =>
 
 describe('checkChannelInput', () => {
   it('accepts YouTube links and @handles', () => {
-    for (const t of ['@name', 'https://www.youtube.com/@name', 'youtube.com/@name', 'https://m.youtube.com/channel/UCx']) {
+    for (const t of ['@name', 'https://www.youtube.com/@name', 'youtube.com/@name', 'https://m.youtube.com/channel/UCx', 'https://www.twitch.tv/name', 'twitch.tv/name']) {
       expect(checkChannelInput(t)).toBeNull()
     }
   })
   it('explains what is missing or wrong', () => {
     expect(checkChannelInput('  ')).toMatch(/Still needed/)
     expect(checkChannelInput('@ab')).toMatch(/3 characters/)
-    expect(checkChannelInput('https://evil.example/@x')).toMatch(/Only YouTube/)
-    expect(checkChannelInput('https://www.youtube.com.evil.example/@x')).toMatch(/Only YouTube/)
+    expect(checkChannelInput('https://evil.example/@x')).toMatch(/Only YouTube and Twitch/)
+    expect(checkChannelInput('https://www.youtube.com.evil.example/@x')).toMatch(/Only YouTube and Twitch/)
     expect(checkChannelInput('x'.repeat(MAX_CHANNEL_INPUT + 1))).toMatch(/too long/)
   })
 })

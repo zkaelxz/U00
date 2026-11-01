@@ -15,7 +15,7 @@ from services.assistant_repo_access import _redact
 from services.assistant_settings_service import (DEFAULT_ENGINE, _check_engine_name, _check_model, _tier_of,
                                                  get_settings, require_cloud_consent)
 from services.assistant_tools_service import READ_ONLY_TOOLS, run_tool
-from services.service_errors import (DependencyUnavailableError, InvalidInputError, ServiceError,
+from lib.errors import (DependencyUnavailableError, InvalidInputError, ServiceError,
                                      UnsupportedOperationError)
 
 

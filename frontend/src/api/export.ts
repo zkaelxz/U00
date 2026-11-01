@@ -124,4 +124,4 @@ export const startDubbedVideo = (id: number, req: DubbedVideoRequest, f?: Fetch)
 export const markExported = (id: number, f?: Fetch) =>
   postJson<MarkExportedResult>(`${dramaPath(id)}/mark-exported`, undefined, f)
 export const getArtifactInfo = (id: number, kind: ExportMediaKind, f?: Fetch) =>
-  getJson<ArtifactInfo>(`/api/artifacts/dramas/${id}/${encodeURIComponent(kind)}/info`, f)
+  getJson<ArtifactInfo | null>(`/api/artifacts/dramas/${id}/${encodeURIComponent(kind)}/info`, f)

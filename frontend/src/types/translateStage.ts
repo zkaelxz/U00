@@ -76,7 +76,7 @@ export interface EpisodeSummaryGenerated {
   engine: string
 }
 
-export interface TranslateBatchError {
+interface TranslateBatchError {
   batch_index?: number
   lines?: number[]
   error?: string
@@ -187,7 +187,7 @@ export interface TranslateRunStarted {
 // Lines a glossary change affects (GET .../glossary-affected). hand_edited is
 // true unless the English is exactly what the last recorded translate run
 // produced; unknown provenance counts as hand-edited.
-export interface GlossaryAffectedMatch {
+interface GlossaryAffectedMatch {
   term_id: number
   term_original: string
   term_translation: string
@@ -342,7 +342,7 @@ export interface VoiceBankEntry {
 }
 
 // translate_engines.WORKFLOW_TIERS (Draft / Standard / Release).
-export interface WorkflowTier {
+interface WorkflowTier {
   key: string
   label: string
   translation_engine: string
@@ -404,7 +404,7 @@ export interface GlossaryVariantExample {
   snippet: string
 }
 
-export interface GlossaryVariantCandidate {
+interface GlossaryVariantCandidate {
   text: string
   count: number
   /** 0..1, 1 = the same sound. */
@@ -424,7 +424,7 @@ export interface GlossaryVariants {
   candidates: GlossaryVariantCandidate[]
 }
 
-export interface GlossaryNameSpelling {
+interface GlossaryNameSpelling {
   text: string
   count: number
   sources: string[]
@@ -451,7 +451,7 @@ export interface GlossaryNameClusters {
   known_vtuber_names: GlossaryNameCluster[]
 }
 
-export interface SpellingProposal {
+interface SpellingProposal {
   text: string
   count: number
   is_alias: boolean
@@ -459,7 +459,7 @@ export interface SpellingProposal {
   examples: GlossaryVariantExample[]
 }
 
-export interface SpellingSuggestResult {
+interface SpellingSuggestResult {
   term: string | null
   english: string | null
   proposals: SpellingProposal[]
@@ -478,7 +478,7 @@ export interface SpellingSuggestStatus {
   result: SpellingSuggestResult | null
 }
 
-export interface NameConsistencyRow {
+interface NameConsistencyRow {
   line_idx: number
   source: string
   english: string
@@ -504,12 +504,12 @@ export interface NameConsistency {
 // GET /api/glossary/name-report: the name check across every title the caller may see.
 export type NameMark = 'right' | 'wrong' | 'skip'
 
-export interface NameReportVariant {
+interface NameReportVariant {
   text: string
   count: number
 }
 
-export interface NameReportTitle {
+interface NameReportTitle {
   drama_id: number
   title: string
   count: number
@@ -518,7 +518,7 @@ export interface NameReportTitle {
   glossary_english: string | null
 }
 
-export interface NameReportExample {
+interface NameReportExample {
   drama_id: number
   line_idx: number
   snippet: string

@@ -3,7 +3,7 @@ it with id-keyed matching, and the saved setting reaching the app's run."""
 import pytest
 
 from jobs import job_table
-import translate_engines as te
+from engine_backends import translate_pipeline, engine_registry
 from core import Line
 from engine_backends.translate_pipeline import plan_batches
 from services import settings_service
@@ -95,7 +95,7 @@ class TestPipeline:
         lines = _timed(gaps)
         engine = _Recorder()
         events = []
-        te.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=8, scene_aware_batches=True,
             detail_cb=lambda f, m: events.append(m))
         assert [len(b) for b in engine.batches] == [7, 5]
@@ -106,7 +106,7 @@ class TestPipeline:
         gaps = [0.0] * 12
         gaps[7] = 6.0
         engine = _Recorder()
-        te.translate_lines_with_engine(_timed(gaps), engine, {}, batch_size=8)
+        translate_pipeline.translate_lines_with_engine(_timed(gaps), engine, {}, batch_size=8)
         assert [len(b) for b in engine.batches] == [8, 4]
 
     def test_id_keyed_matching_is_unchanged(self, monkeypatch):
@@ -123,7 +123,7 @@ class TestPipeline:
 
         monkeypatch.setattr("engine_backends.reflect_pass._id_keyed_batch_request",
                             fake_request)
-        te.translate_lines_with_engine(lines, _Recorder(), {}, batch_size=8, reflect=True,
+        translate_pipeline.translate_lines_with_engine(lines, _Recorder(), {}, batch_size=8, reflect=True,
                                        scene_aware_batches=True)
         assert [len(ids) for ids in seen[::3]] == [7, 5]
 
@@ -134,7 +134,7 @@ class TestPipeline:
         for ln in lines[:7]:
             ln.en = "done"
         engine = _Recorder()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=8,
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=8,
                                        scene_aware_batches=True)
         assert engine.batches == [[f"l{i}" for i in range(7, 12)]]
         assert [ln.en for ln in lines[:7]] == ["done"] * 7
@@ -145,13 +145,13 @@ class TestSceneAwareSetting:
         did = isolated_db.create_drama(title_en="Test", status="aligned")
         lines = [Line(idx=0, start=0.0, end=1.0, zh="你好")]
         isolated_db.save_lines(did, lines)
-        monkeypatch.setattr(te, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
         seen = []
 
         def fake_translate(lines, engine, **kwargs):
             seen.append(kwargs)
             return lines, []
-        monkeypatch.setattr(te, "translate_lines_with_engine", fake_translate)
+        monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
 
         job_id = "test_plan_batches_parity"
         job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",

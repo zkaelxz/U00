@@ -886,10 +886,9 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
 .continue-text { display: grid; min-width: 0; }
 .continue-title { font-weight: var(--weight-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.continue-card { padding-inline: 0; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
 @media (max-width: 640px) {
-  .continue-card { padding: var(--space-3) 0; }
+  .continue-card { padding: var(--space-3); }
   .continue-item { padding: var(--space-2); }
 }
 
@@ -936,6 +935,9 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .drama-card .pill-row { margin-top: var(--space-1); }
 /* Only the status pill is filled, so a card's state is the first thing the eye finds; language and tags stay outlined. */
 .drama-card .pill-row > .pill:not(:first-child) { background: none; box-shadow: inset 0 0 0 1px var(--border); }
+.drama-card-progress { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
+.drama-card-bar { flex: 0 1 96px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.drama-card-bar > span { display: block; height: 100%; background: var(--accent); }
 .drama-card-foot { display: flex; gap: var(--space-1); margin: auto calc(-1 * var(--space-2)) 0; padding-top: var(--space-2); }
 .drama-card-foot > * { position: relative; z-index: 1; }
 .sharing-control { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); position: relative; z-index: 1; }
@@ -956,6 +958,12 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 /* List view (desktop table) */
 .drama-table { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .drama-table td { vertical-align: middle; }
+/* The page's overflow-wrap: anywhere shrinks every column's minimum width to one letter, so the Title column took the whole
+   row and the short columns broke mid-word. Only the Title column may wrap, and only between words. */
+.drama-table th, .drama-table td { overflow-wrap: normal; white-space: nowrap; }
+.drama-table .title-col, .drama-table .tags-col { white-space: normal; overflow-wrap: break-word; }
+.drama-table .title-col { min-width: 12rem; }
+.drama-table .tags-col { min-width: 8rem; }
 .table-title { color: var(--text); font-weight: var(--weight-bold); text-decoration: none; }
 .table-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .row-actions { white-space: nowrap; text-align: right; }

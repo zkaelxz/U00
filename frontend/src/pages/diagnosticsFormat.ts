@@ -21,7 +21,7 @@ export function splitDependencies(deps: Record<string, DependencyStatus>) {
   return { installed: rows.filter((r) => r.installed), missing: rows.filter((r) => !r.installed) }
 }
 
-export const GPU_MEMORY_LABEL = 'GPU memory in use (all programs)'
+const GPU_MEMORY_LABEL = 'GPU memory in use (all programs)'
 
 export function describeGpu(gpu: GpuStatus): string {
   if (!gpu.available) return gpu.message || 'No GPU detected.'
@@ -101,7 +101,7 @@ export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'> &
   return job.message || null
 }
 
-export function jobStatusText(status: string): string {
+function jobStatusText(status: string): string {
   const labels: Record<string, string> = {
     queued: 'Queued',
     running: 'Running',

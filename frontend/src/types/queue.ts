@@ -1,13 +1,15 @@
 // /api/queue: the user-managed job queue on the Jobs page (api/schemas/queue.py).
 export type QueueStep = 'transcribe' | 'translate' | 'export'
+// The download item exists only in a Quick video translate run; it is shown, never picked.
+export type QueueItemStep = 'download' | QueueStep
 export type QueueItemStatus = 'waiting' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted' | 'cancelled'
-export type QueueRunState = 'idle' | 'running' | 'paused'
+type QueueRunState = 'idle' | 'running' | 'paused'
 
 export interface QueueItem {
   id: number
   drama_id: number
   title: string
-  step: QueueStep
+  step: QueueItemStep
   status: QueueItemStatus
   reason: string | null
   job_id: string | null

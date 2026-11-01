@@ -185,7 +185,7 @@ def _browser_outcome(url, client, fetch, action) -> TierOutcome:
         return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED], detail=str(e),
                            missing=MISSING_BROWSER)
     except Exception as e:
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         reason = FailureReason.TIMEOUT if "timeout" in type(e).__name__.lower() \
             else FailureReason.UNKNOWN
         return TierOutcome(False, reasons=[reason],

@@ -121,3 +121,8 @@
 .reader-goto { align-items: flex-end; }
 .reader-goto .field-item { flex: 1 1 auto; }
 .reader-engine-line { margin: 0; }
+
+.reader-edit-toggle { min-width: 44px; min-height: 44px; border-radius: var(--radius-2, 8px); }
+.reader-edit-toggle[aria-pressed='true'] { background: var(--accent-soft, var(--surface-2)); }
+.reader-edit-form { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
+.reader-edit-form textarea { width: 100%; box-sizing: border-box; }

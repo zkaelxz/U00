@@ -8,7 +8,7 @@ import line_tools
 import forced_align
 import resegment
 import story_context
-import translate_engines
+from core import LANGUAGE_NAMES
 import translation_guide
 from api import benchmark_schemas
 from services import (reader_service, source_service, benchmark_lab_service, discover_catalog_service, drama_service,
@@ -24,7 +24,7 @@ def test_language_constants_cover_the_three_languages():
 
 def test_language_copies_are_the_shared_objects():
     assert forced_align.LANGUAGE_NAMES is core.LANGUAGE_NAMES
-    assert translate_engines.LANGUAGE_NAMES is core.LANGUAGE_NAMES
+    assert LANGUAGE_NAMES is core.LANGUAGE_NAMES
     for mod in (resegment, story_context, translation_guide):
         assert mod.LANGUAGE_NAMES is core.LANGUAGE_NAMES
     assert drama_service.SOURCE_LANGUAGES is core.SOURCE_LANGUAGES

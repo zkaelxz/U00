@@ -14,15 +14,16 @@ from PIL import Image, ImageDraw, ImageFilter
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import vision as engine_vision
 from core import Line
 from services import benchmark_hardsub_read_service as read_svc
 from services import benchmark_hardsub_service as hs
 from services import benchmark_lab_service as lab
 from services import settings_service, translate_service
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
-from tests.test_benchmark_lab import _wait
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 from lib.errors import DependencyUnavailableError
+from tests.job_helpers import wait_for_job
 
 TEXT = "你好吗"
 
@@ -250,8 +251,8 @@ def reads(isolated_db, ffmpeg, monkeypatch):
             on_done(state["usage"])
         return text, state["usage"]
 
-    monkeypatch.setattr(translate_engines, "read_image_text", fake)
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", Translator)
+    monkeypatch.setattr(engine_vision, "read_image_text", fake)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", Translator)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test-key-12345678")
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
@@ -270,7 +271,7 @@ def _case(isolated_db, line=0, **kw):
 
 def _run(configs, **kw):
     started = lab.start_run("ocr", configs, **kw)
-    _wait()
+    wait_for_job(lab.JOB_ID, timeout=15)
     return started
 
 
@@ -398,7 +399,7 @@ class TestReadThenTranslate:
 
         monkeypatch.setattr(read_svc, "read_case", read_then_cancel)
         sid = lab.start_run("ocr", [self.ARM])["session_ids"][0]
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         assert Translator.sources == [] and lab.get_run(sid)["results"] == []
         assert lab.get_run(sid)["run"]["status"] == "cancelled"
 
@@ -434,7 +435,7 @@ class TestReadThenTranslate:
         _case(reads)
         monkeypatch.setattr(translate_service, "resolve_api_key",
                             lambda name, env_path=None: "sk-test-key-12345678" if name == "claude" else None)
-        from services.service_errors import MissingKeyError
+        from lib.errors import MissingKeyError
         arm = {"engine": "claude", "translate": {"engine": "deepseek"}}
         with pytest.raises(MissingKeyError):
             lab.start_run("ocr", [arm])
@@ -489,7 +490,7 @@ class TestLabBugFixes:
 
     def test_a_second_add_to_the_same_set_while_one_runs_is_refused(self, isolated_db, ffmpeg):
         from services.benchmark_reference_service import adding_to_set
-        from services.service_errors import ConflictError
+        from lib.errors import ConflictError
         did, ids = _title(isolated_db)
         with adding_to_set("hard-sub "):
             with pytest.raises(ConflictError):
@@ -507,10 +508,10 @@ class TestLabBugFixes:
 
     def test_a_failed_translation_step_keeps_the_reads_cost(self, reads, monkeypatch):
         from services import benchmark_vision_service as vision
-        from services.service_errors import MissingKeyError
+        from lib.errors import MissingKeyError
         _case(reads)
         (sid,) = lab.start_run("ocr", [TestReadThenTranslate.ARM])["session_ids"]
-        _wait()
+        wait_for_job(lab.JOB_ID, timeout=15)
         paid = lab.get_run(sid)["results"][0]["cost_usd"]
         Translator.sources = []
 

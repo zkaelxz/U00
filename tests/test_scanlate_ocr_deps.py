@@ -2,7 +2,6 @@
 longer treats a failed OCR as a finished page. Fakes only."""
 import importlib.util
 import os
-import time
 
 import pytest
 
@@ -15,7 +14,8 @@ import ocr
 import scanlate
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_run_service as run_svc
-from services.service_errors import DependencyUnavailableError
+from lib.errors import DependencyUnavailableError
+from tests.job_helpers import wait_for_job
 
 
 def _drama_with_pages(n=1):
@@ -36,16 +36,6 @@ def _region(text, translated=""):
             "kind": "bubble", "font_size": 12, "skip": False, "include_sfx": False,
             "language": "zh", "orientation": "horizontal", "panel_id": None,
             "kind_confidence": 0.5, "confidence": None, "font_category": "regular"}
-
-
-def _wait(job_id, timeout=20):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error", "cancelled"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 @pytest.fixture
@@ -137,7 +127,7 @@ def test_failed_ocr_page_is_failed_and_not_saved_as_existing(isolated_db, monkey
         return [_region("你好")], []
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     run_svc.start_run(did, engine="fake")
-    st = _wait(pages_svc.job_id(did))
+    st = wait_for_job(pages_svc.job_id(did), timeout=20)
     assert "1 failed" in st["message"], st
     assert db.load_bubbles(p1) == []
     assert db.load_bubbles(p2)
@@ -157,6 +147,6 @@ def test_translate_all_reruns_pages_whose_regions_have_no_text(isolated_db, monk
         return [_region("再见")], []
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     run_svc.start_run(did, engine="fake")
-    _wait(pages_svc.job_id(did))
+    wait_for_job(pages_svc.job_id(did), timeout=20)
     assert seen == [empty]
     assert db.load_bubbles(empty)[0]["source_text"] == "再见"

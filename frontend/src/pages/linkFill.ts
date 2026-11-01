@@ -7,7 +7,7 @@ import type { LinkDetailFields, MediaLinkProbe } from '../api/linkDetails'
 
 export type LinkField = keyof LinkDetailFields
 
-export const LINK_FIELD_LABELS: Record<LinkField, string> = {
+const LINK_FIELD_LABELS: Record<LinkField, string> = {
   title_zh: 'Title',
   author: 'Channel',
   release_date: 'Stream date',

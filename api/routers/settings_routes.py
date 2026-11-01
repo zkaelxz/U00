@@ -28,7 +28,7 @@ from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClea
                          SettingsUpdateRequest)
 from lib.errors import ForbiddenError
 from services import settings_schema_service, settings_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 

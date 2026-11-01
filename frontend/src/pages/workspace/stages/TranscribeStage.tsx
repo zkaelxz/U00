@@ -693,6 +693,7 @@ export default function TranscribeStage({
             developerMode={developerMode}
             haveTranscript={haveTranscript}
             needs={needs}
+            speakersExplainedAbove={speakersOff !== null && !runDiarize}
             onNeedInstalled={() => void refreshReadiness()}
             optionsSaved={optionsSaved}
             fieldError={fieldError}

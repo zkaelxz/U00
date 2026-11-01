@@ -11,11 +11,12 @@ import pytest
 import background_jobs
 from jobs import gpu_queue, job_launch, job_runner
 import debug_view
-import translate_engines
+from engine_backends import translate_pipeline, fallback, engine_registry, llm_tasks
 import translation_guide as tguide
 from core import Line
 from services import (glossary_service, job_checkpoint_service as cp, job_timing_service,
                       line_provenance_service, narration_service, vram_service)
+from tests.job_helpers import wait_for_job
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +78,7 @@ class _Engine:
 
 def _narration_setup(isolated_db, monkeypatch, chunks=40):
     did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
     monkeypatch.setattr(narration_service.novel_text, "chunk_novel_text",
                         lambda text, n: [f"段落{i}" for i in range(chunks)])
     return did
@@ -218,25 +219,17 @@ def test_translate_job_records_provenance_for_translated_lines(isolated_db, monk
         kw["save_cb"](ls)
         return ls, []
 
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
     monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", lambda *a, **k: False)
     wjs.run_translate_job("translate_x", did, lines, _Engine(), {}, "", "", False, "en-US",
                           [], "", "claude", "default")
     prov = line_provenance_service.get(did, lines[0].id)
     assert prov["engine"] == "claude" and prov["model"] == "fake-model"
-    assert prov["prompt_version"] == translate_engines.TRANSLATE_PROMPT_VERSION
+    assert prov["prompt_version"] == translate_pipeline.TRANSLATE_PROMPT_VERSION
     assert isolated_db.load_line_objects(did)[0].en == "hello"
 
 
 # --- per-stage timing (item 5) ------------------------------------------------
-
-def _wait(job_id):
-    for _ in range(300):
-        job = background_jobs.get_status(job_id)
-        if job and job["status"] in ("done", "error", "cancelled"):
-            return job
-        time.sleep(0.01)
-    raise AssertionError("job did not finish")
 
 
 def _wait_runs(job_id):
@@ -259,7 +252,7 @@ def test_stages_and_spend_are_recorded_for_a_real_job(isolated_db):
         isolated_db.log_usage(did, "claude", "m", "translate", 10, 10, 0.5)
 
     job_launch.start_job("stage_job", work, description="Stages")
-    assert _wait("stage_job")["status"] == "done"
+    assert wait_for_job("stage_job", timeout=3.0)["status"] == "done"
     run = _wait_runs("stage_job")[0]
     assert [s["stage"] for s in run["stages"]] == ["Transcribe", "Translate"]
     assert run["stages"][0]["duration_seconds"] >= 0.02
@@ -276,7 +269,7 @@ def test_stage_names_in_the_stages_response_carry_no_url_or_path(isolated_db):
         job_timing_service.mark_stage("scrub_job", "Read /home/someone/library/audio.wav")
 
     job_launch.start_job("scrub_job", work, description="Scrub")
-    assert _wait("scrub_job")["status"] == "done"
+    assert wait_for_job("scrub_job", timeout=3.0)["status"] == "done"
     _wait_runs("scrub_job")
     names = " ".join(s["stage"] for s in jobs_service.get_job_stages("scrub_job")["runs"][0]["stages"])
     assert "example.com" not in names and "abc123" not in names and "/home/someone" not in names
@@ -288,7 +281,7 @@ def test_a_job_without_stages_gets_one_whole_job_row_even_when_it_fails(isolated
         raise RuntimeError("x")
 
     job_launch.start_job("plain_job", boom, description="Plain")
-    assert _wait("plain_job")["status"] == "error"
+    assert wait_for_job("plain_job", timeout=3.0)["status"] == "error"
     run = _wait_runs("plain_job")[0]
     assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]
     background_jobs.clear_job("plain_job")
@@ -417,7 +410,7 @@ def test_provenance_follows_a_mid_run_engine_fallback(isolated_db, monkeypatch):
     class DeepSeek:
         model = "deepseek-chat"
 
-    engine = translate_engines.FallbackEngine([Claude(), DeepSeek()], ["claude", "deepseek"])
+    engine = fallback.FallbackEngine([Claude(), DeepSeek()], ["claude", "deepseek"])
     did = isolated_db.create_drama(title_en="F")
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="一", en=""),
                                  Line(idx=1, start=1, end=2, zh="二", en="")])
@@ -431,7 +424,7 @@ def test_provenance_follows_a_mid_run_engine_fallback(isolated_db, monkeypatch):
         kw["save_cb"](ls)
         return ls, []
 
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_translate)
     monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", lambda *a, **k: False)
     wjs.run_translate_job("translate_f", did, lines, engine, {}, "", "", False, "en-US",
                           [], "", "claude>deepseek", "default")
@@ -453,7 +446,7 @@ def test_an_old_runs_finish_does_not_close_a_new_run_of_the_same_job(isolated_db
 
 def test_process_jobs_get_timing_too(isolated_db):
     job_launch.start_process_job("proc_timing", _proc_ok, description="Proc")
-    assert _wait("proc_timing")["status"] == "done"
+    assert wait_for_job("proc_timing", timeout=3.0)["status"] == "done"
     run = _wait_runs("proc_timing")[0]
     assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]
     background_jobs.clear_job("proc_timing")
@@ -580,7 +573,7 @@ def test_changed_characters_or_prompt_version_invalidate_narration_checkpoints(
     on_batch({0: "Ann"})
     assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann"])[0] == {0: "Ann"}
     assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann", "Bo"])[0] == {}
-    monkeypatch.setattr(translate_engines, "TAG_SPEAKERS_PROMPT_VERSION", "2")
+    monkeypatch.setattr(llm_tasks, "TAG_SPEAKERS_PROMPT_VERSION", "2")
     assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann"])[0] == {}
 
 

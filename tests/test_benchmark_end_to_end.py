@@ -4,19 +4,19 @@ that translates what a recogniser hears in each clip, not the reference transcri
 against the reference translation. Mocked recogniser and engine: no GPU, models or network.
 """
 import json
-import time
 
 import pytest
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
 import whisper_transcribe
 from api.benchmark_schemas import BenchmarkRunRequest
 from services import benchmark_lab_service as lab
 from services import benchmark_runs_service as runs
 from services import model_readiness_service, translate_service
-from services.service_errors import InvalidInputError, UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
+from tests.job_helpers import wait_for_job
 
 HEARD = {"a.wav": "你好吗", "b.wav": "再见"}
 
@@ -37,7 +37,7 @@ class EchoEngine:
 
 @pytest.fixture(autouse=True)
 def mocks(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", EchoEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", EchoEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test" if name == "claude" else "offline")
     monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a, **k: True)
@@ -65,19 +65,9 @@ def _clip(name="a.wav", heard_as=None, key="k1", reference="EN 你好吗", trans
         {**common, "stage": "translation", "source_text": transcript, "reference_text": reference}])
 
 
-def _wait(timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(lab.JOB_ID)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
-
-
 def _run(configs, **kw):
     started = lab.start_run("translation", configs, **kw)
-    _wait()
+    wait_for_job(lab.JOB_ID, timeout=15)
     return started
 
 

@@ -1,6 +1,15 @@
 /* Settings page layout (UI refresh §3.12): a stack of Cards; rare options
    stay in borderless Sections inside the "Advanced" Card. */
 .settings-page .setting-list { margin: 0; }
+/* Language packs: a <ul> of <details>, so the browser bullet and the bare summary need resetting. */
+.pack-list { list-style: none; padding: 0; overflow: hidden; }
+.pack-list > li + li { border-top: 1px solid var(--border); }
+.pack-list summary { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: var(--space-3); row-gap: var(--space-1); padding: var(--space-3) var(--space-4); min-height: 44px; box-sizing: border-box; cursor: pointer; }
+.pack-list .pack-title { font-weight: var(--weight-medium); color: var(--text); }
+.pack-list .pack-meta { margin-left: auto; font-size: var(--text-sm); }
+.pack-list details > :not(summary) { margin-inline: var(--space-4); }
+.pack-list details > :last-child { margin-bottom: var(--space-3); }
+.pack-list details > table { width: calc(100% - 2 * var(--space-4)); }
 .settings-note { margin: 0; max-width: var(--measure); color: var(--muted); font-size: var(--text-sm); }
 
 /* Search above the tabs; the tabs are components/Tabs. */

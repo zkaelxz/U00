@@ -46,7 +46,7 @@ for backup and restore operations see `runbook.md`.
   `library.db` and its `-wal`/`-shm`/`-journal`, `dramas/` and `cedict.txt`, and
   re-runs `init_db()`. Callers must have asked for confirmation already.
 - **Package files.** `db.py` became the package `db/`; the split is finished
-  (every file is under 40 KB). `db/__init__.py` keeps the connection and
+  (every file is under 64 KB). `db/__init__.py` keeps the connection and
   path code (`configure_library_dir`, `get_conn`, `snapshot_database`,
   `_safe_alter`), `init_db` with the newer-database refusal, the `_LINE_REF_*`
   constants, `drama_dir` and `reset_library`, and re-exports the public names of
@@ -230,7 +230,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 - *Lines are referenced by `lines.id`, never position.* Notes, emotions and
   reading history moved from `line_idx` to `line_id` because a merge or split
   renumbers `idx`. Match LLM results to lines by explicit id
-  (`translate_engines.request_translations_with_retry`, `parse_id_keyed_json`).
+  (`engine_backends.shared.request_translations_with_retry`, `parse_id_keyed_json`).
 
 **Dramas and ownership**
 
@@ -253,7 +253,7 @@ nothing there can interfere with `db.save_lines()` or a library backup.
 **Secrets and errors**
 
 - *Redact at write time.* Error text passes through
-  `translate_engines.redact_secrets` (or `redact_for_storage`, which also strips
+  `engine_backends.shared.redact_secrets` (or `redact_for_storage`, which also strips
   URL query strings) before it is stored, shown or logged: `jobs/job_store.py`
   (`_storage_text`, because `job_records` lands in backups), `auth_service`
   (`_scrub_detail` for `audit_log.detail_redacted`), `translate_run_service`
@@ -464,4 +464,4 @@ Add a table:
 4. Redact anything error-like with `redact_secrets` before storing it.
 5. A new table in `sources.db` goes in `sources/store.py` (`SCHEMA`,
    `_ADDED_COLUMNS` for columns); it is outside `_INIT_DB_MIGRATED_COLUMNS`.
-6. If the change adds a top-level module, add its line to `FILE_ORGANIZATION.md`.
+6. If the change adds a top-level module, give it a one-line docstring (`python tools/repo_map.py` lists it).

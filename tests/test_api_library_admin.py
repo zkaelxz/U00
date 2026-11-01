@@ -31,6 +31,7 @@ from services import library_backup_service as lbs
 from services import library_restore_service as lrs
 from services import workspace_job_service as wjs
 from tests.api_helpers import error_of
+from tests.job_helpers import wait_for_job
 
 BASE = "/api/library/admin"
 REMOTE = "https://baihe.example.com"
@@ -53,22 +54,11 @@ def _clean(resp):
     return resp
 
 
-
 def _put_job(job_id, status="running"):
     with job_table._lock:
         job_table._jobs[job_id] = {
             "status": status, "progress": 0.0, "message": "", "result": None,
             "error": None, "started_at": time.time(), "finished_at": None}
-
-
-def _wait(job_id, timeout=15):
-    end = time.time() + timeout
-    while time.time() < end:
-        st = background_jobs.get_status(job_id)
-        if st and st["status"] in ("done", "error"):
-            return st
-        time.sleep(0.05)
-    raise AssertionError("job did not finish")
 
 
 def _zip(members: dict) -> bytes:
@@ -236,11 +226,12 @@ class TestBulkTranslate:
 
 class TestExportBackupArtifacts:
     @pytest.mark.parametrize("kind", ["backup", "export", "database"])
-    def test_no_artifact_404(self, client, kind):
-        for path in (f"{BASE}/artifacts/{kind}/info", f"{BASE}/artifacts/{kind}"):
-            r = _clean(client.get(path))
-            assert r.status_code == 404
-            assert error_of(r)["message"] == "No artifact available."
+    def test_no_artifact_is_null_for_info_and_404_for_the_download(self, client, kind):
+        info = _clean(client.get(f"{BASE}/artifacts/{kind}/info"))
+        assert info.status_code == 200 and info.json() is None
+        r = _clean(client.get(f"{BASE}/artifacts/{kind}"))
+        assert r.status_code == 404
+        assert error_of(r)["message"] == "No artifact available."
 
     @pytest.mark.parametrize("kind", ["Backup", "../backup", "zip", "exports"])
     def test_unknown_kind_422_or_404(self, client, kind):
@@ -285,7 +276,7 @@ class TestExportBackupArtifacts:
         r = _clean(client.post(f"{BASE}/export", json={}))
         assert r.status_code == 200, r.text
         assert r.json()["drama_ids"] == [a]
-        st = _wait(r.json()["job_id"])
+        st = wait_for_job(r.json()["job_id"], timeout=15)
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "export", "application/zip")
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -301,7 +292,7 @@ class TestExportBackupArtifacts:
         assert r.status_code == 200, r.text
         errors = {x["drama_id"]: x.get("error") for x in r.json()["results"]}
         assert errors == {a: None, b: "not_translated", 999: "not_found"}
-        _wait(las.EXPORT_JOB_ID)
+        wait_for_job(las.EXPORT_JOB_ID, timeout=15)
         r = client.post(f"{BASE}/export", json={"drama_ids": [b]})
         assert r.status_code == 422
 
@@ -309,7 +300,7 @@ class TestExportBackupArtifacts:
         _new("Backed up")
         r = _clean(client.post(f"{BASE}/backup", json={}))
         assert r.status_code == 200 and r.json() == {"job_id": las.BACKUP_JOB_ID}
-        st = _wait(las.BACKUP_JOB_ID)
+        st = wait_for_job(las.BACKUP_JOB_ID, timeout=15)
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "backup", "application/zip")
         lbr.validate_backup_zip(data)
@@ -318,12 +309,12 @@ class TestExportBackupArtifacts:
         _new("A")
         r = client.post(f"{BASE}/backup", json={"database_only": True})
         assert r.status_code == 200 and r.json() == {"job_id": las.DATABASE_BACKUP_JOB_ID}
-        st = _wait(las.DATABASE_BACKUP_JOB_ID)
+        st = wait_for_job(las.DATABASE_BACKUP_JOB_ID, timeout=15)
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "database", "application/octet-stream")
         assert data.startswith(b"SQLite format 3")
         # a full backup has not been made
-        assert client.get(f"{BASE}/artifacts/backup/info").status_code == 404
+        assert client.get(f"{BASE}/artifacts/backup/info").json() is None
 
     def test_user_backup_job_info_download(self, client):
         uid = auth_service.add_user("owner@example.com")["id"]
@@ -331,7 +322,7 @@ class TestExportBackupArtifacts:
         _new("Not mine")
         r = _clean(client.post(f"{BASE}/backup/user", json={"user_id": uid}))
         assert r.status_code == 200 and r.json() == {"job_id": las.USER_BACKUP_JOB_ID}
-        st = _wait(las.USER_BACKUP_JOB_ID)
+        st = wait_for_job(las.USER_BACKUP_JOB_ID, timeout=15)
         assert st["status"] == "done", st.get("error")
         data = self._download(client, "user_backup", "application/zip")
         lbr.validate_backup_zip(data)
@@ -340,7 +331,7 @@ class TestExportBackupArtifacts:
             raw = zf.read("library.db")
         assert b"Mine" in raw and b"Not mine" not in raw and b"owner@example.com" not in raw
         # the full backup is a separate artifact
-        assert client.get(f"{BASE}/artifacts/backup/info").status_code == 404
+        assert client.get(f"{BASE}/artifacts/backup/info").json() is None
 
     @pytest.mark.parametrize("body,status", [
         ({"user_id": 999}, 404), ({"user_id": 0}, 422), ({"user_id": "1"}, 422),
@@ -428,7 +419,7 @@ class TestRestore:
     def test_real_round_trip(self, client):
         a = _new("Kept")
         assert client.post(f"{BASE}/backup", json={}).status_code == 200
-        assert _wait(las.BACKUP_JOB_ID)["status"] == "done"
+        assert wait_for_job(las.BACKUP_JOB_ID, timeout=15)["status"] == "done"
         data = client.get(f"{BASE}/artifacts/backup").content
         _new("Added after backup")
         background_jobs.clear_all_jobs()
@@ -455,7 +446,6 @@ class TestRestore:
         assert r.status_code == 200, r.text
         assert r.json()["accounts_restored"] == 2
         assert r.json()["folders_left_behind"] == ["my_notes"]
-
 
 
 def _db_only_zip():
@@ -602,7 +592,7 @@ class TestAuthOn:
         assert r.status_code == 200, r.text
         assert db.get_drama(a)["status"] == "dubbed"
         assert _clean(c.get(f"{BASE}/storage", headers=h)).status_code == 200
-        assert c.get(f"{BASE}/artifacts/database/info", headers=h).status_code == 404
+        assert c.get(f"{BASE}/artifacts/database/info", headers=h).json() is None
 
     def test_household_no_paid_engine_403_on_claude(self, isolated_db, monkeypatch):
         started = []

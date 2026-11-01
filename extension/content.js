@@ -769,7 +769,7 @@
     const header = document.createElement("div");
     header.className = "baihe-text-panel-header";
     const title = document.createElement("span");
-    title.textContent = "Baihe Subtitler — translation";
+    title.textContent = "Baihe Studio — translation";
     const buttons = document.createElement("div");
     const toggleBtn = document.createElement("button");
     toggleBtn.type = "button";
