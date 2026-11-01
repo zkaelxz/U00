@@ -17,7 +17,7 @@ import db
 import resegment
 from core import Line
 from services import drama_service, resegmentation_service, restructure_service, transcribe_pipeline, transcribe_service
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 from tests.http_fakes import StreamedBody
 from tests.job_helpers import wait_for_job
 

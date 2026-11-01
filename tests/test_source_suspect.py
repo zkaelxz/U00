@@ -6,7 +6,7 @@ import pytest
 from core import Line, line_from_row
 from engine_backends.flag_reasons import flag_reason_label
 from services import source_suspect_service
-from services.service_errors import NotFoundError
+from lib.errors import NotFoundError
 from source_suspect import SUSPECT_FLAG, find_suspects, repeated_text, script_mix
 
 

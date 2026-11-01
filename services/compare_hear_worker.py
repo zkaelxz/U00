@@ -12,7 +12,7 @@ import audio_extract
 import whisper_transcribe
 import whisper_models
 import ollama_unload
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 SLICE_TIMEOUT_S = 120
 # The backends that find speech themselves instead of hearing Whisper's segments.

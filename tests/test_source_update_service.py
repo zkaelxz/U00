@@ -23,7 +23,7 @@ from api.server import create_app
 from services import auth_service, shutdown_service
 from services import source_update_service as su
 from services import update_service as us
-from services.service_errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 
 OLD = "a" * 40
 NEW = "b" * 40

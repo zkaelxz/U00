@@ -7,7 +7,7 @@ routes. No Streamlit or FastAPI needed: this is the UI-independent layer.
 import pytest
 
 from services import library_service
-from services.service_errors import InvalidInputError, NotFoundError, ServiceError
+from lib.errors import InvalidInputError, NotFoundError, ServiceError
 
 
 def _make(db, **fields):

@@ -13,8 +13,8 @@ def translate_labels(labels, target_language: str, engine):
     Returns {original: translated}; a label the model didn't return a
     translation for is left out rather than guessed at. Results are
     matched back by id, never by list position."""
-    from translate_engines import (call_with_backoff, call_llm_json,
-                                   request_translations_with_retry)
+    from engine_backends.shared import call_with_backoff, request_translations_with_retry
+    from engine_backends.llm_tasks import call_llm_json
     if not labels:
         return {}
     if not getattr(engine, "supports_reference", False):
@@ -45,7 +45,7 @@ def generate_navigation_steps(site_name_or_url: str, goal: str, target_language:
     on the current page rather than a guess). This describes how to
     use the site's own interface only -- it does not perform any
     actions, log in, or fetch content on your behalf."""
-    from translate_engines import call_llm_json
+    from engine_backends.llm_tasks import call_llm_json
     if not getattr(engine, "supports_reference", False):
         return "This engine doesn't support free-form instructions -- use Claude, DeepSeek, Gemini, or Ollama for this feature."
 

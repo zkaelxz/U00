@@ -30,7 +30,7 @@ import storage
 from lib import cancellable_lock
 from services import artifact_service, comic_view_service
 from services import scanlate_pages_service as pages_svc
-from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
 EXPORT_FORMATS = ("zip", "pdf")
 _KIND = {"zip": "scanlate_zip", "pdf": "scanlate_pdf"}

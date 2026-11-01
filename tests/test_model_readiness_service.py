@@ -19,7 +19,7 @@ import model_pins
 from lib import model_offline
 from services import auth_service
 from services import model_readiness_service as mrs
-from services.service_errors import ConflictError, ForbiddenError
+from lib.errors import ConflictError, ForbiddenError
 from tests.test_api_household_listener import _admin_client, _admin_session, _h, _household_client
 
 MESSAGE = "This model is not downloaded yet. Ask the owner of the main PC to download it first."

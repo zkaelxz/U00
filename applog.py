@@ -23,7 +23,7 @@ _LOGGER_NAME = "baihe"
 
 
 class _RedactSecretsFilter(logging.Filter):
-    """Runs translate_engines.redact_secrets over every record before it's
+    """Runs engine_backends.shared.redact_secrets over every record before it's
     written: the formatted message and any traceback text. A caller that
     redacts its own message but passes exc_info=True would otherwise still
     log the raw exception (and any key in it) in the traceback."""
@@ -32,7 +32,7 @@ class _RedactSecretsFilter(logging.Filter):
         # A filter runs outside the handler's own error handling, so nothing
         # here may raise into the logging call (some run under a lock).
         try:
-            from translate_engines import redact_secrets
+            from engine_backends.shared import redact_secrets
             record.msg = redact_secrets(record.getMessage())
             record.args = None
             if record.exc_info and not record.exc_text:

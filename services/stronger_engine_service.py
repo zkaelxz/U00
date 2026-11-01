@@ -29,7 +29,8 @@ is a fixed message with the redacted detail in the app log.
 import re
 
 import db
-import translate_engines
+from engine_backends import engine_registry, translate_pipeline, prompts, pricing, shared
+from engine_backends import llm_tasks as engine_llm_tasks
 from engine_backends import llm_tasks
 from services import (
     engine_routing_service,
@@ -39,7 +40,7 @@ from services import (
     translate_service,
     workspace_job_service,
 )
-from services.service_errors import (
+from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
     MissingKeyError,
@@ -99,7 +100,7 @@ def line_reasons(line, glossary_terms) -> list:
         reasons.append("ambiguous_term")
     elif line.flag and line.flag != "content_blocked":  # blocked lines have their own retry
         reasons.append("qc_flag")
-    matched = translate_engines.matching_glossary_terms(zh, glossary_terms)
+    matched = engine_llm_tasks.matching_glossary_terms(zh, glossary_terms)
     en_low = en.lower()
     if any(_targets(t) and not any(x.lower() in en_low for x in _targets(t)) for t in matched):
         reasons.append("glossary_conflict")
@@ -111,9 +112,9 @@ class _Probe:
     supports_reference are read (estimates, the prompt context)."""
     def __init__(self, engine_name: str):
         self.name = engine_name
-        self.model = translate_engines.effective_default_model(engine_name)
+        self.model = engine_registry.effective_default_model(engine_name)
         self.free_tier = engine_name == "gemini" and settings_service.get("gemini_free_tier")
-        self.supports_reference = engine_name not in translate_engines.TRANSLATION_ONLY_ENGINES
+        self.supports_reference = engine_name not in engine_registry.TRANSLATION_ONLY_ENGINES
 
 
 def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
@@ -124,7 +125,7 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
     glossary, style, character_names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False,
         principal=ownership_service.acting_principal())
-    context = translate_engines.build_translation_context(
+    context = translate_pipeline.build_translation_context(
         engine, drama, locale=settings_service.get("default_locale"),
         novel_reference=translate_run_service.load_novel_reference(drama_id, drama),
         glossary_terms=glossary, style_guidelines=style,
@@ -134,7 +135,7 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
 
 def _prompt_chars(context: dict) -> int:
     try:
-        return len(translate_engines.build_stable_system_text(dict(context)))
+        return len(prompts.build_stable_system_text(dict(context)))
     except Exception:
         return 0
 
@@ -146,7 +147,7 @@ def _estimate(engine_name: str, zh: str, prompt_chars: int, context_chars: int =
     probe = _Probe(engine_name)
     input_tokens = int((prompt_chars + context_chars + len(zh)) / 3.5) + 100
     output_tokens = int(len(zh) / 2.5) + 20
-    return round(translate_engines.estimate_cost_for_engine(probe, input_tokens, output_tokens), 6)
+    return round(pricing.estimate_cost_for_engine(probe, input_tokens, output_tokens), 6)
 
 
 def _recent(lines: list, pos: int) -> list:
@@ -197,7 +198,7 @@ def _log_failure(exc: Exception):
     try:
         import applog
         applog.get_logger().error("stronger-engine line: "
-                                  + translate_engines.redact_secrets(str(exc))[:MAX_LOG_CHARS])
+                                  + shared.redact_secrets(str(exc))[:MAX_LOG_CHARS])
     except Exception:
         pass
 
@@ -209,7 +210,7 @@ def _refuse_over_cap(engine_name: str, free_tier: bool, estimate: float):
     if not monthly:
         return
     spent = db.get_month_spend()
-    _, refusal = translate_engines.resolve_cost_cap(None, monthly, spent)
+    _, refusal = pricing.resolve_cost_cap(None, monthly, spent)
     if refusal:
         raise UnsupportedOperationError(refusal)
     if spent + estimate > monthly:
@@ -223,7 +224,7 @@ def _log_spend(drama_id: int, engine_name: str, engine) -> float:
     usage = getattr(engine, "last_usage", None) or {}
     if not usage:
         return 0.0
-    cost = translate_engines.estimate_cost_for_engine(
+    cost = pricing.estimate_cost_for_engine(
         engine, usage.get("input_tokens", 0), usage.get("output_tokens", 0),
         usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0))
     db.log_usage(drama_id, engine_name, getattr(engine, "model", "") or "", OPERATION,
@@ -255,7 +256,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
             "what first.")
     if stronger != engine_name:
         raise ConflictError("The stronger engine was changed in Settings; try again.")
-    if translate_engines.is_english_line(line):
+    if shared.is_english_line(line):
         # Already English: the "translation" is the line itself, with no call or cost.
         return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
                 "model": None, "text": line.zh.strip(), "based_on_en": line.en or "",
@@ -269,7 +270,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     _refuse_over_cap(engine_name, free_tier, _estimate(
         engine_name, line.zh, _prompt_chars(context), sum(len(z) + len(e) for z, e in recent)))
     try:
-        engine = translate_engines.get_engine(
+        engine = engine_registry.get_engine(
             engine_name, api_key, None, free_tier=free_tier,
             base_url=settings_service.ollama_url()
             if engine_name == "ollama" else None)
@@ -282,7 +283,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     context["novel_reference"] = (context.get("novel_reference")
                                   if getattr(engine, "supports_reference", False) else None)
     context["line_ids"] = [line.id]
-    context["line_languages"] = translate_engines.tagged_line_languages(
+    context["line_languages"] = shared.tagged_line_languages(
         [line], context["source_language"])
     context["speaker_labels"] = [character_names.get(line.speaker)]
     context["recent_context"] = recent
@@ -292,7 +293,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
                 engine, lambda: engine.translate_batch([line.zh], context)) or [])
         finally:
             cost = _log_spend(drama_id, engine_name, engine)
-    except translate_engines.ContentModerationBlocked:
+    except shared.ContentModerationBlocked:
         raise UnsupportedOperationError(
             f"{engine_name} refused this line on content grounds.") from None
     except Exception as e:

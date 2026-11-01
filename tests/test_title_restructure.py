@@ -25,7 +25,7 @@ import db
 from jobs import job_launch
 from services import drama_service, novel_chapters_service
 from services import title_restructure_service as trs
-from services.service_errors import ConflictError, InvalidInputError
+from lib.errors import ConflictError, InvalidInputError
 from sources import chapter_manifest, pipeline, store
 from lib.errors import ServiceError
 

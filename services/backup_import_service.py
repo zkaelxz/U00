@@ -50,7 +50,7 @@ from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import media_upload_service
 from services import ownership_service
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 log = logging.getLogger(__name__)

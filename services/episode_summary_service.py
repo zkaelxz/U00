@@ -7,11 +7,11 @@ missing_after_run_reason() give the plain-words reason for the job result, and
 generate() fills the summary later with an engine the person picks.
 """
 import db
-import translate_engines
+from engine_backends import engine_registry, shared
 from engine_backends import llm_tasks, paid_calls
 from services import (line_ai_service, ownership_service, settings_service, translate_run_service,
                       translate_service)
-from services.service_errors import ServiceError, UnsupportedOperationError
+from lib.errors import ServiceError, UnsupportedOperationError
 
 CHOOSE = "choose an engine in Settings"
 
@@ -26,7 +26,7 @@ def no_engine_reason(allow_paid: bool) -> str:
     choice = None
     try:
         choice = settings_service.get("episode_summary_engine")
-        if not allow_paid and choice not in translate_engines.FREE_ENGINES:
+        if not allow_paid and choice not in engine_registry.FREE_ENGINES:
             return (f"Summary skipped: {choice} is a paid engine and this account can't use paid "
                     f"engines; {CHOOSE} that is free.")
         if choice != "ollama" and not translate_service.resolve_api_key(choice):
@@ -54,8 +54,8 @@ def missing_after_run_reason(drama_id: int, choice: str, cancelled: bool) -> str
 def options(drama_id: int) -> dict:
     """What Details offers: the Settings pick and the engines that can summarize."""
     ownership_service.require_drama(drama_id)
-    engines = [e for e in translate_engines.ENGINES
-               if e not in translate_engines.TRANSLATION_ONLY_ENGINES]
+    engines = [e for e in engine_registry.ENGINES
+               if e not in engine_registry.TRANSLATION_ONLY_ENGINES]
     return {"engine": settings_service.get("episode_summary_engine"), "engines": engines}
 
 
@@ -75,7 +75,7 @@ def generate(drama_id: int, engine_name: str, model: str = None) -> dict:
         raise
     except Exception as exc:  # an engine failure must not leak a key
         raise ServiceError("The engine call failed: "
-                           + translate_engines.redact_secrets(str(exc))[:300]) from None
+                           + shared.redact_secrets(str(exc))[:300]) from None
     if not text:
         reason = (f"Ollama not reachable; {CHOOSE}." if name == "ollama"
                   and not translate_run_service.ollama_reachable()

@@ -17,7 +17,7 @@ import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import media_peaks_service as svc
-from services.service_errors import DependencyUnavailableError, RateLimitedError
+from lib.errors import DependencyUnavailableError, RateLimitedError
 
 
 def _pcm(*amps):

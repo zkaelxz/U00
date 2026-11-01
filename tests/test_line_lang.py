@@ -15,7 +15,7 @@ import line_alignment
 import db
 from core import Line
 from services import lines_service, resplit_service, restructure_service
-from services.service_errors import InvalidInputError, NotFoundError
+from lib.errors import InvalidInputError, NotFoundError
 
 
 def _seed(langs=(None, "ko", None), speakers=("A", "B", "A")):
@@ -307,7 +307,7 @@ def test_resplit_pieces_keep_lang(isolated_db):
 
 
 def test_patch_expected_lang_is_compare_and_set(isolated_db):
-    from services.service_errors import ConflictError
+    from lib.errors import ConflictError
     did, ids = _seed()
     with pytest.raises(ConflictError):
         lines_service.patch_line(did, ids[1], lang="en", expected={"lang": "ja"})

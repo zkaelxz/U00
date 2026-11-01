@@ -18,7 +18,7 @@ from contextlib import contextmanager
 
 from fastapi import Request
 
-from services.service_errors import RateLimitedError
+from lib.errors import RateLimitedError
 
 LLM_MAX_IN_FLIGHT = 2
 SLOTS = threading.BoundedSemaphore(LLM_MAX_IN_FLIGHT)

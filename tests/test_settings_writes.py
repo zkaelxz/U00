@@ -10,7 +10,7 @@ pytest.importorskip("httpx")
 
 from jobs import job_settings
 from services import settings_service, transcribe_service
-from services.service_errors import InvalidInputError
+from lib.errors import InvalidInputError
 
 TOGGLES = ("gpu_limit_enabled", "notify_on_completion", "use_gpu", "gemini_free_tier")
 

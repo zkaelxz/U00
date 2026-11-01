@@ -13,7 +13,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-import translate_engines as te
+from engine_backends import (
+    translate_pipeline,
+    reflect_pass,
+    openai_compat,
+    llm_tasks,
+    engine_registry,
+)
+from engine_backends import shared as engine_shared
+from engine_backends import fallback as engine_fallback
+from engine_backends import gemini as engine_gemini
+from engine_backends import claude as engine_claude
+from engine_backends import prompts as engine_prompts
+from engine_backends import pricing as engine_pricing
+from engine_backends import local as engine_local
 from core import Line
 from lib import http
 from tests import fake_engine
@@ -46,16 +59,16 @@ class TestBackoffCancelAndDeadlines:
         def check():
             return cancelled["v"] and True
 
-        token = te._cancel_check_var.set(check)
+        token = engine_shared._cancel_check_var.set(check)
         try:
             monkeypatch.setattr("time.sleep", lambda sec: (slept.append(sec),
                                                            cancelled.__setitem__("v", True)))
-            with pytest.raises(te.TranslationCancelled):
-                te.call_with_backoff(always_429, base_delay=30.0)
+            with pytest.raises(engine_shared.TranslationCancelled):
+                engine_shared.call_with_backoff(always_429, base_delay=30.0)
         finally:
-            te._cancel_check_var.reset(token)
+            engine_shared._cancel_check_var.reset(token)
         assert calls["n"] == 1
-        assert max(slept) <= te._SLEEP_SLICE_SECONDS  # never one long sleep
+        assert max(slept) <= engine_shared._SLEEP_SLICE_SECONDS  # never one long sleep
 
     def test_translate_run_passes_its_cancel_check_to_the_backoff(self, monkeypatch):
         self._sleeps(monkeypatch)
@@ -67,17 +80,17 @@ class TestBackoffCancelAndDeadlines:
                 raise RateLimitError("429")
 
         lines = [Line(idx=0, start=0, end=1, zh="a")]
-        _, errors = te.translate_lines_with_engine(
+        _, errors = translate_pipeline.translate_lines_with_engine(
             lines, Engine(), {}, cancel_check_cb=lambda: cancelled["v"])
         assert errors == [] and lines[0].en == ""  # a cancel is not a failed batch
 
     def test_429_text_match_ignores_other_numbers_and_known_statuses(self):
-        assert te._is_rate_limit_error(Exception("HTTP 429 Too Many Requests"))
-        assert not te._is_rate_limit_error(Exception("failed at line 14290"))
+        assert engine_shared._is_rate_limit_error(Exception("HTTP 429 Too Many Requests"))
+        assert not engine_shared._is_rate_limit_error(Exception("failed at line 14290"))
 
         class Other(Exception):
             status_code = 500
-        assert not te._is_rate_limit_error(Other("upstream said 429 somewhere"))
+        assert not engine_shared._is_rate_limit_error(Other("upstream said 429 somewhere"))
 
     def test_exhausted_fallback_chain_is_not_backed_off_again(self, monkeypatch):
         slept = self._sleeps(monkeypatch)
@@ -92,27 +105,27 @@ class TestBackoffCancelAndDeadlines:
                 calls["n"] += 1
                 raise RateLimitError("429")
 
-        chain = te.FallbackEngine([Always429()], ["x"])
+        chain = engine_fallback.FallbackEngine([Always429()], ["x"])
         with pytest.raises(RateLimitError):
-            te.call_with_backoff(lambda: chain.translate_batch(["a"], {}))
-        assert calls["n"] == 1 + te.FALLBACK_TRANSIENT_RETRIES  # not 6x that
+            engine_shared.call_with_backoff(lambda: chain.translate_batch(["a"], {}))
+        assert calls["n"] == 1 + engine_fallback.FALLBACK_TRANSIENT_RETRIES  # not 6x that
         assert slept == []
 
     def test_daily_limit_stops_the_run_with_a_clear_error(self, monkeypatch):
         self._sleeps(monkeypatch)
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
-        limit = te.gemini_free_tier_limits_for(engine.model)["rpd"]
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = engine_gemini.gemini_free_tier_limits_for(engine.model)["rpd"]
         now = time.monotonic()
         engine._free_tier_daily_request_times = [now] * limit
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
-        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        _, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
         assert len(errors) == 1  # stopped after the first batch
         assert "daily request limit" in errors[0]["error"]
 
 
 class TestCallWithBackoff:
     def test_succeeds_immediately_when_no_error(self):
-        result = te.call_with_backoff(lambda: "ok")
+        result = engine_shared.call_with_backoff(lambda: "ok")
         assert result == "ok"
 
     def test_rate_limit_retries_and_eventually_succeeds(self):
@@ -124,7 +137,7 @@ class TestCallWithBackoff:
                 raise RateLimitError("429")
             return "success"
 
-        result = te.call_with_backoff(flaky, base_delay=0.01, max_delay=0.05)
+        result = engine_shared.call_with_backoff(flaky, base_delay=0.01, max_delay=0.05)
         assert result == "success"
         assert calls["n"] == 3
 
@@ -137,7 +150,7 @@ class TestCallWithBackoff:
 
         start = time.time()
         try:
-            te.call_with_backoff(always_broken, base_delay=0.01)
+            engine_shared.call_with_backoff(always_broken, base_delay=0.01)
             assert False, "should have raised"
         except GenericError:
             pass
@@ -146,22 +159,22 @@ class TestCallWithBackoff:
         assert elapsed < 3  # should not have waited through exponential backoff
 
     def test_is_rate_limit_error_detects_status_code(self):
-        assert te._is_rate_limit_error(RateLimitError("x")) is True
+        assert engine_shared._is_rate_limit_error(RateLimitError("x")) is True
 
     @pytest.mark.parametrize("status", [503, 529])
     def test_overloaded_statuses_get_a_backoff_too(self, status):
         # The SDK clients never retry on their own, so this is the only retry
         # an overloaded provider gets.
         err = type("ServerError", (Exception,), {"status_code": status})("x")
-        assert te._is_rate_limit_error(err) is True
-        assert te._is_rate_limit_error(
+        assert engine_shared._is_rate_limit_error(err) is True
+        assert engine_shared._is_rate_limit_error(
             type("ServerError", (Exception,), {"status_code": 500})("x")) is False
 
     def test_is_rate_limit_error_rejects_generic_errors(self):
-        assert te._is_rate_limit_error(GenericError("x")) is False
+        assert engine_shared._is_rate_limit_error(GenericError("x")) is False
 
     def test_is_rate_limit_error_detects_429_in_message(self):
-        assert te._is_rate_limit_error(Exception("HTTP 429 Too Many Requests")) is True
+        assert engine_shared._is_rate_limit_error(Exception("HTTP 429 Too Many Requests")) is True
 
 
 class MockEngine:
@@ -193,38 +206,38 @@ class MockEngine:
 class TestTranslateLinesWithEngine:
     def test_translates_all_lines_on_success(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(5)]
-        result, errors = te.translate_lines_with_engine(lines, MockEngine(), {}, batch_size=2)
+        result, errors = translate_pipeline.translate_lines_with_engine(lines, MockEngine(), {}, batch_size=2)
         assert errors == []
         assert all(ln.en for ln in result)
 
     @pytest.mark.parametrize("model, calls", [("claude-sonnet-5-5", 2), ("claude-haiku-4-5-20251001", 3)])
     def test_unset_batch_size_follows_the_engines_default(self, model, calls):
         lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(70)]
-        engine = te.ClaudeEngine("sk-ant-fake", model=model)
+        engine = engine_claude.ClaudeEngine("sk-ant-fake", model=model)
         sent = []
         engine.translate_batch = lambda zh_lines, context: (sent.append(len(zh_lines)),
                                                              [f"EN:{z}" for z in zh_lines])[1]
-        te.translate_lines_with_engine(lines, engine, {})
+        translate_pipeline.translate_lines_with_engine(lines, engine, {})
         assert len(sent) == calls and max(sent) == (60 if calls == 2 else 30)
 
     def test_skips_already_translated_lines_by_default(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="already done"),
                  Line(idx=1, start=0, end=1, zh="b")]
         engine = MockEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10)
         assert lines[0].en == "already done"  # untouched
         assert lines[1].en == "EN:b"
 
     def test_force_retranslate_redoes_everything(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="old translation")]
         engine = MockEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10, force_retranslate=True)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10, force_retranslate=True)
         assert lines[0].en == "EN:a"  # overwritten
 
     def test_no_lines_need_translation_returns_immediately(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="done")]
         progress_calls = []
-        result, errors = te.translate_lines_with_engine(
+        result, errors = translate_pipeline.translate_lines_with_engine(
             lines, MockEngine(), {}, progress_cb=lambda f: progress_calls.append(f))
         assert errors == []
         assert progress_calls == [1.0]  # signals immediate completion
@@ -232,7 +245,7 @@ class TestTranslateLinesWithEngine:
     def test_save_cb_called_after_every_batch(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
         save_calls = []
-        te.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, MockEngine(), {}, batch_size=2,
             save_cb=lambda ls: save_calls.append(sum(1 for l in ls if l.en)))
         assert save_calls == [2, 4, 6]  # incremental progress after each batch
@@ -242,7 +255,7 @@ class TestTranslateLinesWithEngine:
         # batch_size=2 groups lines into (l0,l1), (l2,l3), (l4,l5) --
         # make the second batch persistently fail via its content
         engine = MockEngine(fail_on_zh_containing="l2")
-        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        result, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
         translated_count = sum(1 for l in result if l.en)
         assert translated_count == 4  # 2 of 3 batches succeeded (the l2/l3 batch failed)
         assert len(errors) == 1
@@ -250,12 +263,12 @@ class TestTranslateLinesWithEngine:
     def test_resuming_after_partial_failure_only_retries_missing_lines(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
         engine1 = MockEngine(fail_on_zh_containing="l2")  # second batch (l2,l3) fails
-        te.translate_lines_with_engine(lines, engine1, {}, batch_size=2)
+        translate_pipeline.translate_lines_with_engine(lines, engine1, {}, batch_size=2)
         untranslated_before = [l for l in lines if not l.en]
         assert len(untranslated_before) == 2
 
         engine2 = MockEngine()  # fresh engine, no failures this time
-        te.translate_lines_with_engine(lines, engine2, {}, batch_size=2)
+        translate_pipeline.translate_lines_with_engine(lines, engine2, {}, batch_size=2)
         assert all(l.en for l in lines)
         # engine2 should only have been called once (just the missing 2 lines,
         # not re-translating the 2 that already succeeded)
@@ -276,7 +289,7 @@ class TestTranslateLinesWithEngine:
                 return [f"EN:{t}" for t in zh_lines]
 
         lines = [Line(idx=0, start=0, end=1, zh="a")]
-        te.translate_lines_with_engine(lines, RecordingEngine(), {"source_language": "ja"})
+        translate_pipeline.translate_lines_with_engine(lines, RecordingEngine(), {"source_language": "ja"})
         assert seen_context["source_language"] == "ja"
 
     def test_source_language_defaults_to_zh_when_missing(self):
@@ -290,7 +303,7 @@ class TestTranslateLinesWithEngine:
                 return [f"EN:{t}" for t in zh_lines]
 
         lines = [Line(idx=0, start=0, end=1, zh="a")]
-        te.translate_lines_with_engine(lines, RecordingEngine(), {})
+        translate_pipeline.translate_lines_with_engine(lines, RecordingEngine(), {})
         assert seen_context["source_language"] == "zh"
 
     def test_content_moderation_block_bisects_and_isolates_the_blocked_line(self, monkeypatch):
@@ -313,13 +326,13 @@ class TestTranslateLinesWithEngine:
             def translate_batch(self, zh_lines, context):
                 self.calls.append(list(zh_lines))
                 if any("BLOCKED" in z for z in zh_lines):
-                    raise te.ContentModerationBlocked("blocktest", "simulated safety block")
+                    raise engine_shared.ContentModerationBlocked("blocktest", "simulated safety block")
                 return [f"EN:{z}" for z in zh_lines]
 
         lines = [Line(idx=0, start=0, end=1, zh="a BLOCKED passage"),
                  Line(idx=1, start=0, end=1, zh="a perfectly normal line")]
         engine = BlockedOnContentEngine()
-        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        result, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
 
         blocked_line, clean_line = result[0], result[1]
         assert blocked_line.flag == "content_blocked"
@@ -342,36 +355,36 @@ class TestTranslateLinesWithEngine:
 
 class TestBuildLlmInstructions:
     def test_locale_us_default(self):
-        instructions = te.build_llm_instructions("", {})
+        instructions = engine_prompts.build_llm_instructions("", {})
         assert "American English" in instructions
 
     def test_locale_gb_uses_british_spelling_note(self):
-        instructions = te.build_llm_instructions("", {}, locale="en-GB")
+        instructions = engine_prompts.build_llm_instructions("", {}, locale="en-GB")
         assert "British English" in instructions
         assert "colour" in instructions
 
     def test_glossary_terms_included(self):
         glossary = [{"term_original": "拾", "term_translation": "Shi", "notes": "surname"}]
-        instructions = te.build_llm_instructions("", {}, glossary_terms=glossary)
+        instructions = engine_prompts.build_llm_instructions("", {}, glossary_terms=glossary)
         assert "拾 -> Shi" in instructions
         assert "surname" in instructions
 
     def test_no_glossary_omits_glossary_section(self):
-        instructions = te.build_llm_instructions("", {}, glossary_terms=None)
+        instructions = engine_prompts.build_llm_instructions("", {}, glossary_terms=None)
         assert "Series glossary" not in instructions
 
     def test_style_note_included_when_provided(self):
-        instructions = te.build_llm_instructions("keep it warm", {})
+        instructions = engine_prompts.build_llm_instructions("keep it warm", {})
         assert "keep it warm" in instructions
 
     def test_drama_metadata_included(self):
-        instructions = te.build_llm_instructions(
+        instructions = engine_prompts.build_llm_instructions(
             "", {"title_en": "My Drama", "author": "An Author"})
         assert "My Drama" in instructions
         assert "An Author" in instructions
 
     def test_defaults_to_chinese_when_source_language_unset(self):
-        instructions = te.build_llm_instructions("", {})
+        instructions = engine_prompts.build_llm_instructions("", {})
         assert "Chinese baihe" in instructions
 
     def test_japanese_source_language_reaches_the_prompt(self):
@@ -379,31 +392,31 @@ class TestBuildLlmInstructions:
         prompt used to hardcode "Chinese baihe" regardless of the drama's
         actual source language, so a Japanese or Korean drama's own
         translator was told it was translating Chinese the whole time."""
-        instructions = te.build_llm_instructions("", {"source_language": "ja"})
+        instructions = engine_prompts.build_llm_instructions("", {"source_language": "ja"})
         assert "Japanese baihe" in instructions
         assert "Chinese baihe" not in instructions
 
     def test_korean_source_language_reaches_the_prompt(self):
-        instructions = te.build_llm_instructions("", {"source_language": "ko"})
+        instructions = engine_prompts.build_llm_instructions("", {"source_language": "ko"})
         assert "Korean baihe" in instructions
 
     def test_content_mode_reaches_the_prompt(self):
-        instructions = te.build_llm_instructions(
+        instructions = engine_prompts.build_llm_instructions(
             "", {"source_language": "zh", "content_mode": "novel_narration"})
         assert "novel" in instructions
 
     def test_streamer_vod_content_mode_reaches_the_prompt(self):
-        instructions = te.build_llm_instructions(
+        instructions = engine_prompts.build_llm_instructions(
             "", {"source_language": "ja", "content_mode": "streamer_vod"})
         assert "livestream VOD" in instructions
         assert "Japanese baihe" in instructions
 
     def test_baihe_tagged_genre_keeps_the_baihe_framing(self):
-        instructions = te.build_llm_instructions("", {"genre": "baihe"})
+        instructions = engine_prompts.build_llm_instructions("", {"genre": "baihe"})
         assert "baihe (GL/yuri)" in instructions
 
     def test_yuri_tagged_genre_keeps_the_baihe_framing(self):
-        instructions = te.build_llm_instructions("", {"genre": "Yuri, slow burn"})
+        instructions = engine_prompts.build_llm_instructions("", {"genre": "Yuri, slow burn"})
         assert "baihe (GL/yuri)" in instructions
 
     def test_a_different_genre_drops_the_baihe_framing(self):
@@ -412,27 +425,27 @@ class TestBuildLlmInstructions:
         a VTuber stream or a historical drama with no romantic content at
         all still got told it was baihe/yuri, risking an unwarranted
         romantic-interpretation bias."""
-        instructions = te.build_llm_instructions("", {"genre": "historical"})
+        instructions = engine_prompts.build_llm_instructions("", {"genre": "historical"})
         assert "baihe (GL/yuri)" not in instructions
         assert "You are translating Chinese content" in instructions
 
     def test_a_genre_that_merely_contains_gl_as_a_substring_is_not_a_false_positive(self):
-        instructions = te.build_llm_instructions("", {"genre": "tangled romance"})
+        instructions = engine_prompts.build_llm_instructions("", {"genre": "tangled romance"})
         assert "baihe (GL/yuri)" not in instructions
 
     def test_upcoming_lines_included_when_provided(self):
-        block = te.build_batch_context(upcoming_lines=["下一句话"])
+        block = engine_prompts.build_batch_context(upcoming_lines=["下一句话"])
         assert "下一句话" in block
         assert "AFTER this batch" in block
 
     def test_no_upcoming_lines_omits_the_section(self):
-        assert "AFTER this batch" not in te.build_batch_context(upcoming_lines=None)
+        assert "AFTER this batch" not in engine_prompts.build_batch_context(upcoming_lines=None)
 
     def test_prompt_mentions_speaker_bracket_convention(self):
         # The model needs to be told what the [Name] prefix means and
         # that it shouldn't leak into the translation -- not just have
         # names silently appear in the numbered lines with no explanation.
-        instructions = te.build_llm_instructions("", {})
+        instructions = engine_prompts.build_llm_instructions("", {})
         assert "[" in instructions and "speaking" in instructions.lower()
 
     def test_returns_object_shaped_json_instruction_not_array(self):
@@ -440,7 +453,7 @@ class TestBuildLlmInstructions:
         prompt asked for a bare JSON array (position-trust); the fix asks
         for an id-keyed object so a missing/extra/reordered response
         entry can only ever affect its own line."""
-        instructions = te.build_llm_instructions("", {})
+        instructions = engine_prompts.build_llm_instructions("", {})
         assert "JSON object" in instructions
         assert "JSON array of strings" not in instructions
 
@@ -448,101 +461,101 @@ class TestBuildLlmInstructions:
         """Step 63: novel_reference used to be accepted but never read
         inside the function body -- the reference novel only ever
         reaches the prompt via build_stable_prompt()'s own novel_block."""
-        params = list(inspect.signature(te.build_llm_instructions).parameters)
+        params = list(inspect.signature(engine_prompts.build_llm_instructions).parameters)
         assert "novel_reference" not in params
 
     def test_returns_a_single_string_not_a_tuple(self):
         """Step 63: the second return value (meta_block) was redundant --
         its content is already folded into the returned instructions
         string, and the one caller (build_stable_prompt) discarded it."""
-        result = te.build_llm_instructions("", {})
+        result = engine_prompts.build_llm_instructions("", {})
         assert isinstance(result, str)
 
     def test_previous_episode_summary_reaches_the_prompt(self):
         """Step 74: the immediately preceding episode's stored running
         summary (db._DRAMA_SELECT's previous_episode_summary) reaches the
         stable translation prompt as fixed continuity context."""
-        instructions = te.build_llm_instructions(
+        instructions = engine_prompts.build_llm_instructions(
             "", {"previous_episode_summary": "Xiaoling found the letter in episode 1."})
         assert "Xiaoling found the letter in episode 1." in instructions
 
     def test_no_previous_episode_summary_omits_the_section(self):
-        instructions = te.build_llm_instructions("", {})
+        instructions = engine_prompts.build_llm_instructions("", {})
         assert "Continuity from the previous episode" not in instructions
 
 
 class TestBuildPreviousEpisodeSummaryBlock:
     def test_empty_when_unset(self):
-        assert te.build_previous_episode_summary_block({}) == ""
+        assert engine_prompts.build_previous_episode_summary_block({}) == ""
 
     def test_empty_when_blank(self):
-        assert te.build_previous_episode_summary_block({"previous_episode_summary": "   "}) == ""
+        assert engine_prompts.build_previous_episode_summary_block({"previous_episode_summary": "   "}) == ""
 
     def test_includes_the_summary_text(self):
-        block = te.build_previous_episode_summary_block(
+        block = engine_prompts.build_previous_episode_summary_block(
             {"previous_episode_summary": "Wei confessed her secret."})
         assert "Wei confessed her secret." in block
 
 
 class TestEstimateCost:
     def test_known_model_computes_nonzero_cost(self):
-        cost = te.estimate_cost("claude-sonnet-5", 1_000_000, 500_000)
+        cost = engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 500_000)
         assert cost > 0
 
     def test_unknown_model_returns_zero_not_crash(self):
-        cost = te.estimate_cost("some-made-up-model-xyz", 1000, 500)
+        cost = engine_pricing.estimate_cost("some-made-up-model-xyz", 1000, 500)
         assert cost == 0.0
 
     def test_zero_tokens_zero_cost(self):
-        assert te.estimate_cost("claude-sonnet-5", 0, 0) == 0.0
+        assert engine_pricing.estimate_cost("claude-sonnet-5", 0, 0) == 0.0
 
     def test_gemini_models_have_pricing(self):
-        for model in te.GEMINI_MODELS:
-            cost = te.estimate_cost(model, 1_000_000, 1_000_000)
+        for model in engine_pricing.GEMINI_MODELS:
+            cost = engine_pricing.estimate_cost(model, 1_000_000, 1_000_000)
             assert cost > 0, f"{model} should have real pricing, not silently cost $0"
 
     def test_cost_scales_with_token_count(self):
-        small = te.estimate_cost("claude-sonnet-5", 1000, 500)
-        large = te.estimate_cost("claude-sonnet-5", 10000, 5000)
+        small = engine_pricing.estimate_cost("claude-sonnet-5", 1000, 500)
+        large = engine_pricing.estimate_cost("claude-sonnet-5", 10000, 5000)
         assert large > small
         assert abs(large - small * 10) < 0.0001  # linear scaling
 
 
 class TestClaude55Pricing:
     def test_new_ids_use_their_own_table_rows(self):
-        assert te.estimate_cost("claude-sonnet-5-5", 1_000_000, 500_000) == pytest.approx(2.0 + 5.0)
-        assert te.estimate_cost("claude-opus-5-5", 1_000_000, 500_000) == pytest.approx(4.0 + 10.0)
+        assert engine_pricing.estimate_cost("claude-sonnet-5-5", 1_000_000, 500_000) == pytest.approx(2.0 + 5.0)
+        assert engine_pricing.estimate_cost("claude-opus-5-5", 1_000_000, 500_000) == pytest.approx(4.0 + 10.0)
 
     def test_opus_5_5_costs_less_than_opus_4_8(self):
-        assert (te.estimate_cost("claude-opus-5-5", 1_000_000, 1_000_000)
-                < te.estimate_cost("claude-opus-4-8", 1_000_000, 1_000_000))
+        assert (engine_pricing.estimate_cost("claude-opus-5-5", 1_000_000, 1_000_000)
+                < engine_pricing.estimate_cost("claude-opus-4-8", 1_000_000, 1_000_000))
 
     def test_sonnet_5_5_costs_the_same_as_sonnet_5(self):
-        assert (te.estimate_cost("claude-sonnet-5-5", 1_000_000, 1_000_000)
-                == te.estimate_cost("claude-sonnet-5", 1_000_000, 1_000_000))
+        assert (engine_pricing.estimate_cost("claude-sonnet-5-5", 1_000_000, 1_000_000)
+                == engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 1_000_000))
 
     def test_cache_read_is_never_estimated_below_the_published_rate(self):
         # Anthropic bills 5.5 cache reads at 5% of input; the flat 10% factor
         # must stay at or above that so cost caps are not undercut.
-        full = te.estimate_cost("claude-opus-5-5", 1_000_000, 0)
-        cached = te.estimate_cost("claude-opus-5-5", 1_000_000, 0, cache_read_tokens=1_000_000)
+        full = engine_pricing.estimate_cost("claude-opus-5-5", 1_000_000, 0)
+        cached = engine_pricing.estimate_cost("claude-opus-5-5", 1_000_000, 0, cache_read_tokens=1_000_000)
         assert cached >= full * 0.05
 
     def test_an_unknown_claude_id_is_still_costed_at_its_tier_ceiling(self):
-        assert te.estimate_cost("claude-opus-9-9", 1_000_000, 0) == pytest.approx(5.0)
+        assert engine_pricing.estimate_cost("claude-opus-9-9", 1_000_000, 0) == pytest.approx(5.0)
 
 
 class TestRecentContextInPrompt:
     def test_recent_context_included_when_provided(self):
-        block = te.build_batch_context(recent_context=[("她昨天来了", "She came yesterday.")])
+        block = engine_prompts.build_batch_context(recent_context=[("她昨天来了", "She came yesterday.")])
         assert "她昨天来了 -> She came yesterday." in block
         assert "continuity" in block.lower()
 
     def test_no_recent_context_omits_section(self):
-        assert "continuity" not in te.build_batch_context(recent_context=None).lower()
+        assert "continuity" not in engine_prompts.build_batch_context(recent_context=None).lower()
 
     def test_empty_list_also_omits_section(self):
-        assert te.build_batch_context(recent_context=[]) == ""
+        assert engine_prompts.build_batch_context(recent_context=[]) == ""
 
 
 class ContextCapturingEngine:
@@ -568,34 +581,34 @@ class TestContextWindow:
     def test_first_batch_has_no_recent_context(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=6)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=6)
         assert engine.calls[0]["recent_context"] == []
 
     def test_later_batch_sees_earlier_translated_lines_as_context(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=6)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=6)
         # Second batch (l2, l3) should see the first batch's translations as context.
         assert engine.calls[1]["recent_context"] == [("l0", "EN:l0"), ("l1", "EN:l1")]
 
     def test_context_window_caps_how_far_back_it_looks(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=1)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=1)
         # Third batch (l4, l5) should only see the single immediately-preceding line.
         assert engine.calls[2]["recent_context"] == [("l3", "EN:l3")]
 
     def test_zero_disables_context_entirely(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=0)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=0)
         assert all(call["recent_context"] == [] for call in engine.calls)
 
     def test_already_translated_lines_before_the_run_are_used_as_context_too(self):
         lines = [Line(idx=0, start=0, end=1, zh="l0", en="Pre-existing translation."),
                  Line(idx=1, start=0, end=1, zh="l1")]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10, context_window=6)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10, context_window=6)
         assert engine.calls[0]["recent_context"] == [("l0", "Pre-existing translation.")]
 
 
@@ -603,26 +616,26 @@ class TestLookaheadContext:
     def test_last_batch_has_no_upcoming_lines(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=3)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=3)
         assert engine.calls[1]["upcoming_lines"] == []
 
     def test_earlier_batch_sees_the_next_lines_raw_text(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=3)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=3)
         # First batch (l0, l1) should see l2, l3 as raw upcoming text.
         assert engine.calls[0]["upcoming_lines"] == ["l2", "l3"]
 
     def test_lookahead_is_capped_by_context_window_ahead(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=1)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=1)
         assert engine.calls[0]["upcoming_lines"] == ["l2"]
 
     def test_zero_disables_lookahead(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=0)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=0)
         assert all(call["upcoming_lines"] == [] for call in engine.calls)
 
     def test_upcoming_excludes_lines_already_in_a_noncontiguous_batch(self):
@@ -637,7 +650,7 @@ class TestLookaheadContext:
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(5)]
         lines[1].en = "already translated"  # skipped: force_retranslate defaults to False
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=3, context_window_ahead=1)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=3, context_window_ahead=1)
         # target_lines = [l0, l2, l3, l4] (l1 skipped) -- first batch is
         # [l0, l2, l3], whose real next line is l4, not l3 (still part
         # of this very batch).
@@ -649,7 +662,7 @@ class TestSpeakerNamesReachTheBatch:
     def test_known_character_name_is_resolved_from_speaker_label(self):
         lines = [Line(idx=0, start=0, end=1, zh="l0", speaker="SPEAKER_00")]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10,
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10,
                                         character_names={"SPEAKER_00": "Xiaoling"})
         assert engine.calls[0]["speaker_labels"] == ["Xiaoling"]
 
@@ -658,13 +671,13 @@ class TestSpeakerNamesReachTheBatch:
         to the model as if it were would just be confusing noise."""
         lines = [Line(idx=0, start=0, end=1, zh="l0", speaker="SPEAKER_00")]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10, character_names={})
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10, character_names={})
         assert engine.calls[0]["speaker_labels"] == [None]
 
     def test_line_with_no_speaker_at_all_resolves_to_none(self):
         lines = [Line(idx=0, start=0, end=1, zh="l0", speaker=None)]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10,
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10,
                                         character_names={"SPEAKER_00": "Xiaoling"})
         assert engine.calls[0]["speaker_labels"] == [None]
 
@@ -675,13 +688,13 @@ class TestPerLineLanguage:
                  Line(idx=1, start=1, end=2, zh="b", lang="ko"),
                  Line(idx=2, start=2, end=3, zh="c", lang="ja")]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {"source_language": "ja"}, batch_size=10)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {"source_language": "ja"}, batch_size=10)
         assert engine.calls[0]["line_languages"] == [None, "ko", None]
 
     def test_single_language_title_sends_no_language_context(self):
         lines = [Line(idx=0, start=0, end=1, zh="a")]
         engine = ContextCapturingEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10)
         assert engine.calls[0]["line_languages"] is None
 
     def test_english_lines_are_copied_not_sent_to_the_engine(self):
@@ -689,7 +702,7 @@ class TestPerLineLanguage:
                  Line(idx=1, start=1, end=2, zh="你好")]
         engine = ContextCapturingEngine()
         saved = []
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10,
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10,
                                        save_cb=lambda ls: saved.append([ln.en for ln in ls]))
         assert engine.calls[0]["zh_lines"] == ["你好"]
         assert lines[0].en == "hello" and lines[1].en == "EN:你好"
@@ -699,24 +712,24 @@ class TestPerLineLanguage:
         lines = [Line(idx=0, start=0, end=1, zh="hello", lang="en")]
         engine = ContextCapturingEngine()
         saved = []
-        te.translate_lines_with_engine(lines, engine, {}, save_cb=lambda ls: saved.append(1))
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, save_cb=lambda ls: saved.append(1))
         assert engine.calls == [] and saved and lines[0].en == "hello"
 
     def test_tagged_line_languages_only_marks_other_languages(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", lang="ja"),
                  Line(idx=1, start=1, end=2, zh="b", lang="ko"),
                  Line(idx=2, start=2, end=3, zh="c")]
-        assert te.tagged_line_languages(lines, "ja") == [None, "ko", None]
-        assert te.tagged_line_languages([lines[0], lines[2]], "ja") is None
-        assert te.tagged_source_texts(lines, "ja") == ["a", "(spoken in Korean) b", "c"]
+        assert engine_shared.tagged_line_languages(lines, "ja") == [None, "ko", None]
+        assert engine_shared.tagged_line_languages([lines[0], lines[2]], "ja") is None
+        assert engine_shared.tagged_source_texts(lines, "ja") == ["a", "(spoken in Korean) b", "c"]
 
     def test_numbered_lines_tag_the_spoken_language(self):
-        result = te.build_numbered_lines([1, 2], ["a", "b"], languages=[None, "ko"])
+        result = engine_shared.build_numbered_lines([1, 2], ["a", "b"], languages=[None, "ko"])
         assert result == "1. a\n2. (spoken in Korean) b"
 
     def test_request_retry_prompt_carries_the_tag(self):
         seen = []
-        te.request_translations_with_retry(
+        engine_shared.request_translations_with_retry(
             ["a", "b"], None, lambda text: seen.append(text) or '{"1": "x", "2": "y"}',
             line_languages=[None, "ja"])
         assert "2. (spoken in Japanese) b" in seen[0] and "1. a" in seen[0]
@@ -735,7 +748,7 @@ class TestPerLineLanguage:
         orig = tp.call_llm_json
         tp.call_llm_json = lambda eng, prompt, **k: prompts.append(prompt) or '{"1": "x"}'
         try:
-            te.reflect_translate_batch(Reflect(), ["a"], {"line_languages": ["ko"], "drama_meta": {}})
+            reflect_pass.reflect_translate_batch(Reflect(), ["a"], {"line_languages": ["ko"], "drama_meta": {}})
         finally:
             tp.call_llm_json = orig
         assert "(spoken in Korean) a" in prompts[0]
@@ -743,42 +756,42 @@ class TestPerLineLanguage:
 
 class TestBuildNumberedLines:
     def test_lines_with_no_speaker_names_have_no_prefix(self):
-        result = te.build_numbered_lines([1, 2], ["你好", "再见"])
+        result = engine_shared.build_numbered_lines([1, 2], ["你好", "再见"])
         assert result == "1. 你好\n2. 再见"
 
     def test_known_speaker_is_prefixed_in_brackets(self):
-        result = te.build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
+        result = engine_shared.build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
         assert result == "1. [Xiaoling] 你好\n2. 再见"
 
     def test_ids_need_not_start_at_one(self):
         # Used for retrying only the missing ids from a partial response --
         # their ORIGINAL batch ids must be preserved, not renumbered.
-        result = te.build_numbered_lines([3, 5], ["a", "b"])
+        result = engine_shared.build_numbered_lines([3, 5], ["a", "b"])
         assert result == "3. a\n5. b"
 
 
 class TestParseIdKeyedJson:
     def test_parses_a_well_formed_object(self):
-        result = te.parse_id_keyed_json('{"1": "Hello.", "2": "Hi."}', [1, 2])
+        result = engine_shared.parse_id_keyed_json('{"1": "Hello.", "2": "Hi."}', [1, 2])
         assert result == {"1": "Hello.", "2": "Hi."}
 
     def test_ignores_unexpected_extra_ids(self):
-        result = te.parse_id_keyed_json('{"1": "Hello.", "99": "bogus"}', [1, 2])
+        result = engine_shared.parse_id_keyed_json('{"1": "Hello.", "99": "bogus"}', [1, 2])
         assert result == {"1": "Hello."}
 
     def test_missing_ids_are_simply_absent_from_the_result(self):
-        result = te.parse_id_keyed_json('{"1": "Hello."}', [1, 2])
+        result = engine_shared.parse_id_keyed_json('{"1": "Hello."}', [1, 2])
         assert result == {"1": "Hello."}
 
     def test_shuffled_key_order_is_still_correctly_matched_by_id(self):
-        result = te.parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
+        result = engine_shared.parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
         assert result == {"1": "First.", "2": "Second."}
 
     def test_a_same_length_array_is_malformed_not_matched_by_position(self):
         """CLAUDE.md rule: never match AI results back to lines by list
         position. Even a same-length array can be reordered, so it's
         treated as a malformed reply (empty) and the retry path re-asks."""
-        result = te.parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
+        result = engine_shared.parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
         assert result == {}
 
     def test_short_positional_array_is_rejected_not_misassigned(self):
@@ -788,25 +801,25 @@ class TestParseIdKeyedJson:
         mismatch has no reliable position-to-id mapping at all, so it
         must come back empty and let the retry path re-request the
         missing ones instead."""
-        result = te.parse_id_keyed_json('["A", "C"]', [1, 2, 3])
+        result = engine_shared.parse_id_keyed_json('["A", "C"]', [1, 2, 3])
         assert result == {}
 
     def test_long_positional_array_is_also_rejected(self):
-        result = te.parse_id_keyed_json('["A", "B", "C"]', [1, 2])
+        result = engine_shared.parse_id_keyed_json('["A", "B", "C"]', [1, 2])
         assert result == {}
 
     def test_markdown_fences_are_stripped(self):
-        result = te.parse_id_keyed_json('```json\n{"1": "Hello."}\n```', [1])
+        result = engine_shared.parse_id_keyed_json('```json\n{"1": "Hello."}\n```', [1])
         assert result == {"1": "Hello."}
 
     def test_malformed_json_returns_empty_not_raises(self):
-        assert te.parse_id_keyed_json("not json at all", [1, 2]) == {}
+        assert engine_shared.parse_id_keyed_json("not json at all", [1, 2]) == {}
 
     def test_non_string_values_are_treated_as_missing(self):
         """{"1": null, "2": ["x"]} used to pass straight through, leaving
         ln.en set to None or a list. Any non-string value must be
         dropped so the id is treated as missing and gets retried."""
-        result = te.parse_id_keyed_json('{"1": null, "2": ["x"], "3": "Hi."}', [1, 2, 3])
+        result = engine_shared.parse_id_keyed_json('{"1": null, "2": ["x"], "3": "Hi."}', [1, 2, 3])
         assert result == {"3": "Hi."}
 
     def test_prose_wrapped_around_the_json_object_is_tolerated(self):
@@ -814,29 +827,29 @@ class TestParseIdKeyedJson:
         e.g. "Here you go:\\n{...}". The first JSON value anywhere in the
         text should be extracted rather than requiring the whole
         response to be nothing but JSON."""
-        result = te.parse_id_keyed_json('Here you go:\n{"1": "Hello."}\nHope that helps!', [1])
+        result = engine_shared.parse_id_keyed_json('Here you go:\n{"1": "Hello."}\nHope that helps!', [1])
         assert result == {"1": "Hello."}
 
     def test_prose_wrapped_around_an_array_is_still_malformed(self):
-        result = te.parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
+        result = engine_shared.parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
         assert result == {}
 
     @pytest.mark.parametrize("recover", [False, True])
     def test_items_that_name_their_own_id_are_matched_by_that_id(self, recover):
         reply = ('{"translations": [{"id": 2, "source": "嗨", "translation": "Hi."}, '
                  '{"id": "1", "text": "Hello."}, {"id": 9, "text": "stray"}, {"text": "no id"}]}')
-        assert te.parse_id_keyed_json(reply, [1, 2], recover=recover) == {"1": "Hello.", "2": "Hi."}
+        assert engine_shared.parse_id_keyed_json(reply, [1, 2], recover=recover) == {"1": "Hello.", "2": "Hi."}
         bare = '```json\n[{"id": 3, "en": "Bye."}, {"id": 1, "zh": "你好", "en": "Hello."}]\n```'
-        assert te.parse_id_keyed_json(bare, [1, 3], recover=recover) == {"1": "Hello.", "3": "Bye."}
+        assert engine_shared.parse_id_keyed_json(bare, [1, 3], recover=recover) == {"1": "Hello.", "3": "Bye."}
 
     def test_an_item_with_only_its_source_text_is_not_a_translation(self):
-        assert te.parse_id_keyed_json('[{"id": 1, "source": "你好"}]', [1]) == {}
-        assert te.parse_id_keyed_json('{"id": 1, "zh": "你好"}', [1]) == {}
-        assert te.parse_id_keyed_json('[{"id": 1, "chinese": "你好"}, {"id": 2, "line": "嗨"}]', [1, 2]) == {}
+        assert engine_shared.parse_id_keyed_json('[{"id": 1, "source": "你好"}]', [1]) == {}
+        assert engine_shared.parse_id_keyed_json('{"id": 1, "zh": "你好"}', [1]) == {}
+        assert engine_shared.parse_id_keyed_json('[{"id": 1, "chinese": "你好"}, {"id": 2, "line": "嗨"}]', [1, 2]) == {}
 
     def test_items_inside_a_broken_object_are_not_read(self):
         reply = '{"1": "Hello" "2": "Hi", "lines": [{"id": 2, "text": "你好"}]}'
-        assert te.parse_id_keyed_json(reply, [1, 2]) == {}
+        assert engine_shared.parse_id_keyed_json(reply, [1, 2]) == {}
 
 
 class TestRequestTranslationsWithRetry:
@@ -845,7 +858,7 @@ class TestRequestTranslationsWithRetry:
         def call_model(numbered):
             calls.append(numbered)
             return '{"1": "A.", "2": "B."}'
-        result = te.request_translations_with_retry(["a", "b"], None, call_model)
+        result = engine_shared.request_translations_with_retry(["a", "b"], None, call_model)
         assert result == ["A.", "B."]
         assert len(calls) == 1
 
@@ -856,7 +869,7 @@ class TestRequestTranslationsWithRetry:
         do that anymore."""
         def call_model(numbered):
             return '{"3": "Third.", "1": "First.", "2": "Second."}'
-        result = te.request_translations_with_retry(["a", "b", "c"], None, call_model)
+        result = engine_shared.request_translations_with_retry(["a", "b", "c"], None, call_model)
         assert result == ["First.", "Second.", "Third."]
 
     def test_missing_lines_are_retried_and_recovered(self):
@@ -866,7 +879,7 @@ class TestRequestTranslationsWithRetry:
             if len(calls) == 1:
                 return '{"1": "First."}'  # line 2 missing this round
             return '{"2": "Second."}'  # retry recovers it
-        result = te.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
+        result = engine_shared.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
         assert result == ["First.", "Second."]
         assert len(calls) == 2
         assert "2. b" in calls[1]  # retry only re-sent the missing line
@@ -875,13 +888,13 @@ class TestRequestTranslationsWithRetry:
     def test_still_missing_after_retries_exhausted_leaves_that_line_blank_only(self):
         def call_model(numbered):
             return '{"1": "First."}'  # line 2 never comes back, ever
-        result = te.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
+        result = engine_shared.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
         assert result == ["First.", ""]  # only the genuinely-missing line is blank
 
     def test_extra_unexpected_ids_in_the_response_are_ignored(self):
         def call_model(numbered):
             return '{"1": "First.", "2": "Second.", "47": "bogus extra"}'
-        result = te.request_translations_with_retry(["a", "b"], None, call_model)
+        result = engine_shared.request_translations_with_retry(["a", "b"], None, call_model)
         assert result == ["First.", "Second."]
 
     def test_speaker_names_reach_the_numbered_lines_sent_to_the_model(self):
@@ -889,7 +902,7 @@ class TestRequestTranslationsWithRetry:
         def call_model(numbered):
             captured["numbered"] = numbered
             return '{"1": "Hi."}'
-        te.request_translations_with_retry(["你好"], ["Xiaoling"], call_model)
+        engine_shared.request_translations_with_retry(["你好"], ["Xiaoling"], call_model)
         assert "[Xiaoling]" in captured["numbered"]
 
 
@@ -907,7 +920,7 @@ class TestTranslationLengthMismatchSafety:
     def test_too_few_translations_leaves_the_whole_batch_untranslated_not_shifted(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(3)]
         engine = self.WrongCountEngine(["EN:l0", "EN:l1"])  # one short
-        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=3)
+        result, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=3)
 
         assert len(errors) == 1
         # None of the lines got ANY translation -- specifically, l2's real
@@ -917,7 +930,7 @@ class TestTranslationLengthMismatchSafety:
     def test_too_many_translations_leaves_the_whole_batch_untranslated_not_shifted(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(2)]
         engine = self.WrongCountEngine(["EN:l0", "EN:l1", "EN:extra"])
-        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        result, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
 
         assert len(errors) == 1
         assert all(ln.en == "" for ln in result)
@@ -925,7 +938,7 @@ class TestTranslationLengthMismatchSafety:
     def test_correct_count_still_assigns_normally(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(2)]
         engine = self.WrongCountEngine(["EN:l0", "EN:l1"])
-        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        result, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
 
         assert errors == []
         assert result[0].en == "EN:l0"
@@ -944,7 +957,7 @@ class TestTranslationLengthMismatchSafety:
                     return ["only one"]  # batch of 2, wrong count
                 return [f"EN:{z}" for z in zh_lines]
 
-        result, errors = te.translate_lines_with_engine(lines, MixedEngine(), {}, batch_size=2)
+        result, errors = translate_pipeline.translate_lines_with_engine(lines, MixedEngine(), {}, batch_size=2)
 
         assert len(errors) == 1
         assert result[0].en == "" and result[1].en == ""       # first batch: left blank
@@ -962,38 +975,38 @@ class TestRedactSecrets:
     @pytest.mark.parametrize("token", ["ntn_" + "A1b2C3d4" * 6, "secret_" + "A1b2C3d4" * 5])
     def test_redacts_a_bare_notion_token(self, token):
         text = f"HTTPError for Notion: token {token} was rejected"
-        out = te.redact_secrets(text)
+        out = engine_shared.redact_secrets(text)
         assert token not in out and "[REDACTED]" in out
 
     def test_leaves_short_secret_and_ntn_words_alone(self):
         text = "secret_key not set; ntn_status=ok; secret_santa"
-        assert te.redact_secrets(text) == text
+        assert engine_shared.redact_secrets(text) == text
 
     def test_redacts_a_key_query_param(self):
         text = ("400 Client Error: Bad Request for url: "
                 "https://generativelanguage.googleapis.com/v1beta/models/x:"
                 "generateContent?key=AIzaSyFAKESECRETVALUE12345")
-        assert "AIzaSyFAKESECRETVALUE12345" not in te.redact_secrets(text)
+        assert "AIzaSyFAKESECRETVALUE12345" not in engine_shared.redact_secrets(text)
 
     def test_redacts_a_bare_google_key_anywhere_in_the_text(self):
         text = "something failed near AIzaSyFAKESECRETVALUE12345 during the request"
-        assert "AIzaSyFAKESECRETVALUE12345" not in te.redact_secrets(text)
+        assert "AIzaSyFAKESECRETVALUE12345" not in engine_shared.redact_secrets(text)
 
     def test_redacts_an_sk_style_key(self):
         text = "Incorrect API key provided: sk-abcdefghijklmnopqrstuvwxyz"
-        assert "sk-abcdefghijklmnopqrstuvwxyz" not in te.redact_secrets(text)
+        assert "sk-abcdefghijklmnopqrstuvwxyz" not in engine_shared.redact_secrets(text)
 
     def test_redacts_an_authorization_header_dump(self):
         text = "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234 -- request failed"
-        assert "sk-abcdefghijklmnopqrstuvwxyz1234" not in te.redact_secrets(text)
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234" not in engine_shared.redact_secrets(text)
 
     def test_leaves_ordinary_error_text_unchanged(self):
         text = "429 Too Many Requests -- rate limited, retry later"
-        assert te.redact_secrets(text) == text
+        assert engine_shared.redact_secrets(text) == text
 
     def test_handles_empty_and_none(self):
-        assert te.redact_secrets("") == ""
-        assert te.redact_secrets(None) is None
+        assert engine_shared.redact_secrets("") == ""
+        assert engine_shared.redact_secrets(None) is None
 
 
 class TestTranslateLinesWithEngineRedactsBatchErrors:
@@ -1006,7 +1019,7 @@ class TestTranslateLinesWithEngineRedactsBatchErrors:
                     "400 Client Error: Bad Request for url: https://generativelanguage."
                     "googleapis.com/v1beta/models/x:generateContent?key=AIzaSyFAKEKEY999")
 
-        _, errors = te.translate_lines_with_engine(lines, LeakyEngine(), {}, batch_size=1)
+        _, errors = translate_pipeline.translate_lines_with_engine(lines, LeakyEngine(), {}, batch_size=1)
 
         assert len(errors) == 1
         assert "AIzaSyFAKEKEY999" not in errors[0]["error"]
@@ -1034,7 +1047,7 @@ class TestGeminiEngine:
             return FakeResponse()
 
         patch_post(monkeypatch, fake_post)
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest")
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest")
         result = engine.translate_batch(["你好", "再见"], {})
 
         assert result == ["Hello.", "Goodbye."]
@@ -1062,7 +1075,7 @@ class TestGeminiEngine:
             return FakeResponse()
 
         patch_post(monkeypatch, fake_post)
-        engine = te.GeminiEngine("fake-key")
+        engine = engine_gemini.GeminiEngine("fake-key")
         engine.translate_batch(["x"], {"recent_context": [("她来了", "She came.")]})
 
         sys_text = captured["json"]["systemInstruction"]["parts"][0]["text"]
@@ -1084,7 +1097,7 @@ class TestGeminiEngine:
             return FakeResponse()
 
         patch_post(monkeypatch, fake_post)
-        engine = te.GeminiEngine("fake-key")
+        engine = engine_gemini.GeminiEngine("fake-key")
         result = engine.translate_batch(["你好"], {"speaker_labels": ["Xiaoling"]})
 
         user_text = captured["json"]["contents"][0]["parts"][0]["text"]
@@ -1109,8 +1122,8 @@ class TestGeminiEngine:
 
         patch_post(monkeypatch, fake_post)
         lines = [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")]
-        te.translate_lines_with_engine(
-            lines, te.GeminiEngine("fake-key"), drama_meta={},
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine_gemini.GeminiEngine("fake-key"), drama_meta={},
             character_names={"SPEAKER_00": "Xiaoling (they/them)"})
 
         user_text = captured["json"]["contents"][0]["parts"][0]["text"]
@@ -1134,7 +1147,7 @@ class TestGeminiEngine:
             return FakeResponse('{"2": "Second."}')  # retry recovers it
 
         patch_post(monkeypatch, fake_post)
-        engine = te.GeminiEngine("fake-key")
+        engine = engine_gemini.GeminiEngine("fake-key")
         result = engine.translate_batch(["a", "b"], {})
 
         assert result == ["First.", "Second."]
@@ -1149,7 +1162,7 @@ class TestGeminiEngine:
                 # No usageMetadata key at all.
 
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.GeminiEngine("fake-key")
+        engine = engine_gemini.GeminiEngine("fake-key")
         engine.translate_batch(["x"], {})
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0,
                                      "cache_read_tokens": 0, "cache_write_tokens": 0}
@@ -1168,8 +1181,8 @@ class TestGeminiEngine:
 
         monkeypatch.setattr("time.sleep", lambda *_: None)
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.GeminiEngine("fake-key")
-        with pytest.raises(te.ContentModerationBlocked) as exc_info:
+        engine = engine_gemini.GeminiEngine("fake-key")
+        with pytest.raises(engine_shared.ContentModerationBlocked) as exc_info:
             engine.translate_batch(["a graphic passage"], {})
         assert exc_info.value.engine == "gemini"
         assert exc_info.value.reason == "SAFETY"
@@ -1187,8 +1200,8 @@ class TestGeminiEngine:
 
         monkeypatch.setattr("time.sleep", lambda *_: None)
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.GeminiEngine("fake-key")
-        with pytest.raises(te.ContentModerationBlocked) as exc_info:
+        engine = engine_gemini.GeminiEngine("fake-key")
+        with pytest.raises(engine_shared.ContentModerationBlocked) as exc_info:
             engine.translate_batch(["a graphic passage"], {})
         assert exc_info.value.engine == "gemini"
         assert exc_info.value.reason == "PROHIBITED_CONTENT"
@@ -1220,20 +1233,20 @@ class TestGeminiFreeTierThrottle:
 
     def test_a_paid_key_is_never_throttled(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
-        engine = te.GeminiEngine("fake-key", free_tier=False)
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=False)
         for _ in range(30):
             engine._throttle_for_free_tier()
         assert state["slept"] == []
 
     def test_flash_and_flash_lite_have_different_real_limits(self):
-        assert te.gemini_free_tier_limits_for("gemini-flash-latest") == {"rpm": 10, "rpd": 250}
-        assert te.gemini_free_tier_limits_for("gemini-flash-lite-latest") == {"rpm": 15, "rpd": 1000}
-        assert te.gemini_free_tier_limits_for("gemini-3.1-flash-lite") == {"rpm": 15, "rpd": 1000}
+        assert engine_gemini.gemini_free_tier_limits_for("gemini-flash-latest") == {"rpm": 10, "rpd": 250}
+        assert engine_gemini.gemini_free_tier_limits_for("gemini-flash-lite-latest") == {"rpm": 15, "rpd": 1000}
+        assert engine_gemini.gemini_free_tier_limits_for("gemini-3.1-flash-lite") == {"rpm": 15, "rpd": 1000}
 
     def test_free_tier_stays_at_or_under_the_per_minute_limit(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
-        limit = te.gemini_free_tier_limits_for(engine.model)["rpm"]
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = engine_gemini.gemini_free_tier_limits_for(engine.model)["rpm"]
         for _ in range(limit * 3):
             engine._throttle_for_free_tier()
             state["now"] += 0.01  # each call takes negligible real time
@@ -1248,8 +1261,8 @@ class TestGeminiFreeTierThrottle:
 
     def test_the_request_past_the_per_minute_limit_waits(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
-        limit = te.gemini_free_tier_limits_for(engine.model)["rpm"]
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = engine_gemini.gemini_free_tier_limits_for(engine.model)["rpm"]
         for _ in range(limit):
             engine._throttle_for_free_tier()
         assert state["slept"] == []  # all within the same instant: no wait needed
@@ -1261,27 +1274,27 @@ class TestGeminiFreeTierThrottle:
         """RPD is a real, separate ceiling from RPM -- a job well under its
         per-minute limit can still have used up its whole day's budget."""
         state = self._fake_clock(monkeypatch)
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
-        limit = te.gemini_free_tier_limits_for(engine.model)["rpd"]
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = engine_gemini.gemini_free_tier_limits_for(engine.model)["rpd"]
         engine._free_tier_daily_request_times = [0.0] * limit
 
         # Waiting out the daily window would take hours: stop with a clear
         # message instead of sleeping.
-        with pytest.raises(te.FreeTierDailyLimitReached, match="daily request limit"):
+        with pytest.raises(engine_shared.FreeTierDailyLimitReached, match="daily request limit"):
             engine._throttle_for_free_tier()
         assert state["slept"] == []
 
     def test_tpm_paces_a_job_when_past_requests_used_the_shared_budget(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
-        engine._free_tier_token_counts = [(0.0, te.GEMINI_FREE_TIER_TPM)]
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine._free_tier_token_counts = [(0.0, engine_gemini.GEMINI_FREE_TIER_TPM)]
 
         engine._throttle_for_free_tier()
         assert state["slept"] == [60.0]
 
     def test_tpm_does_not_pace_a_job_under_the_shared_budget(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
         engine._free_tier_token_counts = [(0.0, 10)]
 
         engine._throttle_for_free_tier()
@@ -1316,7 +1329,7 @@ class TestGeminiRateStatus:
             "x-ratelimit-remaining-tokens": "249990",
             "x-ratelimit-reset-requests": "4s",
         })
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
         engine.translate_batch(["你好"], {})
 
         assert engine.rate_status["source"] == "header"
@@ -1326,7 +1339,7 @@ class TestGeminiRateStatus:
 
     def test_falls_back_to_the_self_tracked_counter_when_headers_are_absent(self, monkeypatch):
         self._post_with_headers(monkeypatch, {})
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
         engine.translate_batch(["你好"], {})
 
         assert engine.rate_status["source"] == "estimated"
@@ -1334,40 +1347,40 @@ class TestGeminiRateStatus:
         assert engine.rate_status["rpm_limit"] == 15
         assert engine.rate_status["rpd_limit"] == 1000
         assert engine.rate_status["tpm_used"] == 15  # 10 input + 5 output
-        assert engine.rate_status["tpm_limit"] == te.GEMINI_FREE_TIER_TPM
+        assert engine.rate_status["tpm_limit"] == engine_gemini.GEMINI_FREE_TIER_TPM
 
     def test_no_status_yet_for_a_paid_engine_that_never_throttles(self, monkeypatch):
         self._post_with_headers(monkeypatch, {})
-        engine = te.GeminiEngine("fake-key", free_tier=False)
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=False)
         engine.translate_batch(["你好"], {})
         assert engine.rate_status is None
 
     def test_rate_status_text_is_none_before_any_request(self):
-        engine = te.GeminiEngine("fake-key", free_tier=True)
-        assert te.gemini_rate_status_text(engine) is None
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)
+        assert engine_gemini.gemini_rate_status_text(engine) is None
 
     def test_rate_status_text_shows_all_three_dimensions(self, monkeypatch):
         self._post_with_headers(monkeypatch, {})
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
         engine.translate_batch(["你好"], {})
 
-        text = te.gemini_rate_status_text(engine)
+        text = engine_gemini.gemini_rate_status_text(engine)
         assert "1/15" in text
         assert "1/1000" in text
         assert "15/250,000" in text
 
     def test_progress_message_appends_rate_status_for_free_tier_gemini(self, monkeypatch):
         self._post_with_headers(monkeypatch, {})
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
         engine.translate_batch(["你好"], {})
 
-        message = te.progress_message_with_rate_status(engine, 0.5)
+        message = engine_gemini.progress_message_with_rate_status(engine, 0.5)
         assert message.startswith("Translating... 50%")
         assert "req/min" in message
 
     def test_progress_message_is_plain_for_a_non_free_tier_engine(self):
-        engine = te.GeminiEngine("fake-key", free_tier=False)
-        assert te.progress_message_with_rate_status(engine, 0.5) == "Translating... 50%"
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=False)
+        assert engine_gemini.progress_message_with_rate_status(engine, 0.5) == "Translating... 50%"
 
 
 class TestGeminiProGoneFromFreeTier:
@@ -1375,11 +1388,11 @@ class TestGeminiProGoneFromFreeTier:
     in April 2026 -- a free-tier key can no longer reach it at all."""
 
     def test_pro_is_the_flagged_unavailable_model(self):
-        assert "gemini-pro-latest" in te.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
+        assert "gemini-pro-latest" in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
 
     def test_flash_and_flash_lite_are_not_flagged(self):
-        assert "gemini-flash-latest" not in te.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
-        assert "gemini-flash-lite-latest" not in te.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
+        assert "gemini-flash-latest" not in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
+        assert "gemini-flash-lite-latest" not in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
 
 
 def _deepseek_engine_with_fake_client(message_content, refusal=None):
@@ -1387,9 +1400,9 @@ def _deepseek_engine_with_fake_client(message_content, refusal=None):
     imports the `openai` package -- not installed in this core-only test
     environment, same reasoning as _claude_engine_with_fake_client above
     not needing one for `anthropic`, which IS installed here)."""
-    engine = te.DeepSeekEngine.__new__(te.DeepSeekEngine)
+    engine = openai_compat.DeepSeekEngine.__new__(openai_compat.DeepSeekEngine)
     engine.model = "deepseek-fake"
-    engine.last_usage = te._empty_usage()
+    engine.last_usage = engine_shared._empty_usage()
 
     message = type("Message", (), {"content": message_content, "refusal": refusal})()
     choice = type("Choice", (), {"message": message})()
@@ -1411,7 +1424,7 @@ class TestDeepSeekEngine:
         monkeypatch.setattr("time.sleep", lambda *_: None)
         engine = _deepseek_engine_with_fake_client(
             message_content=None, refusal="This request violates our usage policies.")
-        with pytest.raises(te.ContentModerationBlocked) as exc_info:
+        with pytest.raises(engine_shared.ContentModerationBlocked) as exc_info:
             engine.translate_batch(["a graphic passage"], {})
         assert exc_info.value.engine == "deepseek"
         assert exc_info.value.reason == "This request violates our usage policies."
@@ -1447,7 +1460,7 @@ class TestOllamaEngine:
     def test_sends_a_format_json_schema_for_structured_output(self, monkeypatch):
         captured = {}
         patch_post(monkeypatch, self._fake_response(captured))
-        engine = te.OllamaEngine()
+        engine = engine_local.OllamaEngine()
         engine.translate_batch(["你好"], {})
         from engine_backends.local import id_keyed_schema
         assert captured["json"]["format"] == id_keyed_schema([1])
@@ -1455,22 +1468,22 @@ class TestOllamaEngine:
     def test_num_ctx_is_never_below_the_floor_for_a_short_prompt(self, monkeypatch):
         captured = {}
         patch_post(monkeypatch, self._fake_response(captured))
-        engine = te.OllamaEngine()
+        engine = engine_local.OllamaEngine()
         engine.translate_batch(["你好"], {})
-        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+        assert captured["json"]["options"]["num_ctx"] >= engine_local.OLLAMA_MIN_NUM_CTX
 
     def test_num_ctx_grows_with_a_much_longer_prompt(self, monkeypatch):
         captured = {}
         patch_post(monkeypatch, self._fake_response(captured))
-        engine = te.OllamaEngine()
+        engine = engine_local.OllamaEngine()
         long_glossary = [{"term_original": "x" * 200, "term_translation": "y"} for _ in range(200)]
         engine.translate_batch(["你好"], {"glossary_terms": long_glossary})
-        assert captured["json"]["options"]["num_ctx"] > te.OLLAMA_MIN_NUM_CTX
+        assert captured["json"]["options"]["num_ctx"] > engine_local.OLLAMA_MIN_NUM_CTX
 
     def test_override_can_raise_num_ctx_above_the_estimate(self, monkeypatch):
         captured = {}
         patch_post(monkeypatch, self._fake_response(captured))
-        engine = te.OllamaEngine()
+        engine = engine_local.OllamaEngine()
         engine.translate_batch(["你好"], {"ollama_num_ctx_override": 100_000})
         assert captured["json"]["options"]["num_ctx"] == 100_000
 
@@ -1480,14 +1493,14 @@ class TestOllamaEngine:
         to prevent -- the larger of the two must always win."""
         captured = {}
         patch_post(monkeypatch, self._fake_response(captured))
-        engine = te.OllamaEngine()
+        engine = engine_local.OllamaEngine()
         engine.translate_batch(["你好"], {"ollama_num_ctx_override": 1})
-        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+        assert captured["json"]["options"]["num_ctx"] >= engine_local.OLLAMA_MIN_NUM_CTX
 
     def test_request_has_a_timeout(self, monkeypatch):
         captured = {}
         patch_post(monkeypatch, self._fake_response(captured))
-        engine = te.OllamaEngine()
+        engine = engine_local.OllamaEngine()
         engine.translate_batch(["你好"], {})
         assert captured["timeout"] is not None
 
@@ -1499,11 +1512,11 @@ class TestOllamaUnavailableErrors:
         def refuse(url, json=None, timeout=None, stream=None):
             raise requests.ConnectionError(f"refused {url}")
         patch_post(monkeypatch, refuse)
-        engine = te.OllamaEngine(base_url="http://10.1.2.3:11434")
-        with pytest.raises(te.OllamaUnavailableError) as batch:
+        engine = engine_local.OllamaEngine(base_url="http://10.1.2.3:11434")
+        with pytest.raises(engine_local.OllamaUnavailableError) as batch:
             engine.translate_batch(["你好"], {})
-        with pytest.raises(te.OllamaUnavailableError) as free_form:
-            te.call_llm_json(engine, "hi")
+        with pytest.raises(engine_local.OllamaUnavailableError) as free_form:
+            llm_tasks.call_llm_json(engine, "hi")
         for info in (batch, free_form):
             assert info.value.reason == "ollama_unreachable"
             assert "10.1.2.3" not in str(info.value)
@@ -1533,8 +1546,8 @@ class TestOllamaUnavailableErrors:
 
         resp = Dropped()
         patch_post(monkeypatch, lambda *a, **k: resp)
-        engine = te.OllamaEngine(base_url="http://192.168.7.9:11434")
-        with pytest.raises(te.OllamaUnavailableError) as info:
+        engine = engine_local.OllamaEngine(base_url="http://192.168.7.9:11434")
+        with pytest.raises(engine_local.OllamaUnavailableError) as info:
             engine.translate_batch(["你好"], {})
         assert info.value.reason == "ollama_unreachable"
         assert "192.168" not in str(info.value)
@@ -1560,7 +1573,7 @@ class TestOllamaModelInstalledCheck:
         calls = self._serve(monkeypatch,
                             self.Resp(308, headers={"Location": "http://proxy.local/api/tags"}),
                             self.Resp(200))
-        te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
         assert calls[-1] == "http://proxy.local/api/tags"
 
     # 300 and 304 are redirect-class statuses lib/http does not follow, so they
@@ -1568,24 +1581,24 @@ class TestOllamaModelInstalledCheck:
     @pytest.mark.parametrize("status", [300, 304, 404, 500])
     def test_a_non_2xx_final_answer_means_unreachable(self, monkeypatch, status):
         self._serve(monkeypatch, self.Resp(status))
-        with pytest.raises(te.OllamaUnavailableError) as exc:
-            te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        with pytest.raises(engine_local.OllamaUnavailableError) as exc:
+            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
         assert exc.value.reason == "ollama_unreachable"
 
     def test_an_unsettled_redirect_means_unreachable(self, monkeypatch):
         loop = self.Resp(308, headers={"Location": "http://localhost:11434/api/tags"})
         monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: loop)
-        with pytest.raises(te.OllamaUnavailableError):
-            te.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        with pytest.raises(engine_local.OllamaUnavailableError):
+            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
 
 
 class TestDisplayUrlEncodedTokens:
     @pytest.mark.parametrize("path", ["/dl/AbC%2Bxyz%3D" + "q" * 28 + "/file", "/dl/" + "A%2D" * 20 + "/f"])
     def test_percent_encoded_token_segment_is_dropped(self, path):
-        assert te.display_url(f"https://cdn.example{path}") == "https://cdn.example/"
+        assert engine_shared.display_url(f"https://cdn.example{path}") == "https://cdn.example/"
 
     def test_ordinary_encoded_name_is_kept(self):
-        assert te.display_url("https://cdn.example/a%20b/c.html") == "https://cdn.example/a%20b/c.html"
+        assert engine_shared.display_url("https://cdn.example/a%20b/c.html") == "https://cdn.example/a%20b/c.html"
 
 
 class TestOllamaReachability:
@@ -1598,7 +1611,7 @@ class TestOllamaReachability:
     instead."""
 
     def setup_method(self):
-        te._ollama_reachability_cache.clear()
+        engine_local._ollama_reachability_cache.clear()
 
     def _fake_get(self, ok=True, raises=None):
         captured = {}
@@ -1617,7 +1630,7 @@ class TestOllamaReachability:
     def test_true_when_the_server_responds_ok(self, monkeypatch):
         fake_get, captured = self._fake_get(ok=True)
         monkeypatch.setattr(http, "pinned_get", fake_get)
-        assert te.check_ollama_reachable("http://localhost:11434") is True
+        assert engine_local.check_ollama_reachable("http://localhost:11434") is True
         assert captured["url"] == "http://localhost:11434/api/tags"
         assert captured["timeout"] is not None
         assert captured["ip"] is None  # the user's own Ollama address: never the public guard
@@ -1625,7 +1638,7 @@ class TestOllamaReachability:
     def test_false_when_the_server_responds_with_an_error_status(self, monkeypatch):
         fake_get, _ = self._fake_get(ok=False)
         monkeypatch.setattr(http, "pinned_get", fake_get)
-        assert te.check_ollama_reachable("http://localhost:11434") is False
+        assert engine_local.check_ollama_reachable("http://localhost:11434") is False
 
     def test_follows_a_redirect_like_the_chat_call_does(self, monkeypatch):
         calls = []
@@ -1639,7 +1652,7 @@ class TestOllamaReachability:
                 pass
         replies = [Resp(308, {"Location": "http://proxy.local/api/tags"}), Resp(200)]
         monkeypatch.setattr(http, "pinned_get", lambda url, *a, **kw: calls.append(url) or replies.pop(0))
-        assert te.check_ollama_reachable("http://localhost:11434") is True
+        assert engine_local.check_ollama_reachable("http://localhost:11434") is True
         assert calls == ["http://localhost:11434/api/tags", "http://proxy.local/api/tags"]
 
     def test_false_when_a_redirect_never_settles(self, monkeypatch):
@@ -1651,12 +1664,12 @@ class TestOllamaReachability:
             def close(self):
                 pass
         monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: Loop())
-        assert te.check_ollama_reachable("http://localhost:11434") is False
+        assert engine_local.check_ollama_reachable("http://localhost:11434") is False
 
     def test_false_when_the_connection_fails(self, monkeypatch):
         fake_get, _ = self._fake_get(raises=ConnectionError("refused"))
         monkeypatch.setattr(http, "pinned_get", fake_get)
-        assert te.check_ollama_reachable("http://localhost:11434") is False
+        assert engine_local.check_ollama_reachable("http://localhost:11434") is False
 
     def test_result_is_cached_briefly_not_rechecked_every_call(self, monkeypatch):
         fake_get, _ = self._fake_get(ok=True)
@@ -1666,25 +1679,25 @@ class TestOllamaReachability:
             return fake_get(url, ip, headers, timeout=timeout)
         monkeypatch.setattr(http, "pinned_get", counting_get)
 
-        te.check_ollama_reachable("http://localhost:11434")
-        te.check_ollama_reachable("http://localhost:11434")
-        te.check_ollama_reachable("http://localhost:11434")
+        engine_local.check_ollama_reachable("http://localhost:11434")
+        engine_local.check_ollama_reachable("http://localhost:11434")
+        engine_local.check_ollama_reachable("http://localhost:11434")
 
         assert calls["n"] == 1
 
     def test_a_different_base_url_is_cached_separately(self, monkeypatch):
         monkeypatch.setattr(http, "pinned_get", self._fake_get(ok=True)[0])
-        te.check_ollama_reachable("http://localhost:11434")
+        engine_local.check_ollama_reachable("http://localhost:11434")
         # A second, different URL must still be checked fresh, not
         # short-circuited by the first URL's cache entry.
         fake_get_down, _ = self._fake_get(ok=False)
         monkeypatch.setattr(http, "pinned_get", fake_get_down)
-        assert te.check_ollama_reachable("http://otherhost:9999") is False
+        assert engine_local.check_ollama_reachable("http://otherhost:9999") is False
 
     def test_trailing_slash_in_base_url_is_normalized(self, monkeypatch):
         fake_get, captured = self._fake_get(ok=True)
         monkeypatch.setattr(http, "pinned_get", fake_get)
-        te.check_ollama_reachable("http://localhost:11434/")
+        engine_local.check_ollama_reachable("http://localhost:11434/")
         assert captured["url"] == "http://localhost:11434/api/tags"
 
 
@@ -1693,17 +1706,17 @@ class TestNLLBRemoved:
     is refused with the removed-engine message instead of "Unknown engine"."""
 
     def test_is_no_longer_registered_or_exported(self):
-        assert "nllb" not in te.ENGINES
-        assert "nllb" not in te.ENGINE_NOTES
-        assert "nllb" not in te.ENGINE_CAPABILITIES
-        assert "nllb" not in te.FREE_ENGINES | te.KEYLESS_ENGINES
+        assert "nllb" not in engine_registry.ENGINES
+        assert "nllb" not in engine_registry.ENGINE_NOTES
+        assert "nllb" not in engine_registry.ENGINE_CAPABILITIES
+        assert "nllb" not in engine_registry.FREE_ENGINES | engine_registry.KEYLESS_ENGINES
         for gone in ("NLLBEngine", "NLLB_MODELS", "_NLLB_LANG_CODES", "_nllb_pipeline_cache"):
-            assert not hasattr(te, gone)
+            assert not any(hasattr(mod, gone) for mod in (engine_registry, engine_local, engine_pricing, engine_shared))
 
     def test_is_refused_with_the_removed_engine_message(self):
-        assert "nllb" in te.REMOVED_ENGINES
-        assert te.unknown_engine_message("nllb") == "The nllb engine was removed. Pick another engine."
-        assert te.unknown_engine_message("nope") == "Unknown engine."
+        assert "nllb" in engine_registry.REMOVED_ENGINES
+        assert engine_registry.unknown_engine_message("nllb") == "The nllb engine was removed. Pick another engine."
+        assert engine_registry.unknown_engine_message("nope") == "Unknown engine."
 
 
 class TestFreeEngineLabelling:
@@ -1713,71 +1726,71 @@ class TestFreeEngineLabelling:
     engines keep their normal descriptions."""
 
     def test_free_engines_set_matches_the_roadmap_table(self):
-        assert te.FREE_ENGINES == {"fake", "fake_mt", "ollama"}
+        assert engine_registry.FREE_ENGINES == {"fake", "fake_mt", "ollama"}
 
     def test_gemini_is_not_unconditionally_free(self):
         # Gemini reuses one engine for free and paid keys -- whether a
         # given key is free depends on a setting, not the engine itself.
-        assert "gemini" not in te.FREE_ENGINES
+        assert "gemini" not in engine_registry.FREE_ENGINES
 
     def test_every_free_engine_note_says_free(self):
-        for name in te.FREE_ENGINES:
-            assert te.ENGINE_NOTES[name].startswith("Free")
-            assert te.engine_picker_label(name) == te.ENGINE_NOTES[name]
+        for name in engine_registry.FREE_ENGINES:
+            assert engine_registry.ENGINE_NOTES[name].startswith("Free")
+            assert engine_registry.engine_picker_label(name) == engine_registry.ENGINE_NOTES[name]
 
     def test_paid_engine_notes_say_paid(self):
         for name in ("claude", "deepseek", "openai"):
-            assert te.ENGINE_NOTES[name].startswith("Paid")
+            assert engine_registry.ENGINE_NOTES[name].startswith("Paid")
 
     def test_ollama_note_names_local_gemma_4(self):
-        note = te.ENGINE_NOTES["ollama"]
+        note = engine_registry.ENGINE_NOTES["ollama"]
         assert "Gemma 4" in note and "GPU" in note and "private" in note and "Free" in note
         assert "testing" not in note and "lower quality" not in note
 
     def test_every_note_fits_the_narrow_dropdown(self):
-        for name in te.ENGINES:
-            assert 0 < len(te.ENGINE_NOTES[name]) <= 80, name
-        assert len(te.GEMINI_FREE_TIER_NOTE) <= 80
+        for name in engine_registry.ENGINES:
+            assert 0 < len(engine_registry.ENGINE_NOTES[name]) <= 80, name
+        assert len(engine_registry.GEMINI_FREE_TIER_NOTE) <= 80
 
     def test_note_models_match_the_model_lists(self):
-        assert "claude-sonnet-5-5" in te.CLAUDE_MODELS and "claude-opus-5-5" in te.CLAUDE_MODELS
-        assert all(m.startswith("gemma4") for m in te.OLLAMA_MODELS)
+        assert "claude-sonnet-5-5" in engine_pricing.CLAUDE_MODELS and "claude-opus-5-5" in engine_pricing.CLAUDE_MODELS
+        assert all(m.startswith("gemma4") for m in engine_local.OLLAMA_MODELS)
 
     def test_gemini_label_is_plain_by_default(self):
-        assert te.engine_picker_label("gemini") == te.ENGINE_NOTES["gemini"]
-        assert "Free" not in te.engine_picker_label("gemini", gemini_free_tier=False)
+        assert engine_registry.engine_picker_label("gemini") == engine_registry.ENGINE_NOTES["gemini"]
+        assert "Free" not in engine_registry.engine_picker_label("gemini", gemini_free_tier=False)
 
     def test_gemini_label_switches_when_free_tier_is_on(self):
-        label = te.engine_picker_label("gemini", gemini_free_tier=True)
+        label = engine_registry.engine_picker_label("gemini", gemini_free_tier=True)
         assert label.startswith("Free")
         assert "Google may use your text" in label
 
     def test_free_tier_flag_never_changes_other_engines_labels(self):
-        for name in te.ENGINES:
+        for name in engine_registry.ENGINES:
             if name == "gemini":
                 continue
-            assert te.engine_picker_label(name, gemini_free_tier=True) == te.ENGINE_NOTES[name]
+            assert engine_registry.engine_picker_label(name, gemini_free_tier=True) == engine_registry.ENGINE_NOTES[name]
 
 
 class TestGetEngineFreeTierPassthrough:
     def test_free_tier_reaches_the_constructed_gemini_engine(self):
-        engine = te.get_engine("gemini", "fake-key", free_tier=True)
-        assert isinstance(engine, te.GeminiEngine)
+        engine = engine_registry.get_engine("gemini", "fake-key", free_tier=True)
+        assert isinstance(engine, engine_gemini.GeminiEngine)
         assert engine.free_tier is True
 
     def test_defaults_to_not_free_tier(self):
-        engine = te.get_engine("gemini", "fake-key")
+        engine = engine_registry.get_engine("gemini", "fake-key")
         assert engine.free_tier is False
 
     def test_free_tier_kwarg_is_ignored_for_non_gemini_engines(self):
         # Every other engine class's __init__ has no free_tier parameter --
         # this must not raise a TypeError just because the caller always
         # passes the kwarg.
-        engine = te.get_engine("fake", free_tier=True)
+        engine = engine_registry.get_engine("fake", free_tier=True)
         assert not hasattr(engine, "free_tier")
 
     def test_free_tier_reaches_gemini_even_with_an_explicit_model(self):
-        engine = te.get_engine("gemini", "fake-key", "gemini-pro-latest", free_tier=True)
+        engine = engine_registry.get_engine("gemini", "fake-key", "gemini-pro-latest", free_tier=True)
         assert engine.model == "gemini-pro-latest"
         assert engine.free_tier is True
 
@@ -1789,16 +1802,16 @@ class TestGetEngineOllamaBaseUrlPassthrough:
     default no matter what was configured."""
 
     def test_base_url_reaches_the_constructed_ollama_engine(self):
-        engine = te.get_engine("ollama", None, base_url="http://gpu-box:11434")
-        assert isinstance(engine, te.OllamaEngine)
+        engine = engine_registry.get_engine("ollama", None, base_url="http://gpu-box:11434")
+        assert isinstance(engine, engine_local.OllamaEngine)
         assert engine.base_url == "http://gpu-box:11434"
 
     def test_defaults_to_ollamas_own_default_when_not_configured(self):
-        engine = te.get_engine("ollama")
+        engine = engine_registry.get_engine("ollama")
         assert engine.base_url == "http://localhost:11434"
 
     def test_base_url_reaches_ollama_even_with_an_explicit_model(self):
-        engine = te.get_engine("ollama", None, "qwen2.5:14b", base_url="http://gpu-box:11434")
+        engine = engine_registry.get_engine("ollama", None, "qwen2.5:14b", base_url="http://gpu-box:11434")
         assert engine.model == "qwen2.5:14b"
         assert engine.base_url == "http://gpu-box:11434"
 
@@ -1806,7 +1819,7 @@ class TestGetEngineOllamaBaseUrlPassthrough:
         # Every other engine class's __init__ has no base_url parameter --
         # this must not raise a TypeError just because the caller always
         # passes the kwarg.
-        engine = te.get_engine("fake", base_url="http://gpu-box:11434")
+        engine = engine_registry.get_engine("fake", base_url="http://gpu-box:11434")
         assert not hasattr(engine, "base_url")
 
 
@@ -1815,19 +1828,19 @@ class TestEstimateCostForEngine:
     paid per-token rate its model name would normally look up."""
 
     def test_free_tier_gemini_is_zero_regardless_of_tokens(self):
-        engine = te.GeminiEngine("fake-key", free_tier=True)
-        assert te.estimate_cost_for_engine(engine, 1_000_000, 1_000_000) == 0.0
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)
+        assert engine_pricing.estimate_cost_for_engine(engine, 1_000_000, 1_000_000) == 0.0
 
     def test_paid_gemini_matches_plain_estimate_cost(self):
-        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=False)
-        expected = te.estimate_cost("gemini-flash-lite-latest", 1000, 500)
-        assert te.estimate_cost_for_engine(engine, 1000, 500) == expected
+        engine = engine_gemini.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=False)
+        expected = engine_pricing.estimate_cost("gemini-flash-lite-latest", 1000, 500)
+        assert engine_pricing.estimate_cost_for_engine(engine, 1000, 500) == expected
 
     def test_an_engine_with_no_free_tier_attribute_falls_back_normally(self):
-        engine = te.ClaudeEngine.__new__(te.ClaudeEngine)  # no free_tier attr at all
+        engine = engine_claude.ClaudeEngine.__new__(engine_claude.ClaudeEngine)  # no free_tier attr at all
         engine.model = "claude-sonnet-5"
-        expected = te.estimate_cost("claude-sonnet-5", 1000, 500)
-        assert te.estimate_cost_for_engine(engine, 1000, 500) == expected
+        expected = engine_pricing.estimate_cost("claude-sonnet-5", 1000, 500)
+        assert engine_pricing.estimate_cost_for_engine(engine, 1000, 500) == expected
 
 
 class TestCallLlmJson:
@@ -1866,7 +1879,7 @@ class TestCallLlmJson:
             def create(self, model, max_tokens, messages):
                 return FakeResponse()
 
-        result = te.call_llm_json(
+        result = llm_tasks.call_llm_json(
             FakeClaudeLike(), "prompt",
             usage_cb=lambda inp, out: captured_usage.update(input=inp, output=out))
         assert result == '{"ok": true}'
@@ -1898,7 +1911,7 @@ class TestCallLlmJson:
             def create(self, model, messages, max_tokens):
                 return FakeResponse()
 
-        result = te.call_llm_json(
+        result = llm_tasks.call_llm_json(
             FakeOpenAiLike(), "prompt",
             usage_cb=lambda inp, out: captured_usage.update(input=inp, output=out))
         assert result == "[1, 2, 3]"
@@ -1918,9 +1931,9 @@ class TestCallLlmJson:
                 }
 
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.GeminiEngine("fake-key")
+        engine = engine_gemini.GeminiEngine("fake-key")
 
-        result = te.call_llm_json(
+        result = llm_tasks.call_llm_json(
             engine, "prompt",
             usage_cb=lambda inp, out: captured_usage.update(input=inp, output=out))
         assert result == "real answer"
@@ -1937,17 +1950,17 @@ class TestCallLlmJson:
                 return {"candidates": [{"content": {"parts": [{"text": "answer"}]}}]}
 
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.GeminiEngine("fake-key", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)
         calls = []
         monkeypatch.setattr(engine, "_throttle_for_free_tier", lambda: calls.append(1))
 
-        te.call_llm_json(engine, "prompt")
+        llm_tasks.call_llm_json(engine, "prompt")
         assert calls == [1]
 
     def test_test_offline_engine_declines_without_crashing(self):
         engine = fake_engine.FakeEngine()
         assert engine.client is None  # by design
-        result = te.call_llm_json(engine, "prompt", fallback="[]")
+        result = llm_tasks.call_llm_json(engine, "prompt", fallback="[]")
         assert result == "[]"
 
     def test_ollama_engine_is_not_silently_skipped(self, monkeypatch):
@@ -1972,16 +1985,16 @@ class TestCallLlmJson:
             return FakeResponse()
         patch_post(monkeypatch, fake_post)
 
-        engine = te.OllamaEngine()
+        engine = engine_local.OllamaEngine()
         usage = {}
-        result = te.call_llm_json(engine, "prompt",
+        result = llm_tasks.call_llm_json(engine, "prompt",
                                    usage_cb=lambda inp, out: usage.update(input=inp, output=out))
 
         assert result == "real answer"
         assert usage == {"input": 12, "output": 4}
         assert captured["url"] == f"{engine.base_url}/api/chat"
         assert captured["json"]["format"] == "json"
-        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+        assert captured["json"]["options"]["num_ctx"] >= engine_local.OLLAMA_MIN_NUM_CTX
         assert captured["timeout"] is not None
 
     def test_an_engine_with_no_recognized_shape_raises_a_clear_error(self):
@@ -1995,7 +2008,7 @@ class TestCallLlmJson:
             name = "fake_mt"
 
         with pytest.raises(RuntimeError, match="fake_mt can't run this feature"):
-            te.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
+            llm_tasks.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
 
     def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):
         class FakeResponse(StreamedBody):
@@ -2006,8 +2019,8 @@ class TestCallLlmJson:
                 return {"candidates": []}  # no content at all
 
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.GeminiEngine("fake-key")
-        result = te.call_llm_json(engine, "prompt", fallback="fallback-value")
+        engine = engine_gemini.GeminiEngine("fake-key")
+        result = llm_tasks.call_llm_json(engine, "prompt", fallback="fallback-value")
         assert result == "fallback-value"
 
 
@@ -2016,14 +2029,14 @@ class TestCheckConsistencyLlm:
         class PureMT:
             supports_reference = False
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
-        result = te.check_consistency_llm(lines, PureMT())
+        result = llm_tasks.check_consistency_llm(lines, PureMT())
         assert result == ([], 0, 0)
 
     def test_no_translated_lines_returns_empty(self):
         class MockLlm:
             supports_reference = True
         lines = [Line(idx=0, start=0, end=1, zh="a", en="")]  # untranslated
-        result = te.check_consistency_llm(lines, MockLlm())
+        result = llm_tasks.check_consistency_llm(lines, MockLlm())
         assert result == ([], 0, 0)
 
     def test_a_failed_batch_is_counted_not_silently_dropped(self, isolated_db, monkeypatch):
@@ -2053,7 +2066,7 @@ class TestCheckConsistencyLlm:
 
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b"),
                  Line(idx=1, start=1, end=2, zh="c", en="d")]
-        issues, failed_batches, total_batches = te.check_consistency_llm(
+        issues, failed_batches, total_batches = llm_tasks.check_consistency_llm(
             lines, FlakyEngine(), batch_size=1)
         assert failed_batches == 1
         assert total_batches == 2
@@ -2072,8 +2085,8 @@ class TestCheckConsistencyLlm:
 
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
-        issues, failed_batches, total_batches = te.check_consistency_llm(
-            lines, te.GeminiEngine("fake-key"))
+        issues, failed_batches, total_batches = llm_tasks.check_consistency_llm(
+            lines, engine_gemini.GeminiEngine("fake-key"))
         assert issues == []
         assert failed_batches == 1
         assert total_batches == 1
@@ -2088,13 +2101,13 @@ class TestGenerateEpisodeSummary:
         class PureMT:
             supports_reference = False
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
-        assert te.generate_episode_summary(lines, PureMT()) == ""
+        assert llm_tasks.generate_episode_summary(lines, PureMT()) == ""
 
     def test_no_translated_lines_returns_empty(self):
         class MockLlm:
             supports_reference = True
         lines = [Line(idx=0, start=0, end=1, zh="a", en="")]  # untranslated
-        assert te.generate_episode_summary(lines, MockLlm()) == ""
+        assert llm_tasks.generate_episode_summary(lines, MockLlm()) == ""
 
     def test_generates_one_summary_from_a_valid_response(self):
         class FakeEngine:
@@ -2114,7 +2127,7 @@ class TestGenerateEpisodeSummary:
         lines = [Line(idx=0, start=0, end=1, zh="a", en="Hello."),
                  Line(idx=1, start=1, end=2, zh="b", en="Goodbye.")]
         engine = FakeEngine()
-        summary = te.generate_episode_summary(lines, engine)
+        summary = llm_tasks.generate_episode_summary(lines, engine)
         assert summary == "Xiaoling found the letter and confronted Wei."
 
     def test_called_once_per_episode_not_once_per_batch(self):
@@ -2137,7 +2150,7 @@ class TestGenerateEpisodeSummary:
         lines = [Line(idx=i, start=i, end=i + 1, zh=f"line {i}", en=f"Line {i}.")
                  for i in range(50)]
         engine = FakeEngine()
-        te.generate_episode_summary(lines, engine)
+        llm_tasks.generate_episode_summary(lines, engine)
         assert engine.call_count == 1
 
     def test_non_dict_response_returns_empty_string(self):
@@ -2153,7 +2166,7 @@ class TestGenerateEpisodeSummary:
                 return type("Resp", (), {"content": [_FakeBlock('["not", "an", "object"]')]})()
 
         lines = [Line(idx=0, start=0, end=1, zh="a", en="Hi.")]
-        assert te.generate_episode_summary(lines, FakeEngine()) == ""
+        assert llm_tasks.generate_episode_summary(lines, FakeEngine()) == ""
 
     def test_engine_failure_declines_quietly(self):
         class FailingEngine:
@@ -2168,7 +2181,7 @@ class TestGenerateEpisodeSummary:
                 raise RuntimeError("simulated API failure")
 
         lines = [Line(idx=0, start=0, end=1, zh="a", en="Hi.")]
-        assert te.generate_episode_summary(lines, FailingEngine()) == ""
+        assert llm_tasks.generate_episode_summary(lines, FailingEngine()) == ""
 
     def test_usage_cb_invoked_on_success(self):
         class FakeEngine:
@@ -2187,7 +2200,7 @@ class TestGenerateEpisodeSummary:
 
         calls = []
         lines = [Line(idx=0, start=0, end=1, zh="a", en="Hi.")]
-        te.generate_episode_summary(lines, FakeEngine(), usage_cb=lambda i, o, **k: calls.append((i, o)))
+        llm_tasks.generate_episode_summary(lines, FakeEngine(), usage_cb=lambda i, o, **k: calls.append((i, o)))
         assert calls == [(100, 20)]
 
 
@@ -2229,13 +2242,13 @@ class TestFlagUncertainLines:
         class PureMT:
             supports_reference = False
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
-        te.flag_uncertain_lines(lines, PureMT())
+        llm_tasks.flag_uncertain_lines(lines, PureMT())
         assert lines[0].flag is None
 
     def test_no_translated_lines_is_a_noop(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="")]
         engine = FakeFlaggingEngine(flags_for={0: ("uncertain_translation", "x")})
-        te.flag_uncertain_lines(lines, engine)
+        llm_tasks.flag_uncertain_lines(lines, engine)
         assert lines[0].flag is None
         assert engine.call_count == 0
 
@@ -2243,7 +2256,7 @@ class TestFlagUncertainLines:
         lines = [Line(idx=0, start=0, end=1, zh="她昨天来了", en="She came yesterday."),
                  Line(idx=1, start=1, end=2, zh="你好", en="Hello.")]
         engine = FakeFlaggingEngine(flags_for={0: ("ambiguous_reference", "'她' unresolved")})
-        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        llm_tasks.flag_uncertain_lines(lines, engine, batch_size=10)
         assert lines[0].flag == "ambiguous_reference"
         assert lines[0].flag_note == "'她' unresolved"
         assert lines[1].flag is None  # not named by the model -- stays clean
@@ -2251,13 +2264,13 @@ class TestFlagUncertainLines:
     def test_unknown_reason_falls_back_to_uncertain_translation(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
         engine = FakeFlaggingEngine(flags_for={0: ("made_up_reason_xyz", "note")})
-        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        llm_tasks.flag_uncertain_lines(lines, engine, batch_size=10)
         assert lines[0].flag == "uncertain_translation"
 
     def test_progress_cb_called_once_per_batch(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(10)]
         seen = []
-        te.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=3, progress_cb=seen.append)
+        llm_tasks.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=3, progress_cb=seen.append)
         assert seen == [0.25, 0.5, 0.75, 1.0]
 
     def test_engine_failure_on_one_batch_does_not_raise(self):
@@ -2267,13 +2280,13 @@ class TestFlagUncertainLines:
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
         # Must not raise -- a flagging pass failing shouldn't block the rest
         # of the review workflow, same reasoning as check_consistency_llm.
-        te.flag_uncertain_lines(lines, BrokenEngine())
+        llm_tasks.flag_uncertain_lines(lines, BrokenEngine())
         assert lines[0].flag is None
 
     def test_already_flagged_line_can_be_reflagged_on_a_later_run(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b", flag="name_uncertain", flag_note="old")]
         engine = FakeFlaggingEngine(flags_for={0: ("slang_idiom", "new note")})
-        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        llm_tasks.flag_uncertain_lines(lines, engine, batch_size=10)
         assert lines[0].flag == "slang_idiom"
         assert lines[0].flag_note == "new note"
 
@@ -2296,7 +2309,7 @@ class TestFlagPassDefects:
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A"),
                  Line(idx=1, start=1, end=2, zh="b", en="B")]
         raw = _json.dumps([{"line_idx": raw_id, "reason": "slang_idiom", "note": "n"}])
-        te.flag_uncertain_lines(lines, _RawReplyFlagEngine(raw), batch_size=10)
+        llm_tasks.flag_uncertain_lines(lines, _RawReplyFlagEngine(raw), batch_size=10)
         assert lines[0].flag is None
         assert lines[1].flag == "slang_idiom"
 
@@ -2307,7 +2320,7 @@ class TestFlagPassDefects:
                            {"line_idx": [0], "reason": "slang_idiom"},
                            {"line_idx": True, "reason": "slang_idiom"},
                            {"line_idx": "[0]", "reason": "name_uncertain", "note": "ok"}])
-        te.flag_uncertain_lines(lines, _RawReplyFlagEngine(raw), batch_size=10)
+        llm_tasks.flag_uncertain_lines(lines, _RawReplyFlagEngine(raw), batch_size=10)
         assert lines[0].flag == "name_uncertain"
 
     @pytest.mark.parametrize("system_flag", ["timing_uncertain", "content_blocked"])
@@ -2315,7 +2328,7 @@ class TestFlagPassDefects:
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag=system_flag, flag_note="app note"),
                  Line(idx=1, start=1, end=2, zh="b", en="B")]
         engine = FakeFlaggingEngine(flags_for={0: ("slang_idiom", "model"), 1: ("slang_idiom", "model")})
-        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        llm_tasks.flag_uncertain_lines(lines, engine, batch_size=10)
         assert (lines[0].flag, lines[0].flag_note) == (system_flag, "app note")
         assert (lines[1].flag, lines[1].flag_note) == ("slang_idiom", "model")
 
@@ -2323,45 +2336,45 @@ class TestFlagPassDefects:
                                            ("ko", "Korean")])
     def test_prompts_name_the_source_language(self, lang, name):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
-        assert f"Below are {name} source lines" in te.build_flag_prompt(lines, source_language=lang)
-        assert f"Below are {name} source lines" in te.build_consistency_prompt(
+        assert f"Below are {name} source lines" in llm_tasks.build_flag_prompt(lines, source_language=lang)
+        assert f"Below are {name} source lines" in llm_tasks.build_consistency_prompt(
             lines, source_language=lang)
 
     @pytest.mark.parametrize("value,expected", [(2.0, 2), ("2", 2), (" 2 ", 2), ("[2]", 2),
                                                 (2, 2), (2.5, None), (True, None), ("x", None),
                                                 ([2], None), (None, None)])
     def test_parse_line_id(self, value, expected):
-        assert te.parse_line_id(value) == expected
+        assert engine_shared.parse_line_id(value) == expected
 
     def test_system_flagged_lines_are_not_sent_to_the_model(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="timing_uncertain"),
                  Line(idx=1, start=1, end=2, zh="b", en="B")]
         engine = _RawReplyFlagEngine("[]")
-        te.flag_uncertain_lines(lines, engine)
+        llm_tasks.flag_uncertain_lines(lines, engine)
         assert "[0]" not in engine.prompts[0] and "[1]" in engine.prompts[0]
 
     def test_only_system_flagged_lines_makes_no_model_call(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="content_blocked")]
         engine = _RawReplyFlagEngine("[]")
-        te.flag_uncertain_lines(lines, engine)
+        llm_tasks.flag_uncertain_lines(lines, engine)
         assert engine.prompts == []
 
     def test_stats_count_unparsable_entries_and_batches(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
         stats = {}
-        te.flag_uncertain_lines(lines, _RawReplyFlagEngine('[{"line_idx": "x"}, {"line_idx": 0}]'),
+        llm_tasks.flag_uncertain_lines(lines, _RawReplyFlagEngine('[{"line_idx": "x"}, {"line_idx": 0}]'),
                                 stats=stats)
         assert stats == {"unparsable_entries": 1, "failed_batches": 0, "total_batches": 1}
 
     def test_unknown_language_is_neutral_and_never_chinese(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
-        for prompt in (te.build_flag_prompt(lines), te.build_consistency_prompt(lines, "xx")):
+        for prompt in (llm_tasks.build_flag_prompt(lines), llm_tasks.build_consistency_prompt(lines, "xx")):
             assert "Chinese" not in prompt
 
     def test_source_language_reaches_the_flag_prompt(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A")]
         engine = _RawReplyFlagEngine("[]")
-        te.flag_uncertain_lines(lines, engine, source_language="ja")
+        llm_tasks.flag_uncertain_lines(lines, engine, source_language="ja")
         assert "Japanese source lines" in engine.prompts[0]
 
 
@@ -2392,7 +2405,7 @@ class TestTagSpeakersLlm:
 
     def test_well_formed_object_response_assigns_labels_by_id(self):
         engine = SequentialClaudeShapedEngine(['{"1": "Xiaoling", "2": "Narrator"}'])
-        labels = te.tag_speakers_by_id({1: "你好", 2: "那天下着雨。"}, engine)
+        labels = llm_tasks.tag_speakers_by_id({1: "你好", 2: "那天下着雨。"}, engine)
         assert labels == {1: "Xiaoling", 2: "Narrator"}
 
     def test_a_response_missing_one_id_is_retried_and_lands_on_the_right_chunk(self):
@@ -2400,28 +2413,28 @@ class TestTagSpeakersLlm:
             '{"1": "Xiaoling"}',  # id 2 missing from the first response
             '{"2": "Yun"}',       # retry supplies it
         ])
-        labels = te.tag_speakers_by_id({1: "你好", 2: "你也好"}, engine)
+        labels = llm_tasks.tag_speakers_by_id({1: "你好", 2: "你也好"}, engine)
         assert labels == {1: "Xiaoling", 2: "Yun"}
 
     def test_still_missing_after_retry_defaults_to_narrator_not_blank(self):
         engine = SequentialClaudeShapedEngine(['{"1": "Xiaoling"}', '{}'])
-        labels = te.tag_speakers_by_id({1: "你好", 2: "你也好"}, engine)
+        labels = llm_tasks.tag_speakers_by_id({1: "你好", 2: "你也好"}, engine)
         assert labels == {1: "Xiaoling", 2: "Narrator"}
 
     def test_reordered_and_extra_ids_land_on_their_own_chunks(self):
         engine = SequentialClaudeShapedEngine(['{"3": "Cara", "99": "Ghost", "1": "Ann", "2": "Narrator"}'])
-        labels = te.tag_speakers_by_id({1: "a", 2: "b", 3: "c"}, engine)
+        labels = llm_tasks.tag_speakers_by_id({1: "a", 2: "b", 3: "c"}, engine)
         assert labels == {1: "Ann", 2: "Narrator", 3: "Cara"}
 
     def test_non_contiguous_ids_are_keyed_not_positional(self):
         engine = SequentialClaudeShapedEngine(['{"7": "Ann"}', '{"4": "Bob"}'])
-        labels = te.tag_speakers_by_id({4: "a", 7: "b"}, engine)
+        labels = llm_tasks.tag_speakers_by_id({4: "a", 7: "b"}, engine)
         assert labels == {4: "Bob", 7: "Ann"}
 
     def test_pure_mt_engine_returns_all_narrator(self):
         class PureMT:
             supports_reference = False
-        labels = te.tag_speakers_by_id({1: "a", 2: "b"}, PureMT())
+        labels = llm_tasks.tag_speakers_by_id({1: "a", 2: "b"}, PureMT())
         assert labels == {1: "Narrator", 2: "Narrator"}
 
     def test_ollama_engine_gets_real_labels_not_a_silent_all_narrator(self, monkeypatch):
@@ -2437,8 +2450,8 @@ class TestTagSpeakersLlm:
                 return {"message": {"content": '{"1": "Xiaoling", "2": "Narrator"}'}}
 
         patch_post(monkeypatch, lambda *a, **k: FakeResponse())
-        engine = te.OllamaEngine()
-        labels = te.tag_speakers_by_id({1: "你好", 2: "那天下着雨。"}, engine)
+        engine = engine_local.OllamaEngine()
+        labels = llm_tasks.tag_speakers_by_id({1: "你好", 2: "那天下着雨。"}, engine)
         assert labels == {1: "Xiaoling", 2: "Narrator"}
 
 
@@ -2452,7 +2465,7 @@ class TestRewriteForPacingLlm:
         lines = [Line(idx=0, start=0, end=1, zh="z0", en="A very long original line."),
                  Line(idx=1, start=0, end=1, zh="z1", en="Another very long line.")]
         engine = SequentialClaudeShapedEngine(['{"1": "Short one.", "2": "Short two."}'])
-        te.rewrite_for_pacing_llm(lines, engine)
+        llm_tasks.rewrite_for_pacing_llm(lines, engine)
         assert lines[0].en == "Short one."
         assert lines[1].en == "Short two."
 
@@ -2463,7 +2476,7 @@ class TestRewriteForPacingLlm:
             '{"1": "Rewritten one."}',  # id 2 missing from the first response
             '{}',                        # retry also comes back empty
         ])
-        te.rewrite_for_pacing_llm(lines, engine)
+        llm_tasks.rewrite_for_pacing_llm(lines, engine)
         assert lines[0].en == "Rewritten one."
         assert lines[1].en == "Original two."  # untouched, not blanked or misassigned
 
@@ -2471,13 +2484,13 @@ class TestRewriteForPacingLlm:
         class PureMT:
             supports_reference = False
         lines = [Line(idx=0, start=0, end=1, zh="z0", en="Original.")]
-        te.rewrite_for_pacing_llm(lines, PureMT())
+        llm_tasks.rewrite_for_pacing_llm(lines, PureMT())
         assert lines[0].en == "Original."
 
     def test_empty_list_is_a_noop(self):
         class Engine:
             supports_reference = True
-        assert te.rewrite_for_pacing_llm([], Engine()) == []
+        assert llm_tasks.rewrite_for_pacing_llm([], Engine()) == []
 
 
 class TestOfflineTestEngine:
@@ -2485,50 +2498,50 @@ class TestOfflineTestEngine:
     no API key, no network, and no spend. These guard that promise."""
 
     def test_registered_as_an_engine(self):
-        assert "fake" in te.ENGINES
+        assert "fake" in engine_registry.ENGINES
 
     def test_works_with_no_api_key(self):
-        engine = te.get_engine("fake")
+        engine = engine_registry.get_engine("fake")
         assert engine is not None
-        engine2 = te.get_engine("fake", None)
+        engine2 = engine_registry.get_engine("fake", None)
         assert engine2 is not None
 
     def test_translates_every_line_without_network(self):
         lines = [Line(idx=i, start=float(i), end=float(i) + 1, zh=f"第{i}句") for i in range(6)]
-        engine = te.get_engine("fake")
-        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        engine = engine_registry.get_engine("fake")
+        _, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
         assert errors == []
         assert all(ln.en for ln in lines)
 
     def test_output_is_obviously_placeholder(self):
         # Must never be mistakable for a real translation.
         lines = [Line(idx=0, start=0, end=1, zh="真实对白")]
-        engine = te.get_engine("fake")
-        te.translate_lines_with_engine(lines, engine, {})
+        engine = engine_registry.get_engine("fake")
+        translate_pipeline.translate_lines_with_engine(lines, engine, {})
         assert lines[0].en.startswith("[TEST]")
 
     def test_costs_nothing(self):
-        assert te.estimate_cost("test-offline", 10_000_000, 10_000_000) == 0.0
+        assert engine_pricing.estimate_cost("test-offline", 10_000_000, 10_000_000) == 0.0
 
     def test_records_usage_so_dashboard_path_is_exercised(self):
         lines = [Line(idx=0, start=0, end=1, zh="测试")]
-        engine = te.get_engine("fake")
-        te.translate_lines_with_engine(lines, engine, {})
+        engine = engine_registry.get_engine("fake")
+        translate_pipeline.translate_lines_with_engine(lines, engine, {})
         assert engine.last_usage["input_tokens"] > 0
 
     def test_long_lines_are_truncated_in_placeholder(self):
         lines = [Line(idx=0, start=0, end=1, zh="字" * 200)]
-        engine = te.get_engine("fake")
-        te.translate_lines_with_engine(lines, engine, {})
+        engine = engine_registry.get_engine("fake")
+        translate_pipeline.translate_lines_with_engine(lines, engine, {})
         assert len(lines[0].en) < 100
 
     def test_has_no_sdk_client_so_llm_features_decline_cleanly(self):
         # Free-form LLM helpers check for .client; None must not crash them.
-        engine = te.get_engine("fake")
+        engine = engine_registry.get_engine("fake")
         assert engine.client is None
         # Step 55: a decline-cleanly response is still a batch that couldn't
         # actually be checked -- counted as failed, not silently zeroed out.
-        assert te.check_consistency_llm(
+        assert llm_tasks.check_consistency_llm(
             [Line(idx=0, start=0, end=1, zh="a", en="b")], engine) == ([], 1, 1)
 
 
@@ -2549,7 +2562,7 @@ class TestResumeAfterCrash:
                 return [f"EN:{z}" for z in zh_lines]
 
         lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(10)]
-        te.translate_lines_with_engine(lines, FlakyEngine(), {}, batch_size=2)
+        translate_pipeline.translate_lines_with_engine(lines, FlakyEngine(), {}, batch_size=2)
         done = sum(1 for l in lines if l.en)
         assert done == 8
 
@@ -2573,10 +2586,10 @@ class TestResumeAfterCrash:
                 return [f"EN:{z}" for z in zh_lines]
 
         lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(10)]
-        te.translate_lines_with_engine(lines, FlakyEngine(), {}, batch_size=2)
+        translate_pipeline.translate_lines_with_engine(lines, FlakyEngine(), {}, batch_size=2)
 
         fresh = FreshEngine()
-        _, errors = te.translate_lines_with_engine(lines, fresh, {}, batch_size=2)
+        _, errors = translate_pipeline.translate_lines_with_engine(lines, fresh, {}, batch_size=2)
 
         assert all(l.en for l in lines)
         assert errors == []
@@ -2619,7 +2632,7 @@ class TestReflectTranslateBatch:
             '{"1": "reads awkwardly out loud"}',
             '{"1": "Final one.", "2": "Final two."}',
         ])
-        translations, critiques = te.reflect_translate_batch(
+        translations, critiques = reflect_pass.reflect_translate_batch(
             engine, ["你好", "再见"], {"line_ids": None})
         assert len(engine.prompts) == 3
         assert translations == ["Final one.", "Final two."]
@@ -2635,7 +2648,7 @@ class TestReflectTranslateBatch:
         normal (non-Reflect) path already does."""
         engine = _ScriptedReflectEngine([
             '{"1": "Draft."}', '{"1": "critique"}', '{"1": "Final."}'])
-        te.reflect_translate_batch(
+        reflect_pass.reflect_translate_batch(
             engine, ["你好"], {"novel_reference": "Xiaoling always calls her 'sis'."})
         for prompt in engine.prompts:
             assert "Xiaoling always calls her 'sis'." in prompt
@@ -2644,14 +2657,14 @@ class TestReflectTranslateBatch:
     def test_no_reference_block_when_none_is_given(self):
         engine = _ScriptedReflectEngine([
             '{"1": "Draft."}', '{"1": "critique"}', '{"1": "Final."}'])
-        te.reflect_translate_batch(engine, ["你好"], {})
+        reflect_pass.reflect_translate_batch(engine, ["你好"], {})
         for prompt in engine.prompts:
             assert "REFERENCE NOVEL TRANSLATION" not in prompt
 
     def test_each_pass_asks_for_something_different(self):
         engine = _ScriptedReflectEngine([
             '{"1": "Draft."}', '{"1": "critique"}', '{"1": "Final."}'])
-        te.reflect_translate_batch(engine, ["你好"], {})
+        reflect_pass.reflect_translate_batch(engine, ["你好"], {})
         assert "FAITHFULNESS" in engine.prompts[0]
         assert "REFLECTION" in engine.prompts[1]
         assert "Draft." in engine.prompts[1]  # the reflection pass sees pass 1's own draft
@@ -2664,7 +2677,7 @@ class TestReflectTranslateBatch:
             '{"101": "a critique"}',
             '{"101": "Final one.", "205": "Final two."}',
         ])
-        translations, critiques = te.reflect_translate_batch(
+        translations, critiques = reflect_pass.reflect_translate_batch(
             engine, ["你好", "再见"], {"line_ids": [101, 205]})
         assert translations == ["Final one.", "Final two."]
         assert critiques == ["a critique", ""]
@@ -2681,7 +2694,7 @@ class TestReflectTranslateBatch:
             '{"1": "a critique"}',       # pass 2: only line 1 was ever asked about
             '{"1": "Final one."}',       # pass 3: line 2 has nothing to rewrite
         ])
-        translations, critiques = te.reflect_translate_batch(engine, ["你好", "再见"], {})
+        translations, critiques = reflect_pass.reflect_translate_batch(engine, ["你好", "再见"], {})
         assert translations == ["Final one.", ""]
         assert critiques == ["a critique", ""]
         # Confirms line 2 was never put in front of the reflection pass:
@@ -2693,7 +2706,7 @@ class TestReflectTranslateBatch:
         # than losing the line entirely.
         engine = _ScriptedReflectEngine([
             '{"1": "Draft one."}', '{"1": "a critique"}', '{}', '{}'])
-        translations, critiques = te.reflect_translate_batch(engine, ["你好"], {})
+        translations, critiques = reflect_pass.reflect_translate_batch(engine, ["你好"], {})
         assert translations == ["Draft one."]
         assert critiques == ["a critique"]
 
@@ -2703,7 +2716,7 @@ class TestReflectTranslateBatch:
         # since "" isn't kept by _parse_id_keyed_json in the first place;
         # simulate directly missing instead):
         engine2 = _ScriptedReflectEngine(['{}', '{}', '{}'])
-        translations, critiques = te.reflect_translate_batch(engine2, ["你好"], {})
+        translations, critiques = reflect_pass.reflect_translate_batch(engine2, ["你好"], {})
         assert len(engine2.prompts) == 2  # pass 1 (x1, no retry-worthy content) + pass 3; pass 2 skipped
         assert translations == [""]
         assert critiques == [""]
@@ -2712,7 +2725,7 @@ class TestReflectTranslateBatch:
         class TranslationOnlyEngine:
             supports_reference = False
         with pytest.raises(RuntimeError):
-            te.reflect_translate_batch(TranslationOnlyEngine(), ["你好"], {})
+            reflect_pass.reflect_translate_batch(TranslationOnlyEngine(), ["你好"], {})
 
 
 class TestReflectModeInTranslateLinesWithEngine:
@@ -2730,7 +2743,7 @@ class TestReflectModeInTranslateLinesWithEngine:
         lines = [Line(idx=0, start=0, end=1, zh="你好", id=11),
                  Line(idx=1, start=1, end=2, zh="再见", id=22)]
         captured_notes = []
-        te.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=10, reflect=True,
             notes_cb=captured_notes.append)
         assert [ln.en for ln in lines] == ["Final one.", "Final two."]
@@ -2747,7 +2760,7 @@ class TestReflectModeInTranslateLinesWithEngine:
             def translate_batch(self, zh_lines, context):
                 return [f"EN:{z}" for z in zh_lines]
         lines = [Line(idx=0, start=0, end=1, zh="你好")]
-        te.translate_lines_with_engine(lines, PlainEngine(), {}, batch_size=10, reflect=False)
+        translate_pipeline.translate_lines_with_engine(lines, PlainEngine(), {}, batch_size=10, reflect=False)
         assert called == []
         assert lines[0].en == "EN:你好"
 
@@ -2755,30 +2768,30 @@ class TestReflectModeInTranslateLinesWithEngine:
         engine = _ScriptedReflectEngine(['{"1": "Draft."}', '{}', '{"1": "Final."}'])
         lines = [Line(idx=0, start=0, end=1, zh="你好")]
         captured = []
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=10, reflect=True,
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=10, reflect=True,
                                        notes_cb=captured.append)
         assert captured == []
 
 
 class TestEstimateReflectModeCost:
     def test_costs_roughly_three_times_a_normal_estimate(self):
-        engine = te.ClaudeEngine.__new__(te.ClaudeEngine)
+        engine = engine_claude.ClaudeEngine.__new__(engine_claude.ClaudeEngine)
         engine.model = "claude-sonnet-5"
         lines = ["你好世界" * 10] * 5
-        expected_single = te.estimate_cost_for_engine(engine, *te.estimate_translation_tokens(lines))
-        assert te.estimate_reflect_mode_cost(engine, lines) == pytest.approx(expected_single * 3)
+        expected_single = engine_pricing.estimate_cost_for_engine(engine, *engine_pricing.estimate_translation_tokens(lines))
+        assert engine_pricing.estimate_reflect_mode_cost(engine, lines) == pytest.approx(expected_single * 3)
 
     def test_every_batch_adds_the_instructions_again(self):
         lines = ["你好"] * 100
-        one_request, _ = te.estimate_translation_tokens(lines)
-        five_batches, _ = te.estimate_translation_tokens(lines, batch_size=20)
+        one_request, _ = engine_pricing.estimate_translation_tokens(lines)
+        five_batches, _ = engine_pricing.estimate_translation_tokens(lines, batch_size=20)
         fixed = (one_request - int(sum(len(z) for z in lines) / 3.5))
         assert five_batches - one_request == 4 * fixed
         assert fixed > 300  # the measured instruction text, not just the old flat allowance
 
     def test_free_tier_gemini_reflect_estimate_is_zero(self):
-        engine = te.GeminiEngine("fake-key", free_tier=True)
-        assert te.estimate_reflect_mode_cost(engine, ["你好"] * 20) == 0.0
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)
+        assert engine_pricing.estimate_reflect_mode_cost(engine, ["你好"] * 20) == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -2825,7 +2838,7 @@ class _FakeClaudeMessages:
 
 
 def _claude_engine_with_fake_client(usage=None):
-    engine = te.ClaudeEngine("sk-ant-fake")
+    engine = engine_claude.ClaudeEngine("sk-ant-fake")
     engine.client = type("C", (), {})()
     engine.client.messages = _FakeClaudeMessages(usage)
     return engine
@@ -2839,7 +2852,7 @@ class TestStablePromptPrefix:
     def _run_claude(self, **kw):
         engine = _claude_engine_with_fake_client()
         lines = _six_lines()
-        te.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, engine, {"title_en": "Drama"}, batch_size=2,
             novel_reference="Reference novel text.", glossary_terms=[
                 {"term_original": "苏杉", "term_translation": "Su Shan"}],
@@ -2878,7 +2891,7 @@ class TestStablePromptPrefix:
         lines = [Line(idx=i, start=i, end=i + 1, zh=zh, id=100 + i)
                  for i, zh in enumerate(["苏杉来了", "苏杉走了", "林婉来了", "林婉走了"])]
         engine = _claude_engine_with_fake_client()
-        te.translate_lines_with_engine(
+        translate_pipeline.translate_lines_with_engine(
             lines, engine, {"title_en": "Drama"}, batch_size=2, novel_reference=novel,
             glossary_terms=[{"term_original": "苏杉", "term_translation": "Su Shan"},
                             {"term_original": "林婉", "term_translation": "Lin Wan"}])
@@ -2891,7 +2904,7 @@ class TestStablePromptPrefix:
         assert all("cache_control" not in s[1] for s in (first, second))
 
     def test_without_a_novel_reference_the_instructions_block_is_cached(self):
-        blocks = te.build_claude_system_blocks({"drama_meta": {}})
+        blocks = engine_prompts.build_claude_system_blocks({"drama_meta": {}})
         assert len(blocks) == 1
         assert blocks[0]["cache_control"] == {"type": "ephemeral"}
 
@@ -2919,7 +2932,7 @@ class TestStablePromptPrefix:
             return FakeResponse(json)
 
         patch_post(monkeypatch, fake_post)
-        te.translate_lines_with_engine(_six_lines(), te.GeminiEngine("k"), {}, batch_size=2,
+        translate_pipeline.translate_lines_with_engine(_six_lines(), engine_gemini.GeminiEngine("k"), {}, batch_size=2,
                                        novel_reference="Ref.")
         assert len(bodies) == 3
         assert bodies[0]["systemInstruction"] == bodies[1]["systemInstruction"] == \
@@ -2932,18 +2945,18 @@ class TestBoundedNovelReference:
     novel was -- crowding out instructions/dialogue, inflating cost, or
     exceeding a provider's context limit outright. It's now selected per
     batch by _select_relevant_novel_passages(), bounded to
-    te.NOVEL_REFERENCE_BUDGET_CHARS, and scored for relevance against the
+    engine_prompts.NOVEL_REFERENCE_BUDGET_CHARS, and scored for relevance against the
     batch's own speaker names / glossary hits rather than always sending the
     novel's opening passage."""
 
     def test_a_reference_at_or_under_budget_is_returned_whole(self):
         ref = "Short reference, well under budget."
-        assert te._select_relevant_novel_passages(ref, budget_chars=1000) == ref
+        assert engine_prompts._select_relevant_novel_passages(ref, budget_chars=1000) == ref
 
     def test_a_long_reference_with_no_relevance_signal_is_still_bounded(self):
         ref = "\n\n".join(f"Filler paragraph {i}. " * 20 for i in range(10))
         assert len(ref) > 500
-        excerpt = te._select_relevant_novel_passages(ref, budget_chars=500)
+        excerpt = engine_prompts._select_relevant_novel_passages(ref, budget_chars=500)
         assert len(excerpt) <= 500
         assert excerpt != ref
         # Falls back to the beginning, still bounded, not silently empty --
@@ -2957,7 +2970,7 @@ class TestBoundedNovelReference:
             "Xiaoling smiled and said something warm to her friend. " * 5,
         ]
         ref = "\n\n".join(paragraphs)
-        excerpt = te._select_relevant_novel_passages(
+        excerpt = engine_prompts._select_relevant_novel_passages(
             ref, speaker_labels=["Xiaoling"], budget_chars=200)
         assert "Xiaoling" in excerpt
         assert "Opening chapter" not in excerpt
@@ -2968,7 +2981,7 @@ class TestBoundedNovelReference:
             "Su Shan walked quietly through the garden at dusk. " * 5,
         ]
         ref = "\n\n".join(paragraphs)
-        excerpt = te._select_relevant_novel_passages(
+        excerpt = engine_prompts._select_relevant_novel_passages(
             ref, batch_source_lines=["苏杉说了什么"],
             glossary_terms=[{"term_original": "苏杉", "term_translation": "Su Shan"}],
             budget_chars=200)
@@ -2982,7 +2995,7 @@ class TestBoundedNovelReference:
         something to look at."""
         context = {"drama_meta": {}, "novel_reference": "Short reference, under budget.",
                   "batch_source_lines": ["你好"]}
-        _, novel_block = te.build_stable_prompt(context)
+        _, novel_block = engine_prompts.build_stable_prompt(context)
         assert context["novel_reference_excerpt_used"] == "Short reference, under budget."
         assert "Short reference, under budget." in novel_block
 
@@ -2999,8 +3012,8 @@ class TestBoundedNovelReference:
             "Bo Wen sat quietly by the window, deep in thought. " * 40,
         ]
         ref = "\n\n".join(paragraphs)
-        assert len(ref) > te.NOVEL_REFERENCE_BUDGET_CHARS
-        te.translate_lines_with_engine(
+        assert len(ref) > engine_prompts.NOVEL_REFERENCE_BUDGET_CHARS
+        translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=1, novel_reference=ref,
             character_names={"A": "Xiaoling", "B": "Bo Wen"})
         calls = engine.client.messages.calls
@@ -3018,31 +3031,31 @@ class TestBoundedNovelReference:
 
 class TestCacheUsageAccounting:
     def test_claude_usage_counts_cached_tokens_as_part_of_the_prompt(self):
-        u = te.claude_usage(_FakeClaudeUsage(input_tokens=50, output_tokens=10,
+        u = engine_shared.claude_usage(_FakeClaudeUsage(input_tokens=50, output_tokens=10,
                                              cache_read=900, cache_write=0))
         assert u == {"input_tokens": 950, "output_tokens": 10,
                      "cache_read_tokens": 900, "cache_write_tokens": 0}
 
     def test_gemini_usage_reads_cached_content_token_count(self):
-        u = te.gemini_usage({"promptTokenCount": 1000, "candidatesTokenCount": 5,
+        u = engine_shared.gemini_usage({"promptTokenCount": 1000, "candidatesTokenCount": 5,
                              "cachedContentTokenCount": 800})
         assert u["input_tokens"] == 1000 and u["cache_read_tokens"] == 800
 
     def test_cache_reads_cost_less_than_uncached_input(self):
-        full = te.estimate_cost("claude-sonnet-5", 1_000_000, 0)
-        cached = te.estimate_cost("claude-sonnet-5", 1_000_000, 0, cache_read_tokens=1_000_000)
-        assert cached == pytest.approx(full * te.CACHE_READ_PRICE_FACTOR)
+        full = engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 0)
+        cached = engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 0, cache_read_tokens=1_000_000)
+        assert cached == pytest.approx(full * engine_pricing.CACHE_READ_PRICE_FACTOR)
 
     def test_cache_writes_cost_more_than_uncached_input(self):
-        full = te.estimate_cost("claude-sonnet-5", 1_000_000, 0)
-        written = te.estimate_cost("claude-sonnet-5", 1_000_000, 0, cache_write_tokens=1_000_000)
-        assert written == pytest.approx(full * te.CACHE_WRITE_PRICE_FACTOR)
+        full = engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 0)
+        written = engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 0, cache_write_tokens=1_000_000)
+        assert written == pytest.approx(full * engine_pricing.CACHE_WRITE_PRICE_FACTOR)
 
     def test_usage_cb_receives_cache_tokens_per_batch(self):
         engine = _claude_engine_with_fake_client(
             _FakeClaudeUsage(input_tokens=10, output_tokens=5, cache_read=90))
         seen = []
-        te.translate_lines_with_engine(_six_lines(), engine, {}, batch_size=3,
+        translate_pipeline.translate_lines_with_engine(_six_lines(), engine, {}, batch_size=3,
                                        usage_cb=lambda *a: seen.append(a))
         assert seen == [(100, 5, 90, 0), (100, 5, 90, 0)]
 
@@ -3074,7 +3087,7 @@ class TestCostCap:
 
     def test_stops_after_the_batch_that_reaches_the_cap_and_keeps_finished_lines(self):
         lines, engine, seen = self._lines(), _PricedEngine(), []
-        _, errors = te.translate_lines_with_engine(
+        _, errors = translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=2, cost_cap_usd=3.0, cap_cb=seen.append)
         assert engine.calls == 2
         assert [ln.en for ln in lines] == ["EN:l0", "EN:l1", "EN:l2", "EN:l3", "", ""]
@@ -3083,12 +3096,12 @@ class TestCostCap:
 
     def test_no_cap_runs_everything(self):
         lines, engine = self._lines(), _PricedEngine()
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
         assert engine.calls == 3 and all(ln.en for ln in lines)
 
     def test_reaching_the_cap_on_the_last_batch_is_not_reported_as_a_stop(self):
         lines, engine, seen = self._lines(4), _PricedEngine(), []
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, cost_cap_usd=4.0,
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, cost_cap_usd=4.0,
                                        cap_cb=seen.append)
         assert engine.calls == 2 and all(ln.en for ln in lines)
         assert seen == []
@@ -3096,27 +3109,27 @@ class TestCostCap:
     def test_a_free_tier_engine_never_hits_a_cap(self):
         lines, engine = self._lines(), _PricedEngine()
         engine.free_tier = True
-        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, cost_cap_usd=0.01)
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2, cost_cap_usd=0.01)
         assert engine.calls == 3
 
 
 class TestResolveCostCap:
     def test_no_caps_means_no_cap(self):
-        assert te.resolve_cost_cap(None, None, 5.0) == (None, None)
-        assert te.resolve_cost_cap(0, 0, 5.0) == (None, None)
+        assert engine_pricing.resolve_cost_cap(None, None, 5.0) == (None, None)
+        assert engine_pricing.resolve_cost_cap(0, 0, 5.0) == (None, None)
 
     def test_job_cap_alone(self):
-        assert te.resolve_cost_cap(2.5, None, 100.0) == (2.5, None)
+        assert engine_pricing.resolve_cost_cap(2.5, None, 100.0) == (2.5, None)
 
     def test_monthly_remaining_alone(self):
-        assert te.resolve_cost_cap(None, 10.0, 7.5) == (pytest.approx(2.5), None)
+        assert engine_pricing.resolve_cost_cap(None, 10.0, 7.5) == (pytest.approx(2.5), None)
 
     def test_the_tighter_of_the_two_wins(self):
-        assert te.resolve_cost_cap(1.0, 10.0, 7.5)[0] == 1.0
-        assert te.resolve_cost_cap(5.0, 10.0, 7.5)[0] == pytest.approx(2.5)
+        assert engine_pricing.resolve_cost_cap(1.0, 10.0, 7.5)[0] == 1.0
+        assert engine_pricing.resolve_cost_cap(5.0, 10.0, 7.5)[0] == pytest.approx(2.5)
 
     def test_monthly_cap_used_up_refuses(self):
-        cap, refusal = te.resolve_cost_cap(5.0, 10.0, 10.0)
+        cap, refusal = engine_pricing.resolve_cost_cap(5.0, 10.0, 10.0)
         assert cap is None
         assert "already used up" in refusal
 
@@ -3125,27 +3138,27 @@ class TestEstimateTranslationCost:
     def test_reflect_estimate_is_three_times_a_normal_run(self):
         engine = _PricedEngine()
         lines = ["你好世界" * 50] * 10
-        assert te.estimate_reflect_mode_cost(engine, lines) == pytest.approx(
-            3 * te.estimate_translation_cost(engine, lines))
+        assert engine_pricing.estimate_reflect_mode_cost(engine, lines) == pytest.approx(
+            3 * engine_pricing.estimate_translation_cost(engine, lines))
 
     def test_free_tier_estimates_zero(self):
         engine = _PricedEngine()
         engine.free_tier = True
-        assert te.estimate_translation_cost(engine, ["你好"] * 100) == 0.0
+        assert engine_pricing.estimate_translation_cost(engine, ["你好"] * 100) == 0.0
 
 
 class TestGemini31FlashLite:
     """Step 9: Gemini 3.1 Flash-Lite is selectable, never the default."""
 
     def test_selectable_but_not_the_default(self):
-        keys = list(te.GEMINI_MODELS)
+        keys = list(engine_pricing.GEMINI_MODELS)
         assert "gemini-3.1-flash-lite" in keys
         assert keys[0] == "gemini-flash-lite-latest"
-        assert te.GeminiEngine("k").model == "gemini-flash-lite-latest"
+        assert engine_gemini.GeminiEngine("k").model == "gemini-flash-lite-latest"
 
     def test_priced_at_the_cheaper_rate(self):
-        assert te.PRICING_PER_MILLION_TOKENS["gemini-3.1-flash-lite"] == {"input": 0.25, "output": 1.50}
-        assert te.estimate_cost("gemini-3.1-flash-lite", 1_000_000, 1_000_000) == pytest.approx(1.75)
+        assert engine_pricing.PRICING_PER_MILLION_TOKENS["gemini-3.1-flash-lite"] == {"input": 0.25, "output": 1.50}
+        assert engine_pricing.estimate_cost("gemini-3.1-flash-lite", 1_000_000, 1_000_000) == pytest.approx(1.75)
 
     def test_reaches_the_api_with_the_right_model_id(self, monkeypatch):
         captured = {}
@@ -3159,7 +3172,7 @@ class TestGemini31FlashLite:
 
         patch_post(monkeypatch, lambda url, headers=None, json=None, timeout=None, stream=None:
                    captured.update(url=url) or FakeResponse())
-        engine = te.get_engine("gemini", "k", "gemini-3.1-flash-lite")
+        engine = engine_registry.get_engine("gemini", "k", "gemini-3.1-flash-lite")
         assert engine.translate_batch(["你好"], {}) == ["Hi."]
         assert captured["url"].endswith("/models/gemini-3.1-flash-lite:generateContent")
 
@@ -3185,14 +3198,14 @@ class TestCancelBetweenBatches:
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(10)]
         engine = FakeFlaggingEngine()
         with pytest.raises(_Stop):
-            te.flag_uncertain_lines(lines, engine, batch_size=3, cancel_check=self._stop_after(1))
+            llm_tasks.flag_uncertain_lines(lines, engine, batch_size=3, cancel_check=self._stop_after(1))
         assert engine.call_count == 1
 
     def test_consistency_stops_between_batches(self):
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(10)]
         engine = FakeFlaggingEngine()
         with pytest.raises(_Stop):
-            te.check_consistency_llm(lines, engine, batch_size=3, cancel_check=self._stop_after(2))
+            llm_tasks.check_consistency_llm(lines, engine, batch_size=3, cancel_check=self._stop_after(2))
         assert engine.call_count == 2
 
     def test_notes_stops_between_batches(self):
@@ -3218,7 +3231,7 @@ def test_failed_flag_batches_are_logged_not_silently_clean(monkeypatch):
         raise RuntimeError("down")
     monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", boom)
     lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(4)]
-    te.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=2)
+    llm_tasks.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=2)
     assert seen == ["flag check failed for 2 of 2 batches; their lines were not checked"]
 
 
@@ -3240,7 +3253,7 @@ class TestEmptyTranslationsAreErrors:
     def test_all_empty_reply_records_error_and_writes_nothing(self):
         lines = self._lines(en="old")
         engine = _EmptyReplyEngine([["", "  ", ""]])
-        _, errors = te.translate_lines_with_engine(
+        _, errors = translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=3, force_retranslate=True)
         assert len(errors) == 1
         assert errors[0]["lines"] == [0, 1, 2]
@@ -3251,7 +3264,7 @@ class TestEmptyTranslationsAreErrors:
     def test_partial_reply_keeps_good_lines(self):
         lines = self._lines()
         engine = _EmptyReplyEngine([["One.", "", "Three."]])
-        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=3)
+        _, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=3)
         assert [l.en for l in lines] == ["One.", "", "Three."]
         assert errors[0]["lines"] == [1]
         assert "1 of 3 lines" in errors[0]["error"]
@@ -3259,7 +3272,7 @@ class TestEmptyTranslationsAreErrors:
     def test_reflect_truncated_reply_records_error(self):
         lines = self._lines()
         engine = _ScriptedReflectEngine(['{"1": "Dra', '{"1": "Cri', '{"1": "Fin'])
-        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=3, reflect=True)
+        _, errors = translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=3, reflect=True)
         assert len(errors) == 1
         assert "got no translation" in errors[0]["error"]
         assert all(l.en == "" for l in lines)
@@ -3284,7 +3297,7 @@ class TestLoadJsonReply:
 
 
 def test_gemini_generate_request_keeps_key_in_header_not_url():
-    from translate_engines import gemini_generate_request
+    from engine_backends.shared import gemini_generate_request
     url, headers = gemini_generate_request("gemini-x", "SECRET-KEY")
     assert url == ("https://generativelanguage.googleapis.com/v1beta/models/"
                    "gemini-x:generateContent")
@@ -3302,19 +3315,19 @@ class TestGeminiReplies:
                 "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}}
 
     def test_every_text_part_is_read(self):
-        assert te.gemini_reply(self._reply(["{\"a\": ", "1}"])) == ("{\"a\": 1}", "STOP")
+        assert engine_gemini.gemini_reply(self._reply(["{\"a\": ", "1}"])) == ("{\"a\": 1}", "STOP")
 
     def test_a_withheld_reply_is_a_block_with_googles_reason(self):
-        with pytest.raises(te.ContentModerationBlocked, match="OTHER_BLOCK"):
-            te.gemini_reply({"promptFeedback": {"blockReason": "OTHER_BLOCK"}})
-        with pytest.raises(te.ContentModerationBlocked, match="RECITATION"):
-            te.gemini_reply(self._reply([], "RECITATION"))
-        assert te.gemini_reply(self._reply([], "STOP")) == ("", "STOP")
+        with pytest.raises(engine_shared.ContentModerationBlocked, match="OTHER_BLOCK"):
+            engine_gemini.gemini_reply({"promptFeedback": {"blockReason": "OTHER_BLOCK"}})
+        with pytest.raises(engine_shared.ContentModerationBlocked, match="RECITATION"):
+            engine_gemini.gemini_reply(self._reply([], "RECITATION"))
+        assert engine_gemini.gemini_reply(self._reply([], "STOP")) == ("", "STOP")
 
     def test_call_llm_json_reads_every_part(self, monkeypatch):
         monkeypatch.setattr("engine_backends.gemini.post_json",
                             lambda *a, **k: (self._reply(["[1, ", "2]"]), {}))
-        assert te.call_llm_json(te.GeminiEngine("fake-key"), "prompt") == "[1, 2]"
+        assert llm_tasks.call_llm_json(engine_gemini.GeminiEngine("fake-key"), "prompt") == "[1, 2]"
 
     def test_call_llm_json_paces_and_counts_every_free_tier_attempt(self, monkeypatch):
         import requests
@@ -3329,12 +3342,12 @@ class TestGeminiReplies:
 
         monkeypatch.setattr("engine_backends.gemini.post_json", post)
         monkeypatch.setattr("engine_backends.shared._cancellable_sleep", lambda s: None)
-        engine = te.GeminiEngine("fake-key", free_tier=True)
+        engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)
         paced = []
         real_throttle = engine._throttle_for_free_tier
         monkeypatch.setattr(engine, "_throttle_for_free_tier",
                             lambda: (paced.append(1), real_throttle()))
-        assert te.call_llm_json(engine, "prompt") == "ok"
+        assert llm_tasks.call_llm_json(engine, "prompt") == "ok"
         assert len(calls) == 2 and len(paced) == 2
         assert engine.rate_status["tpm_used"] == 15  # this call's tokens reach the TPM window
 
@@ -3342,11 +3355,11 @@ class TestGeminiReplies:
         from engine_backends.llm_tasks import bounded_llm_calls
         monkeypatch.setattr("engine_backends.gemini.post_json",
                             lambda *a, **k: ({"promptFeedback": {"blockReason": "SAFETY"}}, {}))
-        engine = te.GeminiEngine("fake-key")
+        engine = engine_gemini.GeminiEngine("fake-key")
         with bounded_llm_calls("job-1", lambda: False):
-            with pytest.raises(te.ContentModerationBlocked, match="SAFETY"):
-                te.call_llm_json(engine, "prompt")
-        assert te.call_llm_json(engine, "prompt", fallback="{}") == "{}"
+            with pytest.raises(engine_shared.ContentModerationBlocked, match="SAFETY"):
+                llm_tasks.call_llm_json(engine, "prompt")
+        assert llm_tasks.call_llm_json(engine, "prompt", fallback="{}") == "{}"
 
     def test_an_http_error_carries_googles_reason_without_the_key(self, monkeypatch):
         import requests
@@ -3356,7 +3369,7 @@ class TestGeminiReplies:
             text = '{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key."}}'
 
         patch_post(monkeypatch, lambda *a, **k: Refused())
-        engine = te.GeminiEngine("AIzaSyFAKEKEY0123456789")
+        engine = engine_gemini.GeminiEngine("AIzaSyFAKEKEY0123456789")
         with pytest.raises(requests.HTTPError) as err:
             engine.translate_batch(["你好"], {})
         assert "API key not valid" in str(err.value)
@@ -3389,10 +3402,10 @@ class TestChatTaskReplies:
     def test_no_choices_is_an_empty_reply_not_an_index_error(self):
         from engine_backends.llm_tasks import bounded_llm_calls
         engine = self._engine([])
-        assert te.call_llm_json(engine, "prompt") == ""
+        assert llm_tasks.call_llm_json(engine, "prompt") == ""
         with bounded_llm_calls("job-1", lambda: False):
             with pytest.raises(RuntimeError, match="empty reply"):
-                te.call_llm_json(engine, "prompt")
+                llm_tasks.call_llm_json(engine, "prompt")
 
     def test_a_claude_refusal_fails_a_bounded_call(self):
         from engine_backends.llm_tasks import bounded_llm_calls
@@ -3415,9 +3428,9 @@ class TestChatTaskReplies:
                 return Resp()
 
         with bounded_llm_calls("job-1", lambda: False):
-            with pytest.raises(te.ContentModerationBlocked, match="refusal"):
-                te.call_llm_json(Claude(), "prompt")
-        assert te.call_llm_json(Claude(), "prompt") == ""
+            with pytest.raises(engine_shared.ContentModerationBlocked, match="refusal"):
+                llm_tasks.call_llm_json(Claude(), "prompt")
+        assert llm_tasks.call_llm_json(Claude(), "prompt") == ""
 
 
 class TestGeminiQuotaReplies:
@@ -3451,8 +3464,8 @@ class TestGeminiQuotaReplies:
              "violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}])
         slept = []
         monkeypatch.setattr("engine_backends.shared._cancellable_sleep", slept.append)
-        with pytest.raises(te.FreeTierDailyLimitReached, match="daily request limit"):
-            te.call_llm_json(te.GeminiEngine("fake-key", free_tier=True), "prompt")
+        with pytest.raises(engine_shared.FreeTierDailyLimitReached, match="daily request limit"):
+            llm_tasks.call_llm_json(engine_gemini.GeminiEngine("fake-key", free_tier=True), "prompt")
         assert len(calls) == 1 and slept == []
 
     def test_the_bodys_retry_delay_is_waited(self, monkeypatch):
@@ -3464,12 +3477,12 @@ class TestGeminiQuotaReplies:
         slept = []
         monkeypatch.setattr("engine_backends.shared._cancellable_sleep", slept.append)
         monkeypatch.setattr("engine_backends.shared._jitter", lambda: 1.0)
-        assert te.call_llm_json(te.GeminiEngine("fake-key"), "prompt") == "ok"
+        assert llm_tasks.call_llm_json(engine_gemini.GeminiEngine("fake-key"), "prompt") == "ok"
         assert len(calls) == 2 and slept == [37.0]  # the plain backoff would wait 2 s
 
     def test_a_fallback_chain_moves_on_from_a_spent_daily_quota(self):
         from engine_backends.fallback import is_fallback_error, is_transient_fallback_error
-        spent = te.FreeTierDailyLimitReached("daily request limit")
+        spent = engine_shared.FreeTierDailyLimitReached("daily request limit")
         assert is_fallback_error(spent) and not is_transient_fallback_error(spent)
 
 
@@ -3479,9 +3492,9 @@ def test_a_content_block_is_not_retried(monkeypatch):
 
     def blocked():
         calls.append(1)
-        raise te.ContentModerationBlocked("gemini", "SAFETY")
+        raise engine_shared.ContentModerationBlocked("gemini", "SAFETY")
 
     monkeypatch.setattr("engine_backends.shared._cancellable_sleep", lambda s: None)
-    with pytest.raises(te.ContentModerationBlocked):
-        te.call_with_backoff(blocked)
+    with pytest.raises(engine_shared.ContentModerationBlocked):
+        engine_shared.call_with_backoff(blocked)
     assert calls == [1]

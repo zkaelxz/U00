@@ -15,7 +15,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import db
-import translate_engines
+from engine_backends import engine_registry, llm_tasks
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -56,15 +56,15 @@ class _Judge:
 
 @pytest.fixture
 def engines(monkeypatch):
-    monkeypatch.setitem(translate_engines.ENGINES, "claude", _Tested)
-    monkeypatch.setitem(translate_engines.ENGINES, "deepseek", _Judge)
+    monkeypatch.setitem(engine_registry.ENGINES, "claude", _Tested)
+    monkeypatch.setitem(engine_registry.ENGINES, "deepseek", _Judge)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda n, env_path=None: SECRET)
 
     def fake_llm(engine, prompt, max_tokens=0, fallback="", usage_cb=None):
         ids = re.findall(r"^\[(\d+)\]", prompt, flags=re.M)
         return json.dumps({i: {"accuracy": 1, "tone": 1, "naturalness": 1} for i in ids})
 
-    monkeypatch.setattr(translate_engines, "call_llm_json", fake_llm)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", fake_llm)
 
 
 class TestBuildFromTitle:

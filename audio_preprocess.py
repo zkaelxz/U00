@@ -490,10 +490,10 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         except VocalSeparationError:
             raise  # a cancel or the guard's own message: not a model-load failure
         except Exception as exc:
-            import translate_engines
+            from engine_backends import shared
             raise VocalSeparationError(
                 f"audio-separator failed to load model '{model}': "
-                f"{translate_engines.redact_secrets(str(exc))}") from exc
+                f"{shared.redact_secrets(str(exc))}") from exc
         if event_cb:
             event_cb("device", _device_kind(getattr(separator, "torch_device", None)))
 

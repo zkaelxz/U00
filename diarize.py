@@ -329,7 +329,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     except Exception as exc:
         if device != "cuda" or not is_cuda_oom(exc):
             raise
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         oom_reason = redact_secrets(f"{type(exc).__name__}: {exc}")[:200]
     if oom_reason is not None:
         # Retried outside the except block so the failed run's traceback no
@@ -420,7 +420,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
             return
         # The plain sentence, not "No module named 'pyannote'"; the import
         # error still goes to the server log with the result.
-        from translate_engines import redact_secrets
+        from engine_backends.shared import redact_secrets
         result_queue.put(("ok", {"failed_reason": "dependency_missing",
                                  "detail": NO_PYANNOTE_NOTICE,
                                  "import_error": redact_secrets(f"{type(exc).__name__}: {exc}")}))
@@ -429,7 +429,7 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
         if _hf_access_refused(exc):
             # The plain sentence, not huggingface_hub's text with the model's
             # URL in it; the error itself still goes to the server log.
-            from translate_engines import redact_secrets
+            from engine_backends.shared import redact_secrets
             result_queue.put(("ok", {"failed_reason": "dependency_missing",
                                      "detail": NO_TOKEN_NOTICE,
                                      "access_error": redact_secrets(f"{type(exc).__name__}: {exc}")}))

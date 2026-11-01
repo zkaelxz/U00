@@ -24,10 +24,10 @@ from jobs import job_launch
 import job_process_kill
 import browser_support
 import diagnostics_report
-import translate_engines
+from engine_backends import shared
 from lib.proc import stream_tree
 from services import diagnostics_admin_service as admin_svc
-from services.service_errors import ConflictError
+from lib.errors import ConflictError
 
 BROWSER_JOB_ID = "browser_install"
 INSTALL_TIMEOUT_SECONDS = 15 * 60
@@ -53,7 +53,7 @@ class AlreadyAvailable(admin_svc.AdminActionRefused, ConflictError):
 def _clean(text) -> str:
     """Secrets out first, then filesystem paths (the install folder shows
     up in Playwright's own output)."""
-    out = translate_engines.redact_secrets("" if text is None else str(text))
+    out = shared.redact_secrets("" if text is None else str(text))
     return diagnostics_report.redact_for_support(out)[:OUTPUT_LINE_CHARS]
 
 

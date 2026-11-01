@@ -50,7 +50,7 @@ must be a top-level picklable function whose last parameter is a
   `jobs_service._with_live_progress` overlays the live progress and message from
   `background_jobs.get_status` while the job runs in this process.
 - Text going into `job_records` (it lands in backups) passes `job_store._storage_text`
-  (`translate_engines.redact_for_storage`); the result is stored as the allow-listed
+  (`engine_backends.shared.redact_for_storage`); the result is stored as the allow-listed
   projection (`jobs_service.project_result_json`).
 - A write also notifies change listeners (`add_change_listener`), which is how
   the SSE stream (`services/event_stream_service.py`) learns a job changed.
@@ -500,7 +500,7 @@ A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and
 ## Rules learned from bugs
 
 - Jobs write only the fields they own (`fields=...`); match results to lines by id.
-- Pass any error text through `translate_engines.redact_secrets` before it is stored,
+- Pass any error text through `engine_backends.shared.redact_secrets` before it is stored,
   shown or logged. `job_records` and every response are redacted again on the way out.
 - Do not hold `_lock` while doing slow work (database, files, `join`, hooks); `on_done`
   and `on_finish` run outside it.
@@ -517,7 +517,7 @@ A job closed by a restart reads `cancelled` with an `Interrupted: ...` error and
    `DRAMA_JOB_PREFIXES`, and to `LINE_WRITING_JOB_PREFIXES` only if it writes its own
    line fields and is safe beside other jobs) or a fixed `*_JOB_ID` constant.
 2. Put the logic in a `services/*_service.py` function: check ownership
-   (`services/ownership_service.py`), validate, raise the `service_errors` types, and
+   (`services/ownership_service.py`), validate, raise the `lib.errors` types, and
    turn a `False` from the start into `ConflictError`.
 3. Choose thread or process. Process if there is no cancel checkpoint or it needs CUDA
    (then `start_method="spawn"`, and `kill_whole_tree=True` plus

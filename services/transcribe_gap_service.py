@@ -27,7 +27,7 @@ from services import (
     transcribe_pipeline,
     transcribe_service,
 )
-from services.service_errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
+from lib.errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
 
 MIN_GAP_SECONDS = 2.0
 # One transcription window per added line: Whisper does best on short windows,

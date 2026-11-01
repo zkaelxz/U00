@@ -6,7 +6,8 @@ Batch API, and DeepSeek's off-peak window.
 import datetime
 import json
 
-import translate_engines
+from engine_backends import shared
+from engine_backends import pricing as engine_pricing
 from engine_backends.run_limits import FailureStreak
 from lib import http
 
@@ -48,7 +49,7 @@ class ClaudeBatchProvider:
         try:
             return fn()
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
-            raise BulkAuthError(translate_engines.redact_secrets(str(e))) from e
+            raise BulkAuthError(shared.redact_secrets(str(e))) from e
 
     def submit(self, requests_: list) -> str:
         return self._call(lambda: self.client.messages.batches.create(requests=requests_)).id
@@ -63,7 +64,7 @@ class ClaudeBatchProvider:
             if r.result.type == "succeeded":
                 msg = r.result.message
                 text = "".join(b.text for b in msg.content if b.type == "text").strip()
-                yield r.custom_id, text, translate_engines.claude_usage(msg.usage), None
+                yield r.custom_id, text, shared.claude_usage(msg.usage), None
             else:
                 yield r.custom_id, None, {}, r.result.type
 
@@ -154,7 +155,7 @@ class GeminiBatchProvider:
             except (KeyError, IndexError, TypeError):
                 yield key, None, {}, "empty response"
                 continue
-            yield key, text, translate_engines.gemini_usage(r.get("usageMetadata")), None
+            yield key, text, shared.gemini_usage(r.get("usageMetadata")), None
 
     def cancel(self, batch_id: str):
         self._send("POST", f"{self.BASE}/{batch_id}:cancel", 60, json={})
@@ -294,7 +295,7 @@ def offpeak_cap(job: dict, monthly_cap_usd):
     """(cap, refusal) for an off-peak run about to start."""
     import db
     left = job_cap_left(job)
-    cap, refusal = translate_engines.resolve_cost_cap(
+    cap, refusal = engine_pricing.resolve_cost_cap(
         left if left and left > 0 else None, monthly_cap_usd,
         db.get_month_spend() if monthly_cap_usd else 0.0)
     return cap, refusal or run_refusal(cap, left)

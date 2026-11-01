@@ -20,7 +20,9 @@ from core import LANGUAGE_NAMES
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import load_json_reply
-from translate_engines import PRONOUN_DEFAULT_MARKER, call_llm_json, parse_json_array
+from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
+from engine_backends.llm_tasks import call_llm_json
+from engine_backends.shared import parse_json_array
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +423,7 @@ def build_translation_notes_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     id_fn(ln) (position by default, matching generate_translation_notes_llm's
     own "line_idx" output field). bulk_translate.py's bulk submission
     passes id_fn=lambda ln: ln.id -- see
-    translate_engines.build_flag_prompt's docstring for why a permanent
+    engine_backends.llm_tasks.build_flag_prompt's docstring for why a permanent
     id matters once results can come back hours later."""
     types_desc = "\n".join(f"  - {k}: {v}" for k, v in NOTE_TYPES.items())
     pairs = "\n".join(f"[{id_fn(ln)}] {ln.zh} → {ln.en}" for ln in batch)
@@ -489,7 +491,7 @@ def group_notes_by_line(notes) -> dict:
     inlining them into the subtitle track has nowhere sensible to go;
     they're still in the Markdown appendix and the in-app Reader.
     The reflection notes (note_type "reflection" -- see
-    translate_engines.translate_lines_with_engine's notes_cb) are dropped
+    engine_backends.translate_pipeline.translate_lines_with_engine's notes_cb) are dropped
     too --
     a translator's own reasoning about a line's wording is for review,
     not a reader-facing aside, and it has no `term` to introduce it
