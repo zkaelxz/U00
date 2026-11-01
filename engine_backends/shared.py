@@ -452,6 +452,19 @@ def is_english_line(line) -> bool:
     return getattr(line, "lang", None) == "en"
 
 
+def strip_echoed_label(speaker, reply: str) -> str:
+    """The reply without a leading "[Name]" copied from the numbered block, where
+    Name is this line's own speaker label. Any other bracket is the model's text
+    (a stage direction, a test marker) and stays."""
+    if not reply or not speaker:
+        return reply
+    match = re.match(r"^\s*\[([^\[\]\n]{1,40})\]\s*", reply)
+    if not match or match.group(1).strip().casefold() != str(speaker).strip().casefold():
+        return reply
+    stripped = reply[match.end():]
+    return stripped if stripped.strip() else reply
+
+
 def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None,
                          languages: list = None) -> str:
     """
