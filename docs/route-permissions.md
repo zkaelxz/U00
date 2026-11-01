@@ -15,6 +15,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-admin` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-sessions` | admin.users |
+| `GET /api/app/android` | library.read |
+| `GET /api/app/android/apk` | library.read |
 | `GET /api/artifacts/dramas/{drama_id}/{kind}` | media.stream |
 | `GET /api/artifacts/dramas/{drama_id}/{kind}/info` | library.read |
 | `POST /api/assistant/ask` | local_only() |
