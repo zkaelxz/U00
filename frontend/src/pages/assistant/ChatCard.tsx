@@ -12,11 +12,10 @@ import { humanize } from '../../components/labels'
 import { Section } from '../../components/Section'
 import { Sheet } from '../../components/Sheet'
 import { buttonClass } from '../../components/uiClasses'
-import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, ChatTurn, GithubStatus, SuggestedBacklogItem } from '../../types/assistant'
+import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, ChatTurn, SuggestedBacklogItem } from '../../types/assistant'
 import { useStoredState } from '../../hooks/useStoredRun'
 import { CloudConsent } from './CloudConsent'
 import { CopyButton } from './CopyButton'
-import { DeliverPr } from './DeliverPr'
 import { verdictInfo } from './reviewFormat'
 import {
   MODE_OFF_TEXT,
@@ -55,10 +54,9 @@ type Props = {
   onModeOff: () => void
   onAddToBacklog: AddToBacklog
   // GitHub delivery status (null: not loaded / PC-only).
-  github?: GithubStatus | null
 }
 
-export function ChatCard({ settings, engine, model, onEngine, onModel, onSettings, onModeOff, onAddToBacklog, github = null }: Props) {
+export function ChatCard({ settings, engine, model, onEngine, onModel, onSettings, onModeOff, onAddToBacklog }: Props) {
   // The conversation is kept in this browser (cleared at sign-out) so leaving the page doesn't lose
   // an answer that took a minute to get.
   const [exchanges, setExchanges] = useStoredState<Exchange[]>(CHAT_KEY, NO_EXCHANGES, isExchangeList, {
@@ -154,7 +152,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
                   Cancelled. The assistant may still finish on the PC, but its answer is not shown.
                 </p>
               ) : x.response ? (
-                <Answer response={x.response} question={x.question} github={github} onAddToBacklog={onAddToBacklog} />
+                <Answer response={x.response} onAddToBacklog={onAddToBacklog} />
               ) : x.error ? (
                 <p className="error" role="alert">
                   {x.error}
@@ -430,9 +428,9 @@ function LadderSection({ settings, onSettings }: { settings: AssistantSettings; 
   )
 }
 
-type AnswerProps = { response: AskResponse; question: string; github: GithubStatus | null; onAddToBacklog: AddToBacklog }
+type AnswerProps = { response: AskResponse; onAddToBacklog: AddToBacklog }
 
-function Answer({ response, question, github, onAddToBacklog }: AnswerProps) {
+function Answer({ response, onAddToBacklog }: AnswerProps) {
   const calls = response.tool_calls ?? []
   return (
     <div className="assistant-response">
@@ -467,8 +465,6 @@ function Answer({ response, question, github, onAddToBacklog }: AnswerProps) {
           </figcaption>
           <pre className="assistant-pre">{p.patch}</pre>
           <CopyButton text={p.patch} label="Copy proposed fix" />
-          {/* Keyed by repo and base: changing either drops an open preview. */}
-          <DeliverPr key={`${github?.repo ?? ''}|${github?.base_branch ?? ''}`} patch={p.patch} question={question} github={github} />
         </figure>
       ))}
       {response.review && <Review review={response.review} />}

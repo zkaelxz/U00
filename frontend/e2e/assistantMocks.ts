@@ -65,10 +65,6 @@ interface AssistantMock {
   rolesEnabled: boolean
   reviewEngine: string | null
   review: unknown
-  /** GitHub delivery state (the token is only ever a boolean here). */
-  github: { enabled: boolean; repo: string | null; base_branch: string; token_configured: boolean; branch_prefix: string }
-  /** Status for POST /github/token (403 = key writes off). */
-  tokenStatus: number
   /** Lead review: per cloud engine consent. When set, /ask refuses a cloud engine without it (409). */
   cloudConsent: Record<string, boolean> | null
   /** The escalation ladder. When set, /ask labels answers with their tier and refuses an unconfirmed cloud escalation. */
@@ -85,8 +81,7 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     backlog: [{ id: 1, kind: 'note', text: 'Tidy the Export stage copy.', created_at: '2026-09-28T09:30:00' }],
     askStatus: 200, askGate: null, calls: [], unmocked: [], cloudConsent: null,
     rolesEnabled: false, reviewEngine: null, review: null,
-    github: { enabled: false, repo: null, base_branch: 'baihe-subtitler', token_configured: false, branch_prefix: 'baihe-assistant/' },
-    tokenStatus: 200, tiers: null, failing: [], ...over,
+    tiers: null, failing: [], ...over,
   }
   const isLocal = (e: string) => e === 'ollama'
   const ladder = () =>
@@ -210,47 +205,6 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     s.backlog = []
     return json(route, { deleted: n })
   })
-  // GitHub delivery.
-  await page.route(/\/api\/assistant\/github$/, (route) => {
-    record(route)
-    return json(route, s.github)
-  })
-  await page.route(/\/api\/assistant\/github\/settings$/, (route) => {
-    record(route)
-    const b = route.request().postDataJSON() as Partial<AssistantMock['github']>
-    s.github = { ...s.github, ...b, base_branch: b.base_branch === null ? 'baihe-subtitler' : (b.base_branch ?? s.github.base_branch) }
-    return json(route, s.github)
-  })
-  await page.route(/\/api\/assistant\/github\/token$/, (route) => {
-    record(route)
-    if (s.tokenStatus !== 200) return json(route, FORBIDDEN, s.tokenStatus)
-    s.github = { ...s.github, token_configured: true }
-    return json(route, { token_configured: true })
-  })
-  await page.route(/\/api\/assistant\/github\/token\/clear$/, (route) => {
-    record(route)
-    s.github = { ...s.github, token_configured: false }
-    return json(route, { token_configured: false })
-  })
-  await page.route(/\/api\/assistant\/github\/test$/, (route) => {
-    record(route)
-    return json(route, { ok: true, repo: s.github.repo, default_branch: 'main', can_push: true, base_branch: s.github.base_branch, base_exists: true })
-  })
-  await page.route(/\/api\/assistant\/github\/preview$/, (route) => {
-    record(route)
-    const b = route.request().postDataJSON() as { patch: string; title: string }
-    return json(route, {
-      repo: s.github.repo, base_branch: s.github.base_branch, branch_prefix: 'baihe-assistant/', title: b.title,
-      files: [{ path: 'services/dub_service.py', change: 'modify' }], patch: b.patch, sha256: 'f'.repeat(64),
-    })
-  })
-  await page.route(/\/api\/assistant\/github\/deliver$/, (route) => {
-    record(route)
-    return json(route, {
-      pr_url: 'https://github.com/me/app/pull/7', pr_number: 7, branch: 'baihe-assistant/fix-20260930-101010',
-      base_branch: s.github.base_branch, repo: s.github.repo, files: [{ path: 'services/dub_service.py', change: 'modify' }],
-    })
-  })
   return s
 }
 
@@ -258,9 +212,8 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
 const TAB_OF: Record<string, string> = {
   Backlog: 'Work list',
   Changelog: 'Work list',
-  'GitHub pull requests': 'GitHub and tools',
-  Tools: 'GitHub and tools',
-  'Independent review': 'GitHub and tools',
+  Tools: 'Tools',
+  'Independent review': 'Tools',
   'Ask the assistant': 'Ask',
 }
 
