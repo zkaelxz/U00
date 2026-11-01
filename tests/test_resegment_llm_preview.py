@@ -10,7 +10,7 @@ import background_jobs
 from jobs import job_launch, process_worker
 import db
 import resegment
-import translate_engines
+from engine_backends import engine_registry
 from core import Line
 from services import jobs_service, resegmentation_service, settings_service, translate_service
 from lib.errors import (ConflictError, NotFoundError,
@@ -30,7 +30,7 @@ def _env(isolated_db, monkeypatch):
     resegmentation_service._llm_previews.clear()
     monkeypatch.setattr(resegment, "word_boundaries", lambda *a, **k: None)
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     yield
     background_jobs.clear_all_jobs()
     resegmentation_service._llm_previews.clear()

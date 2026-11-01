@@ -20,7 +20,7 @@ Domain-free helpers (`errors.py`, `url_guard.py`, `capped_body.py`) live in `lib
   build Lines with `core.line_from_row`.
 - Every HTTP call has `timeout=` (enforced for all of `services/`). Fetch user-given
   URLs through `safe_fetch.py` / `lib/url_guard.py`.
-- Pass error text through `translate_engines.redact_secrets` before storing or returning it.
+- Pass error text through `engine_backends.shared.redact_secrets` before storing or returning it.
 
 ## Tests
 - `tests/test_<name>_service.py` or `tests/test_<area>.py`, e.g. `test_drama_service.py`,

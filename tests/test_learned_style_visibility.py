@@ -14,7 +14,7 @@ import background_jobs
 import core
 import db
 import line_tools
-import translate_engines
+from engine_backends import engine_registry
 from core import Line
 from services import (library_admin_service, line_ai_service, ownership_service,
                       review_extras_service, review_jobs_service, review_records_service,
@@ -131,7 +131,7 @@ def test_member_line_improve_leaves_out_someone_elses_profile(people, acting, mo
         model = "fake-model"
         supports_reference = True
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
     seen = {}
 
     def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle"):
@@ -196,7 +196,7 @@ def test_bulk_translate_job_uses_its_starters_view(people, monkeypatch):
         seen.append(out[1])
         return out
     monkeypatch.setattr(workspace_job_service, "build_run_style_context", spy)
-    monkeypatch.setattr(workspace_job_service.translate_engines, "get_engine",
+    monkeypatch.setattr(engine_registry, "get_engine",
                         lambda *a, **k: object())
     monkeypatch.setattr(workspace_job_service.job_launch, "start_job", lambda *a, **k: False)
     monkeypatch.setattr(workspace_job_service.db, "get_month_spend", lambda: 0.0)
@@ -214,7 +214,7 @@ def learner(monkeypatch):
     class Engine:
         supports_reference = True
         model = "fake-model"
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Engine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: Engine())
     calls = []
 
     def analyze(samples, engine, existing_profile=None, usage_cb=None):

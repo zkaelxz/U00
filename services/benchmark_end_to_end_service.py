@@ -9,7 +9,7 @@ import json
 
 import background_jobs
 import db
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 from services import transcribe_options_service
 from services.benchmark_case_service import (LAB_BACKENDS, ignored_options, model_identity, require_backend_fits_cases,
                                              require_backend_ready, require_whisper_fits_cases,

@@ -11,7 +11,8 @@ import pytest
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry, pricing
+from engine_backends import local as engine_local
 from services import benchmark_lab_service as lab
 from services import benchmark_sweep_core as sweep_core
 from services import benchmark_translate_sweep_service as tsweep
@@ -46,15 +47,15 @@ class FakeEngine:
 def _env(monkeypatch, isolated_db):
     background_jobs.clear_all_jobs()
     tsweep._store.active["id"] = None
-    monkeypatch.setitem(translate_engines.ENGINES, ENGINE, FakeEngine)
+    monkeypatch.setitem(engine_registry.ENGINES, ENGINE, FakeEngine)
     monkeypatch.setattr(translate_service, "resolve_api_key",
                         lambda name, env_path=None: "sk-test-key-12345" if name == ENGINE else None)
     # Small ranges keep the sweep short; the winner is a batch of two.
     monkeypatch.setattr(tsweep, "KNOBS", (("batch_size", "Batch size", (2,)),
                                           ("context_window", "Context lines before", (0, 3))))
     # Ollama's model list is read from its server; no test may depend on one running here.
-    monkeypatch.setattr(tsweep.translate_engines, "pulled_ollama_models", lambda url: [])
-    monkeypatch.setattr(tsweep.translate_engines, "check_ollama_reachable", lambda url: True)
+    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda url: [])
+    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda url: True)
     FakeEngine.calls, FakeEngine.fail = [], False
     yield
     background_jobs.clear_all_jobs()
@@ -171,7 +172,7 @@ class TestSweep:
 
     def test_on_ollama_only_pulled_local_models_are_tried(self, monkeypatch):
         _cases()
-        monkeypatch.setattr(tsweep.translate_engines, "pulled_ollama_models", lambda url: ["qwen3:8b", "local-a"])
+        monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda url: ["qwen3:8b", "local-a"])
         monkeypatch.setattr(translate_service, "list_engines", lambda **k: [
             {"name": "ollama", "models": ["qwen3:8b", "local-a", "not-pulled:7b", "gemma4:31b-cloud"]}])
         monkeypatch.setattr(tsweep.lab, "check_config", lambda stage, cfg: {**cfg, "options": cfg["options"] or {}})
@@ -187,7 +188,7 @@ class TestSweep:
 
     def test_with_ollama_down_its_models_are_left_out_for_that_reason(self, monkeypatch):
         _cases()
-        monkeypatch.setattr(tsweep.translate_engines, "check_ollama_reachable", lambda url: False)
+        monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda url: False)
         assert all(m["reason"] == "Could not reach Ollama." for m in tsweep._model_choices("ollama", ["local-a"]))
 
     def test_a_series_is_part_of_every_pass_and_never_swept(self):
@@ -333,12 +334,12 @@ class TestMoney:
     def test_the_cap_stops_a_pass_and_the_sweep_says_so(self, monkeypatch):
         _cases()
         calls = {"n": 0}
-        real = tsweep.translate_engines.resolve_cost_cap
+        real = pricing.resolve_cost_cap
 
         def tight(job_left, monthly, spend):
             calls["n"] += 1
             return (0.0000001, None) if calls["n"] > 1 else real(job_left, monthly, spend)
-        monkeypatch.setattr(lab.translate_engines, "resolve_cost_cap", tight)
+        monkeypatch.setattr(pricing, "resolve_cost_cap", tight)
         out = _sweep()
         assert out["status"] == "failed" and "did not finish" in out["note"]
 

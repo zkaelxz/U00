@@ -14,7 +14,7 @@ existing entries with new information rather than starting over.
 """
 
 from engine_backends.shared import load_json_reply
-from translate_engines import call_llm_json
+from engine_backends.llm_tasks import call_llm_json
 
 ENTRY_TYPES = {
     "character": "A person in the story",

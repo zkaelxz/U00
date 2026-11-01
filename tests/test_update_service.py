@@ -998,7 +998,7 @@ def _refused(match, error=ConflictError):
     with pytest.raises(error, match=match) as info:
         us.download()
     message = us._plain_error(info.value)
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     assert message == redact_secrets(message)
     assert "http" not in message and "/" not in message and "\\" not in message
     assert us.status()["verified"] is False

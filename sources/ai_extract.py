@@ -3,7 +3,7 @@ sources/ai_extract.py -- content extraction with an LLM as the *fallback*,
 plus the independent confidence checks every result goes through.
 
 This is metadata_lookup.py's pattern (one strict "return ONLY JSON, null
-for anything not found" prompt through translate_engines.call_llm_json)
+for anything not found" prompt through engine_backends.llm_tasks.call_llm_json)
 applied to a different job: the chapter itself rather than its catalog
 entry. Two rules make that safe for real content:
 
@@ -355,7 +355,7 @@ def ask_json(engine, prompt: str, max_tokens: int = 2000):
     """The sources package's one call_llm_json: via prompt_safe(), logged to the
     usage log. Returns the parsed JSON object or None."""
     from engine_backends.paid_calls import logged_calls
-    from translate_engines import call_llm_json
+    from engine_backends.llm_tasks import call_llm_json
     with logged_calls(engine, "sources_ai_fallback"):
         text = call_llm_json(engine, prompt_safe(prompt), max_tokens=max_tokens, fallback=None)
     if not text:

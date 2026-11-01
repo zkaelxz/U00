@@ -354,7 +354,7 @@ class TestTranslationIdsAreLineIds:
     def test_the_model_is_asked_for_the_lines_real_ids(self, isolated_db):
         """R5's id-keyed prompts used 1..n within each batch; they now use
         the permanent line id."""
-        import translate_engines as te
+        from engine_backends import shared, translate_pipeline
         did = isolated_db.create_drama(title_en="D")
         untranslated = _lines("你好", "再见", short=False)
         for ln in untranslated:
@@ -370,11 +370,11 @@ class TestTranslationIdsAreLineIds:
         class Engine:
             supports_reference = True
             def translate_batch(self, zh_lines, context):
-                return te.request_translations_with_retry(
+                return shared.request_translations_with_retry(
                     zh_lines, context.get("speaker_labels"), call_model,
                     line_ids=context.get("line_ids"))
 
-        te.translate_lines_with_engine(lines, Engine(), drama_meta={})
+        translate_pipeline.translate_lines_with_engine(lines, Engine(), drama_meta={})
         assert f"{lines[0].id}. 你好" in seen["numbered"]
         assert [ln.en for ln in lines] == ["T0", "T1"]
 
@@ -382,14 +382,14 @@ class TestTranslationIdsAreLineIds:
 def test_translate_job_whose_lines_were_replaced_records_no_version(isolated_db, monkeypatch):
     import background_jobs
     from jobs import job_table
-    import translate_engines
+    from engine_backends import translate_pipeline
     from services.workspace_job_service import run_translate_job
     did = isolated_db.create_drama(title_en="D", status="aligned")
     isolated_db.save_lines(did, _lines("a", short=False))
     job_lines = isolated_db.load_line_objects(did)
     # A new transcription lands while the job runs: every line replaced
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="new")])
-    monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine",
                         lambda lines, engine, **kw: (lines, []))
     job_id = "test_replaced_lines"
     job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",

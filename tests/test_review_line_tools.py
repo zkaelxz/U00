@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 import db
 import line_tools
-import translate_engines
+from engine_backends import engine_registry, llm_tasks
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -34,7 +34,7 @@ class FakeEngine:
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
-    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: FakeEngine())
 
 
 @pytest.fixture
@@ -222,7 +222,7 @@ class TestShorten:
             for w in work:
                 w.en = "short"
             return work
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake_rewrite)
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm", fake_rewrite)
         r = client.post(_shorten(did), json={"confirm": True, "engine": "ollama", "line_ids": [ids[0], ids[1]]})
         body = r.json()
         assert body["shortened"] == 0 and body["stale"] == 1
@@ -235,14 +235,14 @@ class TestShorten:
     def test_nothing_overlong_calls_nothing(self, client, monkeypatch):
         did, _ = _seed()
         _forbid_writes(monkeypatch)
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
         r = client.post(_shorten(did), json={"confirm": True})
         assert r.status_code == 200 and r.json()["shortened"] == 0
 
     def test_unchanged_writes_nothing(self, client, monkeypatch):
         did, _ = _overlong_drama()
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda work, engine, usage_cb=None: work)
         r = client.post(_shorten(did), json={"confirm": True})
         assert r.json()["unchanged"] == 2 and not r.json()["snapshot_saved"]
@@ -258,7 +258,7 @@ class TestShorten:
             for w in work:
                 w.en = "s"
             return work
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm", fake)
         body = client.post(_shorten(did), json={"confirm": True}).json()
         assert seen == [2] and body["shortened"] == 2 and body["remaining"] == 3
 
@@ -270,7 +270,7 @@ class TestShorten:
             for w in work:
                 w.en = "s"
             return work
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm", fake)
         first = client.post(_shorten(did), json={"confirm": True}).json()
         second = client.post(_shorten(did), json={"confirm": True}).json()
         assert first["snapshot_saved"] and not second["snapshot_saved"]
@@ -294,7 +294,7 @@ class TestShorten:
             for w in work:
                 w.en = "s"
             return work
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm", fake)
         assert client.post(_shorten(did), json={"confirm": True}).json()["snapshot_saved"]
         manual = "my own words " + LONG
         before = db.load_line_objects(did)[edited].en
@@ -319,7 +319,7 @@ class TestShorten:
             for w in work:
                 w.en = "s"
             return work
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm", fake)
         assert client.post(_shorten(did), json={"confirm": True}).json()["snapshot_saved"]
         lines = db.load_line_objects(did)
         for f, v in change.items():
@@ -333,7 +333,7 @@ class TestShorten:
     def test_confirm_must_be_a_real_boolean(self, client, monkeypatch):
         did, _ = _overlong_drama()
         _forbid_writes(monkeypatch)
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
         for bad in ("yes", "true", 1, "1"):
             assert client.post(_shorten(did), json={"confirm": bad}).status_code == 422
@@ -341,7 +341,7 @@ class TestShorten:
     def test_needs_confirm(self, client, monkeypatch):
         did, _ = _overlong_drama()
         _forbid_writes(monkeypatch)
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
         assert client.post(_shorten(did), json={}).status_code == 422
         assert client.post(_shorten(did), json={"confirm": False}).status_code == 422
@@ -353,7 +353,7 @@ class TestShorten:
         did, _ = _overlong_drama()
         _forbid_writes(monkeypatch)
         monkeypatch.setattr(drama_service, "job_running_for_drama", lambda d: d == did)
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
         r = client.post(_shorten(did), json={"confirm": True})
         assert r.status_code == 409 and "job" in r.json()["error"]["message"]
@@ -382,7 +382,7 @@ class TestMonthlyCap:
     def test_paid_engine_refused_when_cap_used_up(self, client, monkeypatch, tool):
         did, ids = _seed()
         called = []
-        monkeypatch.setattr(translate_engines, "get_engine",
+        monkeypatch.setattr(engine_registry, "get_engine",
                             lambda *a, **k: called.append(1) or FakeEngine())
         r = client.post(_ai(did, ids[0], tool), json={"engine": "claude"})
         assert r.status_code == 400 and "spending cap" in r.json()["error"]["message"]
@@ -396,7 +396,7 @@ class TestMonthlyCap:
     def test_shorten_paid_refused_free_allowed(self, client, monkeypatch):
         did, _ = _overlong_drama()
         _forbid_writes(monkeypatch)
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda work, engine, usage_cb=None: work)
         r = client.post(_shorten(did), json={"confirm": True, "engine": "deepseek"})
         assert r.status_code == 400 and "spending cap" in r.json()["error"]["message"]
@@ -515,7 +515,7 @@ class TestPermissions:
 
     def test_shorten_needs_lines_edit_and_paid_gate(self, remote, monkeypatch):
         did, _ = _overlong_drama()
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda work, engine, usage_cb=None: work)
         url = _shorten(did)
         reader = _user("r@example.com", "lines.read", "engines.paid")
@@ -532,10 +532,10 @@ class TestPermissions:
                             lambda *a, **k: [{"translation": "x"}])
         monkeypatch.setattr(line_tools, "grammar_breakdown",
                             lambda *a, **k: [{"word": "w", "meaning": "m"}])
-        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+        monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda work, engine, usage_cb=None: work)
         built = []
-        monkeypatch.setattr(translate_engines, "get_engine",
+        monkeypatch.setattr(engine_registry, "get_engine",
                             lambda name, *a, **k: built.append(name) or FakeEngine())
         household = _user("h@example.com", "lines.read", "lines.edit")
         for engine, status in (("ollama", 200), ("claude", 403)):

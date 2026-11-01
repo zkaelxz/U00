@@ -214,7 +214,7 @@ which images count as real pages is decided by
 implementation in JavaScript that would drift from it.
 
 `/text` follows the same "one pipeline" rule from the other side: it
-funnels into `translate_engines.standalone_translate`, the exact function
+funnels into `engine_backends.standalone.standalone_translate`, the exact function
 `services/translate_service.py` calls for the Translate page, rather
 than a second translation path for text captured by the extension. It
 does no detection or OCR -- the extension already sends real text, not
@@ -235,7 +235,7 @@ tab can make requests to localhost**. So:
 - Every route, `/health` included, requires the token in the
   `X-Baihe-Token` header, compared with `secrets.compare_digest`. Never
   in a URL, a log line or a stored error, per this repo's existing secret
-  rule (`translate_engines.redact_secrets`).
+  rule (`engine_backends.shared.redact_secrets`).
 - **Requiring a custom header is itself the cross-site defence.** A web
   page can't set one on a cross-origin request without a successful CORS
   preflight, so the endpoint answers no preflight and sends no

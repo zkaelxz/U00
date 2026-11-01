@@ -75,7 +75,7 @@ from urllib.parse import urlsplit
 import background_jobs
 import comic_chapters
 import db
-import translate_engines
+from engine_backends import shared as engine_shared
 from services import drama_service, ownership_service
 from services import page_import_limits as limits
 from services import sources_extraction_service as extraction
@@ -683,7 +683,7 @@ def _signed_in(lr) -> bool:
 def skipped_view(candidates) -> list:
     """The images left out, and why (scheme+host+path only, the bare host
     when a path segment looks like a credential, scrubbed)."""
-    return [{"display_url": translate_engines.display_url(c.url), "reason": scrub(c.reject_reason or "") or "not a page"}
+    return [{"display_url": engine_shared.display_url(c.url), "reason": scrub(c.reject_reason or "") or "not a page"}
             for c in list(candidates)[:MAX_SKIPPED_LISTED]]
 
 

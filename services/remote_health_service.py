@@ -316,7 +316,7 @@ def run_check(public_url, household_port, listener_host="127.0.0.1", stop=None):
     when the cycle gave up (CYCLE_DEADLINE, or `stop` set): nothing is
     written or sent then."""
     global _memory
-    from translate_engines import redact_secrets
+    from engine_backends.shared import redact_secrets
     notify = False
     with _lock:
         if _stopped(stop):

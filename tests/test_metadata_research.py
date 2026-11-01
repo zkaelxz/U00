@@ -15,7 +15,8 @@ pytest.importorskip("httpx")
 
 
 import db
-import translate_engines
+from engine_backends import pricing
+from engine_backends import gemini as engine_gemini
 from services import metadata_research_service as mrs
 from services import settings_service
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
@@ -297,7 +298,7 @@ def test_extra_queries_within_the_free_allowance_cost_no_fee(setup):
     drama, fake = setup
     fake.data["candidates"][0]["groundingMetadata"]["webSearchQueries"] = ["a", "b", "c"]
     r = mrs.research(drama)
-    tokens_only = translate_engines.estimate_cost(mrs.DEFAULT_MODEL, 1000, 500)
+    tokens_only = pricing.estimate_cost(mrs.DEFAULT_MODEL, 1000, 500)
     assert r["cost_usd"] == pytest.approx(tokens_only, abs=1e-6)
 
 
@@ -764,7 +765,7 @@ def test_a_paid_key_gets_the_paid_daily_allowance(setup):
 def test_a_free_tier_key_counts_each_models_own_daily_requests(setup, monkeypatch):
     drama, fake = setup
     patch_setting(monkeypatch, "gemini_free_tier", True)
-    flash_limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    flash_limit = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     assert flash_limit < FREE_KEY_DAILY  # Flash runs out before the shared allowance
     b = mrs.budget_status("gemini-2.5-flash")
     assert b["free_daily_limit"] == flash_limit and b["free_remaining"] == flash_limit
@@ -779,7 +780,7 @@ def test_a_free_tier_key_counts_each_models_own_daily_requests(setup, monkeypatc
 def test_a_free_tier_model_at_its_own_limit_points_at_the_other_model(setup, monkeypatch):
     drama, fake = setup
     patch_setting(monkeypatch, "gemini_free_tier", True)
-    flash_limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    flash_limit = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": flash_limit,
                                             "month": mrs._today()[:7], "month_count": flash_limit,
                                             "models": {"gemini-2.5-flash": flash_limit}})
@@ -808,7 +809,7 @@ def test_a_daily_quota_reply_marks_the_model_used_up_and_learns_its_limit(live_s
     # and the key may change.
     monkeypatch.setattr(mrs, "_today", lambda: "2099-01-01")
     flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
-    usual = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    usual = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     assert not flash["used_up"] and flash["free_remaining"] == usual
 
 
@@ -869,7 +870,7 @@ def test_a_tokens_a_day_quota_stops_the_model_but_teaches_no_request_limit(live_
     with pytest.raises(DependencyUnavailableError):
         mrs.research(drama, model="gemini-2.5-flash")
     flash = mrs.budget_status()["per_model"]["gemini-2.5-flash"]
-    usual = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    usual = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     assert flash["used_up"] and flash["free_daily_limit"] == usual
 
 
@@ -887,7 +888,7 @@ def test_a_model_with_a_few_requests_left_still_runs_free(setup, monkeypatch):
     searches one lookup may run is still free while the shared allowance has room."""
     drama, fake = setup
     patch_setting(monkeypatch, "gemini_free_tier", True)
-    limit = translate_engines.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
+    limit = engine_gemini.gemini_free_tier_limits_for("gemini-2.5-flash")["rpd"]
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(),
                                             "models": {"gemini-2.5-flash": limit - 1}})
     b = mrs.budget_status()["per_model"]["gemini-2.5-flash"]

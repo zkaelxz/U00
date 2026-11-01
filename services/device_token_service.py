@@ -12,7 +12,7 @@ Security rules kept here:
   returned once by `create_token` and never again; only its SHA-256 is
   stored (like session ids: a random 256-bit value needs no slow or keyed
   hash), re-compared with `hmac.compare_digest` after the indexed lookup.
-  The prefix lets `translate_engines.redact_secrets` scrub a token from
+  The prefix lets `engine_backends.shared.redact_secrets` scrub a token from
   error text and logs.
 - Every refusal of a presented token is the same 401 text, whether the
   token is malformed, unknown, revoked, expired or its user inactive.

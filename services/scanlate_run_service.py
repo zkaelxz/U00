@@ -40,7 +40,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import background_jobs
 import db
-import translate_engines
+from engine_backends import engine_registry
+from engine_backends import shared as engine_shared
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
@@ -77,13 +78,13 @@ _CONFIRM_ALL = ("Redo all replaces the text regions of every page, including any
 
 
 def _build_engine(engine_name: str):
-    if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
+    if engine_name not in engine_registry.ENGINES:
+        raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
     try:
-        return translate_engines.get_engine(
+        return engine_registry.get_engine(
             engine_name, api_key,
             free_tier=engine_name == "gemini" and settings_service.get("gemini_free_tier"),
             base_url=settings_service.ollama_url()
@@ -315,7 +316,7 @@ def _rerender(drama_id: int, page_id: int, jid: str) -> None:
     except Exception as exc:
         db.update_page(page_id, rendered_filename=None)
         notes.append(("error", f"Render failed: {type(exc).__name__}: "
-                      f"{translate_engines.redact_secrets(str(exc))}"))
+                      f"{engine_shared.redact_secrets(str(exc))}"))
     render_svc.append_notes(page_id, notes)
 
 
@@ -396,7 +397,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         raise                                    # a cancel is not a render failure
     except Exception as exc:
         render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
-                             f"{translate_engines.redact_secrets(str(exc))}"))
+                             f"{engine_shared.redact_secrets(str(exc))}"))
     render_svc.append_notes(page_id, render_notes)
     # After this page is typeset, so a refusal or timeout in the extra call
     # cannot leave the page's new text without its image.
@@ -409,7 +410,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
 def _failure_note(exc: Exception) -> str:
     if isinstance(exc, OcrReadFailed):
         return str(exc)
-    return f"This page failed: {type(exc).__name__}: {translate_engines.redact_secrets(str(exc))}"
+    return f"This page failed: {type(exc).__name__}: {engine_shared.redact_secrets(str(exc))}"
 
 
 def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
@@ -476,7 +477,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                 except Exception as note_exc:
                     from applog import get_logger
                     get_logger().warning("Could not save the error note for page %s: %s", pid,
-                                         translate_engines.redact_secrets(str(note_exc)))
+                                         engine_shared.redact_secrets(str(note_exc)))
                 # The abandoned request may still be running; every later page
                 # would be refused, so the run ends with this error.
                 if isinstance(exc, LLMTaskTimeout):

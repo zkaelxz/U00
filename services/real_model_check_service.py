@@ -280,22 +280,22 @@ def _check_ocr() -> str:
 
 
 def _check_translate() -> str:
-    import translate_engines
+    from engine_backends import local as engine_local
     from services import settings_service
     base_url = settings_service.ollama_url()
-    model = translate_engines.OLLAMA_DEFAULT_MODEL
+    model = engine_local.OLLAMA_DEFAULT_MODEL
     try:
-        translate_engines.check_ollama_model_installed(base_url, model)
+        engine_local.check_ollama_model_installed(base_url, model)
         # A real translation honours Keep free graphics memory before the
         # model loads; the check must refuse the same way.
         memory_headroom.check_ollama(base_url, model)
-        reply = translate_engines._ollama_chat(base_url, {
+        reply = engine_local._ollama_chat(base_url, {
             "model": model, "stream": False,
             "messages": [{"role": "user", "content":
                           f"Translate to English, reply with the translation only: {_TRANSLATE_TEXT}"}],
             "options": {"num_ctx": 2048},
         })
-    except translate_engines.OllamaUnavailableError as exc:
+    except engine_local.OllamaUnavailableError as exc:
         if exc.reason == "ollama_timeout":
             raise _Failed(exc.message) from None
         raise _Skip(exc.message) from None

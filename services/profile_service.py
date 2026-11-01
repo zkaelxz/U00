@@ -26,7 +26,7 @@ import json
 import math
 
 import db
-import translate_engines
+from engine_backends import engine_registry, local
 import translation_guide
 from services import series_defaults_service, settings_service
 from lib.errors import InvalidInputError
@@ -80,7 +80,7 @@ def _check_run_option(key, value):
             raise InvalidInputError("cost_cap is a dollar amount of 0 or more.")
     elif key == "fallback_engines":
         ok = (isinstance(value, list) and len(value) <= MAX_FALLBACKS
-              and all(isinstance(e, str) and e in translate_engines.ENGINES for e in value)
+              and all(isinstance(e, str) and e in engine_registry.ENGINES for e in value)
               and len(set(value)) == len(value))
         if not ok:
             raise InvalidInputError(f"fallback_engines is up to {MAX_FALLBACKS} different known engines.")
@@ -197,7 +197,7 @@ def title_run_defaults(drama: dict, engine_name: str, title_engine: str) -> dict
     # A cloud tag is paid work the request's own gate only sees when the client sends it,
     # so a run that was handed no model never picks one up here.
     if (engine_name == title_engine and model
-            and not (engine_name == "ollama" and translate_engines.is_ollama_cloud_model(model))):
+            and not (engine_name == "ollama" and local.is_ollama_cloud_model(model))):
         out["model"] = model
     return out
 
@@ -241,7 +241,7 @@ def plan(preset: dict, drama: dict) -> dict:
     values; the language itself is never written."""
     options = stored_options(preset)
     engine = preset.get("translation_engine")
-    if engine not in translate_engines.ENGINES:
+    if engine not in engine_registry.ENGINES:
         engine = None   # an engine this build no longer has: leave the title's own
     genre = preset.get("include_genre_notes")
     genre = True if genre is None else bool(genre)

@@ -11,7 +11,7 @@ import requests
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
-import translate_engines as te
+from engine_backends import translate_pipeline, openai_compat, shared
 from core import Line
 from engine_backends import local, thinking
 from services import (line_provenance_service, translate_run_service as run,
@@ -20,7 +20,7 @@ from tests.job_helpers import wait_for_job
 
 
 def _ctx(**kw):
-    return te.build_translation_context(types.SimpleNamespace(supports_reference=True), {}, **kw)
+    return translate_pipeline.build_translation_context(types.SimpleNamespace(supports_reference=True), {}, **kw)
 
 
 class _Ollama:
@@ -43,9 +43,9 @@ def _fresh_think_memory():
 
 
 def _deepseek(content, usage=None, reasoning="Let me think: {\"1\": \"wrong\"}"):
-    engine = te.DeepSeekEngine.__new__(te.DeepSeekEngine)
+    engine = openai_compat.DeepSeekEngine.__new__(openai_compat.DeepSeekEngine)
     engine.model = "deepseek-flash"
-    engine.last_usage = te._empty_usage()
+    engine.last_usage = shared._empty_usage()
     seen = []
     message = types.SimpleNamespace(content=content, refusal=None, reasoning_content=reasoning)
     resp = types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)], usage=usage)
@@ -159,7 +159,7 @@ class _Capturing:
 def test_the_pipeline_hands_the_choice_to_every_batch(asked):
     lines = [Line(idx=i, start=i, end=i + 1, zh=f"行{i}", en="") for i in range(3)]
     engine = _Capturing()
-    te.translate_lines_with_engine(lines, engine, drama_meta={}, batch_size=2, thinking=asked)
+    translate_pipeline.translate_lines_with_engine(lines, engine, drama_meta={}, batch_size=2, thinking=asked)
     assert len(engine.contexts) == 2
     assert all(c["reply_with_thinking"] is asked and c["reply_without_thinking"] is not asked
                for c in engine.contexts)
@@ -169,7 +169,7 @@ def test_the_pipeline_hands_the_choice_to_every_batch(asked):
 def test_a_default_pipeline_run_is_off():
     lines = [Line(idx=0, start=0, end=1, zh="行", en="")]
     engine = _Capturing()
-    te.translate_lines_with_engine(lines, engine, drama_meta={})
+    translate_pipeline.translate_lines_with_engine(lines, engine, drama_meta={})
     assert engine.contexts[0]["reply_without_thinking"] is True
 
 
@@ -202,8 +202,8 @@ class TestTitleChoice:
         did = db.create_drama(title_zh="D")
         tts.save_title_choice(did, True)
         engine = types.SimpleNamespace(supports_reference=True)
-        assert te.build_translation_context(engine, {"id": did})["reply_with_thinking"] is True
-        assert te.build_translation_context(engine, {"id": did}, thinking=False)["reply_with_thinking"] is False
+        assert translate_pipeline.build_translation_context(engine, {"id": did})["reply_with_thinking"] is True
+        assert translate_pipeline.build_translation_context(engine, {"id": did}, thinking=False)["reply_with_thinking"] is False
 
     def test_the_choice_is_saved_with_the_other_toggles(self, isolated_db):
         did = db.create_drama(title_zh="D")
@@ -435,7 +435,7 @@ def test_the_deepseek_off_peak_job_reads_the_title_when_it_runs(isolated_db):
     did = db.create_drama(title_zh="D")
     tts.save_title_choice(did, True)
     engine = types.SimpleNamespace(supports_reference=True)
-    assert te.build_translation_context(engine, db.get_drama(did))["reply_with_thinking"] is True
+    assert translate_pipeline.build_translation_context(engine, db.get_drama(did))["reply_with_thinking"] is True
 
 
 def test_a_glossary_retranslate_run_gets_the_same_thinking_value(isolated_db, monkeypatch):

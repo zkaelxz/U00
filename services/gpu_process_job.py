@@ -24,7 +24,7 @@ import job_process_kill
 import job_process_result
 from lib import model_offline
 import storage
-from translate_engines import redact_secrets
+from engine_backends.shared import redact_secrets
 
 TIMEOUT_MESSAGE = "This job took too long and was stopped."
 STOPPING_MESSAGE = "Waiting for the worker to stop"

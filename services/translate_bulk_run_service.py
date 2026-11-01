@@ -10,7 +10,7 @@ import bulk_providers
 import bulk_poll
 import bulk_reflect
 import db
-import translate_engines
+from engine_backends import engine_registry
 from services import bulk_job_view, ownership_service, translate_service
 from lib.errors import ConflictError, DependencyUnavailableError, NotFoundError
 from services.translate_run_service import (ERRORS_LOCK)
@@ -60,7 +60,7 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
 
 def _bulk_engine_factory(engine_name, model):
     key = translate_service.resolve_api_key(engine_name)
-    return translate_engines.get_engine(engine_name, key, model or None) if key else None
+    return engine_registry.get_engine(engine_name, key, model or None) if key else None
 
 
 pending_bulk_engines = bulk_poll.resumable_engines
@@ -91,7 +91,7 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int, principal) -> dict:
     key = translate_service.resolve_api_key(job["engine"])
     package_missing = False
     try:
-        engine = translate_engines.get_engine(
+        engine = engine_registry.get_engine(
             job["engine"], key, job.get("model") or None) if key else None
     except DependencyUnavailableError:
         # Still cancel here: the batch keeps running at the provider, which the note says.

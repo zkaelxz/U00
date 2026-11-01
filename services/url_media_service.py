@@ -68,7 +68,7 @@ import background_jobs
 from jobs import job_launch
 import db
 import storage
-import translate_engines
+from engine_backends import shared
 import video_export
 from services import (
     drama_service,
@@ -396,7 +396,7 @@ def _error_snippet(raw, keep_end: bool = False) -> str:
     if not isinstance(raw, str) or not raw.strip():
         return ""
     from services import jobs_service
-    text = _CONTROL_RE.sub(" ", jobs_service.scrub_text(translate_engines.redact_secrets(raw)))
+    text = _CONTROL_RE.sub(" ", jobs_service.scrub_text(shared.redact_secrets(raw)))
     text = re.sub(r"^\s*ERROR:\s*", "", " ".join(text.split()))
     # ffmpeg names the failure on its last line (keep_end); yt-dlp on its first.
     return text[-ERROR_SNIPPET_MAX:] if keep_end else text[:ERROR_SNIPPET_MAX]
@@ -600,7 +600,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict =
                 bool(options.get("allow_long"))))
         if result.get("missing"):
             raise RuntimeError(_NO_YTDLP)
-        reason = _failure_reason(RuntimeError(translate_engines.redact_secrets(
+        reason = _failure_reason(RuntimeError(shared.redact_secrets(
             str(result.get("error") or ""))))
         if reason in (_DNS_BLOCKED, _DNS_BLOCKED_OTHER):
             raise RuntimeError(reason)

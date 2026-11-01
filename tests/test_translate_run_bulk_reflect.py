@@ -13,7 +13,8 @@ import bulk_providers
 import bulk_reflect
 import bulk_translate
 import db
-import translate_engines as te
+from engine_backends import engine_registry
+from engine_backends import claude as engine_claude
 from api.server import create_app
 from core import Line
 from services import bulk_submit_service
@@ -92,8 +93,8 @@ def _env(monkeypatch):
 
 
 def _fake_engines(monkeypatch, ended=True):
-    engine = te.ClaudeEngine("sk-ant-fake")
-    monkeypatch.setattr(te, "get_engine", lambda *a, **k: engine)
+    engine = engine_claude.ClaudeEngine("sk-ant-fake")
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: engine)
     for module in (bulk_providers, bulk_translate, bulk_reflect, bulk_poll):
         monkeypatch.setattr(module, "make_provider",
                             lambda choice, e: FakeProvider(_current["did"], ended=ended))
@@ -322,7 +323,7 @@ def test_bulk_submission_gets_the_engines_default_batch_size(isolated_db, monkey
                         lambda *a, **kw: sent.update(kw) or 1)
     engine = type("E", (), {"model": "m"})()
     for model, expected in (("claude-sonnet-5-5", 60), ("claude-haiku-4-5-20251001", 30)):
-        batch = svc.translate_engines.default_batch_size("claude", model)
+        batch = engine_registry.default_batch_size("claude", model)
         bulk_submit_service.bulk_submitter(did, db.get_drama(did), engine, "claude", False, None, [], "", "",
                             "en-US", "audio_drama", 6, 2, batch, False, None, None, None)()
         assert sent["batch_size"] == expected

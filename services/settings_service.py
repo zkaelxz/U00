@@ -368,8 +368,8 @@ SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini", "openai")
 
 
 def _engine_choices() -> tuple:
-    import translate_engines
-    return tuple(translate_engines.ENGINES)
+    from engine_backends import engine_registry
+    return tuple(engine_registry.ENGINES)
 
 
 def engine_preference_choices() -> tuple:

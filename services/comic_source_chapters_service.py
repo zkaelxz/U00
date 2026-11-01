@@ -11,7 +11,7 @@ request to any site: listing a series' chapters is a paced job, not a GET.
 """
 import comic_chapter_links
 import comic_chapters
-import translate_engines
+from engine_backends import shared
 from services import source_link_service
 from services.sources_import_service import require_drama
 from sources import extension_marker, registry, store
@@ -44,7 +44,7 @@ def _from_links(drama_id: int) -> dict:
     links = comic_chapter_links.load(drama_id)
     if not links:
         return _none()
-    have = {translate_engines.display_url(c.get("url")) for c in comic_chapters.load(drama_id)["chapters"]}
+    have = {shared.display_url(c.get("url")) for c in comic_chapters.load(drama_id)["chapters"]}
     have.discard("")
     return {"mode": "links", "source": "", "series_id": "", "imported_ids": [],
             "chapters": [{"chapter_id": "", "title": l["title"], "url": l["url"],

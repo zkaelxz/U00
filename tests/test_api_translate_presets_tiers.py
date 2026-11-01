@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from jobs import job_launch
 import db
-import translate_engines
+from engine_backends import engine_registry
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -36,7 +36,7 @@ def test_service_apply_tier_matches_streamlit(isolated_db):
     """apply_workflow_tier in tabs/workspace_tab.py: engine onto the drama row;
     model/reflect/auto_qc into the form (returned here)."""
     did = db.create_drama(title_zh="D", translation_engine="fake_mt")
-    for key, t in translate_engines.WORKFLOW_TIERS.items():
+    for key, t in engine_registry.WORKFLOW_TIERS.items():
         r = translate_preset_service.apply_workflow_tier(did, key)
         assert r == {"drama_id": did, "tier": key, "label": t["label"],
                      "translation_engine": t["translation_engine"],
@@ -118,10 +118,10 @@ def test_api_apply_tier(client):
 
 
 def test_standard_and_release_tiers_resolve_to_the_5_5_models(isolated_db):
-    assert translate_engines.effective_tier("standard")["engine_model"] == "claude-sonnet-5-5"
-    assert translate_engines.effective_tier("release")["engine_model"] == "claude-opus-5-5"
-    assert translate_engines.builtin_default_model("claude") == "claude-sonnet-5-5"
-    assert translate_engines.get_engine("claude", "k").model == "claude-sonnet-5-5"
+    assert engine_registry.effective_tier("standard")["engine_model"] == "claude-sonnet-5-5"
+    assert engine_registry.effective_tier("release")["engine_model"] == "claude-opus-5-5"
+    assert engine_registry.builtin_default_model("claude") == "claude-sonnet-5-5"
+    assert engine_registry.get_engine("claude", "k").model == "claude-sonnet-5-5"
 
 
 def test_api_apply_tier_errors(client):
