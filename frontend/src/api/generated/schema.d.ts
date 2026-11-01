@@ -41539,6 +41539,8 @@ export interface operations {
                 quick_filter?: string | null;
                 /** @description Repeatable; a drama must carry every tag. */
                 tag?: string[];
+                /** @description False skips the per-title line counts (line_count and translated_count come back 0) for a caller that only needs names. */
+                progress?: boolean;
             };
             header?: never;
             path?: never;

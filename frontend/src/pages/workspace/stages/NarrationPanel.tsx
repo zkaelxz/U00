@@ -50,7 +50,9 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   const ownEngines = cfg?.engines.map((o) => ({ name: o.key, label: o.key, free: false, models: null, key_configured: o.key_configured }))
   const titleGate = useEngineGate(titleEngines.engines, engine)
   const ownGate = useEngineGate(ownEngines, engine)
-  const gate = titleGate ?? ownGate
+  // A missing key does not block this run: it cuts the text and marks every line Narrator.
+  const found = titleGate ?? ownGate
+  const gate = found?.id === 'engine_key' ? null : found
 
   if (!cfg) return error ? <ErrorBanner error={error} /> : null
   if (!cfg.is_narration) return null

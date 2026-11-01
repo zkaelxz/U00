@@ -46,6 +46,17 @@ class TestListLibraryDramas:
         rows = {d["id"]: d["new_chapters"] for d in library_service.list_library_dramas()}
         assert rows == {a: 1, b: 0}
 
+    def test_name_only_listing_skips_the_line_scan(self, isolated_db, monkeypatch):
+        from core import Line
+        a = _make(isolated_db, title_en="A")
+        isolated_db.save_lines(a, [Line(idx=0, start=0, end=1, zh="一", en="one")])
+
+        def scanned():
+            raise AssertionError("the whole-table line count ran")
+        monkeypatch.setattr(isolated_db, "line_progress_by_drama", scanned)
+        row = library_service.list_library_dramas(with_progress=False)[0]
+        assert row["title_en"] == "A" and "line_count" not in row
+
     def test_blank_english_is_not_counted_as_translated(self, isolated_db):
         # Review lists a whitespace-only translation as untranslated; the card must agree.
         from core import Line

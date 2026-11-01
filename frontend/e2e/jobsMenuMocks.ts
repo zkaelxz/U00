@@ -47,7 +47,7 @@ export async function mockJobsApi(page: Page, initial = sampleJobs() as Record<s
   const log: JobsMock = { cancelled: [], forceStopped: [], deleted: [], cleared: 0, stages: [] }
   const isFinished = (j: Record<string, unknown>) => ['done', 'error', 'cancelled'].includes(String(j.status))
   if (titles) {
-    await page.route('**/api/library/dramas', (route) =>
+    await page.route((u) => u.pathname === '/api/library/dramas' && u.searchParams.get('progress') === 'false', (route) =>
       route.fulfill({ json: { count: DRAMA_TITLES.length, items: DRAMA_TITLES } }))
   }
   await page.route('**/api/jobs**', (route) => {

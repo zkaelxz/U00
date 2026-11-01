@@ -32,7 +32,7 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
 
   useEffect(() => {
     if (pc === 'remote') return
-    api.listDramas().then(
+    api.listDramas({ progress: 'false' }).then(
       (r) => setTitles(r.items.map((d) => ({ id: d.id, name: d.title_en || d.title_zh || `#${d.id}` }))),
       () => setTitles([]),
     )

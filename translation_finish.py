@@ -3,6 +3,7 @@ translation_finish.py -- what happens after a translation run writes its lines:
 the untranslated count, the "aligned" -> "translated" status, and the shared
 finish step shared by the translate jobs.
 """
+import contextlib
 import json
 import logging
 
@@ -39,9 +40,17 @@ def mark_translated_if_complete(drama_id: int) -> bool:
 def repair_stale_aligned_statuses() -> int:
     """One-time, idempotent startup repair for titles left at "aligned" with
     every line already translated; touches no other status. Returns how
-    many were corrected."""
-    fixed = sum(1 for d in db.list_dramas(status="aligned")
-                if mark_translated_if_complete(d["id"]))
+    many were corrected. The candidates come from one grouped query rather
+    than loading each title's lines, which made app start wait on every
+    backlog title."""
+    with contextlib.closing(db.get_conn()) as conn:
+        ids = [r[0] for r in conn.execute(
+            "SELECT d.id FROM dramas d JOIN lines l ON l.drama_id = d.id "
+            "WHERE d.status = 'aligned' GROUP BY d.id "
+            "HAVING SUM(TRIM(COALESCE(l.zh, '')) != '') > 0 "
+            "AND SUM(TRIM(COALESCE(l.zh, '')) != '' AND TRIM(COALESCE(l.en, '')) = '') = 0"
+        ).fetchall()]
+    fixed = sum(1 for drama_id in ids if mark_translated_if_complete(drama_id))
     if fixed:
         logging.getLogger(__name__).info(
             "Corrected %d title(s) stuck at 'aligned' with every line translated.", fixed)
