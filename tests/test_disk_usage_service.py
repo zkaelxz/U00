@@ -1776,3 +1776,19 @@ class TestPreviousLibrary:
         assert pls.delete("DELETE", seen) == {"deleted": 3, "freed_bytes": 700}
         assert os.path.isfile(os.path.join(tree, ".restore_staging_live", "dramas", "1", "a.wav"))
         assert not os.path.exists(os.path.join(tree, ".restore_staging_abc"))
+
+    def test_a_look_alike_folder_is_never_taken_for_a_kept_copy(self, tree):
+        """Only the names Baihe gives its copies count: a folder someone named
+        library.pre_restore_... is not measured, protected as Baihe's or deleted."""
+        from services import previous_library_service as pls
+        self._kept(tree)
+        base = os.path.basename(db.LIBRARY_DIR)
+        for name in (base + ".pre_restore_old photos", base + ".pre_reset_", base + ".pre_reset_12x",
+                     ".restore_staging_My Files"):
+            _write(os.path.join(tree, name, "keep.txt"), 5)
+        assert pls.summary()["size_bytes"] == 700
+        assert _item(dus.scan(""), base + ".pre_restore_old photos")["protected_reason"] == guard.NOT_BAIHE
+        assert pls.delete("DELETE", 700) == {"deleted": 3, "freed_bytes": 700}
+        for name in (base + ".pre_restore_old photos", base + ".pre_reset_", base + ".pre_reset_12x",
+                     ".restore_staging_My Files"):
+            assert os.path.isfile(os.path.join(tree, name, "keep.txt"))
