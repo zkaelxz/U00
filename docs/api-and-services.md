@@ -270,7 +270,7 @@ disk. The pattern, where a route takes a raw body or multipart:
   own checks, and `sources_tools_routes.py` caps a JSON body with `capped`.
 - Media upload size: `media_upload_service.max_upload_bytes`. The env var
   `BAIHE_MAX_UPLOAD_MB` (a positive number; zero, negative or garbage is
-  ignored) wins, else the saved setting `max_upload_mb` (Settings > System > Offline, paths and limits >
+  ignored) wins, else the saved setting `max_upload_mb` (Settings > Performance and advanced > Offline, paths and limits >
   Uploads, 100 to 1048576, written through `POST /api/settings`, `local_only()`),
   else 20480 MB. The overview reports `effective_upload_max_mb` and
   `upload_max_mb_from_env` (numbers and a boolean only). Every user of the

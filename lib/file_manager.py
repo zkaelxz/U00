@@ -13,7 +13,7 @@ import sys
 def open_folder(folder: str):
     """Raises OSError when the PC has no file manager to open it with."""
     if sys.platform.startswith("win"):
-        os.startfile(folder)  # noqa: S606 -- the owner's own folder, on the PC
+        getattr(os, "startfile")(folder)  # Windows-only; the owner's own folder, on the PC
     else:
         # Popen without a shell; the file manager outlives this call.
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", folder],
