@@ -4,6 +4,7 @@ scanlate_inpaint.py -- erase the original text inside a bubble or mask
 """
 
 import os
+from typing import Any
 
 import numpy as np
 
@@ -45,9 +46,20 @@ class InpaintModelUnavailable(RuntimeError):
     BubbleModelUnavailable's shape so callers can handle both the same
     way."""
 
+    # Set only when the OpenCV fallback already produced an image.
+    result: Any
+
     def __init__(self, message, fell_back_to_cv=True):
         super().__init__(message)
         self.fell_back_to_cv = fell_back_to_cv
+
+
+def _local_conv(conv):
+    """A layer's conv from its local channels, which every LaMa layer that has
+    outputs on that side also has inputs for."""
+    if conv is None:
+        raise TypeError("a layer with outputs needs local input channels")
+    return conv
 
 
 def _build_lama_generator():
@@ -113,9 +125,9 @@ def _build_lama_generator():
             x_l, x_g = x if isinstance(x, tuple) else (x, 0)
             out_l = out_g = 0
             if self.out_l:
-                out_l = self.convl2l(x_l) + (self.convg2l(x_g) if self.convg2l is not None else 0)
+                out_l = _local_conv(self.convl2l)(x_l) + (self.convg2l(x_g) if self.convg2l is not None else 0)
             if self.out_g:
-                out_g = self.convl2g(x_l) + (self.convg2g(x_g) if self.convg2g is not None else 0)
+                out_g = _local_conv(self.convl2g)(x_l) + (self.convg2g(x_g) if self.convg2g is not None else 0)
             return out_l, out_g
 
     class FFCBNAct(nn.Module):
@@ -157,7 +169,7 @@ def _build_lama_generator():
     return nn.Sequential(*layers)
 
 
-def _load_lama_generator(hf_token: str = None, allow_download: bool = True):
+def _load_lama_generator(hf_token: str | None = None, allow_download: bool = True):
     """Loads the LaMa-manga checkpoint into _build_lama_generator()'s
     architecture, downloading it first when `allow_download` and it isn't
     cached. "auto" passes allow_download=False: it only picks the ML backend
@@ -217,7 +229,7 @@ def _load_lama_generator(hf_token: str = None, allow_download: bool = True):
     return generator
 
 
-def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str = None, allow_download: bool = True):
+def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str | None = None, allow_download: bool = True):
     """Runs LaMa-manga inpainting on one region-of-interest. roi_bgr: an
     OpenCV BGR array. mask_u8: a same-size uint8 array, nonzero = erase
     this pixel. Returns a BGR array the same size as roi_bgr, with only
@@ -284,8 +296,8 @@ def _resolve_inpaint_backend(backend: str) -> str:
     return backend
 
 
-def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: int = 4,
-                    backend: str = "auto", hf_token: str = None, image=None, inside=None):
+def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
+                    backend: str = "auto", hf_token: str | None = None, image=None, inside=None):
     """Removes text within `box` so the translated text has a clean
     background. Returns the path to the (possibly newly-created) cleaned
     image; if out_path is None, overwrites nothing and returns an image
@@ -368,8 +380,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     return result
 
 
-def inpaint_mask_region(image_path: str, mask, out_path: str = None, padding: int = 4,
-                         backend: str = "auto", hf_token: str = None):
+def inpaint_mask_region(image_path: str, mask, out_path: str | None = None, padding: int = 4,
+                         backend: str = "auto", hf_token: str | None = None):
     """Manual erase/heal brush: inpaints exactly the
     pixels the person painted, independent of any detected bubble box --
     a sound effect, background text, or a stray detection artifact the

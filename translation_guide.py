@@ -513,7 +513,7 @@ def format_notes_as_markdown(notes, drama_title: str = "") -> str:
         return "# Translation Notes\n\n(No notes recorded.)\n"
 
     header = f"# Translation Notes{f' — {drama_title}' if drama_title else ''}\n\n"
-    by_type = {}
+    by_type: dict[str, list] = {}
     for n in notes:
         by_type.setdefault(n.get("note_type", "cultural"), []).append(n)
 
@@ -609,6 +609,8 @@ def build_hard_term_substituter(glossary_terms):
             m = pattern.search(text, scan)
             if m is None:
                 break
+            if m.lastindex is None:
+                raise TypeError("a variant match always has a group")
             out += [text[pos:m.start()], variants[m.lastindex - 1][1]]
             pos = scan = m.end()
         out.append(text[pos:])
@@ -754,7 +756,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
 
         text = response_cache[0](prompt) if response_cache else None
         cached = text is not None
-        if not cached:
+        if text is None:
             try:
                 text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
                                      usage_cb=usage_cb, expect="json_array")

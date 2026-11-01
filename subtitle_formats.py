@@ -22,6 +22,7 @@ import hashlib
 import html
 import math
 import re
+from typing import Any
 
 import json
 
@@ -98,7 +99,7 @@ def _break_point(text: str, limit: int, language=None, chinese_script: str = "si
     return nxt + 1 if nxt != -1 else 0  # one long word: keep it whole
 
 
-def wrap_text(text: str, max_chars: int, language=None, chinese_script: str = "simplified") -> str:
+def wrap_text(text: str, max_chars: int | None, language=None, chinese_script: str = "simplified") -> str:
     """Wraps each existing line of `text` onto several lines of at most
     max_chars where it can: at a sentence end, else a clause break, else a
     space -- never inside a word. A single word longer than the limit stays
@@ -259,7 +260,7 @@ _SCRIPT_PATTERNS = {
 
 def script_of(text: str) -> str:
     counts = {name: len(p.findall(text or "")) for name, p in _SCRIPT_PATTERNS.items()}
-    best = max(counts, key=counts.get)
+    best = max(counts, key=lambda name: counts[name])
     return best if counts[best] else ""
 
 
@@ -449,6 +450,7 @@ def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict | None = None,
     times). Multi-line cue text is joined on one line with a space, since a
     line break would start a new, unstamped line. field: "en", "zh" or
     "bilingual" (both texts under one stamp, each on its own stamped line)."""
+    cue: dict[str, Any]
     cue = dict(wrap_chars=wrap_chars, italic_tags=False, language=language,
                chinese_script=chinese_script)
     shown = []
@@ -561,7 +563,7 @@ def _ass_escape(text: str) -> str:
 _ASS_SIDE_MARGIN = 10
 
 
-def _style_line(name: str, style: dict, primary: str, scale=(1.0, 1.0)) -> str:
+def _style_line(name: str, style: dict[str, Any], primary: str, scale=(1.0, 1.0)) -> str:
     """scale: (x, y) from Baihe's PLAY_RES to the script's, so a style
     written into an imported script's canvas looks the size it would on ours."""
     kx, ky = scale
@@ -574,7 +576,7 @@ def _style_line(name: str, style: dict, primary: str, scale=(1.0, 1.0)) -> str:
         "-1" if style.get("bold") else "0", "-1" if style.get("italic") else "0", "0", "0",
         "100", "100", "0", "0", "1", str(scaled(style.get("outline_width", 2), ky)),
         str(scaled(style.get("shadow", 1), ky)),
-        str(ALIGNMENTS.get(style.get("alignment"), 2)), str(round(scaled(_ASS_SIDE_MARGIN, kx))),
+        str(ALIGNMENTS.get(style.get("alignment") or "", 2)), str(round(scaled(_ASS_SIDE_MARGIN, kx))),
         str(round(scaled(_ASS_SIDE_MARGIN, kx))), str(round(scaled(12, ky))), "1"]))
 
 

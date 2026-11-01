@@ -24,6 +24,7 @@ import json
 import os
 import re
 import tempfile
+from typing import Any
 
 MODEL_ID = "iic/SenseVoiceSmall"
 AUDIO_TAGS_FILE = "audio_tags.json"
@@ -140,20 +141,22 @@ def side_by_side(lines, text_emotions: dict, audio_tags: dict) -> list:
     `disagree` marks lines where both exist, are comparable, and differ."""
     rows = []
     for ln in lines:
-        text_tag = (text_emotions or {}).get(ln.idx)
-        audio = (audio_tags or {}).get(getattr(ln, "id", None))
+        text_tag: dict[str, Any] = (text_emotions or {}).get(ln.idx) or {}
+        audio: dict[str, Any] = (audio_tags or {}).get(getattr(ln, "id", None)) or {}
         if not text_tag and not audio:
             continue
-        text_emotion = (text_tag or {}).get("emotion")
-        audio_emotion = (audio or {}).get("emotion")
+        text_emotion = text_tag.get("emotion")
+        audio_emotion = audio.get("emotion")
+        audio_events: list[str] = audio.get("events", [])
         rows.append({
             "line": ln.idx + 1,
             "text": ln.zh,
             "text_emotion": text_emotion or "",
             "audio_emotion": audio_emotion or "",
-            "audio_events": ", ".join(EVENT_LABELS.get(e, e) for e in (audio or {}).get("events", [])
+            "audio_events": ", ".join(EVENT_LABELS.get(e, e) for e in audio_events
                                       if e != "Speech"),
-            "disagree": bool(audio_emotion and _COMPARABLE_TEXT_EMOTIONS.get(text_emotion)
+            "disagree": bool(audio_emotion and text_emotion
+                             and _COMPARABLE_TEXT_EMOTIONS.get(text_emotion)
                              and _COMPARABLE_TEXT_EMOTIONS[text_emotion] != audio_emotion),
         })
     return rows

@@ -101,7 +101,7 @@ def _runs(profile, bridge: int) -> list:
     return runs
 
 
-def lettering_size(gray, box: dict, orientation: str):
+def lettering_size(gray, box: dict, orientation: str | None):
     """The source lettering's size in px -- the width of its columns for
     vertical text, the height of its lines for horizontal -- or None when no
     lettering is found. Used to start the English at a size matching the
@@ -240,7 +240,7 @@ def _row_order(boxes: list, row: list, right_to_left: bool) -> list:
 
 
 def analyze_page_regions(image_path: str, boxes: list, source_language: str,
-                         page_id: int = None, image=None) -> list:
+                         page_id: int | None = None, image=None) -> list:
     """Turns raw detector boxes into TextRegion objects: classifies each
     one (bubble/narration/sign/sfx/thought), assigns it to a panel, reads
     its text orientation, and puts the lot in reading order (reading_sequence())
