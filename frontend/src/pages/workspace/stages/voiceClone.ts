@@ -1,4 +1,3 @@
-import type { DubConfig } from '../../../types/dub'
 import type { CharacterEntry } from '../../../types/translateStage'
 import type { VoiceCloneCandidates, VoiceCloneSpeakerCandidates } from '../../../types/voiceClone'
 
@@ -6,18 +5,11 @@ import type { VoiceCloneCandidates, VoiceCloneSpeakerCandidates } from '../../..
 export const CLIP_ACCEPT = '.wav,.mp3,.m4a,.flac,.ogg,audio/*'
 export const PC_ONLY_CLIP_NOTE = 'Uploading or removing a clip is PC only.'
 
-/** Speaker label -> clone warning from the Dub config (matched by label, never by position). */
-export function cloneWarnings(cfg: DubConfig | null): Map<string, string> {
+/** Speaker label -> clone warning (matched by label, never by position). */
+export function cloneWarnings(entries: CharacterEntry[] | null): Map<string, string> {
   const out = new Map<string, string>()
-  for (const s of cfg?.speakers ?? []) if (s.clone_warning) out.set(s.speaker_label, s.clone_warning)
+  for (const e of entries ?? []) if (e.clone_warning) out.set(e.speaker_label, e.clone_warning)
   return out
-}
-
-export function warningSummary(count: number): string | null {
-  if (count === 0) return null
-  return count === 1
-    ? '1 speaker is not set up for cloning as chosen. See Voices and cloning.'
-    : `${count} speakers are not set up for cloning as chosen. See Voices and cloning.`
 }
 
 export function candidatesFor(

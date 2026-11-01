@@ -169,7 +169,7 @@ MAX_WIKI_CHUNKS_PER_CALL = 10
 MAX_RICH_CARDS = 300
 RICH_CLIP_TIMEOUT_SECONDS = 15
 RICH_AUDIO_BUDGET_SECONDS = 120
-MEDIA_KINDS = ("original", "dub", "narration")
+MEDIA_KINDS = ("original", "narration")
 CAPTION_TRACK_FIELDS = {"Source": "zh", "English": "en", "Bilingual": "bilingual"}
 _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
 
@@ -357,23 +357,24 @@ def _media_paths(drama_id: int, drama: dict) -> dict:
         if p:
             out["original"] = (media_type, p)
             break
-    for kind, name in (("dub", "dub_track.wav"), ("narration", "narration_track.wav")):
-        p = _confined_file(base, name, (".wav",))
-        if p:
-            out[kind] = ("audio", p)
+    # Titles dubbed before the Dub stage was removed only have dub_track.wav.
+    p = (_confined_file(base, "narration_track.wav", (".wav",))
+         or _confined_file(base, "dub_track.wav", (".wav",)))
+    if p:
+        out["narration"] = ("audio", p)
     return out
 
 
 def get_media_availability(drama_id: int) -> dict:
     """What the Watch / listen panel can show, without any path:
-    {drama_id, original: "video"|"audio"|None, dub, narration,
+    {drama_id, original: "video"|"audio"|None, narration,
     caption_tracks: [labels], captions_overlay}. captions_overlay is
     False for an audio-only original."""
     drama = _require_drama(drama_id)
     media = _media_paths(drama_id, drama)
     original = media.get("original", (None, None))[0]
     labels = list(caption_tracks(_lines(drama_id)))
-    return {"drama_id": drama_id, "original": original, "dub": "dub" in media,
+    return {"drama_id": drama_id, "original": original,
             "narration": "narration" in media, "caption_tracks": labels,
             "captions_overlay": original == "video" and bool(labels)}
 

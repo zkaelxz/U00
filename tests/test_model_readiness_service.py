@@ -131,7 +131,7 @@ ROUTES = [
      "resplit_service", "resplit_long_lines", _aligner),
     ("/api/diarization/dramas/{did}/run", None, "diarization_service",
      "start_diarization_run", _pyannote),
-    ("/api/dub/dramas/{did}/run", {}, "dub_service", "start_dub_run",
+    ("/api/listen/dramas/{did}/run", {}, "listen_service", "start_listen",
      _transformers_repo("k2-fsa/OmniVoice")),
     ("/api/scanlate/dramas/{did}/run", {"engine": "ollama"}, "scanlate_run_service", "start_run",
      _paddle_ch),

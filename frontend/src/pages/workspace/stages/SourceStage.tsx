@@ -56,6 +56,7 @@ import { formatSizeMb } from '../../../labels'
 import { TranscriptModePicker } from './SourceModes'
 import { UrlDownload } from './UrlDownload'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
+import { narrationResumeNote } from './novelSetup'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // Nothing clears kept_media on its own, so say how much it holds wherever a
@@ -448,6 +449,7 @@ export default function SourceStage() {
           pollError={pollError}
           liveEta={!!jobId?.startsWith('transcribe_')}
           expectedSeconds={expectedSeconds}
+          note={narrationResumeNote(job?.message)}
           lastRun={{
             dramaId,
             ids: sourceJobIds(dramaId),

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { hitHeight, installHitArea } from './hitArea'
-import { mockDub, mockProgress } from './plainErrorsMocks'
+import { mockProgress } from './plainErrorsMocks'
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 
 test.beforeEach(async ({ page }) => {
@@ -23,17 +23,7 @@ test('phone: Export buttons are disabled with their reason and nothing scrolls s
   await openExportBlock(page, 'Audiobook')
   const audiobook = exportBlock(page, 'Audiobook')
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
-  await expect(audiobook).toContainText('There is no narration yet. Create it in Dub first.')
+  await expect(audiobook).toContainText('There is no narration yet. Create it with Listen in the Reader first.')
   await expect(page.getByRole('group', { name: 'Video with the dub audio' })).toContainText('There is no dub yet.')
-  expect(await page.evaluate(noSideScroll)).toBe(true)
-})
-
-test('phone: Generate dub is disabled with the missing-package reason', async ({ page }) => {
-  await mockDub(page, 'OmniVoice is not installed. Install it in Diagnostics.')
-  await page.goto('/#/drama/1/dub')
-  const generate = page.getByRole('button', { name: 'Generate dub' })
-  await expect(generate).toBeDisabled()
-  expect(await hitHeight(generate)).toBeGreaterThanOrEqual(44)
-  await expect(page.getByTestId('dub-settings')).toContainText('OmniVoice is not installed. Install it in Diagnostics.')
   expect(await page.evaluate(noSideScroll)).toBe(true)
 })

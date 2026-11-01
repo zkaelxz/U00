@@ -654,3 +654,33 @@ export interface TranslateSweep extends Sweep {
   model: string | null
   series_id: number | null
 }
+
+export interface HardSubReadingLine { start: number; end: number; text: string }
+
+export interface HardSubReadingOutcome {
+  groups: { key: string; lines: HardSubReadingLine[] }[]
+  windows_read: number
+  windows_total: number
+  unreadable: number
+  unclear_pictures: number
+  failed_reads: number
+  cost_usd: number
+  /** "cap", "cancelled" or "failed" when the reading ended early. */
+  stopped: string | null
+  note: string | null
+  comparison: {
+    groups: { key: string; characters: number; recall: number | null }[]
+    recall: number | null
+    precision: number | null
+    label_overlap: Record<string, Record<string, number>>
+    label_match: number | null
+  }
+}
+
+export interface HardSubReadingResult {
+  status: string
+  progress: number | null
+  message: string | null
+  /** null while the reading is still going. */
+  result: HardSubReadingOutcome | null
+}

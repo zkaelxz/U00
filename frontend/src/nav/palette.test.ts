@@ -42,7 +42,7 @@ describe('paletteEntries', () => {
 
   it('adds the open title\'s stages first, only inside a title', () => {
     const inDrama = paletteEntries(member, { name: 'drama', id: 7, stage: null })
-    expect(labels(inDrama).slice(0, 5)).toEqual(['Go to Media', 'Go to Translate', 'Go to Review', 'Go to Dub', 'Go to Export'])
+    expect(labels(inDrama).slice(0, 4)).toEqual(['Go to Media', 'Go to Translate', 'Go to Review', 'Go to Export'])
     expect(inDrama[2].href).toBe('#/drama/7/review')
     expect(labels(paletteEntries(member, { name: 'jobs' })).some((l) => l.startsWith('Go to'))).toBe(false)
   })

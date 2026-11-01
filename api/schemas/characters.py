@@ -75,6 +75,8 @@ class CharactersEntry(BaseModel):
     # Plain reason the stored clone_engine can't generate any more (it was
     # removed); "" when it is fine or unset.
     clone_engine_removed: str = ""
+    # Same reason plus a missing reference clip; "" when the speaker is fine.
+    clone_warning: str = ""
     voice_design: str
     has_ref_audio: bool
     ref_text_present: bool

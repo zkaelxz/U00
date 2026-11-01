@@ -149,7 +149,6 @@ const STAGE_BY_KIND: Partial<Record<JobKind, StageId>> = {
   translate: 'translate',
   review: 'review',
   align: 'review',
-  dub: 'dub',
   export: 'export',
 }
 

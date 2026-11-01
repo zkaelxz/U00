@@ -35,6 +35,12 @@ __all__ = [
     "BenchmarkHardSubReadRequest",
     "BenchmarkHardSubReadEstimate",
     "BenchmarkHardSubReadStarted",
+    "BenchmarkHardSubReadResult",
+    "BenchmarkHardSubLine",
+    "BenchmarkHardSubGroup",
+    "BenchmarkHardSubGroupScore",
+    "BenchmarkHardSubComparison",
+    "BenchmarkHardSubReadOutcome",
     "BenchmarkClipRow",
     "BenchmarkClipCheckRequest",
     "BenchmarkClipNote",
@@ -239,6 +245,53 @@ class BenchmarkHardSubReadStarted(BaseModel):
     job_id: str
     windows: int
     estimated_usd: float
+
+
+class BenchmarkHardSubLine(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
+class BenchmarkHardSubGroup(BaseModel):
+    key: str
+    lines: List[BenchmarkHardSubLine]
+
+
+class BenchmarkHardSubGroupScore(BaseModel):
+    key: str
+    characters: int
+    recall: Optional[float] = None
+
+
+class BenchmarkHardSubComparison(BaseModel):
+    groups: List[BenchmarkHardSubGroupScore]
+    recall: Optional[float] = None
+    precision: Optional[float] = None
+    label_overlap: Dict[str, Dict[str, float]]
+    label_match: Optional[float] = None
+
+
+class BenchmarkHardSubReadOutcome(BaseModel):
+    groups: List[BenchmarkHardSubGroup]
+    windows_read: int
+    windows_total: int
+    unreadable: int
+    unclear_pictures: int
+    failed_reads: int
+    cost_usd: float
+    # "cap", "cancelled" or "failed" when the run ended early.
+    stopped: Optional[str] = None
+    note: Optional[str] = None
+    comparison: BenchmarkHardSubComparison
+
+
+class BenchmarkHardSubReadResult(BaseModel):
+    status: str
+    progress: Optional[float] = None
+    message: Optional[str] = None
+    # None while the reading is still going.
+    result: Optional[BenchmarkHardSubReadOutcome] = None
 
 
 class BenchmarkCorrectionsAddResult(BaseModel):
