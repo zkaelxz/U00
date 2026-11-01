@@ -200,7 +200,7 @@ class _Reporter:
         pass
 
 
-def _whisper_kwargs(options: dict, timing: dict, tuning, progress_cb) -> dict:
+def _whisper_kwargs(options: dict, timing: dict | None, tuning, progress_cb) -> dict:
     row = {"vad_threshold": options["vad_threshold"], "sensitivity_preset": options["sensitivity_preset"],
            "difficult_audio": options["difficult_audio"]}
     # A Difficult audio run uses the Sensitive preset, as a title's run does.
@@ -275,7 +275,7 @@ def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str | None =
                 options=kwargs, backend=backend)
             result["timing"] = _timing_of(result.pop("segments", None), case, options, audio)
     except Exception as exc:
-        result = {"output_text": "", "error": str(exc) or type(exc).__name__}
+        result: dict = {"output_text": "", "error": str(exc) or type(exc).__name__}
     result["duration_seconds"] = time.monotonic() - started
     result["error"] = redact(result.get("error"))
     return result

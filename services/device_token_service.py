@@ -159,7 +159,10 @@ def create_token(principal: dict, label, expires_in_days=DEFAULT_EXPIRY_DAYS, ip
         raise ForbiddenError("Not allowed.")
     auth_service.write_audit(user_id, "device_token.create",
                              f"token {token_id} ip {auth_service.ip_prefix(ip)}")
-    return {"token": token, "device_token": _public(device_tokens.get(token_id), now)}
+    row = device_tokens.get(token_id)
+    if row is None:
+        raise NotFoundError("The new device token is gone.")
+    return {"token": token, "device_token": _public(row, now)}
 
 
 def _session_still_signed_in(principal: dict, user_id: int) -> bool:
@@ -254,8 +257,9 @@ def authenticate(authorization_headers, ip: str = "", now: float | None = None) 
     Records the use at most once a minute per token."""
     keys = _failure_keys(ip)
     now = time.time() if now is None else now
-    principal = row = None
-    values = list(authorization_headers or ())
+    principal: dict | None = None
+    row: dict | None = None
+    values: list[str] = list(authorization_headers or ())
     if len(values) == 1:
         scheme, _, token = values[0].strip().partition(" ")
         token = token.strip()
@@ -264,7 +268,7 @@ def authenticate(authorization_headers, ip: str = "", now: float | None = None) 
             row = device_tokens.get_by_hash(digest)
             if row and hmac.compare_digest(row["token_hash"], digest):
                 principal = _principal_for(row, now)
-    if principal is None:
+    if principal is None or row is None:
         # A request with no Authorization header isn't a guess, so it neither
         # counts nor is blocked: otherwise anything behind a shared address
         # could fill the window with header-less requests.

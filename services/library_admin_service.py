@@ -343,7 +343,8 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     ids = _check_ids(drama_ids)
     locale_is_explicit = default_locale is not None
     if default_locale is None:
-        default_locale = settings_service.get("default_locale")
+        stored_locale = settings_service.get("default_locale")
+        default_locale = stored_locale if isinstance(stored_locale, str) else None
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")

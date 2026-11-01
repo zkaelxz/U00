@@ -9,6 +9,7 @@ normalisation (normalise_text), before CER (script_normaliser). The lab
 (benchmark_lab_service) calls score_output and pass_threshold per result.
 """
 import functools
+import types
 import unicodedata
 
 import benchmark
@@ -31,7 +32,7 @@ _CHARACTER_LANGUAGES = SOURCE_LANGUAGES
 _PAIRS_T2S = str.maketrans({p[1]: p[0] for p in _PAIRS})
 
 
-def script_normaliser(stage: str, source_language: str = "zh") -> str:
+def script_normaliser(stage: str, source_language: str | None = "zh") -> str:
     """How a case's texts are brought to one script before CER: "opencc" or
     "pairs" (the character table, when OpenCC isn't installed) for Chinese
     transcription and OCR, "none" for everything else. Japanese and Korean
@@ -124,12 +125,19 @@ def _jiwer_transform(jiwer, unit: str, keep_punctuation: bool = False):
     return jiwer.Compose(steps)
 
 
-def _jiwer_error_rate(actual: str, reference: str, unit: str, keep_punctuation: bool = False):
-    """CER/WER from jiwer, or None when jiwer isn't installed or the
-    reference is empty after normalisation (the caller falls back)."""
+def _jiwer_module() -> types.ModuleType | None:
     try:
         import jiwer
     except ImportError:
+        return None
+    return jiwer
+
+
+def _jiwer_error_rate(actual: str, reference: str, unit: str, keep_punctuation: bool = False):
+    """CER/WER from jiwer, or None when jiwer isn't installed or the
+    reference is empty after normalisation (the caller falls back)."""
+    jiwer = _jiwer_module()
+    if jiwer is None:
         return None
     transform = _jiwer_transform(jiwer, unit, keep_punctuation)
     r = [t for sentence in transform(reference or "") for t in sentence][:MAX_TEXT_CHARS]
@@ -149,7 +157,7 @@ def pass_threshold(metric: str) -> float:
     return CHRF_PASS_THRESHOLD if metric == "chrf" else PASS_THRESHOLD
 
 
-def score_output(stage: str, output: str, reference: str, source_language: str = "zh"):
+def score_output(stage: str, output: str, reference: str | None, source_language: str | None = "zh"):
     """(score 0.0-1.0 or None when there is no reference, metric name,
     scorer): scorer is "jiwer" or "builtin" for CER/WER, "sacrebleu" or
     "builtin" for translation similarity, None when nothing was scored."""

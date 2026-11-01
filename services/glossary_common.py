@@ -7,7 +7,7 @@ cycle there made the import order matter. No FastAPI import.
 """
 import secrets
 import sqlite3
-from typing import Optional
+from typing import Literal, Optional, overload
 
 import db
 import db.dramas
@@ -24,7 +24,7 @@ MAX_NOTES_LEN = 1000
 TERM_CONVENTIONS_HEADING = "Term conventions:"
 
 
-def split_term_conventions(instructions: str) -> tuple:
+def split_term_conventions(instructions: str | None) -> tuple:
     """(prose, conventions) from a project instructions text; the last heading wins
     so prose that quotes the heading earlier isn't cut."""
     text = instructions or ""
@@ -35,6 +35,10 @@ def split_term_conventions(instructions: str) -> tuple:
     return text[:max(at - 1, 0)].strip(), text[at + len(marker) - 1:].strip()
 
 
+@overload
+def _series_id(drama: dict, *, required: Literal[True]) -> int: ...
+@overload
+def _series_id(drama: dict, *, required: bool) -> Optional[int]: ...
 def _series_id(drama: dict, *, required: bool) -> Optional[int]:
     sid = drama.get("series_id")
     if sid or not required:

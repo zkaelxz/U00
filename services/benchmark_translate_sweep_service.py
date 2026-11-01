@@ -113,10 +113,10 @@ class _Plan:
         # the same setup produces.
         self.markers = {"app_version": context.get("app_version")}
 
-    def model_of(self, setup: dict) -> str:
+    def model_of(self, setup: dict) -> str | None:
         return setup["model"] or self.default_model
 
-    def with_model(self, setup: dict, model: str) -> dict:
+    def with_model(self, setup: dict, model: str | None) -> dict:
         """The setup on another model; the default model stays as the sweep was asked for it."""
         return {**setup, "model": self.default["model"] if model == self.default_model else model}
 
@@ -188,13 +188,16 @@ def _value_text(value) -> str:
 
 
 def _describe(plan: _Plan, setup: dict) -> str:
-    parts = [plan.model_of(setup)]
+    model = plan.model_of(setup)
+    if model is None:
+        raise UnsupportedOperationError("This engine has no model to sweep.")
+    parts = [model]
     defaults = plan.defaults_of(setup)
     parts += [f"{_LABELS.get(k, k)} {_value_text(v)}" for k, v in setup["changes"].items() if v != defaults.get(k)]
     return ", ".join(parts)
 
 
-def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str) -> float:
+def _pass_cost(plan: _Plan, setup: dict, half: str, ceiling_model: str | None) -> float:
     """What one pass is expected to cost. Passes that can run on a model the sweep may pick use the
     dearest one, so the estimate is never lower than what the sweep can spend."""
     if setup["changes"] or half == "holdout":

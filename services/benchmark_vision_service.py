@@ -133,7 +133,7 @@ def _translator(cfg: dict):
     if key is None:
         raise MissingKeyError(t["engine"])
     engine = engine_registry.get_engine(
-        t["engine"], key, t["model"], free_tier=t["engine"] == "gemini" and settings_service.get("gemini_free_tier"),
+        t["engine"], key, t["model"], free_tier=t["engine"] == "gemini" and bool(settings_service.get("gemini_free_tier")),
         base_url=settings_service.ollama_url() if t["engine"] == "ollama" else None)
     return engine, key
 

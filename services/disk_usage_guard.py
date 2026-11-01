@@ -15,6 +15,7 @@ import stat
 import db
 import portable
 from services import auto_backup_settings as abt_
+from services.disk_usage_links import LinkedSizes
 from lib.errors import InvalidInputError, NotFoundError
 
 TRASH_DIRNAME = "baihe_trash"       # installer.service_layout.DATA_FOLDER_ENTRIES holds it too
@@ -196,7 +197,7 @@ class _Ctx:
         self.root_reason = _root_blocker(self.root)
         self.backup_real = _backup_folder_real()
         self.top_level = _baihe_top_level_names()
-        self.linked = None      # set by a scan only; clear and restore never measure link targets
+        self.linked: LinkedSizes | None = None      # set by a scan only; clear and restore never measure link targets
 
 
 def _previous_library(name: str) -> bool:

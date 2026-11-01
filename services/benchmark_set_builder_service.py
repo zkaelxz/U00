@@ -119,7 +119,8 @@ def build_set(principal, drama_id: int, set_name: str, include: str = "reviewed"
     drama = db.get_drama(drama_id)
     if not drama:
         raise NotFoundError(f"Drama {drama_id} not found.")
-    drama_lang = drama.get("source_language") if drama.get("source_language") in SOURCE_LANGUAGES else "zh"
+    saved_lang = drama.get("source_language")
+    drama_lang = saved_lang if isinstance(saved_lang, str) and saved_lang in SOURCE_LANGUAGES else "zh"
 
     all_lines = db.load_lines(drama_id)
     in_range = [ln for ln in all_lines

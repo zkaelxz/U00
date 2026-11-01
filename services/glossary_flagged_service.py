@@ -9,7 +9,7 @@ the usage log and the pre-run undo snapshot all apply as for any run.
 """
 import db
 from engine_backends.glossary_check import GLOSSARY_FLAG, missing_terms
-from services import profile_service, settings_service, stronger_engine_service, translate_run_service
+from services import ownership_service, profile_service, settings_service, stronger_engine_service, translate_run_service
 from lib.errors import UnsupportedOperationError
 
 
@@ -54,8 +54,8 @@ def start_redo(drama_id: int, engine: str, allow_paid_summary: bool = True,
     if not rows:
         raise UnsupportedOperationError("No lines are flagged for a missing glossary name.")
     locale, style_note = profile_service.locale_and_note(
-        db.get_drama(drama_id), settings_service.get("default_locale"),
-        settings_service.get("default_style_note") or "")
+        ownership_service.require_drama(drama_id), str(settings_service.get("default_locale")),
+        str(settings_service.get("default_style_note") or ""))
     started = translate_run_service.start_translate_run(
         drama_id, engine_name=name, force_retranslate=True, line_ids=[r["id"] for r in rows],
         own_lines_only=True, expected_en={r["id"]: r["en"] for r in rows},

@@ -20,7 +20,7 @@ def _groups(drama_id: int):
     return pages, comic_chapters.group_pages(pages, comic_chapters.load(drama_id))
 
 
-def _chapter(groups, chapter_id: str) -> dict:
+def _chapter(groups, chapter_id: str | None) -> dict:
     for g in groups:
         if g["id"] == chapter_id:
             return g

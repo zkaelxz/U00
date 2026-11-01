@@ -11,6 +11,7 @@ when the owner chose that candidate's English) per line, as a compare-and-set
 against what the preview was built from, after a history snapshot.
 """
 import threading
+from typing import TypeGuard
 
 import asr_backend
 import background_jobs
@@ -145,6 +146,14 @@ def get_options(drama_id: int) -> dict:
     }
 
 
+def _is_line_number(n) -> TypeGuard[int]:
+    return isinstance(n, int) and not isinstance(n, bool) and n >= 1
+
+
+def _is_seconds(n) -> TypeGuard[int | float]:
+    return isinstance(n, (int, float)) and not isinstance(n, bool) and n >= 0
+
+
 def select_lines(drama_id: int, selection: dict) -> list:
     """The Line objects a selection names, in title order, each with a timing
     window. selection: {"kind": one of SELECTION_KINDS, ...}. InvalidInputError
@@ -162,8 +171,7 @@ def select_lines(drama_id: int, selection: dict) -> list:
         picked = [ln for ln in lines if ln.id in wanted]
     elif kind == "range":
         first, last = selection.get("from_number"), selection.get("to_number")
-        if not all(isinstance(n, int) and not isinstance(n, bool) and n >= 1 for n in (first, last)) \
-                or first > last:
+        if not (_is_line_number(first) and _is_line_number(last)) or first > last:
             raise InvalidInputError("The line range must be 'from #N to #M' with N <= M.")
         picked = [ln for ln in lines if first <= ln.idx + 1 <= last]
     elif kind == "flagged":
@@ -175,8 +183,7 @@ def select_lines(drama_id: int, selection: dict) -> list:
         picked = [ln for ln in lines if (ln.speaker or "") == speaker]
     else:
         begin, finish = selection.get("start_seconds"), selection.get("end_seconds")
-        if not all(isinstance(n, (int, float)) and not isinstance(n, bool) and n >= 0
-                   for n in (begin, finish)) or begin >= finish:
+        if not (_is_seconds(begin) and _is_seconds(finish)) or begin >= finish:
             raise InvalidInputError("The time range needs a start before its end.")
         picked = [ln for ln in lines if float(ln.start) < finish and float(ln.end) > begin]
     picked = [ln for ln in picked if float(ln.end) > float(ln.start)]

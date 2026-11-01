@@ -344,7 +344,7 @@ def installed_requirements_on() -> dict:
     return out
 
 
-def classify_update(name: str, installed_version: str, releases, constraints: dict,
+def classify_update(name: str, installed_version: str | None, releases, constraints: dict,
                     required_by: dict) -> dict:
     """{"status", "latest", "target", "reason"} for one installed package:
     "update" (target = newest release allowed by constraints.txt, the

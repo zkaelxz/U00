@@ -43,6 +43,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
@@ -103,8 +104,8 @@ _CPU = {"amd64": "x86_64", "x86_64": "x86_64", "x64": "x86_64",
         "arm64": "aarch64", "aarch64": "aarch64"}
 
 _STATE_LOCK = threading.Lock()
-_DENO_RESULT = {"last": None}
-_DEPENDENCY = {"kind": None, "package": None, "last": None}
+_DENO_RESULT: dict[str, dict | None] = {"last": None}
+_DEPENDENCY: dict[str, Any] = {"kind": None, "package": None, "last": None}
 
 
 class DenoInstallFailed(Exception):
@@ -158,6 +159,8 @@ def _deno_installed_somewhere() -> bool:
 
 def _deno_download_url():
     cpu = _CPU.get((platform.machine() or "").lower())
+    if cpu is None:
+        return None
     return DENO_DOWNLOADS.get((platform.system(), cpu))
 
 
@@ -328,6 +331,8 @@ def _fetch(url: str, out, max_bytes: int, on_chunk=None):
 def _download_and_unpack(say):
     import io
     url = _deno_download_url()
+    if url is None:
+        raise DenoInstallFailed("There is no Deno download for this system here.")
     say(0.05, "Finding the latest Deno release...")
     versioned, version = _resolve_latest(url)
     say(0.1, f"Downloading Deno {version}...")
@@ -719,12 +724,14 @@ def _put_back(kind: str, before: dict, skip: set) -> str:
 
 
 def _run_pip_step(kind: str, arg: str, specs: list | None = None) -> dict:
-    if kind == "upgrade":
-        return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
+    if kind in ("upgrade", "upgrade_outdated"):
+        if specs is None:
+            raise admin_svc.AdminActionNotPossible("An update needs the package versions to install.")
+        if kind == "upgrade":
+            return packages_svc.upgrade_dependency(arg, specs, job_id=DEPENDENCY_JOB_ID)
+        return _upgrade_outdated(arg, specs)
     if kind == "gpu_torch":
         return torch_svc.setup_gpu_torch(arg, True, job_id=DEPENDENCY_JOB_ID)
-    if kind == "upgrade_outdated":
-        return _upgrade_outdated(arg, specs)
     if kind == "cuda_runtime":
         return _install_cuda_runtime()
     return packages_svc.install_dependency(arg, True, job_id=DEPENDENCY_JOB_ID)

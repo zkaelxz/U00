@@ -515,7 +515,7 @@ def check_library_writable(library_dir: str):
 # visibility from inside the app.
 # ---------------------------------------------------------------------------
 
-def scan_hf_cache(cache_dir: str = None) -> list:
+def scan_hf_cache(cache_dir: str | None = None) -> list:
     """[{"repo_id", "repo_type", "revision", "size_bytes"}, ...] for every
     cached model revision, largest first. [] if huggingface_hub isn't
     installed or there's no cache yet -- never raises, since this runs on

@@ -133,9 +133,9 @@ def _pref_default(name: str):
 def default_engine_for(capability: str) -> str:
     d = _definition(capability)
     if d.get("pref"):
-        return _pref_default(d["pref"])
+        return str(_pref_default(d["pref"]))
     default = d.get("default", _DEFAULT_ENGINE)
-    return settings_service.get("default_engine") if default == _DEFAULT_ENGINE else default
+    return str(settings_service.get("default_engine")) if default == _DEFAULT_ENGINE else default
 
 
 def is_configured(capability: str) -> bool:

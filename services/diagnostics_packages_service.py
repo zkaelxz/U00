@@ -18,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+from typing import Any
 
 import background_jobs
 import job_process_kill
@@ -70,7 +71,7 @@ _TORCH_CONSTRAINT_RE = re.compile(r"\(constraint\)\s+(torch|torchvision|torchaud
                                   re.IGNORECASE)
 
 
-def torch_conflict_hint(lines, pins: list, changed: bool = False) -> str:
+def torch_conflict_hint(lines, pins: list, changed: bool = False) -> str | None:
     """A plain-English refusal when pip stopped because the package needs a
     different torch than the pinned one (pip names the constraint in its
     "The conflict is caused by" block). pip resolves before it changes
@@ -94,7 +95,7 @@ def _run_commands(cmds: list, torch_pins: list | None = None, job_id: str | None
     pip process tree is killed; raises JobCancelled), and each redacted
     output line becomes the job's message."""
     cancel = _cancel_probe(job_id)
-    stream_kwargs = {"warn": job_process_kill._warn_via_jobs}
+    stream_kwargs: dict[str, Any] = {"warn": job_process_kill._warn_via_jobs}
     if cancel is not None:
         stream_kwargs["cancel"] = cancel
     tail, ok, hint, raw, removed = [], True, None, [], False
@@ -322,7 +323,7 @@ def cached_update(name: str):
         return dict(entry) if entry else None
 
 
-def check_package_updates(force: bool = False) -> dict:
+def check_package_updates(force: bool = False) -> dict | None:
     """For every installed package the Upgrade route accepts: installed
     version, newest PyPI release, and the newest one allowed by
     constraints.txt, the installed packages that depend on it and the

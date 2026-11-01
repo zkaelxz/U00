@@ -334,7 +334,7 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                         staging = db.new_media_staging()
                     with zipfile.ZipFile(backup.zip_path) as zf:
                         for did in ids:
-                            if did in media:
+                            if did in media and staging is not None:
                                 stagings[did] = drs.stage_media(zf, did, staging)
                 except (OSError, zipfile.BadZipFile):
                     raise InvalidInputError(_BAD_FILE) from None

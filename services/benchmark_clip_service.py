@@ -23,7 +23,8 @@ import uuid
 import db
 from core import SOURCE_LANGUAGES
 from services.benchmark_lab_service import (MAX_IMPORT_CASES, MAX_LABEL_CHARS, MAX_SET_NAME_CHARS,
-                                            _case_out, _clean_text, _refuse_while_running)
+                                            _case_out, _clean_text, _refuse_while_running,
+                                            _stored_case_out)
 from services.media_upload_service import AUDIO_EXTENSIONS, check_room_for
 from lib.errors import InvalidInputError, NotFoundError
 
@@ -301,7 +302,7 @@ def set_excluded(case_id: int, excluded: bool) -> dict:
     if not db.get_benchmark_case(case_id):
         raise NotFoundError("Benchmark case not found.")
     db.set_benchmark_case_excluded(case_id, excluded)
-    return _case_out(db.get_benchmark_case(case_id))
+    return _stored_case_out(case_id)
 
 
 def edit_reference(case_id: int, reference_text: str) -> dict:
@@ -321,7 +322,7 @@ def edit_reference(case_id: int, reference_text: str) -> dict:
         for other in db.list_benchmark_cases_by_clip(case["clip_key"]):
             if other["id"] != case_id and other.get("stage") == "translation":
                 db.update_benchmark_case_texts(other["id"], reference_text, other.get("reference_text"))
-    return _case_out(db.get_benchmark_case(case_id))
+    return _stored_case_out(case_id)
 
 
 def list_edits(case_id: int) -> dict:

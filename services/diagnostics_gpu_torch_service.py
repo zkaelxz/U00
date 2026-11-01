@@ -143,7 +143,7 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
         state = "different"
     return {
         "nvidia": ({"found": True, "gpu_name": redact_for_support(nvidia["gpu_name"]),
-                    "driver_version": nvidia["driver_version"], **driver}
+                    "driver_version": nvidia["driver_version"], **(driver or {})}
                    if nvidia else {"found": False, "gpu_name": None, "driver_version": None,
                                    "status": "unknown", "recommended": None, "minimum": None,
                                    "cuda": None}),
@@ -200,6 +200,8 @@ def setup_gpu_torch(variant: str | None = None, confirm: bool = False, job_id: s
     holds the library and already passed prepare_gpu_torch_setup."""
     if job_id is None:
         variant = prepare_gpu_torch_setup(variant, confirm)
+    elif variant is None:
+        raise AdminActionNotPossible("Unknown PyTorch variant.")
     spec = gpu_torch.TORCH_VARIANTS[variant]
     cancel = _cancel_probe(job_id)
 

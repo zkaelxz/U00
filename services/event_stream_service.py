@@ -93,7 +93,7 @@ class Subscription:
         # Per-connection state (stream coroutine only).
         self.sent_jobs = {}           # job id -> digest of what was last shown
         self.live_cursor = {}         # live session id -> cues already counted
-        self.last_notifications = None
+        self.last_notifications: str | None = None
 
     # --- any thread -------------------------------------------------------
     def mark(self, kind: str, key=None) -> None:

@@ -184,11 +184,11 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
                                 f"batch's reply can be cut off by the engine's output limit.")
 
 
-def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
+def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model: str | None = None,
                             reflect: bool = False, force_retranslate: bool = False,
-                            bulk: bool = False, gemini_free_tier: bool = None,
-                            job_cost_cap_usd: float = None, line_ids=None,
-                            batch_size: int = None) -> dict:
+                            bulk: bool = False, gemini_free_tier: bool | None = None,
+                            job_cost_cap_usd: float | None = None, line_ids=None,
+                            batch_size: int | None = None) -> dict:
     """line_ids (optional): estimate only these lines (of those the run
     would translate). batch_size (optional): the run's own batch size, which
     sets how many times the instructions are sent; omitted, the engine's default."""
@@ -319,16 +319,16 @@ def _require_offered_model(engine_name: str, model) -> None:
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
-def start_translate_run(drama_id: int, engine_name: str = None, model: str = None,
-                        style_preset: str = None, style_note: str = None,
-                        locale: str = None, force_retranslate: bool = False,
-                        context_window: int = None, context_window_ahead: int = None,
-                        batch_size: int = None, line_ids: list = None,
-                        gemini_free_tier: bool = None, job_cost_cap_usd: float = None,
-                        fallback_chain: list = None, reflect: bool = False,
-                        bulk: bool = False, default_female_pronouns: bool = None,
-                        include_genre_notes: bool = None, allow_paid_summary: bool = True,
-                        own_lines_only: bool = False, expected_en: dict = None, thinking: bool = None,
+def start_translate_run(drama_id: int, engine_name: str | None = None, model: str | None = None,
+                        style_preset: str | None = None, style_note: str | None = None,
+                        locale: str | None = None, force_retranslate: bool = False,
+                        context_window: int | None = None, context_window_ahead: int | None = None,
+                        batch_size: int | None = None, line_ids: list | None = None,
+                        gemini_free_tier: bool | None = None, job_cost_cap_usd: float | None = None,
+                        fallback_chain: list | None = None, reflect: bool = False,
+                        bulk: bool = False, default_female_pronouns: bool | None = None,
+                        include_genre_notes: bool | None = None, allow_paid_summary: bool = True,
+                        own_lines_only: bool = False, expected_en: dict | None = None, thinking: bool | None = None,
                         record_run: bool = True) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped

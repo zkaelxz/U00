@@ -115,7 +115,7 @@ def _clone_warning(drama_id: int, row: dict) -> str:
     return ""
 
 
-def _character_dict(drama_id: int, row: dict, line_count: int, sample_lines: list = ()) -> dict:
+def _character_dict(drama_id: int, row: dict, line_count: int, sample_lines: list | tuple = ()) -> dict:
     return {
         "speaker_label": row["speaker_label"],
         "character_name": row.get("character_name") or "",

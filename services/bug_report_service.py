@@ -162,7 +162,7 @@ def _strip_jpeg(data: bytes) -> bytes:
     raise InvalidInputError("The screenshot is not a valid JPEG image.")
 
 
-def clean_screenshot(data: bytes):
+def clean_screenshot(data: bytes | None):
     """(bytes, extension) for a PNG or JPEG, metadata removed; 422 otherwise."""
     if not data:
         return None, None
@@ -477,7 +477,10 @@ def _load(report_id: int):
 
 
 def _stamp(folder: str) -> str:
-    return _FOLDER_RE.match(os.path.basename(folder)).group(1)
+    match = _FOLDER_RE.match(os.path.basename(folder))
+    if match is None:
+        raise NotFoundError("No bug report in that folder.")
+    return match.group(1)
 
 
 def list_reports() -> list:

@@ -185,7 +185,7 @@ def _clean_rows(rows, keys, limit: int) -> list:
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        item = {k: (row.get(k) if isinstance(row.get(k), str) else "").strip()[:MAX_ITEM_CHARS]
+        item = {k: (v if isinstance(v := row.get(k), str) else "").strip()[:MAX_ITEM_CHARS]
                 for k in keys}
         if item[keys[0]]:
             out.append(item)
