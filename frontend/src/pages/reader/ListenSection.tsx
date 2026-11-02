@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 
 import { listenApi } from '../../api/listen'
+import { getCharacters } from '../../api/translateStage'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useReattachJob } from '../../hooks/useReattachJob'
 import { useSession } from '../../hooks/useSession'
 import type { ListenConfig } from '../../types/listen'
+import type { CharacterEntry } from '../../types/translateStage'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import { holds } from '../diagnostics/adminUsers'
 import { dubJobIds } from '../workspace/stageJobIds'
@@ -25,7 +27,46 @@ function listenBlocker(cfg: ListenConfig, engine: string): string | null {
   return cfg.tts_engines.find((t) => t.key === engine)?.unavailable_reason ?? null
 }
 
-// Starts the narration job through the Listen routes (one engine, the title's language).
+// How a speaker's voice is set up, in words.
+function voiceState(c: CharacterEntry): string {
+  if (c.has_ref_audio) return 'reference clip'
+  if (c.voice_design.trim()) return 'described voice'
+  return 'no voice yet'
+}
+
+export function ListenPicker({ dramaId, engines, engine, voices, disabled, onChange }: {
+  dramaId: number
+  engines: ListenConfig['tts_engines']
+  engine: string
+  voices: CharacterEntry[]
+  disabled: boolean
+  onChange: (key: string) => void
+}) {
+  return (
+    <>
+      {engines.length > 0 && (
+        <label className="field">
+          <span>Voice engine</span>
+          <select value={engine} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+            {engines.map((t) => (
+              <option key={t.key} value={t.key} disabled={t.unavailable_reason != null}>
+                {t.label}{t.unavailable_reason ? ` (${t.unavailable_reason})` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {voices.map((v) => (
+        <p key={v.speaker_label} className="muted">
+          {v.character_name || v.speaker_label}: {voiceState(v)}{' '}
+          <a href={`#/drama/${dramaId}/translate?tab=characters`}>Change voice</a>
+        </p>
+      ))}
+    </>
+  )
+}
+
+// Starts the narration job through the Listen routes (the engine picked here, the title's language).
 // Only a narrated title with no track yet shows it: the config route is 404 for any other.
 export function ListenSection({ dramaId, onReady }: Props) {
   // The server refuses a start without jobs.start; this only hides a button that would lead to that.
@@ -50,6 +91,16 @@ export function ListenSection({ dramaId, onReady }: Props) {
 // Split from ListenSection so a title that cannot narrate never looks up narration jobs.
 function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
   const [error, setError] = useState<unknown>(null)
+  const [pickedEngine, setPickedEngine] = useState('')
+  const [voices, setVoices] = useState<CharacterEntry[]>([])
+  useEffect(() => {
+    let cancelled = false
+    // The voice lines are a convenience; Listen still runs without them.
+    getCharacters(dramaId).then((c) => !cancelled && setVoices(c.filter((v) => v.line_count > 0)), () => {})
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId])
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob(dubJobIds(dramaId), adoptJob)
 
@@ -63,7 +114,8 @@ function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
   const busy = jobId !== null && !done && !pollError
   // This run just made the track: the player in Watch / listen takes over.
   if (!busy && done && jobSucceeded(job)) return null
-  const engine = cfg.tts_engines.some((t) => t.key === cfg.default_engine) ? cfg.default_engine : (cfg.tts_engines[0]?.key ?? '')
+  const fallbackEngine = cfg.tts_engines.some((t) => t.key === cfg.default_engine) ? cfg.default_engine : (cfg.tts_engines[0]?.key ?? '')
+  const engine = cfg.tts_engines.some((t) => t.key === pickedEngine) ? pickedEngine : fallbackEngine
   const blocker = listenBlocker(cfg, engine)
   const failedText = done && job && jobFailed(job) ? job.message : null
   const start = () =>
@@ -74,6 +126,7 @@ function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
 
   return (
     <Section title="Listen" storageKey="reader.listen" defaultOpen summary={busy ? (job?.message ?? '') : undefined}>
+      <ListenPicker dramaId={dramaId} engines={cfg.tts_engines} engine={engine} voices={voices} disabled={busy} onChange={setPickedEngine} />
       <div className="actions">
         <button type="button" className="primary" disabled={busy || blocker !== null} onClick={start}>
           Listen
