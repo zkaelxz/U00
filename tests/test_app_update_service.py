@@ -346,8 +346,10 @@ def test_apply_is_refused_while_the_full_setup_is_open(env, monkeypatch):
     us.check()
     _download(env)
     monkeypatch.setattr(us, "_setup", OpenSetup())
-    with pytest.raises(ConflictError, match="already starting"):
+    with pytest.raises(ConflictError) as exc:
         aus.apply()
+    assert str(exc.value) == ("The full installer is starting or open. Finish or close it, "
+                              "then try again.")
     assert not (env["root"] / "app-0.2.0").exists() and env["started"] == []
     assert aus._applying is False
 
@@ -358,13 +360,17 @@ def test_full_setup_is_refused_while_an_app_update_is_under_way(env, monkeypatch
                                           "sha256": "0" * 64, "signature": ""})
     started = []
     monkeypatch.setattr(us, "_install", lambda verified: started.append(verified))
+    applying = ("The app-only update is being applied. Wait for Baihe Studio to restart, "
+                "then try again.")
     monkeypatch.setattr(aus, "_applying", True)
-    with pytest.raises(ConflictError, match="already starting"):
+    with pytest.raises(ConflictError) as exc:
         us.install()
+    assert str(exc.value) == applying
     monkeypatch.setattr(aus, "_applying", False)
     app_swap.write_journal(env["root"], app_swap.QUEUED, "0.1.0", "0.2.0", "0.1.0")
-    with pytest.raises(ConflictError, match="already starting"):
+    with pytest.raises(ConflictError) as exc:
         us.install()
+    assert str(exc.value) == applying
     assert started == [] and us._installing is False
 
 

@@ -4,6 +4,7 @@ reads the whole body before it checks that); multipart uploads and bodies
 under the limit pass through."""
 import asyncio
 import json
+import re
 
 import pytest
 
@@ -19,7 +20,7 @@ async def _echo(scope, receive, send):
     await send({"type": "http.response.body", "body": str(len(body)).encode()})
 
 
-def _call(headers, chunks, limit=100, json_routes=None):
+def _call(headers, chunks, limit=100, multipart_routes=None):
     sent, queue = [], list(chunks)
 
     async def receive():
@@ -30,7 +31,8 @@ def _call(headers, chunks, limit=100, json_routes=None):
         sent.append(message)
 
     scope = {"type": "http", "method": "POST", "path": "/api/x", "headers": headers}
-    asyncio.run(JsonBodyCapGate(_echo, limit, json_routes_fn=lambda: json_routes or [])(
+    asyncio.run(JsonBodyCapGate(_echo, limit,
+                                multipart_routes_fn=lambda: multipart_routes or [])(
         scope, receive, send))
     return sent[0]["status"], sent[1].get("body", b"")
 
@@ -71,30 +73,38 @@ def test_a_body_not_labelled_json_is_capped_too(headers):
     assert _call(headers + [(b"content-length", b"101")], [])[0] == 413
 
 
-def test_multipart_uploads_are_left_to_their_routes():
+def _route(path):
+    return [(re.compile(f"^{path}$"), frozenset({"POST"}))]
+
+
+def test_multipart_to_a_route_that_takes_it_is_left_to_that_route():
     headers = [(b"content-type", b"multipart/form-data; boundary=x")]
-    assert _call(headers, [b"x" * 300]) == (200, b"300")
+    assert _call(headers, [b"x" * 300], multipart_routes=_route("/api/x")) == (200, b"300")
 
 
-def test_a_multipart_label_does_not_lift_the_cap_on_a_json_route():
-    import re
+def test_a_multipart_label_does_not_lift_the_cap_on_any_other_route():
+    """A route that reads its body by hand (request.json() in a dependency)
+    has no body model to spot, so only routes that take multipart skip."""
     headers = [(b"content-type", b"multipart/form-data; boundary=x")]
-    json_route = [(re.compile("^/api/x$"), frozenset({"POST"}))]
-    assert _call(headers, [b"x" * 60, b"x" * 60], json_routes=json_route)[0] == 413
-    other = [(re.compile("^/api/upload$"), frozenset({"POST"}))]
-    assert _call(headers, [b"x" * 300], json_routes=other) == (200, b"300")
+    assert _call(headers, [b"x" * 60, b"x" * 60])[0] == 413
+    assert _call(headers, [b"x" * 60, b"x" * 60],
+                 multipart_routes=_route("/api/upload"))[0] == 413
 
 
-def test_the_app_lists_json_routes_and_not_upload_routes():
+def test_the_app_exempts_only_its_multipart_routes():
     pytest.importorskip("httpx")
     from api.api_config import ApiSettings
-    from api.json_body_cap import json_body_matchers
+    from api.json_body_cap import multipart_matchers
     from api.remote_uploads import upload_matchers
     from api.server import create_app
     app = create_app(ApiSettings())
-    json_paths = {rx.pattern for rx, _ in json_body_matchers(app)}
-    assert "^/api/system/update/install$" in json_paths
-    # Pasted text is a JSON body under the upload permission; every file
-    # upload route stays out of the list.
-    assert json_paths & {rx.pattern for rx, _ in upload_matchers(app)} == {
-        "^/api/novel/dramas/(?P<drama_id>[^/]+)/attach\\-text$"}
+    exempt = {rx.pattern for rx, _ in multipart_matchers(app)}
+    # Hand-documented multipart (read_capped_form) and File() routes alike.
+    assert {"^/api/library/admin/restore$", "^/api/backups/import$",
+            "^/api/translate/read\\-image$"} <= exempt
+    # Every upload route not exempt takes pasted text as JSON.
+    assert all(p.endswith(("attach\\-text$", "/text$"))
+               for p in {rx.pattern for rx, _ in upload_matchers(app)} - exempt)
+    # Routes that read a JSON body by hand stay capped.
+    assert not any("/settings" in p or "retry\\-blocked" in p or "/jellyfin" in p
+                   for p in exempt)
