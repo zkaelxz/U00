@@ -423,8 +423,8 @@ jobs:
     timeout-minutes: 15
     env:
       # go.dev's published hash for this archive.
-      GO_URL: "https://go.dev/dl/go1.26.9.linux-amd64.tar.gz"
-      GO_SHA256: "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+      GO_URL: "https://go.dev/dl/go1.26.10.linux-amd64.tar.gz"
+      GO_SHA256: "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
