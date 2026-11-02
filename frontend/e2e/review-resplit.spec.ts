@@ -71,6 +71,22 @@ test('re-assigns speakers from the saved detection', async ({ page }) => {
   expect(calls.reassigns).toBe(1)
 })
 
+test('adds talk-over lines from the saved detection and says what it did', async ({ page }) => {
+  await mockResplit(page, () => ({ json: SUMMARY }))
+  const posts: string[] = []
+  const result = { added_count: 1, moved_count: 2, new_line_ids: [9], line_ids: [1, 2, 9], history_id: 4, lines_fingerprint: 'x' }
+  await page.route('**/api/transcribe/dramas/3/talk-over/add-lines', (route) => {
+    posts.push(route.request().method())
+    return route.fulfill({ json: result })
+  })
+  const group = await openResplit(page)
+  await group.getByRole('button', { name: 'Add lines for talk-over' }).click()
+  await expect(group.getByTestId('resplit-summary')).toHaveText(
+    'Talk-over: started 2 lines earlier, added 1 blank line to type into. Undo it from Line history in the History tab.',
+  )
+  expect(posts).toEqual(['POST'])
+})
+
 test('shows speaking time per speaker from the saved detection', async ({ page }) => {
   await mockResplit(page, () => ({ json: SUMMARY }))
   await page.route('**/api/diarization/dramas/3/config', (route) =>

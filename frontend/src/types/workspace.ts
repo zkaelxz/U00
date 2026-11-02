@@ -265,6 +265,8 @@ export type GapAddLinesRequest = Schemas['GapAddLinesRequest']
 
 export type GapAddLinesResult = Schemas['GapAddLinesResult']
 
+export type TalkOverAddResult = Schemas['TalkOverAddResult']
+
 // GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).
 type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
 
