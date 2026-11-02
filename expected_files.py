@@ -87,6 +87,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "model_pins.py",
     "navigator.py",
     "ocr.py",
+    "ocr_layout.py",
     "ollama_unload.py",
     "page_fetch.py",
     "page_fetch_browser.py",

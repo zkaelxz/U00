@@ -20,6 +20,7 @@ import threading
 from typing import Any, NamedTuple, Optional
 
 import model_pins
+import ocr_layout
 from lib import proc
 
 # Tesseract language codes per source language. "zh" defaults to
@@ -236,18 +237,26 @@ def paddle_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
     return lines
 
 
-def extract_text_rapidocr(image_path: str) -> str:
+def extract_text_rapidocr(image_path: str, vertical: bool = False) -> str:
     """Chinese and Japanese text through RapidOCR's default models, which ship
     inside its wheel (no download on first use). Any other language or model
     type would be fetched by RapidOCR itself, outside lib.http, so this
     function never asks for one. The default model has no Korean, so a Korean
-    page comes back as noise: Korean stays on Tesseract or Paddle."""
+    page comes back as noise: Korean stays on Tesseract or Paddle.
+
+    RapidOCR lists lines in detection order, which scrambles vertical columns
+    and mixes in furigana, so the lines are filtered and re-ordered by their
+    boxes (ocr_layout); without boxes its own order is kept."""
     from rapidocr import RapidOCR
     with _MODEL_LOCK:
         if "_rapidocr_instance" not in globals():
             globals()["_rapidocr_instance"] = RapidOCR(params={"Global.log_level": "warning"})
         result = globals()["_rapidocr_instance"](image_path)
-    return "\n".join(result.txts or ())
+    texts = result.txts or ()
+    lines = ocr_layout.lines_from_boxes(texts, getattr(result, "boxes", None))
+    if lines is None:
+        return "\n".join(texts)
+    return ocr_layout.layout_text(lines, vertical)
 
 
 _PADDLE_VL_MANGA_REPO = "jzhang533/PaddleOCR-VL-For-Manga"
@@ -493,7 +502,8 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
     them with the language's "_vert" pack and PSM 5 when that pack is
     installed (the horizontal model reads columns as noise; on the Scanlate
     bench the vertical pack cut the character error on columns by a third),
-    and as before when it is not. The other backends read columns as they are."""
+    and as before when it is not. RapidOCR orders the columns right to left and
+    drops furigana beside them. The other backends read columns as they are."""
     if backend == "manga_ocr":
         fn = extract_text_manga_ocr
     elif backend == "paddle_vl_manga":
@@ -502,7 +512,7 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
         paddle_lang = _PADDLE_LANG_BY_SOURCE.get(source_language, "ch")
         fn = lambda p: extract_text_paddle(p, lang=paddle_lang)
     elif backend == "rapidocr":
-        fn = extract_text_rapidocr
+        fn = functools.partial(extract_text_rapidocr, vertical=True) if vertical else extract_text_rapidocr
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
         vertical_pack = (vertical and source_language in TESSERACT_LANG

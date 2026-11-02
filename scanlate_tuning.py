@@ -105,6 +105,13 @@ TYPESET_COMFORT_PX = 13
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
 
+# --- OCR line layout (ocr_layout) ---
+# A line thinner than this share of a larger line beside it is furigana. Ruby
+# is about half the base glyph, and its box is padded, so 0.6 separates it
+# from a base line while leaving small narration (which has no larger
+# neighbour) alone.
+FURIGANA_MAX_THICKNESS_RATIO = 0.6
+
 
 def reads_right_to_left(language: str) -> bool:
     return language in RIGHT_TO_LEFT_LANGUAGES
