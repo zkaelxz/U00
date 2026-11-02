@@ -59,10 +59,6 @@ MODEL_ENGINE_REGISTRY = [
     {"name": "Demucs", "kind": "package", "package": "demucs",
      "url": "https://github.com/facebookresearch/demucs",
      "help": "A fallback background-music remover, used when audio-separator isn't installed."},
-    {"name": "OmniVoice", "kind": "package", "package": "omnivoice",
-     "url": "https://github.com/k2-fsa/OmniVoice",
-     "help": "A local voice-cloning engine that can also design a new voice from a text "
-             "description, not just clone an existing sample."},
 ]
 
 

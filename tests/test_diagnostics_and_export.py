@@ -419,15 +419,14 @@ class TestModelEngineVersions:
 
     def test_step_11b_voice_engines_have_rows(self):
         rows = {v["name"]: v for v in diagnostics_report.get_model_engine_versions()}
-        assert "OmniVoice" in rows
-        for removed in ("GPT-SoVITS", "Chatterbox", "TADA"):
+        for removed in ("GPT-SoVITS", "Chatterbox", "TADA", "OmniVoice"):
             assert removed not in rows
 
     def test_step_11b_pip_engines_are_registered_dependencies(self):
         # keyed by the real pip name, since the Install button runs `pip install <key>`
         deps = diagnostics.OPTIONAL_DEPENDENCIES
-        assert deps["omnivoice"][0] == "omnivoice"
-        assert "chatterbox-tts" not in deps and "hume-tada" not in deps
+        # The voice engines install into folders of their own, not as app packages.
+        assert not {"omnivoice", "chatterbox-tts", "qwen-tts", "hume-tada"} & set(deps)
 
     def test_ollama_tag_appended_only_when_given(self):
         assert not any(v["name"].startswith("Ollama") for v in diagnostics_report.get_model_engine_versions())

@@ -240,6 +240,10 @@ function DiagnosticsContent() {
             <DenoInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('deno')}
               onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
           ))}
+          {card('omnivoice', (
+            <VoiceEngineInstall engine="omnivoice" pc={pc} jobsActive={active} busy={adminBusy}
+              openSignal={signal('omnivoice')} onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          ))}
           {card('qwen3-tts', (
             <VoiceEngineInstall engine="qwen3_tts" pc={pc} jobsActive={active} busy={adminBusy}
               openSignal={signal('qwen3-tts')} onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
