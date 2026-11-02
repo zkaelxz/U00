@@ -73,6 +73,18 @@ test('a novel opens on its page, and Full is the workspace; a comic gets a Simpl
   await expect(page.getByRole('link', { name: 'Add chapters' })).toBeVisible()
 })
 
+test('with audio attached and no lines, the main button starts the flow instead of linking to a stage', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 0, 0) }))
+  await page.route('**/api/transcribe/dramas/1/config', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: true } })
+  })
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await expect(page.getByRole('button', { name: 'Transcribe and translate' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toHaveCount(0)
+})
+
 test('a comic has a Simple page with Open in Scanlate and Add pages, and Full is the workspace', async ({ page }) => {
   await page.route('**/api/library/dramas/1', async (route) => {
     const resp = await route.fetch()

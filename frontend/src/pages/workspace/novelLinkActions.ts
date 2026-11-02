@@ -17,7 +17,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export class StepFailed extends Error {}
 
-async function waitForJob(jobId: string): Promise<void> {
+export async function waitForJob(jobId: string): Promise<void> {
   for (let missing = 0; missing < MISSING_READS; ) {
     const job = await probeJob(jobId)
     if (!job) {

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { getSeriesPage } from '../../api/series'
-import { getWorkflowProgress } from '../../api/workspace'
+import { getTranscribeConfig, getWorkflowProgress } from '../../api/workspace'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
 import { JobPill } from './JobPill'
 import { ButtonLink } from '../../components/Button'
 import { routeHref } from '../../router'
+import { TitleFlowStart } from './TitleFlowStart'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { episodeRows, type EpisodeInput, type TitleView } from './titleView'
 import './stages/novelChapters.css'
@@ -17,6 +18,11 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
   // Unknown until answered; with no lines yet, the main button starts at Transcribe.
   const [lineCount, setLineCount] = useState<number | null>(null)
   const [translatedCount, setTranslatedCount] = useState(0)
+  // Audio or video already attached: only then can one button transcribe.
+  const [audioReady, setAudioReady] = useState(false)
+  const [tick, setTick] = useState(0)
+  // Once started the flow keeps its button even after lines exist, or the progress text would vanish mid-run.
+  const [flowOn, setFlowOn] = useState(false)
   const [siblings, setSiblings] = useState<EpisodeInput[] | null>(null)
   // A series page that has not answered yet must not show this title as the only episode.
   const [seriesDone, setSeriesDone] = useState(false)
@@ -35,7 +41,16 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, tick])
+
+  useEffect(() => {
+    if (comic) return
+    let cancelled = false
+    getTranscribeConfig(id).then((c) => !cancelled && setAudioReady(c.audio_available), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [id, comic])
 
   // A title in a series lists its episodes; a failed or missing series page leaves just this title, which is still correct.
   const seriesId = drama.series_id
@@ -94,7 +109,11 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
         </div>
       ) : (
       <div className="actions">
-        <ButtonLink href={hasLines ? stage('translate') : stage('source', 'transcribe')} variant="primary">Transcribe and translate</ButtonLink>
+        {flowOn || (!hasLines && audioReady && lineCount !== null) ? (
+          <TitleFlowStart id={id} onProgress={() => { setFlowOn(true); setTick((t) => t + 1) }} />
+        ) : (
+          <ButtonLink href={hasLines ? stage('translate') : stage('source', 'transcribe')} variant="primary">Transcribe and translate</ButtonLink>
+        )}
         <ButtonLink href={stage('source', 'add')}>Add media</ButtonLink>
         <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
         <ButtonLink href={stage('review')}>Review</ButtonLink>
