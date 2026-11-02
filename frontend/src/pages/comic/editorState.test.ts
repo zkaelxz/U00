@@ -4,6 +4,7 @@ import { ApiError } from '../../api/client'
 import type { ScanlatePageDetail, ScanlateRegion } from '../../types/scanlate'
 import {
   applyEdit,
+  brushBox,
   changedFields,
   createBox,
   deleteBox,
@@ -33,6 +34,7 @@ function fakeApi(over: Partial<EditorApi> = {}): EditorApi {
     createRegion: vi.fn(async () => detail({ rev: 4, undo_depth: 1, regions: [region(), region({ id: 6, idx: 1 })] })),
     deleteRegion: vi.fn(async () => detail({ rev: 4, undo_depth: 1, regions: [] })),
     undo: vi.fn(async () => detail({ rev: 5 })),
+    redoRegion: vi.fn(async () => detail({ rev: 5, undo_depth: 2, regions: [region(), region({ id: 6, idx: 1, translated_text: 'Who?' })] })),
     ...over,
   }
 }
@@ -95,6 +97,39 @@ describe('applyEdit', () => {
     const api = fakeApi()
     expect(await applyEdit(start, api, 99, { x: 1 })).toBe(start)
     expect(api.editRegion).not.toHaveBeenCalled()
+  })
+})
+
+describe('brushBox', () => {
+  const drawn = { x: 5, y: 6, w: 70, h: 40 }
+  it('creates the box, then reads it with the rev the create returned', async () => {
+    const api = fakeApi()
+    const next = await brushBox(start, api, drawn)
+    expect(api.createRegion).toHaveBeenCalledWith(drawn, 3)
+    expect(api.redoRegion).toHaveBeenCalledWith(6, 4)
+    expect(next.page?.regions.at(-1)?.translated_text).toBe('Who?')
+    expect(next.error).toBeNull()
+  })
+  it('keeps the created box and the error when the read fails', async () => {
+    const err = new ApiError(503, { code: 'dependency_unavailable', message: 'No text.' }, 'POST')
+    const api = fakeApi({ redoRegion: vi.fn(async () => { throw err }) })
+    const next = await brushBox(start, api, drawn)
+    expect(api.page).not.toHaveBeenCalled()
+    expect(next.page?.regions.at(-1)?.id).toBe(6)
+    expect(next.error).toBe(err)
+  })
+  it('does not read when the create failed', async () => {
+    const err = new ApiError(500, { code: 'internal', message: 'No.' }, 'POST')
+    const api = fakeApi({ createRegion: vi.fn(async () => { throw err }) })
+    const next = await brushBox(start, api, drawn)
+    expect(api.redoRegion).not.toHaveBeenCalled()
+    expect(next.error).toBe(err)
+  })
+  it('on 409 from the read reloads the page', async () => {
+    const err = conflict('stale')
+    const api = fakeApi({ redoRegion: vi.fn(async () => { throw err }) })
+    const next = await brushBox(start, api, drawn)
+    expect(next).toEqual({ page: detail({ rev: 9 }), error: err })
   })
 })
 

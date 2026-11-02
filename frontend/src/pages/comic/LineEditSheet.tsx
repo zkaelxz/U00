@@ -36,6 +36,7 @@ export function LineEditSheet({ dramaId, line: { pageId, number, idx }, onClose,
       createRegion: (box, rev) => scanlateApi.createRegion(dramaId, pageId, { expected_rev: rev, region: box }),
       deleteRegion: (rid, rev) => scanlateApi.deleteRegion(dramaId, pageId, rid, rev),
       undo: (rev) => scanlateApi.undo(dramaId, pageId, rev),
+      redoRegion: (rid, rev) => scanlateApi.redoRegion(dramaId, pageId, rid, rev),
     }),
     [dramaId, pageId],
   )

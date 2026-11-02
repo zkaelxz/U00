@@ -36,6 +36,7 @@ export interface EditorStub {
   posts: { method: string; rev: number; region?: Record<string, number> }[]
   patches: { path: string; body: { expected_rev: number; expected?: unknown; changes: Record<string, unknown> } }[]
   undos: { expected_rev: number }[]
+  redos: { expected_rev: number; mode: string }[]
   renders: unknown[]
   pageGets: number
 }
@@ -48,7 +49,7 @@ const region = (id: number, idx: number, x: number, y: number, text: string, sou
 export async function mockEditor(page: Page): Promise<EditorStub> {
   const comic = await mockComic(page, { id: 7, pageCount: 4, width: 800, height: 1200, rendered: [0] })
   const stub: EditorStub = {
-    comic, rev: 1, history: [], conflictNext: false, posts: [], patches: [], undos: [], renders: [], pageGets: 0,
+    comic, rev: 1, history: [], conflictNext: false, posts: [], patches: [], undos: [], redos: [], renders: [], pageGets: 0,
     regions: [
       region(11, 0, 100, 100, 'I told you not to open that door.', '我告诉过你别开那扇门。'),
       region(12, 1, 400, 600, 'Then who is standing behind you?', '那你身后站着的是谁？'),
@@ -77,6 +78,16 @@ export async function mockEditor(page: Page): Promise<EditorStub> {
     if (body.expected_rev !== stub.rev) return refuse(route, 'stale')
     stub.history.push(structuredClone(stub.regions))
     stub.regions = [...stub.regions, { ...region(30 + stub.regions.length, stub.regions.length, 0, 0, '', ''), ...body.region, source_text: '' }]
+    stub.rev += 1
+    return json(route, detail())
+  })
+  await page.route(new RegExp(`/api/scanlate/dramas/7/pages/${pid}/regions/\\d+/redo$`), (route) => {
+    const body = route.request().postDataJSON()
+    stub.redos.push(body)
+    if (body.expected_rev !== stub.rev) return refuse(route, 'stale')
+    const rid = Number(new URL(route.request().url()).pathname.split('/').at(-2))
+    stub.history.push(structuredClone(stub.regions))
+    stub.regions = stub.regions.map((r) => (r.id === rid ? { ...r, source_text: '谁？', translated_text: 'Who?' } : r))
     stub.rev += 1
     return json(route, detail())
   })

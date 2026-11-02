@@ -215,6 +215,20 @@ test('Draw sends one POST with the rectangle, selects the new box and returns to
   expect(s.undos).toEqual([{ expected_rev: 2 }])
 })
 
+test('Brush draws a box, then reads and translates it with the new page rev', async ({ page }) => {
+  const s = await open(page)
+  await page.getByRole('button', { name: 'Brush' }).click()
+  await expect(page.getByRole('button', { name: 'Brush' })).toHaveAttribute('aria-pressed', 'true')
+  await drawBetween(page, [200, 800], [500, 900])
+  await expect(page.getByLabel('English')).toHaveValue('Who?')
+  expect(s.posts).toHaveLength(1)
+  expect(s.posts[0].rev).toBe(1)
+  expect(s.redos).toEqual([{ expected_rev: 2, mode: 'both' }])
+  await expect(page.getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(box(page, 32)).toHaveAttribute('data-selected', 'true')
+  expect(s.comic.unmocked).toEqual([])
+})
+
 test('a reversed drag that leaves the page is clamped to it', async ({ page }) => {
   const s = await open(page)
   await page.getByRole('button', { name: 'Draw' }).click()

@@ -1,7 +1,7 @@
 /*
  * Comic text-box editor (#/comic/<id>/edit[?page=N]). Select a box on the page
  * to move it, resize it by a corner, or change its English, font, kind, size
- * and colour in the side panel; a drawn box starts as a bubble. A drop or
+ * and colour in the side panel; a drawn box starts as a bubble; Brush draws one the same way, then reads and translates it. A drop or
  * Apply is one PATCH carrying the page rev from the last response
  * (editorState.ts), so each is one undo step. Save page
  * re-renders the typeset image with the existing render job.
@@ -19,7 +19,7 @@ import { isActiveStatus } from '../../types/jobs'
 import type { ScanlateRegion } from '../../types/scanlate'
 import { chapterLabel } from './chapterLogic'
 import { drawnBox, moveBox, resizeBox, sameBox, screenToPage, type Box, type Corner } from './editorGeometry'
-import { applyEdit, createBox, deleteBox, draftFields, draftOf, undoEdit, type Draft, type EditorApi, type EditorState } from './editorState'
+import { applyEdit, brushBox, createBox, deleteBox, draftFields, draftOf, undoEdit, type Draft, type EditorApi, type EditorState } from './editorState'
 import { EditorPanel } from './EditorPanel'
 import './comicEditor.css'
 
@@ -47,7 +47,7 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
   const [showOriginal, setShowOriginal] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobError, setJobError] = useState<unknown>(null)
-  const [tool, setTool] = useState<'select' | 'draw'>('select')
+  const [tool, setTool] = useState<'select' | 'draw' | 'brush'>('select')
   const [drawing, setDrawing] = useState<Box | null>(null)
   const drawFrom = useRef<{ x: number; y: number } | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -80,6 +80,7 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
             createRegion: (box, rev) => scanlateApi.createRegion(id, pageId, { expected_rev: rev, region: box }),
             deleteRegion: (rid, rev) => scanlateApi.deleteRegion(id, pageId, rid, rev),
             undo: (rev) => scanlateApi.undo(id, pageId, rev),
+            redoRegion: (rid, rev) => scanlateApi.redoRegion(id, pageId, rid, rev),
           },
     [id, pageId],
   )
@@ -121,7 +122,7 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
 
   // touch-action alone still lets the browser start a scroll gesture from a drag; its fling then
   // swallows the next tap. React's touch handlers are passive, so cancel the drag natively.
-  const drawTool = tool === 'draw'
+  const drawTool = tool !== 'select'
   useEffect(() => {
     const stage = stageRef.current
     if (!drawTool || !stage) return
@@ -232,7 +233,7 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
     if (!box) return
     setTool('select')
     const before = detail.regions.length
-    const next = await run((state, a) => createBox(state, a, box))
+    const next = await run((state, a) => (tool === 'brush' ? brushBox : createBox)(state, a, box))
     const added = next?.page
     if (next && !next.error && added && added.regions.length > before) setSelectedId(added.regions[added.regions.length - 1].id)
   }
@@ -290,6 +291,9 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
             <button type="button" className={buttonClass('secondary', 'sm')} aria-pressed={tool === 'draw'} onClick={() => setTool('draw')}>
               Draw
             </button>
+            <button type="button" className={buttonClass('secondary', 'sm')} aria-pressed={tool === 'brush'} onClick={() => setTool('brush')}>
+              Brush
+            </button>
           </div>
           {info && detail && (
             <div
@@ -298,10 +302,10 @@ export default function ComicEditor({ id, page: routePage }: { id: number; page:
               data-tool={tool}
               data-testid="ce-stage"
               style={{ aspectRatio: `${detail.width} / ${detail.height}`, width: `min(100%, calc(72vh * ${detail.width} / ${detail.height}))` }}
-              onPointerDown={(e) => (tool === 'draw' ? beginDraw(e) : setSelectedId(null))}
-              onPointerMove={tool === 'draw' ? moveDraw : undefined}
-              onPointerUp={tool === 'draw' ? endDraw : undefined}
-              onPointerCancel={tool === 'draw' ? cancelDraw : undefined}
+              onPointerDown={(e) => (drawTool ? beginDraw(e) : setSelectedId(null))}
+              onPointerMove={drawTool ? moveDraw : undefined}
+              onPointerUp={drawTool ? endDraw : undefined}
+              onPointerCancel={drawTool ? cancelDraw : undefined}
             >
               <img
                 className="ce-img"

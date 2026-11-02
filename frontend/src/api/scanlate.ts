@@ -40,6 +40,9 @@ export const scanlateApi = {
     deleteJson<ScanlatePageDetail>(`${root(id)}/pages/${pageId}/regions/${regionId}?expected_rev=${expectedRev}`, f),
   undo: (id: number, pageId: number, expectedRev: number, f?: Fetch) =>
     postJson<ScanlatePageDetail>(`${root(id)}/pages/${pageId}/undo`, { expected_rev: expectedRev }, f),
+  // Reads the box's pixels again and translates the result (lines.edit plus jobs.start), compare-and-set on expectedRev.
+  redoRegion: (id: number, pageId: number, regionId: number, expectedRev: number, f?: Fetch) =>
+    postJson<ScanlatePageDetail>(`${root(id)}/pages/${pageId}/regions/${regionId}/redo`, { expected_rev: expectedRev, mode: 'both' }, f),
   run: (id: number, body: ScanlateRunRequest, f?: Fetch) =>
     postJson<ScanlateJobStarted>(`${root(id)}/run`, body, f),
   render: (id: number, pageId: number | null, f?: Fetch) =>
