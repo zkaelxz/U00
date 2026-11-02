@@ -795,7 +795,7 @@ The owner's step-by-step guide, with a table of which ports are opened or forwar
 A second service, `BaiheCaddy` (WinSW, `NT SERVICE\BaiheCaddy`, same privilege
 cut, depends on `BaiheStudio`), is installed **disabled and stopped**, with
 `caddy.exe` built from `installer/caddy`: stock Caddy plus `rate_limit`, every
-module pinned by `go.sum`, Go `go1.26.9` pinned by SHA-256 in the workflow, and
+module pinned by `go.sum`, Go `go1.26.10` pinned by SHA-256 in the workflow, and
 the binary pinned by `CADDY_SHA256` in `build_installer.py`. Its certificates
 and ACME key live in `%ProgramFiles%\Baihe Studio Services\caddy-data`
 (Caddy, SYSTEM and Administrators only).
