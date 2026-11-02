@@ -220,7 +220,7 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd:
     h, _w = img.shape[:2]
     y0, y1 = int(region[0] * h), int(region[1] * h)
     crop = _upscale_for_ocr(img[y0:y1, :])
-    fd, crop_path = tempfile.mkstemp(suffix=".png")
+    fd, crop_path = tempfile.mkstemp(prefix="baihe_tmp_", suffix=".png")
     os.close(fd)
     try:
         cv2.imwrite(crop_path, crop)

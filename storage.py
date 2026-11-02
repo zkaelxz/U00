@@ -483,6 +483,18 @@ def job_workdir(job_id=None, dir=None):
         shutil.rmtree(path, ignore_errors=True)
 
 
+@contextlib.contextmanager
+def scratch_env(job_id=None):
+    """Env for a child that builds big temporary files (pip unpacking a CUDA
+    torch): TMP/TEMP/TMPDIR point into a work folder removed when the child is
+    done. A killed pip leaves its pip-unpack-* folders behind, and in the
+    shared system temp nothing sweeps them."""
+    with job_workdir(job_id) as path:
+        env = dict(os.environ)
+        env.update(TMPDIR=path, TEMP=path, TMP=path)
+        yield env
+
+
 def _is_link(path: str) -> bool:
     try:
         st = os.lstat(path)
@@ -503,6 +515,10 @@ SYSTEM_TEMP_PREFIXES = (
     "baihe_pronounce_", "baihe_anki_", "baihe_deno_", "baihe_upgrade_check_",
     "baihe_qwen3_asr_", "baihe_forced_align_", "baihe_sensevoice_",
 )
+# Loose temp files (not folders) made by the same code paths. A killed server
+# skips their finally blocks, and without a prefix nothing could tell them from
+# another program's files.
+SYSTEM_TEMP_FILE_PREFIXES = ("baihe_tmp_", "baihe_page_")
 # A start must stay quick even if a temp folder holds a huge number of entries.
 SWEEP_MAX_EXAMINED = 5000
 SWEEP_MAX_REMOVED = 500
@@ -589,12 +605,14 @@ def sweep_library_temp(max_age: float = STALE_TEMP_SECONDS, now: float | None = 
 
 def sweep_legacy_system_temp(max_age: float = STALE_TEMP_SECONDS, now: float | None = None,
                              system_temp: str | None = None) -> int:
-    """Removes stale folders Baihe left in the system temp folder
-    (SYSTEM_TEMP_PREFIXES, folders only). Nothing else there is touched."""
+    """Removes stale folders (SYSTEM_TEMP_PREFIXES) and files
+    (SYSTEM_TEMP_FILE_PREFIXES) Baihe left in the system temp folder.
+    Nothing else there is touched."""
     now = time.time() if now is None else now
     root = system_temp or tempfile.gettempdir()
     return _sweep_folder(
-        root, lambda name, path: name.startswith(SYSTEM_TEMP_PREFIXES) and os.path.isdir(path),
+        root, lambda name, path: (name.startswith(SYSTEM_TEMP_PREFIXES) and os.path.isdir(path))
+        or (name.startswith(SYSTEM_TEMP_FILE_PREFIXES) and os.path.isfile(path)),
         max_age, now, set(), False)["removed"]
 
 

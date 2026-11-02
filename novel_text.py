@@ -224,7 +224,7 @@ def load_novel_text_for_context(file_bytes: bytes, filename: str) -> str:
             raise ImportError(
                 "Reading .epub needs an extra package:\n    pip install ebooklib"
             ) from exc
-        with tempfile.NamedTemporaryFile(suffix=".epub", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(prefix="baihe_tmp_", suffix=".epub", delete=False) as tmp:
             tmp.write(file_bytes)
             tmp_path = tmp.name
         try:

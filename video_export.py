@@ -57,7 +57,7 @@ def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: fl
     a hung ffmpeg can't keep a preview job running forever. The input is
     read with the file protocol only, and the output stops at
     PREVIEW_CLIP_MAX_BYTES."""
-    fd, ass_path = tempfile.mkstemp(suffix=".ass")
+    fd, ass_path = tempfile.mkstemp(prefix="baihe_tmp_", suffix=".ass")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(ass_text)
     try:

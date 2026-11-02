@@ -21,6 +21,7 @@ import time
 from typing import Any
 
 import background_jobs
+import storage
 import job_process_kill
 import dependency_updates
 import diagnostics
@@ -104,23 +105,24 @@ def _run_commands(cmds: list, torch_pins: list | None = None, job_id: str | None
         if cancel is not None and cancel():
             raise background_jobs.JobCancelled(job_id)
         frac = 0.05 + 0.85 * n / len(cmds)
-        for item in stream_tree(cmd, timeout, **stream_kwargs):
-            if "line" in item:
-                # Checked on the raw line: redaction rewrites the cache path.
-                hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
-                if torch_pins:
-                    raw = (raw + [item["line"]])[-200:]
-                shown = redact_for_support(item["line"])
-                tail = (tail + [shown])[-_ADMIN_OUTPUT_TAIL:]
-                if job_id is not None and shown.strip():
-                    background_jobs.update_progress(job_id, frac, shown[:200])
-            elif "returncode" in item:
-                if item.get("cancelled"):
-                    raise background_jobs.JobCancelled(job_id)
-                ok = ok and item["returncode"] == 0 and not item.get("timed_out")
-                removed = removed or (ok and cmd[3:4] == ["uninstall"])
-                if item.get("timed_out"):
-                    tail = (tail + ["(stopped: pip took too long)"])[-_ADMIN_OUTPUT_TAIL:]
+        with storage.scratch_env(job_id or "pip") as env:
+            for item in stream_tree(cmd, timeout, env=env, **stream_kwargs):
+                if "line" in item:
+                    # Checked on the raw line: redaction rewrites the cache path.
+                    hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
+                    if torch_pins:
+                        raw = (raw + [item["line"]])[-200:]
+                    shown = redact_for_support(item["line"])
+                    tail = (tail + [shown])[-_ADMIN_OUTPUT_TAIL:]
+                    if job_id is not None and shown.strip():
+                        background_jobs.update_progress(job_id, frac, shown[:200])
+                elif "returncode" in item:
+                    if item.get("cancelled"):
+                        raise background_jobs.JobCancelled(job_id)
+                    ok = ok and item["returncode"] == 0 and not item.get("timed_out")
+                    removed = removed or (ok and cmd[3:4] == ["uninstall"])
+                    if item.get("timed_out"):
+                        tail = (tail + ["(stopped: pip took too long)"])[-_ADMIN_OUTPUT_TAIL:]
         if not ok:
             break
     if not ok and torch_pins:
