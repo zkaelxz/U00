@@ -1602,14 +1602,16 @@ def test_trigger_in_sources_db_refused(isolated_db):
 
 
 @pytest.mark.parametrize("member", ["./backups/exports/planted.zip",
-                                    "extension_token.txt.", "backups/ /x", "a//b"])
+                                    "extension_token.txt.", "backups/ /x", "a//b",
+                                    "NUL", "media/con.txt", "CONIN$", "lpt1/x.wav"])
 def test_kept_name_variants_rejected_by_validation(isolated_db, member):
     with pytest.raises(InvalidInputError):
         lbr.validate_backup_zip(_zip({"library.db": b"x", member: b"x"}))
 
 
 @pytest.mark.parametrize("member", ["./backups/exports/planted.zip", "../outside.txt",
-                                    "/abs.txt", "C:/x.txt", "extension_token.txt.", "a//b"])
+                                    "/abs.txt", "C:/x.txt", "extension_token.txt.", "a//b",
+                                    "media/Aux.mp3", "CONOUT$"])
 def test_restore_core_refuses_unsafe_names_without_the_service_check(isolated_db, member):
     """Direct call, no service validation: the core checks names itself, so
     a second caller can't extract an unchecked zip."""

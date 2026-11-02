@@ -288,6 +288,14 @@ def test_a_failed_lookup_keeps_the_last_home_addresses(env, monkeypatch):
     assert [str(n) for n in url_guard._home_networks] == ["93.184.216.34/32"]
 
 
+def test_an_empty_lookup_keeps_the_last_home_addresses(env, monkeypatch):
+    from lib import url_guard
+    url_guard.set_home_addresses({"93.184.216.34"})
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: set())
+    rhs.refresh_home_addresses("https://baihe.example.com")
+    assert [str(n) for n in url_guard._home_networks] == ["93.184.216.34/32"]
+
+
 def test_a_stop_ends_a_hung_home_address_lookup_at_once(env, monkeypatch):
     from lib import url_guard
     url_guard.set_home_addresses({"93.184.216.34"})

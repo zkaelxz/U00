@@ -214,7 +214,8 @@ async def post_restore(request: Request):
         await form.close()
     principal = getattr(request.state, "principal", None) or {}
     return await run_in_threadpool(lbr.restore_backup, data, confirm=True,
-                                   confirm_text=confirm_text, actor_id=principal.get("user_id"))
+                                   confirm_text=las.RESTORE_CONFIRM_TEXT,
+                                   actor_id=principal.get("user_id"))
 
 
 @router.get("/storage", dependencies=[require_permission("admin.library")],
