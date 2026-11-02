@@ -29,6 +29,11 @@ test('Simple shows the five actions and the episode, and Full brings the stage t
 
 test('the choice is remembered, and a link that names a stage still opens that stage', async ({ page }) => {
   await page.route('**/api/workflow/dramas/3/progress', (route) => route.fulfill({ json: progress(3, 0, 0) }))
+  // Without audio the button stays a link to Transcribe; the seeded video may or may not have audio, so pin it.
+  await page.route('**/api/transcribe/dramas/3/config', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: false } })
+  })
   await page.goto('/#/drama/3')
   await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
   await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
@@ -61,10 +66,44 @@ test('Simple leaves the advanced controls out of the stages, and Full brings the
   await expect(page.getByText('Keep original files')).toHaveCount(0)
 })
 
-test('a novel has no Simple / Full switch', async ({ page }) => {
+test('a novel opens on its page, and Full is the workspace; a comic gets a Simple page of its own', async ({ page }) => {
   await page.goto('/#/drama/2')
-  await expect(page.getByTestId('drama-title')).toBeVisible()
-  await expect(page.getByRole('radio', { name: 'Simple' })).toHaveCount(0)
+  await expect(page.getByRole('radio', { name: 'Simple' })).toBeChecked()
+  await expect(page.getByRole('link', { name: 'Add chapters' })).toBeVisible()
+  await page.getByRole('radio', { name: 'Full' }).check({ force: true })
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('radio', { name: 'Full' })).toBeChecked()
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await expect(page.getByRole('link', { name: 'Add chapters' })).toBeVisible()
+})
+
+test('with audio attached and no lines, the main button starts the flow instead of linking to a stage', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 0, 0) }))
+  await page.route('**/api/transcribe/dramas/1/config', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: true } })
+  })
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await expect(page.getByRole('button', { name: 'Transcribe and translate' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toHaveCount(0)
+})
+
+test('a comic has a Simple page with Open in Scanlate and Add pages, and Full is the workspace', async ({ page }) => {
+  await page.route('**/api/library/dramas/1', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), media_type: 'manhua' } })
+  })
+  await page.goto('/#/drama/1')
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Open in Scanlate' })).toHaveAttribute('href', '#/comic/1')
+  await expect(page.getByRole('link', { name: 'Add pages' })).toHaveAttribute('href', '#/drama/1/source?tab=add')
+  await expect(page.getByRole('link', { name: 'Review' })).toHaveCount(0)
+  await page.getByRole('radio', { name: 'Full' }).check({ force: true })
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
 })
 
 test('a title in a series lists its episodes in order with each state', async ({ page }) => {

@@ -4,11 +4,20 @@ export type TitleView = 'simple' | 'full'
 
 export const TITLE_VIEW_PREF = 'title.view'
 
-// Only audio and video titles have two views: a novel has its own page, and a comic or a subtitle-only title keeps the plain workspace.
-export const hasSimpleView = (kind: TitleKind): boolean => kind === 'audio' || kind === 'video'
+// A subtitle-only title keeps the plain workspace.
+export const hasSimpleView = (kind: TitleKind): boolean => kind === 'audio' || kind === 'video' || kind === 'novel' || kind === 'comic'
 
-// Full is today's workspace, so a viewer who never touched the switch sees nothing change.
-export const asTitleView = (v: unknown): TitleView => (v === 'simple' ? 'simple' : 'full')
+// One saved choice per group of kinds: someone who likes Full for videos should not lose the novel page.
+export const titleViewPref = (kind: TitleKind): string =>
+  kind === 'novel' ? `${TITLE_VIEW_PREF}.novel` : kind === 'comic' ? `${TITLE_VIEW_PREF}.comic` : TITLE_VIEW_PREF
+
+// What a viewer who never touched the switch sees: the novel page was always the novel's landing page, and the rest keep today's workspace.
+export const defaultTitleView = (kind: TitleKind): TitleView => (kind === 'novel' ? 'simple' : 'full')
+
+// Stages leave out their advanced controls in Simple only where the stage is the same for every title of the kind (audio and video).
+export const trimsStages = (kind: TitleKind): boolean => kind === 'audio' || kind === 'video'
+
+export const asTitleView = (v: unknown, fallback: TitleView = 'full'): TitleView => (v === 'simple' || v === 'full' ? v : fallback)
 
 export interface EpisodeInput {
   id: number
