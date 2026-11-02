@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ComicChapter, ComicPageInfo } from '../../types/comic'
 import {
   chapterLabel,
+  chapterRows,
   chapterStart,
   loadChapterPrefs,
   optionText,
@@ -82,5 +83,28 @@ describe('chapter prefs', () => {
     expect(loadChapterPrefs(storage, 3)).toEqual({ chapterOnly: false, showHidden: true })
     expect(saveChapterPrefs(storage, 4, { chapterOnly: true, showHidden: false })).toBe(true)
     expect(loadChapterPrefs(storage, 4)).toEqual({ chapterOnly: true, showHidden: false })
+  })
+})
+
+describe('chapterRows', () => {
+  const chap = (id: string, first: number, count: number, over: Partial<ComicChapter> = {}): ComicChapter => ({
+    id, title: '', known: true, first_page: first, page_count: count, hidden_count: 0, ...over,
+  })
+  const page = (ordinal: number, chapter_id: string, over: Partial<ComicPageInfo> = {}): ComicPageInfo => ({
+    id: ordinal, ordinal, width: 1, height: 1, has_rendered: false, has_regions: false, image_version: null, chapter_id, ...over,
+  })
+
+  it('lists each chapter with its page count and how many pages have text, opening on its first shown page', () => {
+    const pages = [page(1, 'a', { hidden: true }), page(2, 'a', { has_regions: true }), page(3, 'a'), page(4, 'b', { has_regions: true })]
+    const rows = chapterRows(pages, [chap('a', 1, 3, { title: 'Prologue', hidden_count: 1 }), chap('b', 4, 1)])
+    expect(rows).toEqual([
+      { id: 'a', label: 'Prologue', meta: '2 pages · 1 translated', page: 2 },
+      { id: 'b', label: 'Chapter 2', meta: '1 page · 1 translated', page: 4 },
+    ])
+  })
+
+  it('shows no list when the pages have no chapter data', () => {
+    expect(chapterRows([page(1, 'unknown')], [chap('unknown', 1, 1, { known: false })])).toEqual([])
+    expect(chapterRows([], [])).toEqual([])
   })
 })

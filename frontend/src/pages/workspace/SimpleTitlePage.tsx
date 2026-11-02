@@ -7,6 +7,7 @@ import { Badge } from '../../components/Badge'
 import { JobPill } from './JobPill'
 import { ButtonLink } from '../../components/Button'
 import { routeHref } from '../../router'
+import { ComicChapterList } from './ComicChapterList'
 import { TitleFlowStart } from './TitleFlowStart'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { episodeRows, type EpisodeInput, type TitleView } from './titleView'
@@ -120,9 +121,11 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
         <ButtonLink href={stage('export')}>Export</ButtonLink>
       </div>
       )}
-      <section className="panel" aria-label={comic ? 'Chapters' : 'Episodes'}>
-        <h2 className="source-subhead">{comic ? 'Chapters' : 'Episodes'}</h2>
-        <ul className="chapters-list episodes-list" aria-label={comic ? 'Chapters' : 'Episodes'} aria-busy={loadingSeries || lineCount === null}>
+      {comic && <ComicChapterList id={id} />}
+      {/* A comic's own chapters are listed above; its series list names the other titles, so the two headings differ. */}
+      <section className="panel" aria-label={comic ? 'Titles in this series' : 'Episodes'}>
+        <h2 className="source-subhead">{comic ? 'Titles in this series' : 'Episodes'}</h2>
+        <ul className="chapters-list episodes-list" aria-label={comic ? 'Titles in this series' : 'Episodes'} aria-busy={loadingSeries || lineCount === null}>
           {rows.map((r) => (
             <li key={r.id} className="chapters-item">
               <a className="chapters-row episodes-row" href={routeHref({ name: 'drama', id: r.id, stage: null })} aria-current={r.id === id ? 'page' : undefined}>
