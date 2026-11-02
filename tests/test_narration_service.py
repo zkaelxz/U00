@@ -48,11 +48,13 @@ class TestStart:
         with pytest.raises(InvalidInputError):
             narration_service.start_narration_run(did, "fake_mt")
 
-    def test_no_key_is_503_type(self, isolated_db, monkeypatch):
+    def test_no_key_still_starts_a_chunk_only_job(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
         did = _drama(isolated_db)
-        with pytest.raises(DependencyUnavailableError):
-            narration_service.start_narration_run(did)
+        calls = []
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: calls.append(a) or True)
+        assert narration_service.start_narration_run(did) == {"job_id": f"narration_{did}"}
+        assert calls[0][-1] is None  # no key reaches the job
 
     def test_starts_job(self, isolated_db, key, monkeypatch):
         did = _drama(isolated_db)
@@ -82,6 +84,16 @@ class TestJob:
                             lambda chunks, engine, known, **k: speakers(chunks))
         job_id = f"narration_{did}"
         narration_service._run_narration_job(job_id, did, NOVEL, "claude", "k", None)
+
+    def test_without_a_key_lines_are_made_locally_as_narrator(self, isolated_db, monkeypatch):
+        from engine_backends import llm_tasks
+        did = _drama(isolated_db)
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id",
+                            lambda *a, **k: pytest.fail("no key: no AI call"))
+        narration_service._run_narration_job(f"narration_{did}", did, NOVEL, "claude", None, None)
+        lines = isolated_db.load_line_objects(did)
+        assert lines and {ln.speaker for ln in lines} == {"Narrator"}
+        assert isolated_db.get_drama(did)["status"] == "aligned"
 
     def test_replaces_lines_tags_speakers_and_snapshots(self, isolated_db, monkeypatch):
         from core import Line
@@ -146,8 +158,9 @@ class TestApi:
         assert r.status_code == 200 and r.json() == {"job_id": f"narration_{did}"}
         monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: False)
         assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 409
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
-        assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 503
+        assert client.post(f"/api/narration/dramas/{did}/run", json={}).status_code == 200
 
 
 class TestNarrationCancel:

@@ -56,8 +56,10 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   if (!cfg.is_narration) return null
 
   const needsConfirm = cfg.replaces_existing_lines
+  // Chunking is local, so a missing key does not block the run; it only skips the speaker tagging.
+  const engineHasNoKey = cfg.engines.some((o) => o.key === engine && !o.key_configured)
   const disabled =
-    busy || cfg.job_running || !cfg.has_novel_source || !engine || !!gate || (needsConfirm && !confirmed)
+    busy || cfg.job_running || !cfg.has_novel_source || !engine || (!!gate && !engineHasNoKey) || (needsConfirm && !confirmed)
 
   const start = () =>
     narrationApi
@@ -95,7 +97,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
           <input value={model} onChange={(e) => setModel(e.target.value)} />
         </Field>
       </div>
-      <EngineGateNote gate={gate} />
+      {!engineHasNoKey && <EngineGateNote gate={gate} />}
       {needsConfirm && (
         <div className="dub-check">
           <Field label={`Replace the ${cfg.existing_line_count} existing lines`}>

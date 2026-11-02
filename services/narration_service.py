@@ -41,7 +41,6 @@ from services import (
 from lib.errors import (
     ConflictError,
     InvalidInputError,
-    MissingKeyError,
 )
 
 DEFAULT_ENGINE = "claude"
@@ -101,9 +100,10 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     text = _read_novel(drama_id)
     if not text.strip():
         raise InvalidInputError("This title has no novel text attached yet.")
-    api_key = _api_key(engine_name)
-    if not api_key:
-        raise MissingKeyError(engine_name)
+    # Chunking is local; only the speaker tagging needs a key. Without one the
+    # lines are still created (all "Narrator") so the Reader works for readers
+    # who just want the text.
+    api_key = _api_key(engine_name) or None
 
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
@@ -166,6 +166,14 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         return
     lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
 
+    if api_key:
+        _tag_lines(job_id, drama_id, text, lines, engine_name, api_key, model, fresh)
+    for ln in lines:
+        ln.speaker = ln.speaker or "Narrator"
+    _save_lines(job_id, drama_id, lines)
+
+
+def _tag_lines(job_id, drama_id, text, lines, engine_name, api_key, model, fresh):
     job_timing_service.mark_stage(job_id, "Tag speakers")
     background_jobs.update_progress(job_id, 0.2, "Tagging speakers with the LLM...")
     engine = engine_registry.get_engine(
@@ -194,6 +202,8 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
+
+def _save_lines(job_id, drama_id, lines):
     job_timing_service.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, "Saving lines...")
     for label in sorted({ln.speaker or "Narrator" for ln in lines}):
