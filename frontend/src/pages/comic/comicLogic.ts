@@ -92,6 +92,11 @@ export function isWidePage(p: { width: number | null; height: number | null }): 
   return !!p.width && !!p.height && p.width > p.height
 }
 
+/** A webtoon-style strip (at least twice as tall as wide) is read by scrolling, so it is never paired. */
+export function isStripPage(p: { width: number | null; height: number | null }): boolean {
+  return !!p.width && !!p.height && p.height >= p.width * 2
+}
+
 /**
  * Groups the readable pages (1-based ordinals, in order) into what is shown together: pairs of
  * consecutive pages, with the first page alone when `coverAlone` and a wide page always alone.
