@@ -8,7 +8,6 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
 import { Section } from '../../../../components/Section'
 import { checkSourceText } from '../../../../api/sourceSuspect'
-import { addTalkOverLines } from '../../../../api/workspace'
 import { useStage } from '../../StageContext'
 import { clearMessage, MODE_HELP, MODE_OPTIONS } from './readingSpeed'
 import { TimingCheck } from './TimingCheck'
@@ -27,21 +26,6 @@ const ACTIONS: Action[] = [
     label: 'Flag overlapping lines',
     writes: 'Marks each line that overlaps the next one, and is not flagged yet, for review. Only flags and flag notes are written.',
     run: (id) => flagOverlaps(id).then((r) => `Flagged ${plural(r.flagged_count, 'line')}.`),
-  },
-  {
-    id: 'talk-over',
-    label: 'Add lines for talk-over',
-    writes: 'Starts a second speaker\'s late line where their voice begins, or adds a blank flagged line for them. Needs saved speaker detection; saved to line history.',
-    run: (id) =>
-      addTalkOverLines(id).then((r) => {
-        if (!r.added_count && !r.moved_count) return 'No talk-over found.'
-        const parts = [
-          r.moved_count ? `started ${plural(r.moved_count, 'line')} earlier` : '',
-          r.added_count ? `added ${plural(r.added_count, 'blank line')}; type what they say` : '',
-        ].filter(Boolean)
-        const text = parts.join(', ')
-        return `${text[0].toUpperCase()}${text.slice(1)}.`
-      }),
   },
   {
     id: 'qc',
