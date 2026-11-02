@@ -119,6 +119,17 @@ describe('Use this (AI suggestion) during an edit of the same line', () => {
   })
 })
 
+describe('a save refused because the line is gone', () => {
+  it('offers Reload like a clash, and keeps the typing', async () => {
+    const a = line(1)
+    const { ctl, st, setIssue } = setup([a], editing(a, 'typed'))
+    api.patchLine.mockRejectedValue(new ApiError(404, { code: 'not_found', message: 'No line with id 1 in this title.' }))
+    expect(await ctl.beforeWrite([1])).toBe('Save or discard your edit to #1 first.')
+    expect(setIssue).toHaveBeenCalledWith({ lineId: 1, conflict: true })
+    expect(st.current.edit?.draft.en).toBe('typed')
+  })
+})
+
 describe('TM Accept on the row', () => {
   it('saves a dirty draft of that line before accepting, so no edit keeps a stale base', async () => {
     const a = line(1)
