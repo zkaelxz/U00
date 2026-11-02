@@ -207,9 +207,9 @@ def test_chatterbox_gets_the_torch_its_package_pins(monkeypatch, tmp_path):
 ])
 def test_chatterbox_refuses_a_card_its_torch_cannot_run(env, setup):
     env.update(setup, nvidia={"gpu_name": "RTX 5090", "driver_version": "580.10"})
-    assert svc._refusal("chatterbox") == "Chatterbox does not support this graphics card yet."
+    assert svc._refusal("chatterbox", svc._gpu()) == "Chatterbox does not support this graphics card yet."
     # Qwen3-TTS uses the app's own torch, which has both.
-    assert svc._refusal("qwen3_tts") is None
+    assert svc._refusal("qwen3_tts", svc._gpu()) is None
 
 
 def test_on_python_3_14_chatterbox_takes_the_apps_torch(env, monkeypatch, tmp_path):
@@ -217,9 +217,9 @@ def test_on_python_3_14_chatterbox_takes_the_apps_torch(env, monkeypatch, tmp_pa
     monkeypatch.setattr(svc, "sys", type("S", (), {"version_info": (3, 14, 0),
                                                    "executable": sys.executable}))
     env.update(nvidia={"gpu_name": "RTX 5090", "driver_version": "580.10"}, caps=[12.0])
-    assert svc._refusal("chatterbox") is None
+    assert svc._refusal("chatterbox", svc._gpu()) is None
     assert svc._own_torch("chatterbox") is None
-    monkeypatch.setattr(diagnostics_torch, "recommended_gpu_variant", lambda cap: ("cu128", None))
+    monkeypatch.setattr(diagnostics_torch, "gpu_variant_for", lambda cap: ("cu128", None))
     step = svc._torch_step("chatterbox")
     assert "torch==2.11.0+cu128" in step and step[-1] == "https://download.pytorch.org/whl/cu128"
 

@@ -398,16 +398,15 @@ def lowest_compute_capability():
     return min(caps) if caps else None
 
 
-_QUERY = object()
-
-
-def recommended_gpu_variant(cap=_QUERY):
+def recommended_gpu_variant():
     """(variant, reason) for a machine with an NVIDIA GPU. reason is plain
     words, or None for the default; an unknown compute capability gets the
-    default. `cap` is the lowest compute capability when the caller already
-    has it."""
-    if cap is _QUERY:
-        cap = lowest_compute_capability()
+    default."""
+    return gpu_variant_for(lowest_compute_capability())
+
+
+def gpu_variant_for(cap: float | None):
+    """recommended_gpu_variant for a known lowest compute capability."""
     if cap is not None and cap < CU128_MIN_COMPUTE:
         new, old = (TORCH_VARIANTS[v]["cuda"] for v in (TORCH_RECOMMENDED_VARIANT_GPU,
                                                          TORCH_OLD_GPU_VARIANT))

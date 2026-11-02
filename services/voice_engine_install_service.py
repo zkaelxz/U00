@@ -50,7 +50,6 @@ OUTPUT_TAIL_LINES = 12
 OUTPUT_LINE_CHARS = 200
 
 _STATE_LOCK = threading.Lock()
-_QUERY_GPU = object()
 _RESULTS: dict[str, dict] = {}
 
 
@@ -125,11 +124,9 @@ def _own_torch(engine: str):
     return None
 
 
-def _refusal(engine: str, gpu=_QUERY_GPU):
-    """Plain reason the install can't start now, or None."""
+def _refusal(engine: str, gpu: dict | None):
+    """Plain reason the install can't start now, or None. `gpu` is _gpu()."""
     spec = _spec(engine)
-    if gpu is _QUERY_GPU:
-        gpu = _gpu()
     if voice_venv.is_ready(engine):
         return f"{spec['label']} is already installed."
     if portable.is_installed():
@@ -177,7 +174,7 @@ def start_install(engine: str, confirm: bool = False) -> dict:
     """PC only (the route is local_only()). 422 unconfirmed, for an unknown engine or with
     too little disk; 409 when it is installed or its install is already running."""
     admin_svc.guard(confirm)
-    reason = _refusal(engine)
+    reason = _refusal(engine, _gpu())
     if reason:
         if voice_venv.is_ready(engine):
             raise AlreadyInstalled(reason)
@@ -190,20 +187,18 @@ def start_install(engine: str, confirm: bool = False) -> dict:
     return {"job_id": job_id(engine), "started": True}
 
 
-def _torch_variant(engine: str, gpu=_QUERY_GPU) -> str:
-    if gpu is _QUERY_GPU:
-        gpu = _gpu()
+def _torch_variant(engine: str, gpu: dict | None) -> str:
     if gpu is None:
         return "cpu"
     if _own_torch(engine):
         return "cu126"
-    return diagnostics_torch.recommended_gpu_variant(min(gpu["caps"]) if gpu["caps"] else None)[0]
+    return diagnostics_torch.gpu_variant_for(min(gpu["caps"]) if gpu["caps"] else None)[0]
 
 
 def _torch_step(engine: str) -> list:
     """The torch and torchaudio pins and their fixed index: the app's own versions, or
     the engine's when its package pins another torch."""
-    variant = _torch_variant(engine)
+    variant = _torch_variant(engine, _gpu())
     torch_spec = diagnostics_torch.TORCH_VARIANTS[variant]
     own = _own_torch(engine)
     pins = [f"{n}=={own[variant] if own else torch_spec['versions'][n]}"
