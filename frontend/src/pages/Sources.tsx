@@ -309,6 +309,9 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
               }
               phone={phone}
               onTracked={setTracked}
+              moveCandidates={tracked
+                .filter((t) => t.source !== open.source || t.series_id !== open.series_id)
+                .map((t) => ({ tracked: t, label: `${t.title || t.series_id} · ${display(t.source)}` }))}
             />
           )}
 

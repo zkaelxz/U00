@@ -28,12 +28,15 @@ by `sources_search_service.get_job_result`.
 import background_jobs
 import db
 from services import ownership_service
+from engine_backends.shared import safe_url
 from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_registry_service import (require_link_editable, require_source,
                                                list_tracked)
+from services import sources_search_service as search
 from services.sources_search_service import clean_series_id
-from sources import chapter_check, registry, store
+from services.sources_extension_service import require_not_extension_only
+from sources import chapter_check, chapter_order, registry, store
 
 CHECK_JOB_ID = chapter_check.CHECK_JOB_ID
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
@@ -101,5 +104,109 @@ def set_tracked_save(source: str, series_id: str, save_cbz: bool, principal=None
                                         details={"reason": "NOT_SUPPORTED"})
     if not store.set_tracked_save(source, series_id, bool(save_cbz),
                                   by_user_id=(principal or {}).get("user_id")):
+        raise NotFoundError("That series isn't tracked.")
+    return list_tracked(principal)
+
+
+def _job_running(job_id: str) -> bool:
+    status = background_jobs.get_status(job_id)
+    return bool(status and status.get("status") in ("running", "queued"))
+
+
+def _move_plan(source: str, series_id: str, new_source: str, new_series_id: str, principal) -> dict:
+    """Validates a move and works out what it would do. Reads only this
+    process's finished `sources_series_<new_source>` result for the new series
+    (the same "open the series first" rule as tracking), and the old series'
+    stored chapters, so a dead old site is never contacted."""
+    series_id, new_series_id = clean_series_id(series_id), clean_series_id(new_series_id)
+    row = next((r for r in store.list_tracked_series()
+                if r["source"] == source and r["series_id"] == series_id), None)
+    if row is None:
+        raise NotFoundError("That series isn't tracked.")
+    require_link_editable(source, series_id, principal)
+    require_source(new_source)
+    require_not_extension_only(new_source)
+    if (source, series_id) == (new_source, new_series_id):
+        raise InvalidInputError("Pick a different series to move to.")
+    if any(r["source"] == new_source and r["series_id"] == new_series_id
+           for r in store.list_tracked_series()):
+        raise ConflictError("That series is already tracked.", details={"reason": "ALREADY_TRACKED"})
+    drama_id = row.get("drama_id")
+    drama = db.get_drama(drama_id) if drama_id is not None else None
+    if drama is not None:
+        _check_media(new_source, drama)
+    status = background_jobs.get_status(search.SERIES_JOB_PREFIX + new_source) or {}
+    result = status.get("result") if status.get("status") == "done" else None
+    if (not isinstance(result, dict) or result.get("series_id") != new_series_id
+            or result.get("error")):
+        raise ConflictError("Open the series first, so its chapters can be compared.",
+                            details={"reason": "SERIES_NOT_LOADED"})
+    new_chapters = result["chapters"]
+    imported, held = set(), set()
+    if drama and drama_id is not None:
+        with store.connect() as conn:
+            imported, held = store.chapters_waiting(conn, source, series_id, drama_id)
+    # Chapters imported before the series was tracked may have no stored title; they
+    # can't be matched, so they stay listed as only on the old source.
+    old = store.known_chapters(source, series_id)
+    seen = {c["chapter_id"] for c in old}
+    old += [{"chapter_id": cid, "title": ""} for cid in sorted(imported - seen)]
+    pairs, old_only, new_only = chapter_order.match_chapters(
+        [c["title"] or "" for c in old], [c.get("title") or "" for c in new_chapters])
+    # A matched chapter still owed a retry or CBZ save is not done: the next check announces it.
+    done = [(i, j) for i, j in pairs if old[i]["chapter_id"] not in held]
+    waiting = [j for i, j in pairs if old[i]["chapter_id"] in held]
+    saved = lambda i: old[i]["chapter_id"] in imported  # noqa: E731
+    info = result.get("info") or {}
+    return {
+        "row": row, "drama_id": drama_id if drama else None,
+        "title": row["title"] if row["title"] and row["title"] != series_id
+        else info.get("title") or new_series_id,
+        "url": safe_url(info.get("url")),
+        "matched": [(old[i]["chapter_id"], str(new_chapters[j]["chapter_id"]),
+                     new_chapters[j].get("title") or "") for i, j in pairs],
+        "preview": {
+            "source": new_source, "series_id": new_series_id, "drama_id": drama_id if drama else None,
+            "matched": [{"title": new_chapters[j].get("title") or "", "saved": saved(i)}
+                        for i, j in done],
+            "only_old": [{"title": old[i]["title"] or old[i]["chapter_id"], "saved": saved(i)}
+                         for i in old_only],
+            "new": [{"title": new_chapters[j].get("title") or ""}
+                    for j in sorted(new_only + waiting)],
+        },
+    }
+
+
+def preview_move(source: str, series_id: str, new_source: str, new_series_id: str,
+                 principal=None) -> dict:
+    """Which chapters of a tracked series match the open series on another
+    source: `matched` (kept as they are), `only_old` (stay saved, no longer
+    listed by the site) and `new` (what the next check would announce)."""
+    return search.scrub_any(_move_plan(source, series_id, new_source, new_series_id,
+                                       principal)["preview"])
+
+
+def move_tracked(source: str, series_id: str, new_source: str, new_series_id: str,
+                 principal=None) -> list:
+    """Points a tracked series at the open series on another source, keeping its
+    title, saved chapters and translated pages: no chapter, page or import record
+    is deleted or overwritten. Refused (409) while a check or the title's import
+    is running. A failure changes nothing (one transaction)."""
+    plan = _move_plan(source, series_id, new_source, new_series_id, principal)
+    if _job_running(CHECK_JOB_ID) or (
+            plan["drama_id"] is not None
+            and _job_running(f"{search.IMPORT_JOB_PREFIX}{plan['drama_id']}")):
+        raise ConflictError("A check or an import is running. Try again when it has finished.")
+    refused = store.move_tracked_series(source, clean_series_id(series_id), new_source,
+                                        clean_series_id(new_series_id), plan["title"],
+                                        plan["url"], plan["matched"], plan["drama_id"],
+                                        chapter_check.CYCLE_LEASE_SECONDS)
+    if refused == "busy":
+        raise ConflictError("A check is running. Try again when it has finished.")
+    if refused == "changed":
+        raise ConflictError("The title this series feeds changed. Compare the chapters again.")
+    if refused == "taken":
+        raise ConflictError("That series is already tracked.", details={"reason": "ALREADY_TRACKED"})
+    if refused:
         raise NotFoundError("That series isn't tracked.")
     return list_tracked(principal)

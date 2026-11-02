@@ -150,3 +150,51 @@ def sort_chapters_grouped(chapters):
     for items in groups.values():
         out.extend(sort_chapters(items))
     return out
+
+
+# A title that names a season or one half of a split chapter says more than its number, so
+# it is only ever matched as exact text.
+_SPLIT = re.compile(r"season|第\s*\S{1,4}\s*[季期]|\bs\d+\s*e\d+|[(（\[]\s*[上中下前后後]|part\s*\d|[上中下前后後]篇|[上中下]\s*$", re.I)
+
+
+def match_key(title: str):
+    """What two sources' listings of the same chapter share: its volume and number when the
+    title names a chapter with a chapter marker (or is just a number), else its exact
+    normalized text. None for an empty title. Anything that can't be told apart safely
+    (seasons, split chapters, prologues, extras, a stray number) is matched as exact text,
+    because a false match would mark a chapter as already saved when it is not."""
+    t = unicodedata.normalize("NFKC", title or "").strip()
+    if not t:
+        return None
+    text_key = ("title", t.casefold())
+    if _SPLIT.search(t) or _BEFORE.search(t) or _AFTER_MAIN.search(t) or _EXTRA.search(t):
+        return text_key
+    vol = volume_number(t)
+    stripped = _VOLUME.sub(" ", t)
+    marked = _MARKER_NUM.search(stripped)
+    bare = re.fullmatch(r"\s*[0-9]+(?:\.[0-9]+)?\s*", stripped)
+    number = chapter_number(t) if (marked or bare) else None
+    if number is None:
+        return text_key
+    return ("n", vol if vol is not None else 0.0, number)
+
+
+def match_chapters(old_titles, new_titles):
+    """Pairs two chapter lists by match_key. Takes titles in listing order and returns
+    (pairs, old_only, new_only) as index lists into them. A key that appears more than once
+    on either side pairs nothing: the two sites list in different orders, so guessing which
+    is which could mark an unsaved chapter as saved."""
+    def index(titles):
+        by_key = {}
+        for i, t in enumerate(titles):
+            k = match_key(t)
+            if k is not None:
+                by_key.setdefault(k, []).append(i)
+        return by_key
+    old_by, new_by = index(old_titles), index(new_titles)
+    pairs = sorted((o[0], new_by[k][0]) for k, o in old_by.items()
+                   if len(o) == 1 and len(new_by.get(k, ())) == 1)
+    paired_old = {i for i, _ in pairs}
+    paired_new = {j for _, j in pairs}
+    return (pairs, [i for i in range(len(old_titles)) if i not in paired_old],
+            [j for j in range(len(new_titles)) if j not in paired_new])

@@ -19,7 +19,8 @@ from api.schemas import (SourceAttempt, SourceCacheClearRequest,
                          SourceProfileDomain, SourceProfileRollbackRequest,
                          SourceProfileVersion, SourcesSettings, SourcesSettingsUpdate,
                          SourcePaceRequest, SourcesJobStarted, SourceSummary, SourceToggle,
-                         SourceTrackedDramaRequest, SourceTrackedSaveRequest, SourceTrackRequest,
+                         SourceMovePreview, SourceTrackedDramaRequest, SourceTrackedMoveRequest,
+                         SourceTrackedSaveRequest, SourceTrackRequest,
                          TrackedSeries, error_responses)
 from services import sources_registry_service as svc
 from services import sources_tracking_service as tracking
@@ -95,6 +96,24 @@ def post_tracked(payload: SourceTrackRequest, request: Request):
 def post_tracked_drama(payload: SourceTrackedDramaRequest, request: Request):
     return tracking.set_tracked_drama(payload.source, payload.series_id, payload.drama_id,
                                       principal=request.state.principal)
+
+
+@router.post("/tracked/move/preview", dependencies=[require_permission("sources.import")],
+             response_model=SourceMovePreview,
+             summary="Which chapters of a tracked series match the open series on another source (fetches nothing)",
+             responses=_ERR)
+def post_tracked_move_preview(payload: SourceTrackedMoveRequest, request: Request):
+    return tracking.preview_move(payload.source, payload.series_id, payload.new_source,
+                                 payload.new_series_id, principal=request.state.principal)
+
+
+@router.post("/tracked/move", dependencies=[require_permission("sources.import")],
+             response_model=List[TrackedSeries],
+             summary="Move a tracked series to the open series on another source, keeping the title's chapters and history",
+             responses=_ERR)
+def post_tracked_move(payload: SourceTrackedMoveRequest, request: Request):
+    return tracking.move_tracked(payload.source, payload.series_id, payload.new_source,
+                                 payload.new_series_id, principal=request.state.principal)
 
 
 @router.post("/tracked/save-cbz", dependencies=[require_permission("sources.import")],

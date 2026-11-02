@@ -181,6 +181,91 @@ def untrack_series(source: str, series_id: str):
                      (source, series_id))
 
 
+def known_chapters(source: str, series_id: str) -> list:
+    """A tracked series' known chapters as {chapter_id, title}, in the order they were first seen."""
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT chapter_id, title FROM known_chapters WHERE source=? AND series_id=? "
+            "ORDER BY first_seen, rowid", (source, series_id))]
+
+
+def chapters_waiting(conn, source: str, series_id: str, drama_id: int) -> tuple:
+    """(imported ids, held ids) of a tracked series for one drama. Held chapters still owe a
+    retry or a CBZ save under the old series' ids, so a move must not count them as done."""
+    imported = {r[0] for r in conn.execute(
+        "SELECT chapter_id FROM imported_chapters WHERE source=? AND series_id=? AND drama_id=?",
+        (source, series_id, drama_id))}
+    held = {r[0] for r in conn.execute(
+        "SELECT chapter_id FROM import_retry WHERE source=? AND series_id=? AND drama_id=?",
+        (source, series_id, drama_id))}
+    row = conn.execute("SELECT save_pending FROM tracked_series WHERE source=? AND series_id=?",
+                       (source, series_id)).fetchone()
+    held |= set(save_pending_ids(dict(row) if row else {}))
+    return imported, held - imported
+
+
+def move_tracked_series(source: str, series_id: str, new_source: str, new_series_id: str,
+                        title: str, url: str, matched, expected_drama_id,
+                        lease_seconds: float) -> str | None:
+    """Re-points one tracked series at a series on another source in a single write
+    transaction (BEGIN IMMEDIATE, like claim_check_cycle), so a failure leaves the old link
+    exactly as it was and nothing can change the link or the import records between the
+    checks below and the writes. `matched` is (old_chapter_id, new_chapter_id, new_title)
+    per chapter both sources list. The drama link, its owner and the CBZ setting carry over;
+    the old series' import records stay (they are the history). Matched chapters the title
+    already has are recorded as known and as imported into the drama; those still owed a
+    retry or a CBZ save are left unknown so the next check announces them. Returns None when
+    moved, else why not: "missing", "taken", "changed" (the drama link is no longer the one
+    the plan was made for) or "busy" (a chapter check holds its lease)."""
+    now = time.time()
+    conn = connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        old = conn.execute("SELECT * FROM tracked_series WHERE source=? AND series_id=?",
+                           (source, series_id)).fetchone()
+        if old is None:
+            conn.rollback()
+            return "missing"
+        if conn.execute("SELECT 1 FROM tracked_series WHERE source=? AND series_id=?",
+                        (new_source, new_series_id)).fetchone() is not None:
+            conn.rollback()
+            return "taken"
+        if old["drama_id"] != expected_drama_id:
+            conn.rollback()
+            return "changed"
+        started = _setting_float(conn, CHECK_CYCLE_LEASE_KEY)
+        if started and now - started < lease_seconds:
+            conn.rollback()
+            return "busy"
+        drama_id = old["drama_id"]
+        imported, held = (chapters_waiting(conn, source, series_id, drama_id)
+                          if drama_id is not None else (set(), set()))
+        done = [m for m in matched if m[0] not in held]
+        conn.execute("INSERT INTO tracked_series(source, series_id, title, url, drama_id, "
+                     "last_checked, linked_by_user_id, save_cbz, save_cbz_by_user_id) "
+                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (new_source, new_series_id, title, url, drama_id, now,
+                      old["linked_by_user_id"], old["save_cbz"], old["save_cbz_by_user_id"]))
+        conn.executemany("INSERT OR IGNORE INTO known_chapters(source, series_id, chapter_id, "
+                         "title, first_seen) VALUES(?, ?, ?, ?, ?)",
+                         [(new_source, new_series_id, str(n), t, now) for _, n, t in done])
+        conn.executemany("INSERT OR IGNORE INTO imported_chapters(source, series_id, "
+                         "chapter_id, drama_id, imported_at) VALUES(?, ?, ?, ?, ?)",
+                         [(new_source, new_series_id, str(n), drama_id, now)
+                          for o, n, _ in done if o in imported])
+        conn.execute("UPDATE chapter_notifications SET dismissed=1 WHERE source=? AND series_id=?",
+                     (source, series_id))
+        for table in ("tracked_series", "known_chapters", "chapter_poll_validators"):
+            conn.execute(f"DELETE FROM {table} WHERE source=? AND series_id=?", (source, series_id))
+        conn.commit()
+        return None
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def poll_validators(source: str, series_id: str, max_age: float | None = None) -> dict:
     """The ETag / Last-Modified the last chapter-list poll of this series
     got for its one URL, as conditional_poll() kwargs; {} if

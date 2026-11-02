@@ -27,6 +27,9 @@ __all__ = [
     "SourceProfileVersion",
     "SourceProfileDomain",
     "TrackedSeries",
+    "SourceTrackedMoveRequest",
+    "SourceMoveChapter",
+    "SourceMovePreview",
     "SourceNotification",
     "SourceToggle",
     "SourcePaceRequest",
@@ -568,6 +571,29 @@ class SourceTrackedDramaRequest(BaseModel):
     source: str = Field(min_length=1, max_length=60)
     series_id: str = Field(min_length=1, max_length=200)
     drama_id: Optional[int] = Field(None, ge=1)
+
+
+class SourceTrackedMoveRequest(BaseModel):
+    """Move a tracked series to the open series on another source."""
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(min_length=1, max_length=60)
+    series_id: str = Field(min_length=1, max_length=200)
+    new_source: str = Field(min_length=1, max_length=60)
+    new_series_id: str = Field(min_length=1, max_length=200)
+
+
+class SourceMoveChapter(BaseModel):
+    title: str
+    saved: Optional[bool] = Field(None, description="Already saved in the title (absent for chapters only the new source lists).")
+
+
+class SourceMovePreview(BaseModel):
+    source: str
+    series_id: str
+    drama_id: Optional[int] = None
+    matched: List[SourceMoveChapter] = Field(description="On both sources: kept as they are.")
+    only_old: List[SourceMoveChapter] = Field(description="Only on the old source: stay saved, nothing new will come for them.")
+    new: List[SourceMoveChapter] = Field(description="Only on the new source: what the next check announces.")
 
 
 class SourceTrackedSaveRequest(BaseModel):
