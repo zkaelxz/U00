@@ -1,40 +1,15 @@
 // Mirrors api/schemas/system.py DiagnosticsOverview and its parts.
+import type { components } from '../api/generated/schema'
 
-export interface DependencyStatus {
-  installed: boolean
-  powers: string
-  tier: string
-}
+type Schemas = components['schemas']
 
-export interface GpuStatus {
-  available: boolean
-  name: string | null
-  vram_used_gb: number | null
-  vram_total_gb: number | null
-  torch_cuda_version: string | null
-  message: string | null
-}
+export type DependencyStatus = Schemas['DependencyStatus']
 
-export interface ModelEngineVersion {
-  name: string
-  version: string | null
-  url: string | null
-  installed: boolean
-  package: string | null
-  help: string | null
-}
+export type GpuStatus = Schemas['GpuStatus']
 
-export interface DiagnosticsOverview {
-  dependencies: Record<string, DependencyStatus>
-  file_completeness: {
-    missing_top_level: string[]
-    all_present: boolean
-  }
-  library_writable: boolean
-  gpu: GpuStatus
-  model_engine_versions: ModelEngineVersion[]
-  recent_log_lines: string[]
-}
+export type ModelEngineVersion = Schemas['ModelEngineVersion']
+
+export type DiagnosticsOverview = Schemas['DiagnosticsOverview']
 
 // Mirrors api/schemas/diagnostics_setup.py Diagnostics* (/api/diagnostics/...).
 // Found/version/name only; never a path, a token or a key.
@@ -52,45 +27,19 @@ export interface DiagnosticsSetupChecks {
   warnings?: string[]
 }
 
-export interface DiagnosticsHfCacheEntry {
-  repo_id: string
-  repo_type: string
-  revision: string
-  size_bytes: number
-}
+export type DiagnosticsHfCacheEntry = Schemas['DiagnosticsHfCacheEntry']
 
 // A file or folder in a model folder outside the Hugging Face cache:
 // torch.hub checkpoints (TORCH_HOME) or the audio-separator models.
 export type DiagnosticsModelFolder = 'torch' | 'audio_separator'
 
-interface DiagnosticsModelFile {
-  folder: DiagnosticsModelFolder
-  name: string
-  size_bytes: number
-}
+export type DiagnosticsModelCache = Schemas['DiagnosticsModelCache']
 
-export interface DiagnosticsModelCache {
-  hf_cache: DiagnosticsHfCacheEntry[]
-  hf_total_bytes: number
-  model_files: DiagnosticsModelFile[]
-  model_files_total_bytes: number
-}
+export type DiagnosticsPyannoteReadiness = Schemas['DiagnosticsPyannoteReadiness']
 
-export interface DiagnosticsPyannoteReadiness {
-  pyannote_installed: boolean
-  hf_token_configured: boolean
-  // null: not checked, or huggingface_hub is not installed.
-  models: { model: string; accessible: boolean }[] | null
-  ready: boolean
-}
+export type DiagnosticsLogTail = Schemas['DiagnosticsLogTail']
 
-export interface DiagnosticsLogTail {
-  lines: string[]
-}
-
-export interface DiagnosticsSupportReport {
-  report: string
-}
+export type DiagnosticsSupportReport = Schemas['DiagnosticsSupportReport']
 
 export interface DiagnosticsPackageInfo {
   name: string
@@ -156,22 +105,9 @@ export interface DiagnosticsPackageUpdates {
 }
 
 // GET /api/diagnostics/gpu-torch and POST /api/diagnostics/gpu-torch/setup.
-export interface DiagnosticsGpuTorchNvidia {
-  found: boolean
-  gpu_name: string | null
-  driver_version: string | null
-  status: 'ok' | 'old' | 'too_old' | 'unknown'
-  recommended: string | null
-  minimum: string | null
-  // The CUDA version `recommended` is for (the recommended build's), e.g. "12.6".
-  cuda?: string | null
-}
+export type DiagnosticsGpuTorchNvidia = Schemas['DiagnosticsGpuTorchNvidia']
 
-export interface DiagnosticsTorchPackage {
-  name: string
-  version: string | null
-  build: 'cuda' | 'cpu' | null
-}
+export type DiagnosticsTorchPackage = Schemas['DiagnosticsTorchPackage']
 
 export interface DiagnosticsTorchVariant {
   variant: 'cu128' | 'cu126' | 'cpu'
@@ -181,15 +117,7 @@ export interface DiagnosticsTorchVariant {
   needs_nvidia: boolean
 }
 
-export interface DiagnosticsTorchVerify {
-  torch: string | null
-  torchvision: string | null
-  torchaudio: string | null
-  cuda_build: string | null
-  cuda_available: boolean | null
-  device: string | null
-  error: string | null
-}
+export type DiagnosticsTorchVerify = Schemas['DiagnosticsTorchVerify']
 
 type GpuTorchState = 'missing' | 'mismatched' | 'cpu_on_gpu' | 'recommended' | 'different'
 
@@ -205,17 +133,11 @@ export interface DiagnosticsGpuTorchStatus {
   probe: DiagnosticsTorchVerify | null
 }
 
-export interface DiagnosticsResetResult {
-  ok: boolean
-  reset_at: number
-}
+export type DiagnosticsResetResult = Schemas['DiagnosticsResetResult']
 
 // POST /api/diagnostics/model-cache/hf/{revision}/delete and
 // /model-cache/files/{folder}/{name}/delete (PC only).
-export interface DiagnosticsCacheDeleteResult {
-  deleted: boolean
-  name: string
-}
+export type DiagnosticsCacheDeleteResult = Schemas['DiagnosticsCacheDeleteResult']
 
 // GET /api/diagnostics/remote-health: the last scheduled remote-access check
 // (services/remote_health_service.py). States, whole days, Unix times and
@@ -223,43 +145,17 @@ export interface DiagnosticsCacheDeleteResult {
 export type RemoteHealthState = 'off' | 'unknown' | 'ok' | 'warn' | 'critical'
 type RemoteCheckState = RemoteHealthState | 'not_configured'
 
-interface RemoteHealthCheck {
-  state: RemoteCheckState
-  message: string
-}
-
 /** GET /api/diagnostics/ports (PC only): numbers, flags and fixed text. */
-export interface PortEntry {
-  key: 'api' | 'household' | 'extension' | 'https'
-  label: string
-  /** null while the household listener is off. */
-  port: number | null
-  active: boolean
-  how_to_change: string
-}
+export type PortEntry = Schemas['PortEntry']
 
-export interface PortsOverview {
-  ports: PortEntry[]
-}
+export type PortsOverview = Schemas['PortsOverview']
 
-export interface RemoteHealth {
-  state: RemoteHealthState
-  message: string
-  /** Unix seconds of the last check; null before the first one. */
-  checked_at: number | null
-  /** Unix seconds since the overall state has been what it is now. */
-  since: number | null
-  certificate: RemoteHealthCheck & { days_left: number | null }
-  ddns: RemoteHealthCheck & { configured: boolean }
-  listener: RemoteHealthCheck
-}
+export type RemoteHealth = Schemas['RemoteHealth']
 
 // People and access > Public address check: the public-address check (PC only). The address
 // is write-only: the API answers `configured` and, for Test, a state and a
 // fixed message, never the address.
-export interface RemoteIpCheckStatus {
-  configured: boolean
-}
+export type RemoteIpCheckStatus = Schemas['RemoteIpCheckStatus']
 
 export interface RemoteIpCheckTestResult {
   configured: boolean
