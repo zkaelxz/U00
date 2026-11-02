@@ -25108,6 +25108,8 @@ export interface components {
              * @default 2000
              */
             sentence_split_min_silence_ms: number;
+            /** Speaker Model */
+            speaker_model: string;
             /**
              * Speech Coverage Vad Threshold
              * @default 0.3
@@ -25351,6 +25353,8 @@ export interface components {
             sentence_group_max_seconds?: number | null;
             /** Sentence Split Min Silence Ms */
             sentence_split_min_silence_ms?: number | null;
+            /** Speaker Model */
+            speaker_model?: string | null;
             /** Speech Coverage Vad Threshold */
             speech_coverage_vad_threshold?: number | null;
             /** Split Max Cjk Chars */
