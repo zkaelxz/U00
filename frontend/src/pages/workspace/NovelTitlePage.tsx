@@ -9,6 +9,8 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Tabs } from '../../components/Tabs'
 import { routeHref } from '../../router'
 import type { NovelChapterList, NovelChapterRow } from '../../types/novelChapters'
+import { TitleViewSwitch } from './TitleViewSwitch'
+import type { TitleView } from './titleView'
 import { NovelInstructionsTab } from './NovelInstructionsTab'
 import { NovelLinkStart } from './NovelLinkStart'
 import { chaptersHeadline, rowMeta, rowTitle } from './stages/novelChapters'
@@ -19,7 +21,7 @@ const PAGE = 100
 // A novel is text that already exists, so its title page skips the video
 // stepper: one chapter list and the four things done to it. The stage routes
 // stay reachable by link for what this page leaves out.
-export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }) {
+export function NovelTitlePage({ id, drama, onView }: { id: number; drama: DramaDetail; onView: (v: TitleView) => void }) {
   const [list, setList] = useState<NovelChapterList | null>(null)
   const [rows, setRows] = useState<NovelChapterRow[]>([])
   const [error, setError] = useState<unknown>(null)
@@ -85,6 +87,7 @@ export function NovelTitlePage({ id, drama }: { id: number; drama: DramaDetail }
         <div className="ws-badges">
           <Badge kind="mediaType" value={drama.media_type} />
         </div>
+        <TitleViewSwitch view="simple" onChange={onView} />
       </header>
       {list && lineCount !== null && (
         <NovelLinkStart

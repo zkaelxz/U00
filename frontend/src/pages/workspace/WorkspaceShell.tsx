@@ -25,7 +25,7 @@ import { JobPill } from './JobPill'
 import { NovelTitlePage } from './NovelTitlePage'
 import { SimpleTitlePage } from './SimpleTitlePage'
 import { TitleViewSwitch } from './TitleViewSwitch'
-import { TITLE_VIEW_PREF, asTitleView, hasSimpleView, type TitleView } from './titleView'
+import { TITLE_VIEW_PREF, asTitleView, defaultTitleView, hasSimpleView, titleViewPref, trimsStages, type TitleView } from './titleView'
 import { titleKind } from './titleKind'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { StageContext, type StageContextValue } from './StageContext'
@@ -73,12 +73,19 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const [moreOpen, setMoreOpen] = useState(false)
   const comic = !!drama && isComicType(drama.media_type)
-  const [storedView, storeView] = usePersistedState<string>(TITLE_VIEW_PREF, 'full')
-  const twoViews = !!drama && hasSimpleView(titleKind(drama.media_type, drama.content_mode))
-  const view = asTitleView(storedView)
+  const kind = drama ? titleKind(drama.media_type, drama.content_mode) : null
+  // One persisted value per pref key, read before the kind is known, so the kind picks among them.
+  const [storedAv, storeAv] = usePersistedState<string>(TITLE_VIEW_PREF, '')
+  const [storedNovel, storeNovel] = usePersistedState<string>(titleViewPref('novel'), '')
+  const [storedComic, storeComic] = usePersistedState<string>(titleViewPref('comic'), '')
+  // A narrated novel keeps the workspace: only a title that is a novel by media type has the novel page.
+  const twoViews = !!drama && !!kind && hasSimpleView(kind) && (kind !== 'novel' || drama.media_type === 'novel')
+  const stored = kind === 'novel' ? storedNovel : kind === 'comic' ? storedComic : storedAv
+  const store = kind === 'novel' ? storeNovel : kind === 'comic' ? storeComic : storeAv
+  const view = asTitleView(stored, kind ? defaultTitleView(kind) : 'full')
   // A link that names a stage always opens the stage; Simple there keeps the stage and leaves out its advanced controls.
-  const simple = twoViews && view === 'simple'
-  const chooseView = (v: TitleView) => storeView(v)
+  const simple = twoViews && !!kind && trimsStages(kind) && view === 'simple'
+  const chooseView = (v: TitleView) => store(v)
   const linked = parseRoute(window.location.hash)
   const comicNotice = comic && isLineStageForComic(active) && !(linked.name === 'drama' && linked.id === id && isCastTab(linked.tab))
   // The line stages are empty for a comic, so "Next" never sends it there.
@@ -139,8 +146,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // The phone stepper drops the counts and shows only a marker, so the open stage's state is spelled out below it.
   const activeState = active ? states[active] : undefined
   const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
-  if (stage === null && drama?.media_type === 'novel') return <NovelTitlePage id={id} drama={drama} />
-  if (stage === null && drama && twoViews && view === 'simple') return <SimpleTitlePage id={id} drama={drama} onView={chooseView} />
+  if (stage === null && drama && twoViews && view === 'simple') {
+    return kind === 'novel' ? <NovelTitlePage id={id} drama={drama} onView={chooseView} /> : <SimpleTitlePage id={id} drama={drama} comic={kind === 'comic'} onView={chooseView} />
+  }
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
       <div className="ws-strip" ref={stripRef}>
