@@ -1,27 +1,14 @@
-// Mirrors api/schemas/extension_access.py Extension* (/api/extension, PC only).
-import type { TranslateEngine } from './translate'
+// Mirrors api/schemas/extension_access.py Extension* (/api/extension, PC only), from the generated schema.
+import type { components } from '../api/generated/schema'
 
-// No port and no token, ever.
-export interface ExtensionStatus {
-  enabled: boolean
-  running: boolean
-}
+type Schemas = components['schemas']
 
-// restart_needed: turned off, but the endpoint could not be stopped and
-// keeps serving until Baihe restarts. Normally false: off stops it at once.
-export interface ExtensionEnabledResult extends ExtensionStatus {
-  restart_needed: boolean
-}
+export type ExtensionStatus = Schemas['ExtensionStatus']
+export type ExtensionEnabledResult = Schemas['ExtensionEnabledResult']
+export type ExtensionToken = Schemas['ExtensionToken']
 
-export interface ExtensionToken {
-  token: string
-}
-
-// The extension's translation engine. `ready`: an engine is chosen and its
-// key is configured on the PC. Keys never come back, only key_configured.
-export interface ExtensionEngineSettings {
+// engine and model are generated as optional; callers read them as `string | null`.
+export type ExtensionEngineSettings = Omit<Schemas['ExtensionEngineSettings'], 'engine' | 'model'> & {
   engine: string | null
   model: string | null
-  ready: boolean
-  engines: TranslateEngine[]
 }
