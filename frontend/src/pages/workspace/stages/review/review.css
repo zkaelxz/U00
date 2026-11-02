@@ -49,8 +49,8 @@
 }
 .review-editor.has-side:has(.review-player-panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .review-editor:has(.review-player-panel[hidden]) .review-watch { display: none; }
-/* A fixed height, not a max: the notes under the video and waveform come and go with the selected line, and the card must not jump with them. */
-.review-watch { position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); padding: var(--space-3); gap: var(--space-2); height: calc(100vh - var(--bar-h, 0px) - var(--space-4)); overflow-y: auto; }
+/* A fixed height, not a max: the gap and install notes under the waveform come and go with the view, and the card must not jump with them. align-content: start because a grid with spare height would otherwise stretch its rows and move the video as the notes come and go. */
+.review-watch { position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); padding: var(--space-3); gap: var(--space-2); height: calc(100vh - var(--bar-h, 0px) - var(--space-4)); overflow-y: auto; align-content: start; }
 .review-watch .card-title { font-size: var(--text-md); }
 .review-watch .review-stage { max-height: 40vh; }
 .review-watch .review-video { cursor: pointer; }
