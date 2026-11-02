@@ -206,7 +206,7 @@ def chapters_waiting(conn, source: str, series_id: str, drama_id: int) -> tuple:
 
 def move_tracked_series(source: str, series_id: str, new_source: str, new_series_id: str,
                         title: str, url: str, matched, expected_drama_id,
-                        lease_seconds: float) -> str | None:
+                        lease_seconds: float, keep_link: bool = True) -> str | None:
     """Re-points one tracked series at a series on another source in a single write
     transaction (BEGIN IMMEDIATE, like claim_check_cycle), so a failure leaves the old link
     exactly as it was and nothing can change the link or the import records between the
@@ -214,7 +214,9 @@ def move_tracked_series(source: str, series_id: str, new_source: str, new_series
     per chapter both sources list. The drama link, its owner and the CBZ setting carry over;
     the old series' import records stay (they are the history). Matched chapters the title
     already has are recorded as known and as imported into the drama; those still owed a
-    retry or a CBZ save are left unknown so the next check announces them. Returns None when
+    retry or a CBZ save are left unknown so the next check announces them. `expected_drama_id`
+    is the link as stored; with `keep_link` False (that drama was deleted) the new row is
+    unlinked instead of inheriting the dead id. Returns None when
     moved, else why not: "missing", "taken", "changed" (the drama link is no longer the one
     the plan was made for) or "busy" (a chapter check holds its lease)."""
     now = time.time()
@@ -237,7 +239,7 @@ def move_tracked_series(source: str, series_id: str, new_source: str, new_series
         if started and now - started < lease_seconds:
             conn.rollback()
             return "busy"
-        drama_id = old["drama_id"]
+        drama_id = old["drama_id"] if keep_link else None
         imported, held = (chapters_waiting(conn, source, series_id, drama_id)
                           if drama_id is not None else (set(), set()))
         done = [m for m in matched if m[0] not in held]

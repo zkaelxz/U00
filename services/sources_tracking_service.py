@@ -27,6 +27,7 @@ by `sources_search_service.get_job_result`.
 
 import background_jobs
 import db
+from jobs import job_store
 from services import ownership_service
 from engine_backends.shared import safe_url
 from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -109,8 +110,8 @@ def set_tracked_save(source: str, series_id: str, save_cbz: bool, principal=None
 
 
 def _job_running(job_id: str) -> bool:
-    status = background_jobs.get_status(job_id)
-    return bool(status and status.get("status") in ("running", "queued"))
+    # Also sees a job another server process wrote recently, which get_status cannot.
+    return job_store.fresh_active(job_ids={job_id})
 
 
 def _move_plan(source: str, series_id: str, new_source: str, new_series_id: str, principal) -> dict:
@@ -159,7 +160,7 @@ def _move_plan(source: str, series_id: str, new_source: str, new_series_id: str,
     saved = lambda i: old[i]["chapter_id"] in imported  # noqa: E731
     info = result.get("info") or {}
     return {
-        "row": row, "drama_id": drama_id if drama else None,
+        "row": row, "drama_id": drama_id if drama else None, "stored_drama_id": drama_id,
         "title": row["title"] if row["title"] and row["title"] != series_id
         else info.get("title") or new_series_id,
         "url": safe_url(info.get("url")),
@@ -199,8 +200,9 @@ def move_tracked(source: str, series_id: str, new_source: str, new_series_id: st
         raise ConflictError("A check or an import is running. Try again when it has finished.")
     refused = store.move_tracked_series(source, clean_series_id(series_id), new_source,
                                         clean_series_id(new_series_id), plan["title"],
-                                        plan["url"], plan["matched"], plan["drama_id"],
-                                        chapter_check.CYCLE_LEASE_SECONDS)
+                                        plan["url"], plan["matched"], plan["stored_drama_id"],
+                                        chapter_check.CYCLE_LEASE_SECONDS,
+                                        keep_link=plan["drama_id"] is not None)
     if refused == "busy":
         raise ConflictError("A check is running. Try again when it has finished.")
     if refused == "changed":
