@@ -27,12 +27,17 @@ ENGINES = {
                   # CUDA PyTorch (about 2.5 GB), qwen-tts and its dependencies, with room
                   # left for the model the first narration downloads.
                   "required_mb": 6000},
-    # chatterbox-tts 0.1.7 pins torch 2.6.0, which has no CUDA 12.8 build and no wheels
-    # for Python 3.14 or for cards newer than compute 9.0 (RTX 50 series).
-    "chatterbox": {"label": "Chatterbox", "packages": ("chatterbox-tts==0.1.7",),
-                   "check": "import torch, torchaudio, chatterbox.mtl_tts",
+    # Below Python 3.14 chatterbox-tts 0.1.7 pins torch 2.6.0, which has no CUDA 12.8
+    # build and no kernels for cards newer than compute 9.0 (RTX 50 series); on 3.14 it
+    # takes the app's own torch. Its watermarker (resemble-perth) needs pkg_resources,
+    # which setuptools 81 dropped, and without it the model fails to load while the
+    # package still imports, so the check looks for the watermarker.
+    "chatterbox": {"label": "Chatterbox",
+                   "packages": ("chatterbox-tts==0.1.7", "setuptools<81"),
+                   "check": ("import torch, torchaudio, chatterbox.mtl_tts, perth; "
+                             "assert perth.PerthImplicitWatermarker is not None"),
                    "torch": {"cu126": "2.6.0+cu126", "cpu": "2.6.0+cpu"},
-                   "max_python": (3, 13), "max_compute": 9.0,
+                   "torch_max_python": (3, 13), "torch_max_compute": 9.0,
                    # Gradio and the rest of its pins come on top of PyTorch, plus the
                    # multilingual model the first narration downloads.
                    "required_mb": 9000},
@@ -45,6 +50,7 @@ OUTPUT_TAIL_LINES = 12
 OUTPUT_LINE_CHARS = 200
 
 _STATE_LOCK = threading.Lock()
+_QUERY_GPU = object()
 _RESULTS: dict[str, dict] = {}
 
 
@@ -100,9 +106,30 @@ def _free_mb() -> int:
     return int(shutil.disk_usage(folder).free // (1024 * 1024))
 
 
-def _refusal(engine: str):
+def _gpu():
+    """{"driver_version", "caps"} of the NVIDIA GPUs, or None without one; read once
+    per status, as each read starts nvidia-smi."""
+    nvidia = diagnostics_torch.nvidia_driver_info()
+    if not nvidia:
+        return None
+    return {"driver_version": nvidia["driver_version"],
+            "caps": diagnostics_torch.compute_capabilities()}
+
+
+def _own_torch(engine: str):
+    """The engine's own torch pins ({variant: version}) when its package needs another
+    torch on this Python, else None."""
+    spec = ENGINES[engine]
+    if "torch" in spec and sys.version_info[:2] <= spec["torch_max_python"]:
+        return spec["torch"]
+    return None
+
+
+def _refusal(engine: str, gpu=_QUERY_GPU):
     """Plain reason the install can't start now, or None."""
     spec = _spec(engine)
+    if gpu is _QUERY_GPU:
+        gpu = _gpu()
     if voice_venv.is_ready(engine):
         return f"{spec['label']} is already installed."
     if portable.is_installed():
@@ -111,18 +138,17 @@ def _refusal(engine: str):
         return (f"{spec['label']} can't be installed in this copy yet: it needs a copy of "
                 "Baihe that runs from start.bat.")
     lo, hi = diagnostics_torch.TORCH_SUPPORTED_PYTHON
-    hi = min(hi, spec.get("max_python", hi))
     if not lo <= sys.version_info[:2] <= hi:
         return f"PyTorch has wheels for Python {lo[0]}.{lo[1]} to {hi[0]}.{hi[1]} only."
-    nvidia = diagnostics_torch.nvidia_driver_info()
-    if nvidia:
-        cap = diagnostics_torch.lowest_compute_capability()
-        if "max_compute" in spec and cap is not None and cap > spec["max_compute"]:
+    if gpu:
+        # Any card too new counts: the worker may run on whichever is device 0.
+        if (_own_torch(engine) and gpu["caps"]
+                and max(gpu["caps"]) > spec["torch_max_compute"]):
             return f"{spec['label']} does not support this graphics card yet."
-        drv = diagnostics_torch.driver_check(nvidia["driver_version"],
-                                             variant=_torch_variant(engine))
+        drv = diagnostics_torch.driver_check(gpu["driver_version"],
+                                             variant=_torch_variant(engine, gpu))
         if drv["status"] == "too_old":
-            return (f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12 "
+            return (f"NVIDIA driver {gpu['driver_version']} is too old for CUDA 12 "
                     f"(needs at least {drv['minimum']}, recommended {drv['recommended']}). "
                     "Update the driver from nvidia.com, then try again.")
     if _free_mb() < spec["required_mb"]:
@@ -134,6 +160,7 @@ def get_status() -> dict:
     """Each voice engine that installs into a venv of its own: whether it is ready, the
     install job and the last result. No path."""
     free = _free_mb()
+    gpu = _gpu()
     engines = []
     for engine, spec in ENGINES.items():
         with _STATE_LOCK:
@@ -141,7 +168,7 @@ def get_status() -> dict:
         engines.append({"engine": engine, "label": spec["label"],
                         "installed": voice_venv.is_ready(engine),
                         "folder_present": os.path.lexists(voice_venv.venv_dir(engine)),
-                        "required_mb": spec["required_mb"], "refusal": _refusal(engine),
+                        "required_mb": spec["required_mb"], "refusal": _refusal(engine, gpu),
                         **_current_job(engine), "last_result": last})
     return {"free_mb": free, "engines": engines}
 
@@ -163,12 +190,14 @@ def start_install(engine: str, confirm: bool = False) -> dict:
     return {"job_id": job_id(engine), "started": True}
 
 
-def _torch_variant(engine: str) -> str:
-    if diagnostics_torch.nvidia_driver_info() is None:
+def _torch_variant(engine: str, gpu=_QUERY_GPU) -> str:
+    if gpu is _QUERY_GPU:
+        gpu = _gpu()
+    if gpu is None:
         return "cpu"
-    if "torch" in ENGINES[engine]:
+    if _own_torch(engine):
         return "cu126"
-    return diagnostics_torch.recommended_gpu_variant()[0]
+    return diagnostics_torch.recommended_gpu_variant(min(gpu["caps"]) if gpu["caps"] else None)[0]
 
 
 def _torch_step(engine: str) -> list:
@@ -176,7 +205,7 @@ def _torch_step(engine: str) -> list:
     the engine's when its package pins another torch."""
     variant = _torch_variant(engine)
     torch_spec = diagnostics_torch.TORCH_VARIANTS[variant]
-    own = ENGINES[engine].get("torch")
+    own = _own_torch(engine)
     pins = [f"{n}=={own[variant] if own else torch_spec['versions'][n]}"
             for n in ("torch", "torchaudio")]
     return [*pins, "--index-url", torch_spec["index_url"]]

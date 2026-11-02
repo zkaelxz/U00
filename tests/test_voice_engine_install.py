@@ -51,7 +51,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(svc, "_free_mb", lambda: state["free"])
     monkeypatch.setattr(svc.portable, "is_installed", lambda: state.get("installed", False))
     monkeypatch.setattr(svc.diagnostics_torch, "nvidia_driver_info", lambda: state.get("nvidia"))
-    monkeypatch.setattr(svc.diagnostics_torch, "lowest_compute_capability", lambda: state.get("cap"))
+    monkeypatch.setattr(svc.diagnostics_torch, "compute_capabilities", lambda: state.get("caps", []))
     monkeypatch.setattr(svc, "_commands", lambda engine: [
         (0.1, "step", [sys.executable, str(script), step, state["mode"], python], 30)
         for step in ("venv", "torch", "engine", "check")])
@@ -167,8 +167,8 @@ def test_installed_is_409(client, env):
 def test_the_steps_are_fixed_and_match_the_card(monkeypatch, tmp_path):
     import diagnostics_torch
     monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: {"gpu_name": "V100"})
-    monkeypatch.setattr(diagnostics_torch, "recommended_gpu_variant", lambda: ("cu126", "old"))
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: {"gpu_name": "V100", "driver_version": "536.25"})
+    monkeypatch.setattr(diagnostics_torch, "compute_capabilities", lambda: [7.0])
     steps = [argv for _p, _m, argv, _t in svc._commands("qwen3_tts")]
     assert steps[3] == [voice_venv.venv_python("qwen3_tts"), "-I", "-c",
                         "import torch, torchaudio, qwen_tts"]
@@ -188,31 +188,40 @@ def test_chatterbox_gets_the_torch_its_package_pins(monkeypatch, tmp_path):
     monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path))
     # Even where the app would pick CUDA 12.8: chatterbox-tts pins torch 2.6.0, built
     # for CUDA 12.6 at most.
-    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: {"gpu_name": "RTX 4080"})
-    monkeypatch.setattr(diagnostics_torch, "recommended_gpu_variant", lambda: ("cu128", None))
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: {"gpu_name": "RTX 4080", "driver_version": "580.10"})
+    monkeypatch.setattr(diagnostics_torch, "compute_capabilities", lambda: [8.9])
     steps = [argv for _p, _m, argv, _t in svc._commands("chatterbox")]
     assert "torch==2.6.0+cu126" in steps[1] and "torchaudio==2.6.0+cu126" in steps[1]
     assert steps[1][-2:] == ["--index-url", "https://download.pytorch.org/whl/cu126"]
-    assert steps[2][-1] == "chatterbox-tts==0.1.7" and "--index-url" not in steps[2]
-    assert steps[3][-1] == "import torch, torchaudio, chatterbox.mtl_tts"
+    assert steps[2][-2:] == ["chatterbox-tts==0.1.7", "setuptools<81"]
+    assert "--index-url" not in steps[2]
+    assert "assert perth.PerthImplicitWatermarker is not None" in steps[3][-1]
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     step = svc._commands("chatterbox")[1][2]
     assert "torch==2.6.0+cpu" in step and step[-1] == "https://download.pytorch.org/whl/cpu"
 
 
-@pytest.mark.parametrize("setup, text", [
-    ({"nvidia": {"gpu_name": "RTX 5090", "driver_version": "580.10"}, "cap": 12.0},
-     "Chatterbox does not support this graphics card yet."),
-    ({"python": (3, 14, 0)}, "Python 3.10 to 3.13 only"),
+@pytest.mark.parametrize("setup", [
+    # A newer card counts even beside an older one: either may be the one it runs on.
+    {"caps": [8.6, 12.0]}, {"caps": [12.0]},
 ])
-def test_chatterbox_refuses_what_its_torch_cannot_run(env, monkeypatch, setup, text):
-    env.update(setup)
-    if "python" in setup:
-        monkeypatch.setattr(svc, "sys", type("S", (), {"version_info": setup["python"],
-                                                       "executable": sys.executable}))
-    assert text in svc._refusal("chatterbox")
+def test_chatterbox_refuses_a_card_its_torch_cannot_run(env, setup):
+    env.update(setup, nvidia={"gpu_name": "RTX 5090", "driver_version": "580.10"})
+    assert svc._refusal("chatterbox") == "Chatterbox does not support this graphics card yet."
     # Qwen3-TTS uses the app's own torch, which has both.
     assert svc._refusal("qwen3_tts") is None
+
+
+def test_on_python_3_14_chatterbox_takes_the_apps_torch(env, monkeypatch, tmp_path):
+    import diagnostics_torch
+    monkeypatch.setattr(svc, "sys", type("S", (), {"version_info": (3, 14, 0),
+                                                   "executable": sys.executable}))
+    env.update(nvidia={"gpu_name": "RTX 5090", "driver_version": "580.10"}, caps=[12.0])
+    assert svc._refusal("chatterbox") is None
+    assert svc._own_torch("chatterbox") is None
+    monkeypatch.setattr(diagnostics_torch, "recommended_gpu_variant", lambda cap: ("cu128", None))
+    step = svc._torch_step("chatterbox")
+    assert "torch==2.11.0+cu128" in step and step[-1] == "https://download.pytorch.org/whl/cu128"
 
 
 REMOVE_JOB = svc.remove_job_id("qwen3_tts")

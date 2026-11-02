@@ -61,7 +61,47 @@ def _load_qwen3_tts(spec: dict):
     return speak
 
 
+# Chatterbox stops after 1000 speech tokens (about 40 s), dropping the rest of the text
+# without an error, so a long narration unit is spoken in pieces well under that.
+CHATTERBOX_MAX_CHARS_CJK = 120
+CHATTERBOX_MAX_CHARS = 280
+_SENTENCE_ENDS = "。！？；…!?;."
+
+
+def _is_cjk(text: str) -> bool:
+    return any("\u3040" <= ch <= "\u30ff" or "\u3400" <= ch <= "\u9fff"
+               or "\uac00" <= ch <= "\ud7af" for ch in text)
+
+
+def _chatterbox_pieces(text: str) -> list:
+    """`text` cut at sentence ends into pieces of at most the cap (a sentence longer
+    than that is cut at the cap)."""
+    cap = CHATTERBOX_MAX_CHARS_CJK if _is_cjk(text) else CHATTERBOX_MAX_CHARS
+    sentences, start = [], 0
+    for i, ch in enumerate(text):
+        if ch in _SENTENCE_ENDS:
+            sentences.append(text[start:i + 1])
+            start = i + 1
+    sentences.append(text[start:])
+    pieces, current = [], ""
+    for sentence in sentences:
+        while len(sentence) > cap:
+            if current.strip():
+                pieces.append(current)
+            current = ""
+            pieces.append(sentence[:cap])
+            sentence = sentence[cap:]
+        if len(current) + len(sentence) > cap and current.strip():
+            pieces.append(current)
+            current = ""
+        current += sentence
+    if current.strip():
+        pieces.append(current)
+    return [p.strip() for p in pieces if p.strip()]
+
+
 def _load_chatterbox(spec: dict):
+    import numpy
     import soundfile as sf
     import torch
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
@@ -78,8 +118,9 @@ def _load_chatterbox(spec: dict):
             voices[item["ref_audio"]] = model.conds
         model.conds = voices[item["ref_audio"]]
         # Chatterbox takes the language codes the app uses (zh, ja, ko, en).
-        wav = model.generate(item["text"], language_id=item.get("language") or "en")
-        sf.write(item["out"], wav.squeeze(0).numpy(), model.sr)
+        parts = [model.generate(piece, language_id=item.get("language") or "en").squeeze(0).numpy()
+                 for piece in _chatterbox_pieces(item["text"]) or [item["text"]]]
+        sf.write(item["out"], numpy.concatenate(parts) if len(parts) > 1 else parts[0], model.sr)
     return speak
 
 

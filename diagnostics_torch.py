@@ -377,27 +377,37 @@ def nvidia_driver_info():
         return None
 
 
-def lowest_compute_capability():
-    """The lowest compute capability among the NVIDIA GPUs (7.0 for a V100),
-    or None when nvidia-smi is missing, fails (drivers too old for the
-    compute_cap query) or prints something else. Never raises."""
+def compute_capabilities() -> list:
+    """The compute capability of each NVIDIA GPU (7.0 for a V100), or [] when
+    nvidia-smi is missing, fails (drivers too old for the compute_cap query)
+    or prints something else. Never raises."""
     if not shutil.which("nvidia-smi"):
-        return None
+        return []
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
-        caps = [float(x) for x in result.stdout.split() if re.fullmatch(r"\d+\.\d+", x)]
+        return [float(x) for x in result.stdout.split() if re.fullmatch(r"\d+\.\d+", x)]
     except Exception:
-        return None
+        return []
+
+
+def lowest_compute_capability():
+    """The lowest of compute_capabilities(), or None when unknown."""
+    caps = compute_capabilities()
     return min(caps) if caps else None
 
 
-def recommended_gpu_variant():
+_QUERY = object()
+
+
+def recommended_gpu_variant(cap=_QUERY):
     """(variant, reason) for a machine with an NVIDIA GPU. reason is plain
     words, or None for the default; an unknown compute capability gets the
-    default."""
-    cap = lowest_compute_capability()
+    default. `cap` is the lowest compute capability when the caller already
+    has it."""
+    if cap is _QUERY:
+        cap = lowest_compute_capability()
     if cap is not None and cap < CU128_MIN_COMPUTE:
         new, old = (TORCH_VARIANTS[v]["cuda"] for v in (TORCH_RECOMMENDED_VARIANT_GPU,
                                                          TORCH_OLD_GPU_VARIANT))

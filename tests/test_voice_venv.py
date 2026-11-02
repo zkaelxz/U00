@@ -264,7 +264,7 @@ class _FakeWav:
         return self
 
     def numpy(self):
-        return self.voice
+        return [self.voice]
 
 
 class _FakeChatterbox:
@@ -282,9 +282,8 @@ class _FakeChatterbox:
         return _FakeWav(self.conds)
 
 
-def test_chatterbox_adapter_encodes_each_voice_once_and_swaps_it_back_in(monkeypatch):
+def _fake_chatterbox_stack(monkeypatch, calls, written):
     import types
-    calls, written = [], []
     monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
         cuda=types.SimpleNamespace(is_available=lambda: True)))
     model_cls = types.SimpleNamespace(from_pretrained=lambda device: (
@@ -294,6 +293,11 @@ def test_chatterbox_adapter_encodes_each_voice_once_and_swaps_it_back_in(monkeyp
                         types.SimpleNamespace(ChatterboxMultilingualTTS=model_cls))
     monkeypatch.setitem(sys.modules, "soundfile", types.SimpleNamespace(
         write=lambda path, wav, rate: written.append((path, wav, rate))))
+
+
+def test_chatterbox_adapter_encodes_each_voice_once_and_swaps_it_back_in(monkeypatch):
+    calls, written = [], []
+    _fake_chatterbox_stack(monkeypatch, calls, written)
     items = [{"id": str(i), "text": t, "language": lang, "ref_audio": ref, "out": f"{i}.wav"}
              for i, (t, lang, ref) in enumerate([("你好", "zh", "a.wav"), ("やあ", "ja", "b.wav"),
                                                  ("Hi", "en", "a.wav")])]
@@ -304,8 +308,26 @@ def test_chatterbox_adapter_encodes_each_voice_once_and_swaps_it_back_in(monkeyp
     assert [c for c in calls if c[0] == "voice"] == [("voice", "a.wav"), ("voice", "b.wav")]
     assert [c[1:] for c in calls if c[0] == "speak"] == [
         ("你好", "zh", "conds:a.wav"), ("やあ", "ja", "conds:b.wav"), ("Hi", "en", "conds:a.wav")]
-    assert written == [("0.wav", "conds:a.wav", 24000), ("1.wav", "conds:b.wav", 24000),
-                       ("2.wav", "conds:a.wav", 24000)]
+    assert written == [("0.wav", ["conds:a.wav"], 24000), ("1.wav", ["conds:b.wav"], 24000),
+                       ("2.wav", ["conds:a.wav"], 24000)]
+
+
+def test_chatterbox_speaks_a_long_unit_in_pieces_under_its_40_second_limit(monkeypatch):
+    calls, written = [], []
+    _fake_chatterbox_stack(monkeypatch, calls, written)
+    text = "你好，今天天气很好。" * 30          # 300 characters
+    voice_worker.run({"engine": "chatterbox", "items": [
+        {"id": "0", "text": text, "language": "zh", "ref_audio": "a.wav", "out": "0.wav"}]},
+        lambda e: None)
+    spoken = [c[1] for c in calls if c[0] == "speak"]
+    assert len(spoken) == 3 and "".join(spoken) == text
+    assert all(len(p) <= voice_worker.CHATTERBOX_MAX_CHARS_CJK and p.endswith("。") for p in spoken)
+    assert list(written[0][1]) == ["conds:a.wav"] * 3     # one file, the pieces joined
+
+
+def test_chatterbox_pieces_cut_an_endless_sentence_at_the_cap():
+    assert [len(p) for p in voice_worker._chatterbox_pieces("a" * 700)] == [280, 280, 140]
+    assert voice_worker._chatterbox_pieces("Hi there. How are you?") == ["Hi there. How are you?"]
 
 
 def test_the_worker_exits_once_nobody_reads_its_output(monkeypatch):
