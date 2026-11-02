@@ -1,7 +1,7 @@
 /*
  * "/" and "?" outside the Review editor: "/" focuses the page's search box, "?" opens the list of
- * keys. Review keeps its own "/" and "?" (it has a search box and a longer list), so a title
- * workspace is left alone here rather than having two listeners answer one key.
+ * keys. Review keeps its own "/" and "?" (it has a search box and a longer list), so it is
+ * left alone here rather than having two listeners answer one key; other title stages use this list.
  */
 import { useEffect, useState } from 'react'
 
