@@ -2,7 +2,7 @@ module baihe.local/caddy
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/caddyserver/caddy/v2 v2.11.7
