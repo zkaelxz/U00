@@ -16,7 +16,7 @@ _ADAPTERS = {}
 # Sources that used to be offered. Imported dramas, tracked series and
 # sources.db rows may still name them; they have no adapter any more, so
 # anything that would run one says SOURCE_REMOVED instead.
-REMOVED_SOURCES = frozenset({"mangaz", "toonkor"})
+REMOVED_SOURCES = frozenset({"mangaz", "toonkor", "ranobes"})
 SOURCE_REMOVED = "This source was removed."
 
 
