@@ -272,7 +272,10 @@ class _Listener:
 def test_a_dash_manifest_saved_as_mp4_opens_no_connection(tmp_path):
     """ffmpeg 6.1's DASH demuxer opens http fragment URLs even under
     `-protocol_whitelist file` (checked when this was written), so the
-    format whitelist is what keeps a manifest uploaded as .mp4 unread."""
+    format whitelist is what keeps a manifest uploaded as .mp4 unread.
+    ffmpeg 8.0 does not open the fragment even with no whitelists at all, so
+    the control swaps the guard for one that allows http: it shows the
+    manifest really does make ffmpeg connect once http is allowed."""
     listener = _Listener()
     fake = tmp_path / "source.mp4"
     fake.write_text(
@@ -284,17 +287,21 @@ def test_a_dash_manifest_saved_as_mp4_opens_no_connection(tmp_path):
         "</AdaptationSet></Period></MPD>", encoding="utf-8")
     from services import url_media_service
     cmd = url_media_service._extract_cmd(str(fake), str(tmp_path / "o.wav"))
-    at = cmd.index("-format_whitelist")
+    guard = ve.local_input()
+    at = cmd.index(guard[0])
+    assert cmd[at:at + len(guard)] == guard
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=30)
         assert listener.connections == 0
         assert b"Format not on whitelist" in result.stderr and result.returncode != 0
-        # The control: the same command without the format whitelist connects.
-        subprocess.run(cmd[:at] + cmd[at + 2:], capture_output=True, timeout=30, check=False)
+        # The control: the same command with http allowed connects.
+        control = subprocess.run(
+            cmd[:at] + ["-protocol_whitelist", "file,http,tcp"] + cmd[at + len(guard):],
+            capture_output=True, timeout=30, check=False)
         deadline = time.monotonic() + 5
         while listener.connections == 0 and time.monotonic() < deadline:
             time.sleep(0.02)
-        assert listener.connections > 0
+        assert listener.connections > 0, control.stderr.decode(errors="replace")[-2000:]
     finally:
         listener.close()
 
