@@ -291,3 +291,56 @@ class TestRetryDoesNotRebillFinishedRequests:
             out = shared.request_translations_with_retry(
                 ["一"], None, lambda n: asked.append(1) or json.dumps({"1": "z"}), engine_name="gemini")
         assert out == ["z"] and asked
+
+
+class _TwoRequestEngine:
+    """Answers lines 1-2 on the first request, fails the second, then answers
+    the rest: a retry of the whole call must not re-send lines 1-2."""
+    name = "claude"
+    supports_reference = False
+
+    def __init__(self):
+        self.asked = []
+        self.last_usage = None
+
+    def translate_batch(self, sources, context=None):
+        def call_model(numbered):
+            self.asked.append(_ids_asked(numbered))
+            if len(self.asked) == 1:
+                return json.dumps({"1": "a", "2": "b"})
+            if len(self.asked) == 2:
+                self.last_usage = {"input_tokens": 7, "output_tokens": 3}
+                raise RuntimeError("blip")
+            return json.dumps({"3": "c"})
+        return shared.request_translations_with_retry(sources, None, call_model, engine_name="claude")
+
+
+class TestOtherRetryPathsDoNotRebill:
+    def test_strict_and_glossary_re_asks_keep_paid_replies_and_count_failed_usage(self, monkeypatch):
+        from engine_backends import translate_pipeline as tp
+        monkeypatch.setattr(shared.time, "sleep", lambda s: None)
+        engine = _TwoRequestEngine()
+        recorded = []
+        out = tp._translate_with_retries(engine, ["一", "二", "三"], {}, lambda *a, **k: recorded.append(a))
+        assert out == ["a", "b", "c"]
+        assert engine.asked == [[1, 2, 3], [3], [3]]
+        assert recorded, "the failed attempt's billed tokens must be recorded"
+
+    def test_benchmark_case_retry_keeps_paid_replies(self, monkeypatch):
+        from services import benchmark_case_service as svc
+        monkeypatch.setattr(shared.time, "sleep", lambda s: None)
+        seen = []
+
+        class Engine:
+            name = "claude"
+            last_usage = None
+
+            def translate_batch(self, sources, context=None):
+                seen.append(shared._answered_var.get() is not None)
+                if len(seen) == 1:
+                    raise RuntimeError("blip")
+                return ["ok"]
+
+        result = svc.run_translation(Engine(), {"source_text": "一"})
+        assert result["output_text"] == "ok"
+        assert seen == [True, True]
