@@ -264,7 +264,8 @@ class _FakeWav:
         return self
 
     def numpy(self):
-        return [self.voice]
+        import numpy
+        return numpy.full(2400, 0.5, dtype=numpy.float32)
 
 
 class _FakeChatterbox:
@@ -308,8 +309,8 @@ def test_chatterbox_adapter_encodes_each_voice_once_and_swaps_it_back_in(monkeyp
     assert [c for c in calls if c[0] == "voice"] == [("voice", "a.wav"), ("voice", "b.wav")]
     assert [c[1:] for c in calls if c[0] == "speak"] == [
         ("你好", "zh", "conds:a.wav"), ("やあ", "ja", "conds:b.wav"), ("Hi", "en", "conds:a.wav")]
-    assert written == [("0.wav", ["conds:a.wav"], 24000), ("1.wav", ["conds:b.wav"], 24000),
-                       ("2.wav", ["conds:a.wav"], 24000)]
+    assert [(path, rate) for path, _, rate in written] == [
+        ("0.wav", 24000), ("1.wav", 24000), ("2.wav", 24000)]
 
 
 def test_chatterbox_speaks_a_long_unit_in_pieces_under_its_40_second_limit(monkeypatch):
@@ -322,7 +323,7 @@ def test_chatterbox_speaks_a_long_unit_in_pieces_under_its_40_second_limit(monke
     spoken = [c[1] for c in calls if c[0] == "speak"]
     assert len(spoken) == 3 and "".join(spoken) == text
     assert all(len(p) <= voice_worker.CHATTERBOX_MAX_CHARS_CJK and p.endswith("。") for p in spoken)
-    assert list(written[0][1]) == ["conds:a.wav"] * 3     # one file, the pieces joined
+    assert len(written) == 1 and len(written[0][1]) == 3 * 2400     # one file, the pieces joined
 
 
 def test_chatterbox_pieces_cut_an_endless_sentence_at_the_cap():
@@ -345,3 +346,29 @@ def test_the_worker_exits_once_nobody_reads_its_output(monkeypatch):
     with pytest.raises(SystemExit):
         voice_worker._exit_when_orphaned(write)
     assert writes == ["\n"] * 3
+
+
+def _speech_then(tail, rate=24000):
+    import numpy
+    t = numpy.arange(rate) / rate
+    return numpy.concatenate([0.5 * numpy.sin(2 * numpy.pi * 220 * t), tail]).astype(numpy.float32)
+
+
+def test_trailing_hiss_after_the_last_word_is_cut_and_the_end_fades_to_silence():
+    import numpy
+    rate = 24000
+    hiss = numpy.random.default_rng(0).normal(0, 0.002, rate).astype(numpy.float32)   # -48 dB
+    out = voice_worker._trim_tail(_speech_then(hiss), rate)
+    kept_tail = int(rate * voice_worker.TAIL_KEEP_SECONDS)
+    assert rate <= len(out) <= rate + kept_tail + int(rate * voice_worker.TAIL_FRAME_SECONDS)
+    assert out[-1] == 0.0 and abs(out[:rate // 2]).max() > 0.4
+
+
+def test_trim_tail_keeps_a_clip_that_ends_on_speech_whole_and_survives_silence():
+    import numpy
+    rate = 24000
+    speech = _speech_then(numpy.zeros(0, dtype=numpy.float32))
+    out = voice_worker._trim_tail(speech, rate)
+    assert len(out) == len(speech) and out[-1] == 0.0
+    assert len(voice_worker._trim_tail(numpy.zeros(100), rate)) == 100
+    assert len(voice_worker._trim_tail([], rate)) == 0
