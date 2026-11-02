@@ -166,12 +166,19 @@ def start_remote_health_monitor(settings, interval: float | None = None,
         stop = threading.Event()
 
         def loop():
+            # Before any wait: link imports must know the home's own address
+            # from the start, not only after the first check.
+            try:
+                rhs.refresh_home_addresses(settings.public_url, stop=stop)
+            except Exception as exc:
+                log_warning("home address lookup failed: %s", type(exc).__name__)
             wait = min(interval, first)
             while not stop.wait(wait):
                 wait = interval
                 try:
                     # `stop` makes a running cycle give up at once, writing
                     # and sending nothing, so it can't outlive the join below.
+                    rhs.refresh_home_addresses(settings.public_url, stop=stop)
                     rhs.run_check(settings.public_url, settings.household_port, settings.host,
                                   stop=stop)
                 except Exception as exc:

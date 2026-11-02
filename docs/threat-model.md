@@ -40,7 +40,7 @@ The other opening is managing member accounts from away (`admin.users` on the ho
 - **A household member's compromised Google account.** It gets that member's permissions, which is why the risky ones are off by default.
 - **Hostile media and pages.** ffmpeg, OCR, PDF and image decoders parse what sites send. Live capture limits ffmpeg to piped input and a demuxer whitelist; the decoders themselves are trusted.
 - **Denial of service.** Only sign-in is rate-limited. There is no bandwidth cap per user, and the extension bridge, on the PC and through `/api/ext-bridge/*` for members, has no concurrency cap.
-- **Egress from the home IP.** Imports and live capture fetch any public host from the owner's address, including the home's own WAN address on a router with hairpin NAT. A DNS answer that changes between the check and a configured proxy's own lookup is not caught.
+- **Egress from the home IP.** Imports and live capture fetch any public host from the owner's address. While remote access is on, the home's own public address (the public name's DNS answer and the last IP check) is refused; with it off, that address is still reachable on a router with hairpin NAT. A DNS answer that changes between the check and a configured proxy's own lookup is not caught.
 - **The owner's own choices at the PC.** Program paths, installed tools (PhantomJS, lightnovel-crawler), models and Python packages the owner installs run with the owner's rights.
 - **Physical access and backups.** Backup zips leave out sign-ins, tokens and keys, but hold the whole library; where the owner keeps them is up to the owner.
 - **Google and the proxy.** A Google outage blocks new sign-ins; the reverse proxy's certificate and patching are the owner's.

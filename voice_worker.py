@@ -157,8 +157,38 @@ def _load_chatterbox(spec: dict):
     return speak
 
 
+OMNIVOICE_REPO = "k2-fsa/OmniVoice"
+
+
+def _load_omnivoice(spec: dict):
+    import soundfile as sf
+    import torch
+    from omnivoice import OmniVoice
+
+    cuda = torch.cuda.is_available()
+    model = OmniVoice.from_pretrained(
+        OMNIVOICE_REPO, device_map="cuda:0" if cuda else "cpu",
+        dtype=torch.float16 if cuda else torch.float32)
+
+    def speak(item):
+        kwargs = {}
+        if item.get("ref_audio"):
+            kwargs["ref_audio"] = item["ref_audio"]
+            # Without the clip's transcript OmniVoice transcribes the clip itself.
+            if item.get("ref_text"):
+                kwargs["ref_text"] = item["ref_text"]
+        elif item.get("instruct"):
+            kwargs["instruct"] = item["instruct"]
+        audio = model.generate(text=item["text"], **kwargs)
+        sf.write(item["out"], _trim_tail(audio[0], OMNIVOICE_SAMPLE_RATE), OMNIVOICE_SAMPLE_RATE)
+    return speak
+
+
+OMNIVOICE_SAMPLE_RATE = 24000
+
 # engine -> load(spec) returning speak(item), which writes item["out"].
-ADAPTERS = {"qwen3_tts": _load_qwen3_tts, "chatterbox": _load_chatterbox}
+ADAPTERS = {"omnivoice": _load_omnivoice, "qwen3_tts": _load_qwen3_tts,
+            "chatterbox": _load_chatterbox}
 
 
 def _error_text(exc: BaseException) -> str:
