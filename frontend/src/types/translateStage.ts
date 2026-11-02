@@ -1,5 +1,8 @@
 // Hand-written mirrors of api/schemas/translate.py and characters.py (Translate stage:
 // translate-run, glossary and characters models). Booleans and numbers only, never keys.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 import type { LibraryPreset, ProfileOptions } from './library'
 import type { TranslateEngine } from './translate'
@@ -65,16 +68,9 @@ export interface RetryFailedStarted extends TranslateRunStarted {
   line_ids: number[]
 }
 
-export interface EpisodeSummaryOptions {
-  engine: string
-  engines: string[]
-}
+export type EpisodeSummaryOptions = Schemas['EpisodeSummaryOptions']
 
-export interface EpisodeSummaryGenerated {
-  drama_id: number
-  summary: string
-  engine: string
-}
+export type EpisodeSummaryGenerated = Schemas['EpisodeSummaryGenerated']
 
 interface TranslateBatchError {
   batch_index?: number
@@ -82,10 +78,7 @@ interface TranslateBatchError {
   error?: string
 }
 
-export interface TranslateErrorsDismissed {
-  drama_id: number
-  dismissed: boolean
-}
+export type TranslateErrorsDismissed = Schemas['TranslateErrorsDismissed']
 
 export interface TranslateRunEstimate {
   engine: string
@@ -177,35 +170,9 @@ export interface BulkCancelResult {
   message: string
 }
 
-export interface TranslateRunStarted {
-  job_id: string
-  drama_id: number
-  engine: string
-  model: string | null
-  target_line_count: number
-  fallback_engines: string[]
-}
+export type TranslateRunStarted = Schemas['TranslateRunStarted']
 
-// Lines a glossary change affects (GET .../glossary-affected). hand_edited is
-// true unless the English is exactly what the last recorded translate run
-// produced; unknown provenance counts as hand-edited.
-interface GlossaryAffectedMatch {
-  term_id: number
-  term_original: string
-  term_translation: string
-  reason: 'source' | 'banned'
-}
-
-export interface GlossaryAffectedLine {
-  id: number
-  idx: number
-  start: number | null
-  end: number | null
-  zh: string
-  en: string
-  hand_edited: boolean
-  matched_terms: GlossaryAffectedMatch[]
-}
+export type GlossaryAffectedLine = Schemas['GlossaryAffectedLine']
 
 export interface GlossaryAffectedPreview {
   drama_id: number
@@ -271,29 +238,14 @@ export interface GlossaryImportBody {
   confirm?: boolean
 }
 
-export interface GlossaryImportResult {
-  added: string[]
-  overwritten: string[]
-  skipped_existing: string[]
-  invalid: string[]
-  warnings: string[]
-}
+export type GlossaryImportResult = Schemas['GlossaryImportResult']
 
 // POST /api/glossary/dramas/{id}/terms/bulk-delete.
-export interface GlossaryBulkDeleteResult {
-  deleted: number[]
-  not_found: number[]
-}
+export type GlossaryBulkDeleteResult = Schemas['GlossaryBulkDeleteResult']
 
-export interface GlossaryInstructions {
-  project_instructions: string
-  series_instructions: string
-}
+export type GlossaryInstructions = Schemas['GlossaryInstructions']
 
-export interface GlossaryCatalogues {
-  term_categories: { key: string; label: string }[]
-  term_policies: { key: string; label: string; example: string }[]
-}
+export type GlossaryCatalogues = Schemas['GlossaryCatalogues']
 
 export interface CharacterEntry {
   speaker_label: string
@@ -403,10 +355,7 @@ export interface TranslatePresetSaved {
 }
 
 // GET /api/glossary/dramas/{id}/variants and /name-clusters: read-only, offline.
-export interface GlossaryVariantExample {
-  line_idx: number
-  snippet: string
-}
+export type GlossaryVariantExample = Schemas['GlossaryVariantExample']
 
 interface GlossaryVariantCandidate {
   text: string
