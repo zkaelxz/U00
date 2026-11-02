@@ -897,6 +897,9 @@ class TestPageDocument:
         assert r.text.lstrip().lower().startswith("<!doctype html") and "你好" in r.text
         csp = r.headers["content-security-policy"]
         assert csp.startswith("default-src 'none'") and "frame-ancestors 'self'" in csp
+        # Opened at its URL outside the iframe, its scripts still get no same-origin.
+        assert [d.strip() for d in csp.split(";") if d.strip().startswith("sandbox")] == [
+            "sandbox allow-scripts"]
         assert r.headers["x-frame-options"] == "SAMEORIGIN"
         assert r.headers["cache-control"] == "no-store"
 
