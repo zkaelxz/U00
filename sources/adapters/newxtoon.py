@@ -188,7 +188,9 @@ class NewXToonSource(SourceAdapter):
                 urls.append(url)
         if not urls:
             raise LayoutChanged("any page images in this chapter")
-        return [PageRef(self.name, cid, i, u) for i, u in enumerate(urls)]
+        # The image host answers 403 without a Referer from the site itself (ordinary hotlink handling).
+        referer = self.base_url + "/"
+        return [PageRef(self.name, cid, i, u, headers={"Referer": referer}) for i, u in enumerate(urls)]
 
     def download_page(self, page):
         resp = self.client.get(page.url, classify_body=False, headers=page.headers,
@@ -219,7 +221,7 @@ class NewXToonSource(SourceAdapter):
             "extraction_method": "static HTML (server-rendered Laravel); page images are "
                                  "img.reader-page tags; no JavaScript runs",
             "browser_required": False,
-            "images": "served by a rotating file host; no Referer needed. Ad images and ad "
+            "images": "served by a rotating file host; answers 403 unless the request carries a Referer of the site (plain hotlink check, images are not scrambled). Ad images and ad "
                       "links (/ads/) are never fetched",
         }
         caps.terms = {
