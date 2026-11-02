@@ -8,6 +8,8 @@ something stay local_only(). Rules: docs/remote-access-permissions-core.md.
 """
 
 import logging
+import tempfile
+import threading
 
 from starlette.requests import Request
 
@@ -45,6 +47,32 @@ def upload_matchers(app) -> list:
             for _r, path, methods, decls in iter_route_declarations(app)
             if any(kind == "permission" and UPLOAD_PERMISSION in label.split(" + ")
                    for kind, label in decls)]
+
+
+class TempRoom:
+    """Bytes still to arrive for the uploads from away in flight. A File()
+    route spools its body to the temp folder before any handler checks free
+    space, so each upload is refused up front unless the temp drive can hold
+    its Content-Length on top of what the others in flight have yet to write.
+    What they have already written shows in the drive's free space."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._pending = 0
+
+    def reserve(self, length: int) -> None:
+        """InvalidInputError (the upload's own no-room refusal) when it won't fit."""
+        from services import media_upload_service
+        with self._lock:
+            media_upload_service.check_room_for(tempfile.gettempdir(), self._pending + length)
+            self._pending += length
+
+    def release(self, length: int) -> None:
+        with self._lock:
+            self._pending -= length
+
+
+temp_room = TempRoom()
 
 
 def capped_upload(request: Request, receive):
@@ -87,7 +115,7 @@ class RemoteUploadGate:
     token). For an upload route reached from away from the PC it refuses,
     before the body is read, a caller who may not upload here (403: a
     member, or an admin while the switch is off), then applies
-    capped_upload. At the PC it does nothing."""
+    capped_upload and temp_room. At the PC it does nothing."""
 
     def __init__(self, app, upload_fn):
         self.app = app
@@ -98,7 +126,7 @@ class RemoteUploadGate:
         if scope["type"] != "http" or not self._is_upload(scope):
             return await self.app(scope, receive, send)
         from api.auth import _GENERIC_403, _authenticate, _json_refusal, is_local_request
-        from lib.errors import ForbiddenError, UnauthenticatedError
+        from lib.errors import ForbiddenError, InvalidInputError, UnauthenticatedError
         request = Request(scope, receive)
         if is_local_request(request):
             return await self.app(scope, receive, send)
@@ -112,8 +140,28 @@ class RemoteUploadGate:
         refusal, receive = capped_upload(request, receive)
         if refusal is not None:
             return await refusal(scope, receive, send)
-        await self._audit(principal, scope)
-        return await self.app(scope, receive, send)
+        # capped_upload checked it is a number; never negative, or it would free others' room.
+        length = max(0, int(request.headers["content-length"]))
+        try:
+            temp_room.reserve(length)
+        except InvalidInputError as exc:
+            return await _json_refusal(422, exc.code, exc.message)(scope, receive, send)
+        left = length
+
+        async def counted():
+            nonlocal left
+            message = await receive()
+            if message.get("type") == "http.request":
+                arrived = min(left, len(message.get("body", b"")))
+                left -= arrived
+                temp_room.release(arrived)
+            return message
+
+        try:
+            await self._audit(principal, scope)
+            return await self.app(scope, counted, send)
+        finally:
+            temp_room.release(left)
 
     @staticmethod
     async def _audit(principal, scope) -> None:
