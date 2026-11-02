@@ -134,7 +134,7 @@ class TestRemovedEngines:
         for engine in dub.CLONE_ENGINES:
             assert dub.engine_refusal(engine) is None and dub.removed_engine_message(engine) is None
         assert dub.engine_refusal("nope") == "Unknown voice engine."
-        assert set(dub.CLONE_ENGINES) == {"omnivoice"}
+        assert set(dub.CLONE_ENGINES) == {"omnivoice", "qwen3_tts"}
         assert dub.DEFAULT_CLONE_ENGINE == "omnivoice"
 
     @pytest.mark.parametrize("key", ["edge_tts", "offline", "f5tts", "tada", "chatterbox", "gpt_sovits"])
@@ -711,3 +711,173 @@ class TestHeadroomRefusalStopsTheRun:
         kind, name, message = q.get_nowait()
         assert (kind, name) == ("error", "HeadroomError")
         assert "Keep free graphics memory" in message
+
+
+class TestVenvEngines:
+    """Qwen3-TTS runs in a venv of its own (voice_venv): the narration speaks every line
+    that needs it in one batch, and only fixed sentences reach the line errors."""
+
+    QWEN = {"engine": "qwen3_tts", "ref_audio": "/clips/a.wav", "ref_text": "嗯"}
+
+    def _batch(self, monkeypatch, events):
+        import voice_venv
+        seen = {}
+        monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
+        monkeypatch.setattr(dub, "_cuda_available", lambda: False)
+
+        def run_batch(engine, items, workdir, timeout, own_group):
+            seen.update(engine=engine, items=items, own_group=own_group)
+            for event in events(items):
+                yield event
+        monkeypatch.setattr(voice_venv, "run_batch", run_batch)
+        return seen
+
+    def test_events_become_fixed_sentences(self, monkeypatch, tmp_path):
+        def events(items):
+            yield {"loaded": True}
+            open(items[0]["out"], "w").close()
+            yield {"done": "0"}
+            yield {"failed": "1", "error": "x", "detail": "Error in C:\\Users\\me\\x.wav"}
+            yield {"returncode": 0, "timed_out": False, "cancelled": False, "dropped": 0,
+                   "unanswered": ["2"]}
+        seen = self._batch(monkeypatch, events)
+        requests = [{"text": t, "out": str(tmp_path / f"{i}.wav"), "language": "zh",
+                     "ref_audio": "/clips/a.wav", "ref_text": "嗯"} for i, t in enumerate("abc")]
+        out = list(dub.speak_in_venv("qwen3_tts", requests, str(tmp_path)))
+        assert out == [(0, None), (1, dub.VENV_LINE_FAILED), (2, dub.VENV_LINE_FAILED)]
+        assert seen["own_group"] is False
+        assert [it["id"] for it in seen["items"]] == ["0", "1", "2"]
+
+    def test_a_model_that_cannot_load_fails_every_line_with_the_start_message(self, monkeypatch,
+                                                                              tmp_path):
+        def events(items):
+            yield {"fatal": "x", "detail": "ImportError: transformers"}
+            yield {"returncode": 0, "timed_out": False, "cancelled": False, "dropped": 0,
+                   "unanswered": ["0", "1"]}
+        self._batch(monkeypatch, events)
+        requests = [{"text": "a", "out": str(tmp_path / f"{i}.wav"), "language": "en",
+                     "ref_audio": "/r.wav"} for i in range(2)]
+        expected = "The Qwen3-TTS engine could not start. Check it in Diagnostics."
+        assert list(dub.speak_in_venv("qwen3_tts", requests, str(tmp_path))) == [
+            (0, expected), (1, expected)]
+
+    def test_a_venv_that_is_not_ready_never_starts(self, monkeypatch, tmp_path):
+        import voice_venv
+        monkeypatch.setattr(voice_venv, "is_ready", lambda engine: False)
+        monkeypatch.setattr(dub, "_cuda_available", lambda: False)
+        monkeypatch.setattr(voice_venv, "run_batch", lambda *a, **k: pytest.fail("started"))
+        out = list(dub.speak_in_venv("qwen3_tts", [{"text": "a", "out": "o", "language": "en",
+                                                    "ref_audio": "/r.wav"}], str(tmp_path)))
+        assert out == [(0, "The Qwen3-TTS engine could not start. Check it in Diagnostics.")]
+
+    def test_narration_speaks_venv_lines_in_one_batch_and_keeps_finished_clips(
+            self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        batches = []
+
+        def speak(engine, requests, workdir):
+            batches.append((engine, [(r["text"], r["language"]) for r in requests]))
+            for i, r in enumerate(requests):
+                if r["text"] == "Bad":
+                    open(r["out"], "w").close()      # a partial left by a failed line
+                    yield i, dub.VENV_LINE_FAILED
+                else:
+                    open(r["out"], "w").close()
+                    yield i, None
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice())
+        clones = {"A": dict(self.QWEN), "B": dict(VOICE)}
+        lines = [Line(idx=0, start=0, end=0, zh="", en="Hello.", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="", en="Other.", speaker="B"),
+                 Line(idx=2, start=0, end=0, zh="", en="Bad", speaker="A")]
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), clones)
+        assert len(batches) == 1 and batches[0][0] == "qwen3_tts"
+        assert all(language == "en" for _, language in batches[0][1])
+        assert errors == [{"line_idx": 2, "error": dub.VENV_LINE_FAILED}]
+        clips = sorted(os.listdir(tmp_path / "dub_clips"))
+        assert not any(name.endswith(".partial.wav") for name in clips)
+        # The next run reuses what this one finished and asks again only for the failure.
+        batches.clear()
+        dub_narration.build_narration_track(lines, str(tmp_path), clones)
+        assert [text for text, _ in batches[0][1]] == ["Bad"]
+
+    def test_original_language_narration_tells_the_engine_the_source_language(
+            self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        seen = []
+
+        def speak(engine, requests, workdir):
+            for i, r in enumerate(requests):
+                seen.append(r["language"])
+                open(r["out"], "w").close()
+                yield i, None
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        lines = [Line(idx=0, start=0, end=0, zh="こんにちは", en="Hello", speaker="A")]
+        dub_narration.build_narration_track(lines, str(tmp_path), {"A": dict(self.QWEN)},
+                                            narrate_original=True, source_language="ja")
+        assert seen == ["ja"]
+
+
+class TestVenvEngineEdges:
+    QWEN = TestVenvEngines.QWEN
+
+    def test_no_torch_in_the_app_skips_the_vram_check(self, monkeypatch, tmp_path):
+        import voice_venv
+
+        def no_torch():
+            raise ModuleNotFoundError("No module named 'torch'")
+        monkeypatch.setattr(dub, "_cuda_available", no_torch)
+        monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
+
+        def run_batch(engine, items, workdir, timeout, own_group):
+            open(items[0]["out"], "w").close()
+            yield {"done": "0"}
+        monkeypatch.setattr(voice_venv, "run_batch", run_batch)
+        requests = [{"text": "a", "out": str(tmp_path / "0.wav"), "language": "en",
+                     "ref_audio": "/r.wav"}]
+        assert list(dub.speak_in_venv("qwen3_tts", requests, str(tmp_path))) == [(0, None)]
+
+    def _narrate(self, monkeypatch, tmp_path, order, clones, lines):
+        _install_fake_pydub(monkeypatch)
+
+        def speak(engine, requests, workdir):
+            for i, r in enumerate(requests):
+                order.append(("venv", r["text"]))
+                open(r["out"], "w").close()
+                yield i, None
+
+        def omni(text, out_path, **kw):
+            order.append(("omnivoice", text))
+            open(out_path, "w").close()
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        monkeypatch.setattr(dub, "synthesize_line_omnivoice", omni)
+        return dub_narration.build_narration_track(lines, str(tmp_path), clones)
+
+    def test_venv_lines_are_spoken_before_omnivoice_loads_its_model(self, monkeypatch, tmp_path):
+        order = []
+        lines = [Line(idx=0, start=0, end=0, zh="", en="One.", speaker="B"),
+                 Line(idx=1, start=0, end=0, zh="", en="Two.", speaker="A")]
+        self._narrate(monkeypatch, tmp_path, order, {"A": dict(self.QWEN), "B": dict(VOICE)},
+                      lines)
+        assert order == [("venv", "Two."), ("omnivoice", "One.")]
+
+    def test_a_clip_that_cannot_be_moved_into_place_fails_with_the_fixed_sentence(
+            self, monkeypatch, tmp_path):
+        real = os.replace
+
+        def locked(src, dst):
+            if src.endswith(".partial.wav"):
+                raise PermissionError(f"[WinError 32] in use: {src}")
+            real(src, dst)
+        monkeypatch.setattr(dub_narration.os, "replace", locked)
+        lines = [Line(idx=0, start=0, end=0, zh="", en="One.", speaker="A")]
+        _, errors = self._narrate(monkeypatch, tmp_path, [], {"A": dict(self.QWEN)}, lines)
+        assert errors == [{"line_idx": 0, "error": dub.VENV_LINE_FAILED}]
+
+    def test_a_spec_left_by_a_cancelled_run_is_removed(self, monkeypatch, tmp_path):
+        clips = tmp_path / "dub_clips"
+        clips.mkdir()
+        (clips / "voice_spec_abc.json").write_text("{}", encoding="utf-8")
+        lines = [Line(idx=0, start=0, end=0, zh="", en="One.", speaker="A")]
+        self._narrate(monkeypatch, tmp_path, [], {"A": dict(self.QWEN)}, lines)
+        assert not (clips / "voice_spec_abc.json").exists()
