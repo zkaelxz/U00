@@ -20,6 +20,7 @@ export interface EditorApi {
   createRegion: (box: Box, expectedRev: number) => Promise<ScanlatePageDetail>
   deleteRegion: (regionId: number, expectedRev: number) => Promise<ScanlatePageDetail>
   undo: (expectedRev: number) => Promise<ScanlatePageDetail>
+  redoRegion: (regionId: number, expectedRev: number) => Promise<ScanlatePageDetail>
 }
 
 export interface EditorState {
@@ -74,6 +75,22 @@ export async function createBox(state: EditorState, api: EditorApi, box: Box): P
   if (!page) return state
   try {
     return { page: await api.createRegion(box, page.rev), error: null }
+  } catch (e) {
+    return hasStatus(e, 409) ? reloaded(api, e, page) : { page, error: e }
+  }
+}
+
+/**
+ * Brush: the drawn box is created, then read and translated from the page's pixels. Two writes,
+ * so a failed read leaves the empty box in place (with the error) rather than losing the drag.
+ */
+export async function brushBox(state: EditorState, api: EditorApi, box: Box): Promise<EditorState> {
+  const created = await createBox(state, api, box)
+  const page = created.page
+  if (created.error || !page || page.regions.length <= (state.page?.regions.length ?? 0)) return created
+  const added = page.regions[page.regions.length - 1]
+  try {
+    return { page: await api.redoRegion(added.id, page.rev), error: null }
   } catch (e) {
     return hasStatus(e, 409) ? reloaded(api, e, page) : { page, error: e }
   }
