@@ -52,6 +52,7 @@ from api.routers import (
     device_token_routes,
     member_key_routes,
     diagnostics_browser_routes,
+    diagnostics_voice_engine_routes,
     diagnostics_gaps_routes,
     disk_usage_routes,
     diagnostics_installs_routes,
@@ -235,6 +236,7 @@ _ROUTER_MODULES = (
     device_token_routes, member_key_routes, voice_clone_routes, bug_report_routes,
     novel_files_routes, benchmark_routes, model_registry_routes, model_reeval_routes,
     diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes,
+    diagnostics_voice_engine_routes,
     real_model_check_routes, voice_bank_audio_routes, sources_tools_routes, assistant_routes,
     sharing_routes,
 )

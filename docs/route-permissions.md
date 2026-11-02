@@ -176,6 +176,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/setup-checks` | admin.diagnostics |
 | `GET /api/diagnostics/support-report` | admin.diagnostics |
 | `GET /api/diagnostics/upgrade-check` | admin.diagnostics |
+| `GET /api/diagnostics/voice-engines` | admin.diagnostics |
+| `POST /api/diagnostics/voice-engines/{engine}/install` | local_only() |
 | `GET /api/diarization/dramas/{drama_id}/config` | library.read |
 | `POST /api/diarization/dramas/{drama_id}/reassign` | lines.edit |
 | `POST /api/diarization/dramas/{drama_id}/run` | jobs.start |
