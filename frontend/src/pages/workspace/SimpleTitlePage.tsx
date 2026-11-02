@@ -13,7 +13,7 @@ import './stages/novelChapters.css'
 
 // Audio and video titles in the Simple view: the actions people reach for first and the episodes, with no stepper.
 // The stage routes are unchanged and the Full view is one switch away.
-export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: DramaDetail; onView: (v: TitleView) => void }) {
+export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: number; drama: DramaDetail; comic?: boolean; onView: (v: TitleView) => void }) {
   // Unknown until answered; with no lines yet, the main button starts at Transcribe.
   const [lineCount, setLineCount] = useState<number | null>(null)
   const [translatedCount, setTranslatedCount] = useState(0)
@@ -56,15 +56,16 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
   }, [seriesId])
 
   const rows = useMemo(() => {
-    if (siblings && siblings.some((t) => t.id === id)) return episodeRows(siblings)
+    // A comic has no transcript, so "Not transcribed" would be wrong for every chapter.
+    if (siblings && siblings.some((t) => t.id === id)) return episodeRows(siblings).map((r) => (comic ? { ...r, state: '' } : r))
     const own: EpisodeInput = {
       id, title_en: drama.title_en, title_zh: drama.title_zh, episode_number: drama.episode_number ?? null,
       line_count: lineCount ?? 0, translated_count: translatedCount,
     }
     // No state words until the counts are known: "Not transcribed" before they arrive would be wrong for a transcribed title.
     const rows = episodeRows([own])
-    return lineCount === null ? rows.map((r) => ({ ...r, state: '' })) : rows
-  }, [siblings, id, drama.title_en, drama.title_zh, drama.episode_number, lineCount, translatedCount])
+    return lineCount === null || comic ? rows.map((r) => ({ ...r, state: '' })) : rows
+  }, [comic, siblings, id, drama.title_en, drama.title_zh, drama.episode_number, lineCount, translatedCount])
 
   const loadingSeries = seriesId != null && !seriesDone
   const hasLines = lineCount !== null && lineCount > 0
@@ -84,6 +85,14 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
         <JobPill dramaId={id} onFinished={() => undefined} />
         <TitleViewSwitch view="simple" onChange={onView} />
       </header>
+      {comic ? (
+        <div className="actions">
+          <ButtonLink href={routeHref({ name: 'comic', id, page: null })} variant="primary">Open in Scanlate</ButtonLink>
+          <ButtonLink href={stage('source', 'add')}>Add pages</ButtonLink>
+          <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
+          <ButtonLink href={stage('export')}>Export</ButtonLink>
+        </div>
+      ) : (
       <div className="actions">
         <ButtonLink href={hasLines ? stage('translate') : stage('source', 'transcribe')} variant="primary">Transcribe and translate</ButtonLink>
         <ButtonLink href={stage('source', 'add')}>Add media</ButtonLink>
@@ -91,9 +100,10 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
         <ButtonLink href={stage('review')}>Review</ButtonLink>
         <ButtonLink href={stage('export')}>Export</ButtonLink>
       </div>
-      <section className="panel" aria-label="Episodes">
-        <h2 className="source-subhead">Episodes</h2>
-        <ul className="chapters-list episodes-list" aria-label="Episodes" aria-busy={loadingSeries || lineCount === null}>
+      )}
+      <section className="panel" aria-label={comic ? 'Chapters' : 'Episodes'}>
+        <h2 className="source-subhead">{comic ? 'Chapters' : 'Episodes'}</h2>
+        <ul className="chapters-list episodes-list" aria-label={comic ? 'Chapters' : 'Episodes'} aria-busy={loadingSeries || lineCount === null}>
           {rows.map((r) => (
             <li key={r.id} className="chapters-item">
               <a className="chapters-row episodes-row" href={routeHref({ name: 'drama', id: r.id, stage: null })} aria-current={r.id === id ? 'page' : undefined}>
