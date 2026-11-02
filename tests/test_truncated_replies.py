@@ -291,3 +291,96 @@ class TestRetryDoesNotRebillFinishedRequests:
             out = shared.request_translations_with_retry(
                 ["一"], None, lambda n: asked.append(1) or json.dumps({"1": "z"}), engine_name="gemini")
         assert out == ["z"] and asked
+
+
+class _ReAskEngine:
+    """Answers the first pass plainly, then serves a re-ask (the context key in
+    `reask_key`) as three lines asked in two requests: the first answers lines
+    1-2, the second fails once, so the whole call is retried. Like a real engine
+    it resets last_usage at the start of each translate_batch."""
+    name = "scripted"
+    supports_reference = True
+
+    def __init__(self, first_pass_en, reask_key):
+        self.first_pass_en = first_pass_en
+        self.reask_key = reask_key
+        self.asked = []
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        self.requests = 0
+
+    def translate_batch(self, sources, context=None):
+        ids = list(context["line_ids"])
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        if not context.get(self.reask_key):
+            self.last_usage = {"input_tokens": 100, "output_tokens": 100}
+            return [self.first_pass_en] * len(ids)
+        usage = self.last_usage
+
+        def call_model(numbered):
+            self.asked.append(_ids_asked(numbered))
+            self.requests += 1
+            if self.requests == 1:
+                usage.update(input_tokens=10, output_tokens=1)
+                return json.dumps({str(i): f"fixed {i}" for i in ids[:2]})
+            if self.requests == 2:
+                usage["input_tokens"] += 7
+                usage["output_tokens"] += 3
+                raise RuntimeError("blip")
+            usage.update(input_tokens=5, output_tokens=2)
+            return json.dumps({str(ids[2]): f"fixed {ids[2]}"})
+
+        return shared.request_translations_with_retry(
+            sources, None, call_model, line_ids=ids, engine_name="claude")
+
+
+# Billed per request: the failed attempt's 17/4 (10/1 then 7/3), then the retry's 5/2.
+_REASK_USAGE = [(17, 4, 0, 0), (5, 2, 0, 0)]
+
+
+class TestOtherRetryPathsDoNotRebill:
+    def _run(self, engine, **kw):
+        from core import Line
+        from engine_backends import translate_pipeline as tp
+        lines = [Line(idx=i, start=i, end=i + 1, zh=f"吹雪{i}", id=10 + i) for i in range(3)]
+        usage = []
+        tp.translate_lines_with_engine(
+            lines, engine, drama_meta={"source_language": "zh"}, context_window=0,
+            context_window_ahead=0, usage_cb=lambda *u: usage.append(u), **kw)
+        return [u for u in usage if u[0] != 100]
+
+    def test_strict_pronoun_re_ask(self, monkeypatch):
+        import translation_guide as tguide
+        monkeypatch.setattr(shared.time, "sleep", lambda s: None)
+        engine = _ReAskEngine("He came.", "pronoun_strict")
+        usage = self._run(engine, style_guidelines=tguide.build_style_guidelines(
+            default_female_pronouns=True))
+        assert engine.asked == [[10, 11, 12], [12], [12]]
+        assert usage == _REASK_USAGE
+
+    def test_glossary_re_ask(self, monkeypatch):
+        monkeypatch.setattr(shared.time, "sleep", lambda s: None)
+        terms = [{"term_original": "吹雪", "term_translation": "Fubuki", "aliases": "",
+                  "enforce_exact": 0, "notes": ""}]
+        engine = _ReAskEngine("no name here", "glossary_correction")
+        usage = self._run(engine, glossary_terms=terms)
+        assert engine.asked == [[10, 11, 12], [12], [12]]
+        assert usage == _REASK_USAGE
+
+    def test_benchmark_case_retry_keeps_paid_replies(self, monkeypatch):
+        from services import benchmark_case_service as svc
+        monkeypatch.setattr(shared.time, "sleep", lambda s: None)
+        seen = []
+
+        class Engine:
+            name = "claude"
+            last_usage = None
+
+            def translate_batch(self, sources, context=None):
+                seen.append(shared._answered_var.get() is not None)
+                if len(seen) == 1:
+                    raise RuntimeError("blip")
+                return ["ok"]
+
+        result = svc.run_translation(Engine(), {"source_text": "一"})
+        assert result["output_text"] == "ok"
+        assert seen == [True, True]

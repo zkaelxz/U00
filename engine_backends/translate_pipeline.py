@@ -132,6 +132,29 @@ def _record_failed_attempt_usage(engine, record_usage):
         _record_engine_usage(engine, record_usage)
 
 
+def _translate_with_retries(engine, sources, context, record_usage):
+    """One translate_batch call retried with backoff. Replies already paid for
+    survive a retry, and a failed attempt's billed tokens are recorded, so the
+    spend and the cap count them."""
+    # A batch abandoned on Cancel or at the deadline was still billed, so
+    # its usage is logged when the request finally returns.
+    def attempt():
+        try:
+            return call_batch_bounded(
+                engine, lambda: engine.translate_batch(sources, context),
+                on_late_result=lambda: _record_engine_usage(engine, record_usage))
+        except (TranslationCancelled, LLMTaskTimeout):
+            raise  # the late-result hook logs an abandoned request
+        except Exception:
+            _record_failed_attempt_usage(engine, record_usage)
+            raise
+
+    with keep_answers_across_retries():
+        translations = call_with_backoff(attempt)
+    _record_engine_usage(engine, record_usage)
+    return translations
+
+
 def _record_engine_usage(engine, record_usage):
     if hasattr(engine, "last_usage"):
         u = engine.last_usage
@@ -178,11 +201,7 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
         chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
         sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
         try:
-            redone = call_with_backoff(
-                lambda: call_batch_bounded(
-                    engine, lambda: engine.translate_batch(sources, chunk_context),
-                    on_late_result=lambda: _record_engine_usage(engine, record_usage)))
-            _record_engine_usage(engine, record_usage)
+            redone = _translate_with_retries(engine, sources, chunk_context, record_usage)
         except Exception as e:
             if stops_translate_run(e):
                 if retried and save_cb:
@@ -390,23 +409,7 @@ class _TranslateRun:
         engine = self.engine
         sources = pronoun_neutral_texts(self.context, [ln.zh for ln in chunk])
 
-        # A batch abandoned on Cancel or at the deadline was still billed, so
-        # its usage is logged when the request finally returns.
-        def attempt():
-            try:
-                return call_batch_bounded(
-                    engine, lambda: engine.translate_batch(sources, chunk_context),
-                    on_late_result=lambda: _record_engine_usage(engine, self._record_usage))
-            except (TranslationCancelled, LLMTaskTimeout):
-                raise  # the late-result hook logs an abandoned request
-            except Exception:
-                _record_failed_attempt_usage(engine, self._record_usage)
-                raise
-
-        with keep_answers_across_retries():
-            translations = call_with_backoff(attempt)
-        _record_engine_usage(engine, self._record_usage)
-        return translations
+        return _translate_with_retries(engine, sources, chunk_context, self._record_usage)
 
     def _settle_sentences(self, chunk, translations, chunk_groups):
         """Gives each fragment of a sentence group its English (see
@@ -602,12 +605,7 @@ class _TranslateRun:
                                 glossary_correction=True)
             sources = pronoun_neutral_texts(self.context, [ln.zh for ln in lines_to_redo])
             try:
-                out = call_with_backoff(
-                    lambda: call_batch_bounded(
-                        engine, lambda: engine.translate_batch(sources, redo_context),
-                        on_late_result=lambda: _record_engine_usage(engine, self._record_usage)))
-                _record_engine_usage(engine, self._record_usage)
-                return out
+                return _translate_with_retries(engine, sources, redo_context, self._record_usage)
             except TranslationCancelled:
                 return None
             except Exception as e:
