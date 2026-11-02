@@ -1,6 +1,9 @@
 // Mirrors api/schemas/sources.py: the Sources registry and the Sources
 // search/series jobs. No proxy URL, path, key or
 // query string is ever part of these shapes.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 interface SourceSupports {
   search: boolean
@@ -39,26 +42,9 @@ export interface SourceSummary {
   extension_only?: boolean
 }
 
-export interface SourceHealth {
-  light: HealthLight | string
-  consecutive_failures: number
-  last_success: number | null
-  last_failure: number | null
-  last_error_type: string | null
-  last_error_category?: string | null
-  last_error: string | null
-  last_latency: number | null
-  unavailable_until: number | null
-  retry_after: number | null
-}
+export type SourceHealth = Schemas['SourceHealth']
 
-export interface SourceTierResult {
-  tested: boolean
-  ok: boolean
-  reason: string | null
-  detail: string | null
-  at: number | null
-}
+export type SourceTierResult = Schemas['SourceTierResult']
 
 export interface SourceDetail extends SourceSummary {
   status: string
@@ -89,43 +75,11 @@ export interface ExtensionOnlyMark {
   extension_works_without: boolean
 }
 
-export interface SourceAttempt {
-  url: string // scheme+host+path only
-  created_at: number | null
-  tier: string | null
-  test_now: boolean
-  ok: boolean | null
-  technical_status: string | null
-  capability_status: string | null
-  reasons: string[]
-  lines: string[]
-  handoff: Record<string, unknown> | null
-}
+export type SourceAttempt = Schemas['SourceAttempt']
 
-export interface SourceCacheStats {
-  entries: number
-  bytes: number
-}
+export type SourceCacheStats = Schemas['SourceCacheStats']
 
-export interface SourcesSettings {
-  pace_min_delay: number
-  pace_max_delay: number
-  max_concurrent: number
-  max_retries: number
-  session_break_min_requests: number
-  session_break_max_requests: number
-  session_break_min_delay: number
-  session_break_max_delay: number
-  cache_mode: string
-  cache_max_mb: number
-  check_interval_hours: number
-  auto_queue_new_chapters: boolean
-  demo_source_enabled: boolean
-  extraction_diagnostics: boolean
-  proxy_configured: boolean
-  cache_modes: string[]
-  cache: SourceCacheStats
-}
+export type SourcesSettings = Schemas['SourcesSettings']
 
 // The whitelisted, partial POST /api/sources/settings body (extra=forbid).
 export type SourcesSettingsUpdate = Partial<
@@ -179,33 +133,13 @@ export interface TrackedSeries {
   save_cbz: boolean
 }
 
-export interface SourceMoveChapter {
-  title: string
-  saved?: boolean | null
-}
+export type SourceMoveChapter = Schemas['SourceMoveChapter']
 
-export interface SourceMovePreview {
-  source: string
-  series_id: string
-  drama_id: number | null
-  matched: SourceMoveChapter[]
-  only_old: SourceMoveChapter[]
-  new: SourceMoveChapter[]
-}
+export type SourceMovePreview = Schemas['SourceMovePreview']
 
-export interface SourceNotification {
-  id: number
-  source: string
-  series_id: string
-  chapter_id: string
-  title: string | null
-  created_at: number
-  dismissed: boolean
-}
+export type SourceNotification = Schemas['SourceNotification']
 
-export interface SourcesJobStarted {
-  job_id: string
-}
+export type SourcesJobStarted = Schemas['SourcesJobStarted']
 
 // A per-source failure inside a search result, or a failed job's error.
 export interface SourceErrorView {
@@ -327,8 +261,4 @@ export interface TierTestResult {
   detail: string | null
 }
 
-export interface SourceSigninForgetResult {
-  source: string
-  forgotten: boolean
-  has_saved_signin: boolean
-}
+export type SourceSigninForgetResult = Schemas['SourceSigninForgetResult']
