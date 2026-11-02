@@ -113,6 +113,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "scanlate_render.py",
     "scanlate_translate.py",
     "scanlate_tuning.py",
+    "scanlate_watermark.py",
     "segment.py",
     "segment_splitting.py",
     "sensevoice_tags.py",
