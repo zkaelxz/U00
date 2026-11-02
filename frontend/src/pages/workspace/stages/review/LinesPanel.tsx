@@ -31,6 +31,7 @@ import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
 import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
+import { SetSpeakerPanel } from './SetSpeakerPanel'
 import { UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
@@ -120,6 +121,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [undo, setUndo] = useUndoOffer<UndoOffer>('lines', dramaId)
   useEffect(() => setUndo(null), [dramaId, setUndo])
   const [keysOpen, setKeysOpen] = useState(false)
+  const [setSpeakerOpen, setSetSpeakerOpen] = useState(false)
   // Row density is a per-viewer choice, remembered in localStorage.
   const [compact, setCompact] = usePersistedState('review.compact', false)
   const [replaceOpen, setReplaceOpen] = useState(() => readSectionOpen(browserStorage(), 'review.findreplace', false))
@@ -301,6 +303,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     notify: setStatus,
     openCompare: onCompareSelected ?? (() => {}),
     openRetime: onRetimeSelected ?? (() => {}),
+    openSetSpeaker: () => setSetSpeakerOpen(true),
     openRetranscribe: (lineIds: number[]) => onRetranscribeLines?.(lineIds),
   }
   const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
@@ -412,6 +415,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {suspectOpen && suspects.length > 0 && (
           <SourceSuspectPanel dramaId={dramaId} items={suspects} onGoTo={(n) => void goToNumber(n)} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
+        )}
+        {setSpeakerOpen && selection.selectedIds.length > 0 && (
+          <SetSpeakerPanel dramaId={dramaId} lineIds={selection.selectedIds} onChanged={onChanged} onClose={() => setSetSpeakerOpen(false)} />
         )}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
         {!searching && !!data?.flagged_count && (

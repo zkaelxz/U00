@@ -16,6 +16,8 @@ export interface SelectionActionContext {
   openCompare: () => void
   // Opens Review's Re-time with Qwen3 aligner section on the ticked lines.
   openRetime: () => void
+  // Opens the Set speaker panel on the ticked lines.
+  openSetSpeaker: () => void
   // Opens Review's Re-transcribe section and starts it on exactly these lines.
   openRetranscribe: (lineIds: number[]) => void
 }
@@ -54,6 +56,11 @@ export const SELECTION_ACTIONS: SelectionAction[] = [
     label: 'Re-time with Qwen3 aligner…',
     unavailable: ({ selectedIds }) => retimeSelectedProblem(selectedIds.length),
     run: ({ openRetime }) => openRetime(),
+  },
+  {
+    id: 'set-speaker',
+    label: 'Set speaker…',
+    run: ({ openSetSpeaker }) => openSetSpeaker(),
   },
   {
     id: 're-transcribe',
