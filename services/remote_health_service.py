@@ -219,7 +219,6 @@ def refresh_home_addresses(public_url, stop=None) -> None:
     address. The monitor runs it while remote access is on; Diagnostics' IP
     check test also fills the last checked IP whenever a public URL is set. A
     failed, stopped or empty lookup of the public name keeps the last set."""
-    from lib import url_guard
     target = public_target(public_url)
     if target is None:
         return
