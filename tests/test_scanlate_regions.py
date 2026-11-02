@@ -524,3 +524,21 @@ class TestWordySfxBecomesSign:
         bubble = {"kind": "bubble", "source_text": wordy}
         assert scanlate_regions.reclassify_wordy_sfx([included, bubble]) == 0
         assert included["kind"] == "sfx" and bubble["kind"] == "bubble"
+
+
+class TestSkippedSfxNote:
+    def test_says_how_many_sound_effects_are_left_alone(self):
+        sfx = {"kind": "sfx"}
+        included = {"kind": "sfx", "include_sfx": True}
+        bubble = {"kind": "bubble"}
+        notes = []
+        scanlate._note_skipped_sfx([sfx, dict(sfx), included, bubble], notes)
+        assert notes == [("info", "2 sound-effect regions left as they are.")]
+        notes = []
+        scanlate._note_skipped_sfx([sfx, bubble], notes)
+        assert notes == [("info", "1 sound-effect region left as it is.")]
+
+    def test_silent_without_sound_effects(self):
+        notes = []
+        scanlate._note_skipped_sfx([{"kind": "bubble"}, {"kind": "sfx", "include_sfx": True}], notes)
+        assert notes == []
