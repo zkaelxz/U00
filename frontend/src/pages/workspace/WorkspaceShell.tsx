@@ -13,10 +13,10 @@ import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
-import { routeHref } from '../../router'
+import { parseRoute, routeHref } from '../../router'
 import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
-import { COMIC_STAGE_TITLE, ComicStageNotice, isLineStageForComic } from './ComicStageNotice'
+import { COMIC_STAGE_TITLE, ComicStageNotice, isCastTab, isLineStageForComic } from './ComicStageNotice'
 import { STAGE_COMPONENTS } from './stageRegistry'
 import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage } from './stages'
 import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
@@ -81,7 +81,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     storeView(v)
     if (v === 'simple' && stage !== null) window.location.hash = routeHref({ name: 'drama', id, stage: null })
   }
-  const comicNotice = comic && isLineStageForComic(active)
+  const linked = parseRoute(window.location.hash)
+  const comicNotice = comic && isLineStageForComic(active) && !(linked.name === 'drama' && linked.id === id && isCastTab(linked.tab))
   // The line stages are empty for a comic, so "Next" never sends it there.
   const rawNext = nextAction(active, progress)
   // With every line translated the Translate stage already offers Next: Review beside its reason; a second one here would repeat it.

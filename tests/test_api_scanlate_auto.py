@@ -919,7 +919,7 @@ def test_a_cancel_raised_by_the_render_after_a_translate_is_not_a_page_note(isol
     monkeypatch.setattr(run_svc.render_svc, "render_page", cancelled)
     with pytest.raises(background_jobs.JobCancelled):
         run_svc._process_page(did, db.get_drama(did), pid, "all", None, "fake",
-                              {"detect_backend": "auto", "ocr_backend": None}, None, jid)
+                              {"detect_backend": "auto", "ocr_backend": None}, (None, ""), jid)
     assert "Render failed" not in (db.get_page(pid).get("run_notes") or "")
 
 

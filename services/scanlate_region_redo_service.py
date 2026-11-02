@@ -46,12 +46,12 @@ def redo_region(drama_id: int, page_id: int, region_id: int, expected_rev: int,
 
     name = engine_name or str(settings_service.get("default_engine"))
     engine = llm_tasks.bound_batches(run_svc._build_engine(name))
-    glossary = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else None
+    glossary, character_notes = run_svc.load_translation_guide(drama)
     result, _context = scanlate_translate.translate_regions_by_id(
         {str(region_id): source}, engine, drama,
         previous_context=run_svc._predecessor_context(drama_id, page_id),
         usage_cb=paid_calls.usage_logger(drama_id, name, engine, "scanlate_translate"),
-        glossary_terms=glossary)
+        glossary_terms=glossary, character_notes=character_notes)
     translated = (result or {}).get(str(region_id))
     if not isinstance(translated, str) or not translated.strip():
         raise DependencyUnavailableError(_NO_ANSWER)

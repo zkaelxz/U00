@@ -12,6 +12,7 @@ import os
 import numpy as np
 import pytest
 
+import db
 import scanlate
 import scanlate_regions
 import scanlate_render
@@ -524,3 +525,39 @@ class TestWordySfxBecomesSign:
         bubble = {"kind": "bubble", "source_text": wordy}
         assert scanlate_regions.reclassify_wordy_sfx([included, bubble]) == 0
         assert included["kind"] == "sfx" and bubble["kind"] == "bubble"
+
+
+class TestSeriesCastInScanlateTranslation:
+    CAST = "KNOWN CHARACTER PRONOUNS:\n  Lin: she/her"
+
+    def _capture(self, monkeypatch, prompts):
+        def fake_call(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+            prompts.append(prompt)
+            return json.dumps({"translations": {"0": "ok"}, "context_summary": "s"})
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fake_call)
+
+    def test_character_notes_reach_the_prompt(self, monkeypatch):
+        prompts = []
+        self._capture(monkeypatch, prompts)
+        got, _ = scanlate_translate.translate_regions_by_id(
+            {"0": "她来了"}, _FakeLLM(), {}, character_notes=self.CAST)
+        assert got == {"0": "ok"}
+        assert self.CAST in prompts[0]
+
+    def test_without_character_notes_the_prompt_is_unchanged(self, monkeypatch):
+        prompts = []
+        self._capture(monkeypatch, prompts)
+        scanlate_translate.translate_regions_by_id({"0": "她来了"}, _FakeLLM(), {})
+        assert "CHARACTER" not in prompts[0] and "PRONOUNS" not in prompts[0]
+
+    def test_run_guide_carries_series_characters_and_gender(self, isolated_db):
+        from services import scanlate_run_service as run_svc
+        series_id = db.create_series("Cast")
+        db.insert_series_character(series_id, "Lin", gender="she/her", notes="blunt, short sentences")
+        glossary, notes = run_svc.load_translation_guide({"series_id": series_id})
+        assert glossary == []
+        assert "Lin: she/her" in notes and "blunt, short sentences" in notes
+
+    def test_title_without_a_series_has_no_guide(self, isolated_db):
+        from services import scanlate_run_service as run_svc
+        assert run_svc.load_translation_guide({"series_id": None}) == (None, "")
