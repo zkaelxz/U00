@@ -214,6 +214,18 @@
       ],
       "pace": "Fast off: robots.txt and terms were not read, so the site is not vetted for Fast.",
       "pace_verified": "2026-11-01"
+    },
+    "weloma": {
+      "status": "caveat",
+      "last_verified": "2026-11-02",
+      "reason": "Search, series, chapter list and a chapter's image URLs were read live against weloma.net 2026-11-02 with plain GETs, and one image downloaded; no import has been run through the app. No terms page was found, so terms are unreviewed; robots.txt disallows AI crawlers by name and the content signals reserve AI training. Image URLs are read from the page's base64 lazy-load attribute (no key).",
+      "notes": "",
+      "hosts": [
+        "weloma.net",
+        "s4.ihlv1.xyz"
+      ],
+      "pace": "Fast off: no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-02"
     }
   },
   "generic": {
