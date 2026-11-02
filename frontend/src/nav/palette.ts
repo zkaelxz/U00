@@ -189,7 +189,8 @@ type GlobalShortcut = 'search' | 'sheet'
 
 /** What a key does on this page, or null. Pure, so the mapping is testable without a DOM. */
 export function globalShortcut(combo: string, route: Route): GlobalShortcut | null {
-  if (route.name === 'drama') return null
+  // Review (or a bare title URL, which opens the current stage and may land there) answers "?" and "/" itself.
+  if (route.name === 'drama' && (route.stage === null || route.stage === 'review')) return null
   if (combo === '?') return 'sheet'
   if (combo === '/' && SEARCH_ROUTES.has(route.name)) return 'search'
   return null

@@ -10,11 +10,14 @@ describe('globalShortcut', () => {
     expect(globalShortcut('/', { name: 'jobs' })).toBeNull()
   })
 
-  it('"?" opens the list on every page but a title workspace, which has its own', () => {
+  it('"?" opens the list on every page but Review, which has its own', () => {
     expect(globalShortcut('?', { name: 'library' })).toBe('sheet')
     expect(globalShortcut('?', { name: 'jobs' })).toBe('sheet')
     expect(globalShortcut('?', { name: 'drama', id: 1, stage: 'review' })).toBeNull()
     expect(globalShortcut('/', { name: 'drama', id: 1, stage: 'review' })).toBeNull()
+    expect(globalShortcut('?', { name: 'drama', id: 1, stage: null })).toBeNull()
+    expect(globalShortcut('?', { name: 'drama', id: 1, stage: 'translate' })).toBe('sheet')
+    expect(globalShortcut('/', { name: 'drama', id: 1, stage: 'translate' })).toBeNull()
   })
 
   it('ignores other keys', () => {

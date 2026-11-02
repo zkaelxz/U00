@@ -97,7 +97,8 @@ export function createLinesController(deps: LinesControllerDeps) {
   }
   const failLine = (lineId: number, e: unknown) => {
     failed.current = lineId
-    if (hasStatus(e, 409)) setIssue({ lineId, conflict: true })
+    // A line deleted elsewhere answers 404; like a clash, Reload is the way forward and the edit is kept.
+    if (hasStatus(e, 409) || hasStatus(e, 404)) setIssue({ lineId, conflict: true })
     else setIssue({ lineId, error: e })
   }
   const setEditNow = (e: EditState | null) => {
