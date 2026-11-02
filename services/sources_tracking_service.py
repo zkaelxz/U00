@@ -143,7 +143,7 @@ def _move_plan(source: str, series_id: str, new_source: str, new_series_id: str,
                             details={"reason": "SERIES_NOT_LOADED"})
     new_chapters = result["chapters"]
     imported, held = set(), set()
-    if drama:
+    if drama and drama_id is not None:
         with store.connect() as conn:
             imported, held = store.chapters_waiting(conn, source, series_id, drama_id)
     # Chapters imported before the series was tracked may have no stored title; they
