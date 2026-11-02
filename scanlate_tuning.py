@@ -97,6 +97,10 @@ TYPESET_FONT_PER_SOURCE_PX = 1.0
 TYPESET_DEFAULT_FONT_PX = 18
 TYPESET_START_MIN_PX = 12
 TYPESET_START_MAX_PX = 40
+# Lettering whose block takes less than GROW_BELOW_FILL of its box starts the
+# English larger, by up to GROW_MAX times, so a short line fills its balloon.
+TYPESET_GROW_BELOW_FILL = 0.25
+TYPESET_GROW_MAX = 1.8
 TYPESET_SMALLEST_PX = 8
 # Below this height English is hard to read, so a word too wide for its
 # balloon is hyphenated before the text shrinks past it.

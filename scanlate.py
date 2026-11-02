@@ -37,7 +37,7 @@ from scanlate_detect import (
     merge_fragment_boxes, page_gray, split_webtoon_strip,
 )
 import scanlate_tuning
-from scanlate_regions import analyze_page_regions, detect_script_language, lettering_size
+from scanlate_regions import analyze_page_regions, detect_script_language, lettering_fill, lettering_size
 from scanlate_render import sample_text_style
 from scanlate_translate import translate_page_bubbles
 
@@ -279,13 +279,20 @@ def suggest_font_size(gray, region: dict) -> int:
     """The size the English starts at for a region: its source lettering's
     size scaled by scanlate_tuning.TYPESET_FONT_PER_SOURCE_PX, within
     TYPESET_START_MIN_PX..TYPESET_START_MAX_PX; the render then shrinks it to fit
-    the balloon. TYPESET_DEFAULT_FONT_PX when no lettering is measurable."""
+    the balloon. Short lettering in a much larger balloon starts bigger (up to
+    TYPESET_GROW_MAX), because the render only ever shrinks and would otherwise
+    leave a few small words floating in the balloon.
+    TYPESET_DEFAULT_FONT_PX when no lettering is measurable."""
     t = scanlate_tuning
     size = lettering_size(gray, region, region.get("orientation")) if gray is not None else None
     if not size:
         return t.TYPESET_DEFAULT_FONT_PX
-    return int(min(max(round(size * t.TYPESET_FONT_PER_SOURCE_PX), t.TYPESET_START_MIN_PX),
-                   t.TYPESET_START_MAX_PX))
+    size *= t.TYPESET_FONT_PER_SOURCE_PX
+    fill = lettering_fill(gray, region)
+    if fill and fill < t.TYPESET_GROW_BELOW_FILL:
+        # Linear size grows with the square root of the free area.
+        size *= min(t.TYPESET_GROW_MAX, (t.TYPESET_GROW_BELOW_FILL / fill) ** 0.5)
+    return int(min(max(round(size), t.TYPESET_START_MIN_PX), t.TYPESET_START_MAX_PX))
 
 
 def _note_no_bubbles(image_path: str, page, notes: list) -> None:

@@ -269,6 +269,17 @@ class TestFontSize:
         big = scanlate.suggest_font_size(self._gray_with(34), box)
         assert big > small
 
+    def test_short_lettering_in_a_large_balloon_starts_bigger_than_the_same_lettering_in_a_snug_one(self):
+        gray = self._gray_with(16)
+        snug = {"x": 70, "y": 170, "w": 4 * 22 + 20, "h": 40, "orientation": "horizontal"}
+        roomy = {"x": 10, "y": 10, "w": 380, "h": 380, "orientation": "horizontal"}
+        assert scanlate.suggest_font_size(gray, roomy) > scanlate.suggest_font_size(gray, snug)
+
+    def test_the_growth_never_passes_the_tuned_maximum(self):
+        gray = self._gray_with(30)
+        roomy = {"x": 10, "y": 10, "w": 380, "h": 380, "orientation": "horizontal"}
+        assert scanlate.suggest_font_size(gray, roomy) <= scanlate_tuning.TYPESET_START_MAX_PX
+
     def test_no_lettering_keeps_the_default(self):
         box = {"x": 50, "y": 140, "w": 300, "h": 120, "orientation": "horizontal"}
         blank = np.full((400, 400), 255, np.uint8)
