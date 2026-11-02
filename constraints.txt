@@ -31,7 +31,7 @@ pillow<14            # 14 will remove more deprecated APIs (JpegImageFile.load_d
 huggingface-hub<3      # transformers 5.22 and gradio 6.31 (pulled in by the optional omnivoice voice-clone
                       # install) both require <3.0, so an uncapped resolve would leave a pip conflict.
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.
-av<20                 # PyAV 19 breaks faster-whisper's decode_audio (tests/test_constraints_lock_parity.py
+av<19                 # PyAV 19 breaks faster-whisper's decode_audio (tests/test_constraints_lock_parity.py
                       # decodes a WAV through it).
 urllib3>=2.6           # a floor, not a cap: requests alone would allow 1.26, which has no
                        # read1 (sources/http.py, url_media_service) and CVE-2025-66471.
