@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
-  LIVE_FORM_FALLBACK, formDefaults, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
+  LIVE_FORM_FALLBACK, chatReadFrom, mergeChat, formDefaults, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
 
@@ -35,6 +35,11 @@ describe('buildStartBody', () => {
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', delayed_player: true })).toMatchObject({ delayed_player: true, player_height: 480 })
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('delayed_player')
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('player_height')
+  })
+
+  it('asks for the chat only when it is on', () => {
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', read_chat: true })).toMatchObject({ read_chat: true })
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test' })).not.toHaveProperty('read_chat')
   })
 
   it('sends the chosen picture size and falls back to 480 for one that is not offered', () => {
@@ -328,5 +333,26 @@ describe('server form options', () => {
   it('the link cap and the default engine come from them too', () => {
     expect(checkLiveUrl(`https://x.test/${'a'.repeat(50)}`, 40)).toMatch(/too long/)
     expect(pickEngine([{ name: 'ollama' }, { name: 'deepseek' }], '', 'deepseek')).toBe('deepseek')
+  })
+})
+
+describe('chat messages', () => {
+  const msg = (id: number, state = 'done') => ({ id, author: 'A', text: `t${id}`, paid: '', translation: state === 'done' ? `e${id}` : '', state })
+
+  it('merges by id so a pending message changes in place, oldest first', () => {
+    const merged = mergeChat([msg(1, 'pending'), msg(2)], [msg(1), msg(3)])
+    expect(merged.map((m) => [m.id, m.state])).toEqual([[1, 'done'], [2, 'done'], [3, 'done']])
+  })
+
+  it('keeps only the newest 300', () => {
+    const many = Array.from({ length: 320 }, (_, i) => msg(i + 1))
+    const kept = mergeChat([], many)
+    expect(kept).toHaveLength(300)
+    expect(kept[0].id).toBe(21)
+  })
+
+  it('reads again from before the oldest pending message, else from the last id', () => {
+    expect(chatReadFrom([msg(4), msg(5, 'pending'), msg(6, 'pending')], 6)).toBe(4)
+    expect(chatReadFrom([msg(4), msg(5)], 5)).toBe(5)
   })
 })

@@ -56,3 +56,10 @@
 .live-follow-status, .live-follow-note { margin: 0; }
 .live-follow-hourly { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
 .live-follow-controls select { max-width: 100%; }
+/* Chat under the lines; a message is its author, the original, then the translation. */
+.live-chat { margin-top: var(--space-4, 1.25rem); min-width: 0; }
+.live-chat > p { margin: 0 0 var(--space-2); }
+.live-chat-list { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); max-height: 28rem; overflow-y: auto; }
+.live-chat-list li { display: grid; gap: 2px; padding: var(--space-2) var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; overflow-wrap: anywhere; }
+.live-chat-author { color: var(--muted); font-size: var(--text-sm); }
+.live-chat-paid { font-weight: 600; }
