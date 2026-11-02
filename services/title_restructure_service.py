@@ -792,6 +792,15 @@ def apply(source_id, target_id, kind, chapter_ids=None, move_duplicates=False, f
         # Everything below runs after the move is committed: a failure here
         # (a title deleted meanwhile, a busy sources.db) is a warning, never
         # an error that would hide a move that happened.
+        try:
+            # Moving chapters back into a title a merge emptied (the way to
+            # undo that merge) makes it a live title again, which the browser
+            # extension must be able to pick.
+            if db.has_custom_tag(plan["target"], db.MERGED_TAG):
+                db.set_custom_tag(b, db.MERGED_TAG, False)
+        except Exception:
+            log.warning("Could not clear the Merged tag on title %s", b, exc_info=True)
+            warnings.append(_TITLE_FIELDS_NOT_MERGED)
         if kind == "merge":
             try:
                 _merge_title_fields(plan["source"], b)

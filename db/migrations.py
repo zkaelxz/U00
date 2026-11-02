@@ -373,6 +373,14 @@ def _migrate_vocab_and_style_columns(conn):
         # Anki card type, set from the Reader right where the word was
         # looked up, rather than only via a bulk end-of-session export.
         db._safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
+    if "first_seen_line_id" not in vocab_cols:
+        # Line positions shift when lines are split, merged or deleted, so the
+        # line is also recorded by its stable id; the position stays for rows
+        # saved before this column existed.
+        db._safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN first_seen_line_id INTEGER")
+    wiki_cols = {r[1] for r in conn.execute("PRAGMA table_info(wiki_entries)").fetchall()}
+    if "first_seen_line_id" not in wiki_cols:
+        db._safe_alter(conn, "ALTER TABLE wiki_entries ADD COLUMN first_seen_line_id INTEGER")
     style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
     if "history_json" not in style_cols:
         # Earlier learned-style profiles (newest first, at most
