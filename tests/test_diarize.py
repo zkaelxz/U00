@@ -619,10 +619,10 @@ class TestFewSpeakersNotice:
 
     def test_long_automatic_run_with_two_speakers_suggests_typing_a_count(self):
         notice = diarize.few_speakers_notice(self._segs(2), 420.0, {"num_speakers": None})
-        assert "2 speakers found" in notice and "type the expected number" in notice
+        assert notice == "Found 2 speakers. If the audio has more, try raising the speaker count."
 
     def test_one_speaker_is_singular(self):
-        assert "1 speaker found" in diarize.few_speakers_notice(self._segs(1), 420.0, {})
+        assert "Found 1 speaker." in diarize.few_speakers_notice(self._segs(1), 420.0, {})
 
     def test_short_clip_three_speakers_and_typed_hints_stay_quiet(self):
         assert diarize.few_speakers_notice(self._segs(2), 60.0, {}) is None
@@ -635,7 +635,7 @@ class TestFewSpeakersNotice:
         segs = self._segs(2)
         assert diarize.clip_seconds(16000 * 400, 16000, segs) == 400.0
         notice = diarize.few_speakers_notice(segs, diarize.clip_seconds(16000 * 400, 16000, segs), {})
-        assert notice and "2 speakers found" in notice
+        assert notice and "Found 2 speakers." in notice
 
     def test_clip_ending_in_silence_still_gets_the_notice(self):
         np = pytest.importorskip("numpy")
@@ -645,7 +645,7 @@ class TestFewSpeakersNotice:
                        fake_frames=np.zeros((200 * 100, 1), dtype="float32"), fake_sample_rate=100)
         info = {}
         diarize.diarize("/fake/audio.wav", "hf_xxx", run_info=info)
-        assert "2 speakers found" in info["few_speakers_notice"]
+        assert "Found 2 speakers." in info["few_speakers_notice"]
 
     def test_clip_length_falls_back_to_the_last_turn(self):
         segs = self._segs(2)
@@ -664,4 +664,4 @@ class TestFewSpeakersNotice:
         q = queue.Queue()
         diarize.diarize_subprocess_worker("/a.wav", "hf_x", None, {}, q)
         outcome = _final(q)
-        assert outcome[0] == "ok" and "2 speakers found" in outcome[1]["speaker_count_hint"]
+        assert outcome[0] == "ok" and "Found 2 speakers." in outcome[1]["speaker_count_hint"]

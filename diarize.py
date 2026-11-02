@@ -193,8 +193,7 @@ def _log_gpu_without_kernels() -> None:
 # enough to find them took 78x longer, so the cheap fix is typing the count.
 FEW_SPEAKERS_MAX = 2
 FEW_SPEAKERS_MIN_SECONDS = 180.0
-FEW_SPEAKERS_NOTICE = ("Only {found} speaker{plural} found in this long clip. If there are more, "
-                       "type the expected number of speakers and detect again.")
+FEW_SPEAKERS_NOTICE = "Found {found} speaker{plural}. If the audio has more, try raising the speaker count."
 
 
 def clip_seconds(frames: int, sample_rate: int, segments) -> float:
