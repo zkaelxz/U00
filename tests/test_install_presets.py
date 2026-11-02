@@ -32,7 +32,7 @@ KNOWN_PYPI_DISTS = {
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
     "pypdf", "genanki", "ebooklib", "plyer", "playwright",
     "lightnovel-crawler",
-    "trafilatura", "audio-separator", "funasr", "demucs", "cryptography", "authlib",
+    "trafilatura", "audio-separator", "audioread", "funasr", "demucs", "cryptography", "authlib",
     "numpy", "httpx", "nagisa", "soynlp", "jiwer", "sacrebleu",
     "rapidocr", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "pyyaml",
 }
