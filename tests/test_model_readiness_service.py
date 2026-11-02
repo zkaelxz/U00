@@ -102,7 +102,6 @@ def _paddle_ch(caches):
 def _no_loaders(monkeypatch):
     """A refused run must not get as far as any loader."""
     import asr_backend
-    import dub
     import forced_align
     import whisper_models
 
@@ -111,7 +110,6 @@ def _no_loaders(monkeypatch):
     monkeypatch.setattr(whisper_models, "load_whisper_model", boom)
     monkeypatch.setattr(asr_backend, "load_qwen3_asr", boom)
     monkeypatch.setattr(forced_align, "load_qwen3_aligner", boom)
-    monkeypatch.setattr(dub, "_get_omnivoice_model", boom)
 
 
 def _owned_drama(**fields):

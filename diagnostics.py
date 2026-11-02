@@ -35,7 +35,6 @@ OPTIONAL_DEPENDENCIES = {
     "pydub": ("pydub", "dub/narration track mixing", "feature"),
     # Keys are the real pip names -- Diagnostics' Install button runs
     # `pip install <key>`.
-    "omnivoice": ("omnivoice", "local voice cloning + voice design (OmniVoice)", "feature"),
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
     "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
@@ -171,7 +170,7 @@ def canonical_dist(name: str) -> str:
 APPROX_DOWNLOAD_MB = {
     "faster-whisper": 80, "ctranslate2": 40, "opencv-python": 45, "anthropic": 2, "openai": 2,
     "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
-    "pydub": 1, "omnivoice": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "paddlepaddle": 200, "manga-ocr": 20,
+    "pydub": 1, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "paddlepaddle": 200, "manga-ocr": 20,
     "rapidocr": 26, "shapely": 2, "pyclipper": 1, "omegaconf": 1, "colorlog": 1, "six": 1, "tqdm": 1, "pyyaml": 1,
     "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3, "budoux": 1,
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
@@ -184,7 +183,7 @@ APPROX_DOWNLOAD_MB = {
     "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
     "nvidia-cublas-cu12": 470, "nvidia-cudnn-cu12": 700,
 }
-PULLS_TORCH = {"pyannote-audio", "omnivoice", "manga-ocr", "audio-separator", "funasr", "demucs", "torchaudio"}
+PULLS_TORCH = {"pyannote-audio", "manga-ocr", "audio-separator", "funasr", "demucs", "torchaudio"}
 
 
 def approx_download_mb(name: str):
@@ -249,9 +248,9 @@ INSTALL_TASKS = [
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
-    {"id": "tts_omnivoice", "group": "Dubbing", "label": "Voice cloning: OmniVoice",
-     "help": "Clone or design a voice locally.",
-     "packages": ["omnivoice", "torch", "pydub", "huggingface_hub"]},
+    {"id": "narration_track", "group": "Dubbing", "label": "Narration track",
+     "help": "Join the spoken lines into one audio file.",
+     "packages": ["pydub"]},
     {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",
      "help": "Pull hard-coded subtitles out of video frames.",
      "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr", "paddlepaddle"],

@@ -55,7 +55,7 @@ The 13 owner checks (from the 2026-10-10 triage's "Owner checks" items 6-18, a s
 | # | Check | Self-test line |
 |---|---|---|
 | 6 | Gemma 4 on real Ollama | "Ollama": reachable only; listening/looking only for output quality |
-| 7 | OmniVoice (transformers 5.3+) | "TTS engines" |
+| 7 | OmniVoice (its own folder) | "TTS engines" |
 | 8 | PaddleOCR-VL-For-Manga | "OCR engines" and "torch / CUDA": installed only; page quality, speed and VRAM are looking only |
 | 9 | Data folder on UNC / linked folders | listening/looking only |
 | 10 | Live delay on a YouTube stream | listening/looking only |

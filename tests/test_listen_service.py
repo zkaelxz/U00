@@ -211,15 +211,15 @@ class TestEngineInstallChecks:
         monkeypatch.setattr("shutil.which", lambda name: None)
         assert "ffmpeg" in listen_service._missing_engine_dependency("omnivoice")
 
-    def test_omnivoice_needs_a_new_enough_transformers(self, monkeypatch):
-        import importlib.util
-        monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a, **k: object())
-        for installed, ok in (("4.57.6", False), ("5.2.0", False), ("5.3.0", True), ("5.6.1", True)):
-            monkeypatch.setattr(listen_service.importlib.metadata, "version", lambda name, v=installed: v)
-            problem = listen_service._missing_engine_dependency("omnivoice")
-            assert (problem is None) is ok, installed
-            if not ok:
-                assert problem == "OmniVoice needs a newer transformers than is installed. Check Diagnostics."
+    def test_omnivoice_counts_as_installed_only_when_its_venv_is_ready(self, monkeypatch, tmp_path):
+        import voice_venv
+        monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path))
+        # Its package is never importable in the app's own environment.
+        self._without(monkeypatch, "omnivoice")
+        assert listen_service._missing_engine_dependency("omnivoice") == (
+            "OmniVoice is not installed. Install it in Diagnostics.")
+        monkeypatch.setattr(voice_venv, "is_ready", lambda engine: engine == "omnivoice")
+        assert listen_service._missing_engine_dependency("omnivoice") is None
 
     def test_qwen3_tts_counts_as_installed_only_when_its_venv_is_ready(self, monkeypatch,
                                                                         tmp_path):

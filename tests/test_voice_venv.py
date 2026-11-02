@@ -389,3 +389,48 @@ def test_trim_tail_keeps_a_clip_that_ends_on_speech_whole_and_survives_silence()
     assert len(out) == len(speech) and out[-1] == 0.0
     assert len(voice_worker._trim_tail(numpy.zeros(100), rate)) == 100
     assert len(voice_worker._trim_tail([], rate)) == 0
+
+
+def _fake_omnivoice_stack(monkeypatch, cuda, generated, loaded, written):
+    import types
+    import numpy
+    torch = types.SimpleNamespace(
+        float16="fp16", float32="fp32", cuda=types.SimpleNamespace(is_available=lambda: cuda))
+
+    class Model:
+        def generate(self, **kwargs):
+            generated.append(kwargs)
+            return [numpy.full(2400, 0.5, dtype=numpy.float32)]
+
+    omnivoice = types.SimpleNamespace(OmniVoice=types.SimpleNamespace(
+        from_pretrained=lambda repo, **kw: (loaded.append((repo, kw)), Model())[1]))
+    soundfile = types.SimpleNamespace(write=lambda path, wav, rate: written.append((path, rate)))
+    for name, module in (("torch", torch), ("omnivoice", omnivoice), ("soundfile", soundfile)):
+        monkeypatch.setitem(sys.modules, name, module)
+
+
+def test_omnivoice_adapter_clones_from_a_clip_designs_without_one_and_loads_once(monkeypatch):
+    generated, loaded, written = [], [], []
+    _fake_omnivoice_stack(monkeypatch, True, generated, loaded, written)
+    items = [{"id": "0", "text": "Hi", "language": "en", "ref_audio": "a.wav", "ref_text": "你好",
+              "instruct": "", "out": "0.wav"},
+             {"id": "1", "text": "Hi", "language": "en", "ref_audio": "a.wav", "ref_text": "",
+              "instruct": "", "out": "1.wav"},
+             {"id": "2", "text": "Hi", "language": "en", "ref_audio": None, "ref_text": "",
+              "instruct": "female, low pitch", "out": "2.wav"}]
+    events = []
+    voice_worker.run({"engine": "omnivoice", "items": items}, events.append)
+    assert events == [{"loaded": True}, {"done": "0"}, {"done": "1"}, {"done": "2"}]
+    assert loaded == [("k2-fsa/OmniVoice", {"device_map": "cuda:0", "dtype": "fp16"})]
+    # Without the transcript OmniVoice transcribes the clip itself; a voice design needs no clip.
+    assert generated == [{"text": "Hi", "ref_audio": "a.wav", "ref_text": "你好"},
+                         {"text": "Hi", "ref_audio": "a.wav"},
+                         {"text": "Hi", "instruct": "female, low pitch"}]
+    assert written == [("0.wav", 24000), ("1.wav", 24000), ("2.wav", 24000)]
+
+
+def test_omnivoice_runs_in_full_precision_on_the_cpu(monkeypatch):
+    generated, loaded, written = [], [], []
+    _fake_omnivoice_stack(monkeypatch, False, generated, loaded, written)
+    voice_worker.run({"engine": "omnivoice", "items": []}, lambda e: None)
+    assert loaded == [("k2-fsa/OmniVoice", {"device_map": "cpu", "dtype": "fp32"})]

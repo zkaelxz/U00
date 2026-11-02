@@ -469,8 +469,9 @@ and the Qwen3 aligner download from Hugging Face on first use; a blocked
 
 Voices are in `dub.py` and narration in `dub_narration.py`; this page only maps them.
 
-- **Voices:** `CLONE_ENGINES` = `omnivoice` only. It is in
-  `LOCAL_MODEL_ENGINES` and runs one clip at a time on one model.
+- **Voices:** `CLONE_ENGINES` = `omnivoice`, `qwen3_tts`, `chatterbox`. All three are in
+  `LOCAL_MODEL_ENGINES` and `VENV_ENGINES`: each installs into a folder of its own
+  (`voice_venv`) and `voice_worker.py` speaks one batch per engine.
   `clone_engine_supports_language` gates original-language narration (zh/ja/ko).
   `clone_map_from_characters` builds one entry per speaker; a speaker with
   no clip gets an OmniVoice designed voice. Emotion tags do not reach the
@@ -482,8 +483,8 @@ Voices are in `dub.py` and narration in `dub_narration.py`; this page only maps 
   synthesizes the lines in order and concatenates the clips into
   `narration_track.wav`; there is no fitting to subtitle timing. The run is
   `services/listen_service.py`. `export_narration_m4b` builds the audiobook.
-- The optional packages for this (`omnivoice`, `pydub`) are in
-  `diagnostics.OPTIONAL_DEPENDENCIES`.
+- `pydub` (joining clips) is in `diagnostics.OPTIONAL_DEPENDENCIES`; the voice engines'
+  packages are not, because they live in their own folders.
 
 ## 5. Shared paths
 

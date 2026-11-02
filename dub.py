@@ -5,8 +5,8 @@ helpers that decide what a speaker's voice is. dub_narration.py builds the
 narration track on top of it, speaking the translation or, via
 narrate_original, the drama's own source-language text.
 
-Voices come from OmniVoice or, cloned from a clip only, Qwen3-TTS (see
-CLONE_ENGINES); Qwen3-TTS runs in a venv of its own (voice_venv). Reference clips can be auto-extracted per speaker from the original audio
+Voices come from OmniVoice, Qwen3-TTS or Chatterbox (see CLONE_ENGINES); each
+runs in a venv of its own (voice_venv). Reference clips can be auto-extracted per speaker from the original audio
 (extract_reference_clips()) or set manually. A speaker with no clip gets a
 designed voice from a plain description. build_narration_track() takes a
 character_clone_map (clone_map_from_characters() builds it, one entry per
@@ -95,7 +95,7 @@ def clone_engine_supports_language(engine: str, language: str) -> bool:
 LOCAL_MODEL_ENGINES = {"omnivoice", "qwen3_tts", "chatterbox"}
 # Engines whose packages clash with the app's, run through voice_venv. Their lines are
 # spoken in one batch per run so the model loads once.
-VENV_ENGINES = {"qwen3_tts", "chatterbox"}
+VENV_ENGINES = {"omnivoice", "qwen3_tts", "chatterbox"}
 # The first run downloads the model (a few GB) before speaking anything.
 VENV_LOAD_SECONDS = 1800
 VENV_SECONDS_PER_LINE = 180
@@ -114,44 +114,7 @@ def _check_vram(model_name):
     vram_service.check_fits(model_name)
 
 
-_omnivoice_model = None
 OMNIVOICE_REPO = "k2-fsa/OmniVoice"
-OMNIVOICE_SAMPLE_RATE = 24000
-
-
-def _get_omnivoice_model():
-    """Lazily loads OmniVoice (`pip install omnivoice`, Apache-2.0). The
-    first use downloads the k2-fsa/OmniVoice checkpoint."""
-    global _omnivoice_model
-    if _omnivoice_model is None:
-        cuda = _cuda_available()
-        if cuda:
-            _check_vram("OmniVoice")
-        import torch
-        from omnivoice import OmniVoice
-        _omnivoice_model = OmniVoice.from_pretrained(
-            OMNIVOICE_REPO, device_map="cuda:0" if cuda else "cpu",
-            dtype=torch.float16 if cuda else torch.float32)
-    return _omnivoice_model
-
-
-def synthesize_line_omnivoice(text: str, out_path: str, ref_audio_path: str = None,
-                              ref_text: str = None, instruct: str = None):
-    """Clones the voice in ref_audio_path (3-10s works best), or -- with no
-    clip at all -- designs one from a plain description (instruct, e.g.
-    "female, low pitch, british accent"). ref_text is optional: without
-    it OmniVoice transcribes the clip itself with Whisper."""
-    import soundfile as sf
-    kwargs = {}
-    if ref_audio_path:
-        kwargs["ref_audio"] = ref_audio_path
-        if ref_text:
-            kwargs["ref_text"] = ref_text
-    elif instruct:
-        kwargs["instruct"] = instruct
-    audio = _get_omnivoice_model().generate(text=text, **kwargs)
-    sf.write(out_path, audio[0], OMNIVOICE_SAMPLE_RATE)
-    return out_path
 
 
 def engine_label(engine: str) -> str:
@@ -163,7 +126,7 @@ def _engine_start_failed(engine: str) -> str:
 
 
 def speak_in_venv(engine: str, requests: list, workdir: str):
-    """Speaks `requests` ({"text", "out", "language", "ref_audio", "ref_text"}) with a
+    """Speaks `requests` ({"text", "out", "language", "ref_audio", "ref_text", "instruct"}) with a
     VENV_ENGINES engine in one child. Yields (index, error) once per request, error None
     when its file was written, in the order they finish. Error texts are fixed
     sentences; the engine's own text is only logged, as it can name local paths."""
@@ -187,7 +150,8 @@ def speak_in_venv(engine: str, requests: list, workdir: str):
             yield i, str(exc)
         return
     items = [{"id": str(i), "text": r["text"], "out": r["out"], "language": r["language"],
-              "ref_audio": r["ref_audio"], "ref_text": r.get("ref_text") or ""}
+              "ref_audio": r.get("ref_audio"), "ref_text": r.get("ref_text") or "",
+              "instruct": r.get("instruct") or ""}
              for i, r in enumerate(requests)]
     if not voice_venv.is_ready(engine):
         for i in range(len(requests)):
@@ -211,23 +175,6 @@ def speak_in_venv(engine: str, requests: list, workdir: str):
         elif "unanswered" in event:
             for i in event["unanswered"]:
                 yield int(i), fatal or VENV_LINE_FAILED
-
-
-def _synthesize_cloned(clone: dict, text: str, out_path: str):
-    """Routes one character_clone_map entry to its engine. A missing or
-    broken engine install surfaces as a plain sentence, not an ImportError."""
-    engine = clone.get("engine")
-    refusal = engine_refusal(engine)
-    if refusal:
-        raise RuntimeError(refusal)
-    try:
-        return synthesize_line_omnivoice(
-            text, out_path, ref_audio_path=clone.get("ref_audio"),
-            ref_text=clone.get("ref_text"), instruct=clone.get("instruct"))
-    except ImportError as e:
-        # A package that is installed but can't load (e.g. a transformers
-        # version clash) must not reach the user as a raw traceback.
-        raise RuntimeError(_engine_start_failed(engine)) from e
 
 
 def clone_map_from_characters(characters, drama_dir: str,
@@ -310,7 +257,7 @@ def extract_reference_clips(audio_path: str, speaker_segments, drama_dir: str,
 
     clips: {speaker_label: {"path", "start", "end"}} for every speaker
     a suitable segment was found for. Pair this with the matching
-    line's Chinese text as `ref_text` when calling synthesize_line_omnivoice
+    line's Chinese text as `ref_text` for the voice engine
     -- the original audio's own words, not the translation, since the
     clip is still in the original voice.
 

@@ -4,6 +4,7 @@ import { jobRunning } from './jobPoll'
 
 /** The engines that install into a folder of their own; `gb` is the disk the text quotes. */
 export const VOICE_ENGINE_CARDS = {
+  omnivoice: { card: 'omnivoice', label: 'OmniVoice', gb: 8, note: null },
   qwen3_tts: { card: 'qwen3-tts', label: 'Qwen3-TTS', gb: 5, note: null },
   chatterbox: {
     card: 'chatterbox', label: 'Chatterbox', gb: 8,

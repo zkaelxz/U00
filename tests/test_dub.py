@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import dub
 import dub_narration
+from .voice_helpers import speak_with
 from memory_headroom import HeadroomError
 from core import Line
 
@@ -95,7 +96,7 @@ ALL = {label: dict(VOICE) for label in ("A", "B", "N", None)}
 
 
 def _fake_omnivoice(calls=None, fail_on=None):
-    """Stands in for synthesize_line_omnivoice: records (text, instruct),
+    """Stands in for a voice engine: records (text, instruct),
     raises for the text `fail_on`, otherwise writes an empty clip."""
     def synth(text, out_path, ref_audio_path=None, ref_text=None, instruct=None):
         if calls is not None:
@@ -136,24 +137,6 @@ class TestRemovedEngines:
         assert dub.engine_refusal("nope") == "Unknown voice engine."
         assert set(dub.CLONE_ENGINES) == {"omnivoice", "qwen3_tts", "chatterbox"}
         assert dub.DEFAULT_CLONE_ENGINE == "omnivoice"
-
-    @pytest.mark.parametrize("key", ["edge_tts", "offline", "f5tts", "tada", "gpt_sovits"])
-    def test_routing_a_removed_engine_entry_raises_the_message_not_a_traceback(self, key, tmp_path):
-        with pytest.raises(RuntimeError, match="was removed. Pick another voice engine"):
-            dub._synthesize_cloned({"engine": key, "ref_audio": "/r.wav", "ref_text": "x"}, "Hi",
-                                   str(tmp_path / "o.wav"))
-
-    def test_an_entry_with_no_engine_is_refused_not_sent_to_f5(self, tmp_path):
-        with pytest.raises(RuntimeError, match="Unknown voice engine"):
-            dub._synthesize_cloned({"ref_audio": "/r.wav", "ref_text": "x"}, "Hi", str(tmp_path / "o.wav"))
-
-    def test_a_package_that_will_not_load_reads_as_a_plain_sentence(self, monkeypatch, tmp_path):
-        def broken(*a, **k):
-            raise ImportError("cannot import name 'x' from 'transformers'")
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", broken)
-        with pytest.raises(RuntimeError) as err:
-            dub._synthesize_cloned(dict(VOICE), "Hi", str(tmp_path / "o.wav"))
-        assert str(err.value) == "The OmniVoice engine could not start. Check it in Diagnostics."
 
     def test_engine_blockers_name_the_run_engine_and_each_character(self):
         chars = [{"speaker_label": "A", "character_name": "Lin", "clone_engine": "f5tts"},
@@ -213,8 +196,7 @@ class TestNarrationVoiceRouting:
     def test_each_speaker_uses_their_own_entry(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
         calls = []
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                            lambda text, out_path, ref_audio_path=None, ref_text=None, instruct=None:
+        speak_with(monkeypatch, lambda text, out_path, ref_audio_path=None, ref_text=None, instruct=None:
                             calls.append(("omnivoice", text, ref_audio_path, ref_text, instruct))
                             or open(out_path, "w").close())
 
@@ -235,8 +217,7 @@ class TestBuildNarrationTrack:
             str(tmp_path / "dub_clips" / "line_0000.wav"): 2000,
             str(tmp_path / "dub_clips" / "line_0001.wav"): 3000,
         })
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                             lambda text, out_path, **kwargs: open(out_path, "w").close())
+        speak_with(monkeypatch, lambda text, out_path, **kwargs: open(out_path, "w").close())
 
         # Different speakers, so each line is its own TTS call (same-speaker
         # lines would share one -- see TestNarrationTTSUnits).
@@ -257,8 +238,7 @@ class TestBuildNarrationTrack:
 
     def test_a_failed_line_still_advances_the_timeline_with_a_silent_gap(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+        speak_with(monkeypatch, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
 
         lines = [Line(idx=0, start=0, end=0, zh="x", en="fails")]
         out_path, errors = dub_narration.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
@@ -321,8 +301,7 @@ class TestNarrateOriginalLanguage:
         _install_fake_pydub(monkeypatch, clip_lengths={
             str(tmp_path / "dub_clips" / "line_0000-0001.wav"): 1000,
         })
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                             lambda text, out_path, **kwargs: open(out_path, "w").close())
+        speak_with(monkeypatch, lambda text, out_path, **kwargs: open(out_path, "w").close())
         # Source text lengths are 1:3 -- very different from the (unused)
         # English lengths, so a pass that still split by ln.en would fail.
         lines = [Line(idx=0, start=0, end=0, zh="a", en="Same length", speaker="A"),
@@ -335,7 +314,7 @@ class TestNarrateOriginalLanguage:
     def test_original_mode_speaks_the_source_text(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
         calls = []
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
+        speak_with(monkeypatch, _fake_omnivoice(calls))
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
         dub_narration.build_narration_track(lines, str(tmp_path), ALL, narrate_original=True, source_language="zh")
         assert [text for text, _ in calls] == ["你好"]
@@ -343,7 +322,7 @@ class TestNarrateOriginalLanguage:
     def test_translation_mode_speaks_the_translation(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
         calls = []
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice(calls))
+        speak_with(monkeypatch, _fake_omnivoice(calls))
         lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
         dub_narration.build_narration_track(lines, str(tmp_path), ALL)
         assert [text for text, _ in calls] == ["Hello"]
@@ -452,8 +431,7 @@ class TestNarrationSubprocessWorker:
         _install_fake_pydub(monkeypatch, clip_lengths={
             str(tmp_path / "dub_clips" / "line_0000.wav"): 2000,
         })
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                             lambda text, out_path, **kwargs: open(out_path, "w").close())
+        speak_with(monkeypatch, lambda text, out_path, **kwargs: open(out_path, "w").close())
 
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First")]
         result_queue = queue.Queue()
@@ -506,13 +484,14 @@ def timed(monkeypatch):
     fake_module = types.ModuleType("pydub")
     fake_module.AudioSegment = _TimedAudio
     monkeypatch.setitem(sys.modules, "pydub", fake_module)
-    record = types.SimpleNamespace(synth=[])
+    record = types.SimpleNamespace(synth=[], fake=None)
 
     def fake_synth(text, out_path, ref_audio_path=None, ref_text=None, instruct=None):
         record.synth.append(text)
         _write_ms(out_path, len(text) * 100)
 
-    monkeypatch.setattr(dub, "synthesize_line_omnivoice", fake_synth)
+    speak_with(monkeypatch, fake_synth)
+    record.fake = fake_synth
     return record
 
 
@@ -559,18 +538,18 @@ class TestClipCacheFollowsTheText:
         # One speaker per line: lines of the same speaker share one narration unit.
         voices = {f"S{i}": dict(VOICE) for i in range(4)}
         lines = [_line(i, f"Line {i}.", i, i + 1, speaker=f"S{i}") for i in range(4)]
-        real_synth = dub.synthesize_line_omnivoice
+        real_synth = timed.fake
 
         def killed_on_line_2(text, out_path, **kwargs):
             if text == "Line 2.":
                 raise _Killed()
             real_synth(text, out_path, **kwargs)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", killed_on_line_2)
+        speak_with(monkeypatch, killed_on_line_2)
         with pytest.raises(_Killed):
             dub_narration.build_narration_track(lines, str(tmp_path), voices)
         assert timed.synth == ["Line 0.", "Line 1."]
 
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", real_synth)
+        speak_with(monkeypatch, real_synth)
         fresh = [_line(i, f"Line {i}.", i, i + 1, speaker=f"S{i}") for i in range(4)]
         _, errors = dub_narration.build_narration_track(fresh, str(tmp_path), voices)
         assert errors == []
@@ -585,13 +564,13 @@ class TestClipCacheFollowsTheText:
         header) to its out_path before being killed. Before the fix, that
         landed straight on clip_path and survived as a corrupted-but-
         loadable clip; now it can only ever land on a .partial.wav."""
-        fixture_synth = dub.synthesize_line_omnivoice  # the timed fixture's fake, restored below
+        fixture_synth = timed.fake
 
         def killed_after_writing_a_header(text, out_path, **kwargs):
             with open(out_path, "w") as f:
                 f.write("only-a-header")
             raise _Killed()
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", killed_after_writing_a_header)
+        speak_with(monkeypatch, killed_after_writing_a_header)
 
         lines = [_line(0, "Hello")]
         with pytest.raises(_Killed):
@@ -600,7 +579,7 @@ class TestClipCacheFollowsTheText:
         clips_dir = tmp_path / "dub_clips"
         assert all(f.endswith(".partial.wav") for f in os.listdir(clips_dir))
 
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", fixture_synth)
+        speak_with(monkeypatch, fixture_synth)
         fresh = [_line(0, "Hello")]
         _, errors = dub_narration.build_narration_track(fresh, str(tmp_path), ALL)
         assert errors == []
@@ -696,7 +675,7 @@ class TestHeadroomRefusalStopsTheRun:
 
     def test_narration_track_raises_and_keeps_the_old_track(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", self._refuse)
+        speak_with(monkeypatch, self._refuse)
         track = tmp_path / "narration_track.wav"
         track.write_text("old-track")
         with pytest.raises(HeadroomError, match="Keep free graphics memory"):
@@ -705,7 +684,7 @@ class TestHeadroomRefusalStopsTheRun:
 
     def test_the_worker_reports_the_message_as_a_failed_job(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", self._refuse)
+        speak_with(monkeypatch, self._refuse)
         q = queue.Queue()
         dub_narration.build_narration_subprocess_worker(self._lines(), str(tmp_path), ALL, q)
         kind, name, message = q.get_nowait()
@@ -785,21 +764,23 @@ class TestVenvEngines:
                     open(r["out"], "w").close()
                     yield i, None
         monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _fake_omnivoice())
         clones = {"A": dict(self.QWEN), "B": dict(VOICE)}
         lines = [Line(idx=0, start=0, end=0, zh="", en="Hello.", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="", en="Other.", speaker="B"),
                  Line(idx=2, start=0, end=0, zh="", en="Bad", speaker="A")]
         _, errors = dub_narration.build_narration_track(lines, str(tmp_path), clones)
-        assert len(batches) == 1 and batches[0][0] == "qwen3_tts"
-        assert all(language == "en" for _, language in batches[0][1])
+        # One batch per engine, so each model loads once.
+        assert sorted(engine for engine, _ in batches) == ["omnivoice", "qwen3_tts"]
+        qwen = [b for b in batches if b[0] == "qwen3_tts"]
+        assert len(qwen) == 1 and all(language == "en" for _, language in qwen[0][1])
         assert errors == [{"line_idx": 2, "error": dub.VENV_LINE_FAILED}]
         clips = sorted(os.listdir(tmp_path / "dub_clips"))
         assert not any(name.endswith(".partial.wav") for name in clips)
         # The next run reuses what this one finished and asks again only for the failure.
         batches.clear()
         dub_narration.build_narration_track(lines, str(tmp_path), clones)
-        assert [text for text, _ in batches[0][1]] == ["Bad"]
+        assert [(engine, [text for text, _ in texts]) for engine, texts in batches] == [
+            ("qwen3_tts", ["Bad"])]
 
     def test_original_language_narration_tells_the_engine_the_source_language(
             self, monkeypatch, tmp_path):
@@ -820,6 +801,46 @@ class TestVenvEngines:
 
 class TestVenvEngineEdges:
     QWEN = TestVenvEngines.QWEN
+
+    def test_a_voice_description_reaches_the_batch_items(self, monkeypatch, tmp_path):
+        import voice_venv
+        monkeypatch.setattr(dub, "_cuda_available", lambda: False)
+        monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
+        seen = []
+
+        def run_batch(engine, items, workdir, timeout, own_group):
+            seen.extend(items)
+            yield {"done": "0"}
+        monkeypatch.setattr(voice_venv, "run_batch", run_batch)
+        requests = [{"text": "a", "out": str(tmp_path / "0.wav"), "language": "en",
+                     "ref_audio": None, "instruct": "female, low pitch"}]
+        assert list(dub.speak_in_venv("omnivoice", requests, str(tmp_path))) == [(0, None)]
+        assert seen[0]["instruct"] == "female, low pitch" and seen[0]["ref_audio"] is None
+
+    def test_a_designed_voice_in_narration_sends_its_description_and_no_clip(
+            self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        seen = []
+
+        def speak(engine, requests, workdir):
+            for i, r in enumerate(requests):
+                seen.append((engine, r["instruct"], r["ref_audio"]))
+                open(r["out"], "w").close()
+                yield i, None
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        lines = [Line(idx=0, start=0, end=0, zh="", en="Hello.", speaker="A")]
+        dub_narration.build_narration_track(lines, str(tmp_path), {"A": dict(VOICE)})
+        assert seen == [("omnivoice", VOICE["instruct"], None)]
+
+    def test_a_removed_engine_unit_says_so_in_plain_words(self, tmp_path):
+        recorded = []
+        unit = {"error": None, "clip_path": str(tmp_path / "none.wav"), "clone": {"engine": "edge_tts"}}
+        dub_narration._generate_units([unit], lambda u, e: recorded.append(e), "en", str(tmp_path))
+        assert recorded == [dub.engine_refusal("edge_tts")]
+        unit["clone"] = {}
+        recorded.clear()
+        dub_narration._generate_units([unit], lambda u, e: recorded.append(e), "en", str(tmp_path))
+        assert recorded == ["Unknown voice engine."]
 
     def test_no_torch_in_the_app_skips_the_vram_check(self, monkeypatch, tmp_path):
         import voice_venv
@@ -845,21 +866,8 @@ class TestVenvEngineEdges:
                 order.append(("venv", r["text"]))
                 open(r["out"], "w").close()
                 yield i, None
-
-        def omni(text, out_path, **kw):
-            order.append(("omnivoice", text))
-            open(out_path, "w").close()
         monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", omni)
         return dub_narration.build_narration_track(lines, str(tmp_path), clones)
-
-    def test_venv_lines_are_spoken_before_omnivoice_loads_its_model(self, monkeypatch, tmp_path):
-        order = []
-        lines = [Line(idx=0, start=0, end=0, zh="", en="One.", speaker="B"),
-                 Line(idx=1, start=0, end=0, zh="", en="Two.", speaker="A")]
-        self._narrate(monkeypatch, tmp_path, order, {"A": dict(self.QWEN), "B": dict(VOICE)},
-                      lines)
-        assert order == [("venv", "Two."), ("omnivoice", "One.")]
 
     def test_a_clip_that_cannot_be_moved_into_place_fails_with_the_fixed_sentence(
             self, monkeypatch, tmp_path):
