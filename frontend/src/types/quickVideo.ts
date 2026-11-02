@@ -1,28 +1,10 @@
-// /api/quick-video (api/schemas/quick_video.py)
-export interface QuickVideoProfile {
-  id: number
-  name: string
-  // The profile has the source language a new title needs.
-  ready: boolean
-}
+// /api/quick-video (api/schemas/quick_video.py), from the generated schema.
+import type { components } from '../api/generated/schema'
 
-export interface QuickVideoSettings {
-  profile_id: number | null
-  profiles: QuickVideoProfile[]
-}
+type Schemas = components['schemas']
 
-export interface QuickVideoStarted {
-  drama_id: number
-  watch_once: boolean
-}
-
-export type QuickVideoStep = 'download' | 'transcribe' | 'translate' | 'export'
-
-export interface QuickVideoRun {
-  drama_id: number
-  title: string
-  watch_once: boolean
-  state: 'running' | 'stopped' | 'done'
-  step: QuickVideoStep
-  reason: string | null
-}
+export type QuickVideoProfile = Schemas['QuickVideoProfile']
+export type QuickVideoSettings = Schemas['QuickVideoSettings']
+export type QuickVideoStarted = Schemas['QuickVideoStarted']
+export type QuickVideoRun = Schemas['QuickVideoRun']
+export type QuickVideoStep = QuickVideoRun['step']
