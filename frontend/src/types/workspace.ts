@@ -244,22 +244,9 @@ export type RetranscribeManyApplyResult = Schemas['RetranscribeManyApplyResult']
 
 // A stretch no subtitle line covers. speech: true when the speech coverage
 // check found speech there, null when it has not run (never false).
-export interface TranscribeGap {
-  start: number
-  end: number
-  seconds: number
-  pieces: number
-  part: number
-  parts: number
-  after_line_id: number | null
-  before_line_id: number | null
-  speech: boolean | null
-}
+export type TranscribeGap = Schemas['TranscribeGap']
 
-export interface TranscribeGaps {
-  gaps: TranscribeGap[]
-  speech_checked: boolean
-}
+export type TranscribeGaps = Schemas['TranscribeGaps']
 
 export type GapAddLinesRequest = Schemas['GapAddLinesRequest']
 

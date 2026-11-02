@@ -15,20 +15,7 @@ export type AutotuneRunResult = Schemas['AutotuneRunResult']
 
 export type AutotuneCandidateScore = Schemas['AutotuneCandidateScore']
 
-export interface AutotuneStatus {
-  job_id: string
-  status: string
-  progress: number | null
-  message: string
-  results: AutotuneCandidateScore[] | null
-  best_candidate_ms: number | null
-  scored_by: 'cer' | 'long_lines'
-  reference_lines: number
-  /** Corrected lines a title needs before CER ranks the candidates. */
-  reference_minimum: number
-  /** Says the run went on on the CPU after a GPU crash; absent otherwise. */
-  device_notice?: string | null
-}
+export type AutotuneStatus = Schemas['AutotuneStatus']
 
 export type NovelGlossaryRunResult = Schemas['NovelGlossaryRunResult']
 

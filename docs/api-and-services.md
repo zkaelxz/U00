@@ -331,14 +331,14 @@ the client to follow.
   `<form action>`, `credentials:` override, or a token in web storage
   anywhere else in `frontend/src`. A raw call would skip the CSRF header and
   the 401 handling.
-- Types are **hand-written** in `frontend/src/api/types.ts` (and in the
-  per-area modules) and mirror `api/schemas/`. Nothing generates them from
-  `/api/openapi.json` and no test compares the two, so a schema change
-  needs the TypeScript edited in the same change. Where a limit exists on
-  both sides the TS comment says so (for example
+- Response types are **generated**: `npm run gen:api` writes
+  `frontend/src/api/generated/schema.d.ts` from `/api/openapi.json` and CI
+  fails when it is stale, so a route or response-model change reruns it.
+  Request bodies, UI-only shapes and a few response shapes the code needs
+  looser than the schema stay hand-written in `frontend/src/api/types.ts`
+  and the per-area modules; change those in the same change. Where a limit
+  exists on both sides the TS comment says so (for example
   `MAX_TRANSLATE_TEXT_CHARS` mirrors a schema constant).
-  `npx tsc -b` and the per-module `*.test.ts` files catch a client
-  that drifts from its own types, not from the API.
 
 ## Adding an endpoint
 
