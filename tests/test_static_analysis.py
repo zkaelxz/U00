@@ -319,7 +319,8 @@ def _find_sdk_clients_missing_timeout(path):
 
 
 def _project_py_files():
-    skip = {"__pycache__", "tests", "node_modules", "frontend", ".git", "venv", ".venv", "library"}
+    skip = {"__pycache__", "tests", "node_modules", "frontend", ".git", "venv", ".venv", "library",
+            "voice_engines"}
     out = []
     for root, dirs, files in os.walk(PROJECT_ROOT):
         dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".")]
@@ -822,7 +823,7 @@ class TestFunctionLength:
 # installer/ is, because service.py and launcher.py run on users' PCs.
 # Retired when there are zero call sites outside lib/proc.py.
 _CAPTURE_SCAN_SKIP = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv",
-                      "__pycache__", "scripts", "tools", "library"}
+                      "__pycache__", "scripts", "tools", "library", "voice_engines"}
 # Build-time only: never shipped, run on the developer's machine.
 _CAPTURE_SCAN_SKIP_FILES = {"installer/build_installer.py", "installer/smoke_child.py"}
 _SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}
