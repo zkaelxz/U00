@@ -281,8 +281,10 @@ disk. The pattern, where a route takes a raw body or multipart:
   The service also whitelists the file extension, discards the client's
   filename and writes atomically. `translateFile.ts`'s 2 GB cap for text/EPUB
   translate files is a separate limit.
-- Multipart routes add a small overhead allowance to the cap
-  (`_MULTIPART_OVERHEAD`, 1 MB) and limit the file and field counts.
+- Multipart routes add an overhead allowance to the cap for the form
+  framing, set per route: 64 KB for most (backup, cover, subtitle import, bug
+  report), 1 MB for scanlate page import and the remote upload, 20 MB for
+  benchmark clips (`_CLIP_OVERHEAD`). They also limit the file and field counts.
 - Upload routes under `/api/media` are `local_only()`, so the early gates
   refuse a remote caller before the body is read. On a household listener
   with auth on, `EarlyAuthGate` does the same for any anonymous caller.
