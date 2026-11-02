@@ -1,48 +1,14 @@
-// Mirrors api/admin_users_schemas.py (user administration + audit log view).
+// User administration + audit log view (api/admin_users_schemas.py), from the generated schema.
+import type { components } from '../api/generated/schema'
 
-export interface AdminUser {
-  id: number
-  email: string
-  display_name: string
-  is_admin: boolean
-  is_active: boolean
-  has_google_binding: boolean
-  created_at: string | null
-  permissions: string[]
-  // Live (unexpired) sign-ins; no session details are ever sent.
-  active_sessions: number
-  // The row is the signed-in caller (never true for the local owner).
-  is_self: boolean
-  // They saved their own Ollama key (never the key itself).
-  has_own_ollama_key?: boolean
-}
+type Schemas = components['schemas']
 
-export interface AdminUserList {
-  users: AdminUser[]
-  // The rights an admin can give or take on a member account, in display order.
-  member_permissions?: string[]
-}
-
-export interface AdminSessionsRevoked {
-  user_id: number
-  revoked: number
-}
-
-export interface AuditEvent {
-  id: number
-  ts: string
-  // null: the PC (local owner, CLI) or the system (e.g. a refused sign-in).
-  user_id: number | null
-  action: string
-  detail: string
-}
-
-export interface AuditPage {
-  events: AuditEvent[]
-  // Pass as before_id for the next (older) page; null at the end.
-  next_before_id: number | null
-  actions: string[]
-}
+// `has_own_ollama_key` stays optional: the page treats a missing flag as false and fixtures omit it.
+export type AdminUser = Omit<Schemas['AdminUser'], 'has_own_ollama_key'> & Partial<Pick<Schemas['AdminUser'], 'has_own_ollama_key'>>
+export type AdminUserList = Omit<Schemas['AdminUserList'], 'users'> & { users: AdminUser[] }
+export type AdminSessionsRevoked = Schemas['AdminSessionsRevoked']
+export type AuditEvent = Schemas['AuditEvent']
+export type AuditPage = Schemas['AuditPage']
 
 export interface AuditQuery {
   limit?: number
