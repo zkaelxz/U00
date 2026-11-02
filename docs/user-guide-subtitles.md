@@ -142,6 +142,8 @@ For `zh` sources, the "Chinese script" select (Keep current, Simplified (Mainlan
 
 Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and accepting the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1. First run downloads the model. If Hugging Face refuses the token or the terms aren't accepted yet, the run says so in one sentence (the server log has Hugging Face's own reply). CPU works, GPU is faster.
 
+**Speaker detection model** (Settings > System > Advanced) picks pyannote (the default) or Nemotron-3, NVIDIA's newer model, which mixed up fewer lines on the four titles we scored (those four only; not tried on an hour-long file or on a V100). Nemotron needs the `transformers` and `librosa` packages and downloads about 380 MB the first time. A typed speaker count or range always uses pyannote, a Nemotron run that fails falls back to pyannote, and after a Nemotron run the voice-match suggestions are empty. Detection still needs the Hugging Face token because of that fallback.
+
 ### Live (experimental)
 
 The Live page pulls a running stream, cuts it into short chunks (your choice of length), transcribes and translates each in the background, and shows a growing feed. Needs `yt-dlp` and `ffmpeg`.

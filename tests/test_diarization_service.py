@@ -140,7 +140,7 @@ class TestStartDiarizationRun:
         call = calls[0]
         assert call["job_id"] == f"diarize_{did}"
         assert call["target"] is diarize.diarize_subprocess_worker
-        assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False, "min_speakers": None, "max_speakers": None})
+        assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False, "backend": "pyannote", "min_speakers": None, "max_speakers": None})
         assert call["gpu_touching"] is True
         assert call["description"] == f"Diarization (title #{did})"
 

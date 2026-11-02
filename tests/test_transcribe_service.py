@@ -968,7 +968,7 @@ class TestRunTranscribeAndApplyJob:
         # Step 101: the chained run carries the persisted use_gpu setting.
         assert diarize_calls == [(f"diarize_{did}", (
             os.path.join(ddir, "audio.wav"), "hf-token", 3,
-            {"use_gpu": True, "min_speakers": None, "max_speakers": None}))]
+            {"use_gpu": True, "backend": "pyannote", "min_speakers": None, "max_speakers": None}))]
         assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
         _clear(job_id)
 
@@ -1461,7 +1461,7 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
             hardsub_interval=1.0, diarize_audio_path=audio_path)
 
         assert seen == [(audio_path, "hf-token", None,
-                         {"use_gpu": False, "min_speakers": None, "max_speakers": None})]
+                         {"use_gpu": False, "backend": "pyannote", "min_speakers": None, "max_speakers": None})]
         assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
         _clear(job_id)
 

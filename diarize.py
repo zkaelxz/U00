@@ -38,6 +38,7 @@ import os
 import time
 from typing import Literal, Optional, overload
 
+SPEAKER_MODELS = ("pyannote", "nemotron")
 DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
                       "pyannote/speaker-diarization-3.1")
 TURNS_FILE = "diarization_turns.json"
@@ -419,6 +420,33 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, ret
     return (segments, model, embeddings) if return_model else (segments, embeddings)
 
 
+def _try_nemotron(audio_path, num_speakers, options, result_queue, run_info):
+    """The worker result for a Nemotron run, or None to use pyannote. A typed
+    speaker count or range always means pyannote (Nemotron can't take one), and
+    any Nemotron failure falls back to pyannote with the reason in run_info so
+    a run never ends worse than the default would have."""
+    if options.get("backend") != "nemotron":
+        return None
+    if num_speakers or options.get("min_speakers") or options.get("max_speakers"):
+        return None
+    from engine_backends.shared import redact_secrets
+    from jobs import process_worker
+    try:
+        import diarize_nemotron
+        turns = diarize_nemotron.diarize(
+            audio_path, use_gpu=bool(options.get("use_gpu")),
+            on_progress=lambda frac, message: process_worker.report_progress(result_queue, frac, message))
+    except Exception as exc:
+        run_info["backend_fallback_reason"] = redact_secrets(f"{type(exc).__name__}: {exc}")[:200]
+        return None
+    if not turns:
+        run_info["backend_fallback_reason"] = "Nemotron found no speech"
+        return None
+    # No pyannote embeddings exist for a Nemotron run, so voice-match suggestions are empty.
+    return {"segments": turns, "model": diarize_nemotron.MODEL_LABEL, "embeddings": {},
+            "device": "cuda" if options.get("use_gpu") else "cpu"}
+
+
 def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *rest):
     """Entry point for running diarize() in its own OS process,
     via job_launch.start_process_job() -- pyannote's pipeline(...)
@@ -448,6 +476,12 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
         process_worker.start_own_process_group()
         run_info = {}
         started = time.monotonic()
+        nemotron = _try_nemotron(audio_path, num_speakers, options, result_queue, run_info)
+        if nemotron is not None:
+            result_queue.put(("ok", {**nemotron, "seconds": time.monotonic() - started,
+                                     "fell_back_to_cpu": False, "fallback_reason": None,
+                                     "fallback_kind": None, "speaker_count_hint": None}))
+            return
         segments, model, embeddings = diarize(
             audio_path, hf_token, num_speakers=num_speakers,
             return_model=True, return_embeddings=True,
@@ -461,7 +495,8 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                                  "fell_back_to_cpu": bool(run_info.get("fell_back_to_cpu")),
                                  "fallback_reason": run_info.get("fallback_reason"),
                                  "fallback_kind": run_info.get("fallback_kind"),
-                                 "speaker_count_hint": run_info.get("few_speakers_notice")}))
+                                 "speaker_count_hint": run_info.get("few_speakers_notice"),
+                                 "backend_fallback_reason": run_info.get("backend_fallback_reason")}))
     except ImportError as exc:
         from jobs import process_worker
         # Only a missing package: a mismatched install ("cannot import name X

@@ -282,6 +282,7 @@ def worker_options(min_speakers: Optional[int] = None,
     """The options dict diarize.diarize_subprocess_worker takes: the
     persisted use_gpu setting and the speaker range."""
     return {"use_gpu": settings_service.get("use_gpu"),
+            "backend": settings_service.get("speaker_model"),
             "min_speakers": min_speakers or None, "max_speakers": max_speakers or None}
 
 
