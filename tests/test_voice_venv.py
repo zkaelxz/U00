@@ -256,6 +256,58 @@ def test_qwen3_tts_uses_half_precision_where_bfloat16_is_missing(monkeypatch):
     assert calls[0][2]["dtype"] == "fp16"
 
 
+class _FakeWav:
+    def __init__(self, voice):
+        self.voice = voice
+
+    def squeeze(self, dim):
+        return self
+
+    def numpy(self):
+        return self.voice
+
+
+class _FakeChatterbox:
+    sr = 24000
+
+    def __init__(self, calls):
+        self.calls, self.conds = calls, None
+
+    def prepare_conditionals(self, wav_fpath):
+        self.calls.append(("voice", wav_fpath))
+        self.conds = f"conds:{wav_fpath}"
+
+    def generate(self, text, language_id):
+        self.calls.append(("speak", text, language_id, self.conds))
+        return _FakeWav(self.conds)
+
+
+def test_chatterbox_adapter_encodes_each_voice_once_and_swaps_it_back_in(monkeypatch):
+    import types
+    calls, written = [], []
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: True)))
+    model_cls = types.SimpleNamespace(from_pretrained=lambda device: (
+        calls.append(("load", device)), _FakeChatterbox(calls))[1])
+    monkeypatch.setitem(sys.modules, "chatterbox", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "chatterbox.mtl_tts",
+                        types.SimpleNamespace(ChatterboxMultilingualTTS=model_cls))
+    monkeypatch.setitem(sys.modules, "soundfile", types.SimpleNamespace(
+        write=lambda path, wav, rate: written.append((path, wav, rate))))
+    items = [{"id": str(i), "text": t, "language": lang, "ref_audio": ref, "out": f"{i}.wav"}
+             for i, (t, lang, ref) in enumerate([("你好", "zh", "a.wav"), ("やあ", "ja", "b.wav"),
+                                                 ("Hi", "en", "a.wav")])]
+    events = []
+    voice_worker.run({"engine": "chatterbox", "items": items}, events.append)
+    assert events == [{"loaded": True}, {"done": "0"}, {"done": "1"}, {"done": "2"}]
+    assert calls[0] == ("load", "cuda")
+    assert [c for c in calls if c[0] == "voice"] == [("voice", "a.wav"), ("voice", "b.wav")]
+    assert [c[1:] for c in calls if c[0] == "speak"] == [
+        ("你好", "zh", "conds:a.wav"), ("やあ", "ja", "conds:b.wav"), ("Hi", "en", "conds:a.wav")]
+    assert written == [("0.wav", "conds:a.wav", 24000), ("1.wav", "conds:b.wav", 24000),
+                       ("2.wav", "conds:a.wav", 24000)]
+
+
 def test_the_worker_exits_once_nobody_reads_its_output(monkeypatch):
     monkeypatch.setattr(voice_worker, "PARENT_CHECK_SECONDS", 0)
     writes = []

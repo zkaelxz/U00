@@ -241,8 +241,12 @@ function DiagnosticsContent() {
               onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
           ))}
           {card('qwen3-tts', (
-            <VoiceEngineInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('qwen3-tts')}
-              onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+            <VoiceEngineInstall engine="qwen3_tts" pc={pc} jobsActive={active} busy={adminBusy}
+              openSignal={signal('qwen3-tts')} onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          ))}
+          {card('chatterbox', (
+            <VoiceEngineInstall engine="chatterbox" pc={pc} jobsActive={active} busy={adminBusy}
+              openSignal={signal('chatterbox')} onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
           ))}
           {card('packages', overview && (
             <PackagesSection

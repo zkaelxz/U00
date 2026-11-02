@@ -39,6 +39,7 @@ DEFAULT_VOICE_DESCRIPTIONS = [
 CLONE_ENGINES = {
     "omnivoice": "OmniVoice (clone from a clip, or describe a voice)",
     "qwen3_tts": "Qwen3-TTS (clone from a clip)",
+    "chatterbox": "Chatterbox (clone from a clip)",
 }
 DEFAULT_CLONE_ENGINE = "omnivoice"
 
@@ -50,7 +51,6 @@ REMOVED_VOICE_ENGINES = {
     "offline": "Piper", "piper": "Piper",
     "f5tts": "F5-TTS", "f5": "F5-TTS",
     "tada": "TADA",
-    "chatterbox": "Chatterbox",
     "gpt_sovits": "GPT-SoVITS",
 }
 
@@ -75,6 +75,8 @@ CLONE_ENGINE_ORIGINAL_LANGUAGES = {
     "omnivoice": {"zh", "ja", "ko"},
     # Qwen's model card lists Chinese, Japanese and Korean among its ten languages.
     "qwen3_tts": {"zh", "ja", "ko"},
+    # chatterbox.mtl_tts.SUPPORTED_LANGUAGES (23 languages) includes all three.
+    "chatterbox": {"zh", "ja", "ko"},
 }
 
 
@@ -90,10 +92,10 @@ def clone_engine_supports_language(engine: str, language: str) -> bool:
 # Engines that load a local model -- dub generation takes the GPU slot for
 # these. Clips are generated one at a time: one shared model on one GPU
 # gains nothing from threads.
-LOCAL_MODEL_ENGINES = {"omnivoice", "qwen3_tts"}
+LOCAL_MODEL_ENGINES = {"omnivoice", "qwen3_tts", "chatterbox"}
 # Engines whose packages clash with the app's, run through voice_venv. Their lines are
 # spoken in one batch per run so the model loads once.
-VENV_ENGINES = {"qwen3_tts"}
+VENV_ENGINES = {"qwen3_tts", "chatterbox"}
 # The first run downloads the model (a few GB) before speaking anything.
 VENV_LOAD_SECONDS = 1800
 VENV_SECONDS_PER_LINE = 180

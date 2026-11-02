@@ -27,6 +27,15 @@ ENGINES = {
                   # CUDA PyTorch (about 2.5 GB), qwen-tts and its dependencies, with room
                   # left for the model the first narration downloads.
                   "required_mb": 6000},
+    # chatterbox-tts 0.1.7 pins torch 2.6.0, which has no CUDA 12.8 build and no wheels
+    # for Python 3.14 or for cards newer than compute 9.0 (RTX 50 series).
+    "chatterbox": {"label": "Chatterbox", "packages": ("chatterbox-tts==0.1.7",),
+                   "check": "import torch, torchaudio, chatterbox.mtl_tts",
+                   "torch": {"cu126": "2.6.0+cu126", "cpu": "2.6.0+cpu"},
+                   "max_python": (3, 13), "max_compute": 9.0,
+                   # Gradio and the rest of its pins come on top of PyTorch, plus the
+                   # multilingual model the first narration downloads.
+                   "required_mb": 9000},
 }
 VENV_TIMEOUT_SECONDS = 300
 # The CUDA torch wheels are about 2.5 GB; allow a slow link far longer.
@@ -102,11 +111,16 @@ def _refusal(engine: str):
         return (f"{spec['label']} can't be installed in this copy yet: it needs a copy of "
                 "Baihe that runs from start.bat.")
     lo, hi = diagnostics_torch.TORCH_SUPPORTED_PYTHON
+    hi = min(hi, spec.get("max_python", hi))
     if not lo <= sys.version_info[:2] <= hi:
         return f"PyTorch has wheels for Python {lo[0]}.{lo[1]} to {hi[0]}.{hi[1]} only."
     nvidia = diagnostics_torch.nvidia_driver_info()
     if nvidia:
-        drv = diagnostics_torch.driver_check(nvidia["driver_version"], variant=_torch_variant())
+        cap = diagnostics_torch.lowest_compute_capability()
+        if "max_compute" in spec and cap is not None and cap > spec["max_compute"]:
+            return f"{spec['label']} does not support this graphics card yet."
+        drv = diagnostics_torch.driver_check(nvidia["driver_version"],
+                                             variant=_torch_variant(engine))
         if drv["status"] == "too_old":
             return (f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12 "
                     f"(needs at least {drv['minimum']}, recommended {drv['recommended']}). "
@@ -149,29 +163,40 @@ def start_install(engine: str, confirm: bool = False) -> dict:
     return {"job_id": job_id(engine), "started": True}
 
 
-def _torch_variant() -> str:
+def _torch_variant(engine: str) -> str:
     if diagnostics_torch.nvidia_driver_info() is None:
         return "cpu"
+    if "torch" in ENGINES[engine]:
+        return "cu126"
     return diagnostics_torch.recommended_gpu_variant()[0]
+
+
+def _torch_step(engine: str) -> list:
+    """The torch and torchaudio pins and their fixed index: the app's own versions, or
+    the engine's when its package pins another torch."""
+    variant = _torch_variant(engine)
+    torch_spec = diagnostics_torch.TORCH_VARIANTS[variant]
+    own = ENGINES[engine].get("torch")
+    pins = [f"{n}=={own[variant] if own else torch_spec['versions'][n]}"
+            for n in ("torch", "torchaudio")]
+    return [*pins, "--index-url", torch_spec["index_url"]]
 
 
 def _commands(engine: str) -> list:
     """(progress, message, argv, timeout) per step. pip runs from the app's own Python
     with --python, so the venv needs no pip of its own (an installed copy's embedded
     Python has no ensurepip). PyTorch comes first from its fixed CUDA index, matched to
-    the card, so qwen-tts's own dependencies find it already satisfied."""
+    the card, so the engine's own dependencies find it already satisfied."""
     venv_dir = voice_venv.venv_dir(engine)
     python = voice_venv.venv_python(engine)
-    torch_spec = diagnostics_torch.TORCH_VARIANTS[_torch_variant()]
     pip = [sys.executable, "-m", "pip", "--python", python, "install",
            *diagnostics.PIP_INSTALL_FLAGS]
-    torch_pins = [f"{n}=={torch_spec['versions'][n]}" for n in ("torch", "torchaudio")]
     label = ENGINES[engine]["label"]
     return [
         (0.02, f"Creating {label}'s folder…",
          [sys.executable, "-m", "venv", "--without-pip", venv_dir], VENV_TIMEOUT_SECONDS),
         (0.05, "Installing PyTorch…",
-         [*pip, *torch_pins, "--index-url", torch_spec["index_url"]], PIP_TIMEOUT_SECONDS),
+         [*pip, *_torch_step(engine)], PIP_TIMEOUT_SECONDS),
         (0.6, f"Installing {label}…", [*pip, *ENGINES[engine]["packages"]], PIP_TIMEOUT_SECONDS),
         # A venv that can't import its engine must not count as ready.
         (0.95, f"Checking {label}…", [python, "-I", "-c", ENGINES[engine]["check"]],

@@ -1,8 +1,8 @@
 """voice_worker.py -- the child that speaks a batch of lines inside a voice engine's own venv.
 
 voice_venv.run_batch starts it as `<venv python> -I -X utf8 voice_worker.py <spec file>`.
-It runs under a different interpreter whose packages clash with the app's (qwen-tts pins
-an older transformers), so it imports nothing from the app and only the standard library
+It runs under a different interpreter whose packages clash with the app's (qwen-tts and
+chatterbox-tts pin other transformers), so it imports nothing from the app and only the standard library
 at module level; an engine's packages are imported by its adapter once the spec names it.
 
 The model is loaded once per batch, then each item is written to its "out" path. Events
@@ -61,8 +61,30 @@ def _load_qwen3_tts(spec: dict):
     return speak
 
 
+def _load_chatterbox(spec: dict):
+    import soundfile as sf
+    import torch
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+    model = ChatterboxMultilingualTTS.from_pretrained(
+        device="cuda" if torch.cuda.is_available() else "cpu")
+    voices = {}
+
+    def speak(item):
+        # The model keeps one voice at a time; encoding a clip is the slow part, so each
+        # voice's encoding is kept and swapped back in for its next line.
+        if item["ref_audio"] not in voices:
+            model.prepare_conditionals(item["ref_audio"])
+            voices[item["ref_audio"]] = model.conds
+        model.conds = voices[item["ref_audio"]]
+        # Chatterbox takes the language codes the app uses (zh, ja, ko, en).
+        wav = model.generate(item["text"], language_id=item.get("language") or "en")
+        sf.write(item["out"], wav.squeeze(0).numpy(), model.sr)
+    return speak
+
+
 # engine -> load(spec) returning speak(item), which writes item["out"].
-ADAPTERS = {"qwen3_tts": _load_qwen3_tts}
+ADAPTERS = {"qwen3_tts": _load_qwen3_tts, "chatterbox": _load_chatterbox}
 
 
 def _error_text(exc: BaseException) -> str:

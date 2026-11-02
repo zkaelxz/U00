@@ -48,7 +48,7 @@ class TestConfig:
         cfg = listen_service.get_listen_config(_drama(isolated_db))
         assert cfg["narration_language"] == "translation"
         assert cfg["narration_language_options"] == ["translation", "original"]
-        assert [e["key"] for e in cfg["tts_engines"]] == ["omnivoice", "qwen3_tts"]
+        assert [e["key"] for e in cfg["tts_engines"]] == ["omnivoice", "qwen3_tts", "chatterbox"]
         assert cfg["default_engine"] == "omnivoice"
         assert cfg["gpu_required"] is False
         assert cfg["track_available"] is False
@@ -111,7 +111,7 @@ class TestRemovedEnginesAndBlockers:
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
 
     @pytest.mark.parametrize("key,label", [("f5tts", "F5-TTS"), ("tada", "TADA"),
-                                           ("chatterbox", "Chatterbox"), ("gpt_sovits", "GPT-SoVITS")])
+                                           ("gpt_sovits", "GPT-SoVITS")])
     def test_a_character_with_a_removed_engine_still_loads_and_blocks(self, isolated_db, key, label):
         did = _drama(isolated_db, [_line(0, "A")])
         isolated_db.upsert_character(did, "A", character_name="Lin", clone_engine=key,
@@ -136,15 +136,15 @@ class TestRemovedEnginesAndBlockers:
         did = _drama(isolated_db, [_line(0, "A")])
         cfg = listen_service.get_listen_config(did)
         assert cfg["blocker"] is None
-        assert [e["unavailable_reason"] for e in cfg["tts_engines"]] == [None, None]
+        assert [e["unavailable_reason"] for e in cfg["tts_engines"]] == [None, None, None]
 
-    def test_original_language_narration_works_with_both_engines_for_zh_ja_ko(self, isolated_db):
+    def test_original_language_narration_works_with_every_engine_for_zh_ja_ko(self, isolated_db):
         for lang in ("zh", "ja", "ko"):
             did = _drama(isolated_db, [_line(0, "A", zh="你好", en="")], narration_language="original",
                          source_language=lang)
             reasons = {e["key"]: e["unavailable_reason"]
                        for e in listen_service.get_listen_config(did)["tts_engines"]}
-            assert reasons == {"omnivoice": None, "qwen3_tts": None}, lang
+            assert reasons == {"omnivoice": None, "qwen3_tts": None, "chatterbox": None}, lang
 
     def test_original_language_narration_is_refused_for_a_language_it_cannot_speak(self, isolated_db):
         did = _drama(isolated_db, [_line(0, "A", zh="hello", en="")], narration_language="original",
@@ -163,7 +163,7 @@ class TestRemovedEnginesAndBlockers:
     def test_start_refuses_every_removed_engine(self, isolated_db):
         did = _drama(isolated_db, [_line(0, "A")])
         for key, label in (("edge_tts", "Edge TTS"), ("offline", "Piper"), ("f5tts", "F5-TTS"),
-                           ("tada", "TADA"), ("chatterbox", "Chatterbox"), ("gpt_sovits", "GPT-SoVITS")):
+                           ("tada", "TADA"), ("gpt_sovits", "GPT-SoVITS")):
             with pytest.raises(InvalidInputError) as err:
                 listen_service.start_listen(did, key)
             assert str(err.value) == f"The {label} engine was removed. Pick another voice engine."
@@ -174,7 +174,7 @@ class TestRemovedEnginesAndBlockers:
         with pytest.raises(DependencyUnavailableError, match="can't speak this title's original language"):
             listen_service.start_listen(did, "omnivoice")
 
-    @pytest.mark.parametrize("key", ["tada", "chatterbox", "gpt_sovits"])
+    @pytest.mark.parametrize("key", ["tada", "gpt_sovits"])
     def test_start_refuses_a_character_stored_with_a_removed_engine(self, isolated_db, key):
         did = _drama(isolated_db, [_line(0, "A")])
         isolated_db.upsert_character(did, "A", clone_engine=key, voice_design="calm")

@@ -10,18 +10,17 @@ import { adminErrorText, installBlockedReason, type AdminBusy } from './diagnost
 import { jobProgressLine } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
 import {
-  QWEN3_TTS_DISK, QWEN3_TTS_INTRO, QWEN3_TTS_REMOVE_NOTE, canOfferVoiceEngine, canRemoveVoiceEngine, voiceEngineResultLine,
-  voiceEngineStatusLine,
+  VOICE_ENGINE_CARDS, VOICE_ENGINE_INTRO, canOfferVoiceEngine, canRemoveVoiceEngine, voiceEngineDiskLine,
+  voiceEngineRemoveNote, voiceEngineResultLine, voiceEngineStatusLine, type VoiceEngineKey,
 } from './voiceEngineText'
 
-const ENGINE = 'qwen3_tts'
-
 /**
- * Packages and installs card: "Voice cloning: Qwen3-TTS" (PC only, two-step). The server
+ * Packages and installs card: "Voice cloning: <engine>" (PC only, two-step). The server
  * installs it into a folder of its own as a job; this polls its status, offers Cancel while
  * it runs, then shows the result.
  */
-export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished, openSignal }: {
+export function VoiceEngineInstall({ engine, pc, jobsActive, busy, onStarted, onFinished, openSignal }: {
+  engine: VoiceEngineKey
   pc: PcMode
   jobsActive: boolean
   busy: AdminBusy
@@ -30,10 +29,10 @@ export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished
   openSignal?: number
 }) {
   const load = useCallback(() => getVoiceEngines().then((s) => {
-    const row = s.engines.find((e) => e.engine === ENGINE)
+    const row = s.engines.find((e) => e.engine === engine)
     if (!row) throw new Error('missing engine row')
     return row
-  }), [])
+  }), [engine])
   const { status, running, refresh } = useServerJobStatus(load, onFinished)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -47,11 +46,12 @@ export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished
   const result = voiceEngineResultLine(status)
   const tail = status.last_result?.output_tail ?? []
   const title = `Voice cloning: ${status.label}`
+  const { card, gb, note } = VOICE_ENGINE_CARDS[engine]
   const run = async (action: (engine: string) => Promise<unknown>) => {
     setStarting(true)
     setError(null)
     try {
-      await action(ENGINE)
+      await action(engine)
       onStarted()
     } catch (e) {
       setError(adminErrorText(e, 'install'))
@@ -72,13 +72,14 @@ export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished
   }
 
   return (
-    <Section title={title} storageKey="diagnostics.qwen3-tts" summary={line ?? 'Not installed'} openSignal={openSignal}>
-    <div className="diag-subcard" data-testid="qwen3-tts-install" role="group" aria-label={title}>
-      <p className="muted">{QWEN3_TTS_INTRO}</p>
-      {!status.installed && <p className="muted">{QWEN3_TTS_DISK}</p>}
-      {line && <p className="muted" data-testid="qwen3-tts-status">{line}</p>}
+    <Section title={title} storageKey={`diagnostics.${card}`} summary={line ?? 'Not installed'} openSignal={openSignal}>
+    <div className="diag-subcard" data-testid={`${card}-install`} role="group" aria-label={title}>
+      <p className="muted">{VOICE_ENGINE_INTRO}</p>
+      {note && <p className="muted">{note}</p>}
+      {!status.installed && <p className="muted">{voiceEngineDiskLine(status.label, gb)}</p>}
+      {line && <p className="muted" data-testid={`${card}-status`}>{line}</p>}
       {running && status.job && (
-        <div className="diag-stack" data-testid="qwen3-tts-progress">
+        <div className="diag-stack" data-testid={`${card}-progress`}>
           <progress max={1} value={status.job.progress || 0} aria-label={`${status.label} install progress`} />
           <p className="muted" aria-live="polite">{jobProgressLine(status.job)}</p>
           {local && (
@@ -92,7 +93,7 @@ export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished
       )}
       {result && (
         <p className={result.tone === 'ok' ? undefined : 'error'} role={result.tone === 'error' ? 'alert' : 'status'}
-          data-testid="qwen3-tts-result">
+          data-testid={`${card}-result`}>
           {result.text}
         </p>
       )}
@@ -112,7 +113,7 @@ export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished
             ariaLabel={`Install ${status.label}`}
             verb="install"
             tone="primary"
-            confirmLabel={`Confirm install ${status.label} (about 5 GB)`}
+            confirmLabel={`Confirm install ${status.label} (about ${gb} GB)`}
             disabled={!!blocked}
             describedBy={blocked ? reasonId : undefined}
             busy={starting}
@@ -122,8 +123,8 @@ export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished
         </div>
       )}
       {local && canRemoveVoiceEngine(status) && (
-        <div className="diag-stack" data-testid="qwen3-tts-remove">
-          <p className="muted">{QWEN3_TTS_REMOVE_NOTE}</p>
+        <div className="diag-stack" data-testid={`${card}-remove`}>
+          <p className="muted">{voiceEngineRemoveNote(status.label, gb)}</p>
           <div className="actions">
             <ConfirmButton
               name={status.label}

@@ -51,6 +51,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(svc, "_free_mb", lambda: state["free"])
     monkeypatch.setattr(svc.portable, "is_installed", lambda: state.get("installed", False))
     monkeypatch.setattr(svc.diagnostics_torch, "nvidia_driver_info", lambda: state.get("nvidia"))
+    monkeypatch.setattr(svc.diagnostics_torch, "lowest_compute_capability", lambda: state.get("cap"))
     monkeypatch.setattr(svc, "_commands", lambda engine: [
         (0.1, "step", [sys.executable, str(script), step, state["mode"], python], 30)
         for step in ("venv", "torch", "engine", "check")])
@@ -77,7 +78,10 @@ def test_status_is_booleans_sizes_and_text(client, env):
     assert body["free_mb"] == 50_000
     assert body["engines"] == [{
         "engine": "qwen3_tts", "label": "Qwen3-TTS", "installed": False, "folder_present": False,
-        "required_mb": 6000, "refusal": None, "job_id": JOB, "job": None, "last_result": None}]
+        "required_mb": 6000, "refusal": None, "job_id": JOB, "job": None, "last_result": None}, {
+        "engine": "chatterbox", "label": "Chatterbox", "installed": False, "folder_present": False,
+        "required_mb": 9000, "refusal": None, "job_id": svc.job_id("chatterbox"), "job": None,
+        "last_result": None}]
 
 
 def test_install_makes_a_ready_venv_and_reports_redacted_output(client, env):
@@ -129,7 +133,8 @@ def test_an_interrupted_install_is_cleared_before_the_next(client, env):
 @pytest.mark.parametrize("engine, confirm, free, status, text", [
     ("qwen3_tts", False, 50_000, 422, None),
     ("qwen3_tts", True, 100, 422, "about 6 GB"),
-    ("chatterbox", True, 50_000, 422, "Unknown voice engine"),
+    ("chatterbox", True, 8000, 422, "about 9 GB"),
+    ("tada", True, 50_000, 422, "Unknown voice engine"),
 ])
 def test_refusals_start_nothing(client, env, engine, confirm, free, status, text):
     env["free"] = free
@@ -176,6 +181,38 @@ def test_the_steps_are_fixed_and_match_the_card(monkeypatch, tmp_path):
     assert steps[2][-1] == "qwen-tts==0.1.1" and "--index-url" not in steps[2]
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     assert "torch==2.11.0+cpu" in svc._commands("qwen3_tts")[1][2]
+
+
+def test_chatterbox_gets_the_torch_its_package_pins(monkeypatch, tmp_path):
+    import diagnostics_torch
+    monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path))
+    # Even where the app would pick CUDA 12.8: chatterbox-tts pins torch 2.6.0, built
+    # for CUDA 12.6 at most.
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: {"gpu_name": "RTX 4080"})
+    monkeypatch.setattr(diagnostics_torch, "recommended_gpu_variant", lambda: ("cu128", None))
+    steps = [argv for _p, _m, argv, _t in svc._commands("chatterbox")]
+    assert "torch==2.6.0+cu126" in steps[1] and "torchaudio==2.6.0+cu126" in steps[1]
+    assert steps[1][-2:] == ["--index-url", "https://download.pytorch.org/whl/cu126"]
+    assert steps[2][-1] == "chatterbox-tts==0.1.7" and "--index-url" not in steps[2]
+    assert steps[3][-1] == "import torch, torchaudio, chatterbox.mtl_tts"
+    monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
+    step = svc._commands("chatterbox")[1][2]
+    assert "torch==2.6.0+cpu" in step and step[-1] == "https://download.pytorch.org/whl/cpu"
+
+
+@pytest.mark.parametrize("setup, text", [
+    ({"nvidia": {"gpu_name": "RTX 5090", "driver_version": "580.10"}, "cap": 12.0},
+     "Chatterbox does not support this graphics card yet."),
+    ({"python": (3, 14, 0)}, "Python 3.10 to 3.13 only"),
+])
+def test_chatterbox_refuses_what_its_torch_cannot_run(env, monkeypatch, setup, text):
+    env.update(setup)
+    if "python" in setup:
+        monkeypatch.setattr(svc, "sys", type("S", (), {"version_info": setup["python"],
+                                                       "executable": sys.executable}))
+    assert text in svc._refusal("chatterbox")
+    # Qwen3-TTS uses the app's own torch, which has both.
+    assert svc._refusal("qwen3_tts") is None
 
 
 REMOVE_JOB = svc.remove_job_id("qwen3_tts")

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { VoiceEngineInstallRow } from '../../types/voiceEngines'
-import { QWEN3_TTS_DAMAGED, canOfferVoiceEngine, canRemoveVoiceEngine, voiceEngineResultLine, voiceEngineStatusLine } from './voiceEngineText'
+import { canOfferVoiceEngine, canRemoveVoiceEngine, voiceEngineResultLine, voiceEngineStatusLine } from './voiceEngineText'
 
 const row = (o: Partial<VoiceEngineInstallRow> = {}): VoiceEngineInstallRow => ({
   engine: 'qwen3_tts', label: 'Qwen3-TTS', installed: false, folder_present: false, required_mb: 6000, refusal: null,
@@ -29,7 +29,8 @@ describe('Voice cloning: Qwen3-TTS row', () => {
     expect(canRemoveVoiceEngine(row())).toBe(false)
     expect(canRemoveVoiceEngine(row({ installed: true, folder_present: true }))).toBe(true)
     expect(canRemoveVoiceEngine(row({ folder_present: true, job: running }))).toBe(false)
-    expect(voiceEngineStatusLine(row({ folder_present: true }))).toBe(QWEN3_TTS_DAMAGED)
+    expect(voiceEngineStatusLine(row({ folder_present: true })))
+      .toBe('The Qwen3-TTS folder is damaged. Remove it in Diagnostics and install it again.')
   })
 
   it('shows the last result with its tone, but not while a job runs', () => {

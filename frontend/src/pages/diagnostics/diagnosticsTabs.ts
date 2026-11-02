@@ -17,6 +17,7 @@ export const CARD_TAB = {
   deno: 'packages',
   'cuda-runtime': 'packages',
   'qwen3-tts': 'packages',
+  chatterbox: 'packages',
   speaker: 'packages',
   'model-status': 'models',
   models: 'models',
@@ -36,7 +37,7 @@ export const isDiagnosticsCard = (v: unknown): v is DiagnosticsCard => typeof v 
 // start closed (their summary says what is wrong); the first card that is always there starts open.
 export const TAB_FOLD_KEYS: Record<DiagnosticsTab, string[]> = {
   setup: ['diagnostics.recommended', 'diagnostics.setup'],
-  packages: ['diagnostics.browser', 'diagnostics.cuda-runtime', 'diagnostics.deno', 'diagnostics.qwen3-tts', 'diagnostics.packages', 'diagnostics.speaker'],
+  packages: ['diagnostics.browser', 'diagnostics.cuda-runtime', 'diagnostics.deno', 'diagnostics.qwen3-tts', 'diagnostics.chatterbox', 'diagnostics.packages', 'diagnostics.speaker'],
   models: ['diagnostics.modelHealth', 'diagnostics.models', 'diagnostics.loadedModels', 'diagnostics.realModel'],
   system: ['diagnostics.ports', 'diagnostics.log'],
 }
