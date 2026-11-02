@@ -140,7 +140,7 @@ class TestStartDiarizationRun:
         call = calls[0]
         assert call["job_id"] == f"diarize_{did}"
         assert call["target"] is diarize.diarize_subprocess_worker
-        assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False, "backend": "pyannote", "min_speakers": None, "max_speakers": None})
+        assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False, "backend": "nemotron", "min_speakers": None, "max_speakers": None})
         assert call["gpu_touching"] is True
         assert call["description"] == f"Diarization (title #{did})"
 
@@ -588,3 +588,27 @@ def test_on_done_keeps_the_speaker_count_hint_for_the_finished_job(isolated_db, 
         "device": "cuda", "speaker_count_hint": hint}
     fell_back = on_done("j", {"segments": [], "fell_back_to_cpu": True, "speaker_count_hint": hint})
     assert fell_back["speaker_count_hint"] == hint and fell_back["device"] == "cpu"
+
+
+def test_on_done_says_when_a_nemotron_run_fell_back_to_pyannote(isolated_db, monkeypatch):
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: True)
+    on_done = diarization_service.make_apply_on_done(1)
+    out = on_done("j", {"segments": [], "device": "cuda",
+                        "backend_fallback_reason": "RuntimeError: no librosa"})
+    assert out["device"] == "cuda"
+    assert "pyannote was used instead" in out["backend_fallback"] and "no librosa" in out["backend_fallback"]
+    assert on_done("j", {"segments": [], "device": "cuda"}) is None
+
+
+def test_the_fallback_sentence_shows_in_the_finished_jobs_outcome():
+    from services import jobs_service
+    out = jobs_service.project_result({"backend_fallback": "Nemotron speaker detection didn't run."})
+    outcome, message = jobs_service.derive_outcome("done", None, out)
+    assert outcome == "ok" and "Nemotron speaker detection didn't run." in message
+
+
+@pytest.mark.parametrize("choice", ["pyannote", "nemotron"])
+def test_worker_options_carry_the_speaker_model_setting(isolated_db, choice):
+    settings_service.set_settings({"speaker_model": choice})
+    assert diarization_service.worker_options()["backend"] == choice
