@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { speakerOptions } from './SpeakerSelect'
+import { speakerOptions } from './speakerOptions'
 
 describe('speakerOptions', () => {
   it('lists the title speakers as they are', () => {

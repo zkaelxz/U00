@@ -2,16 +2,12 @@
 import { useEffect, useState } from 'react'
 
 import { getJson } from '../../../../api/client'
+import { speakerOptions } from './speakerOptions'
 import type { components } from '../../../../api/generated/schema'
 
 type SpeakerEntry = components['schemas']['CharactersEntry']
 
 const NEW_SPEAKER = '\u0000new'
-
-// A value no line carries yet (typed earlier, or a speaker since renamed) stays selectable so the draft isn't silently changed.
-export function speakerOptions(known: string[], value: string): string[] {
-  return value && !known.includes(value) ? [...known, value] : known
-}
 
 interface Props {
   dramaId: number
