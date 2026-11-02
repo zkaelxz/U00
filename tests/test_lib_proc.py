@@ -141,6 +141,17 @@ def test_stream_tree_reports_the_child_pid_once_it_has_started():
     assert pids == [int(items[0]["line"])]
 
 
+@posix
+def test_stream_tree_can_keep_the_child_in_the_callers_group():
+    # A kill_whole_tree job worker's cancel signals its own group; a child in a group of
+    # its own would survive it.
+    script = "import os; print(os.getpgid(0))"
+    own = list(proc_run.stream_tree([sys.executable, "-c", script], 30.0))
+    shared = list(proc_run.stream_tree([sys.executable, "-c", script], 30.0, own_group=False))
+    assert int(own[0]["line"]) != os.getpgid(0)
+    assert int(shared[0]["line"]) == os.getpgid(0)
+
+
 def test_run_captured_gives_the_child_no_stdin():
     out = proc_run.run_captured(
         [sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], 30.0)
