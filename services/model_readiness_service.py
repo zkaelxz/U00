@@ -378,6 +378,7 @@ def for_scanlate(drama_id: int, detect_backend: str = "auto", art_captions: bool
     # "auto" uses the ML detector only once it is cached; "ml" downloads it.
     if detect_backend == "ml":
         needs.append(bubble_detector_ready)
-    if art_captions and backend != "paddle":
+    # RapidOCR reads the captions with the models it already needs for the page.
+    if art_captions and backend not in ("paddle", "rapidocr"):
         needs.append(_need(ocr_ready, "paddle", ocr._PADDLE_LANG_BY_SOURCE.get(language, "ch")))
     return needs

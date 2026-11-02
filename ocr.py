@@ -340,6 +340,44 @@ def _rapidocr_params(key: str) -> dict:
     return params
 
 
+def _run_rapidocr(key: str, source):
+    """One RapidOCR pass over an image path or BGR array with the engine for `key`
+    ("small", "medium" or "ko"), built on first use."""
+    from rapidocr import RapidOCR
+    engines = globals().setdefault("_rapidocr_instances", {})
+    # Fetched before taking _MODEL_LOCK: a minutes-long download must not block other OCR models.
+    params = _rapidocr_params(key) if key not in engines else None
+    with _MODEL_LOCK:
+        if key not in engines:
+            engines[key] = RapidOCR(params=params or _rapidocr_params(key))
+        return engines[key](source)
+
+
+def rapidocr_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
+    """Every text line RapidOCR finds on the page (a BGR array) as
+    (text, confidence, (x, y, w, h)) in full-page pixels, the same shape as
+    paddle_lines. Uses the medium pair page OCR uses (Korean its own recognizer),
+    so the models page OCR needs are the only ones this needs. `scale` shrinks
+    the page for detection only."""
+    import cv2
+    source = image
+    if scale < 1.0:
+        source = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    result = _run_rapidocr("ko" if lang == "ko" else "medium", source)
+    texts = result.txts or ()
+    scores = getattr(result, "scores", None)
+    boxes = getattr(result, "boxes", None)
+    # Pairing by position is only safe when the three lists line up.
+    if boxes is None or scores is None or not (len(texts) == len(boxes) == len(scores)):
+        return []
+    lines = []
+    for text, conf, quad in zip(texts, scores, boxes):
+        xs, ys = [p[0] / scale for p in quad], [p[1] / scale for p in quad]
+        lines.append((text, float(conf),
+                      (int(min(xs)), int(min(ys)), int(max(xs) - min(xs)), int(max(ys) - min(ys)))))
+    return lines
+
+
 def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: bool = False,
                          vertical: bool = False) -> str:
     """Chinese and Japanese text through RapidOCR's PP-OCRv6 models: the small pair inside its
@@ -349,15 +387,8 @@ def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: 
     RapidOCR lists lines in detection order, which scrambles vertical columns
     and mixes in furigana, so the lines are filtered and re-ordered by their
     boxes (ocr_layout); without boxes its own order is kept."""
-    from rapidocr import RapidOCR
     key = "ko" if source_language == "ko" else ("medium" if medium else "small")
-    engines = globals().setdefault("_rapidocr_instances", {})
-    # Fetched before taking _MODEL_LOCK: a minutes-long download must not block other OCR models.
-    params = _rapidocr_params(key) if key not in engines else None
-    with _MODEL_LOCK:
-        if key not in engines:
-            engines[key] = RapidOCR(params=params or _rapidocr_params(key))
-        result = engines[key](image_path)
+    result = _run_rapidocr(key, image_path)
     texts = result.txts or ()
     lines = ocr_layout.lines_from_boxes(texts, getattr(result, "boxes", None))
     if lines is None:

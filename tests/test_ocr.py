@@ -260,6 +260,29 @@ class TestExtractTextFromImagesUsesResolvedLang:
         assert built[0]["Global.use_cls"] is False, "the orientation step garbles upright lines"
         monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
 
+    def test_rapidocr_lines_give_scaled_boxes_and_skip_misaligned_results(self, monkeypatch):
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("cv2")
+        quad = [[10, 20], [60, 20], [60, 40], [10, 40]]
+        seen = {}
+
+        class FakeResult:
+            txts = ("hi",)
+            scores = (0.9,)
+            boxes = [quad]
+
+        def engine(source):
+            seen["shape"] = source.shape
+            return FakeResult()
+        monkeypatch.setattr(ocr, "_run_rapidocr", lambda key, source: seen.update(key=key) or engine(source))
+        assert ocr.rapidocr_lines(np.zeros((200, 100, 3), np.uint8), "zh", 0.5) == [
+            ("hi", 0.9, (20, 40, 100, 40))]
+        assert seen["shape"] == (100, 50, 3) and seen["key"] == "medium"
+        ocr.rapidocr_lines(np.zeros((20, 20, 3), np.uint8), "ko")
+        assert seen["key"] == "ko"
+        FakeResult.scores = (0.9, 0.8)
+        assert ocr.rapidocr_lines(np.zeros((20, 20, 3), np.uint8)) == []
+
     def test_rapidocr_korean_uses_the_downloaded_korean_recognizer(self, monkeypatch, tmp_path):
         rapidocr = pytest.importorskip("rapidocr")
 
