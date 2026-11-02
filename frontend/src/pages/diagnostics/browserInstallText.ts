@@ -20,7 +20,7 @@ export const canOfferBrowser = (s: BrowserInstallStatus): boolean =>
 export function browserStatusLine(s: BrowserInstallStatus): string | null {
   if (jobRunning(s.job)) return null
   if (s.app_browser_installed) return 'Browser support is installed.'
-  return s.refusal
+  return s.refusal ?? null
 }
 
 type ResultLine = { text: string; tone: 'ok' | 'error' }
