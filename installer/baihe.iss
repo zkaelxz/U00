@@ -14,7 +14,9 @@
 ; Per-user install (no admin rights): {autopf} is %LOCALAPPDATA%\Programs here,
 ; so Diagnostics' Install buttons can add optional packages to {app}\python.
 ;
-; Boot service (the "service" task, on by default): Setup asks for
+; Boot service (the "service" task, off by default so a plain install on a PC
+; without the service shows no administrator prompt; an update keeps the choice made before):
+; ticking it makes Setup ask for
 ; administrator permission once, after the files are copied, and
 ; {app}\service\helper\lib\installer\service.py creates the BaiheStudio
 ; service (python -m api on 127.0.0.1 and nothing else, started with
@@ -92,7 +94,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
-Name: "service"; Description: "Run Baihe Studio in the &background from startup (a Windows service; Setup asks for administrator permission)"; GroupDescription: "Startup:"
+Name: "service"; Description: "Run Baihe Studio in the &background from startup (a Windows service; Setup asks for administrator permission)"; GroupDescription: "Startup:"; Flags: unchecked
 ; Off by default: other Windows accounts on this PC can reach the service's
 ; port, so saving keys through it is the owner's choice (it writes
 ; BAIHE_API_ALLOW_KEY_WRITES=1 to the data folder's .env).

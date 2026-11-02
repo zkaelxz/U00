@@ -461,9 +461,10 @@ class TestBootService:
     """installer/service.py wired into Setup and the uninstaller
     (docs/windows-installer-design.md, "Boot service")."""
 
-    def test_task_on_by_default_and_install_stays_per_user(self, iss):
+    def test_task_off_by_default_and_install_stays_per_user(self, iss):
+        # Ticking it is what shows the administrator prompt, so a plain install must not.
         task = [e for e in _entries(iss, "Tasks") if e.startswith('Name: "service"')]
-        assert len(task) == 1 and "unchecked" not in task[0]
+        assert len(task) == 1 and re.search(r"Flags:[^;]*\bunchecked\b", task[0])
         assert "administrator permission" in task[0]
         assert _setup_value(iss, "PrivilegesRequired") == "lowest"
 

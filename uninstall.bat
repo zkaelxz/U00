@@ -16,6 +16,12 @@ cd /d "%~dp0" || (
     exit /b 1
 )
 set "APP_DIR=%~dp0"
+REM The shell's own answer, as make_shortcut.bat uses: a desktop redirected
+REM to OneDrive or another drive is not under %USERPROFILE%. Asked before
+REM delayed expansion turns on, so a ! in that path survives.
+set "DESKTOP_DIR="
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "[Environment]::GetFolderPath('Desktop')" 2^>nul`) do set "DESKTOP_DIR=%%P"
+if not defined DESKTOP_DIR set "DESKTOP_DIR=%USERPROFILE%\Desktop"
 setlocal EnableDelayedExpansion
 
 echo ============================================
@@ -53,15 +59,15 @@ if /i not "%CONFIRM%"=="y" (
 
 echo.
 REM Shortcuts made before the rename are still called "Baihe Subtitler".
-set "DESKTOP_LNK=%USERPROFILE%\Desktop\Baihe Studio.lnk"
-set "OLD_DESKTOP_LNK=%USERPROFILE%\Desktop\Baihe Subtitler.lnk"
+set "DESKTOP_LNK=!DESKTOP_DIR!\Baihe Studio.lnk"
+set "OLD_DESKTOP_LNK=!DESKTOP_DIR!\Baihe Subtitler.lnk"
 set "REMOVED_DESKTOP="
-if exist "%DESKTOP_LNK%" (
-    del "%DESKTOP_LNK%"
+if exist "!DESKTOP_LNK!" (
+    del "!DESKTOP_LNK!"
     set "REMOVED_DESKTOP=1"
 )
-if exist "%OLD_DESKTOP_LNK%" (
-    del "%OLD_DESKTOP_LNK%"
+if exist "!OLD_DESKTOP_LNK!" (
+    del "!OLD_DESKTOP_LNK!"
     set "REMOVED_DESKTOP=1"
 )
 if defined REMOVED_DESKTOP (

@@ -29,6 +29,26 @@ updates:
       npm-dependencies:
         patterns: ["*"]
 
+  # The Caddy build for the installer's remote-access service.
+  - package-ecosystem: gomod
+    directory: /installer/caddy
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+
+  # The Android shell app.
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      gradle-dependencies:
+        patterns: ["*"]
+
   # Workflows pin actions by commit SHA with a version comment; Dependabot
   # updates both together.
   - package-ecosystem: github-actions

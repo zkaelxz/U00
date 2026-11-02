@@ -37,6 +37,12 @@ jobs:
           pip-audit -r requirements-media.txt
           pip-audit -r requirements-optional.txt
 
+      # What the installer really ships: the hash-pinned wheels (pip and every
+      # transitive dependency) can differ from what the tier files resolve to today.
+      - name: Audit the installer's wheel set
+        # The lock holds win_amd64 hashes only; --disable-pip audits it without installing on Linux.
+        run: pip-audit --disable-pip -r installer/wheels.lock.txt
+
   npm:
     runs-on: ubuntu-latest
     timeout-minutes: 10
