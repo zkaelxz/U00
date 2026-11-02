@@ -179,6 +179,20 @@ export interface TrackedSeries {
   save_cbz: boolean
 }
 
+export interface SourceMoveChapter {
+  title: string
+  saved?: boolean | null
+}
+
+export interface SourceMovePreview {
+  source: string
+  series_id: string
+  drama_id: number | null
+  matched: SourceMoveChapter[]
+  only_old: SourceMoveChapter[]
+  new: SourceMoveChapter[]
+}
+
 export interface SourceNotification {
   id: number
   source: string

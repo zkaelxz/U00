@@ -16,6 +16,7 @@ import type {
   SourceDetail,
   ExtensionOnlyMark,
   SourceHealth,
+  SourceMovePreview,
   SourceNotification,
   SourceProfileDomain,
   SourceProfileVersion,
@@ -68,6 +69,14 @@ export const setTrackedSave = (source: string, series_id: string, save_cbz: bool
   postJson<TrackedSeries[]>(`${BASE}/tracked/save-cbz`, { source, series_id, save_cbz }, f)
 export const setTrackedDrama = (source: string, series_id: string, drama_id: number | null, f?: Fetch) =>
   postJson<TrackedSeries[]>(`${BASE}/tracked/drama`, { source, series_id, drama_id }, f)
+export const previewTrackedMove = (from: TrackedSeries, source: string, series_id: string, f?: Fetch) =>
+  postJson<SourceMovePreview>(`${BASE}/tracked/move/preview`, moveBody(from, source, series_id), f)
+// Keeps the title, its saved chapters and translated pages; only the link to the site changes.
+export const moveTracked = (from: TrackedSeries, source: string, series_id: string, f?: Fetch) =>
+  postJson<TrackedSeries[]>(`${BASE}/tracked/move`, moveBody(from, source, series_id), f)
+const moveBody = (from: TrackedSeries, new_source: string, new_series_id: string) => ({
+  source: from.source, series_id: from.series_id, new_source, new_series_id,
+})
 export const startCheckNow = (f?: Fetch) => postJson<SourcesJobStarted>(`${BASE}/check-now`, undefined, f)
 
 // Source settings (PC-only)

@@ -9483,6 +9483,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources/tracked/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a tracked series to the open series on another source, keeping the title's chapters and history */
+        post: operations["post_tracked_move_api_sources_tracked_move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/tracked/move/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Which chapters of a tracked series match the open series on another source (fetches nothing) */
+        post: operations["post_tracked_move_preview_api_sources_tracked_move_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources/tracked/save-cbz": {
         parameters: {
             query?: never;
@@ -25957,6 +25991,40 @@ export interface components {
             /** Unavailable Until */
             unavailable_until?: number | null;
         };
+        /** SourceMoveChapter */
+        SourceMoveChapter: {
+            /**
+             * Saved
+             * @description Already saved in the title (absent for chapters only the new source lists).
+             */
+            saved?: boolean | null;
+            /** Title */
+            title: string;
+        };
+        /** SourceMovePreview */
+        SourceMovePreview: {
+            /** Drama Id */
+            drama_id?: number | null;
+            /**
+             * Matched
+             * @description On both sources: kept as they are.
+             */
+            matched: components["schemas"]["SourceMoveChapter"][];
+            /**
+             * New
+             * @description Only on the new source: what the next check announces.
+             */
+            new: components["schemas"]["SourceMoveChapter"][];
+            /**
+             * Only Old
+             * @description Only on the old source: stay saved, nothing new will come for them.
+             */
+            only_old: components["schemas"]["SourceMoveChapter"][];
+            /** Series Id */
+            series_id: string;
+            /** Source */
+            source: string;
+        };
         /** SourceNotification */
         SourceNotification: {
             /** Chapter Id */
@@ -26217,6 +26285,20 @@ export interface components {
         SourceTrackedDramaRequest: {
             /** Drama Id */
             drama_id?: number | null;
+            /** Series Id */
+            series_id: string;
+            /** Source */
+            source: string;
+        };
+        /**
+         * SourceTrackedMoveRequest
+         * @description Move a tracked series to the open series on another source.
+         */
+        SourceTrackedMoveRequest: {
+            /** New Series Id */
+            new_series_id: string;
+            /** New Source */
+            new_source: string;
             /** Series Id */
             series_id: string;
             /** Source */
@@ -56825,6 +56907,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackedSeries"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_tracked_move_api_sources_tracked_move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceTrackedMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackedSeries"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_tracked_move_preview_api_sources_tracked_move_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceTrackedMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceMovePreview"];
                 };
             };
             /** @description Not Found */
