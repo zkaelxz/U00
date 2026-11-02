@@ -19,6 +19,7 @@ import {
   sanitizePrefs,
   buildSpreads,
   doubleActive,
+  isStripPage,
   isWidePage,
   spreadDisplayOrder,
   spreadIndex,
@@ -217,6 +218,12 @@ describe('double page', () => {
     expect(isWidePage({ width: 2000, height: 1400 })).toBe(true)
     expect(isWidePage({ width: 1000, height: 1400 })).toBe(false)
     expect(isWidePage({ width: null, height: null })).toBe(false)
+  })
+
+  it('treats a page at least twice as tall as wide as a strip that is never paired', () => {
+    expect(isStripPage({ width: 1100, height: 2535 })).toBe(true)
+    expect(isStripPage({ width: 1000, height: 1400 })).toBe(false)
+    expect(isStripPage({ width: null, height: null })).toBe(false)
   })
 
   it('pairs only readable pages: a hidden page never joins a spread', () => {

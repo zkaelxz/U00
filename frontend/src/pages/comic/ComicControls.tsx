@@ -38,7 +38,7 @@ function ViewForm({ prefs, onChange, canTypeset, phone }: PrefsProps) {
         </select>
       </Field>
       {prefs.mode === 'paged' && (
-        <Field label="Double page" help="Show two pages side by side. A page that is already wide is shown alone.">
+        <Field label="Double page" help="Show two pages side by side. A page that is already wide, or a tall strip, is shown alone.">
           <select value={prefs.spread} onChange={(e) => set('spread', e.target.value as SpreadMode)}>
             {SPREAD_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
