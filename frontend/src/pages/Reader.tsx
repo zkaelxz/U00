@@ -9,7 +9,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 
 import { api, ApiError, keepaliveFetch } from '../api/client'
 import { mediaStreamUrl } from '../api/media'
-import { listenTrackUrl } from '../api/listen'
 import { captionUrl, pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
 import { patchLine } from '../api/review'
 import { translateApi } from '../api/translate'
@@ -39,6 +38,7 @@ import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
 import { ListenSection } from './reader/ListenSection'
+import { ReadAlong } from './reader/ReadAlong'
 import { lineEditPatch } from './reader/readerLineEdit'
 import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
 import { useSession } from '../hooks/useSession'
@@ -140,12 +140,7 @@ function WatchSection({ dramaId, media, sourceLanguage }: { dramaId: number; med
       {media.original === 'audio' && (
         <audio controls preload="metadata" src={mediaStreamUrl(dramaId, 'audio')} onError={() => setFailed(true)} />
       )}
-      {media.narration && (
-        <div className="stack">
-          <span className="muted">Narration</span>
-          <audio controls preload="none" src={listenTrackUrl(dramaId)} onError={() => setFailed(true)} />
-        </div>
-      )}
+      {media.narration && <ReadAlong dramaId={dramaId} onError={() => setFailed(true)} />}
       {failed && <p className="muted">Can't play this here. It needs media playback permission, or the file is missing.</p>}
     </Section>
   )
