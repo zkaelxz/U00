@@ -6,7 +6,7 @@ This does **not** replace the source adapters in `sources/` (bulk import, chapte
 
 ## Why it's worth having
 
-It reaches pages the adapters can't (blob-protected chapters like manhuaku's, tile-scrambled readers, sessions that need a sign-in, and sites with no adapter) **without this app touching a protection mechanism**. Your own browser has already decrypted, descrambled and authenticated the page because you're reading it legitimately, and the extension reads what is already on your screen. It also reads text-heavy pages such as a web novel chapter.
+It reaches pages the adapters can't (blob-protected chapters, tile-scrambled readers, sessions that need a sign-in, and sites with no adapter) **without this app touching a protection mechanism**. Your own browser has already decrypted, descrambled and authenticated the page because you're reading it legitimately, and the extension reads what is already on your screen. It also reads text-heavy pages such as a web novel chapter.
 
 ## Setting it up
 
@@ -330,7 +330,7 @@ It loads the extension unpacked into a real Chromium, points it at a real runnin
 
 A real Chromium and mangaz.com's own reader, one page load. The captured page was 1190x1684 (a descrambled page; a scrambled strip would be ~4760x421), read from the reader's `blob:` and saved as a 4.3MB PNG. On that page the ML detector found 63 regions and `manga_ocr` returned correct Japanese dialogue, while the free OpenCV detector found none and Tesseract produced garbage. Translation itself was not run (no API key there).
 
-**Also not verified:** manhuaku.net and Bilibili Manga, and the real toolbar-click flow. Clicking the icon grants `activeTab`, which Playwright can't do, so that grant was simulated with a throwaway copy of the extension; the shipped manifest stays loopback-only.
+**Also not verified:** Bilibili Manga, and the real toolbar-click flow. Clicking the icon grants `activeTab`, which Playwright can't do, so that grant was simulated with a throwaway copy of the extension; the shipped manifest stays loopback-only.
 
 Chapter capture was checked with a throwaway Playwright page that mounts and unmounts 70 images as it scrolls, like a virtualised reader (the extension's messaging stubbed): chapter order kept even with a shuffled DOM, a repeated page sent once, batches of at most 12, only a window of pages in the DOM at once, cancel, the stall stop, the 300 cap on 320 pages, and a second run sending nothing. A real Bilibili Manga chapter in real Chrome has not been tried.
 

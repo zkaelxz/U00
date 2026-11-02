@@ -137,61 +137,6 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str | None = None
     return html, _visible_lines(html)
 
 
-# Resolves every `<img src="blob:...">` on the page into real bytes from
-# inside that page's own JS context, before the browser (and with it, the
-# blob's only storage) closes. Manhuaku's own real readPic() mechanism
-# writes decrypted page images into the DOM exactly this way --
-# a blob: URL only exists in that one tab's memory and can never be
-# independently re-fetched afterward. Chunked base64 encoding avoids
-# blowing the call stack on a large image (a naive
-# String.fromCharCode(...spread) over a multi-MB Uint8Array can).
-_BLOB_RESOLVE_JS = """
-async () => {
-    const out = {};
-    const imgs = Array.from(document.querySelectorAll('img[src^="blob:"]'));
-    for (const img of imgs) {
-        try {
-            const resp = await fetch(img.src);
-            const buf = new Uint8Array(await resp.arrayBuffer());
-            let binary = '';
-            const chunkSize = 8192;
-            for (let i = 0; i < buf.length; i += chunkSize) {
-                binary += String.fromCharCode.apply(null, buf.subarray(i, i + chunkSize));
-            }
-            out[img.src] = btoa(binary);
-        } catch (e) {
-            // left out; the Python side treats a missing key as
-            // "couldn't capture", not an error
-        }
-    }
-    return out;
-}
-"""
-
-
-def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: str | None = None,
-                                   wait_ms: int = 2500):
-    """Like fetch_rendered(), but additionally resolves any `blob:` object
-    URLs found in `<img>` tags into real bytes before the browser closes.
-
-    Returns (html, text, blob_bytes) -- blob_bytes maps each `blob:` URL
-    string to the real bytes fetched from inside the page context. A blob
-    whose fetch/decode failed is simply left out of the dict, not raised
-    as an error here; the caller decides what a missing blob means.
-    """
-    import base64
-    with _rendered_page(url, timeout, wait_selector, wait_ms) as page:
-        html = page.content()
-        raw = page.evaluate(_BLOB_RESOLVE_JS) or {}
-    blob_bytes = {}
-    for blob_url, b64 in raw.items():
-        try:
-            blob_bytes[blob_url] = base64.b64decode(b64)
-        except (ValueError, TypeError):
-            continue
-    return html, _visible_lines(html), blob_bytes
-
-
 def _url_matches(url: str, pattern) -> bool:
     """`pattern` is a plain substring or a compiled regex; either way,
     answers "does this response belong to the endpoint a caller is
@@ -229,7 +174,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     real, already-signed request/response pairs the page makes on its
     own, instead of porting the signing algorithm to Python. The same
     "let the site's own execution path produce the result" principle
-    manhuaku.py already applies to descrambling,
+    Bilibili Manga's adapter applies to signed tokens,
     extended here to an API a site protects with a computed signature
     rather than encrypted output. Nothing about the signature is ever
     inspected, guessed at, or reproduced -- only the response body the
@@ -279,11 +224,11 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
 @contextmanager
 def _rendered_page(url: str, timeout: int, wait_selector: str | None, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
-    closed automatically on exit. Shared by fetch_rendered() and
-    fetch_rendered_resolving_blobs() so both wait the same way.
+    closed automatically on exit. Shared by the rendered-fetch helpers
+    so they all wait the same way.
 
     Scrolls to the bottom once after the initial load: a real, confirmed
-    need (manhuaku.net's chapter reader) for content some sites only
+    need (a lazy-loading chapter reader) for content some sites only
     populate on a scroll/resize event (jquery.lazyload and similar), not
     on the initial page load -- reproduced directly: the same chapter URL
     rendered with zero real reader images without this scroll, and real

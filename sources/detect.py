@@ -187,7 +187,7 @@ def classify(status: Optional[int], headers=None, body: str = "", url: str = "",
     Returns the failure reasons this response shows, most specific first,
     or [] if it looks like ordinary, usable content.
 
-    More than one reason can apply at once: a manhuaku-shaped page is both
+    More than one reason can apply at once: an AES-encrypted JS-rendered reader page is both
     ENCRYPTED_RESOURCE and JAVASCRIPT_REQUIRED, and the ladder needs both
     facts (don't decode it; do try a real browser).
     """

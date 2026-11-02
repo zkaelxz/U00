@@ -59,7 +59,7 @@ def test_every_adapter_serializes(client):
 
 def test_needs_browser_marks_exactly_the_browser_only_adapters(client):
     by = {x["name"]: x for x in client.get("/api/sources").json()}
-    assert {n for n, x in by.items() if x["needs_browser"]} == {"fanjiao", "manhuaku", "bilibili_manga"}
+    assert {n for n, x in by.items() if x["needs_browser"]} == {"fanjiao", "bilibili_manga"}
 
 
 def test_demo_source_hidden_until_enabled(client):
@@ -207,3 +207,18 @@ def test_ranobes_stored_data_still_lists_and_is_skipped(client, isolated_db):
     assert summary["errors"] == {"Old Ranobes Title": registry.SOURCE_REMOVED}
     with pytest.raises(KeyError, match="removed"):
         registry.get_adapter("ranobes")
+
+
+def test_manhuaku_stored_data_still_lists_and_is_skipped(client, isolated_db):
+    from sources import chapter_check
+    assert "manhuaku" not in registry.adapter_classes()
+    store.track_series("manhuaku", "some-title", "Old Manhuaku Title", url="https://example.invalid/some-title")
+    t = client.get("/api/sources/tracked").json()
+    assert t[0]["source"] == "manhuaku" and t[0]["last_check_error"] == registry.SOURCE_REMOVED
+
+    def never(name):
+        raise AssertionError("no adapter may be built for a removed source")
+    summary = chapter_check.run_check_cycle(adapter_factory=never)
+    assert summary["errors"] == {"Old Manhuaku Title": registry.SOURCE_REMOVED}
+    with pytest.raises(KeyError, match="removed"):
+        registry.get_adapter("manhuaku")
