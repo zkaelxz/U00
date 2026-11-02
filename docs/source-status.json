@@ -188,7 +188,8 @@
       "notes": "",
       "hosts": [
         "rawkuma.net",
-        "cdn.rawkuma.com"
+        "cdn.rawkuma.com",
+        "raw.senmanga.com"
       ],
       "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
       "pace_verified": "2026-11-01"
@@ -204,6 +205,18 @@
         "peer.storagewebtoon.store"
       ],
       "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-01"
+    },
+    "newxtoon": {
+      "status": "caveat",
+      "last_verified": "2026-11-01",
+      "reason": "Built from a description of the live layout reported from the owner's PC; not yet run against the live site. This project's cloud container gets 403 from the site, so search, series, chapter and image reading are covered by invented fixtures only. Login/age gating and long-list pagination were not tested. The robots.txt and terms were not read.",
+      "notes": "",
+      "hosts": [
+        "newxtoon4.com",
+        "xn--vg1b002axlc8ts.com"
+      ],
+      "pace": "Fast off: robots.txt and terms were not read, so the site is not vetted for Fast.",
       "pace_verified": "2026-11-01"
     }
   },
