@@ -40,6 +40,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import background_jobs
 import db
+import translation_guide as tguide
 from engine_backends import engine_registry
 from engine_backends import shared as engine_shared
 from engine_backends import llm_tasks, paid_calls
@@ -214,8 +215,19 @@ def _detector_note(detect_backend: str, notes: list) -> tuple:
     return ("info", "Detector: OpenCV heuristic (the ML model is not downloaded).")
 
 
+def load_translation_guide(drama: dict) -> tuple:
+    """(glossary terms, character notes) for a title's comic translations: the series glossary
+    and the series cast's pronouns and voice notes, built as the subtitle path builds them
+    (translation_guide.build_character_guidance). A title with no series has neither."""
+    series_id = (drama or {}).get("series_id")
+    if not series_id:
+        return None, ""
+    return (db.list_glossary_terms(series_id),
+            tguide.build_character_guidance(db.list_series_characters(series_id)))
+
+
 def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, context: str,
-               drama_id: int, notes: list):
+               drama_id: int, notes: list, character_notes: str = ""):
     """Translates the eligible regions in place. Each region is sent under
     an explicit key and its answer is applied through a key -> region map
     built here, never by the position of the answer. Returns (ok, context):
@@ -235,7 +247,7 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     try:
         result, new_context = scanlate_translate.translate_regions_by_id(
             keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
-            glossary_terms=glossary)
+            glossary_terms=glossary, character_notes=character_notes)
     except (HeadroomError, LLMTaskTimeout, TranslateRunStopped):
         # The Ollama check refuses on every page, and a timed-out request is
         # still running and would refuse the next page's call: stop the job once.
@@ -362,7 +374,7 @@ def _rerender(drama_id: int, page_id: int, jid: str) -> None:
 
 
 def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_id: int,
-                             engine, engine_name: str, glossary, jid: str) -> None:
+                             engine, engine_name: str, guide: tuple, jid: str) -> None:
     """A caption the page break cut between `previous_id` and `page_id` (both
     translated and typeset earlier in this run) is translated as one line and
     its English split between them (scanlate.join_caption_across_pages). Each
@@ -377,8 +389,9 @@ def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_
     before = {b["id"]: b.get("translated_text") or "" for b in upper + lower}
     scanlate.join_caption_across_pages(
         {"id": previous_id, "bubbles": upper, "height": int(previous["height"])}, lower,
-        engine, drama, _predecessor_context(drama_id, page_id), glossary,
-        paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate"))
+        engine, drama, _predecessor_context(drama_id, page_id), guide[0],
+        paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate"),
+        character_notes=guide[1])
     for pid, regions in ((page_id, lower), (previous_id, upper)):
         changed = [b for b in regions if (b.get("translated_text") or "") != before[b["id"]]]
         if not changed:
@@ -391,7 +404,7 @@ def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_
 
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
-                  detect_kwargs: dict, glossary, jid: str, detected=None,
+                  detect_kwargs: dict, guide: tuple, jid: str, detected=None,
                   previous_id: int | None = None) -> str:
     """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
     old regions stay), "done" or "translated". `detected` is the page's
@@ -410,8 +423,8 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     # A result that will be thrown away is not worth a paid translation call.
     if bubbles and not _ocr_lost_text(existing, detect_notes):
         translated_ok, new_context = _translate(
-            bubbles, engine, engine_name, drama, glossary,
-            _predecessor_context(drama_id, page_id), drama_id, notes)
+            bubbles, engine, engine_name, drama, guide[0],
+            _predecessor_context(drama_id, page_id), drama_id, notes, guide[1])
     if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
         notes.append(("warning", "Redo did not produce a complete result for this page (no "
                                  "regions, OCR or translation incomplete), so its existing "
@@ -445,7 +458,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     # cannot leave the page's new text without its image.
     if previous_id is not None and new_context is not None:
         _join_page_break_caption(drama_id, drama, previous_id, page_id, engine, engine_name,
-                                 glossary, jid)
+                                 guide, jid)
     return "translated" if new_context is not None else "done"
 
 
@@ -461,7 +474,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
     scanlate_detect.forget_ml_failure()
     drama = db.get_drama(drama_id) or {}
     lang = drama.get("source_language") or "zh"
-    glossary = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else None
+    guide = load_translation_guide(drama)
     ocr_backend = settings_service.resolve_ocr_backend(lang)
     detect_kwargs = {"detect_backend": detect_backend,
                      "hf_token": settings_service.resolve_key("hf_token") or None,
@@ -500,7 +513,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
             previous_id, saved_before = saved_before, None
             try:
                 outcome = _process_page(drama_id, drama, pid, mode, engine, engine_name,
-                                        detect_kwargs, glossary, jid,
+                                        detect_kwargs, guide, jid,
                                         detected=ahead.pop(pid, None), previous_id=previous_id)
                 counts[outcome] += 1
                 if outcome == "translated":

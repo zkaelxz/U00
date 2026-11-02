@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { scanlateApi, scanlateExportUrl } from '../../api/scanlate'
 import { engineOptionLabel, engineShortName } from '../../api/translate'
+import { routeHref } from '../../router'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -388,6 +389,12 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
 
       <Section storageKey="comic.scanlate.advanced" title="Advanced" summary={config ? toolsSummary(config) : ''}>
         <div className="stack">
+          <p className="muted">
+            Translation uses this title's series glossary and characters (names, nicknames, pronouns).{' '}
+            <a href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })} data-testid="scanlate-glossary-link">
+              Glossary and characters
+            </a>
+          </p>
           <div className="scanlate-run-row">
             <Field
               label={AI_ENGINE_LABEL}

@@ -19,7 +19,8 @@ _MAX_TOKENS_PER_CALL = 8192
 
 
 def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
-                            previous_context: str = "", usage_cb=None, glossary_terms=None):
+                            previous_context: str = "", usage_cb=None, glossary_terms=None,
+                            character_notes: str = ""):
     """Id-keyed page translation: translate_page_bubbles (and so the
     extension bridge) and the API jobs go through this. `texts_by_id` maps
     each region's id to its source text. Returns ({id: translation},
@@ -63,7 +64,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
     for start in range(0, len(items), _REGIONS_PER_CALL):
         chunk_got, context = _translate_region_chunk(
             items[start:start + _REGIONS_PER_CALL], engine, drama_meta, context,
-            usage_cb, glossary_terms)
+            usage_cb, glossary_terms, character_notes)
         got.update(chunk_got or {})
     if not got:
         return None, previous_context
@@ -71,7 +72,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
 
 
 def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_context: str,
-                            usage_cb, glossary_terms):
+                            usage_cb, glossary_terms, character_notes: str = ""):
     """One LLM call for [(id, text), ...]. Returns ({id: translation},
     new_context), or (None, previous_context) when the answer doesn't name
     exactly the ids sent, each with a string."""
@@ -88,6 +89,10 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     context_block = f"\n\nContext from previous pages: {previous_context}" if previous_context else ""
     glossary_block = build_glossary_block(glossary_terms)
     glossary_block = f"\n\n{glossary_block}" if glossary_block else ""
+    # The series cast (pronouns, voice notes) sits with the glossary: both are standing
+    # reference for the whole title rather than per-page context.
+    if character_notes:
+        glossary_block += f"\n\n{character_notes}"
     payload = json.dumps([{"id": k, "text": t} for k, t in items], ensure_ascii=False)
     prompt = (
         f"Translate these {source_name} manga/comic text regions into natural English, keeping "
@@ -116,7 +121,7 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
 
 
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
-                           glossary_terms=None, usage_cb=None) -> str:
+                           glossary_terms=None, usage_cb=None, character_notes: str = "") -> str:
     """Translates a page's bubbles from their CURRENT source_text -- so an
     OCR mistake fixed by hand in the review step is what
     reaches the translation call, not the raw OCR output. Skipped regions
@@ -142,7 +147,8 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     by_key = {str(i): b for i, b in enumerate(eligible)}
     result, new_context = translate_regions_by_id(
         {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
-        previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms)
+        previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
+        character_notes=character_notes)
     if result is None:
         raise ValueError("The translation service's answer couldn't be matched to the bubbles "
                          "by id (unreadable, short, padded or with unknown ids) -- not applied, "

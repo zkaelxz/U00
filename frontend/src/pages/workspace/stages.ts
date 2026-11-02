@@ -86,3 +86,8 @@ export function nextAction(
   if (next === 'review' && f > 0) return { stage: next, label: `Review ${f} flagged` }
   return { stage: next, label: STAGE_LABELS[next] }
 }
+
+// The Translate stage's Glossary and Characters tabs hold the series glossary and cast that Scanlate translates with, so a link to either shows them even for a comic.
+export function isCastTab(tab: string | undefined): boolean {
+  return tab === 'glossary' || tab === 'characters'
+}

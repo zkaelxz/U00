@@ -218,6 +218,15 @@ def build_character_voice_notes(series_characters, drama_characters=None) -> str
                       "from line to line):"] + entries[:VOICE_NOTE_MAX_CHARACTERS])
 
 
+def build_character_guidance(series_characters, drama_characters=None,
+                             default_female_pronouns: bool = False) -> str:
+    """The pronoun hints and the voice notes as one block (either may be absent), so every
+    translation path that carries series characters builds them the same way."""
+    return "\n\n".join(b for b in (
+        build_character_gender_hints(series_characters, drama_characters, default_female_pronouns),
+        build_character_voice_notes(series_characters, drama_characters)) if b)
+
+
 def build_speaker_labels(drama_characters, series_characters=None) -> dict:
     """{speaker_label: shown name} for translate_lines_with_engine's
     character_names, e.g. {"SPEAKER_00": "Xiaoling (she/her)"} -- so the
