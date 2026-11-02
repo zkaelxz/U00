@@ -34,13 +34,18 @@ function voiceState(c: CharacterEntry): string {
   return 'no voice yet'
 }
 
-export function ListenPicker({ dramaId, engines, engine, voices, disabled, onChange }: {
+const LANGUAGE_LABEL: Record<string, string> = { translation: 'Translation', original: 'Original language' }
+
+export function ListenPicker({ dramaId, engines, engine, voices, disabled, onChange, languages = [], language = '', onLanguage }: {
   dramaId: number
   engines: ListenConfig['tts_engines']
   engine: string
   voices: CharacterEntry[]
   disabled: boolean
   onChange: (key: string) => void
+  languages?: string[]
+  language?: string
+  onLanguage?: (key: string) => void
 }) {
   return (
     <>
@@ -52,6 +57,16 @@ export function ListenPicker({ dramaId, engines, engine, voices, disabled, onCha
               <option key={t.key} value={t.key} disabled={t.unavailable_reason != null}>
                 {t.label}{t.unavailable_reason ? ` (${t.unavailable_reason})` : ''}
               </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {languages.length > 1 && onLanguage && (
+        <label className="field">
+          <span>Voice language</span>
+          <select value={language} disabled={disabled} onChange={(e) => onLanguage(e.target.value)}>
+            {languages.map((key) => (
+              <option key={key} value={key}>{LANGUAGE_LABEL[key] ?? key}</option>
             ))}
           </select>
         </label>
@@ -92,6 +107,7 @@ export function ListenSection({ dramaId, onReady }: Props) {
 function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
   const [error, setError] = useState<unknown>(null)
   const [pickedEngine, setPickedEngine] = useState('')
+  const [pickedLanguage, setPickedLanguage] = useState('')
   const [voices, setVoices] = useState<CharacterEntry[]>([])
   useEffect(() => {
     let cancelled = false
@@ -115,17 +131,19 @@ function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
   // This run just made the track: the player in Watch / listen takes over.
   if (!busy && done && jobSucceeded(job)) return null
   const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, pickedEngine)
+  const narrationLanguage = cfg.narration_language_options.includes(pickedLanguage) ? pickedLanguage : cfg.narration_language
   const blocker = listenBlocker(cfg, engine)
   const failedText = done && job && jobFailed(job) ? job.message : null
   const start = () =>
-    listenApi.run(dramaId, { tts_engine: engine, narration_language: cfg.narration_language }).then((r) => {
+    listenApi.run(dramaId, { tts_engine: engine, narration_language: narrationLanguage }).then((r) => {
       setError(null)
       setJobId(r.job_id)
     }, setError)
 
   return (
     <Section title="Listen" storageKey="reader.listen" defaultOpen summary={busy ? (job?.message ?? '') : undefined}>
-      <ListenPicker dramaId={dramaId} engines={cfg.tts_engines} engine={engine} voices={voices} disabled={busy} onChange={setPickedEngine} />
+      <ListenPicker dramaId={dramaId} engines={cfg.tts_engines} engine={engine} voices={voices} disabled={busy} onChange={setPickedEngine}
+        languages={cfg.narration_language_options} language={narrationLanguage} onLanguage={setPickedLanguage} />
       <div className="actions">
         <button type="button" className="primary" disabled={busy || blocker !== null} onClick={start}>
           Listen

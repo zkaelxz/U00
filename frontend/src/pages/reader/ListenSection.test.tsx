@@ -38,6 +38,26 @@ describe('ListenPicker', () => {
   })
 })
 
+describe('voice language', () => {
+  it('offers translation or the original language and shows the current one', () => {
+    const out = renderToStaticMarkup(
+      <ListenPicker dramaId={22} engines={engines} engine="qwen3_tts" voices={[]} disabled={false} onChange={() => undefined}
+        languages={['translation', 'original']} language="original" onLanguage={() => undefined} />,
+    )
+    expect(out).toContain('Voice language')
+    expect(out).toMatch(/<option value="translation">Translation<\/option>/)
+    expect(out).toMatch(/<option value="original"( selected="")?>Original language<\/option>/)
+  })
+
+  it('shows no language choice when the server offers one', () => {
+    const out = renderToStaticMarkup(
+      <ListenPicker dramaId={22} engines={engines} engine="qwen3_tts" voices={[]} disabled={false} onChange={() => undefined}
+        languages={['translation']} language="translation" onLanguage={() => undefined} />,
+    )
+    expect(out).not.toContain('Voice language')
+  })
+})
+
 describe('chooseEngine', () => {
   it('starts on an engine that can run when the default cannot', () => {
     expect(chooseEngine(engines, 'omnivoice', '')).toBe('qwen3_tts')
