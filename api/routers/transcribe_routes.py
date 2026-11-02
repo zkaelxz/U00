@@ -27,7 +27,7 @@ from api.auth import (is_at_pc, is_local_request, require_engines_allowed, requi
 from api.schemas import (AsrAdvice, AsrAdviceRequest, AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
                          AutotuneStatus, CompareApplyRequest, CompareApplyResult,
                          CompareEstimate, CompareEstimateRequest, CompareOptions,
-                         CompareResult, CompareRunRequest, CompareRunResult, GapAddLinesRequest, GapAddLinesResult, RetimeApplyRequest, RetimeApplyResult,
+                         CompareResult, CompareRunRequest, CompareRunResult, GapAddLinesRequest, GapAddLinesResult, TalkOverAddResult, RetimeApplyRequest, RetimeApplyResult,
                          RetimeResult, RetimeRunRequest, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
                          RetranscribeLineResult, RetranscribeResult, SpeechCoverageRunRequest,
@@ -37,7 +37,7 @@ from api.schemas import (AsrAdvice, AsrAdviceRequest, AutotuneApplyRequest, Auto
                          TranscribeGaps, TranscribeRunRequest, TranscribeRunResult, error_responses)
 from services import (autotune_service, transcribe_options_service, compare_transcription_service, model_readiness_service,
                       retime_service, retranscribe_many_service, speech_coverage_service,
-                      settings_service, transcribe_gap_service, transcribe_service,
+                      settings_service, speaker_overlap_service, transcribe_gap_service, transcribe_service,
                       retranscribe_line_service)
 from lib.errors import ForbiddenError
 
@@ -248,6 +248,14 @@ def post_add_gap_lines(payload: GapAddLinesRequest, drama_id: int = Path(ge=1)):
     return transcribe_gap_service.add_gap_lines(
         drama_id, payload.expected_line_ids, start=payload.start, end=payload.end,
         after_line_id=payload.after_line_id)
+
+
+@router.post("/dramas/{drama_id}/talk-over/add-lines",
+             dependencies=[require_permission("lines.edit")], response_model=TalkOverAddResult,
+             summary="Add blank, flagged lines where a second speaker talks over a line",
+             responses=_COMPARE_ERRORS)
+def post_add_talk_over_lines(drama_id: int = Path(ge=1)):
+    return speaker_overlap_service.add_talk_over_lines(drama_id)
 
 
 # --- Compare transcription (Review): proposals for a set of lines -------------
