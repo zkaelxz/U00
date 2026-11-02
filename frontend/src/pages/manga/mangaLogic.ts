@@ -53,7 +53,7 @@ export const mangaReadHref = (source: string, series: string, chapter: string, p
 // never typeset and has no text boxes.
 export function pageInfos(pages: SavedPage[]): ComicPageInfo[] {
   return pages.map((p) => ({
-    id: p.page, ordinal: p.page, width: p.width, height: p.height,
+    id: p.page, ordinal: p.page, width: p.width ?? null, height: p.height ?? null,
     has_rendered: false, has_regions: false, image_version: null,
   }))
 }

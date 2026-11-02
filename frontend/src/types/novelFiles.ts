@@ -1,20 +1,9 @@
-// api/schemas/reader.py NovelFileStatus / NovelFileUploadResult / NovelReferenceRemoveResult.
+// api/schemas/reader.py NovelFileStatus / NovelFileUploadResult / NovelReferenceRemoveResult, from the generated schema.
 // Counts and booleans only: the API never returns a filename or path.
-export interface NovelFileStatus {
-  drama_id: number
-  present: boolean
-  size_bytes: number
-  char_count: number
-}
+import type { components } from '../api/generated/schema'
 
-export interface NovelFileUploadResult extends NovelFileStatus {
-  replaced: boolean
-  // Set when the file wasn't UTF-8 and its encoding was guessed.
-  warning?: string | null
-}
+type Schemas = components['schemas']
 
-export interface NovelReferenceRemoveResult {
-  drama_id: number
-  removed: boolean
-  present: boolean
-}
+export type NovelFileStatus = Schemas['NovelFileStatus']
+export type NovelFileUploadResult = Schemas['NovelFileUploadResult']
+export type NovelReferenceRemoveResult = Schemas['NovelReferenceRemoveResult']
