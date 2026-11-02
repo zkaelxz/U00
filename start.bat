@@ -261,13 +261,19 @@ git merge-base --is-ancestor %UPD_OLD% %UPD_NEW% >nul 2>nul
 if errorlevel 1 goto :update_not_ff
 
 set "BAIHE_UPDATE_OLD=%UPD_OLD%"
-git merge --ff-only --quiet FETCH_HEAD >nul 2>nul && (call "%~f0" %* & exit /b !errorlevel!)
+set "UPD_WHY="
+(for /f "delims=" %%L in ('git merge --ff-only --quiet FETCH_HEAD 2^>^&1') do set "UPD_WHY=!UPD_WHY! %%L") & git merge-base --is-ancestor %UPD_NEW% HEAD >nul 2>nul && (call "%~f0" %* & exit /b !errorlevel!)
 set "BAIHE_UPDATE_OLD="
 if exist ".git\index.lock" (
     echo Not updated: git is busy, or an earlier git command was cut off and left ".git\index.lock" behind. Close other git programs; if none is running, delete that file. Starting the version on this PC.
 ) else (
+    if defined UPD_WHY goto :update_merge_said
     echo Not updated: git could not apply the update. Starting the version on this PC.
 )
+goto :update_done
+
+:update_merge_said
+echo Not updated: git could not apply the update. Git said: !UPD_WHY! Starting the version on this PC.
 goto :update_done
 
 :update_no_git
