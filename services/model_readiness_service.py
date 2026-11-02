@@ -190,6 +190,8 @@ def ocr_ready(backend: str, paddle_lang: str) -> bool:
     if backend == "paddle_vl_manga":
         return (hf_model_ready(ocr._PADDLE_VL_MANGA_REPO)
                 and _hf_snapshot(ocr._PADDLE_VL_PROCESSOR_REPO) is not None)
+    if backend in ocr.QWEN3_VL_REPOS:
+        return hf_model_ready(ocr.QWEN3_VL_REPOS[backend])
     if backend == "paddle":
         return _paddle_ready(paddle_lang)
     if backend == "rapidocr":
@@ -293,6 +295,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
     diarization run it chains to."""
     import db
     import qwen3_native
+    import ocr
     from ocr import default_hardsub_backend
     from services import asr_options_service, settings_service, transcribe_pipeline, transcribe_options_service
     drama = db.get_drama(drama_id)
@@ -313,6 +316,8 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
             needs.append(_need(_paddle_ready, hardsub_ocr._HARDSUB_PADDLE_LANG.get(language, "ch")))
         elif backend == "rapidocr":
             needs.append(_need(rapidocr_ready, language, False))
+        elif backend in ocr.QWEN3_VL_REPOS and ocr.qwen3_vl_problem(backend) is None:
+            needs.append(_need(ocr_ready, backend, ""))
     else:
         backend = asr_options_service.stored_asr_backend(drama)
         mixed = asr_options_service.get_mixed_languages()

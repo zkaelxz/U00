@@ -41,6 +41,7 @@ import cv2
 import numpy as np
 
 import ocr as ocr_module
+from engine_backends.redaction import redact_secrets
 import segment
 import storage
 import video_export
@@ -183,6 +184,7 @@ def _upscale_for_ocr(crop: np.ndarray, min_height: int = 120, max_scale: float =
 _HARDSUB_PADDLE_LANG = {"zh": "ch", "ko": "korean", "ja": "japan"}
 
 PADDLE_MISSING_NOTE = "PaddleOCR isn't installed, so Tesseract was used."
+QWEN3_VL_FALLBACK_NOTE = "Qwen3-VL could not read the frames ({reason}), so RapidOCR was used."
 
 # RapidOCR's wheel model reads Chinese; Korean has its own recognizer (ocr.extract_text_rapidocr).
 _HARDSUB_RAPIDOCR_LANGS = {"zh", "ko"}
@@ -228,6 +230,8 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd:
             return ocr_module.extract_text_paddle(crop_path, lang=lang).strip()
         if backend == "rapidocr":
             return ocr_module.extract_text_rapidocr(crop_path, lang).strip()
+        if backend in ocr_module.QWEN3_VL_REPOS:
+            return ocr_module.extract_text_qwen3_vl(crop_path, backend).strip()
         return ocr_module.extract_text_tesseract(
             crop_path, lang=lang, tesseract_cmd=tesseract_cmd, on_timeout=on_timeout).strip()
     finally:
@@ -356,7 +360,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
         info.update(backend=ocr_backend, note=note, dropped_frames=0)
     if ocr_backend == "paddle":
         lang = _HARDSUB_PADDLE_LANG.get(language, "ch")
-    elif ocr_backend == "rapidocr":
+    elif ocr_backend == "rapidocr" or ocr_backend in ocr_module.QWEN3_VL_REPOS:
         lang = language
     else:
         lang = ocr_module.resolve_tesseract_lang(language, chinese_script)
@@ -379,8 +383,20 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
         for i, (ts, path) in enumerate(frames):
             if cancel_check:
                 cancel_check()
-            text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd,
-                                     on_timeout=_frame_dropped)
+            try:
+                text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd,
+                                         on_timeout=_frame_dropped)
+            except Exception as exc:
+                if ocr_backend not in ocr_module.QWEN3_VL_REPOS:
+                    raise
+                # A model that is missing, doesn't fit the GPU or fails once is not retried per
+                # frame; the rest of the run is read by RapidOCR and the job says so.
+                reason = redact_secrets(str(exc))[:200]
+                ocr_backend = "rapidocr"
+                if info is not None:
+                    info.update(backend=ocr_backend, note=QWEN3_VL_FALLBACK_NOTE.format(reason=reason))
+                text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd,
+                                         on_timeout=_frame_dropped)
             timed_texts.append((ts, _to_title_script(text, language, chinese_script)))
             if progress_cb:
                 progress_cb((i + 1) / total)

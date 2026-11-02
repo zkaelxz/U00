@@ -290,7 +290,7 @@ export function TranscribeAdvanced(p: Props) {
     beam_size: () => num('Beam size', 'beam_size', 1, `${rangeHint(RANGES.beam_size.min, RANGES.beam_size.max, { default: BEAM_SIZE_DEFAULT })} Higher is slower and a little more accurate.`, undefined, 'beam_size'),
     separation_backend: () => select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.'),
     hardsub_ocr_backend: () =>
-      select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'rapidocr', 'auto']),
+      select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'rapidocr', 'qwen3_vl_4b', 'qwen3_vl_8b', 'auto']),
     separate_vocals_first: () =>
       toggle(
         'Separate vocals first',
