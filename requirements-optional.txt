@@ -51,6 +51,8 @@ soynlp>=0.0.493
 # RoFormer vocal model (cleaner, preferred); Demucs is the fallback (its
 # project is archived). Each downloads its own model on first use.
 audio-separator>=0.48.0
+audioread>=3.1.0          # audio-separator imports it but doesn't declare it; librosa
+                         # used to pull it in and stopped in 1.0.
 demucs>=4.1.0
 
 # --- word-level forced alignment (word_align.py), EXPERIMENTAL ---

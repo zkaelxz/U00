@@ -90,6 +90,8 @@ OPTIONAL_DEPENDENCIES = {
     "audio-separator": ("audio_separator",
                         "background-music removal before transcription (Mel-Band RoFormer; "
                         "falls back to Demucs)", "feature"),
+    "audioread": ("audioread", "background-music removal (audio-separator imports it without "
+                               "declaring it)", "feature"),
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
@@ -177,7 +179,7 @@ APPROX_DOWNLOAD_MB = {
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
     "genanki": 1, "ebooklib": 1, "plyer": 1,
     "lightnovel-crawler": 30,
-    "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
+    "playwright": 40, "trafilatura": 5, "audio-separator": 30, "audioread": 1, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "nagisa": 22, "soynlp": 1,
     "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
     "nvidia-cublas-cu12": 470, "nvidia-cudnn-cu12": 700,
@@ -235,8 +237,8 @@ INSTALL_TASKS = [
      "optional": ["nvidia-cublas-cu12", "nvidia-cudnn-cu12"]},
     {"id": "music_removal", "group": "Audio", "label": "Remove background music",
      "help": "Clean the audio before transcribing so dialogue is easier to hear.",
-     "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"],
-     "recommended": ["audio-separator"]},
+     "packages": ["demucs", "audio-separator", "audioread", "torch", "soundfile", "numpy"],
+     "recommended": ["audio-separator", "audioread"]},
     {"id": "speakers", "group": "Audio", "label": "Speaker detection",
      "help": "Split and label lines by who is speaking (needs a Hugging Face token).",
      "packages": ["pyannote.audio", "soundfile", "torch"]},
