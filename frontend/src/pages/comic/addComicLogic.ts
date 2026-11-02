@@ -3,6 +3,7 @@
 
 import { unzipSync } from 'fflate'
 
+import { ApiError } from '../../api/client'
 import type { DramaCreateRequest, DramaCreateResult } from '../../types/library'
 import type { ScanlateUploadResult } from '../../types/scanlate'
 import type { SourcesJobStarted } from '../../types/sources'
@@ -35,10 +36,29 @@ export function canAdd(i: AddComicInput): boolean {
 // "page10" sorts after "page9", as a reader numbers pages.
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
 
-/** The page images of a CBZ in reading order, as files the page upload takes. Folders and macOS metadata are skipped. */
-export function cbzPages(bytes: Uint8Array): File[] {
+/** The most a CBZ may unpack to; a few KB of zip can declare far more, and the browser holds it all in memory. */
+export const MAX_CBZ_UNPACKED_BYTES = 20 * 1024 ** 3
+
+/**
+ * The page images of a CBZ in reading order, as files the page upload takes. Folders and macOS metadata are skipped.
+ * The size each image declares is added up before anything is unpacked (fflate sizes its output from that
+ * declaration), so a CBZ over the limit is refused instead of exhausting memory.
+ */
+export function cbzPages(bytes: Uint8Array, maxUnpackedBytes = MAX_CBZ_UNPACKED_BYTES): File[] {
+  let declared = 0
   const entries = unzipSync(bytes, {
-    filter: (f) => IMAGE.test(f.name) && !f.name.startsWith('__MACOSX/') && !f.name.split('/').pop()!.startsWith('.'),
+    filter: (f) => {
+      if (!IMAGE.test(f.name) || f.name.startsWith('__MACOSX/') || f.name.split('/').pop()!.startsWith('.')) return false
+      declared += f.originalSize
+      if (declared > maxUnpackedBytes) {
+        const gb = Math.round(maxUnpackedBytes / 1024 ** 3)
+        throw new ApiError(422, {
+          code: 'invalid_input',
+          message: `This CBZ unpacks to more than ${gb} GB, too much to open safely.`,
+        })
+      }
+      return true
+    },
   })
   return Object.keys(entries)
     .sort(byName)
