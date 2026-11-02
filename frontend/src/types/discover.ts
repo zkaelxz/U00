@@ -1,24 +1,11 @@
-// Discover page shapes (api/schemas/sources.py KnownTitle*, Discover*).
+// Discover page shapes (api/schemas/sources.py KnownTitle*, Discover*); the ones the schema has come from it.
+import type { components } from '../api/generated/schema'
 
-export interface KnownTitle {
-  id: number
-  title_original: string | null
-  title_en: string | null
-  author: string | null
-  tags: string | null
-  summary_en: string | null
-  summary_original: string | null
-  source_name: string | null
-  source_url: string | null
-  language: string | null
-  media_type: string | null
-  created_at: string | null
-}
+type Schemas = components['schemas']
 
-export interface KnownTitleList {
-  titles: KnownTitle[]
-  total: number
-}
+export type KnownTitle = Schemas['KnownTitle']
+
+export type KnownTitleList = Schemas['KnownTitleList']
 
 export interface KnownTitleCreate {
   title_original: string
@@ -80,10 +67,7 @@ export interface ImportSuggestion {
   message: string
 }
 
-export interface DiscoverJobStarted {
-  job_id: string
-  started: boolean
-}
+export type DiscoverJobStarted = Schemas['DiscoverJobStarted']
 
 export interface BulkEntry {
   title: string
