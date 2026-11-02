@@ -211,8 +211,20 @@ def resolve_backend(requested: str, language: str):
     return "tesseract", PADDLE_MISSING_NOTE
 
 
+def _cancel_probe(cancel_check):
+    """A True-when-cancelled view of a check that raises on cancel, for engines that poll
+    mid-frame. The loop's own next cancel_check raises the real exception."""
+    def stopped() -> bool:
+        try:
+            cancel_check()
+        except Exception:
+            return True
+        return False
+    return stopped if cancel_check else None
+
+
 def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str | None = None,
-                      on_timeout=None) -> str:
+                      on_timeout=None, should_stop=None) -> str:
     """lang is in the chosen engine's own code: a Tesseract pack name, a
     PaddleOCR language for backend "paddle", or the source language for "rapidocr". on_timeout is called when
     Tesseract timed out on the frame (only Tesseract has a per-frame timeout)."""
@@ -231,7 +243,7 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd:
         if backend == "rapidocr":
             return ocr_module.extract_text_rapidocr(crop_path, lang).strip()
         if backend in ocr_module.QWEN3_VL_REPOS:
-            return ocr_module.extract_text_qwen3_vl(crop_path, backend).strip()
+            return ocr_module.extract_text_qwen3_vl(crop_path, backend, should_stop=should_stop).strip()
         return ocr_module.extract_text_tesseract(
             crop_path, lang=lang, tesseract_cmd=tesseract_cmd, on_timeout=on_timeout).strip()
     finally:
@@ -384,8 +396,11 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
             if cancel_check:
                 cancel_check()
             try:
+                # Only the vision model has a slow enough frame to need an early stop.
+                extra = ({"should_stop": _cancel_probe(cancel_check)}
+                         if ocr_backend in ocr_module.QWEN3_VL_REPOS else {})
                 text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd,
-                                         on_timeout=_frame_dropped)
+                                         on_timeout=_frame_dropped, **extra)
             except Exception as exc:
                 if ocr_backend not in ocr_module.QWEN3_VL_REPOS:
                     raise
@@ -397,6 +412,8 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                     info.update(backend=ocr_backend, note=QWEN3_VL_FALLBACK_NOTE.format(reason=reason))
                 text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd,
                                          on_timeout=_frame_dropped)
+            if cancel_check:
+                cancel_check()  # a frame stopped early by Cancel is partial text, never kept
             timed_texts.append((ts, _to_title_script(text, language, chinese_script)))
             if progress_cb:
                 progress_cb((i + 1) / total)
