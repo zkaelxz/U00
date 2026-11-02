@@ -42,6 +42,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "diagnostics_report.py",
     "diagnostics_torch.py",
     "diarize.py",
+    "diarize_nemotron.py",
     "dictionary.py",
     "dub.py",
     "dub_narration.py",

@@ -410,6 +410,11 @@ def _check_keep_free_fits(key: str, gb: float):
         raise InvalidInputError(f"'{key}' is more than this PC's {word} ({total / 1024:.1f} GB).")
 
 
+def _speaker_model_choices() -> tuple:
+    import diarize
+    return diarize.SPEAKER_MODELS
+
+
 def _voice_detector_choices() -> tuple:
     from services import asr_options_service
     return asr_options_service.VOICE_DETECTOR_CHOICES
@@ -439,6 +444,7 @@ _SCHEMA_CHOICES = {
     "ocr_backends": _ocr_choices,
     "cookie_browsers": _cookie_browser_choices,
     "voice_detectors": _voice_detector_choices,
+    "speaker_models": _speaker_model_choices,
     "reply_guard_modes": lambda: REPLY_GUARD_MODES,
 }
 
