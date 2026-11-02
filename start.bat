@@ -390,8 +390,23 @@ echo.
 REM --- Prebuilt React app (frontend\dist) -----------------------------------
 REM End users never need Node.js: the installed app ships frontend\dist
 REM prebuilt (installer/build_installer.py). npm only ever runs
-REM here when a developer passes --build-frontend.
+REM here when a developer passes --build-frontend, or in a git checkout whose
+REM screens' source is newer than the built copy (edits the updater never saw:
+REM a hand-checked-out branch, a dirty tree, --no-update). INSTALLED copies and
+REM folders without .git are never rebuilt; a failed rebuild keeps the old screens.
 if defined BAIHE_BUILD_FRONTEND goto :build_frontend
+if exist INSTALLED goto :stale_check_done
+if not exist ".git" goto :stale_check_done
+if not exist "frontend\dist\index.html" goto :stale_check_done
+where npm >nul 2>nul
+if errorlevel 1 goto :stale_check_done
+powershell -NoProfile -Command "$d=(Get-Item 'frontend\dist\index.html').LastWriteTime; $f=@(Get-ChildItem 'frontend\src','frontend\public' -Recurse -File -ErrorAction SilentlyContinue)+@('index.html','package.json','package-lock.json','vite.config.ts','tsconfig.json','tsconfig.app.json' | ForEach-Object { Get-Item (Join-Path 'frontend' $_) -ErrorAction SilentlyContinue }); if ($f | Where-Object { $_.LastWriteTime -gt $d }) { exit 1 } else { exit 0 }" >nul 2>nul
+if not errorlevel 1 goto :stale_check_done
+echo The app's screens are older than their source -- rebuilding frontend\dist.
+set BAIHE_BUILD_FRONTEND=1
+set BAIHE_AUTO_BUILD=1
+goto :build_frontend
+:stale_check_done
 if exist "frontend\dist\index.html" goto :frontend_ready
 if defined BAIHE_CI goto :frontend_missing_noninteractive
 if defined BAIHE_SERVER_ONLY goto :frontend_missing_noninteractive

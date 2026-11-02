@@ -139,6 +139,16 @@ class TestAfterUpdate:
         assert "if errorlevel 1 goto :update_no_npm" in code
         assert any("start.bat --build-frontend" in ln for ln in code)
 
+    def test_stale_screens_rebuild_only_in_a_checkout_with_npm(self):
+        text = "\n".join(_lines(False))
+        block = text[text.index("if exist INSTALLED goto :stale_check_done"):text.index("\n:stale_check_done\n")]
+        for guard in ('if not exist ".git"', 'if not exist "frontend\\dist\\index.html"', "where npm"):
+            assert guard in block
+        assert block.index("where npm") < block.index("set BAIHE_BUILD_FRONTEND=1")
+        assert "set BAIHE_AUTO_BUILD=1" in block
+        assert "-gt $d" in block
+        assert text.index("if defined BAIHE_BUILD_FRONTEND goto :build_frontend") < text.index("if exist INSTALLED goto :stale_check_done")
+
     def test_auto_rebuild_failure_does_not_stop_the_launch(self):
         text = "\n".join(_lines(False))
         failed = text[text.index("\n:build_failed\n"):]
