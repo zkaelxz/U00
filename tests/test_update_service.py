@@ -123,6 +123,8 @@ def http(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(us, "_verified", None)
     monkeypatch.setattr(us, "_download_thread", None)
     monkeypatch.setattr(us, "_installing", False)
+    monkeypatch.setattr(us, "_setup", None)
+    monkeypatch.setattr(FakePopen, "returncode", 0)
     monkeypatch.setattr(us, "_is_installed", lambda: True)
     monkeypatch.setattr(us, "current_version", lambda: "0.1.0")
     # Not the committed key file: these tests must not change when the owner adds a key.
@@ -601,9 +603,13 @@ def test_source_checkout_cannot_download(http, monkeypatch):
 
 class FakePopen:
     calls = []
+    returncode = 0  # Setup closed; None while it is open
 
     def __init__(self, args, **kw):
         FakePopen.calls.append((args, kw))
+
+    def poll(self):
+        return FakePopen.returncode
 
 
 @pytest.fixture
@@ -828,6 +834,18 @@ def test_no_download_or_second_install_starts_while_setup_is_being_checked(verif
     # Once Setup has started, the guard is down again.
     monkeypatch.setattr(us.shutil, "copyfile", real_copy)
     assert us.install()["launched"] is True
+
+
+def test_a_second_setup_is_refused_while_the_first_is_open(verified, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    FakePopen.returncode = None
+    assert us.install()["launched"] is True
+    assert us.setup_busy() is True
+    with pytest.raises(ConflictError, match="already starting"):
+        us.install()
+    FakePopen.returncode = 0
+    assert us.setup_busy() is False
+    assert us.install()["launched"] is True and len(FakePopen.calls) == 2
 
 
 def test_a_failed_install_leaves_a_download_that_replaced_its_own(verified, monkeypatch):

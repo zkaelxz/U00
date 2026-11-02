@@ -21,9 +21,9 @@ import re
 from typing import Optional
 
 # Windows opens these as devices whatever the extension ("nul.txt"), and
-# also with a superscript digit (COM\u00b9).
+# also with a superscript digit (COM\u00b9). CONIN$/CONOUT$ are the console.
 WINDOWS_DEVICE_NAMES = frozenset(
-    ["CON", "PRN", "AUX", "NUL"]
+    ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"]
     + [f"{base}{d}" for base in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"])
 
 
