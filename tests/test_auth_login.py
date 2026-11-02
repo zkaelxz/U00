@@ -789,6 +789,9 @@ class TestAuthOff:
         assert c.get("/api/auth/login").status_code == 404
         assert c.get("/api/auth/callback").status_code == 404
         assert c.post("/api/auth/logout", json={}).status_code == 404
+        assert c.get("/api/auth/app/start").status_code == 404
+        assert c.post("/api/auth/app/confirm", json={}).status_code == 404
+        assert c.post("/api/auth/app/redeem", json={}).status_code == 404
         me = c.get("/api/auth/me").json()
         assert me["auth_enabled"] is False and me["signed_in"] is True
         assert me["zone"] == "pc" and me["sign_in_configured"] is False
@@ -972,3 +975,202 @@ class TestCli:
         assert main(["deactivate", "ghost@example.com"]) == 2
         out = capsys.readouterr()
         assert s["session_token"] not in out.out + out.err
+
+
+# --- phone app hand-off ----------------------------------------------------------
+
+_VERIFIER = "v" * 20 + "erifier-for-the-phone-app-0123456789"
+
+
+def _browser(app, user):
+    """A browser (Chrome on the phone) already signed in as `user`."""
+    c = _client(app)
+    s = auth_service.create_session(user["id"])
+    c.cookies.set("__Host-baihe_session", s["session_token"], domain="baihe.example.com")
+    return c
+
+
+def _confirm_form(page_html):
+    import re
+    return dict(re.findall(r"name=(challenge|ticket) value='([^']*)'", page_html))
+
+
+def _hand_off(app, user, verifier=_VERIFIER):
+    """Chrome confirms; returns the code from the app link."""
+    c = _browser(app, user)
+    challenge = oidc_service.app_challenge_for(verifier)
+    page = c.get("/api/auth/app/start", params={"challenge": challenge})
+    assert page.status_code == 200, page.text
+    r = c.post("/api/auth/app/confirm", data=_confirm_form(page.text))
+    assert r.status_code == 303, r.text
+    location = r.headers["location"]
+    assert location.startswith("intent://signed-in?code=")
+    assert location.endswith("#Intent;scheme=baihe-shell;package=app.baihe.shell;end")
+    return parse_qs(urlsplit(location).query)["code"][0]
+
+
+def _app(app):
+    """The phone app's web view: its own cookie jar, no Origin on its post."""
+    return _client(app)
+
+
+class TestPhoneAppHandOff:
+    def test_round_trip_gives_the_app_its_own_session(self, isolated_db, app):
+        user = _add()
+        code = _hand_off(app, user)
+        web_view = _app(app)
+        r = web_view.post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER},
+                          headers={"Sec-Fetch-Site": "none"})
+        assert r.status_code == 302 and r.headers["location"] == "/"
+        assert r.headers["cache-control"] == "no-store"
+        set_cookies = "\n".join(_cookies(r)).lower()
+        assert "__host-baihe_session=" in set_cookies and "__host-baihe_csrf=" in set_cookies
+        me = web_view.get("/api/auth/me").json()
+        assert me["signed_in"] and me["user"]["id"] == user["id"]
+        # A separate device from the browser that confirmed it.
+        assert len(auth_service.list_own_sessions(user["id"], 0)) == 2
+        assert any(a["detail_redacted"].startswith("app user") for a in _audit("login.success"))
+        devices = {d["device"] for d in auth_service.list_own_sessions(user["id"], 0)}
+        assert "Baihe app on Android" in devices
+
+    def test_start_page_names_the_account_and_cannot_be_framed(self, isolated_db, app):
+        user = _add()
+        c = _browser(app, user)
+        page = c.get("/api/auth/app/start",
+                     params={"challenge": oidc_service.app_challenge_for(_VERIFIER)})
+        assert "Sign in the Baihe Studio app?" in page.text
+        assert "on this phone as kid@example.com." in page.text
+        assert ("Only continue if you just tapped Sign in in the Baihe Studio app. "
+                "Otherwise close this page.") in page.text
+        assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+        assert "form-action 'self' intent:" in page.headers["content-security-policy"]
+        assert page.headers["cache-control"] == "no-store"
+
+    def test_signed_out_browser_goes_through_google_first(self, isolated_db, app):
+        challenge = oidc_service.app_challenge_for(_VERIFIER)
+        r = _client(app).get("/api/auth/app/start", params={"challenge": challenge})
+        assert r.status_code == 302
+        q = parse_qs(urlsplit(r.headers["location"]).query)
+        assert urlsplit(r.headers["location"]).path == "/api/auth/login"
+        assert q["return_to"] == [f"/api/auth/app/start?challenge={challenge}"]
+        assert oidc_service.safe_return_to(q["return_to"][0]) == q["return_to"][0]
+
+    @pytest.mark.parametrize("challenge", ["", "short", "x" * 42 + "!", "x" * 44])
+    def test_bad_challenge_shows_expired_page(self, isolated_db, app, challenge):
+        c = _browser(app, _add())
+        r = c.get("/api/auth/app/start", params={"challenge": challenge})
+        assert r.status_code == 400
+        assert "This sign-in link has expired. Start again from the app." in r.text
+
+    def test_confirm_needs_the_ticket_from_this_session(self, isolated_db, app):
+        user = _add()
+        challenge = oidc_service.app_challenge_for(_VERIFIER)
+        c = _browser(app, user)
+        # Forged or missing ticket, as a cross-site form would send.
+        for data in ({"challenge": challenge}, {"challenge": challenge, "ticket": "0" * 64}):
+            r = c.post("/api/auth/app/confirm", data=data)
+            assert r.status_code == 400 and "location" not in r.headers
+        # A ticket from another session of the same user doesn't carry over.
+        other = _browser(app, user)
+        form = _confirm_form(other.get("/api/auth/app/start",
+                                       params={"challenge": challenge}).text)
+        assert c.post("/api/auth/app/confirm", data=form).status_code == 400
+        # Nor to a different challenge.
+        form = _confirm_form(c.get("/api/auth/app/start", params={"challenge": challenge}).text)
+        form["challenge"] = oidc_service.app_challenge_for("w" * 50)
+        assert c.post("/api/auth/app/confirm", data=form).status_code == 400
+
+    def test_confirm_page_expires(self, isolated_db, app, clock):
+        c = _browser(app, _add())
+        form = _confirm_form(c.get("/api/auth/app/start", params={
+            "challenge": oidc_service.app_challenge_for(_VERIFIER)}).text)
+        clock[0] += oidc_service.APP_TICKET_TTL_SECONDS
+        r = c.post("/api/auth/app/confirm", data=form)
+        assert r.status_code == 400 and "has expired" in r.text
+
+    def test_confirm_without_a_session_is_refused(self, isolated_db, app):
+        form = {"challenge": oidc_service.app_challenge_for(_VERIFIER), "ticket": "0" * 64}
+        assert _client(app).post("/api/auth/app/confirm", data=form).status_code == 400
+
+    def test_code_is_single_use_even_when_the_verifier_is_wrong(self, isolated_db, app):
+        user = _add()
+        code = _hand_off(app, user)
+        r = _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": "w" * 50})
+        assert r.headers["location"] == "/?login_error=expired"
+        r = _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER})
+        assert r.headers["location"] == "/?login_error=expired"
+        assert "__host-baihe_session=" not in "\n".join(_cookies(r)).lower()
+        assert len(auth_service.list_own_sessions(user["id"], 0)) == 1
+
+    def test_code_without_its_verifier_is_useless(self, isolated_db, app):
+        """Another app that catches the link has the code but not the secret."""
+        user = _add()
+        code = _hand_off(app, user)
+        for verifier in ("", "short", oidc_service.app_challenge_for(_VERIFIER)):
+            r = _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": verifier})
+            assert r.headers["location"] == "/?login_error=expired"
+            code = _hand_off(app, user)
+
+    def test_code_expires(self, isolated_db, app, clock):
+        code = _hand_off(app, _add())
+        clock[0] += oidc_service.APP_CODE_TTL_SECONDS
+        r = _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER})
+        assert r.headers["location"] == "/?login_error=expired"
+
+    @pytest.mark.parametrize("headers", [
+        {"Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "same-site"},
+        {"Origin": "https://evil.example"},
+        {"Origin": "https://baihe.example.com.evil.example"},
+        {"Origin": "null"},
+        {"Origin": "null", "Sec-Fetch-Site": "cross-site"},
+    ])
+    def test_redeem_posted_by_another_site_is_refused(self, isolated_db, app, headers):
+        """Stops a page signing a browser in to the attacker's own account."""
+        code = _hand_off(app, _add())
+        r = _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER},
+                           headers=headers)
+        assert r.headers["location"] == "/?login_error=expired"
+        assert "__host-baihe_session=" not in "\n".join(_cookies(r)).lower()
+
+    @pytest.mark.parametrize("headers", [
+        {"Origin": PUBLIC, "Sec-Fetch-Site": "same-origin"},
+        {"Origin": "null", "Sec-Fetch-Site": "none"},   # what WebView.postUrl sends
+    ])
+    def test_this_site_and_the_web_view_are_accepted(self, isolated_db, app, headers):
+        code = _hand_off(app, _add())
+        r = _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER},
+                           headers=headers)
+        assert r.headers["location"] == "/"
+
+    def test_redeem_revokes_the_apps_old_session(self, isolated_db, app):
+        user = _add()
+        old = auth_service.create_session(user["id"])
+        code = _hand_off(app, user)
+        web_view = _app(app)
+        web_view.cookies.set("__Host-baihe_session", old["session_token"],
+                             domain="baihe.example.com")
+        web_view.post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER})
+        assert auth_service.resolve_session(old["session_token"]) is None
+
+    def test_deactivated_user_gets_no_session(self, isolated_db, app):
+        user = _add()
+        code = _hand_off(app, user)
+        auth_service.deactivate_user(user["id"])
+        r = _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER})
+        assert r.headers["location"] == "/?login_error=not_allowed"
+
+    def test_codes_are_capped_per_user(self, isolated_db, app):
+        user = _add()
+        codes = [_hand_off(app, user) for _ in range(oidc_service.MAX_APP_CODES_PER_USER + 1)]
+        r = _app(app).post("/api/auth/app/redeem", data={"code": codes[0], "verifier": _VERIFIER})
+        assert r.headers["location"] == "/?login_error=expired"
+        r = _app(app).post("/api/auth/app/redeem", data={"code": codes[-1], "verifier": _VERIFIER})
+        assert r.headers["location"] == "/"
+
+    def test_redeem_is_rate_limited(self, isolated_db, app):
+        c = _app(app)
+        for _ in range(oidc_service.APP_RATE[0]):
+            c.post("/api/auth/app/redeem", data={"code": "x", "verifier": _VERIFIER})
+        r = c.post("/api/auth/app/redeem", data={"code": "x", "verifier": _VERIFIER})
+        assert r.status_code == 429 and "Sign-in paused" in r.text

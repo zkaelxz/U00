@@ -84,7 +84,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const comicNotice = comic && isLineStageForComic(active)
   // The line stages are empty for a comic, so "Next" never sends it there.
   const rawNext = nextAction(active, progress)
-  const next = comic && rawNext && isLineStageForComic(rawNext.stage) ? null : rawNext
+  // With every line translated the Translate stage already offers Next: Review beside its reason; a second one here would repeat it.
+  const stageOffersNext = active === 'translate' && rawNext?.stage === 'review' && !!progress && progress.line_count > 0 && progress.untranslated_count <= 0
+  const next = (comic && rawNext && isLineStageForComic(rawNext.stage)) || stageOffersNext ? null : rawNext
   // On Review the phone's fixed edit bar owns the bottom edge, so the bar stays away.
   const nextHref = next ? routeHref({ name: 'drama', id, stage: next.stage }) : null
   const Stage = active ? STAGE_COMPONENTS[active] : null

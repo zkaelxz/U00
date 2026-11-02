@@ -14,6 +14,8 @@ pytest.importorskip("httpx")
 import db
 from tests.test_api_benchmark import BASE, _local, _remote
 
+pytestmark = pytest.mark.usefixtures("whisper_present")
+
 ROW = {"filename": "scene one.wav", "language": "ja", "transcript": "ありがとう",
        "translation": "Thank you", "title": "Show", "tags": ["music"]}
 

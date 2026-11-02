@@ -20,6 +20,8 @@ from services import benchmark_scoring_service as scoring
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from tests.job_helpers import wait_for_job
 
+pytestmark = pytest.mark.usefixtures("whisper_present")
+
 
 def _audio(data=b"RIFFfake"):
     return io.BytesIO(data)

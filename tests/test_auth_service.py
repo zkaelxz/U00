@@ -261,3 +261,40 @@ def test_ipv6_session_stores_only_the_48(adb):
 ])
 def test_rate_limit_key_buckets_ipv6_by_64(ip, expected):
     assert auth.rate_limit_key(ip) == expected
+
+
+def _put_audit(ts, action="login.success"):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO audit_log (ts, user_id, action, detail_redacted) "
+                     "VALUES (?, NULL, ?, '')", (ts, action))
+        conn.commit()
+
+
+def _audit_ts():
+    with contextlib.closing(db.get_conn()) as conn:
+        return [r[0] for r in conn.execute("SELECT ts FROM audit_log ORDER BY id")]
+
+
+def test_prune_audit_log_keeps_the_boundary_second_and_everything_newer(adb):
+    now = 1_800_000_000.0
+    cutoff = now - auth.AUDIT_RETENTION_DAYS * 86400
+    fmt = lambda t: __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime(t))
+    _put_audit(fmt(cutoff - 1), "user.deactivate")
+    _put_audit(fmt(cutoff), "user.deactivate")
+    _put_audit(fmt(cutoff + 1), "permission.grant")
+    assert auth.prune_audit_log(now) == 1
+    remaining = _audit_ts()
+    assert fmt(cutoff - 1) not in remaining
+    assert remaining[:2] == [fmt(cutoff), fmt(cutoff + 1)]
+    assert db.auth_list_audit(limit=10)[0]["action"] == "audit.prune"
+
+
+def test_prune_audit_log_clears_more_than_one_batch_and_is_a_no_op_when_clean(adb, monkeypatch):
+    monkeypatch.setattr(auth, "_AUDIT_PRUNE_BATCH", 2)
+    for _ in range(5):
+        _put_audit("2000-01-01T00:00:00Z")
+    _put_audit("2999-01-01T00:00:00Z", "session.create")
+    assert auth.prune_audit_log() == 5
+    assert _audit_ts() == ["2999-01-01T00:00:00Z", _audit_ts()[1]]
+    assert auth.prune_audit_log() == 0
+    assert len(_audit_ts()) == 2

@@ -29,7 +29,7 @@ TESSERACT_LANG_ZH_TRADITIONAL = "chi_tra"
 
 # Shared with the UI: Settings' own default-backend picker and Scanlate's
 # per-page override both offer the same choices, from this one list.
-OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "tesseract"]
+OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "rapidocr", "tesseract"]
 
 # Burned-in video captions only: manga_ocr and paddle_vl_manga are trained on
 # manga bubbles, so they are not offered here.
@@ -236,6 +236,20 @@ def paddle_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
     return lines
 
 
+def extract_text_rapidocr(image_path: str) -> str:
+    """Chinese and Japanese text through RapidOCR's default models, which ship
+    inside its wheel (no download on first use). Any other language or model
+    type would be fetched by RapidOCR itself, outside lib.http, so this
+    function never asks for one. The default model has no Korean, so a Korean
+    page comes back as noise: Korean stays on Tesseract or Paddle."""
+    from rapidocr import RapidOCR
+    with _MODEL_LOCK:
+        if "_rapidocr_instance" not in globals():
+            globals()["_rapidocr_instance"] = RapidOCR(params={"Global.log_level": "warning"})
+        result = globals()["_rapidocr_instance"](image_path)
+    return "\n".join(result.txts or ())
+
+
 _PADDLE_VL_MANGA_REPO = "jzhang533/PaddleOCR-VL-For-Manga"
 # The manga repo's tokenizer files lack `image_token`, so its own processor
 # fails to load; the base repo's processor is compatible with the manga weights.
@@ -252,6 +266,9 @@ _BACKEND_PACKAGES = {
     "manga_ocr": (("manga_ocr", "manga-ocr"),),
     "paddle": (("paddleocr", "paddleocr"), ("paddle", "paddlepaddle")),
     "paddle_vl_manga": (("transformers", "transformers"),),
+    "rapidocr": (("rapidocr", "rapidocr"), ("onnxruntime", "onnxruntime"), ("shapely", "shapely"),
+                 ("pyclipper", "pyclipper"), ("omegaconf", "omegaconf"), ("colorlog", "colorlog"),
+                 ("six", "six"), ("tqdm", "tqdm"), ("yaml", "PyYAML")),
     "tesseract": (("pytesseract", "pytesseract"),),
 }
 _TESSERACT_PROBE_SECONDS = 10
@@ -484,6 +501,8 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
     elif backend == "paddle":
         paddle_lang = _PADDLE_LANG_BY_SOURCE.get(source_language, "ch")
         fn = lambda p: extract_text_paddle(p, lang=paddle_lang)
+    elif backend == "rapidocr":
+        fn = extract_text_rapidocr
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
         vertical_pack = (vertical and source_language in TESSERACT_LANG

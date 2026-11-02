@@ -411,3 +411,14 @@ def test_a_chosen_batch_size_is_never_overridden(isolated_db, monkeypatch):
     did = _drama()
     assert _batch_size_validated(monkeypatch, did, engine_name="claude",
                                  model="claude-sonnet-5-5", batch_size=25) == 25
+
+
+def test_a_new_run_waits_while_a_cancelled_requests_provider_call_is_still_running(isolated_db, monkeypatch):
+    from engine_backends import llm_tasks
+    from lib.errors import ConflictError
+    did = _drama()
+    _seed(did, [("你好", "")])
+    monkeypatch.setattr(llm_tasks, "abandoned_request_alive", lambda job_id: job_id == f"translate_{did}")
+
+    with pytest.raises(ConflictError, match="still finishing"):
+        svc.start_translate_run(did, engine_name="fake")

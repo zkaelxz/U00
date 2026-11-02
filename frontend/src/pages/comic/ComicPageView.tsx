@@ -30,11 +30,13 @@ type Props = {
   regions: ComicRegionsResponse | null
   // Phone: numbered boxes only (the lines are in the sheet). Desktop: the text too.
   boxText: boolean
+  // Set when a tap on a text box should open it for editing.
+  onLineTap?: (idx: number) => void
   onProblem: (problem: ImageProblem) => void
   figureRef?: Ref<HTMLElement>
 }
 
-export function ComicPageView({ page, number, count, src, fit, eager, mounted = true, regions, boxText, onProblem, figureRef }: Props) {
+export function ComicPageView({ page, number, count, src, fit, eager, mounted = true, regions, boxText, onLineTap, onProblem, figureRef }: Props) {
   const [problem, setProblem] = useState<{ src: string; kind: ImageProblem } | null>(null)
   const shownProblem = problem && problem.src === src ? problem.kind : null
   const w = page.width && page.width > 0 ? page.width : null
@@ -122,6 +124,8 @@ export function ComicPageView({ page, number, count, src, fit, eager, mounted = 
                 <div
                   key={l.idx}
                   className={boxText ? 'comic-box comic-box-text' : 'comic-box'}
+                  data-tappable={onLineTap ? true : undefined}
+                  onClick={onLineTap ? () => onLineTap(l.idx) : undefined}
                   style={{ left: `${box.left}%`, top: `${box.top}%`, width: `${box.width}%`, height: `${box.height}%` }}
                 >
                   <span className="comic-box-num">{i + 1}</span>

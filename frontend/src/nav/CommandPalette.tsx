@@ -212,7 +212,7 @@ function useTitleHits(query: string): DramaSummary[] {
     if (!term) return
     let stale = false
     const timer = window.setTimeout(() => {
-      api.listDramas({ search: term }).then(
+      api.listDramas({ search: term, progress: 'false' }).then(
         (r) => !stale && setHits({ term, items: r.items }),
         () => undefined,
       )

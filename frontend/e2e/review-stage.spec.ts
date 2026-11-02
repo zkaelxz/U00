@@ -640,23 +640,25 @@ test('the player is open by default: seek bar, jump to time, go to the selected 
   withAudio()
   await open(page)
   const player = page.getByRole('group', { name: 'Player' })
+  // On a short screen the seek bar and its controls sit in the dock under the sticky bar, outside the Player group.
+  const panel = page.locator('.review-player-dock')
   const audio = page.locator('.review-player audio')
-  const seek = player.getByRole('slider', { name: 'Seek' })
+  const seek = panel.getByRole('slider', { name: 'Seek' })
   await expect(seek).toBeVisible()
   await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
   await expect(seek).toBeEnabled()
 
-  await player.getByLabel('Jump to time').fill('0:04.5')
-  await player.getByRole('button', { name: 'Jump' }).click()
+  await panel.getByLabel('Jump to time').fill('0:04.5')
+  await panel.getByRole('button', { name: 'Jump' }).click()
   await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.currentTime)).toBeCloseTo(4.5, 1)
   await expect(page.getByTestId('player-time')).toContainText('0:04.50')
 
-  await player.getByLabel('Jump to time').fill('1:99')
-  await player.getByRole('button', { name: 'Jump' }).click()
-  await expect(player.getByRole('alert')).toContainText('Type a time like')
+  await panel.getByLabel('Jump to time').fill('1:99')
+  await panel.getByRole('button', { name: 'Jump' }).click()
+  await expect(panel.getByRole('alert')).toContainText('Type a time like')
 
   await activate(page, 1)
-  await player.getByRole('button', { name: 'Go to line #2' }).click()
+  await panel.getByRole('button', { name: 'Go to line #2' }).click()
   await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.currentTime)).toBeCloseTo(1.5, 1)
   await expect(page.getByTestId('player-line')).toHaveText('Line #2')
 
@@ -675,12 +677,12 @@ test('the player is open by default: seek bar, jump to time, go to the selected 
 test('subtitles follow the playhead, switch language, and pick up an edit', async ({ page }) => {
   withAudio()
   await open(page)
-  const player = page.getByRole('group', { name: 'Player' })
+  const panel = page.locator('.review-player-dock')
   const caption = page.getByTestId('player-caption')
   const audio = page.locator('.review-player audio')
   const seekTo = async (t: number) => {
-    await player.getByLabel('Jump to time').fill(String(t))
-    await player.getByRole('button', { name: 'Jump' }).click()
+    await panel.getByLabel('Jump to time').fill(String(t))
+    await panel.getByRole('button', { name: 'Jump' }).click()
   }
   // Wait for the English track's cues before seeking into them.
   await expect
@@ -691,15 +693,15 @@ test('subtitles follow the playhead, switch language, and pick up an edit', asyn
   await seekTo(3.5)
   await expect(caption).toHaveText('Thanks, friend')
 
-  await player.getByLabel('Subtitles').selectOption({ label: 'Original' })
+  await panel.getByLabel('Subtitles').selectOption({ label: 'Original' })
   await expect(caption).toHaveText('谢谢')
   // Both: the translation over the original, one cue per line.
-  await player.getByLabel('Subtitles').selectOption({ label: 'Both' })
+  await panel.getByLabel('Subtitles').selectOption({ label: 'Both' })
   await expect.poll(() => caption.evaluate((p) => p.textContent)).toBe('Thanks, friend\n谢谢')
   await seekTo(0.5)
   await expect.poll(() => caption.evaluate((p) => p.textContent)).toBe('Hello there\n你好')
   await seekTo(3.5)
-  await player.getByLabel('Subtitles').selectOption({ label: 'English' })
+  await panel.getByLabel('Subtitles').selectOption({ label: 'English' })
   await expect(caption).toHaveText('Thanks, friend')
 
   const row = rows(page).nth(2)
@@ -710,7 +712,7 @@ test('subtitles follow the playhead, switch language, and pick up an edit', asyn
   await seekTo(3.6)
   await expect(caption).toHaveText('Much obliged')
 
-  await player.getByLabel('Subtitles').selectOption({ label: 'Off' })
+  await panel.getByLabel('Subtitles').selectOption({ label: 'Off' })
   await expect(caption).toHaveCount(0)
   await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.textTracks.length)).toBe(0)
 })
