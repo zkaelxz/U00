@@ -278,7 +278,7 @@ def _run_engine(fn, meter=None):
     except ServiceError:
         raise
     except dictionary.CedictDownloadError as e:  # already user-ready, not an engine failure
-        raise ServiceError(str(e)) from None
+        raise DependencyUnavailableError(str(e)) from None
     except OSError:  # local work (e.g. the CEDICT cache): no path out
         raise ServiceError("A local dictionary or file step failed; see the app log.") from None
     except Exception as e:  # engine/network failure: never leak a key or path

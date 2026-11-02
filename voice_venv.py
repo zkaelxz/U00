@@ -86,7 +86,7 @@ NO_AUDIO = "The voice engine wrote no audio."
 
 
 def run_batch(engine: str, items: list, workdir: str, timeout: float, cancel=None,
-              options: dict | None = None, on_start=None):
+              options: dict | None = None, on_start=None, own_group: bool = True):
     """Speaks `items` ({"id": str, "out": wav path, plus the engine's own fields such as
     text, language, ref_audio, ref_text}) in one child. Yields one event per checked line
     ({"loaded": True}, {"done": id}, {"failed": id, "error", "detail"},
@@ -94,7 +94,9 @@ def run_batch(engine: str, items: list, workdir: str, timeout: float, cancel=Non
     "unanswered": [ids]}. "error" and "fatal" are fixed sentences; "detail" is the
     engine's own text, which may name local paths: log it, never show or store it.
     Any file already at an "out" path is removed first, so a "done" only counts when the
-    engine wrote that file in this run. Stopping the iteration early kills the child tree."""
+    engine wrote that file in this run. Stopping the iteration early kills the child tree.
+    `own_group=False` from inside a kill_whole_tree job worker, so a cancel of that job
+    reaches the child (see lib.proc.run_captured)."""
     ids = [item["id"] for item in items]
     if len(set(ids)) != len(ids) or not all(isinstance(i, str) for i in ids):
         raise ValueError("voice batch item ids must be unique strings")
@@ -122,7 +124,8 @@ def run_batch(engine: str, items: list, workdir: str, timeout: float, cancel=Non
         # so the worker can't pick up the app's own packages; it also ignores
         # PYTHONIOENCODING, hence -X utf8 for non-ASCII text and paths on Windows.
         cmd = [python, "-I", "-X", "utf8", WORKER_SCRIPT, spec_path]
-        stream = proc.stream_tree(cmd, timeout, cwd=workdir, cancel=cancel, on_start=on_start)
+        stream = proc.stream_tree(cmd, timeout, cwd=workdir, cancel=cancel, on_start=on_start,
+                                  own_group=own_group)
         for item in stream:
             line = item.get("line")
             if line is None:

@@ -17,6 +17,7 @@ import background_jobs
 import db
 import dub
 import dub_narration
+import voice_venv
 from jobs import job_launch
 from services import ownership_service
 from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError
@@ -30,8 +31,9 @@ NO_ENGINE_INSTALLED_MESSAGE = "No voice engine is installed. Install one in Diag
 _NOT_NARRATED = "Listen is only for narrated novels."
 TRACK_NAME = "narration_track.wav"
 
-# Python module and display name of each engine's package.
-_ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice")}
+# Python module and display name of each engine's package. A dub.VENV_ENGINES engine
+# is never imported here: its module names the package inside its own venv.
+_ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice"), "qwen3_tts": ("qwen_tts", "Qwen3-TTS")}
 # OmniVoice needs transformers 5.3+; the install can exist but not load.
 _OMNIVOICE_MIN_TRANSFORMERS: tuple[int, ...] = (5, 3)
 
@@ -112,6 +114,8 @@ def _engine_install_problem(engine: str):
     """Fixed-text reason `engine` can't run on this PC, or None. Never names
     a path."""
     module, label = _ENGINE_PACKAGES[engine]
+    if engine in dub.VENV_ENGINES:
+        return None if voice_venv.is_ready(engine) else f"{label} is not installed. Install it in Diagnostics."
     if importlib.util.find_spec(module) is None:
         return f"{label} is not installed. Install it in Diagnostics."
     if engine == "omnivoice" and (_transformers_version() or (0, 0)) < _OMNIVOICE_MIN_TRANSFORMERS:
