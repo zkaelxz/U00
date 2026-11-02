@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { SourcesSettings, SourceSummary } from '../../types/sources'
-import { SEARCH_REMOTE_ALLOWED, browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources, accessMethodLabel, isoDay, sourceStatusLabel, tierLines } from './sourcesFormat'
+import { SEARCH_REMOTE_ALLOWED, browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, groupSourcesByLanguageAndKind, searchableSources, selectedSources, accessMethodLabel, isoDay, sourceStatusLabel, tierLines } from './sourcesFormat'
 import { groupChapters, limitGroups, seriesSafeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
 import { cacheLabel, draftFrom, fieldProblem, CHECK_FIELD, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
 
@@ -420,5 +420,28 @@ describe('excludedAfterBulkPick', () => {
   it('All unticks nothing and None unticks every searchable source', () => {
     expect(selectedSources(['a', 'b'], excludedAfterBulkPick(['a', 'b'], 'all'))).toEqual(['a', 'b'])
     expect(selectedSources(['a', 'b'], excludedAfterBulkPick(['a', 'b'], 'none'))).toEqual([])
+  })
+})
+
+describe('groupSourcesByLanguageAndKind', () => {
+  const src = (name: string, languages: string[], content_types: string[]) =>
+    ({ name, display_name: name, languages, content_types }) as SourceSummary
+
+  it('orders languages, then comics, novels and media, from the metadata', () => {
+    const groups = groupSourcesByLanguageAndKind([
+      src('en-novel', ['en'], ['novel']),
+      src('zh-novel', ['zh'], ['novel']),
+      src('ko-comic', ['ko'], ['manhwa']),
+      src('zh-audio', ['zh'], ['audio_drama']),
+      src('zh-comic', ['zh'], ['manhua']),
+      src('ja-comic', ['ja'], ['manga']),
+      src('fr-comic', ['fr'], ['manga']),
+    ])
+    expect(groups.map((g) => g.label)).toEqual(['Chinese', 'Japanese', 'Korean', 'English', 'FR'])
+    expect(groups[0].kinds.map((k) => [k.label, k.sources.map((s) => s.name)])).toEqual([
+      ['Comics', ['zh-comic']],
+      ['Novels', ['zh-novel']],
+      ['Audio and video', ['zh-audio']],
+    ])
   })
 })
