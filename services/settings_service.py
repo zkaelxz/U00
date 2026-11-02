@@ -425,6 +425,16 @@ def reply_guard_override():
     return {"on": True, "off": False}.get(str(get("translate_reply_guard")))
 
 
+def alignment_embedder():
+    """The embedding function for the source-match check, or None while the setting
+    is off, so the root translate modules never read settings."""
+    if not get("translate_alignment_check"):
+        return None
+    from engine_backends import alignment_check
+    base_url = ollama_url()
+    return lambda texts: alignment_check.embed(base_url, texts)
+
+
 def run_options() -> dict:
     """The saved settings a translate run records in its job args, so a run
     that is resumed or scheduled later behaves as it was submitted."""
