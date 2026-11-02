@@ -1309,16 +1309,16 @@ class TestRunServers:
 
 
 @pytest.mark.parametrize("settings,listener,expected", [
-    (ApiSettings(serve_frontend=False), "admin", ["LocalOnlyCrossSiteGate", "LoopbackOnlyGate"]),
+    (ApiSettings(serve_frontend=False), "admin", ["LocalOnlyCrossSiteGate", "LoopbackOnlyGate", "JsonBodyCapGate"]),
     (ApiSettings(serve_frontend=False, environment="development",
                  cors_origins=("http://localhost:5173",)), "admin",
-     ["CORSMiddleware", "LocalOnlyCrossSiteGate", "LoopbackOnlyGate"]),
+     ["CORSMiddleware", "LocalOnlyCrossSiteGate", "LoopbackOnlyGate", "JsonBodyCapGate"]),
     (ApiSettings(serve_frontend=False, auth_mode="on", **SIGN_IN), "admin",
      ["LocalOnlyCrossSiteGate", "EarlyAuthGate", "RemoteUploadGate",
-      "ActingPrincipalMiddleware"]),
+      "ActingPrincipalMiddleware", "JsonBodyCapGate"]),
     (ADMIN, "household",
      ["HouseholdGate", "LocalOnlyCrossSiteGate", "EarlyAuthGate",
-      "RemoteUploadGate", "ActingPrincipalMiddleware"]),
+      "RemoteUploadGate", "ActingPrincipalMiddleware", "JsonBodyCapGate"]),
 ])
 def test_middleware_order_outermost_first(settings, listener, expected):
     """The gates' order is the security boundary: the Host check and headers
