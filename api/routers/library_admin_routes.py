@@ -14,8 +14,10 @@ streamed from an already-open file handle.
 import os
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
+from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
 
 from api.auth import holds_paid_engines, local_only, require_engines_allowed, require_permission
 from api.schemas import (
@@ -31,6 +33,7 @@ from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
 from services import library_user_backup_service as lub
 from services import media_upload_service
+from lib.capped_request import read_capped_form
 from lib.errors import InvalidInputError, NotFoundError
 from lib import storage_errors
 
@@ -155,11 +158,25 @@ def _restore_too_large(limit: int) -> str:
             f"copy the backup folder back by hand.")
 
 
+def _restore_limit() -> int:
+    return min(media_upload_service.max_upload_bytes(), lbr.RESTORE_MAX_UPLOAD_BYTES)
+
+
+# Room for the multipart boundaries and the two small confirm fields.
+_MULTIPART_OVERHEAD = 64 * 1024
+_RESTORE_FORM_HELP = ("Send the backup as multipart/form-data: a 'file' part, plus confirm "
+                      "and confirm_text.")
+_RESTORE_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
+    "type": "object", "required": ["file", "confirm", "confirm_text"],
+    "properties": {"file": {"type": "string", "format": "binary"},
+                   "confirm": {"type": "string"}, "confirm_text": {"type": "string"}}}}}}}
+
+
 def _read_capped(upload: UploadFile) -> bytes:
     """The upload as one bytes object, refused (422) past the upload limit
     or the smaller restore cap. One read of limit+1 bytes, so the peak is
     the upload itself, not a copy."""
-    limit = min(media_upload_service.max_upload_bytes(), lbr.RESTORE_MAX_UPLOAD_BYTES)
+    limit = _restore_limit()
     size = getattr(upload, "size", None)
     if size is not None and size > limit:
         raise InvalidInputError(_restore_too_large(limit))
@@ -170,22 +187,34 @@ def _read_capped(upload: UploadFile) -> bytes:
 
 
 @router.post("/restore", dependencies=[local_only()], response_model=LibraryRestoreDone,
-             responses=_ERR_409,
+             openapi_extra=_RESTORE_BODY, responses=_ERR_409,
              summary="Replace the whole library with an uploaded backup "
                      "(confirm=true, confirm_text=RESTORE)",
              description="Multipart: file, confirm (the string \"true\"), confirm_text. Every "
                          "sign-in session is revoked afterwards.")
-def post_restore(request: Request, file: UploadFile = File(...),
-                 confirm: str = Form("", max_length=8),
-                 confirm_text: str = Form("", max_length=32)):
-    # Checked before the upload is read or validated.
-    if confirm != "true" or confirm_text != las.RESTORE_CONFIRM_TEXT:
-        raise InvalidInputError(f"Restoring a backup needs confirm=true and confirm_text set "
-                                f"to the word {las.RESTORE_CONFIRM_TEXT}, in capitals.")
-    data = _read_capped(file)
+async def post_restore(request: Request):
+    # Read by hand, not with File(): FastAPI spools a File() body to the temp
+    # folder before the handler runs, so a body of any size would land there
+    # first. The Content-Length is checked before any of it is read.
+    limit = _restore_limit()
+    form = await read_capped_form(request, limit + _MULTIPART_OVERHEAD, "the backup file",
+                                  _restore_too_large(limit), _RESTORE_FORM_HELP,
+                                  max_files=1, max_fields=2, max_part_size=1024)
+    try:
+        confirm, confirm_text, upload = (form.get("confirm"), form.get("confirm_text"),
+                                         form.get("file"))
+        # Checked before the upload is read or validated.
+        if confirm != "true" or confirm_text != las.RESTORE_CONFIRM_TEXT:
+            raise InvalidInputError(f"Restoring a backup needs confirm=true and confirm_text "
+                                    f"set to the word {las.RESTORE_CONFIRM_TEXT}, in capitals.")
+        if not isinstance(upload, UploadFile):
+            raise InvalidInputError(_RESTORE_FORM_HELP)
+        data = await run_in_threadpool(_read_capped, upload)
+    finally:
+        await form.close()
     principal = getattr(request.state, "principal", None) or {}
-    return lbr.restore_backup(data, confirm=True, confirm_text=confirm_text,
-                              actor_id=principal.get("user_id"))
+    return await run_in_threadpool(lbr.restore_backup, data, confirm=True,
+                                   confirm_text=confirm_text, actor_id=principal.get("user_id"))
 
 
 @router.get("/storage", dependencies=[require_permission("admin.library")],

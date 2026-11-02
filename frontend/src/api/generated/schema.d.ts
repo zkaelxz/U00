@@ -13872,21 +13872,6 @@ export interface components {
             /** Speaker Label */
             speaker_label: string;
         };
-        /** Body_post_restore_api_library_admin_restore_post */
-        Body_post_restore_api_library_admin_restore_post: {
-            /**
-             * Confirm
-             * @default
-             */
-            confirm: string;
-            /**
-             * Confirm Text
-             * @default
-             */
-            confirm_text: string;
-            /** File */
-            file: string;
-        };
         /** Body_post_upload_and_transcribe_api_media_dramas__drama_id__upload_and_transcribe_post */
         Body_post_upload_and_transcribe_api_media_dramas__drama_id__upload_and_transcribe_post: {
             /** Chinese Script */
@@ -41942,7 +41927,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_post_restore_api_library_admin_restore_post"];
+                "multipart/form-data": {
+                    confirm: string;
+                    confirm_text: string;
+                    /** Format: binary */
+                    file: string;
+                };
             };
         };
         responses: {
