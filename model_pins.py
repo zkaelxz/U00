@@ -43,6 +43,8 @@ REVISIONS = {
     # OCR (ocr.py) and scanlate (scanlate_detect.py, scanlate_inpaint.py).
     "jzhang533/PaddleOCR-VL-For-Manga": "1e8aa5f1dd90cc86fe9137c9c0b26ebde613cfe8",
     "PaddlePaddle/PaddleOCR-VL": "7fa00a8c55b735ba51ba49a9058f3f9c57a99a11",
+    "Qwen/Qwen3-VL-4B-Instruct": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+    "Qwen/Qwen3-VL-8B-Instruct": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
     "kha-white/manga-ocr-base": "aa6573bd10b0d446cbf622e29c3e084914df9741",
     "ogkalu/comic-text-and-bubble-detector": "16e8a622f91fabc6b5b65c96d32d1183f8843546",
     "mayocream/lama-manga": "f91c85b26913b3e83f9877867b4c336da3675238",

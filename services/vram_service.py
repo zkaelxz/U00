@@ -28,6 +28,8 @@ MODEL_VRAM_MB = {
     "Qwen3-TTS": 4000,      # the 1.7B Base model: about 3.4 GB of weights in half precision
     "Chatterbox": 3500,     # the multilingual model in full precision: about 3 GB of weights
     "PaddleOCR-VL-For-Manga": 3000,
+    "Qwen/Qwen3-VL-4B-Instruct": 9000,   # about 8.9 GB of weights in half precision
+    "Qwen/Qwen3-VL-8B-Instruct": 17500,  # about 17.5 GB of weights in half precision
 }
 
 
