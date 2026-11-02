@@ -340,6 +340,19 @@ work".
 | Terms | robots.txt (2026-11-02): `Disallow` for /admin/, /account/, /download/, `/search?`; `Crawl-delay: 1`, which is the host interval. Content signals: `search=yes, ai-train=no, use=reference`; the site reserves AI training. No terms page found, so `automation_permission` stays `UNKNOWN`. |
 | Tests | `tests/test_sources_nihonkuni.py` (small invented fixtures; no network). |
 
+## Weloma — `sources/adapters/weloma.py`
+
+| | |
+|---|---|
+| URL patterns | `weloma.net/m/<code>` (series); chapter links `weloma.net/c/<code>` carry no series code, so a pasted chapter URL is not recognised |
+| Content type / language | manga; ja (Japanese raws) |
+| Status | **Read against the live site 2026-11-02** (plain GETs, no login): search, a 372-chapter series, its chapter links, one chapter's 20 image URLs and one image download. No import has been run through the app. |
+| Access tier | `STATIC_HTTP`. A server-rendered PHP site behind Cloudflare that answered plainly; nothing needs JavaScript. Images are plain JPEG/WebP files, not scrambled. |
+| Extraction | **Search:** GET `app/manga/controllers/search.single.php?q=<q>` (JSON suggest list, one page). **Series:** breadcrumb title, cover, author, genre and status items. **Chapters:** the `/c/<code>` links in the series' chapter list (newest first on the page, reversed). **Pages:** each `img.chapter-img` carries its image URL base64-encoded in `data-img`; the site's own lazy-loader runs `atob()` on it. That is a lazy-load format with no key, not a protection on the image, so the adapter reads it the same way and accepts only https URLs. |
+| Failures | A missing title, chapter links or page images -> `LayoutChanged`. A code that isn't plain letters and digits is refused before it reaches a URL. |
+| Terms | robots.txt (2026-11-02): `Allow: /`, no Crawl-delay; AI crawlers (ClaudeBot, anthropic-ai, GPTBot and others) are disallowed by name. Content signals: `search=yes, ai-train=no, use=reference`; the site reserves AI training. No terms page found, so `automation_permission` stays `UNKNOWN`. |
+| Tests | `tests/test_sources_weloma.py` (small invented fixtures; no network). |
+
 ## Marumaru (마루마루) — `sources/adapters/marumaru.py`
 
 | | |
