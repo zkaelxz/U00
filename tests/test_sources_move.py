@@ -245,10 +245,9 @@ def test_refused_while_a_check_or_the_titles_import_runs(client, monkeypatch):
     did = db.create_drama(title_en="T", media_type="manhua")
     _tracked_old(did)
     _open_new(client)
-    monkeypatch.setattr(background_jobs, "get_status",
-                        lambda jid: {"status": "running"} if jid == f"sourceimport_{did}"
-                        else {"status": "done", "result": None}
-                        if not jid.startswith(search.SERIES_JOB_PREFIX) else _series_status())
+    real = background_jobs.list_all_jobs
+    monkeypatch.setattr(background_jobs, "list_all_jobs",
+                        lambda: {**real(), f"sourceimport_{did}": {"status": "running"}})
     assert client.post("/api/sources/tracked/move", json=BODY).status_code == 409
     assert [s["source"] for s in store.list_tracked_series()] == ["old"]
 
@@ -280,3 +279,25 @@ def test_permissions(world):
     for path in ("/api/sources/tracked/move", "/api/sources/tracked/move/preview"):
         assert c.post(path, json=BODY, headers=hdrs(other)).status_code == 404
     assert [s["series_id"] for s in store.list_tracked_series()] == ["o1"]
+
+
+def test_series_linked_to_a_deleted_drama_can_still_be_moved(client):
+    did = db.create_drama(title_en="T", media_type="manhua")
+    _tracked_old(did)
+    db.delete_drama(did)
+    _open_new(client)
+    r = client.post("/api/sources/tracked/move", json=BODY)
+    assert r.status_code == 200, r.text
+    (row,) = store.list_tracked_series()
+    assert (row["source"], row["drama_id"]) == ("new", None)
+
+
+def test_move_refused_while_another_process_runs_the_import(client):
+    did = db.create_drama(title_en="T", media_type="manhua")
+    _tracked_old(did)
+    _open_new(client)
+    # A job_records row with no in-process job is what a second server process leaves.
+    db.save_job_record(f"{search.IMPORT_JOB_PREFIX}{did}", "running")
+    r = client.post("/api/sources/tracked/move", json=BODY)
+    assert r.status_code == 409
+    assert [x["series_id"] for x in store.list_tracked_series()] == ["o1"]
