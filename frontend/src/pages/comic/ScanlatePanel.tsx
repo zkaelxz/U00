@@ -115,7 +115,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
     },
     [reload, onChanged, onJob],
   )
-  const { job, done, error: pollError } = useJob(jobId, { runKey, onDone })
+  const { job, done, error: pollError } = useJob(jobId, { runKey, onDone, onProgress: onChanged })
   useEffect(() => {
     if (jobId !== null) onJob?.(jobId)
   }, [jobId, runKey, onJob])

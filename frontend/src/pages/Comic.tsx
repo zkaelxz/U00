@@ -180,6 +180,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   // pages when it finishes. While the panel is open it follows the job itself.
   const [watchedJob, setWatchedJob] = useState<string | null>(null)
   useJob(toolsOpen ? null : watchedJob, {
+    onProgress: refreshPages,
     onDone: () => {
       setWatchedJob(null)
       refreshPages()

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../api/client'
 import type { JobRecord } from '../types/jobs'
-import { pickRunState, startJobPolling } from './useJob'
+import { makeProgressGate, pickRunState, startJobPolling } from './useJob'
 
 const job = (status: string): JobRecord => ({
   job_id: 'j', status, progress: null, message: '', error: null, description: null,
@@ -213,5 +213,29 @@ describe('a poll the server never answers', () => {
     expect(fetchJob).toHaveBeenCalledTimes(2)
     expect(onDone).toHaveBeenCalledTimes(1)
     vi.restoreAllMocks()
+  })
+})
+
+describe('makeProgressGate', () => {
+  const at = (progress: number | null, status = 'running') => ({ ...job(status), progress })
+
+  it('fires when progress moves, at most once per throttle window', () => {
+    let t = 0
+    const gate = makeProgressGate(5000, () => t)
+    expect(gate(at(0.1))).toBe(true)
+    t = 1000
+    expect(gate(at(0.2))).toBe(false)
+    t = 6000
+    expect(gate(at(0.2))).toBe(true)
+  })
+
+  it('stays quiet when progress has not moved, is unknown, or the job ended', () => {
+    let t = 0
+    const gate = makeProgressGate(5000, () => t)
+    expect(gate(at(0.3))).toBe(true)
+    t = 10000
+    expect(gate(at(0.3))).toBe(false)
+    expect(gate(at(null))).toBe(false)
+    expect(gate(at(1, 'done'))).toBe(false)
   })
 })
