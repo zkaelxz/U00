@@ -593,3 +593,17 @@ def test_speech_clip_over_the_duration_limit_is_refused(asr, tmp_path):
     r = svc._run_check("asr", "Transcription", svc._check_asr, speech_clip=str(clip))
     assert r["status"] == svc.FAIL and "longer than" in r["reason"]
     assert not asr["backend"].seen
+
+
+def test_ocr_requirement_skips_rapidocr_without_package_or_models(monkeypatch):
+    import ocr
+    from services import model_readiness_service
+    monkeypatch.setattr(ocr, "backend_problem", lambda *a, **k: object())
+    with pytest.raises(svc._Skip):
+        svc._ocr_requirement("rapidocr")
+    monkeypatch.setattr(ocr, "backend_problem", lambda *a, **k: None)
+    monkeypatch.setattr(model_readiness_service, "rapidocr_ready", lambda *a, **k: False)
+    with pytest.raises(svc._Skip):
+        svc._ocr_requirement("rapidocr")
+    monkeypatch.setattr(model_readiness_service, "rapidocr_ready", lambda *a, **k: True)
+    svc._ocr_requirement("rapidocr")

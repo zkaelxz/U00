@@ -47,17 +47,6 @@
       "pace": "Fast off: robots.txt returns 404 and the agreement pages are unreadable SPA shells; bilibili agreement 4.3.15 likely applies.",
       "pace_verified": "2026-10-09"
     },
-    "toonkor": {
-      "status": "confirmed_live",
-      "last_verified": "",
-      "reason": "",
-      "notes": "`toonkor0.org` confirmed correct/live domain.",
-      "hosts": [
-        "toonkor0.org"
-      ],
-      "pace": "Fast allowed (1.0/2.5/2): robots.txt is User-agent * Allow /, no Crawl-delay; no terms page found on the home page.",
-      "pace_verified": "2026-10-09"
-    },
     "guazimanhua": {
       "status": "confirmed_live",
       "last_verified": "",
@@ -95,14 +84,6 @@
       "reason": "",
       "notes": "Was completely broken (shared `requests` cookie bug); fixed in `sources/http.py`, benefits every source.",
       "pace": "Fast off: service agreement not read and content is partly paywalled; robots.txt allows the paths we use.",
-      "pace_verified": "2026-10-09"
-    },
-    "manhuaku": {
-      "status": "caveat",
-      "last_verified": "2026-09-26",
-      "reason": "**2026-09-27: two consecutive live end-to-end runs hung — one past 120s, a retry past 240s. The second produced no output at all, not even the first progress marker printed before any network call, suggesting the stall (or a background-capture buffering issue) may sit earlier than the actual site request. Not re-confirmed working today; cause still unknown (site slowdown, a regression, or an artifact of this environment). Stopped at two attempts deliberately, not retried further.**",
-      "notes": "Both content paths (baozimh-aggregated + native `blob:`) confirmed working 2026-09-26 with real page bytes. `search()` unsupported (real endpoint, empty for every query tried). `robots.txt` inaccessible (403), not reviewed for ToS.",
-      "pace": "Fast off: robots.txt returns 403; the site throttles and serves AES/blob content.",
       "pace_verified": "2026-10-09"
     },
     "zerosumonline": {
@@ -184,13 +165,67 @@
       "pace": "Fast off: robots.txt and terms could not be retrieved.",
       "pace_verified": "2026-10-09"
     },
-    "ranobes": {
-      "status": "unvetted",
-      "last_verified": "",
-      "reason": "Content status not recorded here; only the pace note is.",
+    "rawkuma": {
+      "status": "caveat",
+      "last_verified": "2026-11-01",
+      "reason": "Search, series, chapter list and chapter page-image URLs were read live against rawkuma.net 2026-11-01 with plain GETs; no image download or import has been run through the app. No terms page was found, so terms are unreviewed.",
       "notes": "",
-      "pace": "Fast off: robots.txt disallows /chapters/*/page/* which the adapter fetches for pages 2+; rules.html is silent on automated access.",
-      "pace_verified": "2026-10-09"
+      "hosts": [
+        "rawkuma.net",
+        "cdn.rawkuma.com",
+        "raw.senmanga.com"
+      ],
+      "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-01"
+    },
+    "marumaru": {
+      "status": "caveat",
+      "last_verified": "2026-11-01",
+      "reason": "Search, series, chapter list and a chapter's image list were read live (and the viewer loaded in a real browser) against marumaru108.com 2026-11-01; no image download or import has been run through the app. No terms page was found, so terms are unreviewed. The site moves between domains: the landing page is read only when every listed domain fails, and a new address waits for the owner's confirmation.",
+      "notes": "",
+      "hosts": [
+        "marumaru108.com",
+        "api.storagewebtoon.store",
+        "peer.storagewebtoon.store"
+      ],
+      "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-01"
+    },
+    "nihonkuni": {
+      "status": "caveat",
+      "last_verified": "2026-11-02",
+      "reason": "Search, series, chapter list and a chapter's image URLs were read live against nihonkuni.com 2026-11-02 with plain GETs, and one image downloaded; no import has been run through the app. No terms page was found, so terms are unreviewed; robots.txt asks for a 1 second crawl delay and its content signals reserve AI training.",
+      "notes": "",
+      "hosts": [
+        "nihonkuni.com",
+        "s4.ihlv1.xyz"
+      ],
+      "pace": "Fast off: no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-02"
+    },
+    "newxtoon": {
+      "status": "caveat",
+      "last_verified": "2026-11-01",
+      "reason": "Built from a description of the live layout reported from the owner's PC; not yet run against the live site. This project's cloud container gets 403 from the site, so search, series, chapter and image reading are covered by invented fixtures only. Login/age gating and long-list pagination were not tested. The robots.txt and terms were not read.",
+      "notes": "",
+      "hosts": [
+        "newxtoon4.com",
+        "xn--vg1b002axlc8ts.com"
+      ],
+      "pace": "Fast off: robots.txt and terms were not read, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-01"
+    },
+    "weloma": {
+      "status": "caveat",
+      "last_verified": "2026-11-02",
+      "reason": "Search, series, chapter list and a chapter's image URLs were read live against weloma.net 2026-11-02 with plain GETs, and one image downloaded; no import has been run through the app. No terms page was found, so terms are unreviewed; robots.txt disallows AI crawlers by name and the content signals reserve AI training. Image URLs are read from the page's base64 lazy-load attribute (no key).",
+      "notes": "",
+      "hosts": [
+        "weloma.net",
+        "s4.ihlv1.xyz"
+      ],
+      "pace": "Fast off: no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-02"
     }
   },
   "generic": {

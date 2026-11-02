@@ -250,6 +250,12 @@ def _ocr_requirement(backend: str) -> None:
         if not (_hf_repo_exact(ocr._PADDLE_VL_MANGA_REPO)
                 and _hf_repo_exact(ocr._PADDLE_VL_PROCESSOR_REPO)):
             raise _Skip("The PaddleOCR-VL manga model is not downloaded.")
+    elif backend == "rapidocr":
+        from services import model_readiness_service
+        if ocr.backend_problem("rapidocr"):
+            raise _Skip("RapidOCR is not installed.")
+        if not model_readiness_service.rapidocr_ready(_LANGUAGE, medium=True):
+            raise _Skip("The RapidOCR models are not downloaded.")
     else:
         if not _installed("paddleocr"):
             raise _Skip("paddleocr is not installed.")

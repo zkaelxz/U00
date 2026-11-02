@@ -1,14 +1,7 @@
-// /api/vdb-names (api/schemas/vdb_names.py). Counts and booleans only.
+// /api/vdb-names (api/schemas/vdb_names.py), from the generated schema. Counts and booleans only.
+import type { components } from '../api/generated/schema'
 
-export interface VdbNamesStatus {
-  downloaded: boolean
-  entry_count: number
-  name_count: number
-  age_days: number | null
-  newer_than_30_days: boolean
-}
+type Schemas = components['schemas']
 
-export interface TitleVdbNames {
-  enabled: boolean
-  downloaded: boolean
-}
+export type VdbNamesStatus = Schemas['VdbNamesStatus']
+export type TitleVdbNames = Schemas['TitleVdbNames']

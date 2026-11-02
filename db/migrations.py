@@ -366,6 +366,17 @@ def _migrate_bulk_job_columns(conn):
         db._safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
 
 
+def _backfill_first_seen_ids(conn, table):
+    """Rows saved with a position only get the id of the line at that position
+    now, while the position is still right."""
+    conn.execute(f"""
+        UPDATE {table} SET first_seen_line_id = (
+            SELECT l.id FROM lines l
+            WHERE l.drama_id = {table}.drama_id AND l.idx = {table}.first_seen_line_idx
+            ORDER BY l.id LIMIT 1)
+        WHERE first_seen_line_idx IS NOT NULL""")
+
+
 def _migrate_vocab_and_style_columns(conn):
     vocab_cols = {r[1] for r in conn.execute("PRAGMA table_info(vocab_lookups)").fetchall()}
     if "export_rich" not in vocab_cols:
@@ -373,6 +384,16 @@ def _migrate_vocab_and_style_columns(conn):
         # Anki card type, set from the Reader right where the word was
         # looked up, rather than only via a bulk end-of-session export.
         db._safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
+    if "first_seen_line_id" not in vocab_cols:
+        # Line positions shift when lines are split, merged or deleted, so the
+        # line is also recorded by its stable id; the position stays for rows
+        # saved before this column existed.
+        db._safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN first_seen_line_id INTEGER")
+        _backfill_first_seen_ids(conn, "vocab_lookups")
+    wiki_cols = {r[1] for r in conn.execute("PRAGMA table_info(wiki_entries)").fetchall()}
+    if "first_seen_line_id" not in wiki_cols:
+        db._safe_alter(conn, "ALTER TABLE wiki_entries ADD COLUMN first_seen_line_id INTEGER")
+        _backfill_first_seen_ids(conn, "wiki_entries")
     style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
     if "history_json" not in style_cols:
         # Earlier learned-style profiles (newest first, at most
@@ -421,6 +442,12 @@ def _grant_lines_read_for_reader_page(conn):
                      "SELECT user_id, 'lines.read' FROM user_permissions "
                      "WHERE permission = 'library.read'")
         conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
+def _migrate_progress_view_prefs(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(progress)").fetchall()}
+    if "view_prefs" not in cols:
+        db._safe_alter(conn, "ALTER TABLE progress ADD COLUMN view_prefs TEXT")
 
 
 def _migrate_auth_session_columns(conn):
@@ -558,6 +585,7 @@ def _migrate_step26e_profiles():
                     last_page INTEGER DEFAULT 1,
                     percent_complete REAL DEFAULT 0,
                     last_accessed_at TEXT,
+                    view_prefs TEXT,
                     PRIMARY KEY (drama_id, profile_id),
                     FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
                     FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE

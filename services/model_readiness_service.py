@@ -192,7 +192,21 @@ def ocr_ready(backend: str, paddle_lang: str) -> bool:
                 and _hf_snapshot(ocr._PADDLE_VL_PROCESSOR_REPO) is not None)
     if backend == "paddle":
         return _paddle_ready(paddle_lang)
+    if backend == "rapidocr":
+        return rapidocr_ready("ko" if paddle_lang == "korean" else "zh", medium=True)
     return True   # Tesseract is a program the owner installs; nothing downloads.
+
+
+def rapidocr_ready(language: str, medium: bool) -> bool:
+    """The small Chinese/Japanese pair ships in RapidOCR's wheel; Korean and the medium
+    pair (page OCR) are downloaded on first use (ocr.ensure_rapidocr_model)."""
+    import os
+    import ocr
+    if language == "ko":
+        specs = [ocr.RAPIDOCR_KOREAN_MODEL]
+    else:
+        specs = [ocr.RAPIDOCR_MEDIUM_DET_MODEL, ocr.RAPIDOCR_MEDIUM_REC_MODEL] if medium else []
+    return all(os.path.isfile(ocr.rapidocr_model_path(spec)) for spec in specs)
 
 
 def bubble_detector_ready() -> bool:
@@ -297,6 +311,8 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
         backend, _note = hardsub_ocr.resolve_backend(requested, language)
         if backend == "paddle":
             needs.append(_need(_paddle_ready, hardsub_ocr._HARDSUB_PADDLE_LANG.get(language, "ch")))
+        elif backend == "rapidocr":
+            needs.append(_need(rapidocr_ready, language, False))
     else:
         backend = asr_options_service.stored_asr_backend(drama)
         mixed = asr_options_service.get_mixed_languages()
@@ -362,6 +378,7 @@ def for_scanlate(drama_id: int, detect_backend: str = "auto", art_captions: bool
     # "auto" uses the ML detector only once it is cached; "ml" downloads it.
     if detect_backend == "ml":
         needs.append(bubble_detector_ready)
-    if art_captions and backend != "paddle":
+    # RapidOCR reads the captions with the models it already needs for the page.
+    if art_captions and backend not in ("paddle", "rapidocr"):
         needs.append(_need(ocr_ready, "paddle", ocr._PADDLE_LANG_BY_SOURCE.get(language, "ch")))
     return needs

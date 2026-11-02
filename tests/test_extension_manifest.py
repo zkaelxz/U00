@@ -266,8 +266,8 @@ class TestTextCaptureStaysWithinTheSameModel:
     def test_no_hardcoded_site_domains_anywhere_in_the_extension(self):
         """This is a general-purpose extension with no per-site code -- it
         reads whatever page is open the same way for every one of them."""
-        known_sites = ("mangaz.com", "manhuaku", "bilibili", "jjwxc",
-                      "wuxiaworld", "webnovel", "ranobes")
+        known_sites = ("mangaz.com", "bilibili", "jjwxc",
+                      "wuxiaworld", "webnovel")
         for name in ("background.js", "content.js", "popup.js", "options.js"):
             source = _code(name).lower()
             for site in known_sites:

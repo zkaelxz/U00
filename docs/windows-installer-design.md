@@ -219,7 +219,8 @@ of the diff.
    "Start Baihe Studio now" option is skipped. Its own exit codes are 2 to 6
    (6 is the wheel check). Code **101** means the service step failed or was
    declined (§11).
-5. With the service task ticked (the default), Setup then runs the elevated
+5. With the service task ticked (off by default, so a plain install on a PC without the service shows no
+   administrator prompt), Setup then runs the elevated
    service step (§11).
 6. Shortcuts: Start menu → Baihe Studio → **Baihe Studio** (runs
    `pythonw.exe -s app\installer\launcher.py`) and **Stop Baihe Studio**
@@ -581,7 +582,7 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   - **Clean-uninstall check.** A second install is removed with `/CLEAN`: its
     folders and a `%TEMP%\baihe_*` folder must be gone while a non-Baihe
     temp folder, a neighbouring file and the first install's data are untouched.
-  - **Service steps.** Six "Service --" steps install the service by default
+  - **Service steps.** Six "Service --" steps install the service with its task ticked
     and check it runs at boot on loopback, an update keeps the data, the
     service and its stored port, `set-port` moves it and back, `enable-remote`
     refuses without settings and the Caddyfile validates, and uninstall removes
@@ -682,8 +683,8 @@ per-user.
   until then a line added by hand is left alone.
   Per-account sign-in for this listener is **not built**.
   **Accepted on the condition that only the owner uses this PC. If it has
-  other Windows accounts, untick the service task (it is ticked by default
-  for now).**
+  other Windows accounts, leave the service task unticked (it is unticked by
+  default).**
 - **Caddy and a crashed Baihe.** If Baihe's process exits on its own, Caddy keeps forwarding to the household port until the service restarts (about 10 s). Another program on this PC could bind that port in the gap and receive household requests. Accepted on the same condition: only the owner uses this PC.
 - **Choosing the port.** The service's port is stored in the admin-only
   `helper\config.json` and written into the service definition; `status`,

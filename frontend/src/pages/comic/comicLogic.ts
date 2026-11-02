@@ -72,6 +72,12 @@ export function loadComicPrefs(storage: StorageLike | null, dramaId: number, def
   return sanitizePrefs(readPref<Record<string, unknown>>(storage, prefsKey(dramaId), {}), defaults)
 }
 
+/** The prefs this browser kept for the title, or null when it never saved any. */
+export function savedComicPrefs(storage: StorageLike | null, dramaId: number): ComicPrefs | null {
+  const raw = readPref<Record<string, unknown> | null>(storage, prefsKey(dramaId), null)
+  return raw && typeof raw === 'object' ? sanitizePrefs(raw, defaultPrefs(null)) : null
+}
+
 export function saveComicPrefs(storage: StorageLike | null, dramaId: number, prefs: ComicPrefs): boolean {
   return writePref(storage, prefsKey(dramaId), prefs)
 }
@@ -224,4 +230,15 @@ export function zoomAt(z: Zoom, factor: number, cx: number, cy: number, w: numbe
 /** Double-tap: 2x around the tap, or back to 1x when already zoomed. */
 export function toggleZoomAt(z: Zoom, cx: number, cy: number, w: number, h: number): Zoom {
   return z.scale > 1 ? NO_ZOOM : zoomAt(NO_ZOOM, ZOOM.double, cx, cy, w, h)
+}
+
+// Set when a title was made with "Read translated": its pages are translated as they are read, from the first page.
+const readTranslatedKey = (dramaId: number) => `comic.readTranslated.${dramaId}`
+
+export function isReadTranslated(storage: StorageLike | null, dramaId: number): boolean {
+  return readPref<boolean>(storage, readTranslatedKey(dramaId), false) === true
+}
+
+export function markReadTranslated(storage: StorageLike | null, dramaId: number): boolean {
+  return writePref(storage, readTranslatedKey(dramaId), true)
 }

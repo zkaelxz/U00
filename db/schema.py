@@ -276,6 +276,7 @@ def _create_line_annotation_tables(conn):
             definitions TEXT,        -- JSON-encoded list of strings
             language TEXT,
             first_seen_line_idx INTEGER,
+            first_seen_line_id INTEGER,
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             UNIQUE(drama_id, word)
@@ -397,6 +398,7 @@ def _create_reading_tables(conn):
             last_page INTEGER DEFAULT 1,
             percent_complete REAL DEFAULT 0,
             last_accessed_at TEXT,
+            view_prefs TEXT,
             PRIMARY KEY (drama_id, profile_id),
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
@@ -482,6 +484,7 @@ def _create_review_tables(conn):
             description TEXT,
             attributes_json TEXT,     -- flexible: cultivation level, rank, affiliations, equipment
             first_seen_line_idx INTEGER,
+            first_seen_line_id INTEGER,
             known_through_line_idx INTEGER,  -- spoiler boundary: built only from lines up to here
             updated_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,

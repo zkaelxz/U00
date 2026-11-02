@@ -123,7 +123,8 @@ Other transcribe options (Workspace > Media > Transcribe > Advanced options, fol
 ### OCR (image-based chapter scans)
 
 Upload page images in the novel-narration OCR section instead of pasting text. Always review OCR output before translating.
-- **Tesseract** (used for languages other than ja, zh and ko when the OCR default is `auto`, the setting's default; ja picks manga-ocr and zh/ko pick PaddleOCR): `pip install pytesseract pillow` plus the Tesseract binary with language packs (macOS `brew install tesseract tesseract-lang`; Ubuntu `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`; Windows [installer](https://github.com/UB-Mannheim/tesseract/wiki)). If Windows can't find it, set Settings > Performance and advanced > Offline, paths and limits > Program locations > "Tesseract program" to `tesseract.exe`.
+- **Tesseract** (used for languages other than ja, zh and ko when the OCR default is `auto`, the setting's default; ja picks manga-ocr and zh/ko pick RapidOCR): `pip install pytesseract pillow` plus the Tesseract binary with language packs (macOS `brew install tesseract tesseract-lang`; Ubuntu `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`; Windows [installer](https://github.com/UB-Mannheim/tesseract/wiki)). If Windows can't find it, set Settings > Performance and advanced > Offline, paths and limits > Program locations > "Tesseract program" to `tesseract.exe`.
+- **RapidOCR** (install from Diagnostics): Chinese, Japanese and Korean, the Auto pick for Chinese and Korean pages and burned-in captions. Pages use its larger models, downloaded once on first use (about 135 MB, Korean about 13 MB); captions use the small built-in ones so a long video stays fast.
 - **PaddleOCR** (`pip install paddleocr paddlepaddle`): heavier, better on stylized Chinese fonts.
 - **manga-ocr** (`pip install manga-ocr`): Japanese speech bubbles; best on single-bubble crops.
 

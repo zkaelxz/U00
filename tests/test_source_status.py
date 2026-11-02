@@ -49,10 +49,10 @@ def test_every_registered_adapter_is_listed():
 
 def test_missing_row_shows_no_status_recorded_and_orphan_is_named():
     data = ss.load_data()
-    data["registered"].pop("manhuaku")
+    data["registered"].pop("manhuagui")
     data["registered"]["gone"] = {"status": "confirmed_live", "last_verified": ""}
     block = ss.build_block(data, ss.registered_adapters())
-    row = next(l for l in block.splitlines() if "| `manhuaku` |" in l)
+    row = next(l for l in block.splitlines() if "| `manhuagui` |" in l)
     assert ss.NO_STATUS in row
     assert "`gone`" in block.split("## Generic")[0]
 

@@ -39,6 +39,24 @@ def region_excluded_from_auto(region: dict) -> bool:
     return (region.get("kind") == "sfx") and not region.get("include_sfx")
 
 
+def reclassify_wordy_sfx(regions: list) -> int:
+    """Turns a region the detector called an SFX into a sign when its text is
+    too long to be one. The detector sees only pixels, so a caption on dark
+    art looks the same as a stylised sound effect until the text is read.
+    Leaves a region the person set to include_sfx alone. Returns the count."""
+    changed = 0
+    for region in regions:
+        if region.get("kind") != "sfx" or region.get("include_sfx"):
+            continue
+        text = (region.get("source_text") or "").strip()
+        chars = len("".join(text.split()))
+        lines = len([ln for ln in text.splitlines() if ln.strip()])
+        if chars > scanlate_tuning.SFX_MAX_CHARS or lines > scanlate_tuning.SFX_MAX_LINES:
+            region["kind"] = "sign"
+            changed += 1
+    return changed
+
+
 def detect_script_language(text: str, fallback: str) -> str:
     """Best guess at a region's language from the script its OCR'd text is
     written in: any kana means Japanese, any Hangul means Korean. Han-only
@@ -112,6 +130,18 @@ def lettering_size(gray, box: dict, orientation: str | None):
     profile = letters.any(axis=0) if orientation == "vertical" else letters.any(axis=1)
     runs = [r for r in _runs(profile, bridge=3) if r >= 6]
     return float(np.median(runs)) if runs else None
+
+
+def lettering_fill(gray, box: dict):
+    """Share of the box's OCR-inset area taken by the block around all its
+    lettering, or None when no lettering is found. A small share means short
+    text in a large balloon."""
+    letters = _letter_ink(gray, box)
+    if letters is None or not letters.any():
+        return None
+    rows, cols = np.flatnonzero(letters.any(axis=1)), np.flatnonzero(letters.any(axis=0))
+    block = (rows[-1] - rows[0] + 1) * (cols[-1] - cols[0] + 1)
+    return min(1.0, block / float(letters.shape[0] * letters.shape[1]))
 
 
 def estimate_text_orientation(gray, box: dict, language: str) -> str:

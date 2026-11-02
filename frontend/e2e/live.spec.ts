@@ -392,7 +392,7 @@ test('large-v3-turbo is offered with what it costs, small stays the default', as
   await live.getByText('Advanced').click()
   const select = live.getByLabel('Whisper model', { exact: true })
   await expect(select).toHaveValue('small')
-  await expect(select.locator('option')).toHaveText(['tiny', 'base', 'small', 'medium', 'large-v3-turbo'])
+  await expect(select.locator('option')).toHaveText(['tiny', 'base', 'small', 'medium', 'large-v3-turbo', 'large-v3'])
   await expect(select).toHaveAccessibleDescription(/large-v3-turbo is slower but more accurate/)
   await expect(select).toHaveAccessibleDescription(/about 2\.6 GB of graphics memory/)
   await expect(select).toHaveAccessibleDescription(/medium is slower and less accurate than turbo/)

@@ -240,9 +240,11 @@ class TestExtractTextFromImagesUsesResolvedLang:
 
     def test_rapidocr_backend_is_dispatched(self, monkeypatch):
         called = []
-        monkeypatch.setattr(ocr, "extract_text_rapidocr", lambda p: called.append(p) or "x")
+        monkeypatch.setattr(ocr, "extract_text_rapidocr",
+                            lambda p, source_language="zh", medium=False, vertical=False:
+                            called.append((p, source_language, medium)) or "x")
         ocr.extract_text_from_images(["/fake/page1.png"], backend="rapidocr", source_language="ja")
-        assert called == ["/fake/page1.png"]
+        assert called == [("/fake/page1.png", "ja", True)], "pages read with the medium models"
 
     def test_rapidocr_joins_the_recognised_lines(self, monkeypatch):
         rapidocr = pytest.importorskip("rapidocr")
@@ -250,10 +252,145 @@ class TestExtractTextFromImagesUsesResolvedLang:
         class FakeResult:
             txts = ("你好", "世界")
 
-        monkeypatch.setattr(rapidocr, "RapidOCR", lambda params=None: lambda path: FakeResult())
-        monkeypatch.delitem(vars(ocr), "_rapidocr_instance", raising=False)
+        built = []
+        monkeypatch.setattr(rapidocr, "RapidOCR",
+                            lambda params=None: built.append(params) or (lambda path: FakeResult()))
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
         assert ocr.extract_text_rapidocr("/fake/page.png") == "你好\n世界"
-        monkeypatch.delitem(vars(ocr), "_rapidocr_instance", raising=False)
+        assert built[0]["Global.use_cls"] is False, "the orientation step garbles upright lines"
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
+
+    def test_rapidocr_lines_give_scaled_boxes_and_skip_misaligned_results(self, monkeypatch):
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("cv2")
+        quad = [[10, 20], [60, 20], [60, 40], [10, 40]]
+        seen = {}
+
+        class FakeResult:
+            txts = ("hi",)
+            scores = (0.9,)
+            boxes = [quad]
+
+        def engine(source):
+            seen["shape"] = source.shape
+            return FakeResult()
+        monkeypatch.setattr(ocr, "_run_rapidocr", lambda key, source: seen.update(key=key) or engine(source))
+        assert ocr.rapidocr_lines(np.zeros((200, 100, 3), np.uint8), "zh", 0.5) == [
+            ("hi", 0.9, (20, 40, 100, 40))]
+        assert seen["shape"] == (100, 50, 3) and seen["key"] == "medium"
+        ocr.rapidocr_lines(np.zeros((20, 20, 3), np.uint8), "ko")
+        assert seen["key"] == "ko"
+        FakeResult.scores = (0.9, 0.8)
+        assert ocr.rapidocr_lines(np.zeros((20, 20, 3), np.uint8)) == []
+
+    def test_rapidocr_korean_uses_the_downloaded_korean_recognizer(self, monkeypatch, tmp_path):
+        rapidocr = pytest.importorskip("rapidocr")
+
+        class FakeResult:
+            txts = ("안녕",)
+
+        built = []
+        monkeypatch.setattr(rapidocr, "RapidOCR",
+                            lambda params=None: built.append(params) or (lambda path: FakeResult()))
+        monkeypatch.setattr(ocr, "ensure_rapidocr_model", lambda spec: str(tmp_path / spec["file"]))
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
+        assert ocr.extract_text_rapidocr("/fake/page.png", "ko") == "안녕"
+        assert ocr.extract_text_rapidocr("/fake/page.png", "zh") == "안녕"
+        assert built[0]["Rec.model_path"] == str(tmp_path / "korean_PP-OCRv5_rec_mobile.onnx")
+        assert "Rec.model_path" not in built[1], "Chinese keeps the wheel's own models"
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
+
+    def test_rapidocr_medium_uses_the_downloaded_larger_pair_and_hard_sub_stays_small(
+            self, monkeypatch, tmp_path):
+        rapidocr = pytest.importorskip("rapidocr")
+
+        class FakeResult:
+            txts = ("你好",)
+
+        built = []
+        monkeypatch.setattr(rapidocr, "RapidOCR",
+                            lambda params=None: built.append(params) or (lambda path: FakeResult()))
+        monkeypatch.setattr(ocr, "ensure_rapidocr_model", lambda spec: str(tmp_path / spec["file"]))
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
+        ocr.extract_text_rapidocr("/fake/page.png", "zh", medium=True)
+        ocr.extract_text_rapidocr("/fake/frame.png", "zh")
+        assert built[0]["Det.model_path"] == str(tmp_path / "PP-OCRv6_det_medium.onnx")
+        assert built[0]["Rec.model_path"] == str(tmp_path / "PP-OCRv6_rec_medium.onnx")
+        assert "Det.model_path" not in built[1] and "Rec.model_path" not in built[1]
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
+
+    def test_rapidocr_model_download_is_checked_before_it_is_kept(self, monkeypatch, tmp_path):
+        import hashlib
+        from lib import http
+        monkeypatch.setattr(ocr, "rapidocr_model_path", lambda spec: str(tmp_path / spec["file"]))
+        good = b"model bytes"
+        spec = {**ocr.RAPIDOCR_KOREAN_MODEL, "sha256": hashlib.sha256(good).hexdigest()}
+
+        class Resp:
+            ok = True
+
+        bodies = iter([b"tampered", good])
+        seen = []
+
+        def fake_get(url, **kw):
+            seen.append(kw)
+            r = Resp()
+            r.body = next(bodies)
+            return r
+        monkeypatch.setattr(http, "get", fake_get)
+        with pytest.raises(ocr.RapidOcrModelUnavailable):
+            ocr.ensure_rapidocr_model(spec)
+        assert not (tmp_path / spec["file"]).exists()
+        assert ocr.ensure_rapidocr_model(spec) == str(tmp_path / spec["file"])
+        assert (tmp_path / spec["file"]).read_bytes() == good
+        assert ocr.ensure_rapidocr_model(spec) == str(tmp_path / spec["file"]), "no second download"
+        assert len(seen) == 2 and all("timeout" in kw and "max_bytes" in kw for kw in seen)
+
+    def test_rapidocr_download_failures_raise_the_short_error(self, monkeypatch, tmp_path):
+        from lib import http
+        monkeypatch.setattr(ocr, "rapidocr_model_path", lambda spec: str(tmp_path / spec["file"]))
+
+        class NotOk:
+            ok = False
+            body = b""
+
+        monkeypatch.setattr(http, "get", lambda url, **kw: NotOk())
+        with pytest.raises(ocr.RapidOcrModelUnavailable):
+            ocr.ensure_rapidocr_model(ocr.RAPIDOCR_KOREAN_MODEL)
+
+        def boom(url, **kw):
+            raise OSError("https://secret.example/x")
+        monkeypatch.setattr(http, "get", boom)
+        with pytest.raises(ocr.RapidOcrModelUnavailable) as err:
+            ocr.ensure_rapidocr_model(ocr.RAPIDOCR_KOREAN_MODEL)
+        assert "secret" not in str(err.value)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_rapidocr_model_is_not_downloaded_when_offline(self, monkeypatch, tmp_path):
+        from lib import http, model_offline
+        monkeypatch.setattr(ocr, "rapidocr_model_path", lambda spec: str(tmp_path / spec["file"]))
+        monkeypatch.setattr(http, "get", lambda *a, **k: pytest.fail("downloaded while offline"))
+        token = model_offline.set_offline(True)
+        try:
+            with pytest.raises(ocr.RapidOcrModelUnavailable):
+                ocr.ensure_rapidocr_model(ocr.RAPIDOCR_KOREAN_MODEL)
+        finally:
+            model_offline.reset(token)
+
+    def test_auto_picks_rapidocr_for_zh_ko_only_when_installed(self, monkeypatch):
+        monkeypatch.setattr(ocr, "backend_problem", lambda backend, *a, **k: None)
+        assert ocr.auto_ocr_backend("ko") == "rapidocr"
+        monkeypatch.setattr(ocr, "backend_problem",
+                            lambda backend, *a, **k: object() if backend == "rapidocr" else None)
+        assert ocr.auto_ocr_backend("zh") == "paddle"
+        assert ocr.auto_ocr_backend("ko") == "paddle"
+        monkeypatch.setattr(ocr, "backend_problem",
+                            lambda backend, *a, **k: None if backend == "tesseract" else object())
+        assert ocr.auto_ocr_backend("zh") == ocr.auto_ocr_backend("ko") == "tesseract"
+
+    def test_hardsub_default_is_auto_for_zh_ko(self):
+        assert ocr.default_hardsub_backend("ko") == ocr.default_hardsub_backend("zh") == "auto"
+        assert ocr.default_hardsub_backend("ja") == "tesseract"
 
     def test_paddle_vl_manga_backend_is_dispatched(self, monkeypatch):
         called = []

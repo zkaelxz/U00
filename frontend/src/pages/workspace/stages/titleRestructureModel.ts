@@ -46,7 +46,7 @@ export function previewBlocker(kind: TitleRestructureKind, targetId: string, pic
 }
 
 /** How a chapter is listed: its name and size. */
-export function chapterSize(c: { pages: number | null; chars: number | null }): string {
+export function chapterSize(c: { pages?: number | null; chars?: number | null }): string {
   if (c.pages != null) return plural(c.pages, 'page')
   if (c.chars != null) return `${c.chars.toLocaleString('en-US')} characters`
   return ''

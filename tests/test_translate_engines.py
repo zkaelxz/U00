@@ -2785,9 +2785,19 @@ class TestEstimateReflectModeCost:
         lines = ["你好"] * 100
         one_request, _ = engine_pricing.estimate_translation_tokens(lines)
         five_batches, _ = engine_pricing.estimate_translation_tokens(lines, batch_size=20)
-        fixed = (one_request - int(sum(len(z) for z in lines) / 3.5))
+        fixed = one_request - sum(len(z) for z in lines)  # one token per CJK character
         assert five_batches - one_request == 4 * fixed
         assert fixed > 300  # the measured instruction text, not just the old flat allowance
+
+    def test_cjk_source_counts_a_token_per_character(self):
+        cjk, _ = engine_pricing.estimate_translation_tokens(["你好世界" * 25])
+        latin, _ = engine_pricing.estimate_translation_tokens(["abcd" * 25])
+        assert cjk - latin == 100 - int(100 / 3.5)
+
+    def test_gemini_reasoning_tokens_count_as_output(self):
+        usage = engine_shared.gemini_usage(
+            {"promptTokenCount": 10, "candidatesTokenCount": 5, "thoughtsTokenCount": 40})
+        assert usage["output_tokens"] == 45
 
     def test_free_tier_gemini_reflect_estimate_is_zero(self):
         engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)
@@ -3045,6 +3055,11 @@ class TestCacheUsageAccounting:
         full = engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 0)
         cached = engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 0, cache_read_tokens=1_000_000)
         assert cached == pytest.approx(full * engine_pricing.CACHE_READ_PRICE_FACTOR)
+
+    def test_cache_reads_use_the_models_own_discount(self):
+        full = engine_pricing.estimate_cost("claude-sonnet-5-5", 1_000_000, 0)
+        cached = engine_pricing.estimate_cost("claude-sonnet-5-5", 1_000_000, 0, cache_read_tokens=1_000_000)
+        assert cached == pytest.approx(full * 0.05)
 
     def test_cache_writes_cost_more_than_uncached_input(self):
         full = engine_pricing.estimate_cost("claude-sonnet-5", 1_000_000, 0)
@@ -3517,3 +3532,32 @@ def test_a_content_block_is_not_retried(monkeypatch):
     with pytest.raises(engine_shared.ContentModerationBlocked):
         engine_shared.call_with_backoff(blocked)
     assert calls == [1]
+
+
+class TestScheduledPrices:
+    def _flash_cost(self, monkeypatch, day):
+        import datetime
+
+        class _Dt(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(day.year, day.month, day.day, tzinfo=tz)
+
+        monkeypatch.setattr(engine_pricing.datetime, "datetime", _Dt)
+        return engine_pricing.estimate_cost("gemini-flash-latest", 1_000_000, 1_000_000)
+
+    def test_gemini_flash_price_doubles_on_jan_1_2027(self, monkeypatch):
+        import datetime
+        assert self._flash_cost(monkeypatch, datetime.date(2026, 12, 31)) == pytest.approx(4.50)
+        assert self._flash_cost(monkeypatch, datetime.date(2027, 1, 1)) == pytest.approx(9.00)
+
+    def test_haiku_5_5_long_prompts_cost_more(self):
+        short = engine_pricing.estimate_cost("claude-haiku-5-5", 100_000, 0)
+        long = engine_pricing.estimate_cost("claude-haiku-5-5", 100_001, 0)
+        assert short == pytest.approx(0.01) and long > short * 4
+
+    def test_price_tables_were_checked_recently(self):
+        import datetime
+        age = datetime.date.today() - engine_pricing.PRICES_VERIFIED_ON
+        assert age.days <= 90, ("Re-check PRICING_PER_MILLION_TOKENS against the providers' pricing "
+                                "pages, then update PRICES_VERIFIED_ON.")
