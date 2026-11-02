@@ -58,7 +58,7 @@ describe('advancedSummary', () => {
     expect(advancedSummary({ ...base, hardsub_ocr_backend: 'tesseract' }, false)).toBe('defaults')
   })
   it('takes the hardsub OCR default from the language', () => {
-    expect(advancedSummary({ ...base, source_language: 'zh', hardsub_ocr_backend: 'rapidocr' }, false)).toBe('defaults')
+    expect(advancedSummary({ ...base, source_language: 'zh', hardsub_ocr_backend: 'auto' }, false)).toBe('defaults')
     expect(advancedSummary({ ...base, source_language: 'zh', hardsub_ocr_backend: 'tesseract' }, false)).toBe('1 developer option changed')
   })
 })
