@@ -749,3 +749,6 @@ class TestQwen3Vl:
     def test_hardsub_options_offer_both_sizes_and_pages_do_not(self):
         assert {"qwen3_vl_4b", "qwen3_vl_8b"} <= set(ocr.HARDSUB_OCR_BACKEND_OPTIONS)
         assert not {"qwen3_vl_4b", "qwen3_vl_8b"} & set(ocr.OCR_BACKEND_OPTIONS)
+
+    def test_no_stop_probe_means_no_stopping_criteria(self):
+        assert ocr._stop_when(None) is None
