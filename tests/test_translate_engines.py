@@ -2785,9 +2785,19 @@ class TestEstimateReflectModeCost:
         lines = ["你好"] * 100
         one_request, _ = engine_pricing.estimate_translation_tokens(lines)
         five_batches, _ = engine_pricing.estimate_translation_tokens(lines, batch_size=20)
-        fixed = (one_request - int(sum(len(z) for z in lines) / 3.5))
+        fixed = one_request - sum(len(z) for z in lines)  # one token per CJK character
         assert five_batches - one_request == 4 * fixed
         assert fixed > 300  # the measured instruction text, not just the old flat allowance
+
+    def test_cjk_source_counts_a_token_per_character(self):
+        cjk, _ = engine_pricing.estimate_translation_tokens(["你好世界" * 25])
+        latin, _ = engine_pricing.estimate_translation_tokens(["abcd" * 25])
+        assert cjk - latin == 100 - int(100 / 3.5)
+
+    def test_gemini_reasoning_tokens_count_as_output(self):
+        usage = engine_shared.gemini_usage(
+            {"promptTokenCount": 10, "candidatesTokenCount": 5, "thoughtsTokenCount": 40})
+        assert usage["output_tokens"] == 45
 
     def test_free_tier_gemini_reflect_estimate_is_zero(self):
         engine = engine_gemini.GeminiEngine("fake-key", free_tier=True)

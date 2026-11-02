@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { createDrama, getContinueReading, getPresets, getRecent, getStats } from '../api/library'
@@ -296,6 +296,7 @@ export default function LibraryPage() {
   const emptyLibrary = stats.data?.total_dramas === 0
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
+  const continuingIds = useMemo(() => new Set((continuing.data?.items ?? []).map((x) => x.drama_id)), [continuing.data])
   const [seriesRetries, setSeriesRetries] = useState(0)
   const allSeries = useLoad(listAllSeries, reloadKey + seriesRetries * 1_000_000)
   const presets = useLoad(getPresets, reloadKey)
@@ -443,6 +444,7 @@ export default function LibraryPage() {
         series={allSeries.data?.items ?? null}
         seriesError={!!allSeries.error}
         onRetrySeries={() => setSeriesRetries((n) => n + 1)}
+        continuing={continuingIds}
         onVisible={onVisible}
         onLoadError={setListError}
       />
