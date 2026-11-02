@@ -52,8 +52,13 @@ final class AppUpdate {
                 if (conn.getResponseCode() != 200) return 0;
                 try (InputStream in = conn.getInputStream()) {
                     byte[] buffer = new byte[MAX_ANSWER_BYTES];
-                    int n = in.read(buffer);
-                    return n <= 0 ? 0 : offeredVersion(new String(buffer, 0, n, "UTF-8"));
+                    int filled = 0;
+                    int n;
+                    // One read() can return part of the body, so read until it ends or the cap is hit.
+                    while (filled < buffer.length && (n = in.read(buffer, filled, buffer.length - filled)) > 0) {
+                        filled += n;
+                    }
+                    return filled == 0 ? 0 : offeredVersion(new String(buffer, 0, filled, "UTF-8"));
                 }
             } finally {
                 conn.disconnect();

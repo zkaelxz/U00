@@ -1,6 +1,7 @@
 """Builds the Android app with the next version number and puts it where the server offers it."""
 
 import os
+import shutil
 import subprocess
 import sys
 
@@ -21,9 +22,11 @@ def main() -> int:
     apk = os.path.join(android, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
     folder = os.path.join(portable.data_dir(), "android")
     os.makedirs(folder, exist_ok=True)
-    # Version file last: the server offers a build only once both exist, so a failed copy never advertises a stale APK.
-    with open(apk, "rb") as src, open(os.path.join(folder, offered.APK_NAME), "wb") as dst:
-        dst.write(src.read())
+    # Replace the APK atomically and write the version file last: the server offers a build only
+    # once both exist, and a phone downloading mid-copy must never get half a file.
+    target = os.path.join(folder, offered.APK_NAME)
+    shutil.copyfile(apk, target + ".part")
+    os.replace(target + ".part", target)
     with open(os.path.join(folder, offered.VERSION_NAME), "w", encoding="ascii") as f:
         f.write(str(next_code))
     print(f"Offering app build {next_code} from {folder}")
