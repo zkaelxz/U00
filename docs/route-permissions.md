@@ -110,6 +110,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/characters/dramas/{drama_id}/rename-speaker` | lines.edit |
 | `POST /api/characters/dramas/{drama_id}/rename-speaker/undo` | lines.edit |
 | `POST /api/characters/dramas/{drama_id}/series-link` | lines.edit |
+| `POST /api/characters/dramas/{drama_id}/set-line-speaker` | lines.edit |
+| `POST /api/characters/dramas/{drama_id}/speaker-change/undo` | lines.edit |
+| `POST /api/characters/dramas/{drama_id}/swap-speakers` | lines.edit |
 | `POST /api/characters/dramas/{drama_id}/voice-bank/apply` | lines.edit |
 | `POST /api/characters/dramas/{drama_id}/voice-bank/save` | admin.library |
 | `GET /api/characters/dramas/{drama_id}/voice-suggestions` | library.read |

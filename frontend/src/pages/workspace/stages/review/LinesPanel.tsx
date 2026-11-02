@@ -15,6 +15,7 @@ import { HiddenEditBanner } from './HiddenEditBanner'
 import { LineActionsSheet, type SheetState } from './LineActionsSheet'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { SelectionBar } from './SelectionBar'
+import { selectionContext } from './selectionActions'
 import { LineRow, type EditState, type RowIssue } from './LineRow'
 import { LinesEmpty } from './LinesEmpty'
 import { buildLinesNavigation } from './linesNavigation'
@@ -31,6 +32,7 @@ import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
 import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
+import { useSetSpeakerPanel } from './useSetSpeakerPanel'
 import { UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
@@ -293,16 +295,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const counts = data
     ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count, unreviewed: data.unreviewed_count ?? 0 }
     : null
-  const selectionCtx = {
-    dramaId,
-    selectedIds: selection.selectedIds,
-    lineNumbers: selection.lineNumbers(selection.selectedIds),
-    clear: selection.clear,
-    notify: setStatus,
+  const setSpeaker = useSetSpeakerPanel(dramaId, selection.selectedIds, onChanged)
+  const selectionCtx = selectionContext(dramaId, selection, setStatus, {
     openCompare: onCompareSelected ?? (() => {}),
     openRetime: onRetimeSelected ?? (() => {}),
+    openSetSpeaker: setSpeaker.open,
     openRetranscribe: (lineIds: number[]) => onRetranscribeLines?.(lineIds),
-  }
+  })
   const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
   const loading = !searching && data === null && !error
   const showPager = !searching && !!data && pages > 1
@@ -413,6 +412,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {suspectOpen && suspects.length > 0 && (
           <SourceSuspectPanel dramaId={dramaId} items={suspects} onGoTo={(n) => void goToNumber(n)} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
         )}
+        {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
         {!searching && !!data?.flagged_count && (
           <div className="review-flagnav" role="group" aria-label="Flagged lines">

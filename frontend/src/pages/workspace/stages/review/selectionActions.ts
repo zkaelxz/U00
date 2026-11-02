@@ -16,8 +16,18 @@ export interface SelectionActionContext {
   openCompare: () => void
   // Opens Review's Re-time with Qwen3 aligner section on the ticked lines.
   openRetime: () => void
+  // Opens the Set speaker panel on the ticked lines.
+  openSetSpeaker: () => void
   // Opens Review's Re-transcribe section and starts it on exactly these lines.
   openRetranscribe: (lineIds: number[]) => void
+}
+
+type SelectionState = Pick<SelectionActionContext, 'selectedIds' | 'clear'> & { lineNumbers: (ids: number[]) => number[] }
+type SelectionOpeners = Pick<SelectionActionContext, 'openCompare' | 'openRetime' | 'openSetSpeaker' | 'openRetranscribe'>
+
+// Builds the context the selection bar's actions run with, so the panel that owns the selection doesn't spell out every field.
+export function selectionContext(dramaId: number, selection: SelectionState, notify: (message: string) => void, open: SelectionOpeners): SelectionActionContext {
+  return { dramaId, selectedIds: selection.selectedIds, lineNumbers: selection.lineNumbers(selection.selectedIds), clear: selection.clear, notify, ...open }
 }
 
 interface SelectionAction {
@@ -54,6 +64,11 @@ export const SELECTION_ACTIONS: SelectionAction[] = [
     label: 'Re-time with Qwen3 aligner…',
     unavailable: ({ selectedIds }) => retimeSelectedProblem(selectedIds.length),
     run: ({ openRetime }) => openRetime(),
+  },
+  {
+    id: 'set-speaker',
+    label: 'Set speaker…',
+    run: ({ openSetSpeaker }) => openSetSpeaker(),
   },
   {
     id: 're-transcribe',

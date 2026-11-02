@@ -132,6 +132,33 @@ def rename_speaker_atomic(drama_id: int, old_label: str, new_label: str, charact
         conn.close()
 
 
+def set_line_speakers_atomic(drama_id: int, line_updates: list):
+    """Writes each of line_updates ({id, expect_speaker, expect_manual,
+    speaker, manual}) in ONE transaction, only while the row still holds the
+    expected speaker and manual flag, so an undo or a bulk set can't overwrite
+    an edit made meanwhile. Returns the number of lines written, or "changed"
+    (a line no longer matched; nothing is written)."""
+    conn = db.get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for u in line_updates:
+            cur = conn.execute(
+                "UPDATE lines SET speaker = ?, speaker_manual = ? WHERE id = ? AND drama_id = ? "
+                "AND COALESCE(speaker, '') = ? AND COALESCE(speaker_manual, 0) = ?",
+                (u["speaker"], int(bool(u["manual"])), u["id"], drama_id,
+                 u["expect_speaker"], int(bool(u["expect_manual"]))))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return "changed"
+        conn.commit()
+        return len(line_updates)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 MERGE_ROW_FIELDS = ("character_name", "voice_actor", "tts_voice", "offline_voice",
                     "ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                     "voice_design", "pronouns", "series_character_id")

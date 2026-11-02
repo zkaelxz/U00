@@ -50,3 +50,19 @@ export interface MergeResult {
   moved: number
   undo: MergeUndo | null
 }
+
+// Set the speaker of chosen lines, or swap two speakers' lines. undo is what
+// the server needs to put each line's old speaker and flag back.
+export interface SpeakerChangeEntry {
+  id: number
+  from_speaker: string
+  from_manual: boolean
+  to_speaker: string
+}
+
+export interface SpeakerChangeResult {
+  updated: number
+  line_ids: number[]
+  skipped_ids: number[]
+  undo: SpeakerChangeEntry[]
+}

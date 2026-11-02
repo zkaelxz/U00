@@ -260,6 +260,80 @@ def test_h1_oversized_ids_never_500(client, isolated_db):
                        json={"speaker_label": "A", "voice_bank_id": big}).status_code == 422
 
 
+class TestSetAndSwapSpeakers:
+    def _set(self, client, did, ids, speaker):
+        return client.post(f"/api/characters/dramas/{did}/set-line-speaker",
+                           json={"line_ids": ids, "speaker": speaker})
+
+    def _undo(self, client, did, undo):
+        return client.post(f"/api/characters/dramas/{did}/speaker-change/undo", json={"undo": undo})
+
+    def _state(self, db, did):
+        return [(ln.speaker, ln.speaker_manual) for ln in db.load_line_objects(did)]
+
+    def test_set_marks_lines_by_hand_and_undo_restores_them(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("A", "B", "A"))
+        ids = [ln.id for ln in isolated_db.load_line_objects(did)]
+        r = self._set(client, did, [ids[0], ids[1], 999999], "  Mei ")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert (body["updated"], body["skipped_ids"]) == (2, [999999])
+        assert self._state(isolated_db, did) == [("Mei", True), ("Mei", True), ("A", False)]
+        assert self._undo(client, did, body["undo"]).status_code == 200
+        assert self._state(isolated_db, did) == [("A", False), ("B", False), ("A", False)]
+
+    def test_set_skips_lines_already_set_by_hand_to_that_speaker(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("A", "B"))
+        ids = [ln.id for ln in isolated_db.load_line_objects(did)]
+        assert self._set(client, did, ids, "A").json()["updated"] == 2
+        again = self._set(client, did, ids, "A").json()
+        assert (again["updated"], again["undo"]) == (0, [])
+
+    def test_swap_trades_lines_and_undo_restores_them(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("A", "B", "A", "C"))
+        r = client.post(f"/api/characters/dramas/{did}/swap-speakers", json={"first": "A", "second": "B"})
+        assert r.status_code == 200, r.text
+        assert self._state(isolated_db, did) == [("B", True), ("A", True), ("B", True), ("C", False)]
+        assert self._undo(client, did, r.json()["undo"]).status_code == 200
+        assert self._state(isolated_db, did) == [("A", False), ("B", False), ("A", False), ("C", False)]
+
+    def test_swap_refuses_same_unknown_and_missing_drama(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("A", "B"))
+        url = f"/api/characters/dramas/{did}/swap-speakers"
+        assert client.post(url, json={"first": "A", "second": "A"}).status_code == 422
+        assert client.post(url, json={"first": "A", "second": "Nobody"}).status_code == 404
+        assert client.post("/api/characters/dramas/9999/swap-speakers",
+                           json={"first": "A", "second": "B"}).status_code == 404
+
+    def test_undo_refused_when_a_line_changed_since(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("A", "B"))
+        ids = [ln.id for ln in isolated_db.load_line_objects(did)]
+        undo = self._set(client, did, ids, "Mei").json()["undo"]
+        lines = isolated_db.load_line_objects(did)
+        lines[1].speaker = "Someone"
+        isolated_db.save_lines(did, lines, fields=("speaker",))
+        assert self._undo(client, did, undo).status_code == 409
+        assert [s for s, _ in self._state(isolated_db, did)] == ["Mei", "Someone"]
+
+    def test_bad_input(self, client, isolated_db):
+        did = _drama(isolated_db, speakers=("A",))
+        ids = [ln.id for ln in isolated_db.load_line_objects(did)]
+        assert self._set(client, did, ids, "   ").status_code == 422
+        assert self._set(client, did, ids, "a/b").status_code == 422
+        assert self._set(client, did, [], "Mei").status_code == 422
+        assert self._set(client, 9999, ids, "Mei").status_code == 404
+
+    def test_refused_while_a_job_runs(self, client, isolated_db, monkeypatch):
+        from services import drama_service
+        monkeypatch.setattr(drama_service, "job_running_for_drama", lambda *_a, **_k: True)
+        did = _drama(isolated_db, speakers=("A", "B"))
+        ids = [ln.id for ln in isolated_db.load_line_objects(did)]
+        assert self._set(client, did, ids, "Mei").status_code == 409
+        assert client.post(f"/api/characters/dramas/{did}/swap-speakers",
+                           json={"first": "A", "second": "B"}).status_code == 409
+        assert self._state(isolated_db, did) == [("A", False), ("B", False)]
+
+
 class TestRenameSpeaker:
     def _rename(self, client, did, label, name):
         return client.post(f"/api/characters/dramas/{did}/rename-speaker",

@@ -612,6 +612,100 @@ def undo_rename_speaker(drama_id: int, undo: dict) -> dict:
     return {"characters": list_characters(drama_id), "renamed": n, "undo": None}
 
 
+# --- Set or swap the speaker of many lines -------------------------------------
+
+MAX_SPEAKER_CHANGE_LINES = 10000
+
+
+def _write_speaker_changes(drama_id: int, changes: list) -> list:
+    """Writes [(line, new_speaker)] as one transaction, each line marked set by
+    hand, and returns the undo entries that put the old speaker and flag back."""
+    updates = [{"id": ln.id, "expect_speaker": ln.speaker or "", "expect_manual": bool(ln.speaker_manual),
+                "speaker": new, "manual": True} for ln, new in changes]
+    if db.set_line_speakers_atomic(drama_id, updates) == "changed":
+        raise ConflictError("Some lines changed meanwhile; nothing was changed. Try again.")
+    return [{"id": ln.id, "from_speaker": ln.speaker or "", "from_manual": bool(ln.speaker_manual),
+             "to_speaker": new} for ln, new in changes]
+
+
+def _refuse_while_job_runs(drama_id: int, what: str):
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError(_BUSY.format(what=what), details={"reason": "job_running"})
+
+
+def set_line_speaker(drama_id: int, line_ids, speaker) -> dict:
+    """Gives the named lines one speaker (a new name is allowed), marked set by
+    hand so re-assigning from saved turns keeps it. An id that isn't this
+    title's line is skipped. Raises NotFoundError, InvalidInputError (bad ids or
+    name) or ConflictError (a job is running, or a line changed meanwhile; then
+    nothing is written). Returns {updated, line_ids, skipped_ids, undo}."""
+    require_drama(drama_id)
+    if (not isinstance(line_ids, (list, tuple)) or not line_ids
+            or len(line_ids) > MAX_SPEAKER_CHANGE_LINES
+            or any(isinstance(i, bool) or not isinstance(i, int) for i in line_ids)):
+        raise InvalidInputError(f"line_ids must be 1 to {MAX_SPEAKER_CHANGE_LINES} integers.")
+    label = _clean_label("speaker", speaker)
+    _refuse_while_job_runs(drama_id, "changing speakers")
+    by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
+    wanted = list(dict.fromkeys(line_ids))
+    targets = [by_id[i] for i in wanted if i in by_id]
+    undo = _write_speaker_changes(
+        drama_id, [(ln, label) for ln in targets if ln.speaker != label or not ln.speaker_manual])
+    return {"updated": len(undo), "line_ids": [ln.id for ln in targets],
+            "skipped_ids": [i for i in wanted if i not in by_id], "undo": undo}
+
+
+def swap_speakers(drama_id: int, first: str, second: str) -> dict:
+    """Trades two speakers' lines: every line of `first` becomes `second` and
+    the other way round, marked set by hand. The Characters rows stay with
+    their labels. Raises NotFoundError (unknown speaker), InvalidInputError
+    (the same speaker twice), ConflictError (job running, or a line changed
+    meanwhile). Returns {updated, line_ids, skipped_ids, undo}."""
+    require_drama(drama_id)
+    known = known_speakers(drama_id)
+    for label in (first, second):
+        if not isinstance(label, str) or label not in known:
+            raise NotFoundError("No such speaker in this title.")
+    if first == second:
+        raise InvalidInputError("Pick two different speakers.")
+    _refuse_while_job_runs(drama_id, "swapping speakers")
+    lines = db.load_line_objects(drama_id)
+    changes = [(ln, second if ln.speaker == first else first)
+               for ln in lines if ln.speaker in (first, second)]
+    undo = _write_speaker_changes(drama_id, changes)
+    return {"updated": len(undo), "line_ids": [ln.id for ln, _ in changes],
+            "skipped_ids": [], "undo": undo}
+
+
+def undo_speaker_change(drama_id: int, entries) -> dict:
+    """Reverses set_line_speaker or swap_speakers from the undo they returned.
+    Every line must still carry the speaker the change gave it, set by hand;
+    otherwise (edited, re-split, changed again) nothing is undone. Returns
+    {updated, line_ids, skipped_ids, undo: []}."""
+    require_drama(drama_id)
+    if (not isinstance(entries, list) or not entries
+            or len(entries) > MAX_SPEAKER_CHANGE_LINES
+            or any(not isinstance(e, dict) or isinstance(e.get("id"), bool)
+                   or not isinstance(e.get("id"), int)
+                   or not isinstance(e.get("from_speaker"), str)
+                   or not isinstance(e.get("to_speaker"), str)
+                   or not isinstance(e.get("from_manual"), bool) for e in entries)):
+        raise InvalidInputError("That undo isn't valid.")
+    _refuse_while_job_runs(drama_id, "undoing")
+    by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
+    updates = []
+    for e in entries:
+        ln = by_id.get(e["id"])
+        if ln is None or (ln.speaker or "") != e["to_speaker"] or not ln.speaker_manual:
+            raise ConflictError("The lines changed since then, so it can't be undone.")
+        updates.append({"id": ln.id, "expect_speaker": e["to_speaker"], "expect_manual": True,
+                        "speaker": e["from_speaker"], "manual": e["from_manual"]})
+    if db.set_line_speakers_atomic(drama_id, updates) == "changed":
+        raise ConflictError("The lines changed since then, so it can't be undone.")
+    return {"updated": len(updates), "line_ids": [e["id"] for e in entries],
+            "skipped_ids": [], "undo": []}
+
+
 # --- Merge two speakers -------------------------------------------------------
 
 _STALE_MERGE = ("The speakers changed since the merge (renamed, edited or re-split), "

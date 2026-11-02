@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { mergeSpeakers, rememberSeriesCharacter, renameSpeaker, undoMergeSpeakers, undoRenameSpeaker } from '../../../api/characters'
+import { mergeSpeakers, rememberSeriesCharacter, renameSpeaker, swapSpeakers, undoMergeSpeakers, undoRenameSpeaker, undoSpeakerChange } from '../../../api/characters'
 import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, saveCharacter } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { isForbidden, LINES_READ_FORBIDDEN } from '../../../components/errorMessages'
@@ -8,7 +8,7 @@ import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
 import { Section } from '../../../components/Section'
 import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
-import type { MergeResult, RememberResult, RenameResult, RenameUndo } from '../../../types/characters'
+import type { MergeResult, RememberResult, RenameResult, RenameUndo, SpeakerChangeEntry, SpeakerChangeResult } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
 import { useStage, useStageFocus } from '../StageContext'
 import { SeriesCast } from './SeriesCast'
@@ -33,7 +33,7 @@ const COLUMNS = 6
 
 const formKey = (e: CharacterEntry) => JSON.stringify(toCharacterForm(e))
 
-function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged }: {
+function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged, onSwapped }: {
   entry: CharacterEntry
   engines: CloneEngines | null
   bank: VoiceBankEntry[]
@@ -45,6 +45,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   onRemembered: (r: RememberResult) => void
   onRenamed: (r: RenameResult) => void
   onMerged: (r: MergeResult, sourceLabel: string, targetLabel: string) => void
+  onSwapped: (r: SpeakerChangeResult, first: string, second: string) => void
 }) {
   const { dramaId } = useStage()
   const [form, setForm] = useState<CharacterForm>(() => toCharacterForm(entry))
@@ -64,6 +65,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   const [renaming, setRenaming] = useState<string | null>(null)
   // '' is the form open with no speaker picked yet.
   const [mergeInto, setMergeInto] = useState<string | null>(null)
+  const [swapWith, setSwapWith] = useState<string | null>(null)
   const set = <K extends keyof CharacterForm>(k: K, v: CharacterForm[K]) => setForm((f) => ({ ...f, [k]: v }))
   const label = entry.speaker_label
 
@@ -120,6 +122,16 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
     mergeSpeakers(dramaId, label, mergeInto).then((r) => {
       setBusy(false)
       onMerged(r, label, mergeInto)
+    }, fail)
+  }
+
+  const swap = () => {
+    if (!swapWith) return
+    setBusy(true)
+    swapSpeakers(dramaId, label, swapWith).then((r) => {
+      setBusy(false)
+      setSwapWith(null)
+      onSwapped(r, label, swapWith)
     }, fail)
   }
 
@@ -228,6 +240,24 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                 <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setMergeInto(null)}>Cancel</button>
               </form>
             )}
+            {swapWith === null ? (
+              <button type="button" disabled={busy || mergeTargets.length === 0}
+                title={mergeTargets.length === 0 ? 'There is no other speaker to swap with.'
+                  : 'Trades this speaker\'s lines with another speaker\'s, for when two labels are the wrong way round.'}
+                onClick={() => setSwapWith('')}>
+                Swap speakers…
+              </button>
+            ) : (
+              <form className="character-merge" onSubmit={(e) => { e.preventDefault(); swap() }}>
+                <select aria-label={`Swap ${label} with`} value={swapWith} autoFocus
+                  onChange={(e) => setSwapWith(e.target.value)}>
+                  <option value="">Choose a speaker</option>
+                  {mergeTargets.map((t) => <option key={t.label} value={t.label}>{t.text}</option>)}
+                </select>
+                <button type="submit" disabled={busy || !swapWith}>Swap</button>
+                <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setSwapWith(null)}>Cancel</button>
+              </form>
+            )}
           </div>
           <details className="voice-details">
             <summary>Voice settings for {label}{form.clone_engine ? ` (${form.clone_engine})` : ''}</summary>
@@ -305,6 +335,8 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   const [castRefresh, setCastRefresh] = useState(0)
   const [undo, setUndo] = useState<RenameUndo | null>(() => readRenameUndo(dramaId))
   const [undoBusy, setUndoBusy] = useState(false)
+  // Kept in memory only: a reload ends it, since the lines it names may have changed.
+  const [swapUndo, setSwapUndo] = useState<SpeakerChangeEntry[] | null>(null)
   // Only the server's opaque undo id and the two labels; the rows stay on the server.
   const [mergeUndo, setMergeUndo] = useState<MergeUndoHandle | null>(() => readMergeUndo(dramaId))
   const forgetMergeUndo = () => {
@@ -328,6 +360,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   const renamed = (r: RenameResult) => {
     setEntries(r.characters)
     forgetMergeUndo()
+    setSwapUndo(null)
     setUndo(r.undo)
     saveRenameUndo(dramaId, r.undo)
     setNotice(r.undo ? `Renamed ${r.undo.previous_label} to ${r.undo.speaker_label} on ${r.renamed} lines.` : null)
@@ -341,10 +374,37 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
     setMergeUndo(handle)
     saveMergeUndo(dramaId, handle)
     // A rename's undo names labels that may be gone now.
+    setSwapUndo(null)
     setUndo(null)
     saveRenameUndo(dramaId, null)
     setNotice(`Merged ${sourceLabel} into ${targetLabel}: ${r.moved} ${r.moved === 1 ? 'line' : 'lines'} moved.`)
     setSuggestRefresh((n) => n + 1)
+  }
+  const swapped = (r: SpeakerChangeResult, first: string, second: string) => {
+    getCharacters(dramaId).then(setEntries, setError)
+    setSwapUndo(r.undo.length ? r.undo : null)
+    setNotice(`Swapped ${first} and ${second}: ${r.updated} ${r.updated === 1 ? 'line' : 'lines'} changed.`)
+    setSuggestRefresh((n) => n + 1)
+  }
+  const runUndoSwap = () => {
+    if (!swapUndo) return
+    setUndoBusy(true)
+    undoSpeakerChange(dramaId, swapUndo).then(
+      (r) => {
+        setUndoBusy(false)
+        setSwapUndo(null)
+        getCharacters(dramaId).then(setEntries, setError)
+        setNotice(`Put the speakers back on ${r.updated} ${r.updated === 1 ? 'line' : 'lines'}.`)
+        setSuggestRefresh((n) => n + 1)
+      },
+      (e: unknown) => {
+        setUndoBusy(false)
+        setError(e)
+        // Lines edited since: retrying won't work. A busy job or a lost
+        // connection leaves the undo valid, so the button stays.
+        if (!undoIdSurvives(e)) setSwapUndo(null)
+      },
+    )
   }
   const runUndoMerge = () => {
     if (!mergeUndo) return
@@ -445,16 +505,18 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
                 onRemembered={remembered}
                 onRenamed={renamed}
                 onMerged={merged}
+                onSwapped={swapped}
               />
             ))}
           </tbody>
         </table></div>
       )}
-      {(notice || undo || mergeUndo) && (
+      {(notice || undo || mergeUndo || swapUndo) && (
         <p role="status" className="character-notice">
           {notice}
           {undo && <button type="button" disabled={undoBusy} onClick={runUndo}>Undo rename</button>}
           {mergeUndo && <button type="button" disabled={undoBusy} onClick={runUndoMerge}>Undo merge</button>}
+          {swapUndo && <button type="button" disabled={undoBusy} onClick={runUndoSwap}>Undo swap</button>}
         </p>
       )}
       {drama.series_id ? <SeriesCast key={drama.series_id} seriesId={drama.series_id} refresh={castRefresh} /> : null}
