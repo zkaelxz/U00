@@ -370,8 +370,8 @@ def test_delete_rename_failure_leaves_everything(isolated_db, monkeypatch):
     def boom(*a, **k):
         raise OSError("locked")
     monkeypatch.setattr(ds.os, "rename", boom)
-    from lib.errors import ServiceError
-    with pytest.raises(ServiceError):
+    from lib.errors import ConflictError
+    with pytest.raises(ConflictError):
         ds.delete_drama(did, confirm=True, confirm_text="DELETE")
     assert _intact(did, folder)
 

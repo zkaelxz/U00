@@ -248,9 +248,10 @@ class TestFolders:
 
         import browser_support
         import pending_install
+        import voice_venv
         from services import sources_save_service, vdb_names_service
         for name in (os.path.basename(pending_install.state_dir()), browser_support.FOLDER_NAME,
-                     sources_save_service.SAVE_DIRNAME):
+                     sources_save_service.SAVE_DIRNAME, voice_venv.VENVS_DIRNAME):
             (layout.data / name).mkdir()
         (layout.data / vdb_names_service.FILE_NAME).write_text("{}", encoding="utf-8")
         assert service_layout.data_folder_contents_problem(layout.data) == ""

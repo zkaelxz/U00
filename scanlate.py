@@ -235,7 +235,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     if not boxes:
         # A page of lettering on the art alone is not "no bubbles found".
         if art_captions:
-            captions = _art_caption_regions(image_path, source_language, [], page, notes)
+            captions = _art_caption_regions(image_path, source_language, [], page, notes,
+                                               ocr_backend)
         if not captions:
             _note_no_bubbles(image_path, page, notes)
             return [], notes
@@ -270,7 +271,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     flag_site_marks(bubbles)
     if art_captions:
         bubbles += (captions if captions is not None
-                    else _art_caption_regions(image_path, source_language, bubbles, page, notes))
+                    else _art_caption_regions(image_path, source_language, bubbles, page, notes,
+                                          ocr_backend))
     if ocr_failed:
         # Fixed text: the exception may carry a model path, and the caller
         # needs "OCR broke" kept apart from "the bubble holds no text".
@@ -313,14 +315,15 @@ def _note_no_bubbles(image_path: str, page, notes: list) -> None:
 
 
 def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,
-                         notes: list) -> list:
+                         notes: list, ocr_backend: str | None = None) -> list:
     """Regions (kind "caption") for lettering on the artwork that no bubble
     covers, with the OCR detector's own text. Appended after the bubbles in
     reading order. A failure leaves the page with its bubbles and a note."""
     import scanlate_art_text
     try:
         found = scanlate_art_text.find_art_captions(image_path, source_language, bubbles,
-                                                    image=page)
+                                                    image=page,
+                                                    backend=ocr_backend or auto_ocr_backend(source_language))
     except HeadroomError:
         raise
     except Exception as exc:
