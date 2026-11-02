@@ -9,7 +9,7 @@ import os
 import re
 from novel_text import NOVEL_SOURCE_FILENAME, is_chapter_heading, narration_paragraph_ends  # noqa: F401 (re-exported)
 
-from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
+from dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
                  clip_signature, speak_in_venv, _voice_for_signature)
 
 
@@ -67,7 +67,8 @@ def _generate_units(units, record, language: str, clips_dir: str) -> None:
         elif unit["clone"].get("engine") in VENV_ENGINES:
             in_venv.setdefault(unit["clone"]["engine"], []).append(unit)
         else:
-            record(unit, VENV_LINE_FAILED)
+            # A removed or unknown engine says so in plain words.
+            record(unit, engine_refusal(unit["clone"].get("engine")) or VENV_LINE_FAILED)
     if in_venv:
         # A cancel kills the batch before it can remove its spec, which holds the text.
         for name in os.listdir(clips_dir):

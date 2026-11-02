@@ -802,6 +802,46 @@ class TestVenvEngines:
 class TestVenvEngineEdges:
     QWEN = TestVenvEngines.QWEN
 
+    def test_a_voice_description_reaches_the_batch_items(self, monkeypatch, tmp_path):
+        import voice_venv
+        monkeypatch.setattr(dub, "_cuda_available", lambda: False)
+        monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
+        seen = []
+
+        def run_batch(engine, items, workdir, timeout, own_group):
+            seen.extend(items)
+            yield {"done": "0"}
+        monkeypatch.setattr(voice_venv, "run_batch", run_batch)
+        requests = [{"text": "a", "out": str(tmp_path / "0.wav"), "language": "en",
+                     "ref_audio": None, "instruct": "female, low pitch"}]
+        assert list(dub.speak_in_venv("omnivoice", requests, str(tmp_path))) == [(0, None)]
+        assert seen[0]["instruct"] == "female, low pitch" and seen[0]["ref_audio"] is None
+
+    def test_a_designed_voice_in_narration_sends_its_description_and_no_clip(
+            self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        seen = []
+
+        def speak(engine, requests, workdir):
+            for i, r in enumerate(requests):
+                seen.append((engine, r["instruct"], r["ref_audio"]))
+                open(r["out"], "w").close()
+                yield i, None
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        lines = [Line(idx=0, start=0, end=0, zh="", en="Hello.", speaker="A")]
+        dub_narration.build_narration_track(lines, str(tmp_path), {"A": dict(VOICE)})
+        assert seen == [("omnivoice", VOICE["instruct"], None)]
+
+    def test_a_removed_engine_unit_says_so_in_plain_words(self, tmp_path):
+        recorded = []
+        unit = {"error": None, "clip_path": str(tmp_path / "none.wav"), "clone": {"engine": "edge_tts"}}
+        dub_narration._generate_units([unit], lambda u, e: recorded.append(e), "en", str(tmp_path))
+        assert recorded == [dub.engine_refusal("edge_tts")]
+        unit["clone"] = {}
+        recorded.clear()
+        dub_narration._generate_units([unit], lambda u, e: recorded.append(e), "en", str(tmp_path))
+        assert recorded == ["Unknown voice engine."]
+
     def test_no_torch_in_the_app_skips_the_vram_check(self, monkeypatch, tmp_path):
         import voice_venv
 

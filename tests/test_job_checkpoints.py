@@ -381,10 +381,14 @@ def test_venv_voice_engine_checks_vram_before_loading(monkeypatch, tmp_path):
     import voice_venv
     monkeypatch.setattr(dub, "_cuda_available", lambda: True)
     monkeypatch.setattr(vram_service, "free_vram_mb", lambda: 100.0)
+    # Ready, so only the VRAM refusal can stop the batch before its model loads.
+    monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
     monkeypatch.setattr(voice_venv, "run_batch", lambda *a, **k: pytest.fail("the model loaded"))
     out = list(dub.speak_in_venv("omnivoice", [{"text": "a", "out": "o", "language": "en"}],
                                  str(tmp_path)))
-    assert len(out) == 1 and out[0][0] == 0 and out[0][1]
+    assert out == [(0, "Not enough free GPU memory to load OmniVoice: it needs about 2.0 GB and "
+                       "only 0.1 GB is free. Close other programs using the GPU (or wait for "
+                       "another Baihe job to finish), then try again.")]
 
 
 def test_provenance_is_ignored_once_the_translation_changes(isolated_db):
