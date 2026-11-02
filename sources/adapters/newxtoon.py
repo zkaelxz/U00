@@ -159,7 +159,7 @@ class NewXToonSource(SourceAdapter):
             if m and m.group(1) == sid:
                 add(m.group(2), _clean(a.get_text()))
         # Only a series with more than one page of chapters names the endpoint.
-        if soup.find(attrs={"data-chapters-url": True}):
+        if soup.select_one("[data-chapters-url]"):
             for page in range(2, MAX_LIST_PAGES + 1):
                 more, has_more = self._more_chapters(sid, page)
                 for cid, title in more:
