@@ -397,7 +397,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
                   panelHost={looseMedia ? playerDock : sideVideo ? sideDock : undefined}
                   trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
                 />
-                {!looseMedia && waveform}
+                {!looseMedia && !sideVideo && waveform}
               </>
             ) : null
           }
@@ -550,7 +550,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       {sideVideo && (
         <aside className="card review-watch" aria-label="Video with subtitles">
           <h2 className="card-title">Video with subtitles</h2>
-          <div className="review-watch-dock" ref={setSideDock} />
+          <div className="review-watch-dock" ref={setSideDock} />{waveform}
           <ReadFromVideo
             player={player}
             sourceLanguage={sourceLanguage ?? ''}

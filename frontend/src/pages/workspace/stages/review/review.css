@@ -41,7 +41,7 @@
 .review-editor { gap: var(--space-4); }
 /* Tablets and wider, with a source video: the video, seek bar and subtitles in
    a sticky card beside the lines, so the list scrolls under a small toolbar. */
-.review-editor.has-side { grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem); align-items: start; }
+.review-editor.has-side { grid-template-columns: minmax(0, 1fr) minmax(22rem, 32rem); align-items: start; }
 /* Tablets: a narrower card, and each line's source sits over its translation. */
 @media (max-width: 1023px) {
   .review-editor.has-side { grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); }
@@ -49,7 +49,8 @@
 }
 .review-editor.has-side:has(.review-player-panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .review-editor:has(.review-player-panel[hidden]) .review-watch { display: none; }
-.review-watch { position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); padding: var(--space-3); gap: var(--space-2); max-height: calc(100vh - var(--bar-h, 0px) - var(--space-4)); overflow-y: auto; }
+/* A fixed height, not a max: the gap and install notes under the waveform come and go with the view, and the card must not jump with them. align-content: start because a grid with spare height would otherwise stretch its rows and move the video as the notes come and go. */
+.review-watch { position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); padding: var(--space-3); gap: var(--space-2); height: calc(100vh - var(--bar-h, 0px) - var(--space-4)); overflow-y: auto; align-content: start; }
 .review-watch .card-title { font-size: var(--text-md); }
 .review-watch .review-stage { max-height: 40vh; }
 .review-watch .review-video { cursor: pointer; }
@@ -484,6 +485,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-wave { display: grid; gap: var(--space-1); min-width: 0; }
 .review-wave-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; font-size: var(--text-sm); }
 .review-wave-range { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* In the pinned card the buttons would wrap to a different row count as the line under the playhead changes ("Centre on line" comes and goes), jolting the video above; one scrolling row keeps the card's height fixed. */
+.review-watch .review-wave-tools { flex-wrap: nowrap; overflow-x: auto; }
+.review-watch .review-wave-tools > * { flex: none; white-space: nowrap; }
 .review-wave-box { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); cursor: crosshair; touch-action: pan-y; user-select: none; }
 .review-wave-canvas { position: absolute; inset: 0; display: block; }
 .review-wave-cue { position: absolute; top: 0; bottom: 0; z-index: 0; background: color-mix(in srgb, var(--info) 14%, transparent); border-left: 1px solid var(--info); border-right: 1px solid var(--info); overflow: hidden; }
