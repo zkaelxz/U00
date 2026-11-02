@@ -7,6 +7,7 @@ import { JobsContext } from '../../hooks/useJobs'
 import { CleanupBlock } from './AdminBlocks'
 import { BackupTab } from '../libraryTools/BackupTab'
 import type { AdminJob } from './useAdminJob'
+import type { LibraryBulkItem } from '../../types/libraryAdmin'
 import { SelectionBar } from './SelectionBar'
 import {
   MAX_SELECTION, TRANSLATE_NEEDS, anyJobActive, describeBulkResult, describeClean, describeDeleteResult,
@@ -55,13 +56,17 @@ describe('selection helpers', () => {
   })
 })
 
+const item = (o: { drama_id: number; ok: boolean; error?: string | null; warning?: string | null }): LibraryBulkItem => ({
+  freed_bytes: null, message: null, error: null, warning: null, ...o,
+})
+
 describe('result lines', () => {
   it('bulk status/tags', () => {
-    expect(describeBulkResult({ updated: 3, results: [1, 2, 3].map((id) => ({ drama_id: id, ok: true })) }))
+    expect(describeBulkResult({ updated: 3, results: [1, 2, 3].map((id) => item({ drama_id: id, ok: true })) }))
       .toBe('Updated 3.')
     expect(describeBulkResult({
       updated: 2,
-      results: [{ drama_id: 1, ok: true }, { drama_id: 2, ok: true }, { drama_id: 9, ok: false, error: 'not_found' }],
+      results: [item({ drama_id: 1, ok: true }), item({ drama_id: 2, ok: true }), item({ drama_id: 9, ok: false, error: 'not_found' })],
     })).toBe('2 updated, 1 not found.')
   })
 
@@ -69,11 +74,11 @@ describe('result lines', () => {
     expect(describeDeleteResult({
       deleted: 2,
       results: [
-        { drama_id: 1, ok: true }, { drama_id: 2, ok: true, warning: 'Some files were left behind.' },
-        { drama_id: 3, ok: false, error: 'job_running' },
+        item({ drama_id: 1, ok: true }), item({ drama_id: 2, ok: true, warning: 'Some files were left behind.' }),
+        item({ drama_id: 3, ok: false, error: 'job_running' }),
       ],
     }, names)).toBe('Deleted 2. Skipped: T3 (a job is running). Some files were left behind.')
-    expect(describeDeleteResult({ deleted: 1, results: [{ drama_id: 1, ok: true }] }, names)).toBe('Deleted 1.')
+    expect(describeDeleteResult({ deleted: 1, results: [item({ drama_id: 1, ok: true })] }, names)).toBe('Deleted 1.')
   })
 
   it('translate skips', () => {
@@ -101,7 +106,7 @@ describe('result lines', () => {
     })).toBe('Library 48.2 GB · 3.1 GB reclaimable · this preset frees 2.4 GB')
     expect(describeClean({
       preset: 'balanced', freed_bytes: 2.3e9,
-      results: [{ drama_id: 1, ok: true }, { drama_id: 2, ok: false, error: 'job_running' }],
+      results: [item({ drama_id: 1, ok: true }), item({ drama_id: 2, ok: false, error: 'job_running' })],
     })).toBe('Freed 2.3 GB. 1 title skipped (job running).')
   })
 

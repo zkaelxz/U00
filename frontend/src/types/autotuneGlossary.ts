@@ -19,34 +19,13 @@ export type AutotuneStatus = Schemas['AutotuneStatus']
 
 export type NovelGlossaryRunResult = Schemas['NovelGlossaryRunResult']
 
-export interface NovelGlossaryProposal {
-  term: string
-  suggested_translation: string
-  category: string | null
-  policy: string | null
-  reason: string
-  already_in_glossary: boolean
-  // Times the term occurs in the text the model read, and the other
-  // renderings it proposed for it; confidence is derived from both.
-  occurrences: number
-  alternatives: string[]
-  confidence: 'high' | 'low'
-}
+export type NovelGlossaryProposal = Schemas['NovelGlossaryProposal']
 
 export type GlossaryDismissals = Schemas['GlossaryDismissals']
 
 export type GlossaryDismissResult = Schemas['GlossaryDismissResult']
 
-export interface NovelGlossaryStatus {
-  job_id: string
-  status: string
-  progress: number | null
-  message: string
-  proposals: NovelGlossaryProposal[] | null
-  // Names this run (null if unknown); an apply sends it back and gets a
-  // 409 if the run was replaced since.
-  run_id: string | null
-}
+export type NovelGlossaryStatus = Schemas['NovelGlossaryStatus']
 
 export interface NovelGlossaryApplyRequest {
   terms: string[]

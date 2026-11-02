@@ -124,7 +124,7 @@ Choices that belong to a browser (last engine and model, which `Section`s are op
 
 ## 7. How types stay in step with the API
 
-Response shapes are **generated**; request bodies and UI-only shapes are still hand-written. `npm run gen:api` (after `npm ci` in `frontend/openapi-gen`) writes `api/generated/schema.d.ts` from the FastAPI app, and CI fails when the committed file is stale. A `types/<area>.ts` file takes a server shape as `export type X = Schemas['X']`; a few interfaces stay hand-written where the generated type marks a defaulted field optional and the code relies on it being present. So:
+Response shapes are **generated**; request bodies and UI-only shapes are still hand-written. `npm run gen:api` (after `npm ci` in `frontend/openapi-gen`) writes `api/generated/schema.d.ts` from the FastAPI app, and CI fails when the committed file is stale. A `types/<area>.ts` file takes a server shape as `export type X = Schemas['X']`; the rest stay hand-written where the shape differs (request bodies, UI-only state, a field the screen adds). `tools/export_openapi.py` marks every property of a response model required, because FastAPI always sends defaulted fields; routes that drop `None` or unset fields keep theirs optional. So:
 
 1. Change the Pydantic model in `api/schemas/<domain>.py`, rerun `npm run gen:api`, and update any hand-written interface in the matching `types/<area>.ts` in the same change. Most types files open with a comment naming the schema module they mirror; keep that line true.
 2. Mocked specs hide drift, because they return whatever the spec writes. The e2e suite runs the real FastAPI app on a seeded library (section 9), so unmocked specs catch a renamed field.

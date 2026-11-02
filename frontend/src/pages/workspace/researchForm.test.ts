@@ -7,7 +7,7 @@ import {
 } from './researchForm'
 
 const row = (field: string, status: ResearchField['status']): ResearchField =>
-  ({ field, value: 'v', status, sources: [], current: status === 'new' ? null : 'c' })
+  ({ field, value: 'v', status, sources: [], confidence: null, current: status === 'new' ? null : 'c' })
 
 const budget: ResearchBudget = {
   free_daily_limit: 500, used_today: 3, free_monthly_limit: 5000, used_this_month: 3,
