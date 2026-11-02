@@ -154,7 +154,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     return (
       <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
         <header className="workspace-header">
-          <ButtonLink href={routeHref({ name: 'drama', id, stage: null })} variant="ghost" size="sm" className="ws-back" aria-label="Back to novel page">
+          <ButtonLink href={routeHref({ name: 'drama', id, stage: null })} variant="ghost" size="sm" className="ws-back" aria-label="Back to title page">
             <span aria-hidden="true">‹</span>
             <span className="ws-back-text" aria-hidden="true">{title}</span>
           </ButtonLink>

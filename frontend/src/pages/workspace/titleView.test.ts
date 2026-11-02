@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { asTitleView, defaultTitleView, episodeRows, episodeState, hasSimpleView, opensSimpleStage, titleViewPref } from './titleView'
 
 describe('title view', () => {
-  it('gives the stages the novel page links to a slim page, and nothing else', () => {
-    for (const st of ['source', 'translate', 'export']) expect(opensSimpleStage('novel', st)).toBe(true)
-    expect(opensSimpleStage('novel', 'review')).toBe(false)
-    expect(opensSimpleStage('novel', null)).toBe(false)
-    for (const k of ['audio', 'video', 'comic'] as const) expect(opensSimpleStage(k, 'translate')).toBe(false)
+  it('gives the stages a Simple page links to a slim page, and nothing else', () => {
+    for (const k of ['audio', 'video', 'novel', 'comic'] as const) {
+      for (const st of ['source', 'translate', 'export']) expect(opensSimpleStage(k, st)).toBe(true)
+      expect(opensSimpleStage(k, null)).toBe(false)
+    }
+    for (const k of ['audio', 'video'] as const) expect(opensSimpleStage(k, 'review')).toBe(true)
+    for (const k of ['novel', 'comic'] as const) expect(opensSimpleStage(k, 'review')).toBe(false)
+    expect(opensSimpleStage('subtitle', 'translate')).toBe(false)
   })
 
   it('defaults to Full so nothing changes until the switch is used', () => {
