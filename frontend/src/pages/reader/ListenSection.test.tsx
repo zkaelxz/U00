@@ -32,7 +32,7 @@ describe('ListenPicker', () => {
     expect(out).toContain('Narrator: reference clip')
     expect(out).toContain('B: described voice')
     expect(out).toContain('Narrator: no voice yet')
-    expect(out).toContain('href="#/drama/22/translate?tab=characters"')
+    expect(out).toContain('href="#/drama/22/review?tools=voices"')
     expect(out).toContain('Change voice')
   })
 })
