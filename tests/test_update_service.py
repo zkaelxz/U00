@@ -823,9 +823,10 @@ def test_no_download_or_second_install_starts_while_setup_is_being_checked(verif
 
     def copy_while_clicking(src, dst):
         for click in (us.start_download, us.install):
-            with pytest.raises(ConflictError, match="already starting") as exc:
+            with pytest.raises(ConflictError) as exc:
                 click()
             refused.append(str(exc.value))
+        assert refused[-2:] == ["An app update is already starting.", us.SETUP_OPEN]
         return real_copy(src, dst)
     monkeypatch.setattr(us.shutil, "copyfile", copy_while_clicking)
     assert us.install()["launched"] is True

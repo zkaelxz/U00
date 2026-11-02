@@ -773,9 +773,7 @@ def install() -> dict:
     with _lock:
         if _state["download"] == "downloading":
             raise ConflictError("Wait for the download to finish.")
-        if _installing:
-            raise ConflictError(_SETUP_STARTING)
-        if _setup is not None and _setup.poll() is None:
+        if _installing or (_setup is not None and _setup.poll() is None):
             raise ConflictError(SETUP_OPEN)
         verified = _verified
         if verified is None:
