@@ -154,10 +154,10 @@ def estimate_cost(probe, options: dict, cases: list) -> float:
             if options["memory_examples"] else base_guidelines
         lines = [c.get("source_text") or "" for c in scene]
         batches = math.ceil(len(lines) / options["batch_size"])
-        average = sum(map(len, lines)) / len(lines)
+        average = sum(engine_pricing.estimate_text_tokens(z) for z in lines) / len(lines)
         tokens_in, tokens_out = pricing.estimate_translation_tokens(lines, options["batch_size"])
         context = batches * (options["context_window"] + options["context_window_ahead"]) * average
-        tokens_in += int((context + batches * len(guidelines)) / 3.5)
+        tokens_in += int(context + batches * len(guidelines) / 3.5)
         if engine_pricing.is_reasoning_model(probe.model):
             tokens_out *= engine_pricing.REASONING_OUTPUT_MULTIPLIER
         total += engine_pricing.estimate_cost_for_engine(probe, tokens_in, tokens_out)

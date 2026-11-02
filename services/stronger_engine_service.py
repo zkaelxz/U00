@@ -144,9 +144,9 @@ def _prompt_chars(context: dict) -> int:
 def _estimate(engine_name: str, zh: str, prompt_chars: int, context_chars: int = 0) -> float:
     """Cost of one single-line call: the whole fixed prompt (instructions,
     glossary, style guide, novel excerpt) plus the line and its context,
-    at the same ~3.5 chars/token as the run estimate. No key needed."""
+    with the same CJK-aware token estimate as the run estimate. No key needed."""
     probe = _Probe(engine_name)
-    input_tokens = int((prompt_chars + context_chars + len(zh)) / 3.5) + 100
+    input_tokens = int((prompt_chars + context_chars) / 3.5 + pricing.estimate_text_tokens(zh)) + 100
     output_tokens = int(len(zh) / 2.5) + 20
     return round(pricing.estimate_cost_for_engine(probe, input_tokens, output_tokens), 6)
 

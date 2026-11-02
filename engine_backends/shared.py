@@ -1,6 +1,7 @@
 """Helpers every engine uses: usage totals, retry/backoff, secret redaction,
 id-keyed request and parsing, content-moderation detection."""
 
+import contextlib
 import contextvars
 from collections.abc import Callable
 import json
@@ -119,7 +120,24 @@ _cancel_check_var: contextvars.ContextVar[Callable[[], bool] | None] = contextva
 # pass explicitly.
 _backoff_wait_var: contextvars.ContextVar[Callable[[float, int, int], None] | None] = contextvars.ContextVar(
     "translate_backoff_wait", default=None)
+# Replies already paid for, by engine then line id. A retry of the whole
+# translate_batch call (call_with_backoff) otherwise re-sends, and re-bills, the
+# sub-requests that had finished before a later one failed.
+_answered_var: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "translate_answered", default=None)
 _SLEEP_SLICE_SECONDS = 0.5
+
+
+@contextlib.contextmanager
+def keep_answers_across_retries():
+    """Within this block, translations a request already returned survive a
+    retry of the surrounding call. Wrap exactly one call_with_backoff, for one
+    set of lines: the ids are only unique within it."""
+    token = _answered_var.set({})
+    try:
+        yield
+    finally:
+        _answered_var.reset(token)
 # Longest free-tier throttle wait (RPM/TPM windows are 60 s) worth sleeping
 # through; anything longer is the daily limit.
 _MAX_THROTTLE_WAIT_SECONDS = 120.0
@@ -590,6 +608,10 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     again; rejected (a dict) ends up holding {id_str: reason} for those still
     rejected at the end."""
     result_map = {}
+    store = _answered_var.get()
+    if store is not None and engine_name:
+        # Keyed by engine so a fallback engine's retry never adopts another's replies.
+        result_map = store.setdefault(engine_name, {})
     retries_left = max_retries
     # (ids to ask for, halvings so far); a cut-off reply's missing ids go back
     # as two smaller batches instead of the same oversized one.

@@ -267,6 +267,14 @@ def is_reasoning_model(model) -> bool:
 _CJK_CHAR = re.compile("[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff00-\uffef]")
 
 
+def estimate_text_tokens(text: str) -> float:
+    """Tokenizer-free input estimate: a token per CJK character, about 3.5
+    characters per token for everything else. Dividing a CJK text by 3.5
+    undercounts it several times over."""
+    cjk = len(_CJK_CHAR.findall(text))
+    return cjk + (len(text) - cjk) / 3.5
+
+
 def estimate_translation_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
     """Rough pre-run estimate of a normal single-pass translation run,
     from the lines' own character count. For token-billed engines this
@@ -284,8 +292,7 @@ def estimate_translation_tokens(zh_lines: list, batch_size: int | None = None) -
     chars = sum(len(z) for z in zh_lines)
     # Hosted tokenizers spend about a token per CJK character, so chars / 3.5
     # undercounts a CJK title's input several times over.
-    source_tokens = sum(len(_CJK_CHAR.findall(z)) + (len(z) - len(_CJK_CHAR.findall(z))) / 3.5
-                        for z in zh_lines)
+    source_tokens = sum(estimate_text_tokens(z) for z in zh_lines)
     batches = -(-len(zh_lines) // batch_size) if batch_size and zh_lines else 1
     # The bare instructions are measured; the 300 stands for the framing and
     # context lines around them. A style guide, glossary or novel excerpt is

@@ -26,6 +26,7 @@ from .shared import (
     _backoff_wait_var,
     _cancel_check_var,
     call_with_backoff,
+    keep_answers_across_retries,
     is_english_line,
     strip_echoed_label,
     tagged_line_languages,
@@ -402,7 +403,8 @@ class _TranslateRun:
                 _record_failed_attempt_usage(engine, self._record_usage)
                 raise
 
-        translations = call_with_backoff(attempt)
+        with keep_answers_across_retries():
+            translations = call_with_backoff(attempt)
         _record_engine_usage(engine, self._record_usage)
         return translations
 
