@@ -200,6 +200,9 @@ def _predecessor_context(drama_id: int, page_id: int) -> str:
     return (prev or {}).get("context_summary") or ""
 
 
+_STAMP_LOOKBACK_PAGES = 4
+
+
 def _detector_note(detect_backend: str, notes: list) -> tuple:
     import scanlate_detect
     fell_back = any(scanlate_detect.ML_FALLBACK_SENTENCE in str(n[-1]) for n in notes)
@@ -323,6 +326,26 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
     return existing, expected_ids, expected_rev, bubbles, detect_notes
 
 
+def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list) -> None:
+    """Skips a region that repeats, in place, a region of the few pages before
+    this one: a site's stamp, which the per-page check misses when OCR drops
+    the address. Runs when the page is processed, not when it is detected: the
+    read-ahead detects the next page before this one's regions are saved."""
+    import scanlate_watermark
+    page = db.get_page(page_id) or {}
+    width, height = int(page.get("width") or 0), int(page.get("height") or 0)
+    earlier = []
+    for p in db.list_pages(drama_id):
+        if p["idx"] >= int(page.get("idx") or 0):
+            break
+        if (int(p.get("width") or 0), int(p.get("height") or 0)) == (width, height):
+            earlier.append(p["id"])
+    # The nearest few pages: a stamp is on every page, and loading all would
+    # cost a query per page of a long chapter.
+    earlier_regions = [db.load_bubbles(pid) for pid in earlier[-_STAMP_LOOKBACK_PAGES:]]
+    scanlate_watermark.flag_site_marks(bubbles, earlier_regions, width, height)
+
+
 def _rerender(drama_id: int, page_id: int, jid: str) -> None:
     """Typesets a page again after its text changed. A failed render clears the
     page's typeset image, which shows the old text, so the original is shown."""
@@ -380,6 +403,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if isinstance(result, str):
         return result
     existing, expected_ids, expected_rev, bubbles, detect_notes = result
+    _flag_repeated_site_marks(drama_id, page_id, bubbles)
     notes = [_detector_note(detect_kwargs["detect_backend"], detect_notes)]
     notes += detect_notes
     new_context, translated_ok = None, True
