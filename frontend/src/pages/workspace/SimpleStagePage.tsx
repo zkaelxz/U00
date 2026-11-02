@@ -2,8 +2,11 @@ import { useMemo } from 'react'
 
 import type { DramaDetail } from '../../api/types'
 import { ButtonLink } from '../../components/Button'
+import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { routeHref } from '../../router'
+import { safeHref } from '../discover/discoverFormat'
+import { SourceLink } from '../discover/ExternalLink'
 import { JobPill } from './JobPill'
 import { STAGE_COMPONENTS } from './stageRegistry'
 import type { StageId } from './stages'
@@ -37,6 +40,10 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
         <h1 data-testid="drama-title" title={title}>{title}</h1>
         <JobPill dramaId={id} onFinished={refetch} />
         <TitleViewSwitch view="simple" onChange={onView} />
+        <SourceLink href={drama.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
+        {!safeHref(drama.source_url) && (
+          <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
+        )}
       </header>
       <ErrorBanner error={error} />
       <StageContext.Provider value={ctx}>
