@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { answerVoiceSuggestion, getVoiceSuggestions, mergeSpeakers, undoMergeSpeakers, rememberSeriesCharacter, renameSpeaker, undoRenameSpeaker } from './characters'
+import { answerVoiceSuggestion, getVoiceSuggestions, mergeSpeakers, undoMergeSpeakers, rememberSeriesCharacter, renameSpeaker, setLineSpeaker, swapSpeakers, undoRenameSpeaker, undoSpeakerChange } from './characters'
 
 type Call = { url: string; init?: RequestInit }
 
@@ -73,5 +73,24 @@ describe('merge speakers API', () => {
     await undoMergeSpeakers(4, 'opaque-id', fakeFetch(calls))
     expect(calls[0].url).toBe('/api/characters/dramas/4/merge-speakers/undo')
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ undo_id: 'opaque-id' })
+  })
+
+  it('posts the set-speaker, swap and undo bodies', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch(calls)
+    await setLineSpeaker(3, [1, 2], 'Mei', f)
+    await swapSpeakers(3, 'A', 'B', f)
+    const entry = { id: 1, from_speaker: 'A', from_manual: false, to_speaker: 'B' }
+    await undoSpeakerChange(3, [entry], f)
+    expect(calls.map((c) => c.url)).toEqual([
+      '/api/characters/dramas/3/set-line-speaker',
+      '/api/characters/dramas/3/swap-speakers',
+      '/api/characters/dramas/3/speaker-change/undo',
+    ])
+    expect(calls.map((c) => JSON.parse(String(c.init?.body)))).toEqual([
+      { line_ids: [1, 2], speaker: 'Mei' },
+      { first: 'A', second: 'B' },
+      { undo: [entry] },
+    ])
   })
 })
