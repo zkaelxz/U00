@@ -68,6 +68,14 @@ test('opens at page 1, pages forward and updates ?page', async ({ page }) => {
   }
 })
 
+test('the page opened at its own URL runs its scripts in an opaque origin, not the app’s', async ({ page }) => {
+  await page.goto('/api/reader/dramas/2/page.html?page=1')
+  await expect(page.locator('.line-row')).toHaveCount(40)
+  expect(await page.evaluate(() => typeof (window as unknown as { showDef?: unknown }).showDef)).toBe('function')
+  expect(await page.evaluate(() => self.origin)).toBe('null')
+  expect(await page.evaluate(() => { try { return document.cookie } catch { return 'blocked' } })).toBe('blocked')
+})
+
 test('a page that fails to load stays on the last good page and offers Retry', async ({ page }) => {
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
