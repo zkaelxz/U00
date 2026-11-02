@@ -1,6 +1,9 @@
 // Mirrors api/schemas/transcribe.py Autotune* (transcribe_routes.py),
 // characters.py NovelGlossary* (glossary_routes.py) and CharactersSeriesEntry
 // (characters_routes.py), plus the PC-only stage deletes (delete_routes.py).
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export interface AutotuneRunRequest {
   candidates?: number[]
@@ -8,18 +11,9 @@ export interface AutotuneRunRequest {
   extra_names?: string
 }
 
-export interface AutotuneRunResult {
-  job_id: string
-  candidates: number[]
-}
+export type AutotuneRunResult = Schemas['AutotuneRunResult']
 
-export interface AutotuneCandidateScore {
-  candidate_ms: number
-  long_lines: number
-  total_lines: number
-  /** Error rate against the title's corrected lines (0.12 = 12%); null when it has none. */
-  cer: number | null
-}
+export type AutotuneCandidateScore = Schemas['AutotuneCandidateScore']
 
 export interface AutotuneStatus {
   job_id: string
@@ -36,11 +30,7 @@ export interface AutotuneStatus {
   device_notice?: string | null
 }
 
-export interface NovelGlossaryRunResult {
-  job_id: string
-  engine: string
-  paired: boolean
-}
+export type NovelGlossaryRunResult = Schemas['NovelGlossaryRunResult']
 
 export interface NovelGlossaryProposal {
   term: string
@@ -56,13 +46,9 @@ export interface NovelGlossaryProposal {
   confidence: 'high' | 'low'
 }
 
-export interface GlossaryDismissals {
-  dismissals: { term: string; created_at: string | null }[]
-}
+export type GlossaryDismissals = Schemas['GlossaryDismissals']
 
-export interface GlossaryDismissResult {
-  changed: number
-}
+export type GlossaryDismissResult = Schemas['GlossaryDismissResult']
 
 export interface NovelGlossaryStatus {
   job_id: string
@@ -81,45 +67,14 @@ export interface NovelGlossaryApplyRequest {
   confirm?: boolean
 }
 
-export interface NovelGlossaryApplyResult {
-  added: string[]
-  overwritten: string[]
-  skipped_existing: string[]
-  unknown: string[]
-}
+export type NovelGlossaryApplyResult = Schemas['NovelGlossaryApplyResult']
 
-export interface MediaRemoveResult {
-  drama_id: number
-  removed: boolean
-  audio_file_removed: boolean
-  video_file_removed: boolean
-  has_audio: boolean
-  has_video: boolean
-}
+export type MediaRemoveResult = Schemas['MediaRemoveResult']
 
-export interface RawNovelRemoveResult {
-  drama_id: number
-  removed: boolean
-  has_raw_novel_context: boolean
-}
+export type RawNovelRemoveResult = Schemas['RawNovelRemoveResult']
 
-export interface TranslationVersionDeleteResult {
-  drama_id: number
-  version_id: number
-  deleted: boolean
-  was_active: boolean
-}
+export type TranslationVersionDeleteResult = Schemas['TranslationVersionDeleteResult']
 
-export interface SeriesCharacterDeleteResult {
-  series_id: number
-  character_id: number
-  deleted: boolean
-}
+export type SeriesCharacterDeleteResult = Schemas['SeriesCharacterDeleteResult']
 
-export interface SeriesCharacter {
-  id: number
-  character_name: string
-  aliases: string
-  notes: string
-  pronouns: string
-}
+export type SeriesCharacter = Schemas['CharactersSeriesEntry']
