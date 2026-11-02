@@ -509,6 +509,11 @@ async function novel(scenario) {
         settings: settings.reply.data.autoTitle,
       };
     }
+    case "worker_get_settings": {
+      const h = loadBackground({ granted: () => true, stored: { token: "SECRET-TOKEN", serverUrl: "https://baihe.example" } });
+      const reply = await h.ask({ type: "getSettings" }, { tab: { id: 1 } });
+      return { reply };
+    }
     case "worker_save_options": {
       const saved = [];
       const h = loadBackground({ granted: () => true, stored: { token: "t", autoTitle: { fill: false } } });
