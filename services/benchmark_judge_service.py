@@ -95,10 +95,11 @@ def check_judge(judge, configs: list, allow_same_model: bool = False) -> dict:
 
 
 def _case_tokens(case: dict, candidates: int) -> tuple:
-    source = len(case.get("source_text") or "")
-    reference = len(case.get("reference_text") or "")
-    outputs = int(source / 2.5) * candidates
-    return (_PROMPT_OVERHEAD_TOKENS + int((source + reference) / 3.5) + int(outputs / 3.5),
+    source_text = case.get("source_text") or ""
+    outputs = int(len(source_text) / 2.5) * candidates
+    prompt = (pricing.estimate_text_tokens(source_text)
+              + pricing.estimate_text_tokens(case.get("reference_text") or ""))
+    return (_PROMPT_OVERHEAD_TOKENS + int(prompt) + int(outputs / 3.5),
             _REPLY_TOKENS_PER_CANDIDATE * candidates)
 
 

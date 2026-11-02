@@ -449,3 +449,9 @@ class TestEstimateLeavesOutExcludedCases:
         db.set_benchmark_case_excluded(lab.list_cases()["cases"][0]["id"], True)
         part = judge_svc.estimate_with_judge("translation", CONFIGS, None, "s", None, JUDGE)["judge"]
         assert 0 < part["estimated_cost_usd"] < full["judge"]["estimated_cost_usd"]
+
+
+def test_a_cjk_case_is_estimated_per_character():
+    cjk = judge_svc._case_tokens({"source_text": "你" * 700, "reference_text": "x"}, 1)
+    latin = judge_svc._case_tokens({"source_text": "a" * 700, "reference_text": "x"}, 1)
+    assert cjk[0] > latin[0] + 400

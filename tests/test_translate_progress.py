@@ -136,3 +136,39 @@ def test_cancelled_run_stops_without_done_message():
     msgs = [m for _, m in events]
     assert msgs == ["Batch 1 of 3"]
     assert not any(m.endswith("done") for m in msgs)
+
+
+class _PartialThenFlaky:
+    """Answers lines 1-2 of 3, then fails the request for the missing line once."""
+    name = "claude"
+    supports_reference = True
+    model = "m"
+
+    def __init__(self):
+        self.asked = []
+        self.last_usage = {}
+
+    def translate_batch(self, zh_lines, context):
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+        def call_model(numbered):
+            ids = [int(p.split(".", 1)[0]) for p in numbered.splitlines() if p[:1].isdigit()]
+            self.asked.append(ids)
+            if len(self.asked) == 2:
+                raise RuntimeError("blip")
+            self.last_usage["input_tokens"] += 10
+            self.last_usage["output_tokens"] += 5
+            return json.dumps({str(i): f"t{i}" for i in ids if i != 3 or len(self.asked) > 2})
+        return shared.request_translations_with_retry(zh_lines, None, call_model, engine_name="claude")
+
+
+def test_a_retried_batch_asks_only_for_unfinished_lines_and_logs_each_request_once(monkeypatch):
+    monkeypatch.setattr(shared, "_cancellable_sleep", lambda s: None)
+    engine, usage = _PartialThenFlaky(), []
+    lines = _lines(3)
+    translate_pipeline.translate_lines_with_engine(
+        lines, engine, {}, batch_size=3, usage_cb=lambda *a: usage.append(a))
+    assert engine.asked == [[1, 2, 3], [3], [3]]
+    assert [ln.en for ln in lines[:2]] == ["t1", "t2"]
+    # Two requests were billed (the first, then the retry's); the failed one returned nothing.
+    assert sum(u[0] for u in usage) == 20 and sum(u[1] for u in usage) == 10

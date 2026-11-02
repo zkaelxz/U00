@@ -279,3 +279,13 @@ class TestSpokenLanguage:
         out = svc.try_line(did, ids[1], "claude")
         assert out["text"] == "林婉笑了" and out["cost_usd"] == 0.0
         assert engine.contexts == []
+
+
+class TestCjkEstimate:
+    def test_cjk_line_and_context_cost_more_than_latin_of_the_same_length(self):
+        assert svc._estimate("claude", "你" * 400, 0) > svc._estimate("claude", "a" * 400, 0)
+        assert svc._context_tokens([("你好世界", "ab")]) == pytest.approx(4 + 2 / 3.5)
+
+    def test_cjk_prompt_counts_a_token_per_character(self, monkeypatch):
+        monkeypatch.setattr(svc.prompts, "build_stable_system_text", lambda ctx: "术" * 700)
+        assert svc._prompt_tokens({}) == 700

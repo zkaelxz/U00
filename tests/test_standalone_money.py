@@ -187,3 +187,9 @@ class TestEstimate:
     def test_reads_only(self, isolated_db):
         translate_service.estimate(TEXT, "claude", "zh", "en")
         assert _rows() == [] and db.list_translate_history() == []
+
+
+def test_cjk_text_is_priced_per_character_not_per_3_5():
+    from engine_backends import pricing
+    assert pricing.estimate_text_tokens("你好世界") == 4
+    assert pricing.estimate_text_tokens("abcdefg") == 2
