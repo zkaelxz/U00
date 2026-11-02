@@ -6,6 +6,7 @@ import type { ReviewLine } from '../../../../types/review'
 import { gapForNewLine } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 import { useTitleTextLang } from '../../StageContext'
+import { SpeakerSelect } from './SpeakerSelect'
 
 export interface NewLine {
   start: number
@@ -16,6 +17,8 @@ export interface NewLine {
 }
 
 interface Props {
+  // Without it the speaker stays a plain text box (no title to list speakers from).
+  dramaId?: number
   // null = the new line goes first.
   after: ReviewLine | null
   next: ReviewLine | null
@@ -29,7 +32,7 @@ interface Props {
 }
 
 // Insert a new line. Start/End come pre-filled from the gap after `after`.
-export function AddLineForm({ after, next, busy, blocked, onAdd, onAddAndTranscribe, onCancel }: Props) {
+export function AddLineForm({ dramaId, after, next, busy, blocked, onAdd, onAddAndTranscribe, onCancel }: Props) {
   const textLang = useTitleTextLang()
   const gap = gapForNewLine(after, next)
   const [start, setStart] = useState(String(gap.start))
@@ -63,7 +66,11 @@ export function AddLineForm({ after, next, busy, blocked, onAdd, onAddAndTranscr
           <input inputMode="decimal" value={end} onChange={(ev) => setEnd(ev.target.value)} />
         </Field>
         <Field label="Speaker">
-          <input value={speaker} onChange={(ev) => setSpeaker(ev.target.value)} />
+          {dramaId !== undefined ? (
+            <SpeakerSelect dramaId={dramaId} value={speaker} onChange={setSpeaker} />
+          ) : (
+            <input value={speaker} onChange={(ev) => setSpeaker(ev.target.value)} />
+          )}
         </Field>
       </div>
       <Field label="Source">

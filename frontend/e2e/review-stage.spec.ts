@@ -514,6 +514,27 @@ test('delete is two-step and add fills the gap', async ({ page }) => {
   await expect(page.getByTestId('line-en').filter({ hasText: 'A new line' })).toHaveCount(0)
 })
 
+test("the Add-line form's Speaker lists the title's speakers and can switch to a typed name", async ({ page }) => {
+  await page.route('**/api/characters/dramas/3', (route) =>
+    route.fulfill({ json: [{ speaker_label: 'Mei' }, { speaker_label: 'Jun' }] }))
+  const bodies = captureBodies(page, /\/api\/restructure\//)
+  await open(page)
+  await activate(page, 0)
+  await page.keyboard.press('a')
+  const add = page.getByRole('dialog', { name: 'Add a line after #1' })
+  const speaker = add.getByLabel('Speaker')
+  await expect(speaker).toHaveRole('combobox')
+  await expect(speaker.locator('option')).toHaveText(['No speaker', 'Mei', 'Jun', 'Add new speaker…'])
+  await speaker.selectOption({ label: 'Add new speaker…' })
+  const typed = add.getByLabel('Speaker')
+  await expect(typed).not.toHaveRole('combobox')
+  await typed.fill('Ren')
+  await add.getByLabel('Translation').fill('Hi')
+  await add.getByRole('button', { name: 'Add after #1' }).click()
+  await expect(rows(page)).toHaveCount(4)
+  expect(bodies[0]).toMatchObject({ en: 'Hi', speaker: 'Ren' })
+})
+
 test('structure edits are refused with a plain message when the lines changed', async ({ page }) => {
   await page.route('**/api/restructure/dramas/3/merge', (route) =>
     route.fulfill({ status: 409, json: { error: { code: 'conflict', message: "This title's lines changed since you loaded them" } } }))
