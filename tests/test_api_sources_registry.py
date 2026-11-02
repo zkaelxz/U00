@@ -192,3 +192,18 @@ def test_toonkor_stored_data_still_lists_and_is_skipped(client, isolated_db):
     assert summary["errors"] == {"Old ToonKor Title": registry.SOURCE_REMOVED}
     with pytest.raises(KeyError, match="removed"):
         registry.get_adapter("toonkor")
+
+
+def test_ranobes_stored_data_still_lists_and_is_skipped(client, isolated_db):
+    from sources import chapter_check
+    assert "ranobes" not in registry.adapter_classes()
+    store.track_series("ranobes", "some-title", "Old Ranobes Title", url="https://example.invalid/some-title")
+    t = client.get("/api/sources/tracked").json()
+    assert t[0]["source"] == "ranobes" and t[0]["last_check_error"] == registry.SOURCE_REMOVED
+
+    def never(name):
+        raise AssertionError("no adapter may be built for a removed source")
+    summary = chapter_check.run_check_cycle(adapter_factory=never)
+    assert summary["errors"] == {"Old Ranobes Title": registry.SOURCE_REMOVED}
+    with pytest.raises(KeyError, match="removed"):
+        registry.get_adapter("ranobes")

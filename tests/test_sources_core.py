@@ -1399,10 +1399,10 @@ _LAYOUT_CHANGED_MESSAGES = {
     "manhuagui": "manhuagui's page layout has changed",
     "manhuaku": "manhuaku's page layout has changed",
     "miaoqumh": "miaoqumh's page layout has changed",
+    "newxtoon": "NewXToon's page layout has changed",
     "missevan": "MissEvan's API response has changed",
     "nihonkuni": "NihonKuni's page layout has changed",
     "piaotian": "Piaotian's page layout has changed",
-    "ranobes": "ranobes' page layout has changed",
     "rawkuma": "Rawkuma's page layout has changed",
     "syosetu": "Syosetu's page layout has changed",
     "twmanga": "twmanga's page layout has changed",
@@ -1430,7 +1430,7 @@ def test_layout_changed_factory_builds_the_shared_message():
                                    "The adapter needs updating.")
     assert str(layout_changed_class("Example", "API response")("x")).startswith(
         "Example's API response has changed")
-    assert str(layout_changed_class("ranobes'")("x")).startswith("ranobes' page layout")
+    assert str(layout_changed_class("Example'")("x")).startswith("Example' page layout")
     assert cls("a thing").reason is FailureReason.LAYOUT_CHANGED
     assert cls is not layout_changed_class("Example")
 

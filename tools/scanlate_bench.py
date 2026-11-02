@@ -141,6 +141,7 @@ class Balloon:
     text_box: tuple          # (x, y, w, h) of the lettering
     shape: str               # "ellipse" or "round"
     order: int = 0
+    ruby: str = ""           # furigana drawn beside the first column, not part of the answer
 
 
 @dataclasses.dataclass
@@ -240,8 +241,26 @@ def _plan_balloon(rng, lang, panel, slot, font_size, vertical):
     return text, lines, tw, th, w, h
 
 
-def make_page(index: int, lang: str, fonts: dict, seed: int = 0) -> Page:
-    """One synthetic page. Same (index, lang, seed) -> same pixels and answers."""
+# Hiragana picked so that a drawn ruby character is never also in the balloon's
+# own text: finding one in the OCR output then can only be furigana pollution.
+RUBY_CANDIDATES = "ぬねゆるめぬぷぺ"
+
+
+def _draw_ruby(draw, font, b: Balloon, lines, rng):
+    n = min(len(lines[0]) // 2 + 1, rng.randint(2, 4))
+    pool = [c for c in RUBY_CANDIDATES if c not in b.text]
+    b.ruby = "".join(rng.choice(pool) for _ in range(n)) if pool else ""
+    # Half-size glyphs just right of the first column, as ruby sits beside its base.
+    step = int(b.glyph * 1.15)
+    x = b.text_box[0] + (len(lines) - 1) * step + b.glyph + 2
+    for i, ch in enumerate(b.ruby):
+        draw.text((x, b.text_box[1] + i * b.glyph // 2), ch, font=font, fill=0)
+
+
+def make_page(index: int, lang: str, fonts: dict, seed: int = 0, ruby: bool = False) -> Page:
+    """One synthetic page. Same (index, lang, seed) -> same pixels and answers.
+    `ruby` adds furigana beside vertical Japanese lettering; it draws from its
+    own random stream so the layout is the same with or without it."""
     rng = random.Random(f"{seed}-{lang}-{index}")
     img = Image.new("L", (PAGE_W, PAGE_H), 255)
     draw = ImageDraw.Draw(img)
@@ -321,6 +340,10 @@ def make_page(index: int, lang: str, fonts: dict, seed: int = 0) -> Page:
         if key not in font_cache:
             font_cache[key] = ImageFont.truetype(fonts[lang], b.glyph)
         _draw_lettering(cdraw, font_cache[key], lines, b.text_box[0], b.text_box[1], b.glyph, b.vertical)
+        if ruby and lang == "ja" and b.vertical:
+            ruby_font = font_cache.setdefault((lang, "ruby", b.glyph),
+                                              ImageFont.truetype(fonts[lang], max(8, b.glyph // 2)))
+            _draw_ruby(cdraw, ruby_font, b, lines, random.Random(f"{seed}-{lang}-{index}-ruby-{b.x}-{b.y}"))
     for i, b in enumerate(balloons):
         b.order = i
     degraded = index % 2 == 1
@@ -462,6 +485,8 @@ def run_detect_ocr(page: Page, path: str, args) -> dict:
         "truth": len(page.balloons), "predicted": len(bubbles), "matched": len(pairs),
         "cer_matched": cers, "order_pairs": pair_order_accuracy(order),
         "order_exact": order == sorted(order) and len(order) == len(page.balloons),
+        "ruby_polluted": [1.0 if any(c in bubbles[i]["source_text"] for c in page.balloons[j].ruby) else 0.0
+                          for i, j in pairs if page.balloons[j].ruby],
         "kinds": [bubbles[i].get("kind") for i, _j in pairs],
         "notes": [n[1] for n in notes], "seconds": seconds,
         "per_balloon": [bubbles[matched[j]] if j in matched else None
@@ -583,6 +608,7 @@ def summarize(results: list) -> dict:
             "cer_oracle_vertical": _mean([c for c, v, _o in oracle if v]),
             "cer_oracle_horizontal": _mean([c for c, v, _o in oracle if not v]),
             "orientation_right": _mean([1.0 if o else 0.0 for _c, _v, o in oracle]),
+            "ruby_pollution": _mean([v for x in d for v in x["ruby_polluted"]]),
             "as_bubble": _mean([1.0 if k == "bubble" else 0.0 for x in d for k in x["kinds"]]),
             "order_pairs": _mean([x["order_pairs"] for x in d]),
             "order_exact_pages": _mean([1.0 if x["order_exact"] else 0.0 for x in d]),
@@ -606,6 +632,7 @@ ROWS = [
     ("  vertical lettering", "cer_oracle_vertical", True),
     ("  horizontal lettering", "cer_oracle_horizontal", True),
     ("Text direction guessed right", "orientation_right", True),
+    ("Balloons with furigana read into the text (--ruby)", "ruby_pollution", True),
     ("Found balloons classed as speech bubbles", "as_bubble", True),
     ("Reading order, pairs right", "order_pairs", True),
     ("Reading order, pages fully right", "order_exact_pages", True),
@@ -630,7 +657,7 @@ def report_markdown(summary: dict, meta: dict) -> str:
              "", "| Measure | " + " | ".join(keys) + " |", "|---|" + "---|" * len(keys)]
     for label, key, pct in ROWS:
         lines.append(f"| {label} | " + " | ".join(_fmt(summary[k][key], pct) for k in keys) + " |")
-    lines += ["", "Lower is better for character error, overflow, tiny text, residue and art lost; higher for the rest.",
+    lines += ["", "Lower is better for character error, furigana read, overflow, tiny text, residue and art lost; higher for the rest.",
               "Synthetic pages score the pipeline's mechanics, not a particular series.", ""]
     return "\n".join(lines)
 
@@ -651,7 +678,7 @@ def _run_pages(langs, fonts, args) -> list:
     with tempfile.TemporaryDirectory() as tmp:
         for lang in langs:
             for i in range(args.pages):
-                page = make_page(i, lang, fonts, args.seed)
+                page = make_page(i, lang, fonts, args.seed, ruby=args.ruby)
                 path = os.path.join(tmp, f"{page.name}.png")
                 page.image.save(path)
                 if args.save_pages:
@@ -680,6 +707,8 @@ def main(argv=None) -> int:
                     help="override a scanlate_tuning value for this run")
     ap.add_argument("--skip-ocr", action="store_true", help="score detection, order and typesetting only")
     ap.add_argument("--out", default=".", help="folder for the report, the JSON and sample pages")
+    ap.add_argument("--ruby", action="store_true",
+                    help="draw furigana beside vertical Japanese lettering and score how often OCR reads it")
     ap.add_argument("--save-pages", action="store_true", help="also write the generated pages")
     args = ap.parse_args(argv)
     import scanlate

@@ -49,6 +49,9 @@ _PAGE_IMG = re.compile(r"<img[^>]*\bsrc=['\"](https://cdn\.rawkuma\.com/[^'\"]+)
 _LD_JSON = re.compile(r"<script type=\"application/ld\+json\">(.*?)</script>", re.S)
 _TAGS = re.compile(r"<[^>]+>")
 
+# First path segments on Senmanga that are site pages, not series.
+_SENMANGA_PAGES = {"api", "assets", "img", "search", "genres", "latest", "popular", "login"}
+
 LayoutChanged = layout_changed_class("Rawkuma")
 
 
@@ -93,7 +96,8 @@ class RawkumaSource(SourceAdapter):
     display_name = "Rawkuma"
     content_types = [ContentType.MANGA.value]
     languages = ["ja"]
-    url_patterns = [r"rawkuma\.net/manga/[A-Za-z0-9]"]
+    # raw.senmanga.com serves Rawkuma's catalogue under the same slugs and chapter ids.
+    url_patterns = [r"rawkuma\.net/manga/[A-Za-z0-9]", r"raw\.senmanga\.com/[A-Za-z0-9]"]
     # Fast stays off: the site has no terms page to vet, and the sources pacing tests allow Fast
     # only for sites whose evidence was recorded on the vetting date.
     host_min_interval = {HOST: 2.5}
@@ -169,7 +173,21 @@ class RawkumaSource(SourceAdapter):
                             f"{BASE_URL}/manga/{series_id}/{chapter_id}/")
                 for _, label, chapter_id in rows]
 
+    def _resolve_chapter_id(self, series_id: str, chapter_id: str) -> str:
+        """A pasted Senmanga link can carry just the chapter number; the real id has the site's suffix."""
+        if re.fullmatch(r"chapter-[\d.]+\.\d+", chapter_id):
+            return chapter_id
+        wanted = chapter_id.removeprefix("chapter-")
+        for chapter in self.get_chapters(series_id):
+            if chapter.chapter_id.startswith(f"chapter-{wanted}."):
+                return chapter.chapter_id
+        raise LayoutChanged("that chapter in this series")
+
     def get_pages(self, chapter):
+        chapter = ChapterInfo(chapter.source, chapter.series_id,
+                              self._resolve_chapter_id(_safe_slug(chapter.series_id, "series id"),
+                                                       _safe_slug(chapter.chapter_id, "chapter id")),
+                              chapter.title, chapter.url)
         path = f"/manga/{_safe_slug(chapter.series_id, 'series id')}/" \
                f"{_safe_slug(chapter.chapter_id, 'chapter id')}/"
         html = self.client.get(urljoin(BASE_URL, path), action=f"Loading chapter {chapter.title}").text
@@ -194,7 +212,19 @@ class RawkumaSource(SourceAdapter):
     def parse_url(self, url: str):
         if not self.matches_url(url):
             return None
-        parts = [p for p in urlsplit(url).path.split("/") if p]
+        split = urlsplit(url)
+        parts = [p for p in split.path.split("/") if p]
+        if (split.hostname or "").endswith("senmanga.com"):
+            # /<slug> or /<slug>/<number>[.<id>], the same slugs and ids as Rawkuma
+            if not parts or not _SAFE_SLUG.fullmatch(parts[0]) or parts[0] in _SENMANGA_PAGES:
+                return None
+            if len(parts) == 1:
+                return ("series", parts[0])
+            if len(parts) == 2 and re.fullmatch(r"\d+(?:\.\d+){0,2}", parts[1]):
+                return ("chapter", ChapterInfo(self.name, parts[0], f"chapter-{parts[1]}",
+                                               f"Chapter {parts[1]}",
+                                               f"{BASE_URL}/manga/{parts[0]}/chapter-{parts[1]}/"))
+            return None
         if len(parts) < 2 or parts[0] != "manga" or not _SAFE_SLUG.fullmatch(parts[1]):
             return None
         if len(parts) == 2:
