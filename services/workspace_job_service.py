@@ -213,7 +213,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
-            flags_needing_recheck=recheck):
+            flags_needing_recheck=recheck, embed_texts=settings_service.alignment_embedder()):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})

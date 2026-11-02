@@ -17,6 +17,7 @@ const saved: SettingsPreferences = {
   default_style_note: '',
   scene_aware_batches: true,
   translate_reply_guard: 'auto',
+  translate_alignment_check: false,
   episode_summary_engine: 'ollama',
   max_upload_mb: 20480,
   monthly_cap_usd: null,

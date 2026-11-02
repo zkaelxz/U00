@@ -32,6 +32,8 @@ SYSTEM_FLAG_REASONS = {
                       "is set for this speaker"),
     "glossary_missing": ("Glossary -- the translation doesn't use a glossary name the source "
                          "line holds (see the note for which)"),
+    "source_mismatch": ("Source match -- the English reads unlike its source line, so it may be shifted, "
+                        "skipped or answer a different line"),
     "source_suspect": ("Source text looks off -- the transcription may be wrong or split badly "
                        "(see the note for what), which can make the translation odd"),
     "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "

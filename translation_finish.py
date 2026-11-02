@@ -84,12 +84,27 @@ def own_lines_callbacks(drama_id: int, lines, on_saved):
     return save_cb, pending.extend, skipped
 
 
+def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
+    """Review flags computed from the run's English: reading speed on every line,
+    and the optional source-match check (embed_texts, None skips it) only on the
+    lines this run's English landed on."""
+    from services import reading_speed_dismissal_service as dismissals
+    dismissals.flag_dense_lines(drama_id, lines)
+    if embed_texts is not None:
+        from engine_backends import alignment_check
+        try:
+            alignment_check.flag_mismatches([ln for ln in lines if ln.id in landed], embed_texts)
+        except Exception:
+            # An optional extra check must not fail a finished translation.
+            logging.getLogger(__name__).exception("source-match check failed")
+
+
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
                            glossary_terms, errors, cancelled: bool = False,
                            summary_engine=None, summary_engine_choice: str | None = None,
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float | None = None,
-                           flags_needing_recheck: set | None = None, *, enforce_ids) -> bool:
+                           flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None) -> bool:
     """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
@@ -179,8 +194,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # translate_lines_with_engine may already have set a content_blocked flag
     # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
-    from services import reading_speed_dismissal_service as dismissals
-    dismissals.flag_dense_lines(drama_id, lines)
+    _flag_for_review(drama_id, lines, landed, embed_texts)
     # Compare-and-set on the analysed text too: an edit saved after the
     # read above must not get a flag computed from this run's English.
     stale = db.save_lines(drama_id, [ln for ln in lines if ln.id in landed],
