@@ -87,6 +87,6 @@ def test_a_failed_download_is_not_reported_as_an_engine_failure(monkeypatch, tmp
     from services import reader_service
     _install(monkeypatch, tmp_path, b"<html>404</html>")
     monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: _ErrResp(b"<html>404</html>"))
-    with pytest.raises(reader_service.ServiceError) as err:
+    with pytest.raises(reader_service.DependencyUnavailableError) as err:
         reader_service._run_engine(dictionary._ensure_cedict)
     assert err.value.message == "The CC-CEDICT download failed; check the connection and try again."

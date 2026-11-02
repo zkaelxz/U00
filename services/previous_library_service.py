@@ -168,9 +168,9 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
                 try:
                     trash_svc._remove_tree(path)
                 except OSError:
-                    raise ServiceError("Part of the previous library could not be deleted "
-                                       "(something may be in use). What is left is still "
-                                       "there.") from None
+                    raise ConflictError("Part of the previous library could not be deleted "
+                                        "(something may be in use). What is left is still "
+                                        "there.") from None
                 removed += 1
                 freed += size
         finally:

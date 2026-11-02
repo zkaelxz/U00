@@ -1710,6 +1710,16 @@ class TestPreviousLibrary:
         assert os.path.isfile(os.path.join(tree, "photos", "a.jpg"))
         assert os.path.isfile(db.DB_PATH)
 
+    def test_a_copy_that_is_in_use_is_a_conflict_not_a_500(self, tree, monkeypatch):
+        from services import previous_library_service as pls
+        self._kept(tree)
+
+        def locked(path):
+            raise PermissionError(13, "in use")
+        monkeypatch.setattr(pls.trash_svc, "_remove_tree", locked)
+        with pytest.raises(ConflictError, match="something may be in use"):
+            pls.delete("DELETE", 700)
+
     def test_delete_is_refused_while_the_library_is_missing_or_held(self, tree, monkeypatch):
         from services import previous_library_service as pls
         self._kept(tree)

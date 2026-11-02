@@ -189,6 +189,17 @@ def test_ollama_down_is_named_when_the_summary_comes_back_empty(isolated_db, mon
         "Summary skipped: Ollama not reachable; choose an engine in Settings.")
 
 
+def test_ollama_down_with_an_empty_summary_is_a_dependency_error_not_a_500(isolated_db, monkeypatch):
+    from lib.errors import DependencyUnavailableError
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    monkeypatch.setattr(episode_summary_service.line_ai_service, "engine_for",
+                        lambda *a, **k: (object(), "ollama"))
+    monkeypatch.setattr(episode_summary_service.llm_tasks, "generate_episode_summary", lambda lines, engine: "")
+    monkeypatch.setattr(episode_summary_service.translate_run_service, "ollama_reachable", lambda: False)
+    with pytest.raises(DependencyUnavailableError, match="Ollama not reachable"):
+        episode_summary_service.generate(did, "ollama")
+
+
 def test_a_free_only_caller_is_told_the_summary_engine_is_paid(isolated_db, monkeypatch):
     monkeypatch.setattr(settings_service, "get", _with(settings_service.get,
                                                        {"episode_summary_engine": "claude"}))
