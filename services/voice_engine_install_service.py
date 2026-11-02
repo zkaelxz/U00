@@ -50,6 +50,9 @@ OUTPUT_TAIL_LINES = 12
 OUTPUT_LINE_CHARS = 200
 
 _STATE_LOCK = threading.Lock()
+# admin_svc.guard() and start_job() are separate steps, so two requests could both pass the
+# guard before either job exists: an install then ran beside a Remove of the same folder.
+_LAUNCH_LOCK = threading.Lock()
 _RESULTS: dict[str, dict] = {}
 
 
@@ -173,17 +176,19 @@ def get_status() -> dict:
 def start_install(engine: str, confirm: bool = False) -> dict:
     """PC only (the route is local_only()). 422 unconfirmed, for an unknown engine or with
     too little disk; 409 when it is installed or its install is already running."""
-    admin_svc.guard(confirm)
-    reason = _refusal(engine, _gpu())
+    reason = None
+    with _LAUNCH_LOCK:
+        admin_svc.guard(confirm)
+        reason = _refusal(engine, _gpu())
+        if not reason and not job_launch.start_job(
+                job_id(engine), lambda: _install_job(engine),
+                description=f"Installing {ENGINES[engine]['label']}", line_fields=()):
+            raise admin_svc.AdminActionJobsRunning(
+                f"The {ENGINES[engine]['label']} install is already running.")
     if reason:
         if voice_venv.is_ready(engine):
             raise AlreadyInstalled(reason)
         raise admin_svc.AdminActionNotPossible(reason)
-    if not job_launch.start_job(job_id(engine), lambda: _install_job(engine),
-                                description=f"Installing {ENGINES[engine]['label']}",
-                                line_fields=()):
-        raise admin_svc.AdminActionJobsRunning(
-            f"The {ENGINES[engine]['label']} install is already running.")
     return {"job_id": job_id(engine), "started": True}
 
 
@@ -288,12 +293,13 @@ def start_remove(engine: str, confirm: bool = False) -> dict:
     unknown engine or when there is no folder; 409 while any job runs (a narration may be
     using the venv)."""
     label = _spec(engine)["label"]
-    admin_svc.guard(confirm)
-    if not os.path.lexists(voice_venv.venv_dir(engine)):
-        raise admin_svc.AdminActionNotPossible(f"{label} is not installed.")
-    if not job_launch.start_job(remove_job_id(engine), lambda: _remove_job(engine),
-                                description=f"Removing {label}", line_fields=()):
-        raise admin_svc.AdminActionJobsRunning(f"{label} is already being removed.")
+    with _LAUNCH_LOCK:
+        admin_svc.guard(confirm)
+        if not os.path.lexists(voice_venv.venv_dir(engine)):
+            raise admin_svc.AdminActionNotPossible(f"{label} is not installed.")
+        if not job_launch.start_job(remove_job_id(engine), lambda: _remove_job(engine),
+                                    description=f"Removing {label}", line_fields=()):
+            raise admin_svc.AdminActionJobsRunning(f"{label} is already being removed.")
     return {"job_id": remove_job_id(engine), "started": True}
 
 
@@ -301,7 +307,11 @@ def _remove_job(engine: str):
     label = ENGINES[engine]["label"]
     folder = voice_venv.venv_dir(engine)
     background_jobs.update_progress(remove_job_id(engine), 0.1, f"Removing {label}…")
-    if os.path.islink(folder):
+    # os.path.islink is False for a Windows junction, so the marker delete and rmtree below
+    # would act on the junction's target.
+    if getattr(os.path, "isjunction", lambda _p: False)(folder):
+        os.rmdir(folder)
+    elif os.path.islink(folder):
         # Never follow a link out of the data folder: only the link itself goes.
         os.unlink(folder)
     else:

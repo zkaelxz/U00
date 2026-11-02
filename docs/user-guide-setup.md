@@ -60,7 +60,7 @@ pip install -r requirements-media.txt -c constraints.txt      # audio/video: ali
 pip install -r requirements-optional.txt -c constraints.txt   # per feature; install only the lines you need
 ```
 
-`requirements.txt` is those three files combined. The Diagnostics page's Install buttons do the same picking without typing. `-c constraints.txt` caps packages at major versions known not to break the app (it installs nothing itself). Then `python -m api` and open `http://127.0.0.1:8600/`.
+`requirements.txt` is those three files combined. The Diagnostics page's Install buttons do the same picking without typing. `-c constraints.txt` caps packages at major versions known not to break the app (it installs nothing itself). On an NVIDIA PC, set up GPU PyTorch first (Diagnostics > Packages and installs > GPU PyTorch), then install `requirements-optional.txt` with `-c constraints.txt --no-cache-dir`: a package from that file that pulls in torch before the CUDA build is there installs the CPU build instead. Then `python -m api` and open `http://127.0.0.1:8600/`.
 
 ### Portable mode
 

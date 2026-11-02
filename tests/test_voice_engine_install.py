@@ -4,6 +4,7 @@ standing in for venv and pip: no network, no real package."""
 import os
 import sys
 import textwrap
+import threading
 import time
 
 import pytest
@@ -290,3 +291,47 @@ def test_remove_is_refused_while_a_job_runs(client, env, clean_remove_job, monke
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
     assert _remove(client).status_code == 409
     assert os.path.exists(voice_venv.venv_dir("qwen3_tts"))
+
+
+def test_remove_deletes_a_junction_without_touching_its_target(client, env, clean_remove_job, monkeypatch):
+    folder = voice_venv.venv_dir("qwen3_tts")
+    os.makedirs(folder)
+    marker = os.path.join(folder, voice_venv.READY_MARKER)
+    open(marker, "w").close()
+    removed = []
+    real_rmdir = os.rmdir
+
+    def fake_rmdir(path):
+        removed.append((path, os.path.exists(marker)))
+        os.remove(marker)
+        real_rmdir(path)
+
+    monkeypatch.setattr(os.path, "isjunction", lambda p: p == folder, raising=False)
+    monkeypatch.setattr(svc.os, "rmdir", fake_rmdir)
+    _remove(client)
+    assert wait_for_job(REMOVE_JOB, timeout=15)["status"] == "done"
+    # The marker was still there when the junction itself was dropped: nothing was
+    # deleted through it first.
+    assert removed == [(folder, True)]
+
+
+def test_an_install_and_a_remove_cannot_start_together(env, monkeypatch):
+    os.makedirs(voice_venv.venv_dir("qwen3_tts"))
+    inside = []
+    overlap = []
+
+    def slow_start_job(*_a, **_k):
+        inside.append(1)
+        overlap.append(len(inside))
+        time.sleep(0.2)
+        inside.pop()
+        return True
+
+    monkeypatch.setattr(svc.job_launch, "start_job", slow_start_job)
+    threads = [threading.Thread(target=lambda f=f: f("qwen3_tts", True), daemon=True)
+               for f in (svc.start_install, svc.start_remove)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert overlap == [1, 1]
