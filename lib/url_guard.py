@@ -24,6 +24,7 @@ service layer.
 """
 import ipaddress
 import socket
+import threading
 from urllib.parse import urlsplit
 
 NOT_PUBLIC = "The address is not a public web address."
@@ -38,15 +39,33 @@ _SITE_LOCAL = ipaddress.ip_network("fec0::/10")
 # its admin page to hairpin traffic would hand that page to a fetch of the
 # home's WAN address, so these are refused like private ones.
 _home_networks: tuple = ()
+# Cleared while the first lookup of those addresses is running, so a fetch made
+# in the first seconds after start waits for them instead of going out unchecked.
+_home_known = threading.Event()
+_home_known.set()
+HOME_WAIT_SECONDS = 25.0   # the first lookup: IP check 10 s, name 5 s, own name 5 s
 
 
-def set_home_addresses(addresses) -> None:
-    """Replaces the home's own public addresses. An IPv6 address stands for
-    its /64, which is the home network, so other devices there are refused
-    too. Non-global addresses are ignored: they are refused anyway."""
+def expect_home_addresses() -> None:
+    """Makes fetches wait (up to HOME_WAIT_SECONDS) until the next
+    set_home_addresses or home_lookup_done."""
+    _home_known.clear()
+
+
+def home_lookup_done() -> None:
+    """Releases waiting fetches, also when the lookup found nothing."""
+    _home_known.set()
+
+
+def set_home_addresses(addresses, exact=()) -> None:
+    """Replaces the home's own public addresses. An IPv6 address in
+    `addresses` stands for its /64, which is the home network, so other
+    devices there are refused too; one in `exact` stands only for itself, for
+    an address that may be a CDN's, shared with other sites. Non-global
+    addresses are ignored: they are refused anyway."""
     global _home_networks
     networks = set()
-    for addr in addresses:
+    for addr, whole_v6_net in [(a, True) for a in addresses] + [(a, False) for a in exact]:
         try:
             ip = ipaddress.ip_address(addr)
         except ValueError:
@@ -54,9 +73,10 @@ def set_home_addresses(addresses) -> None:
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
             ip = ip.ipv4_mapped
         if ip.is_global:
-            networks.add(ipaddress.ip_network(f"{ip}/{64 if ip.version == 6 else 32}",
-                                              strict=False))
+            bits = 32 if ip.version == 4 else (64 if whole_v6_net else 128)
+            networks.add(ipaddress.ip_network(f"{ip}/{bits}", strict=False))
     _home_networks = tuple(networks)
+    _home_known.set()
 
 
 class UnsafeURLError(ValueError):
@@ -67,8 +87,12 @@ class URLResolveError(OSError):
     """The host did not resolve (an ordinary network failure)."""
 
 
-def resolve_public(url: str) -> str:
-    """Validate `url` and return the first resolved (global) address."""
+def resolve_public(url: str, *, wait_for_home: bool = True) -> str:
+    """Validate `url` and return the first resolved (global) address.
+    `wait_for_home=False` is for the home address lookup's own fetch, which
+    would otherwise wait for itself."""
+    if wait_for_home:
+        _home_known.wait(HOME_WAIT_SECONDS)
     if not isinstance(url, str):
         raise UnsafeURLError(BAD_URL)
     try:

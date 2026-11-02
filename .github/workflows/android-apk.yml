@@ -1,19 +1,42 @@
 name: Android APK
 
 # Builds the debug APK of the Android app (android/) and runs its unit tests.
-# On demand only, never on every PR: the app is not part of the server's tests.
+# The build runs on demand only, never on every PR: the app is not part of the
+# server's tests. The wrapper check also runs on any PR that changes the
+# wrapper, because gradle-wrapper.jar is a binary nobody can review in a diff
+# and it runs on the PC whenever the app is built there.
 # The debug build is signed with Android's throwaway debug key, so it can be
 # sideloaded but is not an update path for a release build. No signing key or
 # other secret is read here; a release key would be a repository secret added
 # in a separate, reviewed change.
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "android/gradle/wrapper/**"
+      - "**/gradle-wrapper.jar"
+      - "android/gradlew"
+      - "android/gradlew.bat"
+      - ".github/workflows/android-apk.yml"
 
 permissions:
   contents: read
 
 jobs:
+  wrapper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Compares every gradle-wrapper.jar with Gradle's published checksums.
+      - uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6  # v6.4.0
+
   apk:
+    if: github.event_name == 'workflow_dispatch'
+    needs: wrapper
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
