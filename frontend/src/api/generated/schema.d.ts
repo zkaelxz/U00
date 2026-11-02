@@ -1583,6 +1583,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/characters/dramas/{drama_id}/set-line-speaker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give the chosen lines one speaker, with an undo */
+        post: operations["post_set_line_speaker_api_characters_dramas__drama_id__set_line_speaker_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/characters/dramas/{drama_id}/speaker-change/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo a set-speaker or swap from the undo it returned */
+        post: operations["post_undo_speaker_change_api_characters_dramas__drama_id__speaker_change_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/characters/dramas/{drama_id}/swap-speakers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trade the lines of two speakers, with an undo */
+        post: operations["post_swap_speakers_api_characters_dramas__drama_id__swap_speakers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/characters/dramas/{drama_id}/voice-bank/apply": {
         parameters: {
             query?: never;
@@ -14390,6 +14441,56 @@ export interface components {
             notes: string;
             /** Pronouns */
             pronouns: string;
+        };
+        /** CharactersSetLineSpeakerRequest */
+        CharactersSetLineSpeakerRequest: {
+            /** Line Ids */
+            line_ids: number[];
+            /** Speaker */
+            speaker: string;
+        };
+        /**
+         * CharactersSpeakerChangeEntry
+         * @description One line's previous speaker and flag, and the speaker the change gave it.
+         */
+        CharactersSpeakerChangeEntry: {
+            /** From Manual */
+            from_manual: boolean;
+            /** From Speaker */
+            from_speaker: string;
+            /** Id */
+            id: number;
+            /** To Speaker */
+            to_speaker: string;
+        };
+        /** CharactersSpeakerChangeResult */
+        CharactersSpeakerChangeResult: {
+            /** Line Ids */
+            line_ids: number[];
+            /**
+             * Skipped Ids
+             * @description Requested ids that are not lines of this title.
+             */
+            skipped_ids: number[];
+            /** Undo */
+            undo: components["schemas"]["CharactersSpeakerChangeEntry"][];
+            /**
+             * Updated
+             * @description Lines whose speaker changed.
+             */
+            updated: number;
+        };
+        /** CharactersSpeakerChangeUndoRequest */
+        CharactersSpeakerChangeUndoRequest: {
+            /** Undo */
+            undo: components["schemas"]["CharactersSpeakerChangeEntry"][];
+        };
+        /** CharactersSwapSpeakersRequest */
+        CharactersSwapSpeakersRequest: {
+            /** First */
+            first: string;
+            /** Second */
+            second: string;
         };
         /**
          * CharactersUpdateRequest
@@ -33507,6 +33608,165 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_set_line_speaker_api_characters_dramas__drama_id__set_line_speaker_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CharactersSetLineSpeakerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CharactersSpeakerChangeResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_undo_speaker_change_api_characters_dramas__drama_id__speaker_change_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CharactersSpeakerChangeUndoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CharactersSpeakerChangeResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_swap_speakers_api_characters_dramas__drama_id__swap_speakers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CharactersSwapSpeakersRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CharactersSpeakerChangeResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

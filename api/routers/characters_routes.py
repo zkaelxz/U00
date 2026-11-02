@@ -18,7 +18,9 @@ from fastapi import APIRouter, Path, Request
 from api.auth import principal_user_id, require_permission
 from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersRememberRequest,
                          CharactersRememberResult, CharactersRenameRequest,
-                         CharactersMergeRequest, CharactersMergeResult, CharactersMergeUndoRequest,
+                         CharactersMergeRequest, CharactersMergeResult, CharactersSetLineSpeakerRequest,
+                         CharactersSpeakerChangeResult, CharactersSpeakerChangeUndoRequest,
+                         CharactersSwapSpeakersRequest, CharactersMergeUndoRequest,
                          CharactersRenameResult, CharactersRenameUndoRequest, CharactersSeriesEntry,
                          CharactersUpdateRequest, CharactersVoiceBankApply,
                          CharactersVoiceBankEntry, CharactersVoiceSuggestion,
@@ -120,6 +122,31 @@ def post_rename_speaker(payload: CharactersRenameRequest, drama_id: int = Path(g
              responses=error_responses(404, 409, 422))
 def post_undo_rename_speaker(payload: CharactersRenameUndoRequest, drama_id: int = Path(ge=1)):
     return characters_service.undo_rename_speaker(drama_id, payload.undo.model_dump())
+
+
+@router.post("/dramas/{drama_id}/set-line-speaker", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersSpeakerChangeResult,
+             summary="Give the chosen lines one speaker, with an undo",
+             responses=error_responses(404, 409, 422))
+def post_set_line_speaker(payload: CharactersSetLineSpeakerRequest, drama_id: int = Path(ge=1)):
+    return characters_service.set_line_speaker(drama_id, payload.line_ids, payload.speaker)
+
+
+@router.post("/dramas/{drama_id}/swap-speakers", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersSpeakerChangeResult,
+             summary="Trade the lines of two speakers, with an undo",
+             responses=error_responses(404, 409, 422))
+def post_swap_speakers(payload: CharactersSwapSpeakersRequest, drama_id: int = Path(ge=1)):
+    return characters_service.swap_speakers(drama_id, payload.first, payload.second)
+
+
+@router.post("/dramas/{drama_id}/speaker-change/undo", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersSpeakerChangeResult,
+             summary="Undo a set-speaker or swap from the undo it returned",
+             responses=error_responses(404, 409, 422))
+def post_undo_speaker_change(payload: CharactersSpeakerChangeUndoRequest, drama_id: int = Path(ge=1)):
+    return characters_service.undo_speaker_change(
+        drama_id, [e.model_dump() for e in payload.undo])
 
 
 @router.post("/dramas/{drama_id}/merge-speakers", dependencies=[require_permission("lines.edit")],
