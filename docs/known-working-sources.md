@@ -7,8 +7,8 @@ glance, plus the ad hoc sites checked outside the adapter list. The
 tables are generated: edit `docs/source-status.json` whenever a new site
 is vetted, then run `python scripts/source_status.py` (CI runs the check).
 Update a row's status and date the next time it's re-verified rather than
-trusting an old date forever — sites change, break, and get throttled
-(manhuaku). `python scripts/source_probe.py` checks by hand which
+trusting an old date forever — sites change, break, and get throttled.
+`python scripts/source_probe.py` checks by hand which
 hosts still answer.
 
 **Status key:** ✅ confirmed live · ⚠️ confirmed but with a real caveat ·
@@ -34,7 +34,6 @@ Site, language, type, hosts and flags come from the adapter itself; status, date
 | 妙趣漫画 Miaoqumh | `miaoqumh` | zh | manhua | `miaoqumh.org` |  | ✅ | unverified date | `search()` unsupported — real endpoint, empty for every query tried. **Pace (2026-10-09):** Fast off: robots.txt returns 403. |
 | 包子漫画 Baozimh/GoDaManhua | `baozimh` | zh | manhua | `baozimh.org`, `godamh.com`, `baozimh.one`, `bzmh.org`, `g-mh.org` |  | ✅ | unverified date | Mirrors: `baozimh.org`, `godamh.com`, `baozimh.one`, `bzmh.org`, `g-mh.org`. `www.twmanga.com` and `www.twbzmg.com` are regional mirrors of the blocked `baozimh.com` brand, not part of this family (different markup, no JSON API); they have their own adapter, `twmanga`. **Pace (2026-10-09):** Fast off pending a terms read: robots.txt is clean on all mirrors but the Goda usage agreement was not located. Proposed fast 0.5/1.5/2 once cleared. |
 | 快看漫画 Kuaikan Manhua | `kuaikan` | zh | manhua | `kuaikanmanhua.com` |  | ✅ | unverified date | Was completely broken (shared `requests` cookie bug); fixed in `sources/http.py`, benefits every source. **Pace (2026-10-09):** Fast off: service agreement not read and content is partly paywalled; robots.txt allows the paths we use. |
-| 漫画库 Manhuaku | `manhuaku` | zh | manhua | `manhuaku.net` |  | ⚠️ | 2026-09-26 | Both content paths (baozimh-aggregated + native `blob:`) confirmed working 2026-09-26 with real page bytes. `search()` unsupported (real endpoint, empty for every query tried). `robots.txt` inaccessible (403), not reviewed for ToS. **2026-09-27: two consecutive live end-to-end runs hung — one past 120s, a retry past 240s. The second produced no output at all, not even the first progress marker printed before any network call, suggesting the stall (or a background-capture buffering issue) may sit earlier than the actual site request. Not re-confirmed working today; cause still unknown (site slowdown, a regression, or an artifact of this environment). Stopped at two attempts deliberately, not retried further.** **Pace (2026-10-09):** Fast off: robots.txt returns 403; the site throttles and serves AES/blob content. |
 | ゼロサムオンライン Zero-Sum Online | `zerosumonline` | ja | manga | `zerosumonline.com` |  | ✅ | unverified date | Own protobuf reader for the real API. **Pace (2026-10-09):** Fast allowed (1.0/2.0/1): robots.txt returns 404 on zerosumonline.com and api.zerosumonline.com and no terms page was found. |
 | 猫耳FM MissEvan | `missevan` | zh | audio_drama | `missevan.com` | sign-in optional | ❔ | unverified date | Content status not recorded here; only the pace note is. **Pace (2026-10-09):** Fast off: terms of service 4.2.11 forbid automated access. |
 | 饭角 Fanjiao | `fanjiao` | zh | audio_drama | `fanjiao.co` |  | ❔ | unverified date | Content status not recorded here; only the pace note is. **Pace (2026-10-09):** Fast off: robots.txt and terms could not be retrieved. |
@@ -82,6 +81,3 @@ Not vetted or built against — the user only wanted the *technique*
 client-side) applied generically. Built as `page_fetch.api_capture_session()`:
 opens a page in a real browser, records the responses its own JS makes
 against a URL pattern, so a signature never needs to be known or ported.
-Doesn't apply to manhuaku's `blob:` problem — see that row above; that's
-a different mechanism (`fetch_rendered_resolving_blobs`), already built
-and already in use.

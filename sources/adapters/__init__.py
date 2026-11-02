@@ -7,7 +7,7 @@ BUILTIN below so the app loads it.
 import importlib
 
 BUILTIN = ["manhuagui", "bilibili", "52shuku", "xbanxia", "bilibili_manga",
-          "guazimanhua", "miaoqumh", "baozimh", "kuaikan", "manhuaku",
+          "guazimanhua", "miaoqumh", "baozimh", "kuaikan",
           "zerosumonline", "missevan", "fanjiao",
           "lightnovel_fun", "syosetu", "piaotian", "mangak", "twmanga", "rawkuma", "marumaru", "newxtoon"]
 

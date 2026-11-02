@@ -1037,26 +1037,6 @@ class TestRealCaseMatrix:
             assert r.technical_status != TechnicalStatus.DISQUALIFIED.value
             assert r.reasons == [FailureReason.ACCESS_DENIED]
 
-    def test_manhuaku_shaped_page_routes_to_browser_and_is_never_decoded(self, isolated_db):
-        u = "https://manhuaku.invalid/chapter/1"
-        page = ('<html><head><script src="/js/crypto-js.min.js"></script>'
-                '<script src="/js/vue.min.js"></script></head><body><div id="app">'
-                '<img v-for="p in pages" :src="p"></div>'
-                '<script>var d=CryptoJS.AES.decrypt(enc,key);</script></body></html>')
-        client = make_client("manhuaku", ScriptedTransport({u: html(page)}))
-        rendered = []
-
-        def fake_render(url):
-            rendered.append(url)
-            return "<html><body>" + '<img src="/p1.jpg">' * 3 + "<p>x</p>" * 200 + "</body></html>", ""
-        r = ladder.run_ladder(u, {AccessTier.STATIC_HTTP: ladder.static_tier(client),
-                                  AccessTier.RENDERED_BROWSER: ladder.rendered_tier(client, fake_render)})
-        assert r.reasons[:2] == [FailureReason.ENCRYPTED_RESOURCE, FailureReason.JAVASCRIPT_REQUIRED]
-        assert rendered == [u]                       # routed to a real browser...
-        assert r.tier == AccessTier.RENDERED_BROWSER.value
-        import sources.detect as d                   # ...and nothing here knows how to decrypt
-        assert not any(hasattr(d, n) for n in ("decrypt", "aes_decrypt"))
-
     def test_bilibili_manga_shaped_empty_shell(self, isolated_db):
         u = "https://manga.bilibili.invalid/mc1/1"
         page = ('<html><head>' + '<script src="/a.js"></script>' * 10 + '</head><body>'
@@ -1397,7 +1377,6 @@ _LAYOUT_CHANGED_MESSAGES = {
     "mangak": "MangaK's page layout has changed",
     "marumaru": "Marumaru's API response has changed",
     "manhuagui": "manhuagui's page layout has changed",
-    "manhuaku": "manhuaku's page layout has changed",
     "miaoqumh": "miaoqumh's page layout has changed",
     "newxtoon": "NewXToon's page layout has changed",
     "missevan": "MissEvan's API response has changed",
