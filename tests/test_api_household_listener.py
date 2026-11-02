@@ -673,6 +673,92 @@ class TestRemoteUploads:
         assert refusal is None
         assert asyncio.run(receive()) == {"type": "http.disconnect"}
 
+    def test_temp_drive_without_room_is_refused_before_the_body(self, isolated_db, parsed,
+                                                                 monkeypatch):
+        """The body would spool to the temp folder before the route's own
+        disk check, so the gate checks the temp drive first."""
+        import shutil
+        from collections import namedtuple
+        from services import media_upload_service
+        usage = namedtuple("usage", "total used free")
+        seen = []
+
+        def tiny_drive(folder):
+            seen.append(folder)
+            return usage(10 * 2**30, 10 * 2**30, 1024 * 1024)
+        monkeypatch.setattr(media_upload_service.shutil, "disk_usage", tiny_drive)
+        assert media_upload_service.shutil is shutil
+        _remote_uploads()
+        s = _admin_session()
+        did = db.create_drama(title_en="T", source_language="zh")
+        files = {"file": ("a.srt", b"1\n00:00:01,000 --> 00:00:02,000\nhi\n", "text/plain")}
+        r = _household_client().post(f"/api/subtitle-import/dramas/{did}/preview",
+                                     files=files, headers=_h(s))
+        assert r.status_code == 422 and parsed == []
+        assert r.json()["error"]["message"].startswith("There is not enough free disk space")
+        import tempfile
+        assert seen == [tempfile.gettempdir()]
+        assert "upload.away" not in [a["action"] for a in auth_service.list_audit()]
+        assert remote_uploads.temp_room._pending == 0
+
+    def test_temp_room_counts_uploads_still_arriving(self, monkeypatch):
+        """Parallel uploads from away can't each pass on the same free space."""
+        from collections import namedtuple
+        from lib.errors import InvalidInputError
+        from services import media_upload_service
+        margin = media_upload_service._DISK_MARGIN_BYTES
+        usage = namedtuple("usage", "total used free")
+        monkeypatch.setattr(media_upload_service.shutil, "disk_usage",
+                            lambda _f: usage(0, 0, margin + 100))
+        room = remote_uploads.TempRoom()
+        room.reserve(60)
+        with pytest.raises(InvalidInputError):
+            room.reserve(60)
+        room.release(30)          # 30 bytes arrived (they now show in the free space)
+        room.reserve(70)
+        with pytest.raises(InvalidInputError):
+            room.reserve(1)
+
+    def test_gate_holds_room_until_the_body_has_arrived(self, monkeypatch):
+        """While a body arrives its unarrived bytes stay reserved; afterwards,
+        and after a request that stops part-way, nothing stays held."""
+        import re
+        from services import media_upload_service
+        monkeypatch.setattr(api_auth, "is_local_request", lambda _r: False)
+        monkeypatch.setattr(api_auth, "_authenticate", lambda _r: {
+            "user_id": 1, "permissions": [remote_uploads.UPLOAD_PERMISSION]})
+        monkeypatch.setattr(remote_uploads.RemoteUploadGate, "_audit",
+                            staticmethod(lambda *_a: asyncio.sleep(0)))
+        monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 10_000)
+        held = []
+
+        async def inner(scope, receive, send):
+            held.append(remote_uploads.temp_room._pending)
+            await receive()
+            held.append(remote_uploads.temp_room._pending)
+            if scope["path"] == "/stop":
+                raise RuntimeError("handler failed part-way")
+            await receive()
+            held.append(remote_uploads.temp_room._pending)
+
+        gate = remote_uploads.RemoteUploadGate(
+            inner, upload_fn=lambda: [(re.compile(".*"), {"POST"})])
+        scope = {"type": "http", "method": "POST", "headers": [(b"content-length", b"300")],
+                 "query_string": b"", "client": ("203.0.113.9", 1)}
+        for path in ("/all", "/stop"):
+            chunks = [{"type": "http.request", "body": b"0" * 100, "more_body": True},
+                      {"type": "http.request", "body": b"0" * 200, "more_body": False}]
+
+            async def source():
+                return chunks.pop(0)
+            held.clear()
+            try:
+                asyncio.run(gate(dict(scope, path=path), source, None))
+            except RuntimeError:
+                pass
+            assert held == ([300, 200, 0] if path == "/all" else [300, 200]), path
+            assert remote_uploads.temp_room._pending == 0, path
+
     def test_upload_and_transcribe_refuses_a_tesseract_path(self, isolated_db, monkeypatch):
         stored = []
         from services import media_upload_service
