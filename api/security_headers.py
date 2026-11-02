@@ -29,9 +29,12 @@ HSTS_VALUE = "max-age=31536000"
 # The Reader page (GET /api/reader/dramas/{id}/page.html) in its sandboxed
 # iframe: self-contained, so it needs no network at all, only its own inline
 # scripts and styles and data: images and audio. Framed by the app only.
+# The sandbox repeats the iframe's own (scripts, no same-origin) so that a
+# page opened at its URL directly, outside the frame, also runs its inline
+# scripts in an opaque origin rather than the app's.
 READER_PAGE_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
                    "img-src data:; media-src data: blob:; font-src data:; "
-                   "frame-ancestors 'self'")
+                   "frame-ancestors 'self'; sandbox allow-scripts")
 READER_PAGE_HEADERS = (
     ("Content-Security-Policy", READER_PAGE_CSP),
     ("X-Frame-Options", "SAMEORIGIN"),
