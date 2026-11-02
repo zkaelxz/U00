@@ -159,3 +159,55 @@ def test_a_failed_reask_that_ends_the_run_is_logged_without_naming_lines_as_fail
     errors = _run(engine, _lines())[1]
     assert all(e["lines"] == [] for e in errors) and errors
     assert "sk-ant-abc123" not in str(errors)
+
+
+def _term(original, translation, **kw):
+    return {"term_original": original, "term_translation": translation, "aliases": "",
+            "enforce_exact": 0, "notes": "", **kw}
+
+
+def test_a_longer_term_claims_its_characters_before_a_shorter_one():
+    king, wang_ming = _term("王", "King", enforce_exact=1), _term("王明", "Wang Ming")
+    got = glossary_check.required_terms("王明来了", [king, wang_ming])
+    assert got == [("王明", "Wang Ming")]
+    assert glossary_check.required_terms("王来了", [king, wang_ming]) == [("王", "King")]
+
+
+def test_a_single_character_term_is_required_only_when_enforced():
+    dao = _term("道", "dao")
+    assert glossary_check.required_terms("我知道了", [dao]) == []
+    assert glossary_check.required_terms("我知道了", [{**dao, "enforce_exact": 1}]) == [("道", "dao")]
+
+
+def test_a_contextual_term_is_not_required_unless_enforced():
+    sister = _term("姐姐", "jiejie", policy="contextual")
+    assert glossary_check.required_terms("姐姐来了", [sister]) == []
+    assert glossary_check.required_terms("姐姐来了", [{**sister, "enforce_exact": 1}])
+
+
+def test_a_latin_term_does_not_match_inside_a_longer_word():
+    assert glossary_check.required_terms("Berlin is far", [_term("Lin", "Lin Wan")]) == []
+    assert glossary_check.required_terms("Lin is far", [_term("Lin", "Lin Wan")])
+
+
+def test_terms_over_the_prompt_limit_travel_with_the_batch_that_holds_them():
+    from engine_backends import prompts
+    from glossary_io import GLOSSARY_PROMPT_TERM_LIMIT as LIMIT
+    terms = [_term(f"名{i:04d}", f"Name{i}") for i in range(LIMIT + 2)]
+    terms[-1]["term_original"] = "尾巴"
+    terms[-1]["term_translation"] = "Tail"
+    ctx = {"glossary_terms": terms, "batch_source_lines": ["尾巴来了"]}
+    assert "- 尾巴 -> Tail" in prompts.build_batch_user_message(ctx, "1. x")
+    stable = prompts.build_llm_instructions("", {}, glossary_terms=terms)
+    assert "尾巴" not in stable and "名0000" in stable
+    # nothing over the limit: nothing added to the batch message
+    small = {"glossary_terms": terms[:3], "batch_source_lines": ["名0000"]}
+    assert "REQUIRED NAMES" not in prompts.build_batch_user_message(small, "1. x")
+
+
+def test_enforced_terms_stay_in_the_prompt_when_the_glossary_is_cut():
+    from glossary_io import GLOSSARY_PROMPT_TERM_LIMIT as LIMIT, split_prompt_terms
+    terms = [_term(f"名{i:04d}", f"Name{i}") for i in range(LIMIT + 5)]
+    terms[-1]["enforce_exact"] = 1
+    listed, overflow = split_prompt_terms(terms)
+    assert terms[-1] in listed and len(listed) == LIMIT and len(overflow) == 5

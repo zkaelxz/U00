@@ -260,25 +260,25 @@ class TestNotesFormatting:
 class TestHardTermSubstitution:
     def test_replaces_known_variants_with_canonical(self):
         terms = [{"term_translation": "Shen Qingyi",
-                  "notes": "Shen Qing Yi|Chen Qingyi", "enforce_exact": True}]
+                  "aliases": "Shen Qing Yi|Chen Qingyi", "enforce_exact": True}]
         result = tg.apply_hard_term_substitutions("Shen Qing Yi met Chen Qingyi.", terms)
         assert result == "Shen Qingyi met Shen Qingyi."
 
     def test_ignores_terms_not_marked_enforce(self):
-        terms = [{"term_translation": "Canonical", "notes": "Variant", "enforce_exact": False}]
+        terms = [{"term_translation": "Canonical", "aliases": "Variant", "enforce_exact": False}]
         result = tg.apply_hard_term_substitutions("Variant stays put.", terms)
         assert result == "Variant stays put."
 
     def test_case_insensitive_matching(self):
-        terms = [{"term_translation": "Yunyin Sect", "notes": "yunyin sect", "enforce_exact": True}]
+        terms = [{"term_translation": "Yunyin Sect", "aliases": "yunyin sect", "enforce_exact": True}]
         result = tg.apply_hard_term_substitutions("the yunyin sect gathered", terms)
         assert "Yunyin Sect" in result
 
     def test_longer_terms_replaced_first(self):
         # "Shen Qingyi" should not be corrupted by a rule targeting "Shen"
         terms = [
-            {"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi", "enforce_exact": True},
-            {"term_translation": "Shen", "notes": "Chen", "enforce_exact": True},
+            {"term_translation": "Shen Qingyi", "aliases": "Shen Qing Yi", "enforce_exact": True},
+            {"term_translation": "Shen", "aliases": "Chen", "enforce_exact": True},
         ]
         result = tg.apply_hard_term_substitutions("Shen Qing Yi arrived.", terms)
         assert "Shen Qingyi" in result
@@ -288,36 +288,27 @@ class TestHardTermSubstitution:
         assert tg.apply_hard_term_substitutions("unchanged", None) == "unchanged"
 
     def test_no_variants_listed_leaves_text_alone(self):
-        terms = [{"term_translation": "Canonical", "notes": "", "enforce_exact": True}]
+        terms = [{"term_translation": "Canonical", "aliases": "", "enforce_exact": True}]
         assert tg.apply_hard_term_substitutions("some text", terms) == "some text"
 
-    def test_step30_aliases_and_banned_translations_fields_are_ignored(self):
-        """Step 30 added glossary_terms.aliases and .banned_translations,
-        a separate, flag-only mechanism (see auto_qc.build_banned_terms) --
-        this older notes-piggybacked, enforce_exact-only hard-substitution
-        mechanism must behave identically whether or not a term also
-        carries those new fields, and must never read banned_translations
-        as if it were another source of variants to auto-correct."""
-        terms = [{"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi|Chen Qingyi",
-                  "enforce_exact": True, "aliases": "沈清儀",
-                  "banned_translations": "Totally Different Name"}]
+    def test_banned_translations_and_source_spelling_aliases_never_rewrite(self):
+        terms = [{"term_translation": "Shen Qingyi", "aliases": "Chen Qingyi|沈清儀",
+                  "enforce_exact": True, "banned_translations": "Totally Different Name"}]
         result = tg.apply_hard_term_substitutions(
-            "Shen Qing Yi met Chen Qingyi, not Totally Different Name.", terms)
-        # Same substitutions as the plain-notes case, and banned_translations'
-        # entry is left completely alone -- it isn't a `notes` variant.
-        assert result == "Shen Qingyi met Shen Qingyi, not Totally Different Name."
+            "Chen Qingyi met 沈清儀, not Totally Different Name.", terms)
+        assert result == "Shen Qingyi met 沈清儀, not Totally Different Name."
 
     def test_a_variant_inside_the_canonical_form_never_compounds(self):
-        terms = [{"term_translation": "Shen Qingyi", "notes": "Qingyi", "enforce_exact": True}]
+        terms = [{"term_translation": "Shen Qingyi", "aliases": "Qingyi", "enforce_exact": True}]
         once = tg.apply_hard_term_substitutions("Shen Qingyi smiled. Qingyi left.", terms)
         assert once == "Shen Qingyi smiled. Shen Qingyi left."
         assert tg.apply_hard_term_substitutions(once, terms) == once
 
     def test_substituter_built_once_matches_per_line_application(self):
         terms = [
-            {"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi|Qingyi", "enforce_exact": True},
-            {"term_translation": "Lin Wan", "notes": "Lin|Wan Wan", "enforce_exact": True},
-            {"term_translation": "Yunyin Sect", "notes": "Cloud Sect", "enforce_exact": True},
+            {"term_translation": "Shen Qingyi", "aliases": "Shen Qing Yi|Qingyi", "enforce_exact": True},
+            {"term_translation": "Lin Wan", "aliases": "Lin|Wan Wan", "enforce_exact": True},
+            {"term_translation": "Yunyin Sect", "aliases": "Cloud Sect", "enforce_exact": True},
         ]
         lines = ["Shen Qing Yi met Lin in Berlin.", "Qingyi and Wan Wan left.",
                  "Shen Qingyi joined the cloud sect.", "", "Nothing to change."]
@@ -327,37 +318,35 @@ class TestHardTermSubstitution:
         assert substitute(lines[0]) == "Shen Qingyi met Lin Wan in Berlin."
 
     def test_matches_whole_words_only(self):
-        terms = [{"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
+        terms = [{"term_translation": "Lin Wan", "aliases": "Lin", "enforce_exact": True}]
         result = tg.apply_hard_term_substitutions("In Berlin, Lin waved. LINE up.", terms)
         assert result == "In Berlin, Lin Wan waved. LINE up."
 
     def test_cjk_variants_need_no_word_boundary(self):
-        terms = [{"term_translation": "沈清仪", "notes": "清仪", "enforce_exact": True},
-                 {"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
+        terms = [{"term_translation": "沈清仪", "aliases": "清仪", "enforce_exact": True},
+                 {"term_translation": "Lin Wan", "aliases": "Lin", "enforce_exact": True}]
         result = tg.apply_hard_term_substitutions("我和清仪在Lin的家", terms)
         assert result == "我和沈清仪在Lin Wan的家"
 
     def test_variant_that_is_a_prefix_of_the_canonical_form(self):
-        terms = [{"term_translation": "Qingyi", "notes": "Qing", "enforce_exact": True}]
+        terms = [{"term_translation": "Qingyi", "aliases": "Qing", "enforce_exact": True}]
         once = tg.apply_hard_term_substitutions("Qing and Qingyi and Qinghe", terms)
         assert once == "Qingyi and Qingyi and Qinghe"
         assert tg.apply_hard_term_substitutions(once, terms) == once
 
-    def test_free_text_notes_are_not_variants(self):
-        terms = [{"term_translation": "Lin Wan",
-                  "notes": "her childhood friend|Lyn Wan", "enforce_exact": True}]
-        result = tg.apply_hard_term_substitutions(
-            "Her childhood friend, Lyn Wan, came.", terms)
-        assert result == "Her childhood friend, Lin Wan, came."
+    def test_notes_are_never_variants(self):
+        terms = [{"term_translation": "Lin Wan", "notes": "lead|Lyn Wan", "enforce_exact": True}]
+        text = "I'll lead the way, said Lyn Wan."
+        assert tg.apply_hard_term_substitutions(text, terms) == text
 
     def test_a_variant_inside_the_canonical_form_ignores_case(self):
-        terms = [{"term_translation": "Shen Qingyi", "notes": "Qingyi", "enforce_exact": True}]
+        terms = [{"term_translation": "Shen Qingyi", "aliases": "Qingyi", "enforce_exact": True}]
         assert tg.apply_hard_term_substitutions("QINGYI? shen qingyi!", terms) == \
             "Shen Qingyi? Shen Qingyi!"
 
     def test_a_case_fold_mismatch_does_not_raise(self):
         # Turkish dotted I matches "i" under IGNORECASE but casefolds to two chars.
-        terms = [{"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
+        terms = [{"term_translation": "Lin Wan", "aliases": "Lin", "enforce_exact": True}]
         assert tg.apply_hard_term_substitutions("LİN waved.", terms) == "Lin Wan waved."
 
     @pytest.mark.parametrize("canonical, variant, text, expected", [
@@ -365,7 +354,7 @@ class TestHardTermSubstitution:
         ("A-Yao", "Ah Yao", "Ah Yao laughed.", "A-Yao laughed."),
     ])
     def test_real_spaced_variants_are_enforced(self, canonical, variant, text, expected):
-        terms = [{"term_translation": canonical, "notes": variant, "enforce_exact": True}]
+        terms = [{"term_translation": canonical, "aliases": variant, "enforce_exact": True}]
         assert tg.apply_hard_term_substitutions(text, terms) == expected
 
     @pytest.mark.parametrize("text", [
@@ -373,10 +362,10 @@ class TestHardTermSubstitution:
         "QINGYI? shen qingyi!", "", "清仪 Lin",
     ])
     def test_idempotent(self, text):
-        terms = [{"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi|Chen Qingyi|Qingyi",
+        terms = [{"term_translation": "Shen Qingyi", "aliases": "Shen Qing Yi|Chen Qingyi|Qingyi",
                   "enforce_exact": True},
-                 {"term_translation": "Lin Wan", "notes": "Lin|her friend", "enforce_exact": True},
-                 {"term_translation": "沈清仪", "notes": "清仪", "enforce_exact": True}]
+                 {"term_translation": "Lin Wan", "aliases": "Lin|her friend", "enforce_exact": True},
+                 {"term_translation": "沈清仪", "aliases": "清仪", "enforce_exact": True}]
         once = tg.apply_hard_term_substitutions(text, terms)
         assert tg.apply_hard_term_substitutions(once, terms) == once
 
@@ -589,3 +578,26 @@ def test_character_voice_notes_limited_to_the_titles_named_characters():
     assert "Mo" in tg.build_character_voice_notes(series, [{"character_name": ""}])
     assert tg.build_character_voice_notes([{"character_name": "A", "notes": ""}]) == ""
     assert tg.build_character_voice_notes(None) == ""
+
+
+class TestGlossaryFileAliasesAndBanned:
+    def test_aliases_and_banned_survive_an_export_and_import(self):
+        import glossary_io
+        row = {"term_original": "沈清疑", "term_translation": "Shen Qingyi", "category": "person_name",
+               "policy": "keep_pinyin", "enforce_exact": 1, "notes": "",
+               "aliases": "清疑|Qing Yi", "banned_translations": "Shen Qing Yi"}
+        entries, _ = glossary_io.parse_glossary_file(glossary_io.glossary_to_csv([row]), "g.csv")
+        assert entries[0]["aliases"] == ["清疑", "Qing Yi"]
+        assert entries[0]["banned_translations"] == ["Shen Qing Yi"]
+
+    def test_a_file_without_the_new_columns_still_imports(self):
+        import glossary_io
+        entries, _ = glossary_io.parse_glossary_file(
+            "term_original,term_translation,notes\n洛神,Luo Shen,x", "g.csv")
+        assert entries[0]["aliases"] == [] and entries[0]["banned_translations"] == []
+
+    def test_a_json_list_is_accepted(self):
+        import glossary_io
+        entries, _ = glossary_io.parse_glossary_file(
+            '[{"term_original": "洛神", "aliases": ["洛", "Luo"], "banned_translations": "Goddess"}]', "g.json")
+        assert entries[0]["aliases"] == ["洛", "Luo"] and entries[0]["banned_translations"] == ["Goddess"]

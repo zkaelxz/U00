@@ -2,6 +2,7 @@
 
 import re
 from core import LANGUAGE_NAMES
+from glossary_io import split_prompt_terms
 from . import medium_prompts
 
 
@@ -103,9 +104,12 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
     if style_guidelines:
         glossary_block = f"\n{style_guidelines}\n"
     elif glossary_terms:
+        glossary_terms, overflow = split_prompt_terms(glossary_terms)
         pairs = "\n".join(f"- {t['term_original']} -> {t['term_translation']}"
                           + (f" ({t['notes']})" if t.get("notes") else "")
                           for t in glossary_terms)
+        if overflow:
+            pairs += "\nOther glossary terms are listed with each batch that uses them, under REQUIRED NAMES."
         glossary_block = (
             f"\nSeries glossary (use these exact translations whenever these terms appear -- "
             f"this keeps terminology consistent across every drama in this series):\n{pairs}\n"
@@ -458,5 +462,5 @@ def build_batch_user_message(context: dict, numbered: str) -> str:
     # Idempotent for lines the live loop already neutralised; it is what covers a
     # bulk request, which numbers the raw source before it gets here.
     numbered = pronoun_neutral_texts(context, [numbered])[0]
-    from .glossary_check import required_note
-    return required_note(context) + note + (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered
+    from . import glossary_check
+    return glossary_check.required_note(glossary_check.with_overflow(context)) + note + (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered

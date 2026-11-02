@@ -233,8 +233,8 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
     Nothing is written to disk. A term already in the series glossary is
     left untouched and reported in "skipped_existing" unless
     overwrite_existing is True (then its translation, notes, category,
-    policy and enforce flag are replaced; its aliases and banned list are
-    kept). Rows that fail the same limits as a hand-added term are reported
+    policy and enforce flag are replaced, and so are its aliases and banned
+    list when the file has them). Rows that fail the same limits as a hand-added term are reported
     in "invalid". Returns {"added", "overwritten", "skipped_existing",
     "invalid", "warnings"}."""
     drama = _drama(drama_id)
@@ -270,6 +270,9 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
             translation = _text(_csv_unescape(e["term_translation"]), "term_translation",
                                 MAX_TERM_LEN)
             notes = _text(_csv_unescape(e["notes"]), "notes", MAX_NOTES_LEN)
+            aliases = _str_list([_csv_unescape(a) for a in e["aliases"]], "aliases") or None
+            banned = _str_list([_csv_unescape(b) for b in e["banned_translations"]],
+                               "banned_translations") or None
         except InvalidInputError:
             report["invalid"].append(original[:MAX_TERM_LEN])
             continue
@@ -281,12 +284,14 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
             # Insert-only, so a term added since `existing` was read is not replaced.
             added = current is None and db.insert_glossary_term_if_absent(
                 sid, original, translation, notes=notes, category=e["category"],
-                policy=e["policy"], enforce_exact=bool(e["enforce_exact"]))
+                policy=e["policy"], enforce_exact=bool(e["enforce_exact"]),
+                aliases=aliases, banned_translations=banned)
             report["added" if added else "skipped_existing"].append(original)
             continue
         db.upsert_glossary_term(sid, original, translation, notes=notes,
                                 category=e["category"], policy=e["policy"],
-                                enforce_exact=bool(e["enforce_exact"]))
+                                enforce_exact=bool(e["enforce_exact"]),
+                                aliases=aliases, banned_translations=banned)
         report["overwritten" if current is not None else "added"].append(original)
     report["warnings"] = [str(w)[:200] for w in warnings[:_MAX_WARNINGS]]
     return report

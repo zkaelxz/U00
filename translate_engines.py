@@ -143,11 +143,11 @@ from engine_backends.llm_tasks import (  # noqa: F401
     flag_uncertain_lines,
     flaggable_lines,
     generate_episode_summary,
-    matching_glossary_terms,
     rewrite_for_pacing_llm,
     smart_segment_lines,
     tag_speakers_by_id,
 )
+from engine_backends.glossary_check import matching_glossary_terms  # noqa: F401
 from engine_backends.vision import VISION_ENGINES, read_image_text  # noqa: F401
 from engine_backends.engine_registry import (  # noqa: F401
     CAP_CHEAP,

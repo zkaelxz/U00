@@ -8,19 +8,66 @@ request. What is still wrong afterwards is flagged for Review."""
 
 import re
 
-from .llm_tasks import matching_glossary_terms
+from glossary_io import split_prompt_terms
 from .translation_guard import line_problems, unusable_reply
+
+_LATIN_EDGE = "A-Za-z0-9"
+
+
+def _form_pattern(form: str):
+    head = f"(?<![{_LATIN_EDGE}])" if re.match(f"[{_LATIN_EDGE}]", form[0]) else ""
+    tail = f"(?![{_LATIN_EDGE}])" if re.match(f"[{_LATIN_EDGE}]", form[-1]) else ""
+    return re.compile(head + re.escape(form) + tail, re.IGNORECASE)
+
+
+def matching_glossary_terms(zh: str, glossary_terms) -> list:
+    """Glossary entries whose source term (or a recorded alias) is in zh, as a
+    whole term: the longest form claims its characters first, so 王 does not
+    match inside 王明 when 王明 is itself a term, and a Latin-script form
+    never matches inside a longer word. This is the "in play for this line"
+    heuristic line_tools.explain_translation already used, factored out so the
+    "what happened here?" view shows the same real, non-fabricated
+    match set instead of re-deriving it differently."""
+    def _term_forms(t):
+        aliases = [a.strip() for a in re.split(r"[|,，、]", t.get("aliases") or "") if a.strip()]
+        return [f for f in [t.get("term_original", ""), *aliases] if f]
+    forms = sorted(((f, i) for i, t in enumerate(glossary_terms or []) for f in _term_forms(t)),
+                   key=lambda fi: -len(fi[0]))
+    left, hit = zh or "", set()
+    for form, i in forms:
+        pattern = _form_pattern(form)
+        if pattern.search(left):
+            hit.add(i)
+            # NUL cannot be in a term, so the claimed span matches nothing else.
+            left = pattern.sub(lambda m: "\0" * len(m.group()), left)
+    return [t for i, t in enumerate(glossary_terms or []) if i in hit]
+
 
 GLOSSARY_FLAG = "glossary_missing"
 FLAG_NOTE_PREFIX = "Glossary: "
 MAX_TERMS_IN_NOTE = 3
 
 
+# A source term of one character ("道" in "知道") is too ambiguous to demand
+# unless the user marked it exact, and a "contextual" term is meant to be
+# rendered differently from line to line.
+_CJK_CHAR = re.compile("[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+
+
+def _must_appear(t) -> bool:
+    if t.get("enforce_exact"):
+        return True
+    if t.get("policy") == "contextual":
+        return False
+    original = (t.get("term_original") or "").strip()
+    return not (len(original) == 1 and _CJK_CHAR.match(original))
+
+
 def required_terms(zh: str, terms) -> list:
     """(source, required English) for each glossary term the source line holds."""
+    usable = [t for t in (terms or []) if (t.get("term_translation") or "").strip() and _must_appear(t)]
     return [(t["term_original"], t["term_translation"].strip())
-            for t in matching_glossary_terms(zh or "", [t for t in (terms or [])
-                                                        if (t.get("term_translation") or "").strip()])]
+            for t in matching_glossary_terms(zh or "", usable)]
 
 
 def missing_terms(zh: str, en: str, terms) -> list:
@@ -109,3 +156,13 @@ def enforce(lines, terms, ask, stop, allowed_runs=()) -> int:
         elif ln.flag == GLOSSARY_FLAG:
             ln.flag, ln.flag_note = None, ""
     return len(asked)
+
+
+def with_overflow(context: dict) -> dict:
+    """context with the names of glossary terms left out of the stable prompt
+    (see split_prompt_terms) that this batch's source lines hold."""
+    _, overflow = split_prompt_terms(context.get("glossary_terms"))
+    if not overflow:
+        return context
+    pairs = [p for zh in context.get("batch_source_lines") or [] for p in required_terms(zh, overflow)]
+    return dict(context, glossary_required=[*(context.get("glossary_required") or []), *pairs]) if pairs else context

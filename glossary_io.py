@@ -7,6 +7,7 @@ limit; translation_guide re-exports every name defined here.
 """
 
 import json
+import re
 
 
 TERM_CATEGORIES = {
@@ -66,7 +67,34 @@ TERM_POLICIES = {
 
 
 GLOSSARY_COLUMNS = ["term_original", "term_translation", "category", "policy",
-                    "enforce_exact", "notes"]
+                    "enforce_exact", "notes", "aliases", "banned_translations"]
+
+# Appended after the first six so a file exported before these two columns
+# existed still reads the same.
+LIST_COLUMNS = ("aliases", "banned_translations")
+
+# Past this many terms the prompt lists only the enforce_exact ones and the
+# first others in glossary order; the rest are sent with the batches whose
+# source line holds them, so one large glossary does not ride on every request.
+GLOSSARY_PROMPT_TERM_LIMIT = 300
+
+
+def split_prompt_terms(terms, limit: int = GLOSSARY_PROMPT_TERM_LIMIT):
+    """(listed, overflow): enforce_exact terms first, then the rest in order,
+    `limit` in all. Deterministic, so the stable prompt prefix stays cacheable."""
+    terms = list(terms or [])
+    if len(terms) <= limit:
+        return terms, []
+    ranked = sorted(range(len(terms)), key=lambda i: (not terms[i].get("enforce_exact"), i))
+    keep = set(ranked[:limit])
+    return ([t for i, t in enumerate(terms) if i in keep],
+            [t for i, t in enumerate(terms) if i not in keep])
+
+
+def split_list_cell(value) -> list:
+    """A list column as a list: a JSON list as-is, a cell split on | , ， 、."""
+    parts = value if isinstance(value, (list, tuple)) else re.split(r"[|,，、]", str(value or ""))
+    return [p.strip() for p in parts if isinstance(p, str) and p.strip()]
 
 
 def parse_glossary_file(content: str, filename: str = ""):
@@ -152,6 +180,8 @@ def parse_glossary_file(content: str, filename: str = ""):
             "policy": pol or "keep_pinyin",
             "enforce_exact": enforce,
             "notes": (e.get("notes") or "").strip(),
+            "aliases": split_list_cell(e.get("aliases")),
+            "banned_translations": split_list_cell(e.get("banned_translations")),
         })
     return cleaned, warnings
 
@@ -169,5 +199,6 @@ def glossary_to_csv(terms) -> str:
             t.get("term_original", ""), t.get("term_translation", ""),
             t.get("category", ""), t.get("policy", ""),
             "yes" if t.get("enforce_exact") else "", t.get("notes", ""),
+            t.get("aliases") or "", t.get("banned_translations") or "",
         ])
     return buf.getvalue()

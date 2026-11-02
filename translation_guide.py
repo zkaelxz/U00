@@ -17,7 +17,7 @@ depend on context only a person reading the story can settle.
 
 import re
 from core import LANGUAGE_NAMES
-from glossary_io import TERM_CATEGORIES, TERM_POLICIES
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES, split_list_cell, split_prompt_terms
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import load_json_reply
 from translate_engines import PRONOUN_DEFAULT_MARKER, call_llm_json, parse_json_array
@@ -283,6 +283,7 @@ def build_glossary_block(glossary_terms) -> str:
     if not glossary_terms:
         return ""
     # Group by policy so the instruction reads as rules, not a flat list
+    glossary_terms, overflow = split_prompt_terms(glossary_terms)
     by_policy = {}
     for t in glossary_terms:
         policy = t.get("policy") or "keep_pinyin"
@@ -296,6 +297,9 @@ def build_glossary_block(glossary_terms) -> str:
             cat = f" ({TERM_CATEGORIES.get(t.get('category'), '')})" if t.get("category") else ""
             note = f" -- {t['notes']}" if t.get("notes") else ""
             lines.append(f"  {t['term_original']} → {t['term_translation']}{cat}{note}")
+    if overflow:
+        lines.append("\nOther glossary terms are listed with each batch that uses them, under "
+                     "REQUIRED NAMES.")
     return "\n".join(lines)
 
 
@@ -545,20 +549,6 @@ def _variant_pattern(variant: str) -> str:
     return head + re.escape(variant) + tail
 
 
-def _is_free_text_note(variant: str, canonical: str) -> bool:
-    """`notes` doubles as the variant list and a free-text note ("her
-    childhood friend"); a spaced phrase longer than the name is a note,
-    unless it is just the name spaced differently ("Shen Qing Yi"). Names
-    are capitalised, so only a phrase with a lowercase-initial word counts:
-    "Su Shan Shan" and "Ah Yao" are real variants."""
-    if not re.search(r"\s", variant) or len(variant) <= len(canonical):
-        return False
-    if not any(w[0].islower() for w in variant.split()):
-        return False
-    squash = lambda t: re.sub(r"[\s\-]+", "", t).casefold()
-    return squash(variant) != squash(canonical)
-
-
 def build_hard_term_substituter(glossary_terms):
     """
     Hard find-replace for terms marked as non-negotiable (LunaTranslator's
@@ -574,7 +564,10 @@ def build_hard_term_substituter(glossary_terms):
     in the text is left alone ("Qingyi" inside "Shen Qingyi"). Longer
     variants win where two could match at the same place.
     """
-    # enforce_exact terms only, with variants from `notes`. A glossary term's
+    # enforce_exact terms only. The variants are the term's aliases in the
+    # canonical form's script (auto_qc makes the same split: for an English
+    # term a CJK alias is a source spelling, not a rendering); `notes`
+    # is free text for the translator and never rewrites a line. A term's
     # banned_translations are separate and flag-only (auto_qc.build_banned_terms
     # flags the line for review); never rewrite text from them here.
     enforced = [t for t in (glossary_terms or [])
@@ -586,9 +579,8 @@ def build_hard_term_substituter(glossary_terms):
         # its position it keeps a shorter variant inside it ("Qingyi" in
         # "Shen Qingyi") from compounding, whatever case the model used.
         canonical_of.setdefault(canonical.casefold(), (canonical, canonical))
-        for v in (t.get("notes") or "").split("|"):
-            v = v.strip()
-            if v and v != canonical and not _is_free_text_note(v, canonical):
+        for v in split_list_cell(t.get("aliases")):
+            if v != canonical and bool(_CJK_RE.search(v)) == bool(_CJK_RE.search(canonical)):
                 canonical_of.setdefault(v.casefold(), (v, canonical))
                 has_variant = True
     if not has_variant:
