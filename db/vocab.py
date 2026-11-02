@@ -9,15 +9,16 @@ import db
 
 
 def save_vocab_lookup(drama_id: int, word: str, reading: str, definitions, language: str,
-                       first_seen_line_idx: int | None = None):
+                       first_seen_line_idx: int | None = None,
+                       first_seen_line_id: int | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("""
             INSERT INTO vocab_lookups (drama_id, word, reading, definitions, language,
-                                        first_seen_line_idx, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                        first_seen_line_idx, first_seen_line_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(drama_id, word) DO NOTHING
         """, (drama_id, word, reading, json.dumps(definitions, ensure_ascii=False), language,
-              first_seen_line_idx, clock.utcnow().isoformat()))
+              first_seen_line_idx, first_seen_line_id, clock.utcnow().isoformat()))
         conn.commit()
 
 
@@ -28,18 +29,24 @@ def list_vocab_lookups(drama_id: int | None = None, rich_only: bool = False):
     with contextlib.closing(db.get_conn()) as conn:
         conditions, params = [], []
         if drama_id:
-            conditions.append("drama_id = ?")
+            conditions.append("v.drama_id = ?")
             params.append(drama_id)
         if rich_only:
-            conditions.append("export_rich = 1")
-        query = "SELECT * FROM vocab_lookups"
+            conditions.append("v.export_rich = 1")
+        # The line's id is what stays true when lines are split, merged or
+        # deleted; the stored position is only for rows saved without one.
+        query = ("SELECT v.*, l.idx AS current_idx FROM vocab_lookups v "
+                 "LEFT JOIN lines l ON l.id = v.first_seen_line_id AND l.drama_id = v.drama_id")
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        query += " ORDER BY created_at"
+        query += " ORDER BY v.created_at"
         rows = conn.execute(query, params).fetchall()
     out = []
     for r in rows:
         d = dict(r)
+        current_idx = d.pop("current_idx")
+        if d.get("first_seen_line_id") is not None:
+            d["first_seen_line_idx"] = current_idx   # None once the line is gone
         try:
             d["definitions"] = json.loads(d["definitions"]) if d["definitions"] else []
         except (json.JSONDecodeError, TypeError):
