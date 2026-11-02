@@ -2,7 +2,7 @@
 # Install:  pip install -r requirements-optional.txt
 
 # --- alternative translation engines ---
-openai>=1.30            # DeepSeek (OpenAI-compatible API)
+openai>=3.41            # DeepSeek (OpenAI-compatible API)
 transformers>=5.15      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
                          # transformers' own classes; 5.13/5.14 lack `prompt=` and the
                          # language prefill, so 5.15 is the floor), Scanlate's ML
@@ -98,7 +98,7 @@ sudachipy>=0.7.0          # Japanese
 sudachidict_core>=20261015
 pykakasi>=2.3           # Japanese furigana
 kiwipiepy>=0.24.1         # Korean
-budoux>=0.10.1           # Japanese/Chinese phrase-aware subtitle line breaking
+budoux>=0.10.2           # Japanese/Chinese phrase-aware subtitle line breaking
 
 # --- scanlate: ML bubble detection + inpainting ---
 # transformers (above) loads the bubble detector; torch+safetensors load
@@ -111,7 +111,7 @@ torch>=2.0
 safetensors>=0.8.0
 
 # --- scanlate: PDF import (splits a PDF into per-page images) ---
-pypdf>=6.21.3       # 6.x caps how far a stream may inflate (PDF bombs)
+pypdf>=6.21.4       # 6.x caps how far a stream may inflate (PDF bombs)
 
 # --- exports ---
 genanki>=0.13.1           # Anki decks
@@ -130,8 +130,8 @@ trafilatura>=2.3.1
 
 # --- Benchmark Lab: standard CER/WER scoring (services/benchmark_lab_service.py) ---
 # Apache-2.0. Optional -- without it a built-in scorer is used; each result
-# records which scorer produced it. 3.0 is the oldest release checked.
-jiwer>=3.0
+# records which scorer produced it. 4.0 is the oldest release checked.
+jiwer>=4.0
 
 # --- Benchmark Lab: chrF translation similarity (benchmark.translation_similarity) ---
 # Apache-2.0. Optional -- without it translations are scored with the built-in

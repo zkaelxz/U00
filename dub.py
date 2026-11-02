@@ -5,8 +5,8 @@ helpers that decide what a speaker's voice is. dub_narration.py builds the
 narration track on top of it, speaking the translation or, via
 narrate_original, the drama's own source-language text.
 
-Every voice comes from OmniVoice, the one voice engine (see CLONE_ENGINES).
-Reference clips can be auto-extracted per speaker from the original audio
+Voices come from OmniVoice or, cloned from a clip only, Qwen3-TTS (see
+CLONE_ENGINES); Qwen3-TTS runs in a venv of its own (voice_venv). Reference clips can be auto-extracted per speaker from the original audio
 (extract_reference_clips()) or set manually. A speaker with no clip gets a
 designed voice from a plain description. build_narration_track() takes a
 character_clone_map (clone_map_from_characters() builds it, one entry per
@@ -38,6 +38,7 @@ DEFAULT_VOICE_DESCRIPTIONS = [
 
 CLONE_ENGINES = {
     "omnivoice": "OmniVoice (clone from a clip, or describe a voice)",
+    "qwen3_tts": "Qwen3-TTS (clone from a clip)",
 }
 DEFAULT_CLONE_ENGINE = "omnivoice"
 
@@ -72,6 +73,8 @@ def engine_refusal(engine):
 # release claims 600+ languages zero-shot, which covers zh/ja/ko.
 CLONE_ENGINE_ORIGINAL_LANGUAGES = {
     "omnivoice": {"zh", "ja", "ko"},
+    # Qwen's model card lists Chinese, Japanese and Korean among its ten languages.
+    "qwen3_tts": {"zh", "ja", "ko"},
 }
 
 
@@ -87,7 +90,14 @@ def clone_engine_supports_language(engine: str, language: str) -> bool:
 # Engines that load a local model -- dub generation takes the GPU slot for
 # these. Clips are generated one at a time: one shared model on one GPU
 # gains nothing from threads.
-LOCAL_MODEL_ENGINES = {"omnivoice"}
+LOCAL_MODEL_ENGINES = {"omnivoice", "qwen3_tts"}
+# Engines whose packages clash with the app's, run through voice_venv. Their lines are
+# spoken in one batch per run so the model loads once.
+VENV_ENGINES = {"qwen3_tts"}
+# The first run downloads the model (a few GB) before speaking anything.
+VENV_LOAD_SECONDS = 1800
+VENV_SECONDS_PER_LINE = 180
+VENV_LINE_FAILED = "The voice engine could not speak this line."
 
 
 def _cuda_available() -> bool:
@@ -142,6 +152,65 @@ def synthesize_line_omnivoice(text: str, out_path: str, ref_audio_path: str = No
     return out_path
 
 
+def engine_label(engine: str) -> str:
+    return CLONE_ENGINES[engine].split(" (")[0]
+
+
+def _engine_start_failed(engine: str) -> str:
+    return f"The {engine_label(engine)} engine could not start. Check it in Diagnostics."
+
+
+def speak_in_venv(engine: str, requests: list, workdir: str):
+    """Speaks `requests` ({"text", "out", "language", "ref_audio", "ref_text"}) with a
+    VENV_ENGINES engine in one child. Yields (index, error) once per request, error None
+    when its file was written, in the order they finish. Error texts are fixed
+    sentences; the engine's own text is only logged, as it can name local paths."""
+    import applog
+    import voice_venv
+    from engine_backends.shared import redact_secrets
+    from memory_headroom import HeadroomError
+    try:
+        cuda = _cuda_available()
+    except ImportError:
+        # The app's own torch is optional; the engine's torch lives in its venv.
+        cuda = False
+    try:
+        if cuda:
+            _check_vram(engine_label(engine))
+    except HeadroomError:
+        raise
+    except Exception as exc:
+        # The VRAM refusal is plain text that names no path.
+        for i in range(len(requests)):
+            yield i, str(exc)
+        return
+    items = [{"id": str(i), "text": r["text"], "out": r["out"], "language": r["language"],
+              "ref_audio": r["ref_audio"], "ref_text": r.get("ref_text") or ""}
+             for i, r in enumerate(requests)]
+    if not voice_venv.is_ready(engine):
+        for i in range(len(requests)):
+            yield i, _engine_start_failed(engine)
+        return
+    fatal = None
+    # own_group=False: this runs inside the narration job worker, and a cancel kills that
+    # worker's whole group.
+    for event in voice_venv.run_batch(
+            engine, items, workdir,
+            timeout=VENV_LOAD_SECONDS + VENV_SECONDS_PER_LINE * len(items), own_group=False):
+        if event.get("detail"):
+            applog.get_logger().warning("%s: %s", engine_label(engine),
+                                        redact_secrets(event["detail"]))
+        if "fatal" in event:
+            fatal = _engine_start_failed(engine)
+        elif "done" in event:
+            yield int(event["done"]), None
+        elif "failed" in event:
+            yield int(event["failed"]), VENV_LINE_FAILED
+        elif "unanswered" in event:
+            for i in event["unanswered"]:
+                yield int(i), fatal or VENV_LINE_FAILED
+
+
 def _synthesize_cloned(clone: dict, text: str, out_path: str):
     """Routes one character_clone_map entry to its engine. A missing or
     broken engine install surfaces as a plain sentence, not an ImportError."""
@@ -156,8 +225,7 @@ def _synthesize_cloned(clone: dict, text: str, out_path: str):
     except ImportError as e:
         # A package that is installed but can't load (e.g. a transformers
         # version clash) must not reach the user as a raw traceback.
-        raise RuntimeError(f"The {CLONE_ENGINES[engine].split(' (')[0]} engine could not start. "
-                           "Check it in Diagnostics.") from e
+        raise RuntimeError(_engine_start_failed(engine)) from e
 
 
 def clone_map_from_characters(characters, drama_dir: str,

@@ -466,7 +466,7 @@ details.section > summary { list-style: none; }
 details.section > summary::-webkit-details-marker { display: none; }
 details.section > summary::before { content: '\25B8'; flex: none; width: 0.9em; color: var(--muted); font-size: 0.85em; line-height: 1; }
 details.section[open] > summary::before { content: '\25BE'; }
-.section-title { font-weight: 600; }
+.section-title { font-weight: 600; font-size: inherit; margin: 0; }
 /* Progressive enhancement: where ::details-content exists, the opened body fades in (240ms).
    Fade only, never a height/clip animation: clipping the body would cut the 44px touch hit areas
    of switches at its edges. */
