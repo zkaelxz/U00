@@ -75,14 +75,10 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const comic = !!drama && isComicType(drama.media_type)
   const [storedView, storeView] = usePersistedState<string>(TITLE_VIEW_PREF, 'full')
   const twoViews = !!drama && hasSimpleView(titleKind(drama.media_type, drama.content_mode))
-  // A stage page is the Full workspace whatever the saved choice is; showing Simple there left the switch on a view it was already
-  // "in", so clicking Simple fired no change and the switch seemed dead.
-  const view = stage !== null ? 'full' : asTitleView(storedView)
-  // Simple is a title page like the novel's, so a link that names a stage always opens the stage: choosing Simple there goes to the page itself.
-  const chooseView = (v: TitleView) => {
-    storeView(v)
-    if (v === 'simple' && stage !== null) window.location.hash = routeHref({ name: 'drama', id, stage: null })
-  }
+  const view = asTitleView(storedView)
+  // A link that names a stage always opens the stage; Simple there keeps the stage and leaves out its advanced controls.
+  const simple = twoViews && view === 'simple'
+  const chooseView = (v: TitleView) => storeView(v)
   const linked = parseRoute(window.location.hash)
   const comicNotice = comic && isLineStageForComic(active) && !(linked.name === 'drama' && linked.id === id && isCastTab(linked.tab))
   // The line stages are empty for a comic, so "Next" never sends it there.
@@ -95,8 +91,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const Stage = active ? STAGE_COMPONENTS[active] : null
 
   const ctx = useMemo<StageContextValue | null>(
-    () => (drama ? { dramaId: id, drama, refetchDrama: refetch, onJobDone: refetch } : null),
-    [id, drama, refetch],
+    () => (drama ? { dramaId: id, drama, refetchDrama: refetch, onJobDone: refetch, simple } : null),
+    [id, drama, refetch, simple],
   )
 
   // --bar-h is the app header plus this sticky strip, which Review's own sticky

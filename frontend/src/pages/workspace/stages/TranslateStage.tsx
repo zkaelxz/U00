@@ -33,6 +33,7 @@ import { browserStorage } from '../../../hooks/usePersistedState'
 import { useStageTab } from '../useStageTab'
 import {
   TRANSLATE_TAB_PREFIX,
+  SIMPLE_TRANSLATE_TABS,
   TRANSLATE_TABS,
   isTranslateTab,
   readTranslateTab,
@@ -41,7 +42,7 @@ import {
   writeTranslateTab,
   type TranslateTab,
 } from '../translateTabs'
-import { useStage } from '../StageContext'
+import { useSimple, useStage } from '../StageContext'
 import { foldsTranslateOptions, titleKind } from '../titleKind'
 import { useTranslateRunForm } from './useTranslateRunForm'
 import { MediaTabPanel } from './MediaTabPanel'
@@ -263,6 +264,7 @@ function RunPanel({
   retryRef: MutableRefObject<(() => void) | null>
 }) {
   const { dramaId, drama } = useStage()
+  const simple = useSimple()
   const [problem, setProblem] = useState<string | null>(null)
   const form = useTranslateRunForm({ config, onForm, onResetStage: () => setProblem(null) })
   const {
@@ -513,7 +515,8 @@ function RunPanel({
         <p className="error" role="alert">A translate job is already running for this title.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base, reviewFirst)}>
+      {/* Folded titles keep their basic fields in this section, so only an unfolded one can leave it out. */}
+      {!(simple && !folded) && <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base, reviewFirst)}>
         <div className="advanced-grid">
           {folded && (
             <div className="advanced-wide">
@@ -661,7 +664,7 @@ function RunPanel({
             <ResetButton offered={resetUndo.offered} onReset={resetToDefaults} onUndo={resetUndo.undo} />
           </div>
         </div>
-      </Section>
+      </Section>}
     </section>
   )
 }
@@ -688,7 +691,10 @@ export default function TranslateStage() {
     initial: () => linkedTab() ?? readTranslateTab(browserStorage(), dramaId),
     store: (next) => writeTranslateTab(browserStorage(), dramaId, next),
   })
-  const tab = resolveTranslateTab(wantedTab)
+  const simple = useSimple()
+  const visibleTabs = simple ? TRANSLATE_TABS.filter((t) => SIMPLE_TRANSLATE_TABS.includes(t.id)) : TRANSLATE_TABS
+  const resolvedTab = resolveTranslateTab(wantedTab)
+  const tab = visibleTabs.some((t) => t.id === resolvedTab) ? resolvedTab : 'translate'
 
   useCancellableEffect((cancelled) => {
     getTranslateConfig(dramaId).then(
@@ -735,7 +741,7 @@ export default function TranslateStage() {
       <Tabs
         label="Translate sections"
         idPrefix={TRANSLATE_TAB_PREFIX}
-        tabs={TRANSLATE_TABS}
+        tabs={visibleTabs}
         active={tab}
         onSelect={selectTab}
       />
