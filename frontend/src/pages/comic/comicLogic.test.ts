@@ -17,6 +17,13 @@ import {
   preloadWindow,
   regionBox,
   sanitizePrefs,
+  buildSpreads,
+  doubleActive,
+  isWidePage,
+  spreadDisplayOrder,
+  spreadIndex,
+  spreadLabel,
+  spreadStep,
   saveComicPrefs,
   tapAction,
   textPages,
@@ -42,7 +49,7 @@ describe('comic types and defaults', () => {
   })
 
   it('defaults manga to paged right-to-left and manhua/manhwa to vertical', () => {
-    expect(defaultPrefs('manga')).toEqual({ mode: 'paged', rtl: true, fit: 'height', typeset: true, text: false })
+    expect(defaultPrefs('manga')).toEqual({ mode: 'paged', rtl: true, fit: 'height', typeset: true, text: false, spread: 'auto', coverAlone: true })
     expect(defaultPrefs('manhua')).toMatchObject({ mode: 'vertical', rtl: false, fit: 'width' })
     expect(defaultPrefs('manhwa')).toMatchObject({ mode: 'vertical', rtl: false, fit: 'width' })
     expect(defaultPrefs(null)).toMatchObject({ mode: 'vertical', rtl: false })
@@ -193,5 +200,62 @@ describe('inRenderWindow', () => {
     expect(inRenderWindow(12, 6, 2)).toBe(false)
     expect(inRenderWindow(100, 1)).toBe(false)
     expect(inRenderWindow(6, 1)).toBe(true)
+  })
+})
+
+describe('double page', () => {
+  const none = () => false
+
+  it('pairs pages with the first alone, or from the start without a cover', () => {
+    expect(buildSpreads([1, 2, 3, 4, 5], none, true)).toEqual([[1], [2, 3], [4, 5]])
+    expect(buildSpreads([1, 2, 3, 4, 5], none, false)).toEqual([[1, 2], [3, 4], [5]])
+    expect(buildSpreads([], none, true)).toEqual([])
+  })
+
+  it('shows a wide page alone and pairs around it', () => {
+    expect(buildSpreads([1, 2, 3, 4, 5, 6], (n) => n === 3, true)).toEqual([[1], [2], [3], [4, 5], [6]])
+    expect(isWidePage({ width: 2000, height: 1400 })).toBe(true)
+    expect(isWidePage({ width: 1000, height: 1400 })).toBe(false)
+    expect(isWidePage({ width: null, height: null })).toBe(false)
+  })
+
+  it('pairs only readable pages: a hidden page never joins a spread', () => {
+    expect(buildSpreads([1, 3, 4], none, false)).toEqual([[1, 3], [4]])
+  })
+
+  it('steps whole spreads and stays put at either end', () => {
+    const s = [[1], [2, 3], [4, 5]]
+    expect(spreadStep(s, 1, 1)).toBe(2)
+    expect(spreadStep(s, 3, 1)).toBe(4)
+    expect(spreadStep(s, 3, -1)).toBe(1)
+    expect(spreadStep(s, 1, -1)).toBeNull()
+    expect(spreadStep(s, 5, 1)).toBeNull()
+    expect(spreadIndex(s, 3)).toBe(1)
+    expect(spreadIndex(s, 99)).toBe(2)
+  })
+
+  it('puts the first page on the right for right-to-left', () => {
+    expect(spreadDisplayOrder([2, 3], true)).toEqual([3, 2])
+    expect(spreadDisplayOrder([2, 3], false)).toEqual([2, 3])
+  })
+
+  it('switches on by itself only for paged reading in a landscape, wide window', () => {
+    expect(doubleActive({ mode: 'paged', spread: 'auto' }, true)).toBe(true)
+    expect(doubleActive({ mode: 'paged', spread: 'auto' }, false)).toBe(false)
+    expect(doubleActive({ mode: 'paged', spread: 'single' }, true)).toBe(false)
+    expect(doubleActive({ mode: 'paged', spread: 'double' }, false)).toBe(true)
+    expect(doubleActive({ mode: 'vertical', spread: 'double' }, true)).toBe(false)
+  })
+
+  it('shows both numbers of a spread', () => {
+    expect(spreadLabel([3, 4], 20)).toBe('3–4 / 20')
+    expect(spreadLabel([3], 20)).toBe('3 / 20')
+  })
+
+  it('keeps the double page choices through sanitizing and falls back on bad ones', () => {
+    const d = defaultPrefs('manga')
+    expect(d.spread).toBe('auto')
+    expect(sanitizePrefs({ spread: 'double', coverAlone: false }, d)).toMatchObject({ spread: 'double', coverAlone: false })
+    expect(sanitizePrefs({ spread: 'triple', coverAlone: 'no' }, d)).toMatchObject({ spread: 'auto', coverAlone: true })
   })
 })

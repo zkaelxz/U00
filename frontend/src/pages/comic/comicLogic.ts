@@ -24,7 +24,22 @@ export interface ComicPrefs {
   typeset: boolean
   // Draw the text boxes and list the page's lines.
   text: boolean
+  // Paged only: two pages side by side. 'auto' does it while the window is landscape and wide.
+  spread: SpreadMode
+  // Double page: the first page stands alone, like a printed cover.
+  coverAlone: boolean
 }
+
+export type SpreadMode = 'auto' | 'single' | 'double'
+export const SPREAD_OPTIONS: [SpreadMode, string][] = [
+  ['auto', 'Automatic (two pages in landscape)'],
+  ['single', 'Always one page'],
+  ['double', 'Always two pages'],
+]
+// Auto switches to two pages only when the window is both landscape and at least this wide:
+// below it a spread's pages would be smaller than a phone's single page.
+export const DOUBLE_MIN_WIDTH = 900
+export const DOUBLE_QUERY = `(orientation: landscape) and (min-width: ${DOUBLE_MIN_WIDTH}px)`
 
 export const MODE_OPTIONS: [ComicMode, string][] = [
   ['vertical', 'Vertical scroll'],
@@ -45,7 +60,7 @@ export function defaultPrefs(mediaType: string | null | undefined, readingModeDe
       : type === 'manga'
         ? 'paged'
         : 'vertical'
-  return { mode, rtl: type === 'manga', fit: mode === 'paged' ? 'height' : 'width', typeset: true, text: false }
+  return { mode, rtl: type === 'manga', fit: mode === 'paged' ? 'height' : 'width', typeset: true, text: false, spread: 'auto', coverAlone: true }
 }
 
 function pick<T>(v: unknown, options: [T, string][], fallback: T): T {
@@ -62,7 +77,67 @@ export function sanitizePrefs(raw: unknown, defaults: ComicPrefs): ComicPrefs {
     fit: pick(r.fit, FIT_OPTIONS, defaults.fit),
     typeset: bool(r.typeset, defaults.typeset),
     text: bool(r.text, defaults.text),
+    spread: pick(r.spread, SPREAD_OPTIONS, defaults.spread),
+    coverAlone: bool(r.coverAlone, defaults.coverAlone),
   }
+}
+
+/** Whether the paged reader shows two pages now. */
+export function doubleActive(prefs: Pick<ComicPrefs, 'mode' | 'spread'>, landscapeWide: boolean): boolean {
+  return prefs.mode === 'paged' && (prefs.spread === 'double' || (prefs.spread === 'auto' && landscapeWide))
+}
+
+/** A page already wider than tall is a printed spread: it is shown alone. */
+export function isWidePage(p: { width: number | null; height: number | null }): boolean {
+  return !!p.width && !!p.height && p.width > p.height
+}
+
+/**
+ * Groups the readable pages (1-based ordinals, in order) into what is shown together: pairs of
+ * consecutive pages, with the first page alone when `coverAlone` and a wide page always alone.
+ * Built over the visible pages so a hidden page never sits in a spread.
+ */
+export function buildSpreads(ordinals: number[], wide: (n: number) => boolean, coverAlone: boolean): number[][] {
+  const out: number[][] = []
+  let i = 0
+  if (coverAlone && ordinals.length > 0) out.push([ordinals[i++]])
+  while (i < ordinals.length) {
+    const n = ordinals[i]
+    const next = ordinals[i + 1]
+    if (wide(n) || next === undefined || wide(next)) out.push([n])
+    else {
+      out.push([n, next])
+      i++
+    }
+    i++
+  }
+  return out
+}
+
+/** The spread holding page `n` (or the nearest one before it). */
+export function spreadIndex(spreads: number[][], n: number): number {
+  const at = spreads.findIndex((s) => s.includes(n))
+  if (at >= 0) return at
+  const before = spreads.findIndex((s) => s[0] > n)
+  return before < 0 ? Math.max(0, spreads.length - 1) : Math.max(0, before - 1)
+}
+
+/** The page to open when stepping a spread forward (+1) or back (-1); null at either end. */
+export function spreadStep(spreads: number[][], n: number, dir: 1 | -1): number | null {
+  const target = spreads[spreadIndex(spreads, n) + dir]
+  return target ? target[0] : null
+}
+
+/** Left-to-right screen order of a spread: right-to-left puts the first page on the right. */
+export function spreadDisplayOrder(spread: number[], rtl: boolean): number[] {
+  return rtl ? [...spread].reverse() : spread
+}
+
+/** "3–4 / 20" for a spread, "3 / 20" for one page; positions are in the readable list. */
+export function spreadLabel(positions: number[], total: number): string {
+  const first = positions[0]
+  const last = positions[positions.length - 1]
+  return `${first === last ? first : `${first}–${last}`} / ${total}`
 }
 
 // Remembered per drama in localStorage ("baihe.pref.comic.view.<id>").
