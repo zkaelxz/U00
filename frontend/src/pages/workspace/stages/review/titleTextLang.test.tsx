@@ -15,7 +15,7 @@ function preview(sourceLanguage: string | null) {
   const merge = <MergeConfirm run={[line(1, '今日'), line(2, '晴れ')]} busy={false} blocked={null} onMerge={() => {}} onCancel={() => {}} />
   const drama = { source_language: sourceLanguage } as DramaDetail
   return renderToStaticMarkup(
-    <StageContext.Provider value={{ dramaId: 1, drama, refetchDrama: () => {}, onJobDone: () => {} }}>{merge}</StageContext.Provider>,
+    <StageContext.Provider value={{ dramaId: 1, drama, refetchDrama: () => {}, onJobDone: () => {}, simple: false }}>{merge}</StageContext.Provider>,
   )
 }
 

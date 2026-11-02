@@ -11,6 +11,8 @@ export interface StageContextValue {
   // Call when a background job the stage started reaches a terminal state.
   // Refetches drama data (lines/other stage data are the stage's own to reload).
   onJobDone: () => void
+  // The Simple title view: stages leave out their advanced controls. Hidden, never disabled, so nothing a run needs is lost.
+  simple: boolean
 }
 
 export const StageContext = createContext<StageContextValue | null>(null)
@@ -20,6 +22,9 @@ export function useStage(): StageContextValue {
   if (!ctx) throw new Error('useStage must be used inside WorkspaceShell')
   return ctx
 }
+
+/** True when the viewer chose Simple for this title kind; a stage hides its advanced controls then. */
+export const useSimple = (): boolean => useContext(StageContext)?.simple ?? false
 
 /**
  * For a panel a deep link ("?focus=glossary") points at: a Section openSignal that
