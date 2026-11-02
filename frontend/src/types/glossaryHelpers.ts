@@ -1,13 +1,10 @@
 // Mirrors api/schemas/characters.py: LinesGlossaryRunResult, GlossaryProposalEdit and
 // GlossaryProposalsApplyRequest (glossary_routes.py). The
 // lines extraction's status and apply result reuse the NovelGlossary* types.
+import type { components } from '../api/generated/schema'
 import type { NovelGlossaryApplyRequest } from './autotuneGlossary'
 
-export interface LinesGlossaryRunResult {
-  job_id: string
-  engine: string
-  line_count: number
-}
+export type LinesGlossaryRunResult = components['schemas']['LinesGlossaryRunResult']
 
 // A field left out keeps the proposal's value; null category/policy = none.
 export interface GlossaryProposalEdit {
