@@ -30,6 +30,8 @@ __all__ = [
     "LiveSessionStatus",
     "LiveSessionSummary",
     "LiveSessionStopped",
+    "LiveChatMessage",
+    "LiveChatPage",
     "LiveOllamaCheck",
     "LiveFormDefaults",
     "LiveFormOptions",
@@ -339,6 +341,8 @@ class LiveSessionStart(BaseModel):
                            "own player, so the picture can be held back on a stream the embed cannot rewind.")
     player_height: Literal[360, 480, 720, 1080] = Field(
         480, description="With delayed_player: the tallest picture to record, in pixels.")
+    read_chat: StrictBool = Field(
+        False, description="YouTube links only: also read the stream's live chat and translate it.")
     glossary_drama_id: Optional[StrictInt] = Field(
         None, ge=1, le=2**62,
         description="A title whose glossary and language packs the translation may use (read-only).")
@@ -419,8 +423,27 @@ class LiveSessionStatus(BaseModel):
     # Whether this session records a delayed copy, and once its playlists have segments to play.
     delayed_player: bool = False
     player_ready: bool = False
+    # Whether this session reads the stream's chat (GET .../chat has the messages).
+    chat: bool = False
     cues: List[LiveCue]
     next_index: int
+
+
+class LiveChatMessage(BaseModel):
+    id: int
+    author: str
+    text: str
+    # A Super Chat's amount as YouTube wrote it ("$5.00"); empty for an ordinary message.
+    paid: str = ""
+    translation: str
+    state: str   # pending | done | failed | skipped (shown as written)
+
+
+class LiveChatPage(BaseModel):
+    state: str   # connecting | reading | unavailable | lost | ended
+    message: str
+    messages: List[LiveChatMessage]
+    next_id: int
 
 
 class LiveSessionSummary(BaseModel):

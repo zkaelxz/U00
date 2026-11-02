@@ -7,6 +7,8 @@
  */
 import type { TranslateEngine } from '../types/translate'
 import type {
+  LiveChatMessage,
+  LiveChatPage,
   LiveCue,
   LiveFormOptions,
   LiveOllamaCheck,
@@ -64,6 +66,8 @@ export interface LiveForm {
   max_minutes: number
   use_gpu: boolean
   reply_without_thinking: boolean
+  // YouTube links only: also read the stream's chat and translate it.
+  read_chat: boolean
   // Plays a delayed copy recorded on this PC instead of the stream's own embed.
   delayed_player: boolean
   // The tallest picture the delayed player records, in pixels.
@@ -86,6 +90,7 @@ export const DEFAULT_FORM: LiveForm = {
   max_minutes: 60,
   use_gpu: false,
   reply_without_thinking: true,
+  read_chat: false,
   delayed_player: false,
   player_height: 480,
   glossary_drama_id: null,
@@ -144,6 +149,8 @@ export const startLive = (body: LiveSessionStart, f?: Fetch) =>
 export const listLive = (f?: Fetch) => getJson<LiveSessionSummary[]>('/api/live/sessions', f)
 export const getLive = async (id: string, after: number, f?: Fetch) =>
   getJson<LiveSessionStatus>(`${sessionPath(id)}?after=${Math.max(0, Math.floor(after))}`, f)
+export const getLiveChat = async (id: string, after: number, f?: Fetch) =>
+  getJson<LiveChatPage>(`${sessionPath(id)}/chat?after=${Math.max(0, Math.floor(after))}`, f)
 export const stopLive = async (id: string, f?: Fetch) => postJson<LiveSessionStopped>(`${sessionPath(id)}/stop`, undefined, f)
 
 /** Why Start can't be pressed with this link yet, or null. */
@@ -199,6 +206,7 @@ export function buildStartBody(form: LiveForm, opts: LiveFormOptions = LIVE_FORM
     max_minutes: clamp(form.max_minutes, opts.max_minutes_range, d.max_minutes),
     use_gpu: form.use_gpu === true,
     reply_without_thinking: form.reply_without_thinking !== false,
+    ...(form.read_chat === true ? { read_chat: true } : {}),
     ...(form.delayed_player === true
       ? { delayed_player: true, player_height: opts.player_heights.includes(form.player_height) ? form.player_height : d.player_height } : {}),
     ...(isId(form.series_id) ? { series_id: form.series_id }
@@ -341,4 +349,21 @@ export function describeLiveError(err: unknown): string {
   if (e?.status === 409) return 'A live session is already running. Stop it first.'
   const { title, detail } = describeError(err, { serverText: true })
   return detail ? `${title} ${detail}` : title
+}
+
+/** Most chat messages kept on the page; the server keeps about as many. */
+export const CHAT_KEPT = 300
+
+/** `fresh` merged into `kept` by id (a pending message changes in place), the newest CHAT_KEPT, oldest first. */
+export function mergeChat(kept: LiveChatMessage[], fresh: LiveChatMessage[]): LiveChatMessage[] {
+  if (!fresh.length) return kept
+  const byId = new Map(kept.map((m) => [m.id, m]))
+  for (const m of fresh) byId.set(m.id, m)
+  return [...byId.values()].sort((a, b) => a.id - b.id).slice(-CHAT_KEPT)
+}
+
+/** Where to read the next chat page from: before the oldest message still waiting, so it fills in. */
+export function chatReadFrom(kept: LiveChatMessage[], nextId: number): number {
+  const waiting = kept.find((m) => m.state === 'pending')
+  return waiting ? waiting.id - 1 : nextId
 }

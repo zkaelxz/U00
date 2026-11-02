@@ -42,6 +42,7 @@ import { NeedsInstall } from './readiness/NeedsInstall'
 import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
+import { LiveChatSection, ReadChatField } from './live/LiveChat'
 import { DelayedPlayer } from './live/DelayedPlayer'
 import { useLiveSession } from './live/useLiveSession'
 import { StreamEmbed } from './live/StreamEmbed'
@@ -87,8 +88,7 @@ export default function LivePage() {
     getLiveOptions().then((o) => { if (alive) setOpts(o) }, () => {})
     return () => { alive = false }
   }, [])
-  const fastHelpId = useId()
-  const balancedHelpId = useId()
+  const [fastHelpId, balancedHelpId] = [useId(), useId()]
   const [url, setUrl] = useState('')
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
@@ -359,6 +359,7 @@ export default function LivePage() {
                 </select>
               </Field>
             )}
+            <ReadChatField checked={form.read_chat} disabled={active || busy} onChange={(v) => setOpt('read_chat', v)} />
             <Field label="Reply without thinking"
               help={`Faster lines: the translator answers straight away instead of reasoning first. Works with ${listNames(opts.thinking_switch_engines)}.`}>
               <Toggle checked={form.reply_without_thinking && canSwitchThinking}
@@ -471,6 +472,7 @@ export default function LivePage() {
           </div>
           </div>
         )}
+        {session?.status?.chat === true && <LiveChatSection sessionId={session.id} running={active} language={session.status.source_language ?? form.source_language} />}
       </div>
     </PageShell>
   )
