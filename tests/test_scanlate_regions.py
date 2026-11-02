@@ -513,6 +513,15 @@ class TestWordySfxBecomesSign:
         region = {"kind": "sfx", "source_text": "あなたをずっと待っていました"}
         assert scanlate_regions.reclassify_wordy_sfx([region]) == 1
 
+    def test_a_short_vertical_sentence_on_dark_art_is_a_sign(self):
+        region = {"kind": "sfx", "source_text": "いいのか？任せても"}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 1
+        assert region["kind"] == "sign"
+
+    def test_a_kanji_sound_effect_without_hiragana_stays(self):
+        region = {"kind": "sfx", "source_text": "斬"}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
+
     def test_a_short_sound_effect_stays(self):
         region = {"kind": "sfx", "source_text": "ドドド"}
         assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
