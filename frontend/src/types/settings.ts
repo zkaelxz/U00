@@ -1,3 +1,7 @@
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
+
 export type SettingsToggleKey =
   | 'gpu_limit_enabled'
   | 'unload_ollama_before_transcribe'
@@ -84,11 +88,7 @@ export interface SettingsPreferences extends TimingPreferences {
 
 export type PreferenceKey = keyof SettingsPreferences
 
-export interface OcrBackendStatus {
-  installed: boolean
-  reason: string | null
-  package: string | null
-}
+export type OcrBackendStatus = Schemas['OcrBackendStatus']
 
 interface SettingsChoices {
   engines: string[]
@@ -125,10 +125,7 @@ export type SettingsUpdate = Partial<Record<SettingsToggleKey, boolean>> &
   Partial<SettingsPreferences> & { gpu_max_parallel?: number }
 
 // Result of a write-only key set/clear: never carries the key itself.
-export interface EngineKeyResult {
-  engine: string
-  configured: boolean
-}
+export type EngineKeyResult = Schemas['EngineKeyResult']
 
 export interface EndpointUrlResult {
   name: EndpointName
@@ -136,16 +133,7 @@ export interface EndpointUrlResult {
   configured: boolean
 }
 
-interface MonthSpendStatus {
-  month_spend_usd: number
-  month_spend_counted_usd: number
-  month_spend_reset_at: string | null
-}
-
-export interface MonthCounterResetResult {
-  before: MonthSpendStatus
-  after: MonthSpendStatus
-}
+export type MonthCounterResetResult = Schemas['MonthCounterResetResult']
 
 // GET /api/settings/schema: the declared settings the page builds forms from.
 // Metadata only; values come from the overview.

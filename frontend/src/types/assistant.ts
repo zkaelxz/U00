@@ -1,38 +1,10 @@
 // The in-app AI maintenance assistant, read-only v1
 // (api/routers/assistant_routes.py). Every route is PC only.
+import type { components } from '../api/generated/schema'
 
-export interface AssistantSettings {
-  developer_mode: boolean
-  // null: the server's default engine / the engine's default model.
-  engine: string | null
-  model: string | null
-  engine_choices: string[]
-  // Implement -> independent review on a different engine. Off by default.
-  roles_enabled?: boolean
-  review_engine?: string | null
-  review_model?: string | null
-  // The engine used when none is picked or saved (local: Ollama).
-  default_engine?: string
-  // Engines that run on this PC; code and logs never leave it.
-  local_engines?: string[]
-  // Per cloud engine: has the owner allowed sending code and logs to it?
-  cloud_consent?: Record<string, boolean>
-  // The escalation ladder: the saved order (null = the default) and the tiers it gives now.
-  tier_order?: string[] | null
-  tiers?: AssistantTier[]
-  // Per engine: is a key set? Never the key itself.
-  engine_keys?: Record<string, boolean>
-}
+type Schemas = components['schemas']
 
-// One rung of the escalation ladder (1 = asked first).
-interface AssistantTier {
-  tier: number
-  engine: string
-  // Runs on this PC: code and logs never leave it.
-  local: boolean
-  // The provider's saved "send code and logs" consent (always true for a local tier).
-  consent: boolean
-}
+export type AssistantSettings = Schemas['AssistantSettings']
 
 export type AssistantSettingsPatch = Partial<
   Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model' | 'cloud_consent'>
