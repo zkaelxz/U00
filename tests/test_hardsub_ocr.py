@@ -607,3 +607,55 @@ class TestHardsubScript:
     def test_other_languages_are_not_converted(self, monkeypatch, tmp_path):
         result = self._run(monkeypatch, tmp_path, "ja", "simplified")
         assert [c["text"] for c in result] == ["這是我的自白書"]
+
+
+class TestQwen3VlHardsub:
+    """The vision backend is explicit-only; a failure hands the rest of the run to RapidOCR."""
+
+    @pytest.fixture
+    def frames(self, monkeypatch):
+        monkeypatch.setattr(hardsub_ocr, "extract_frames",
+                            lambda video_path, out_dir, interval_sec, job_id=None:
+                            [(0.0, "f0.png"), (1.0, "f1.png"), (2.0, "f2.png")])
+        monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
+
+    def _run(self, tmp_path, backend="qwen3_vl_4b"):
+        info = {}
+        hardsub_ocr.extract_hardsub_subtitles(
+            "/fake.mp4", language="zh", ocr_backend=backend, tmp_dir=str(tmp_path),
+            min_consecutive_samples=1, info=info)
+        return info
+
+    def test_auto_never_picks_the_vision_model(self, monkeypatch):
+        monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: True)
+        assert hardsub_ocr.resolve_backend("auto", "zh")[0] != "qwen3_vl_4b"
+        assert hardsub_ocr.resolve_backend("qwen3_vl_8b", "zh") == ("qwen3_vl_8b", None)
+
+    def test_reads_every_frame_with_the_chosen_size(self, frames, monkeypatch, tmp_path):
+        calls = []
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region",
+                            lambda path, region, lang, backend, **k: calls.append((lang, backend)) or "x")
+        info = self._run(tmp_path, "qwen3_vl_8b")
+        assert calls == [("zh", "qwen3_vl_8b")] * 3
+        assert info["backend"] == "qwen3_vl_8b" and info["note"] is None
+
+    def test_a_failure_switches_the_rest_of_the_run_to_rapidocr_with_a_note(self, frames, monkeypatch, tmp_path):
+        calls = []
+
+        def region(path, region, lang, backend, **k):
+            calls.append(backend)
+            if backend == "qwen3_vl_4b":
+                raise RuntimeError("Not enough free GPU memory")
+            return "x"
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", region)
+        info = self._run(tmp_path)
+        assert calls == ["qwen3_vl_4b", "rapidocr", "rapidocr", "rapidocr"]
+        assert info["backend"] == "rapidocr"
+        assert "Not enough free GPU memory" in info["note"] and "RapidOCR was used" in info["note"]
+
+    def test_other_backends_still_raise(self, frames, monkeypatch, tmp_path):
+        def region(*a, **k):
+            raise RuntimeError("boom")
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", region)
+        with pytest.raises(RuntimeError):
+            self._run(tmp_path, "rapidocr")

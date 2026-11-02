@@ -34,7 +34,11 @@ OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "rapido
 
 # Burned-in video captions only: manga_ocr and paddle_vl_manga are trained on
 # manga bubbles, so they are not offered here.
-HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "rapidocr", "auto"]
+HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "rapidocr", "qwen3_vl_4b", "qwen3_vl_8b", "auto"]
+
+# Vision-model readers for burned-in captions, never picked by Auto: a vision model can
+# return fluent text that is not on the frame, which OCR's garbled output never does.
+QWEN3_VL_REPOS = {"qwen3_vl_4b": "Qwen/Qwen3-VL-4B-Instruct", "qwen3_vl_8b": "Qwen/Qwen3-VL-8B-Instruct"}
 
 
 def default_hardsub_backend(source_language: str) -> str:
@@ -559,6 +563,92 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
         # the "OCR:" instruction in the extracted text.
         generated = output_ids[:, inputs["input_ids"].shape[1]:]
         return processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
+
+
+_QWEN3_VL_MIN_TRANSFORMERS = (4, 57)
+_QWEN3_VL_PROMPT = (
+    "Transcribe all text visible in this image exactly as written, one line per row of text. "
+    "Do not translate, correct, explain or add anything. If there is no text, reply with nothing.")
+# A caption is a few short lines; the cap stops a looping model long before it fills the context.
+_QWEN3_VL_MAX_NEW_TOKENS = 96
+_QWEN3_VL_REPEAT_LIMIT = 3
+
+
+def qwen3_vl_problem(backend: str):
+    """Fixed-text reason a Qwen3-VL backend can't run here, or None. Checked before any
+    model load so the caller falls back to RapidOCR instead of failing mid-run."""
+    import importlib.metadata
+    if backend not in QWEN3_VL_REPOS:
+        return f"Unknown Qwen3-VL backend {backend!r}."
+    try:
+        installed = importlib.metadata.version("transformers")
+        import torch
+    except (importlib.metadata.PackageNotFoundError, ImportError):
+        return "Qwen3-VL needs transformers and torch. Install them in Diagnostics."
+    parts = tuple(int("".join(ch for ch in part if ch.isdigit()) or 0) for part in installed.split(".")[:2])
+    if parts < _QWEN3_VL_MIN_TRANSFORMERS:
+        return "Qwen3-VL needs transformers 4.57 or newer. Update transformers in Diagnostics."
+    if not torch.cuda.is_available():
+        # On a CPU the 4B takes minutes per frame, which no caption run can afford.
+        return "Qwen3-VL needs a CUDA GPU."
+    return None
+
+
+def trim_repeated_lines(text: str, limit: int = _QWEN3_VL_REPEAT_LIMIT) -> str:
+    """Drops a line once it has appeared `limit` times: a looping vision model repeats one
+    line (the 2B did with furigana) until the token cap, and a caption never repeats a line."""
+    kept, seen = [], {}
+    for line in text.splitlines():
+        key = line.strip()
+        if key:
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] > limit:
+                continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def extract_text_qwen3_vl(image_path: str, backend: str = "qwen3_vl_4b") -> str:
+    """Burned-in caption text from a cropped frame, read by Qwen3-VL (Apache-2.0) on the GPU.
+    Native transformers class, no downloaded code. Downloads the pinned revision on first use.
+
+    Verified on an RTX 4080 in float16 against real caption frames (the 4B). Not verified
+    here: the 8B, or a V100, where pick_dtype gives float16 because it has no native bfloat16."""
+    problem = qwen3_vl_problem(backend)
+    if problem:
+        from lib.errors import DependencyUnavailableError
+        raise DependencyUnavailableError(problem)
+    import qwen3_native
+    from PIL import Image
+    import torch
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+
+    repo = QWEN3_VL_REPOS[backend]
+    cache = globals().setdefault("_qwen3_vl_models", {})
+    with _MODEL_LOCK:
+        if backend not in cache:
+            from services import vram_service
+            vram_service.check_fits(repo, required_mb=vram_service.MODEL_VRAM_MB[repo])
+            with model_pins.fetching(repo):
+                processor = AutoProcessor.from_pretrained(
+                    repo, trust_remote_code=False, revision=model_pins.revision(repo),
+                    **qwen3_native._offline_kwargs())
+                model = AutoModelForImageTextToText.from_pretrained(
+                    repo, trust_remote_code=False, revision=model_pins.revision(repo),
+                    dtype=qwen3_native.pick_dtype(torch, True), **qwen3_native._offline_kwargs())
+            cache[backend] = (processor, model.to("cuda").eval())
+        processor, model = cache[backend]
+        image = Image.open(image_path).convert("RGB")
+        messages = [{"role": "user", "content": [{"type": "image", "image": image},
+                                                 {"type": "text", "text": _QWEN3_VL_PROMPT}]}]
+        inputs = processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=True, return_dict=True,
+            return_tensors="pt").to(model.device)
+        with torch.no_grad():
+            output_ids = model.generate(**inputs, max_new_tokens=_QWEN3_VL_MAX_NEW_TOKENS,
+                                        do_sample=False, repetition_penalty=1.05)
+        generated = output_ids[:, inputs["input_ids"].shape[1]:]
+        return trim_repeated_lines(processor.batch_decode(generated, skip_special_tokens=True)[0])
 
 
 def extract_text_manga_ocr(image_path: str) -> str:

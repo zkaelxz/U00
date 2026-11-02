@@ -708,3 +708,37 @@ class TestVerticalTesseract:
         monkeypatch.setattr(pytesseract, "get_languages", get_languages)
         assert ocr.tesseract_languages("/t") == frozenset()
         assert ocr.tesseract_languages("/t") == {"jpn", "jpn_vert"}
+
+
+class TestQwen3Vl:
+    def test_a_repeating_line_is_cut_after_three(self):
+        text = "\n".join(["きゃくさま"] * 10 + ["お客様が"])
+        assert ocr.trim_repeated_lines(text) == "\n".join(["きゃくさま"] * 3 + ["お客様が"])
+
+    def test_distinct_lines_are_untouched(self):
+        assert ocr.trim_repeated_lines("一\n二\n三\n四") == "一\n二\n三\n四"
+
+    def test_unknown_backend_is_a_problem(self):
+        assert "Unknown" in ocr.qwen3_vl_problem("qwen3_vl_99b")
+
+    def test_no_cuda_is_a_problem_not_a_slow_run(self, monkeypatch):
+        torch = pytest.importorskip("torch")
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        assert "CUDA" in ocr.qwen3_vl_problem("qwen3_vl_4b")
+
+    def test_extract_refuses_with_the_problem_text(self, monkeypatch):
+        from lib.errors import DependencyUnavailableError
+        monkeypatch.setattr(ocr, "qwen3_vl_problem", lambda backend: "nope")
+        with pytest.raises(DependencyUnavailableError, match="nope"):
+            ocr.extract_text_qwen3_vl("x.png", "qwen3_vl_4b")
+
+    def test_both_sizes_are_pinned_and_sized(self):
+        import model_pins
+        from services import vram_service
+        for repo in ocr.QWEN3_VL_REPOS.values():
+            assert len(model_pins.revision(repo)) == 40
+            assert vram_service.MODEL_VRAM_MB[repo] > 0
+
+    def test_hardsub_options_offer_both_sizes_and_pages_do_not(self):
+        assert {"qwen3_vl_4b", "qwen3_vl_8b"} <= set(ocr.HARDSUB_OCR_BACKEND_OPTIONS)
+        assert not {"qwen3_vl_4b", "qwen3_vl_8b"} & set(ocr.OCR_BACKEND_OPTIONS)
