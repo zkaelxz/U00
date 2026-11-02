@@ -60,3 +60,32 @@ def test_a_page_with_no_translation_left_drops_its_typeset_image(isolated_db):
     scanlate_render_service._drop_stale_typeset(did, db.get_page(pid))
     assert db.get_page(pid)["rendered_filename"] is None
     assert not os.path.exists(stale)
+
+
+def _ink(img):
+    return int((np.asarray(img.convert("L")) < 128).sum())
+
+
+def test_kanji_in_english_text_use_a_cjk_font_when_one_exists(monkeypatch):
+    font = scanlate_render.find_cjk_font()
+    if font is None:
+        pytest.skip("no CJK font on this machine")
+    box = {"x": 0, "y": 0, "w": 120, "h": 60}
+    img = Image.new("RGB", (120, 60), "white")
+    scanlate_render.render_text_in_box(img, box, "漢字", font_size=30)
+    tofu = Image.new("RGB", (120, 60), "white")
+    monkeypatch.setattr(scanlate_render, "find_cjk_font", lambda: None)
+    scanlate_render.render_text_in_box(tofu, box, "漢字", font_size=30)
+    assert _ink(img) > 0 and _ink(tofu) == 0
+
+
+def test_kanji_without_a_cjk_font_are_dropped_and_flagged(monkeypatch, tmp_path):
+    monkeypatch.setattr(scanlate_render, "find_cjk_font", lambda: None)
+    img = Image.new("RGB", (160, 60), "white")
+    scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": 160, "h": 60}, "Hi 漢字 there",
+                                       font_size=20)
+    plain = Image.new("RGB", (160, 60), "white")
+    scanlate_render.render_text_in_box(plain, {"x": 0, "y": 0, "w": 160, "h": 60}, "Hi there",
+                                       font_size=20)
+    assert list(img.getdata()) == list(plain.getdata())
+    assert scanlate_render.has_cjk("漢") and not scanlate_render.has_cjk("Hi, ok")

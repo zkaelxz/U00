@@ -6,6 +6,7 @@ bubble's own outline), inpaints the original lettering and draws the result.
 """
 
 import os
+import re
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -225,6 +226,41 @@ _CJK_PUNCTUATION = str.maketrans({
 })
 
 
+# Kanji, kana and hangul that survive in the English text; the Latin fonts
+# above would draw each of them as an empty box.
+_CJK_CHARS = re.compile("[\u1100-\u11ff\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
+
+CJK_FONT_MISSING_NOTE = ("Some kanji in the English text were left out because no font with "
+                         "Japanese characters is installed on this PC.")
+
+_CJK_FONT_CANDIDATES = [
+    os.path.join(_WINDOWS_FONTS, "YuGothM.ttc"), os.path.join(_WINDOWS_FONTS, "msgothic.ttc"),
+    os.path.join(_WINDOWS_FONTS, "meiryo.ttc"), os.path.join(_WINDOWS_FONTS, "msyh.ttc"),
+    os.path.join(_WINDOWS_FONTS, "malgun.ttf"), os.path.join(_WINDOWS_FONTS, "simhei.ttf"),
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+]
+
+
+def has_cjk(text: str) -> bool:
+    return bool(_CJK_CHARS.search(text))
+
+
+def find_cjk_font() -> str | None:
+    """A system font that covers CJK, or None. Nothing is bundled: the fonts
+    that cover CJK are large and each has its own license."""
+    return next((c for c in _CJK_FONT_CANDIDATES if os.path.exists(c)), None)
+
+
+def _note_missing_cjk_font(notes, regions) -> None:
+    if notes is not None and not find_cjk_font() and any(
+            has_cjk(b["translated_text"]) for b in regions):
+        notes.append(("warning", "cjk_font_missing", CJK_FONT_MISSING_NOTE))
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
@@ -251,6 +287,14 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     text = text.translate(_CJK_PUNCTUATION)
     draw = ImageDraw.Draw(image)
     resolved_font_path = _find_font(font_path, category=font_category, custom_fonts=custom_fonts)
+    if has_cjk(text):
+        # One face for the whole region: the CJK fonts carry Latin too, and
+        # mixing faces per glyph would break the width measuring used to wrap.
+        cjk_font = find_cjk_font()
+        if cjk_font:
+            resolved_font_path = cjk_font
+        else:
+            text = " ".join(_CJK_CHARS.sub("", text).split())
 
     if mask is not None:
         laid_out = _layout_in_mask(
@@ -387,9 +431,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         page = decode_page(image_path)
         # Shape masks follow the original lettering, so they are taken before
         # any bubble is erased.
-        gray = (page_gray(image_path, page)
-                if any((b.get("kind") or "bubble") in SHAPE_FITTED_KINDS for b in to_render)
-                else None)
+        gray = (page_gray(image_path, page) if any(
+            (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS for b in to_render) else None)
         # Lettering on the artwork is painted out and re-lettered in its own
         # style (scanlate_art_text); bubbles keep the balloon path below.
         captions = [b for b in to_render if b.get("kind") == "caption"]
@@ -419,6 +462,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         for b, style in zip(captions, caption_styles):
             scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
                                            font_path=font_path)
+        _note_missing_cjk_font(notes, to_render)
         for b in to_render:
             shape_mask = (bubble_shape_mask(image_path, b, image=gray,
                                             margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
