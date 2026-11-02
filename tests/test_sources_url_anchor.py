@@ -4,7 +4,7 @@ import pytest
 
 from sources.adapters.bilibili import BilibiliSource
 from sources.adapters.bilibili_manga import BilibiliMangaSource
-from sources.adapters.toonkor import ToonkorSource
+from sources.adapters.mangak import MangaKSource
 from sources.front_door import is_video_url
 
 EVIL = [
@@ -56,8 +56,8 @@ def test_normalize_url_never_resolves_a_non_b23_host():
 def test_other_adapters_share_the_host_check():
     assert BilibiliMangaSource.matches_url("https://manga.bilibili.com/detail/mc1")
     assert not BilibiliMangaSource.matches_url("http://10.0.0.1/?manga.bilibili.com/")
-    assert ToonkorSource.matches_url("https://toonkor123.com/abc.html")
-    assert not ToonkorSource.matches_url("https://toonkor1.com.evil.com/abc.html")
+    assert MangaKSource.matches_url("https://mangak.io/abc")
+    assert not MangaKSource.matches_url("https://mangak.io.evil.com/abc")
 
 
 @pytest.mark.parametrize("url", [
