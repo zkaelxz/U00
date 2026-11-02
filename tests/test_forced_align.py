@@ -550,3 +550,53 @@ class TestLoadQwen3Aligner:
 
         with pytest.raises(ValueError, match="genuinely unrelated"):
             forced_align.load_qwen3_aligner(use_gpu=False)
+
+
+class TestAlignChunkPunctuation:
+    """The aligner returns no units for punctuation; units must still land on
+    the line that holds their character."""
+
+    def _run(self, monkeypatch, tmp_path, texts):
+        import forced_align as fa
+        monkeypatch.setattr(
+            fa, "_extract_audio_slice",
+            lambda audio_path, start, end, out_path: open(out_path, "wb").close())
+        lines = [Line(idx=i, start=i * 2.0, end=i * 2.0 + 2.0, zh=t) for i, t in enumerate(texts)]
+
+        class PunctuationDroppingModel:
+            def align(self, audio, text, language):
+                kept = [c for c in text if c.isalnum()]
+                return [[FakeUnit(c, i * 0.5, i * 0.5 + 0.5) for i, c in enumerate(kept)]]
+
+        return fa._align_chunk(PunctuationDroppingModel(), "/fake/audio.wav", lines,
+                               "Chinese", str(tmp_path))
+
+    def test_chinese_punctuation_does_not_shift_later_lines(self, monkeypatch, tmp_path):
+        result = self._run(monkeypatch, tmp_path, ["你好，世界。", "再见！", "好的，谢谢你。"])
+        # Characters 0-3 are line 0, 4-5 line 1, 6-10 line 2; one unit is 0.5 s.
+        assert (min(result[0]), max(result[0])) == (0.0, 2.0)
+        assert (min(result[1]), max(result[1])) == (2.0, 3.0)
+        assert (min(result[2]), max(result[2])) == (3.0, 5.5)
+
+    def test_every_line_gets_timing_when_the_text_is_mostly_punctuated(self, monkeypatch, tmp_path):
+        texts = ["啊，啊，啊。"] * 10
+        result = self._run(monkeypatch, tmp_path, texts)
+        assert sorted(result) == list(range(10))
+        assert min(result[9]) == 13.5
+
+    def test_a_unit_the_aligner_changed_does_not_jump_over_text(self, monkeypatch, tmp_path):
+        import forced_align as fa
+        monkeypatch.setattr(
+            fa, "_extract_audio_slice",
+            lambda audio_path, start, end, out_path: open(out_path, "wb").close())
+        lines = [Line(idx=0, start=0.0, end=2.0, zh="AB"), Line(idx=1, start=2.0, end=4.0, zh="CD")]
+
+        class NormalisingModel:
+            def align(self, audio, text, language):
+                # "A" comes back as "a"; it must not make "C" the next match.
+                return [[FakeUnit(c, i * 0.5, i * 0.5 + 0.5) for i, c in enumerate("abCD")]]
+
+        result = fa._align_chunk(NormalisingModel(), "/fake/audio.wav", lines, "Chinese",
+                                 str(tmp_path))
+        assert (min(result[0]), max(result[0])) == (0.0, 1.0)
+        assert (min(result[1]), max(result[1])) == (1.0, 2.0)

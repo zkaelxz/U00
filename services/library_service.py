@@ -66,12 +66,15 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
 
 
 def _with_progress(dramas: list) -> list:
-    """Add `line_count`, `translated_count` and `new_chapters` so a card can
-    show where a title stands without opening it."""
+    """Add `line_count`, `translated_count`, `page_count`, `pages_translated` and
+    `new_chapters` so a card can show where a title stands without opening it."""
     counts = db.line_progress_by_drama() if dramas else {}
+    pages = db.page_progress_by_drama() if dramas else {}
     new = _new_chapter_counts() if dramas else {}
     return [{**d, "line_count": counts.get(d["id"], (0, 0))[0],
              "translated_count": counts.get(d["id"], (0, 0))[1],
+             "page_count": pages.get(d["id"], (0, 0))[0],
+             "pages_translated": pages.get(d["id"], (0, 0))[1],
              "new_chapters": new.get(d["id"], 0)} for d in dramas]
 
 

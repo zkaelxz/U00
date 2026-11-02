@@ -25,7 +25,7 @@ import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
-import { AddComicDialog } from './comic/AddComicDialog'
+import { AddComicButtons } from './comic/AddComicButtons'
 import { ChapterBar } from './comic/ChapterBar'
 import {
   chapterIndex,
@@ -40,12 +40,16 @@ import {
 } from './comic/chapterLogic'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicLines } from './comic/ComicText'
+import { LineEditSheet, type TappedLine } from './comic/LineEditSheet'
+import { ShowOriginalButton } from './comic/PageOriginal'
+import { useOriginalPages } from './comic/useOriginalPages'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { ScanlatePanel } from './comic/ScanlatePanel'
 import {
   clampPage,
   comicHref,
   hashIsComic,
+  isReadTranslated,
   defaultPrefs,
   inRenderWindow,
   loadComicPrefs,
@@ -59,6 +63,7 @@ import {
 } from './comic/comicLogic'
 import { useJumpRequest, usePageJump } from './comic/usePageJump'
 import { readerClasses, usePagedReader } from './comic/usePagedReader'
+import { useReadAhead } from './comic/useReadAhead'
 import './reader/reader.css'
 import './comic/comic.css'
 import { browserStorage } from '../hooks/usePersistedState'
@@ -92,8 +97,9 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [stored, setStored] = useState<ComicPrefs | null>(null)
   const [regions, setRegions] = useState<Record<number, RegionsState>>({})
   const [linesOpen, setLinesOpen] = useState(false)
+  const [editing, setEditing] = useState<TappedLine | null>(null)
+  const original = useOriginalPages()
   const [toolsOpen, setToolsOpen] = useState(false)
-  const [addOpen, setAddOpen] = useState(false)
   const [initialPage] = useState(routePage)
   const [chapterPrefs, setChapterPrefs] = useState<ChapterPrefs | null>(null)
 
@@ -210,6 +216,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const position = current === null ? 0 : visible.indexOf(current) + 1
   // Every listed page ignoring the one-chapter limit: chapter jumps and the overall position.
   const visibleAll = useMemo(() => visibleOrdinals(pages, { ...cprefs, chapterOnly: false }, null), [pages, cprefs])
+  useReadAhead({ titleId: id, pages, visible, position, count, canTypeset, onFinished: loadPages })
   const resumed = initialPage === null && !resumeDismissed && start !== null && start > 1 ? start : null
   // Set after hiding or restoring pages: the reload shifts the layout, so the reader is put back on their page.
   const reanchor = useRef(false)
@@ -257,8 +264,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   )
 
   const srcFor = useCallback(
-    (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered ? 'rendered' : 'original', p.image_version),
-    [id, prefs.typeset],
+    (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version),
+    [id, prefs.typeset, original.originals],
   )
   const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor })
 
@@ -354,11 +361,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       Translate
     </button>
   )
-  const addButton = (
-    <button type="button" className="comic-tools-btn" onClick={() => setAddOpen(true)}>
-      Add a Comic
-    </button>
-  )
+  const addButton = <AddComicButtons />
   // Boxes are edited with lines.edit; without it the editor would only show refusals.
   const canEdit = useHolds('lines.edit')
   // Always present once allowed, so the bar does not shift when the page list arrives.
@@ -416,6 +419,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       <button type="button" aria-pressed={prefs.text} onClick={() => setPrefs({ ...prefs, text: !prefs.text })}>
         Text
       </button>
+      <ShowOriginalButton page={currentPage} typeset={prefs.typeset} originals={original.originals} onToggle={original.toggle} />
       <span className="comic-zoom" role="group" aria-label="Zoom">
         <button type="button" aria-label="Zoom out" disabled={!zoomed} onClick={() => act('zoomOut')}>−</button>
         <button type="button" className="comic-zoom-level" aria-label="Reset zoom" disabled={!zoomed} onClick={() => act('zoomReset')}>
@@ -467,6 +471,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               mounted={paged || inRenderWindow(n, current ?? 1)}
               regions={overlayFor(p)}
               boxText={!phone}
+              onLineTap={canEdit ? (idx) => setEditing({ pageId: p.id, number: n, idx }) : undefined}
               onProblem={onProblem}
               figureRef={figureRef(n)}
             />
@@ -560,7 +565,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
       {empty ? (
         <div className="comic-scanlate comic-empty">
-          <p>No pages to read yet. Upload page images or a PDF to translate them.</p>
+          <p>{isReadTranslated(browserStorage(), id) ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
           {panel}
         </div>
       ) : !data || current === null ? (
@@ -591,6 +596,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           >
             Text
           </button>
+          <ShowOriginalButton page={currentPage} typeset={prefs.typeset} originals={original.originals} onToggle={original.toggle} />
         </div>
       )}
       {phone && !empty && (
@@ -598,7 +604,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <div id="comic-scanlate">{toolsOpen && panel}</div>
         </Sheet>
       )}
-      {addOpen && <AddComicDialog open onClose={() => setAddOpen(false)} />}
+      {editing && <LineEditSheet dramaId={id} line={editing} onClose={() => setEditing(null)} onSaved={setWatchedJob} />}
       {phone && currentPage && current !== null && (
         <Sheet open={linesOpen} title={`Page ${current} text`} onClose={() => setLinesOpen(false)}>
           <ComicLines page={current} state={regionsFor(currentPage)} onRetry={() => retryText(currentPage.id)} />
