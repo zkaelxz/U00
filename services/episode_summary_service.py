@@ -11,7 +11,7 @@ from engine_backends import engine_registry, shared
 from engine_backends import llm_tasks, paid_calls
 from services import (line_ai_service, ownership_service, settings_service, translate_run_service,
                       translate_service)
-from lib.errors import ServiceError, UnsupportedOperationError
+from lib.errors import DependencyUnavailableError, ServiceError, UnsupportedOperationError
 
 CHOOSE = "choose an engine in Settings"
 
@@ -77,8 +77,7 @@ def generate(drama_id: int, engine_name: str, model: str | None = None) -> dict:
         raise ServiceError("The engine call failed: "
                            + shared.redact_secrets(str(exc))[:300]) from None
     if not text:
-        reason = (f"Ollama not reachable; {CHOOSE}." if name == "ollama"
-                  and not translate_run_service.ollama_reachable()
-                  else f"The {name} engine returned no summary.")
-        raise ServiceError(reason)
+        if name == "ollama" and not translate_run_service.ollama_reachable():
+            raise DependencyUnavailableError(f"Ollama not reachable; {CHOOSE}.")
+        raise ServiceError(f"The {name} engine returned no summary.")
     return {"drama_id": drama_id, "summary": text, "engine": name}
