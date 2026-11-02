@@ -1,6 +1,7 @@
 """Tests for the comic viewer routes (/api/scanlate/dramas/{id}/pages...,
 /progress): fake PNG/JPEG bytes in an isolated library, no PIL, no network."""
 
+import json
 import os
 
 import pytest
@@ -319,7 +320,8 @@ def test_view_prefs_round_trip_without_touching_the_resume_point(client, isolate
     import db
     d = comic["drama"]
     url = f"/api/scanlate/dramas/{d}/view-prefs"
-    prefs = {"mode": "paged", "rtl": True, "fit": "height", "typeset": False, "text": True}
+    prefs = {"mode": "paged", "rtl": True, "fit": "height", "typeset": False, "text": True,
+             "spread": "double", "coverAlone": False}
     assert client.get(url).json() == {"view_prefs": None}
     client.post(f"/api/scanlate/dramas/{d}/progress", json={"page": 2})
     assert client.post(url, json=prefs).json() == prefs
@@ -336,12 +338,25 @@ def test_view_prefs_reject_bad_values_and_ignore_a_damaged_row(client, isolated_
     d = comic["drama"]
     url = f"/api/scanlate/dramas/{d}/view-prefs"
     good = {"mode": "paged", "rtl": True, "fit": "height", "typeset": False, "text": True}
-    for bad in ({**good, "mode": "sideways"}, {**good, "extra": 1}, {"mode": "paged"}, {**good, "rtl": "yes"}):
+    for bad in ({**good, "mode": "sideways"}, {**good, "extra": 1}, {"mode": "paged"}, {**good, "rtl": "yes"},
+                {**good, "spread": "triple"}, {**good, "coverAlone": "no"}):
         assert client.post(url, json=bad).status_code == 422, bad
     assert client.post("/api/scanlate/dramas/9999/view-prefs", json=good).status_code == 404
     db.save_view_prefs(d, '{"mode": "paged", "rtl": "x"}')
     assert client.get(url).json() == {"view_prefs": None}
     db.save_view_prefs(d, "not json")
+    assert client.get(url).json() == {"view_prefs": None}
+
+
+def test_view_prefs_saved_before_double_page_get_its_defaults_and_unknown_keys_are_dropped(client, isolated_db, comic):
+    import db
+    d = comic["drama"]
+    url = f"/api/scanlate/dramas/{d}/view-prefs"
+    old = {"mode": "paged", "rtl": True, "fit": "height", "typeset": False, "text": True}
+    assert client.post(url, json=old).json() == {**old, "spread": "auto", "coverAlone": True}
+    db.save_view_prefs(d, json.dumps({**old, "sneaky": 1}))
+    assert client.get(url).json() == {"view_prefs": {**old, "spread": "auto", "coverAlone": True}}
+    db.save_view_prefs(d, json.dumps({**old, "spread": "triple"}))
     assert client.get(url).json() == {"view_prefs": None}
 
 

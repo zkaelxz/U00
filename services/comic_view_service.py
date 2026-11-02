@@ -175,6 +175,10 @@ def get_page_regions(drama_id: int, page_id: int) -> dict:
 
 _PREF_CHOICES = {"mode": ("vertical", "paged"), "fit": ("width", "height", "original")}
 _PREF_FLAGS = ("rtl", "typeset", "text")
+# Added after prefs were already stored, so a row without them is still valid and gets the default.
+_PREF_NEWER_CHOICES = {"spread": ("auto", "single", "double")}
+_PREF_NEWER_FLAGS = {"coverAlone": True}
+_PREF_NEWER_DEFAULTS = {"spread": "auto", **_PREF_NEWER_FLAGS}
 
 
 def _clean_view_prefs(raw) -> dict | None:
@@ -186,6 +190,12 @@ def _clean_view_prefs(raw) -> dict | None:
     if any(out[k] not in allowed for k, allowed in _PREF_CHOICES.items()):
         return None
     if any(not isinstance(out[k], bool) for k in _PREF_FLAGS):
+        return None
+    for k, default in _PREF_NEWER_DEFAULTS.items():
+        out[k] = raw.get(k, default)
+    if any(out[k] not in allowed for k, allowed in _PREF_NEWER_CHOICES.items()):
+        return None
+    if any(not isinstance(out[k], bool) for k in _PREF_NEWER_FLAGS):
         return None
     return out
 

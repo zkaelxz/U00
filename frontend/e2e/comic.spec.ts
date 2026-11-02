@@ -11,6 +11,11 @@ import { expectNoSidewaysScroll } from './mockHelpers'
 const label = (page: Page) => page.getByTestId('comic-page-label')
 const stage = (page: Page) => page.getByTestId('comic-stage')
 
+// A desktop window is landscape and wide, so paged reading shows two pages unless a title opts out;
+// tests about turning one page at a time opt out the way a reader would.
+const singlePage = (page: Page, id: number) =>
+  page.addInitScript((key) => localStorage.getItem(key) ?? localStorage.setItem(key, JSON.stringify({ spread: 'single' })), `baihe.pref.comic.view.${id}`)
+
 test('manhua: resumes at the saved page in vertical scroll and saves progress', async ({ page }) => {
   const s = await mockComic(page, { mediaType: 'manhua', lastPage: 3 })
   await page.goto('/#/comic/7')
@@ -98,6 +103,7 @@ test('leaving the comic mid-scroll stays on the library', async ({ page }) => {
 })
 
 test('manga: one page at a time, right to left, keys, taps and the scrubber', async ({ page }) => {
+  await singlePage(page, 9)
   const s = await mockComic(page, { id: 9, mediaType: 'manga', pageCount: 5, lastPage: 1 })
   await page.goto('/#/comic/9?page=1')
   await expect(label(page)).toHaveText('Page 1 of 5')
@@ -160,6 +166,7 @@ test('manga: one page at a time, right to left, keys, taps and the scrubber', as
 })
 
 test('Typeset and Text: rendered pages, boxes and the side panel, text only', async ({ page }) => {
+  await singlePage(page, 11)
   const s = await mockComic(page, { id: 11, mediaType: 'manga', pageCount: 3, rendered: [0], firstPageText: '<b>Bold?</b> & more' })
   await page.goto('/#/comic/11?page=1')
   const img = page.getByTestId('comic-page').locator('img')
@@ -208,6 +215,7 @@ test('a failed text read is asked for again with Try again', async ({ page }) =>
 })
 
 test('leaving within a second of turning a page still saves it', async ({ page }) => {
+  await singlePage(page, 13)
   const s = await mockComic(page, { id: 13, mediaType: 'manga', pageCount: 5, lastPage: 1 })
   await page.goto('/#/comic/13?page=1')
   await expect(label(page)).toHaveText('Page 1 of 5')
@@ -222,6 +230,7 @@ test('a failed saved-page read never overwrites it; moving still saves', async (
   // One page at a time: sitting on page 1 sends nothing, turning to page 2 saves 2.
   // The save is debounced by a timer; a fake clock lets the test run it out without waiting.
   await page.clock.install()
+  await singlePage(page, 14)
   const s = await mockComic(page, { id: 14, mediaType: 'manga', pageCount: 5, lastPage: 4, progressFails: true })
   await page.goto('/#/comic/14')
   await expect(page).toHaveURL(/#\/comic\/14\?page=1$/)
@@ -357,5 +366,38 @@ test('on the PC, a refused source-link request still opens the cleaned link', as
   const popup = page.waitForEvent('popup')
   await page.locator('.comic-head').getByRole('link', { name: 'Open original page' }).click()
   await (await popup).waitForURL('https://example.org/watch')
+  expect(s.unmocked).toEqual([])
+})
+
+test('manga: two pages side by side in landscape, right page first, wide and first pages alone', async ({ page }) => {
+  const s = await mockComic(page, { id: 31, mediaType: 'manga', pageCount: 6, lastPage: 1 })
+  await page.goto('/#/comic/31?page=1')
+  const figs = page.getByTestId('comic-page')
+  // The first page stands alone like a cover.
+  await expect(figs).toHaveCount(1)
+  await expect(label(page)).toHaveText('Page 1 of 6')
+
+  await page.keyboard.press('ArrowLeft')
+  await expect(figs).toHaveCount(2)
+  await expect(stage(page)).toHaveClass(/comic-stage-spread/)
+  await expect(label(page)).toHaveText('Pages 2–3 of 6')
+  // Right to left: the lower page number is on the right.
+  const nums = await figs.evaluateAll((els) => els.map((e) => ({ n: e.getAttribute('data-page'), x: e.getBoundingClientRect().x })))
+  expect(nums.map((f) => f.n)).toEqual(['3', '2'])
+  expect(nums[0].x).toBeLessThan(nums[1].x)
+  await expect.poll(() => s.progressPosts.at(-1), { timeout: 5000 }).toBe(2)
+
+  // A whole spread per step; both numbers are in the top bar's page counter too.
+  await page.keyboard.press('ArrowLeft')
+  await expect(label(page)).toHaveText('Pages 4–5 of 6')
+  await page.keyboard.press('ArrowLeft')
+  await expect(figs).toHaveCount(1)
+  await expect(label(page)).toHaveText('Page 6 of 6')
+
+  // Choosing one page at a time is kept.
+  await page.getByRole('button', { name: 'View settings' }).click()
+  await page.getByLabel('Double page', { exact: true }).selectOption('single')
+  await expect(figs).toHaveCount(1)
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('baihe.pref.comic.view.31')))!)).toMatchObject({ spread: 'single' })
   expect(s.unmocked).toEqual([])
 })

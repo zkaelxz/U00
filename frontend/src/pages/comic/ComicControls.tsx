@@ -7,7 +7,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
 import { AaControl } from '../../components/AaControl'
-import { clampPage, FIT_OPTIONS, MODE_OPTIONS, type ComicFit, type ComicMode, type ComicPrefs } from './comicLogic'
+import { clampPage, FIT_OPTIONS, MODE_OPTIONS, SPREAD_OPTIONS, type ComicFit, type ComicMode, type ComicPrefs, type SpreadMode } from './comicLogic'
 
 type PrefsProps = {
   prefs: ComicPrefs
@@ -37,7 +37,19 @@ function ViewForm({ prefs, onChange, canTypeset, phone }: PrefsProps) {
           {FIT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </Field>
+      {prefs.mode === 'paged' && (
+        <Field label="Double page" help="Show two pages side by side. A page that is already wide is shown alone.">
+          <select value={prefs.spread} onChange={(e) => set('spread', e.target.value as SpreadMode)}>
+            {SPREAD_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Field>
+      )}
       <div className="toggle-list">
+        {prefs.mode === 'paged' && prefs.spread !== 'single' && (
+          <Field label="First page alone" help="Show the first page by itself, like a book cover, so the pairs after it line up.">
+            <input type="checkbox" checked={prefs.coverAlone} onChange={(e) => set('coverAlone', e.target.checked)} />
+          </Field>
+        )}
         {prefs.mode === 'paged' && (
           <Field label="Right to left" help="For manga: the left side of the page and the left arrow go forward.">
             <input type="checkbox" checked={prefs.rtl} onChange={(e) => set('rtl', e.target.checked)} />
@@ -66,8 +78,10 @@ export function ComicViewControl({ children, ...props }: PrefsProps & { children
   )
 }
 
-export function ComicPager({ page, count, rtl, onGo, compact = false, loading = false }: {
+export function ComicPager({ page, count, rtl, onGo, compact = false, loading = false, label }: {
   page: number
+  // Replaces "Page n of N" (a spread shows both numbers).
+  label?: string
   count: number
   // Pages not loaded yet: a disabled pager that takes the loaded pager's space.
   loading?: boolean
@@ -106,7 +120,7 @@ export function ComicPager({ page, count, rtl, onGo, compact = false, loading = 
       {rtl ? prev : next}
       {!compact && (
         <span className="comic-page-label" data-testid="comic-page-label" aria-live="polite">
-          {loading ? 'Page - of -' : `Page ${page} of ${count}`}
+          {loading ? 'Page - of -' : (label ?? `Page ${page} of ${count}`)}
         </span>
       )}
     </nav>

@@ -6,7 +6,7 @@ import type { ImageProblem } from '../../api/comic'
 import { usePreloadImages } from '../../hooks/usePreloadImages'
 import { useShortcut } from '../../hooks/useShortcut'
 import type { ComicPageInfo } from '../../types/comic'
-import { keyAction, preloadWindow, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comicLogic'
+import { keyAction, preloadWindow, spreadIndex, spreadStep, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comicLogic'
 import { useZoom } from './useZoom'
 
 interface Options {
@@ -17,9 +17,11 @@ interface Options {
   count: number
   go: (n: number) => void
   srcFor: (p: ComicPageInfo) => string
+  // Two-page mode: what is shown together; stepping then moves a whole spread.
+  spreads?: number[][] | null
 }
 
-export function usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor }: Options) {
+export function usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads = null }: Options) {
   const paged = prefs.mode === 'paged'
   const rtl = paged && prefs.rtl
   const [chrome, setChrome] = useState(true)
@@ -31,8 +33,15 @@ export function usePagedReader({ stageRef, pages, prefs, current, count, go, src
   }
 
   const preload = useMemo(
-    () => (current === null ? [] : preloadWindow(current, count, prefs.mode).map((n) => pages[n - 1]).filter(Boolean).map(srcFor)),
-    [current, count, prefs.mode, pages, srcFor],
+    () => {
+      if (current === null) return []
+      // Two-page mode: the whole next and previous spread, not just the page beside the current one.
+      const wanted = spreads
+        ? [1, -1].flatMap((d) => spreads[spreadIndex(spreads, current) + d] ?? [])
+        : preloadWindow(current, count, prefs.mode)
+      return wanted.map((n) => pages[n - 1]).filter(Boolean).map(srcFor)
+    },
+    [current, count, prefs.mode, pages, srcFor, spreads],
   )
   // A refused image stops the preloading too, so nothing keeps asking.
   usePreloadImages(forbidden ? [] : preload)
@@ -41,21 +50,29 @@ export function usePagedReader({ stageRef, pages, prefs, current, count, go, src
     if (kind === 'forbidden') setForbidden(true)
   }, [])
 
+  const step = useCallback(
+    (dir: 1 | -1) => {
+      const from = current ?? 1
+      go(spreads ? (spreadStep(spreads, from, dir) ?? from) : from + dir)
+    },
+    [spreads, current, go],
+  )
+
   const onTap = useCallback(
     (fraction: number) => {
       const a = tapAction(fraction, rtl)
       if (a === 'chrome') setChrome((v) => !v)
-      else if (paged) go((current ?? 1) + (a === 'next' ? 1 : -1))
+      else if (paged) step(a === 'next' ? 1 : -1)
       else window.scrollBy({ top: (a === 'next' ? 0.85 : -0.85) * window.innerHeight })
     },
-    [rtl, paged, go, current],
+    [rtl, paged, step],
   )
   const zoom = useZoom(stageRef, onTap, `${prefs.mode}:${paged ? current : ''}:${prefs.fit}`)
 
   const act = (a: ComicAction) => {
     if (current === null) return
-    if (a === 'next') go(current + 1)
-    else if (a === 'prev') go(current - 1)
+    if (a === 'next') step(1)
+    else if (a === 'prev') step(-1)
     else if (a === 'first') go(1)
     else if (a === 'last') go(count)
     else if (a === 'zoomIn') zoom.zoomBy(ZOOM.step)
