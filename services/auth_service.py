@@ -558,13 +558,46 @@ def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float 
     if not row["is_active"]:
         raise NotFoundError("User not found.")
     now = time.time() if now is None else now
+    return _insert_session(user_id, now, now + ABSOLUTE_TIMEOUT_SECONDS,
+                           label or device_label(user_agent), ip)
+
+
+def _insert_session(user_id: int, now: float, expires_at: float, label: str, ip: str) -> dict:
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-    sid = db.auth_insert_session(
-        _hash(token), user_id, now, now + ABSOLUTE_TIMEOUT_SECONDS,
-        label or device_label(user_agent), ip_prefix(ip), _hash(csrf))
+    sid = db.auth_insert_session(_hash(token), user_id, now, expires_at, label,
+                                 ip_prefix(ip), _hash(csrf))
     write_audit(user_id, "session.create", f"session {sid}")
     return {"session_token": token, "csrf_token": csrf, "session_id": sid,
-            "expires_at": now + ABSOLUTE_TIMEOUT_SECONDS}
+            "expires_at": expires_at}
+
+
+def _live_session_row(session_id: int, user_id: int, now: float) -> dict | None:
+    return next((row for row in db.auth_list_sessions(user_id)
+                 if row["id"] == session_id and _is_live(row, now)), None)
+
+
+def create_child_session(parent_session_id: int, user_id: int, label: str, ip: str = "",
+                         now: float | None = None) -> dict | None:
+    """A session for another device, vouched for by the user's live session
+    `parent_session_id`. It ends no later than the parent would, so chaining
+    hand-offs can't outlast the absolute timeout. None when the parent is
+    gone or expired, including when "Sign out everywhere" ran meanwhile.
+    NotFoundError for an inactive user, as create_session."""
+    row = _require_user(user_id)
+    if not row["is_active"]:
+        raise NotFoundError("User not found.")
+    now = time.time() if now is None else now
+    parent = _live_session_row(parent_session_id, user_id, now)
+    if parent is None:
+        return None
+    session = _insert_session(user_id, now,
+                              min(now + ABSOLUTE_TIMEOUT_SECONDS, _expires_at(parent)), label, ip)
+    # Re-read after the insert: a revoke-all that deleted the parent after
+    # the check above ran before this row existed and would miss it.
+    if _live_session_row(parent_session_id, user_id, now) is None:
+        db.auth_delete_session(session["session_id"], user_id)
+        return None
+    return session
 
 
 def _lookup(token, now: float):

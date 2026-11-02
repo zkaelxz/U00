@@ -456,10 +456,10 @@ class SignIn:
             return False
         return hmac.compare_digest(self._ticket_mac(session_id, challenge, issued), mac)
 
-    def mint_app_code(self, user_id: int, challenge: str) -> str:
+    def mint_app_code(self, user_id: int, session_id: int, challenge: str) -> str:
         """A code the phone app swaps for its own session. The caller has
-        already checked the browser's session and confirm ticket. Oldest
-        codes go first when the user or the app holds too many."""
+        already checked the browser's session (`session_id`) and confirm
+        ticket. Oldest codes go first when the user or the app holds too many."""
         if not valid_app_challenge(challenge):
             raise LoginError("expired", "login.error", "app_challenge")
         code = secrets.token_urlsafe(32)
@@ -475,14 +475,17 @@ class SignIn:
                 del self._app_codes[mine[0]]
             elif len(self._app_codes) >= MAX_PENDING_APP_CODES:
                 self._app_codes.popitem(last=False)
-            self._app_codes[code] = {"user_id": user_id, "challenge": challenge, "created": now}
+            self._app_codes[code] = {"user_id": user_id, "session_id": session_id,
+                                     "challenge": challenge, "created": now}
         return code
 
     def redeem_app_code(self, code, verifier, *, presented_session=None,
                         user_agent: str = "", client_ip: str = "") -> dict:
-        """Swaps a code and its verifier for a fresh session ({session_token,
-        csrf_token}). The code is spent on the first try, right or wrong. Any
-        session the app already presented is revoked, as at the callback."""
+        """Swaps a code and its verifier for a session ({session_token,
+        csrf_token}) that ends when the confirming browser session would, and
+        only while that session is still signed in. The code is spent on the
+        first try, right or wrong. Any session the app already presented is
+        revoked, as at the callback."""
         ip = auth_service.ip_prefix(client_ip)
         record = None
         if isinstance(code, str) and 0 < len(code) <= 200:
@@ -495,10 +498,12 @@ class SignIn:
                     or not hmac.compare_digest(app_challenge_for(verifier), record["challenge"]):
                 raise LoginError("expired", "login.error", "app_verifier")
             try:
-                session = auth_service.create_session(record["user_id"], user_agent, client_ip,
-                                                      label=APP_SESSION_LABEL)
+                session = auth_service.create_child_session(
+                    record["session_id"], record["user_id"], APP_SESSION_LABEL, client_ip)
             except NotFoundError:
                 raise LoginError("not_allowed", "login.denied", "app_inactive")
+            if session is None:
+                raise LoginError("expired", "login.error", "app_browser_signed_out")
         except LoginError as exc:
             auth_service.write_audit(None, exc.action, f"{exc.reason} ip {ip}")
             raise

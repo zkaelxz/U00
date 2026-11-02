@@ -392,7 +392,8 @@ async def app_confirm(request: Request):
             or not sign_in.app_ticket_ok(principal["session_id"], fields["challenge"],
                                          fields["ticket"])):
         return _app_link_expired()
-    code = sign_in.mint_app_code(principal["user_id"], fields["challenge"])
+    code = sign_in.mint_app_code(principal["user_id"], principal["session_id"],
+                                 fields["challenge"])
     return RedirectResponse(APP_LINK.format(code=code), status_code=303,
                             headers={**NO_STORE, "Content-Security-Policy": _APP_PAGE_CSP})
 
