@@ -255,6 +255,7 @@ class SettingsPreferences(TimingPreferences):
     keep_free_ram_gb: float = 0.0
     whisper_model_path: str
     ocr_backend: str
+    speaker_model: str
     ocr_prefer_paddle_vl_manga: bool
     tesseract_cmd: str
     cookies_browser: Optional[str] = None
@@ -353,6 +354,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     keep_free_ram_gb: Optional[Union[StrictInt, StrictFloat]] = None
     whisper_model_path: Optional[StrictStr] = Field(None, max_length=1024)
     ocr_backend: Optional[StrictStr] = Field(None, max_length=40)
+    speaker_model: Optional[StrictStr] = Field(None, max_length=40)
     ocr_prefer_paddle_vl_manga: Optional[StrictBool] = None
     tesseract_cmd: Optional[StrictStr] = Field(None, max_length=1024)
     cookies_browser: Optional[StrictStr] = Field(None, max_length=40)

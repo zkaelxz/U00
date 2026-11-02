@@ -22,6 +22,7 @@ const PREFS = {
   keep_free_ram_gb: 0,
   whisper_model_path: '',
   ocr_backend: 'auto',
+  speaker_model: 'pyannote',
   ocr_prefer_paddle_vl_manga: false,
   tesseract_cmd: '',
   cookies_browser: null as string | null,
