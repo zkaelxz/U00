@@ -88,6 +88,7 @@ JOB_ROUTES = {
     ("GET", "/api/sources/jobs/{job_id}/result"):
         "sources_search_service.get_job_result -> can_see_job",
     ("GET", "/api/live/sessions/{session_id}"): "live_service.get_session -> can_see_job",
+    ("GET", "/api/live/sessions/{session_id}/chat"): "live_service.get_chat -> can_see_job",
     ("POST", "/api/live/sessions/{session_id}/stop"):
         "live_service.stop_session -> can_see_job",
     ("GET", "/api/live/player/{session_id}/{name}"):
@@ -1222,6 +1223,7 @@ class TestJobs:
 
     def test_every_job_route_hides_other_users_jobs(self, world, monkeypatch):
         import background_jobs
+        import live_chat
         from services import live_service
         sid = "live_" + "b" * 32
         status = {"status": "done", "progress": 1.0, "message": "", "result": {"rows": []},
@@ -1230,7 +1232,8 @@ class TestJobs:
                             lambda job_id: dict(status) if job_id in ("sources_search", sid)
                             else None)
         monkeypatch.setitem(live_service._sessions, sid,
-                            {"dir": None, "engine": "ollama", "owner_user_id": world["a_id"]})
+                            {"dir": None, "engine": "ollama", "owner_user_id": world["a_id"],
+                             "chat": live_chat.ChatBoard()})
         db.save_job_record("sources_search", "done", started_at=1.0, owner_user_id=world["a_id"])
         client = _client(_app())
         for method, path in JOB_ROUTES:

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 
 from api.auth import (is_at_pc, is_local_request, local_only, require_cloud_model_allowed,
                       require_engines_allowed, require_permission)
-from api.schemas import (LiveFormOptions, LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
+from api.schemas import (LiveChatPage, LiveFormOptions, LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary, error_responses)
 from lib.errors import ForbiddenError
 from services import live_service, model_readiness_service
@@ -47,6 +47,7 @@ def post_session(body: LiveSessionStart, request: Request):
         engine=body.engine, model=body.model, max_minutes=body.max_minutes,
         use_gpu=body.use_gpu, use_saved_cookies=is_local_request(request),
         reply_without_thinking=body.reply_without_thinking, delayed_player=body.delayed_player, player_height=body.player_height,
+        read_chat=body.read_chat,
         glossary_drama_id=body.glossary_drama_id, series_id=body.series_id,
         principal=request.state.principal)
 
@@ -80,6 +81,14 @@ def get_ollama_check(model: str = Query(None, max_length=100)):
 def get_session(request: Request, session_id: str = _SID,
                 after: int = Query(0, ge=0, le=10**9)):
     return live_service.get_session(session_id, after, principal=request.state.principal)
+
+
+@router.get("/sessions/{session_id}/chat", dependencies=[require_permission("library.read")],
+            response_model=LiveChatPage,
+            summary="The session's chat messages after an id (poll from before the oldest pending one)",
+            responses=_ERRS)
+def get_chat(request: Request, session_id: str = _SID, after: int = Query(0, ge=0, le=10**9)):
+    return live_service.get_chat(session_id, after, principal=request.state.principal)
 
 
 @router.post("/sessions/{session_id}/stop", dependencies=[require_permission("jobs.cancel")],

@@ -36,7 +36,9 @@ from typing import Optional
 import background_jobs
 from jobs import job_launch
 import db
+import live_chat
 import live_cue_feed
+import live_cue_translation
 import live_pipeline
 import live_player
 import language_packs
@@ -307,8 +309,10 @@ def _stop_for_spend(session_id: str, reason: str, label: str) -> None:
     background_jobs.request_cancel(session_id)
 
 
-def _make_target(session_id: str):
+def _make_target(session_id: str, chat=None):
+    """`chat`: the arguments of the session's chat worker, started with the job so it ends with it."""
     def _target(*args, **kwargs):
+        worker = _start_chat(session_id, chat) if chat else None
         try:
             # run_live_job stops the stream fetcher (and ffmpeg) before
             # returning, so the proxy outlives every connection it serves.
@@ -319,9 +323,26 @@ def _make_target(session_id: str):
                     report_note=functools.partial(add_note, session_id),
                     report_stats=functools.partial(set_stats, session_id), **kwargs)
         finally:
+            if worker is not None:
+                worker.stop()
             job_stage_service.clear_stage(session_id)
             _remove_dir(session_id)
     return _target
+
+
+def _start_chat(session_id: str, chat: dict):
+    with _lock:
+        board = (_sessions.get(session_id) or {}).get("chat")
+    if board is None:
+        return None
+    # A translator of its own: the cues' recent-lines context must not fill with chat.
+    translator = live_cue_translation.CueTranslator(
+        chat["engine"], chat["source_language"], chat["reply_without_thinking"], chat["term_hints"],
+        live_chat.NoStreakGuard(chat["spend_guard"]) if chat["spend_guard"] else None)
+    worker = live_chat.ChatWorker(session_id, chat["video_id"], board, translator,
+                                  chat["source_language"], report_note=functools.partial(add_note, session_id))
+    worker.start()
+    return worker
 
 
 def _reap():
@@ -396,7 +417,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   use_saved_cookies: bool = False,
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
                   series_id: Optional[int] = None, delayed_player: bool = False,
-                  player_height: int = live_player.DEFAULT_HEIGHT, principal=None) -> dict:
+                  player_height: int = live_player.DEFAULT_HEIGHT, read_chat: bool = False,
+                  principal=None) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
     glossary_drama_id: a title whose glossary and language packs the stream's
     translation may use (read-only); NotFoundError when the caller cannot see it.
@@ -428,6 +450,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         raise InvalidInputError("model must be a string.")
     if glossary_drama_id is not None and series_id is not None:
         raise InvalidInputError("Pick a title or a series for the glossary, not both.")
+    chat_video = live_chat.require_video_id(url) if read_chat else None
     missing = missing_tool()
     if missing:
         raise DependencyUnavailableError(missing)
@@ -458,13 +481,24 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         return _start_registered(session_id, out_dir, url, source_language, whisper_size,
                                  segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
                                  use_gpu, use_saved_cookies, reply_without_thinking, term_hints,
-                                 player_height if delayed_player else 0)
+                                 player_height if delayed_player else 0, chat_video, model)
 
 
 def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
                       use_saved_cookies, reply_without_thinking, term_hints=None,
-                      player_height=0):
+                      player_height=0, chat_video=None, requested_model=None):
+    spend_guard = live_spend_service.LiveSpendGuard(
+        eng, engine_name, functools.partial(_stop_for_spend, session_id))
+    chat = None
+    if chat_video:
+        # Its own engine and guard: engines keep per-request usage on the instance, so sharing the
+        # cues' one would let overlapping requests miscount the spend the monthly cap reads.
+        chat_engine = _build_engine(engine_name, requested_model)[1]
+        chat = {"video_id": chat_video, "engine": chat_engine, "source_language": source_language,
+                "reply_without_thinking": bool(reply_without_thinking), "term_hints": term_hints,
+                "spend_guard": live_spend_service.LiveSpendGuard(
+                    chat_engine, engine_name, functools.partial(_stop_for_spend, session_id))}
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
@@ -490,16 +524,16 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language,
-                                 "owner_user_id": ownership_service.acting_user_id()}
+                                 "owner_user_id": ownership_service.acting_user_id(),
+                                 "chat": live_chat.ChatBoard() if chat else None}
     try:
         started = job_launch.start_job(
-            session_id, _make_target(session_id),
+            session_id, _make_target(session_id, chat),
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             reply_without_thinking=bool(reply_without_thinking), term_hints=term_hints,
             delayed_player=player_height, max_seconds=max_minutes * 60,
-            spend_guard=live_spend_service.LiveSpendGuard(
-                eng, engine_name, functools.partial(_stop_for_spend, session_id)),
+            spend_guard=spend_guard,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
             run_settings=run_settings_service.build(
@@ -630,8 +664,20 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "source_language": entry.get("source_language"),
             "delayed_player": bool(entry.get("delayed_player")),
             "player_ready": live_player.ready(entry.get("dir")),
+            "chat": entry.get("chat") is not None,
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}
+
+
+def get_chat(session_id, after=0, principal=None) -> dict:
+    """{state, message, messages[id > after], next_id}. A message is added untranslated and changes in
+    place when its translation lands, so a client asks again from before its oldest pending message."""
+    _require(session_id, principal)
+    with _lock:
+        board = (_sessions.get(session_id) or {}).get("chat")
+    if board is None:
+        raise NotFoundError("This session is not reading the chat.")
+    return board.snapshot(int(_num("after", after, 0, 10 ** 9)))
 
 
 def list_sessions(principal=None) -> list:
