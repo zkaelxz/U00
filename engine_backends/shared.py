@@ -610,7 +610,8 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     result_map = {}
     store = _answered_var.get()
     if store is not None and engine_name:
-        # Keyed by engine so a fallback engine's retry never adopts another's replies.
+        # Keyed by engine name: a different provider's retry starts fresh, but two models of one
+        # engine in a fallback chain share their answers.
         result_map = store.setdefault(engine_name, {})
     retries_left = max_retries
     # (ids to ask for, halvings so far); a cut-off reply's missing ids go back
