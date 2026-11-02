@@ -200,6 +200,8 @@ def test_household_refused_when_model_missing(case, isolated_db, caches, monkeyp
 def test_household_runs_once_model_on_disk(case, isolated_db, caches, monkeypatch):
     url, body, module, function, populate = case
     started = _stub(monkeypatch, module, function)
+    import ocr
+    monkeypatch.setattr(ocr, "backend_problem", lambda *a, **k: None)
     did, session = _owned_drama(audio_filename="a.wav")
     populate(caches)
     r = _post(_household_client(), url.format(did=did), body, session)

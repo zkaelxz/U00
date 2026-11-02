@@ -323,6 +323,48 @@ class TestExtractTextFromImagesUsesResolvedLang:
         assert ocr.ensure_rapidocr_model(spec) == str(tmp_path / spec["file"]), "no second download"
         assert len(seen) == 2 and all("timeout" in kw and "max_bytes" in kw for kw in seen)
 
+    def test_rapidocr_download_failures_raise_the_short_error(self, monkeypatch, tmp_path):
+        from lib import http
+        monkeypatch.setattr(ocr, "rapidocr_model_path", lambda spec: str(tmp_path / spec["file"]))
+
+        class NotOk:
+            ok = False
+            body = b""
+
+        monkeypatch.setattr(http, "get", lambda url, **kw: NotOk())
+        with pytest.raises(ocr.RapidOcrModelUnavailable):
+            ocr.ensure_rapidocr_model(ocr.RAPIDOCR_KOREAN_MODEL)
+
+        def boom(url, **kw):
+            raise OSError("https://secret.example/x")
+        monkeypatch.setattr(http, "get", boom)
+        with pytest.raises(ocr.RapidOcrModelUnavailable) as err:
+            ocr.ensure_rapidocr_model(ocr.RAPIDOCR_KOREAN_MODEL)
+        assert "secret" not in str(err.value)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_rapidocr_model_is_not_downloaded_when_offline(self, monkeypatch, tmp_path):
+        from lib import http, model_offline
+        monkeypatch.setattr(ocr, "rapidocr_model_path", lambda spec: str(tmp_path / spec["file"]))
+        monkeypatch.setattr(http, "get", lambda *a, **k: pytest.fail("downloaded while offline"))
+        token = model_offline.set_offline(True)
+        try:
+            with pytest.raises(ocr.RapidOcrModelUnavailable):
+                ocr.ensure_rapidocr_model(ocr.RAPIDOCR_KOREAN_MODEL)
+        finally:
+            model_offline.reset(token)
+
+    def test_auto_picks_rapidocr_for_zh_ko_only_when_installed(self, monkeypatch):
+        monkeypatch.setattr(ocr, "backend_problem", lambda backend, *a, **k: None)
+        assert ocr.auto_ocr_backend("ko") == "rapidocr"
+        monkeypatch.setattr(ocr, "backend_problem", lambda backend, *a, **k: object())
+        assert ocr.auto_ocr_backend("zh") == "paddle"
+        assert ocr.auto_ocr_backend("ko") == "paddle"
+
+    def test_hardsub_default_is_auto_for_zh_ko(self):
+        assert ocr.default_hardsub_backend("ko") == ocr.default_hardsub_backend("zh") == "auto"
+        assert ocr.default_hardsub_backend("ja") == "tesseract"
+
     def test_paddle_vl_manga_backend_is_dispatched(self, monkeypatch):
         called = []
         monkeypatch.setattr(ocr, "extract_text_paddle_vl_manga",

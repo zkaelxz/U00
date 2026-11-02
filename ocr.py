@@ -38,9 +38,10 @@ HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "rapidocr", "auto"]
 
 
 def default_hardsub_backend(source_language: str) -> str:
-    """RapidOCR for Chinese and Korean (on real hard-sub frames it read Chinese captions
-    as well as PaddleOCR and kept lines whole where PaddleOCR split them), Tesseract otherwise."""
-    return "rapidocr" if source_language in ("zh", "ko") else "tesseract"
+    """Auto for Chinese and Korean, so RapidOCR (on real hard-sub frames it read Chinese
+    captions as well as PaddleOCR and kept lines whole where PaddleOCR split them) is used
+    only where installed and a title that read fine on PaddleOCR or Tesseract still does."""
+    return "auto" if source_language in ("zh", "ko") else "tesseract"
 
 
 def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
@@ -68,7 +69,8 @@ def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False)
     if source_language == "ja":
         return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
     if source_language in ("zh", "ko"):
-        return "rapidocr"
+        # Callers don't pass an installed-check, so a PC without RapidOCR must not be sent to it.
+        return "rapidocr" if backend_problem("rapidocr") is None else "paddle"
     return "tesseract"
 
 
@@ -268,6 +270,8 @@ RAPIDOCR_MEDIUM_REC_MODEL = {
 }
 _RAPIDOCR_DOWNLOAD_TIMEOUT = (15, 60)
 _RAPIDOCR_DOWNLOAD_DEADLINE = 15 * 60
+# Separate from _MODEL_LOCK so a slow download doesn't hold every other OCR model's inference.
+_RAPIDOCR_DOWNLOAD_LOCK = threading.Lock()
 
 
 class RapidOcrModelUnavailable(RuntimeError):
@@ -286,27 +290,32 @@ def ensure_rapidocr_model(spec: dict) -> str:
     import hashlib
     import os
     import tempfile
-    from lib import http
+    from lib import http, model_offline
     path = rapidocr_model_path(spec)
     if os.path.isfile(path):
         return path
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    try:
-        resp = http.get(spec["url"], timeout=_RAPIDOCR_DOWNLOAD_TIMEOUT, max_bytes=spec["max_bytes"],
-                        deadline=_RAPIDOCR_DOWNLOAD_DEADLINE)
-    except Exception as exc:
-        raise RapidOcrModelUnavailable("Could not download the RapidOCR model.") from exc
-    if not resp.ok or hashlib.sha256(resp.body).hexdigest() != spec["sha256"]:
-        raise RapidOcrModelUnavailable("The RapidOCR model download was incomplete or changed.")
-    fd, part = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".part")
-    try:
-        with os.fdopen(fd, "wb") as out:
-            out.write(resp.body)
-        os.replace(part, path)
-    except BaseException:
-        if os.path.exists(part):
-            os.unlink(part)
-        raise
+    if model_offline.active():
+        raise RapidOcrModelUnavailable(model_offline.NOT_DOWNLOADED_MESSAGE)
+    with _RAPIDOCR_DOWNLOAD_LOCK:
+        if os.path.isfile(path):
+            return path
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        try:
+            resp = http.get(spec["url"], timeout=_RAPIDOCR_DOWNLOAD_TIMEOUT, max_bytes=spec["max_bytes"],
+                            deadline=_RAPIDOCR_DOWNLOAD_DEADLINE)
+        except Exception as exc:
+            raise RapidOcrModelUnavailable("Could not download the RapidOCR model.") from exc
+        if not resp.ok or hashlib.sha256(resp.body).hexdigest() != spec["sha256"]:
+            raise RapidOcrModelUnavailable("The RapidOCR model download was incomplete or changed.")
+        fd, part = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".part")
+        try:
+            with os.fdopen(fd, "wb") as out:
+                out.write(resp.body)
+            os.replace(part, path)
+        except BaseException:
+            if os.path.exists(part):
+                os.unlink(part)
+            raise
     return path
 
 
@@ -340,10 +349,12 @@ def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: 
     boxes (ocr_layout); without boxes its own order is kept."""
     from rapidocr import RapidOCR
     key = "ko" if source_language == "ko" else ("medium" if medium else "small")
+    engines = globals().setdefault("_rapidocr_instances", {})
+    # Fetched before taking _MODEL_LOCK: a minutes-long download must not block other OCR models.
+    params = _rapidocr_params(key) if key not in engines else None
     with _MODEL_LOCK:
-        engines = globals().setdefault("_rapidocr_instances", {})
         if key not in engines:
-            engines[key] = RapidOCR(params=_rapidocr_params(key))
+            engines[key] = RapidOCR(params=params or _rapidocr_params(key))
         result = engines[key](image_path)
     texts = result.txts or ()
     lines = ocr_layout.lines_from_boxes(texts, getattr(result, "boxes", None))

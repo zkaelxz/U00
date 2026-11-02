@@ -126,7 +126,7 @@ class TestGetTranscribeConfig:
             "vocabulary_hint": False,
             "use_groq": False,
             "has_video_source": False,
-            "hardsub_ocr_backend": "rapidocr",
+            "hardsub_ocr_backend": "auto",
             "hardsub_interval_sec": 1.0,
             "auto_initial_prompt": "",
             "source_language": "zh",

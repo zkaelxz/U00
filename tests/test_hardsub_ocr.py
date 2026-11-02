@@ -503,9 +503,9 @@ class TestHardsubBackendRouting:
     def test_rapidocr_reads_the_frame_in_the_source_language(self, run):
         assert run(language="ko", ocr_backend="rapidocr")[0] == [("ko", "rapidocr")]
 
-    def test_chinese_and_korean_default_to_rapidocr(self):
-        assert hardsub_ocr.ocr_module.default_hardsub_backend("zh") == "rapidocr"
-        assert hardsub_ocr.ocr_module.default_hardsub_backend("ko") == "rapidocr"
+    def test_chinese_and_korean_default_to_auto(self):
+        assert hardsub_ocr.ocr_module.default_hardsub_backend("zh") == "auto"
+        assert hardsub_ocr.ocr_module.default_hardsub_backend("ko") == "auto"
         assert hardsub_ocr.ocr_module.default_hardsub_backend("ja") == "tesseract"
 
     @pytest.mark.parametrize("requested", ["paddle", "rapidocr", "tesseract"])

@@ -657,10 +657,12 @@ class TestAutoOcrBackend:
     def test_japanese_prefers_paddle_vl_manga_when_asked(self):
         assert scanlate.auto_ocr_backend("ja", prefer_paddle_vl_manga=True) == "paddle_vl_manga"
 
-    def test_chinese_defaults_to_rapidocr(self):
+    def test_chinese_defaults_to_rapidocr(self, monkeypatch):
+        monkeypatch.setattr(__import__("ocr"), "backend_problem", lambda *a, **k: None)
         assert scanlate.auto_ocr_backend("zh") == "rapidocr"
 
-    def test_korean_defaults_to_rapidocr(self):
+    def test_korean_defaults_to_rapidocr(self, monkeypatch):
+        monkeypatch.setattr(__import__("ocr"), "backend_problem", lambda *a, **k: None)
         assert scanlate.auto_ocr_backend("ko") == "rapidocr"
 
     def test_unknown_language_falls_back_to_tesseract(self):
