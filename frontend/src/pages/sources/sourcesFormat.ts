@@ -36,6 +36,50 @@ export function searchableSources(sources: SourceSummary[], browserMissing = fal
   return sources.filter((s) => s.enabled && s.supports.search && !(browserMissing && s.needs_browser))
 }
 
+const LANGUAGE_ORDER = ['zh', 'ja', 'ko', 'en']
+const LANGUAGE_LABELS: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean', en: 'English' }
+const KIND_ORDER = ['comics', 'novels', 'media'] as const
+const KIND_LABELS = { comics: 'Comics', novels: 'Novels', media: 'Audio and video' }
+const COMIC_TYPES = ['manga', 'manhua', 'manhwa']
+
+export type SourceKindGroup = { kind: string; label: string; sources: SourceSummary[] }
+export type SourceLanguageGroup = { language: string; label: string; kinds: SourceKindGroup[] }
+
+function kindOf(s: SourceSummary): (typeof KIND_ORDER)[number] {
+  const type = s.content_types[0]
+  if (COMIC_TYPES.includes(type)) return 'comics'
+  return type === 'novel' ? 'novels' : 'media'
+}
+
+/**
+ * Sources grouped by language, then by kind, from each source's own metadata so
+ * a new adapter lands in the right place with no list to update. A source takes
+ * its first listed language and type; a language outside the known order sorts
+ * last under its upper-cased code. Order inside a group stays the list order.
+ */
+export function groupSourcesByLanguageAndKind(sources: SourceSummary[]): SourceLanguageGroup[] {
+  const rank = (code: string) => {
+    const i = LANGUAGE_ORDER.indexOf(code)
+    return i < 0 ? LANGUAGE_ORDER.length : i
+  }
+  const byLanguage = new Map<string, SourceSummary[]>()
+  for (const s of sources) {
+    const code = s.languages[0] ?? ''
+    byLanguage.set(code, [...(byLanguage.get(code) ?? []), s])
+  }
+  return [...byLanguage.keys()]
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+    .map((code) => ({
+      language: code,
+      label: LANGUAGE_LABELS[code] ?? code.toUpperCase(),
+      kinds: KIND_ORDER.map((kind) => ({
+        kind,
+        label: KIND_LABELS[kind],
+        sources: byLanguage.get(code)!.filter((s) => kindOf(s) === kind),
+      })).filter((g) => g.sources.length > 0),
+    }))
+}
+
 /** Enabled searchable sources held back until the browser is available. */
 export function browserHeldSources(sources: SourceSummary[], browserMissing: boolean): SourceSummary[] {
   return browserMissing ? sources.filter((s) => s.enabled && s.supports.search && s.needs_browser) : []

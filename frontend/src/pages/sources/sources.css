@@ -20,6 +20,9 @@
   .sources-search-in > .field-item { min-height: 0; padding: var(--space-2) var(--space-3); }
 }
 
+.sources-search-lang { display: grid; gap: var(--space-1); margin-top: var(--space-3); }
+.sources-search-lang h2, .sources-search-kind p { margin: 0; }
+
 /* Search */
 .sources-search { display: grid; gap: var(--space-2); }
 .sources-search-row { display: flex; gap: var(--space-2); align-items: stretch; }
