@@ -800,7 +800,6 @@ def apply(source_id, target_id, kind, chapter_ids=None, move_duplicates=False, f
                 db.set_custom_tag(b, db.MERGED_TAG, False)
         except Exception:
             log.warning("Could not clear the Merged tag on title %s", b, exc_info=True)
-            warnings.append(_TITLE_FIELDS_NOT_MERGED)
         if kind == "merge":
             try:
                 _merge_title_fields(plan["source"], b)

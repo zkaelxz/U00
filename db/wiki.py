@@ -26,7 +26,11 @@ def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: st
                 description = COALESCE(excluded.description, wiki_entries.description),
                 attributes_json = COALESCE(excluded.attributes_json, wiki_entries.attributes_json),
                 first_seen_line_idx = COALESCE(wiki_entries.first_seen_line_idx, excluded.first_seen_line_idx),
-                first_seen_line_id = COALESCE(wiki_entries.first_seen_line_id, excluded.first_seen_line_id),
+                -- An entry saved before ids existed keeps its position: giving it
+                -- the new batch's line id would move it later in the story.
+                first_seen_line_id = CASE WHEN wiki_entries.first_seen_line_idx IS NULL
+                    THEN COALESCE(wiki_entries.first_seen_line_id, excluded.first_seen_line_id)
+                    ELSE wiki_entries.first_seen_line_id END,
                 known_through_line_idx = MAX(COALESCE(excluded.known_through_line_idx, 0),
                                               COALESCE(wiki_entries.known_through_line_idx, 0)),
                 updated_at = excluded.updated_at
@@ -45,9 +49,11 @@ def list_wiki_entries(drama_id: int, entry_type: str | None = None, spoiler_limi
         # Where the entry first appears is read from its line's id, so a
         # split, merge or delete elsewhere in the title can't move it (and
         # let a spoiler through); the stored position is only for entries
-        # saved without an id. A deleted line leaves no position.
-        seen_at = ("CASE WHEN w.first_seen_line_id IS NULL THEN w.first_seen_line_idx "
-                   "ELSE l.idx END")
+        # saved without an id.
+        # An anchor whose line is gone falls back to the stored position
+        # rather than to "no position", which would show the entry to a reader
+        # who hasn't reached it.
+        seen_at = "COALESCE(l.idx, w.first_seen_line_idx)"
         q = (f"SELECT w.*, {seen_at} AS current_idx FROM wiki_entries w "
              "LEFT JOIN lines l ON l.id = w.first_seen_line_id AND l.drama_id = w.drama_id "
              "WHERE w.drama_id = ?")

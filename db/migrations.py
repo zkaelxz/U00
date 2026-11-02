@@ -366,6 +366,17 @@ def _migrate_bulk_job_columns(conn):
         db._safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
 
 
+def _backfill_first_seen_ids(conn, table):
+    """Rows saved with a position only get the id of the line at that position
+    now, while the position is still right."""
+    conn.execute(f"""
+        UPDATE {table} SET first_seen_line_id = (
+            SELECT l.id FROM lines l
+            WHERE l.drama_id = {table}.drama_id AND l.idx = {table}.first_seen_line_idx
+            ORDER BY l.id LIMIT 1)
+        WHERE first_seen_line_idx IS NOT NULL""")
+
+
 def _migrate_vocab_and_style_columns(conn):
     vocab_cols = {r[1] for r in conn.execute("PRAGMA table_info(vocab_lookups)").fetchall()}
     if "export_rich" not in vocab_cols:
@@ -378,9 +389,11 @@ def _migrate_vocab_and_style_columns(conn):
         # line is also recorded by its stable id; the position stays for rows
         # saved before this column existed.
         db._safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN first_seen_line_id INTEGER")
+        _backfill_first_seen_ids(conn, "vocab_lookups")
     wiki_cols = {r[1] for r in conn.execute("PRAGMA table_info(wiki_entries)").fetchall()}
     if "first_seen_line_id" not in wiki_cols:
         db._safe_alter(conn, "ALTER TABLE wiki_entries ADD COLUMN first_seen_line_id INTEGER")
+        _backfill_first_seen_ids(conn, "wiki_entries")
     style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
     if "history_json" not in style_cols:
         # Earlier learned-style profiles (newest first, at most

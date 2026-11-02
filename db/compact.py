@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 # library open.
 MIN_RECLAIM_BYTES = 64 * 1024 * 1024
 MIN_RECLAIM_FRACTION = 0.25
+NOTICE = "Shrinking library.db to give back unused disk space. This can take a minute on a large library."
 
 
 def reclaimable_bytes(conn) -> tuple[int, int]:
@@ -25,20 +26,30 @@ def reclaimable_bytes(conn) -> tuple[int, int]:
     return free * page_size, total * page_size
 
 
-def compact_if_worthwhile(path: str | None = None) -> bool:
+def compact_if_worthwhile(path: str | None = None, notify=None) -> bool:
     """VACUUMs the library when enough of it is free pages. Never raises: a
-    busy or full disk just leaves the file as it was. True when it ran."""
+    busy or full disk just leaves the file as it was. `notify(message)` is
+    called just before the pause. True when it ran."""
     path = path or db.DB_PATH
     try:
         conn = sqlite3.connect(path, isolation_level=None, timeout=1.0)
         try:
+            # Exclusive locking mode plus one exclusive transaction takes the
+            # lock for good, or fails at once when another process (a second
+            # server, a CLI run) has the file open: the VACUUM then waits for
+            # a quieter start instead of stalling that process.
+            conn.execute("PRAGMA locking_mode = EXCLUSIVE")
+            conn.execute("BEGIN EXCLUSIVE")
+            conn.execute("ROLLBACK")
             free, total = reclaimable_bytes(conn)
             if free < MIN_RECLAIM_BYTES or free < total * MIN_RECLAIM_FRACTION:
                 return False
-            # VACUUM builds a full copy first; without room for it the copy
-            # fails halfway and the pause was for nothing.
-            if shutil.disk_usage(os.path.dirname(os.path.abspath(path))).free < total - free + MIN_RECLAIM_BYTES:
+            # In WAL mode the rewritten copy is also written through the
+            # log, so the pause needs room for about two copies.
+            if shutil.disk_usage(os.path.dirname(os.path.abspath(path))).free < 2 * (total - free) + MIN_RECLAIM_BYTES:
                 return False
+            if notify:
+                notify(NOTICE)
             conn.execute("VACUUM")
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             return True

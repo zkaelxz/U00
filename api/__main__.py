@@ -54,7 +54,7 @@ def _open_library(db):
             raise
         _refuse_to_start(db.DAMAGED_LIBRARY_MESSAGE)
     from db import compact
-    compact.compact_if_worthwhile()
+    compact.compact_if_worthwhile(notify=lambda m: print(f"NOTE: {m}", flush=True))
 
 
 def _serve():
