@@ -186,10 +186,12 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    // getLongVersionCode needs API 28 and this app supports 26; versionCode is an int below 2^31 here.
+    @SuppressWarnings("deprecation")
     private long installedVersion() {
         try {
             PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
-            return info.getLongVersionCode();
+            return info.versionCode;
         } catch (Exception e) {
             // Unknown installed build: report the newest so no update is offered by mistake.
             return Long.MAX_VALUE;
