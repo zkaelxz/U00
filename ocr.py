@@ -20,6 +20,7 @@ import threading
 from typing import Any, NamedTuple, Optional
 
 import model_pins
+import ocr_layout
 from lib import proc
 
 # Tesseract language codes per source language. "zh" defaults to
@@ -327,10 +328,15 @@ def _rapidocr_params(key: str) -> dict:
     return params
 
 
-def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: bool = False) -> str:
+def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: bool = False,
+                         vertical: bool = False) -> str:
     """Chinese and Japanese text through RapidOCR's PP-OCRv6 models: the small pair inside its
     wheel, or with `medium` the larger pair (RAPIDOCR_MEDIUM_*). Korean always uses its own
-    recognizer. One engine is kept per model set, since the models are fixed when it is built."""
+    recognizer. One engine is kept per model set, since the models are fixed when it is built.
+
+    RapidOCR lists lines in detection order, which scrambles vertical columns
+    and mixes in furigana, so the lines are filtered and re-ordered by their
+    boxes (ocr_layout); without boxes its own order is kept."""
     from rapidocr import RapidOCR
     key = "ko" if source_language == "ko" else ("medium" if medium else "small")
     with _MODEL_LOCK:
@@ -338,7 +344,11 @@ def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: 
         if key not in engines:
             engines[key] = RapidOCR(params=_rapidocr_params(key))
         result = engines[key](image_path)
-    return "\n".join(result.txts or ())
+    texts = result.txts or ()
+    lines = ocr_layout.lines_from_boxes(texts, getattr(result, "boxes", None))
+    if lines is None:
+        return "\n".join(texts)
+    return ocr_layout.layout_text(lines, vertical)
 
 
 _PADDLE_VL_MANGA_REPO = "jzhang533/PaddleOCR-VL-For-Manga"
@@ -584,7 +594,8 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
     them with the language's "_vert" pack and PSM 5 when that pack is
     installed (the horizontal model reads columns as noise; on the Scanlate
     bench the vertical pack cut the character error on columns by a third),
-    and as before when it is not. The other backends read columns as they are."""
+    and as before when it is not. RapidOCR orders the columns right to left and
+    drops furigana beside them. The other backends read columns as they are."""
     if backend == "manga_ocr":
         fn = extract_text_manga_ocr
     elif backend == "paddle_vl_manga":
@@ -593,7 +604,8 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
         paddle_lang = _PADDLE_LANG_BY_SOURCE.get(source_language, "ch")
         fn = lambda p: extract_text_paddle(p, lang=paddle_lang)
     elif backend == "rapidocr":
-        fn = lambda p: extract_text_rapidocr(p, source_language, medium=True)
+        fn = functools.partial(extract_text_rapidocr, source_language=source_language,
+                               medium=True, vertical=vertical)
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
         vertical_pack = (vertical and source_language in TESSERACT_LANG
