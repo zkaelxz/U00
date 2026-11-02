@@ -315,7 +315,8 @@ def _rapidocr_params(key: str) -> dict:
     # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
     # subtitle lines are upright, so it is left off.
     params = {"Global.log_level": "warning", "Global.use_cls": False}
-    from rapidocr import LangRec, ModelType, OCRVersion
+    if key != "small":
+        from rapidocr import LangRec, ModelType, OCRVersion
     if key == "ko":
         params.update({"Rec.model_path": ensure_rapidocr_model(RAPIDOCR_KOREAN_MODEL),
                        "Rec.ocr_version": OCRVersion.PPOCRV5, "Rec.model_type": ModelType.MOBILE,

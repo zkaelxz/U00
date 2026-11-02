@@ -241,7 +241,7 @@ class TestExtractTextFromImagesUsesResolvedLang:
     def test_rapidocr_backend_is_dispatched(self, monkeypatch):
         called = []
         monkeypatch.setattr(ocr, "extract_text_rapidocr",
-                            lambda p, source_language="zh", medium=False:
+                            lambda p, source_language="zh", medium=False, vertical=False:
                             called.append((p, source_language, medium)) or "x")
         ocr.extract_text_from_images(["/fake/page1.png"], backend="rapidocr", source_language="ja")
         assert called == [("/fake/page1.png", "ja", True)], "pages read with the medium models"
