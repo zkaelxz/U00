@@ -1,5 +1,8 @@
-// Mirrors the "Report a problem" models in api/schemas/bug_report.py (BugReport*).
+// The "Report a problem" models in api/schemas/bug_report.py (BugReport*); responses come from the generated schema.
+import type { components } from '../api/generated/schema'
 import type { ConsoleEntry, ErrorEntry, FailedRequest, RouteVisit } from '../report/capture'
+
+type Schemas = components['schemas']
 
 export type ReportMode = 'pc' | 'lan' | 'remote' | 'unknown'
 
@@ -21,36 +24,7 @@ export interface BugReportClient {
   mode: ReportMode
 }
 
-export interface BugReportSaved {
-  id: number
-  stamp: string
-  // For Copy report: the server section (commit, setup, log) only for admins.
-  markdown: string
-  // Server-scrubbed texts for the public GitHub link (never the server section).
-  issue_markdown: string
-  what_happened: string
-  expected: string
-  title: string
-}
-
-export interface BugReportText {
-  id: number
-  stamp: string
-  markdown: string
-}
-
-export interface BugReportListItem {
-  id: number
-  stamp: string
-  created_at: string | null
-  summary: string
-  route: string | null
-  mode: string | null
-  has_screenshot: boolean
-  has_server_log: boolean
-}
-
-export interface BugReportDeleted {
-  id: number
-  deleted: boolean
-}
+export type BugReportSaved = Schemas['BugReportSaved']
+export type BugReportText = Schemas['BugReportText']
+export type BugReportListItem = Schemas['BugReportListItem']
+export type BugReportDeleted = Schemas['BugReportDeleted']
