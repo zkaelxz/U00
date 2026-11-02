@@ -10,7 +10,7 @@ const progress = (id: number, lines: number, untranslated: number) => ({
 
 test('Simple shows the five actions and the episode, and Full brings the stage tabs back', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 10) }))
-  await page.goto('/#/drama/1/source')
+  await page.goto('/#/drama/1')
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
   await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
   await expect(page).toHaveURL(/#\/drama\/1$/)
@@ -37,6 +37,28 @@ test('the choice is remembered, and a link that names a stage still opens that s
   await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toBeVisible()
   await page.goto('/#/drama/3/review')
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
+})
+
+test('Simple leaves the advanced controls out of the stages, and Full brings them back', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 10) }))
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await page.getByRole('link', { name: 'Export' }).click()
+  await expect(page.getByRole('radio', { name: 'Simple' })).toBeChecked()
+  await expect(page.getByRole('group', { name: 'Subtitle file' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Burned-in video' })).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'EPUB' })).toHaveCount(0)
+  await page.goto('/#/drama/1/translate')
+  await expect(page.getByRole('tab', { name: 'Glossary' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Characters' })).toHaveCount(0)
+  await expect(page.getByText('More options')).toHaveCount(0)
+  await page.getByRole('radio', { name: 'Full' }).check({ force: true })
+  await expect(page.getByRole('tab', { name: 'Characters' })).toBeVisible()
+  await expect(page.getByText('More options')).toBeVisible()
+  await page.goto('/#/drama/1/source?tab=add')
+  await expect(page.getByText('Keep original files')).toBeVisible()
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await expect(page.getByText('Keep original files')).toHaveCount(0)
 })
 
 test('a novel has no Simple / Full switch', async ({ page }) => {

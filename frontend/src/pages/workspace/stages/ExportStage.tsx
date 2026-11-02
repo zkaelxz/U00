@@ -14,13 +14,13 @@ import { browserStorage, readPref, writePref } from '../../../hooks/usePersisted
 import { useReadiness } from '../../../hooks/useReadiness'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import { assFormFromDraft, buildAssRequest, emptyAssForm, EXPORT_DRAFT_STAGE, type AssForm } from '../exportForm'
-import { useStage } from '../StageContext'
+import { useSimple, useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportJellyfin } from './ExportJellyfin'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
 import { libassNeed, NO_LIBASS } from '../../readiness/needs'
-import { exportBlockOrder, exportBlockReason, type ExportBlockId } from '../exportBlocks'
+import { SIMPLE_EXPORT_BLOCKS, exportBlockOrder, exportBlockReason, type ExportBlockId } from '../exportBlocks'
 import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
 import { AudiobookBlock, BurnedVideoBlock, DubbedVideoBlock, ExportEpub, MarkExported, SoftsubVideoBlock, type StartError } from './ExportMedia'
@@ -41,6 +41,7 @@ const EXPORT_DRAFT_SHAPE = { fmt: 'srt' }
 export default function ExportStage() {
   const features = useFeatures()
   const { dramaId, drama } = useStage()
+  const simple = useSimple()
   const [readiness, setReadiness] = useState<ExportReadiness | null>(null)
   const [readinessError, setReadinessError] = useState<unknown>(null)
   const [readinessTry, setReadinessTry] = useState(0)
@@ -179,8 +180,8 @@ export default function ExportStage() {
         <SourceChangedWarning dramaId={dramaId} />
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
       </section>
-      {exportBlockOrder(kind).map((id) => blocks[id])}
-      {featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
+      {exportBlockOrder(kind).filter((id) => !simple || SIMPLE_EXPORT_BLOCKS.includes(id)).map((id) => blocks[id])}
+      {!simple && featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
       {/* After the exports, so the status isn't offered before there is anything to mark. */}
       <div className="panel">
         <MarkExported />

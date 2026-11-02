@@ -12,6 +12,9 @@ export const TRANSLATE_TABS: { id: TranslateTab; label: string; short?: string }
   { id: 'novel', label: 'Reference novel', short: 'Novel' },
 ]
 
+// Characters and the reference novel are advanced aids; the Simple view keeps what a first translation needs.
+export const SIMPLE_TRANSLATE_TABS: TranslateTab[] = ['translate', 'glossary']
+
 export const isTranslateTab = (v: unknown): v is TranslateTab => TRANSLATE_TABS.some((t) => t.id === v)
 
 /** The tab to show: the wanted one, else Translate. */

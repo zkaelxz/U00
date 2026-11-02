@@ -39,7 +39,7 @@ import {
   SWITCHES_FROM_BURNED_IN,
   UPLOAD_SETS_VIDEO_ASIDE,
 } from '../sourceForm'
-import { useStage } from '../StageContext'
+import { useSimple, useStage } from '../StageContext'
 import { DetailsPanel } from './DetailsPanel'
 import { FillInPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
@@ -69,6 +69,7 @@ const keptMediaNote = (m: MediaStatus | null) =>
 
 export default function SourceStage() {
   const { dramaId, drama, onJobDone } = useStage()
+  const simple = useSimple()
   const [media, setMedia] = useState<MediaStatus | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [fileProblem, setFileProblem] = useState<string | null>(null)
@@ -351,7 +352,7 @@ export default function SourceStage() {
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
-  const subtitles = appliesTo(kindOfTitle, 'subtitle_import') && canUpload && (
+  const subtitles = !simple && appliesTo(kindOfTitle, 'subtitle_import') && canUpload && (
     <Section
       key="subtitles"
       storageKey="source.group.subtitles"
@@ -393,7 +394,7 @@ export default function SourceStage() {
           {subtitles}
         </>
       )}
-      <KeepOriginal />
+      {!simple && <KeepOriginal />}
     </>
   )
 

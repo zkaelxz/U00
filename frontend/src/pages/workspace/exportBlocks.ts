@@ -26,6 +26,9 @@ const ORDER: Record<TitleKind, ExportBlockId[]> = {
   subtitle: ['subtitles', 'audiobook', 'burned_video', 'softsub_video', 'dubbed_video', 'epub'],
 }
 
+// The Simple view offers the two exports most titles need; the rest (burned-in, dub, audiobook, EPUB) are in Full.
+export const SIMPLE_EXPORT_BLOCKS: ExportBlockId[] = ['softsub_video', 'subtitles']
+
 export function exportBlockOrder(kind: TitleKind): ExportBlockId[] {
   return ORDER[kind]
 }

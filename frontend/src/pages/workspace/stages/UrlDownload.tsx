@@ -17,6 +17,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { useJob } from '../../../hooks/useJob'
+import { useSimple } from '../StageContext'
 import { refreshReadiness, useReadiness } from '../../../hooks/useReadiness'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
@@ -44,6 +45,7 @@ const needsConfirm = (e: unknown) =>
 
 export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSubtitles, url: fixedUrl, busy, onStarted }: Props) {
   const pc = usePcOnly()
+  const simple = useSimple()
   const { readiness } = useReadiness()
   // The link and Audio only as last left for this title; Replace is never kept.
   const { draft, save: saveDraft } = useStageDraft(dramaId, URL_DRAFT_STAGE, URL_DRAFT_SHAPE)
@@ -127,7 +129,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
           <Toggle checked={audioOnly} onChange={setAudioOnly} />
         </Field>
       </div>
-      {!isDirectAudioUrl(url) && (
+      {!simple && !isDirectAudioUrl(url) && (
         <fieldset className="url-download-part">
           <legend>Only this part (optional)</legend>
           <div className="url-download-part-times">
