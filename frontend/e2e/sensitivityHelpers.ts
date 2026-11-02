@@ -21,7 +21,7 @@ export async function pickSensitiveAndSave(page: Page): Promise<Record<string, u
   await openAdvanced(page)
   const select = page.getByLabel('Sensitivity', { exact: true })
   await expect(select).toHaveValue('normal')
-  await expect(page.getByText('Catches quieter or faster speech, but may add false text on music or breathing.')).toBeAttached()
+  await expect(page.getByText('Try this first if quiet or short lines are missing. Catches quieter or faster speech, but may add false text on music or breathing.')).toBeAttached()
   await select.selectOption('sensitive')
   await page.getByRole('button', { name: 'Save options' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
