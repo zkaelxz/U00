@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getInstallPresets, installDependency } from '../../../../api/diagnostics'
 import { getSettings } from '../../../../api/settings'
-import { getDiarizationConfig } from '../../../../api/workspace'
+import { addTalkOverLines, getDiarizationConfig } from '../../../../api/workspace'
 import { hasStatus } from '../../../../api/client'
 import { listAllLines, reassignSpeakersFromSaved, resplitLines, restoreSnapshot } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
+import { plural } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { usePcOnly } from '../../../../hooks/usePcOnly'
@@ -220,6 +221,29 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
       }
     })
 
+  // Another speaker's late line is started earlier and one with no line gets a blank flagged line,
+  // from the saved detection; the server takes its own history snapshot.
+  const talkOver = async () => {
+    setBusy(true)
+    setError(null)
+    setSummary(null)
+    setUndo(null)
+    try {
+      const r = await addTalkOverLines(dramaId)
+      const parts = [
+        r.moved_count ? `started ${plural(r.moved_count, 'line')} earlier` : '',
+        r.added_count ? `added ${plural(r.added_count, 'blank line')} to type into` : '',
+      ].filter(Boolean)
+      setSummary(parts.length ? `Talk-over: ${parts.join(', ')}. Undo it from Line history in the History tab.` : 'No talk-over found in the saved detection.')
+      if (parts.length) onChanged()
+    } catch (e) {
+      if (hasStatus(e, 409) && !/job/i.test(e.message)) setSummary(e.message)
+      else setError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const reassign = async () => {
     setBusy(true)
     setError(null)
@@ -298,6 +322,10 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
           </button>
           <button type="button" disabled={blocked} onClick={reassign}>
             Re-assign speakers from saved detection
+          </button>
+          <button type="button" disabled={blocked} onClick={talkOver}
+            title="Where the saved detection heard a second speaker over another's line, starts that speaker's late line where their voice begins, or adds a blank flagged line for them.">
+            Add lines for talk-over
           </button>
         </div>
         {speakers && (

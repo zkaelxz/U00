@@ -24,6 +24,7 @@ import type {
   NovelStatus,
   GapAddLinesRequest,
   GapAddLinesResult,
+  TalkOverAddResult,
   RetranscribeApplyRequest,
   RetranscribeApplyResult,
   RetranscribeLineRequest,
@@ -205,6 +206,10 @@ export const getTranscribeGaps = (id: number, signal?: AbortSignal, f: Fetch = f
 
 export const addGapLines = (id: number, req: GapAddLinesRequest, f?: Fetch) =>
   postJson<GapAddLinesResult>(`/api/transcribe/dramas/${id}/gaps/add-lines`, req, f)
+
+// Blank flagged lines where a second speaker talks over a line (from the saved speaker detection).
+export const addTalkOverLines = (id: number, f?: Fetch) =>
+  postJson<TalkOverAddResult>(`/api/transcribe/dramas/${id}/talk-over/add-lines`, undefined, f)
 
 // Review > Compare transcription: re-hear chosen lines with other settings,
 // proposals only (GET result), written per line by apply.
