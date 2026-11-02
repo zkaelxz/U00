@@ -62,6 +62,11 @@ FRAGMENT_GAP = 0.3
 # caption box rather than lettering on the art.
 CLASSIFY_LIGHT_LEVEL = 200
 CLASSIFY_MIN_LIGHT_SHARE = 0.55
+# Lettering on dark, busy art is first guessed to be a sound effect. Once it
+# is read, a sound effect is a few big characters: more characters than this,
+# or more lines, is a caption or sign on the art and is translated like one.
+SFX_MAX_CHARS = 12
+SFX_MAX_LINES = 2
 
 # --- Text direction (scanlate_regions.estimate_text_orientation) ---
 # Lettering this many times wider than tall is horizontal, as tall as wide

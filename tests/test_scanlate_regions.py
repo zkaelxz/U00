@@ -500,3 +500,27 @@ def test_windows_fonts_are_looked_for_in_the_real_windows_folder():
     windows = [c for c in out.stdout.splitlines() if "arial" in c.lower() or "comic" in c.lower()]
     assert windows and all(c.startswith("D:\\WinOS") for c in windows if not c.startswith("/"))
     assert not any("C:\\Windows" in c for c in out.stdout.splitlines())
+
+
+class TestWordySfxBecomesSign:
+    def test_a_two_stanza_caption_is_translated_like_a_sign(self):
+        caption = {"kind": "sfx", "source_text": "달빛이 내리는 밤\n그대를 기다리며\n나는 걷는다"}
+        assert scanlate_regions.reclassify_wordy_sfx([caption]) == 1
+        assert caption["kind"] == "sign"
+        assert not scanlate_regions.region_excluded_from_auto(caption)
+
+    def test_a_long_single_line_is_a_sign(self):
+        region = {"kind": "sfx", "source_text": "あなたをずっと待っていました"}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 1
+
+    def test_a_short_sound_effect_stays(self):
+        region = {"kind": "sfx", "source_text": "ドドド"}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
+        assert region["kind"] == "sfx"
+
+    def test_an_included_sfx_and_other_kinds_are_left_alone(self):
+        wordy = "달빛이 내리는 밤\n그대를 기다리며\n나는 걷는다"
+        included = {"kind": "sfx", "include_sfx": True, "source_text": wordy}
+        bubble = {"kind": "bubble", "source_text": wordy}
+        assert scanlate_regions.reclassify_wordy_sfx([included, bubble]) == 0
+        assert included["kind"] == "sfx" and bubble["kind"] == "bubble"
