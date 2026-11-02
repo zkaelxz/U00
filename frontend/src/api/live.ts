@@ -28,11 +28,11 @@ export const LIVE_LANGUAGES = [
   { code: 'ja', label: 'Japanese' },
   { code: 'ko', label: 'Korean' },
 ]
-export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3-turbo']
+export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3-turbo', 'large-v3']
 // Figures from the 5-minute Chinese streamer test in docs/asr-experiments.md
 // (CPU) and the graphics-memory estimate in memory_headroom.py.
 export const WHISPER_HELP =
-  'The default, small, keeps up with the stream on most PCs. large-v3-turbo is slower but more accurate: on our Chinese stream test it made about 16 character errors per 100 against small\'s 23, and took about 1.5 times as long. It needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and a 1.6 GB download the first time. medium is slower and less accurate than turbo on that test. tiny and base are faster still but rougher.'
+  'The default, small, keeps up with the stream on most PCs. large-v3-turbo is slower but more accurate: on our Chinese stream test it made about 16 character errors per 100 against small\'s 23, and took about 1.5 times as long. It needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and a 1.6 GB download the first time. medium is slower and less accurate than turbo on that test. tiny and base are faster still but rougher. large-v3 is the most accurate (about 3 GB download) and needs a GPU: on an RTX 4080 it took under 1 s for an 8 to 12 s chunk.'
 export const SEGMENT_RANGE: [number, number] = [3, 60]
 export const OVERLAP_RANGE: [number, number] = [0, 8]
 export const MAX_MINUTES_RANGE: [number, number] = [1, 240]
@@ -100,6 +100,13 @@ export const FAST_CAPTIONS: Partial<LiveOptions> = {
   segment_seconds: 4,
   overlap_seconds: 1,
   whisper_size: 'small',
+  reply_without_thinking: true,
+}
+/** Near-real-time lines with large-v3: about 10 s end to end on a GPU, more accurate than Fast captions. Same overwrite behaviour. */
+export const BALANCED_CAPTIONS: Partial<LiveOptions> = {
+  segment_seconds: 8,
+  overlap_seconds: 3,
+  whisper_size: 'large-v3',
   reply_without_thinking: true,
 }
 export const LIVE_FORM_FALLBACK: LiveFormOptions = {

@@ -140,7 +140,8 @@ def whisper_language_exclusions() -> dict:
 
 # Live's choices. small stays its default: Live has to keep up with the stream
 # on a CPU, and turbo takes about 1.5x small's time on the repo's CPU test.
-LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo")
+# large-v3 is for a GPU: it ran 0.4-1.4 s per 8-20 s chunk on an RTX 4080.
+LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3")
 
 
 

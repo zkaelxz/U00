@@ -20,7 +20,7 @@ import { useEffect, useId, useState } from 'react'
 
 import { api, hasStatus } from '../api/client'
 import {
-  DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, WHISPER_HELP,
+  DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
   advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, type LiveForm, type LiveOptions,
 } from '../api/live'
@@ -88,6 +88,7 @@ export default function LivePage() {
     return () => { alive = false }
   }, [])
   const fastHelpId = useId()
+  const balancedHelpId = useId()
   const [url, setUrl] = useState('')
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
@@ -298,6 +299,16 @@ export default function LivePage() {
               <span className="muted">Replaces Whisper model, Chunk, Overlap and Reply without thinking.</span>
               <HelpTip label="Fast captions" id={fastHelpId}>
                 {`Chunk ${FAST_CAPTIONS.segment_seconds} s, overlap ${FAST_CAPTIONS.overlap_seconds} s, Whisper ${FAST_CAPTIONS.whisper_size}, ${FAST_CAPTIONS.reply_without_thinking ? 'no thinking' : 'thinking allowed'}: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk ${opts.defaults.segment_seconds} s, overlap ${opts.defaults.overlap_seconds} s, Whisper ${opts.defaults.whisper_size}, ${DEFAULT_FORM.reply_without_thinking ? 'no thinking' : 'thinking allowed'}).`}
+              </HelpTip>
+            </div>
+            <div className="preset-note-row">
+              <button type="button" className="secondary" data-testid="live-balanced-captions" disabled={active || busy}
+                onClick={() => setPrefs({ ...prefs, ...BALANCED_CAPTIONS })}>
+                Balanced captions
+              </button>
+              <span className="muted">Replaces Whisper model, Chunk, Overlap and Reply without thinking.</span>
+              <HelpTip label="Balanced captions" id={balancedHelpId}>
+                {`Chunk ${BALANCED_CAPTIONS.segment_seconds} s, overlap ${BALANCED_CAPTIONS.overlap_seconds} s, Whisper ${BALANCED_CAPTIONS.whisper_size}, no thinking: lines show about 10 s after they are spoken with far fewer mistakes than Fast captions. Needs a GPU for Whisper large-v3 (about 3 GB download the first time). It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand.`}
               </HelpTip>
             </div>
             <div className="field-row">

@@ -40,6 +40,7 @@ export interface SetupReadiness {
   whisper_cached_small: boolean
   whisper_cached_medium: boolean
   whisper_cached_large_v3_turbo: boolean
+  whisper_cached_large_v3: boolean
   gpu_found: boolean
   torch_cuda: boolean
   hf_token_configured: boolean

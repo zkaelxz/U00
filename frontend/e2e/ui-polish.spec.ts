@@ -200,6 +200,6 @@ test('Live Advanced: Fast captions keeps its natural width with one short line',
   const button = page.getByTestId('live-fast-captions')
   const box = await button.boundingBox()
   expect(box!.width).toBeLessThan(220)
-  await expect(page.getByText('Replaces Whisper model, Chunk, Overlap and Reply without thinking.')).toBeVisible()
+  await expect(page.locator('.preset-note-row', { has: button }).getByText('Replaces Whisper model, Chunk, Overlap and Reply without thinking.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Help: Fast captions' })).toBeVisible()
 })

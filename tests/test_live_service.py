@@ -430,7 +430,7 @@ def test_whisper_large_v3_turbo_is_offered_and_small_stays_the_default(live, mon
     sid = _start(whisper_size="large-v3-turbo")
     assert _terminal(sid)
     assert seen == ["large-v3-turbo"]
-    assert "large-v3-turbo" in live_service.WHISPER_SIZES and "medium" in live_service.WHISPER_SIZES
+    assert {"large-v3-turbo", "large-v3", "medium"} <= set(live_service.WHISPER_SIZES)
     assert inspect.signature(live_service.start_session).parameters["whisper_size"].default == "small"
 
 
