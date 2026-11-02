@@ -40,11 +40,13 @@ test('lists saved series, reads a chapter, continues where it left off', async (
   await expect(page).toHaveURL(/0001%20Chapter%201\?page=2$/)
   await expect(label(page)).toHaveText('Page 2 of 4')
 
-  // One page at a time from "Aa"; at the last page the next chapter is offered.
+  // A page turn at a time from "Aa": the desktop window is landscape and wide, so page 2 comes with page 3.
+  // At the last page the next chapter is offered.
   await page.getByRole('button', { name: 'View settings' }).click()
   await page.getByLabel('Reading mode', { exact: true }).selectOption('paged')
   await page.keyboard.press('Escape')
-  await expect(page.getByTestId('comic-page')).toHaveCount(1)
+  await expect(page.getByTestId('comic-page')).toHaveCount(2)
+  await expect(label(page)).toHaveText('Pages 2–3 of 4')
   await expect(page.getByRole('link', { name: 'Next chapter' })).toHaveCount(0)
   await page.keyboard.press('End')
   await expect(label(page)).toHaveText('Page 4 of 4')
@@ -61,6 +63,31 @@ test('lists saved series, reads a chapter, continues where it left off', async (
 })
 
 const continueLink = (page: Page) => page.getByRole('list', { name: 'Saved series' }).getByRole('link', { name: 'Continue' })
+
+test('paged reading shows two pages, right page first for right to left, and Always one page is kept', async ({ page }) => {
+  const s = await mockManga(page)
+  await page.goto('/#/manga/MangaK/Test%20Camp/0001%20Chapter%201?page=1')
+  await page.getByRole('button', { name: 'View settings' }).click()
+  await page.getByLabel('Reading mode', { exact: true }).selectOption('paged')
+  await page.getByLabel('Right to left', { exact: true }).check()
+  await page.keyboard.press('Escape')
+  const figs = page.getByTestId('comic-page')
+  // The first page stands alone like a cover.
+  await expect(figs).toHaveCount(1)
+  await page.keyboard.press('ArrowLeft')
+  await expect(figs).toHaveCount(2)
+  await expect(label(page)).toHaveText('Pages 2–3 of 4')
+  const shown = await figs.evaluateAll((els) => els.map((e) => ({ n: e.getAttribute('data-page'), x: e.getBoundingClientRect().x })))
+  expect(shown.map((f) => f.n)).toEqual(['3', '2'])
+  expect(shown[0].x).toBeLessThan(shown[1].x)
+
+  await page.getByRole('button', { name: 'View settings' }).click()
+  await page.getByLabel('Double page', { exact: true }).selectOption('single')
+  await page.keyboard.press('Escape')
+  await expect(figs).toHaveCount(1)
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('baihe.pref.manga.view.MangaK/Test Camp')))!)).toMatchObject({ spread: 'single' })
+  expect(s.unmocked).toEqual([])
+})
 
 test('opening a chapter without moving leaves Continue where it was', async ({ page }) => {
   const s = await mockManga(page)
