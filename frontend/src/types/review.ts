@@ -1,5 +1,8 @@
 // Hand-written mirrors of api/schemas/review.py (ReviewLines*, ReviewRecords*, Lines*,
 // ReviewJob*). Identity is always the permanent line `id`; `idx` is display-only.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed'
 
@@ -175,61 +178,15 @@ export interface ReviewJobBody {
   bulk?: boolean
 }
 
-export interface ReviewJobStarted {
-  job_id: string
-  drama_id: number
-  kind: string
-  engine: string
-  model: string | null
-  line_count: number
-  bulk?: boolean // true: a bulk batch was submitted (older servers omit it)
-}
+export type ReviewJobStarted = Schemas['ReviewJobStarted']
 
-export interface LineImprovement {
-  line_id: number
-  current_en: string
-  suggestion: string
-  changed: boolean
-  engine: string
-  model: string | null
-}
+export type LineImprovement = Schemas['LineImprovement']
 
-export interface LineExplanation {
-  line_id: number
-  explanation: string
-  engine: string
-  model: string | null
-}
+export type LineExplanation = Schemas['LineExplanation']
 
-// Review parity R17/R18: other translations and a source breakdown (read-only).
-interface LineAlternative {
-  translation: string
-  approach: string
-  tradeoff: string
-}
+export type LineAlternatives = Schemas['LineAlternatives']
 
-export interface LineAlternatives {
-  line_id: number
-  current_en: string
-  alternatives: LineAlternative[]
-  engine: string
-  model: string | null
-}
-
-interface LineGrammarPart {
-  word: string
-  reading: string
-  meaning: string
-  function: string
-}
-
-export interface LineGrammar {
-  line_id: number
-  zh: string
-  parts: LineGrammarPart[]
-  engine: string
-  model: string | null
-}
+export type LineGrammar = Schemas['LineGrammar']
 
 // Review parity R28: auto-shorten lines too long for their time slot.
 export interface ShortenResult {
