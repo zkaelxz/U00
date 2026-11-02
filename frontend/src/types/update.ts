@@ -1,82 +1,18 @@
-// Mirrors api/schemas/app_update.py UpdateStatus / UpdateInstallResponse (app updates
-// from the public GitHub Releases). Every /api/system/update route is PC
-// only; responses carry names, numbers and booleans, never a URL or a path.
+// App updates from the public GitHub Releases (api/schemas/app_update.py), from the generated
+// schema. Every /api/system/update route is PC only; responses carry names, numbers and
+// booleans, never a URL or a path.
+import type { components } from '../api/generated/schema'
 
-type UpdateDownloadState = 'idle' | 'downloading' | 'verified' | 'failed'
+type Schemas = components['schemas']
 
-export interface UpdateStatus {
-  // null for a source checkout (it updates with git).
-  current: string | null
-  installed: boolean
-  latest: string | null
-  update_available: boolean
-  notes: string
-  installer_name: string | null
-  size: number | null
-  // Unix seconds.
-  checked_at: number | null
-  check_error: string | null
-  // not_found: GitHub answered 404 (repository missing, renamed or private).
-  release_lookup: 'unchecked' | 'found' | 'no_installer_release' | 'not_found'
-  download: UpdateDownloadState
-  downloaded_bytes: number
-  download_error: string | null
-  verified: boolean
-  // The version and file Install would start (the verified download).
-  verified_version: string | null
-  verified_name: string | null
-  can_install: boolean
-  // This copy has a release public key: updates need a valid release signature.
-  signature_check: boolean
-  // The verified download's release signature was checked.
-  signature_verified: boolean
-  auto_check: boolean
-  // BAIHE_UPDATE_REPO names another repository than the default.
-  custom_source: boolean
-  // available: the newer release was built against this install's Python,
-  // wheels and Caddy, so its app folder can be swapped in on its own.
-  app_update: 'none' | 'available' | 'needs_full_installer'
-  // Windows, started from the Start menu (not the boot service).
-  app_update_here: boolean
-  app_size: number | null
-  app_download: UpdateDownloadState
-  app_downloaded_bytes: number
-  app_download_error: string | null
-  app_verified: boolean
-  app_verified_version: string | null
-  can_apply_app: boolean
-  // The last app-only update's outcome, in plain words.
-  app_last_result: string | null
-  app_last_result_at: number | null
-}
-
-export interface AppUpdateApplyResponse {
-  started: boolean
-  version: string
-}
-
-export interface UpdateInstallResponse {
-  launched: boolean
-  installer_name: string
-  version: string
-}
+export type UpdateStatus = Schemas['UpdateStatus']
+export type AppUpdateApplyResponse = Schemas['AppUpdateApplyResponse']
+export type UpdateInstallResponse = Schemas['UpdateInstallResponse']
 
 // Update and restart for a git working copy (api/routers/source_update_routes.py).
-export interface SourceUpdateStatus {
-  available: boolean
-  current: string | null
-  checked: boolean
-  behind: number | null
-  latest: string | null
+// `changes` and `reason` have server defaults, so the generated type makes them optional; the server always sends both.
+export type SourceUpdateStatus = Omit<Schemas['SourceUpdateStatus'], 'changes' | 'reason'> & {
   changes: string[]
   reason: string | null
-  can_apply: boolean
-  applying: boolean
-  last_result: string | null
-  last_result_at: number | null
 }
-
-export interface SourceUpdateApplyResponse {
-  started: boolean
-  from_commit: string
-}
+export type SourceUpdateApplyResponse = Schemas['SourceUpdateApplyResponse']
