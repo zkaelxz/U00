@@ -210,31 +210,33 @@ def _current_public_ip(url):
 _checked_ip = None   # this PC's public address from the last successful IP check
 
 
-def refresh_home_addresses(public_url) -> None:
+def refresh_home_addresses(public_url, stop=None) -> None:
     """Tells url_guard this home's own public addresses (the public name's
     DNS answer plus the last checked IP), so a link import can't reach the
-    router or this PC through the home's WAN address. Runs only while remote
-    access is on, like the other checks; a failed lookup keeps the last set."""
+    router or this PC through the home's WAN address. The monitor runs it
+    while remote access is on; Diagnostics' IP check test also fills the last
+    checked IP whenever a public URL is set. A failed or stopped lookup keeps
+    the last set."""
     from lib import url_guard
     target = public_target(public_url)
     if target is None:
         return
     try:
-        resolved = _resolve(target[0])
+        resolved = _resolve(target[0], stop)
     except OSError:
         return
     url_guard.set_home_addresses(
         {str(a) for a in resolved} | ({str(_checked_ip)} if _checked_ip else set()))
 
 
-def _resolve(host):
+def _resolve(host, stop=None):
     """Every address `host` resolves to; getaddrinfo has no timeout of its
     own, so it is bounded by RESOLVE_TIMEOUT."""
     try:
         return _bounded(lambda: {ipaddress.ip_address(str(i[4][0]).split("%")[0])
                                  for i in socket.getaddrinfo(host, None,
                                                              type=socket.SOCK_STREAM)},
-                        RESOLVE_TIMEOUT)
+                        RESOLVE_TIMEOUT, stop)
     except Exception:
         raise OSError("not resolved") from None
 
