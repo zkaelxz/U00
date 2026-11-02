@@ -74,6 +74,7 @@ export interface SettingsPreferences extends TimingPreferences {
   keep_free_ram_gb: number // 0: off
   whisper_model_path: string
   ocr_backend: string
+  speaker_model: string
   ocr_prefer_paddle_vl_manga: boolean
   tesseract_cmd: string
   cookies_browser: string | null
