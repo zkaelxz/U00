@@ -95,10 +95,24 @@ test('a comic has a Simple page with Open in Scanlate and Add pages, and Full is
     const resp = await route.fetch()
     await route.fulfill({ response: resp, json: { ...(await resp.json()), media_type: 'manhua' } })
   })
+  await page.route('**/api/scanlate/dramas/1/pages', (route) => {
+    const pg = (ordinal: number, chapter_id: string, has_regions = false) => ({ id: ordinal, ordinal, width: 1, height: 1, has_rendered: false, has_regions, image_version: null, chapter_id })
+    return route.fulfill({ json: {
+      drama_id: 1, media_type: 'manhua', reading_mode_default: 'vertical', page_count: 3,
+      pages: [pg(1, 'a', true), pg(2, 'a'), pg(3, 'b')],
+      chapters: [
+        { id: 'a', title: 'Prologue', known: true, first_page: 1, page_count: 2, hidden_count: 0 },
+        { id: 'b', title: '', known: true, first_page: 3, page_count: 1, hidden_count: 0 },
+      ],
+    } })
+  })
   await page.goto('/#/drama/1')
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
   await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /Prologue/ })).toHaveAttribute('href', '#/comic/1?page=1')
+  await expect(page.getByRole('link', { name: /Chapter 2/ })).toHaveAttribute('href', '#/comic/1?page=3')
+  await expect(page.getByText('2 pages · 1 translated')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open in Scanlate' })).toHaveAttribute('href', '#/comic/1')
   await expect(page.getByRole('link', { name: 'Add pages' })).toHaveAttribute('href', '#/drama/1/source?tab=add')
   await expect(page.getByRole('link', { name: 'Review' })).toHaveCount(0)
