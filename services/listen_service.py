@@ -33,7 +33,8 @@ TRACK_NAME = "narration_track.wav"
 
 # Python module and display name of each engine's package. A dub.VENV_ENGINES engine
 # is never imported here: its module names the package inside its own venv.
-_ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice"), "qwen3_tts": ("qwen_tts", "Qwen3-TTS")}
+_ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice"), "qwen3_tts": ("qwen_tts", "Qwen3-TTS"),
+                    "chatterbox": ("chatterbox", "Chatterbox")}
 # OmniVoice needs transformers 5.3+; the install can exist but not load.
 _OMNIVOICE_MIN_TRANSFORMERS: tuple[int, ...] = (5, 3)
 

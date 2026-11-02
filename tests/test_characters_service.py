@@ -195,8 +195,7 @@ def test_h1_unsupported_engine_message_has_no_engine_name(isolated_db):
     assert "nope_engine" not in str(e.value)
 
 
-@pytest.mark.parametrize("key,label", [("tada", "TADA"), ("chatterbox", "Chatterbox"),
-                                       ("gpt_sovits", "GPT-SoVITS")])
+@pytest.mark.parametrize("key,label", [("tada", "TADA"), ("gpt_sovits", "GPT-SoVITS")])
 def test_a_removed_engine_cannot_be_chosen_but_a_stored_one_loads(isolated_db, key, label):
     did = _drama(isolated_db, source_language="zh")
     removed = f"The {label} engine was removed. Pick another voice engine."
@@ -255,9 +254,9 @@ class TestVoiceBankHardening:
 
     def test_an_entry_saved_with_a_removed_engine_still_applies_and_reads_as_removed(
             self, isolated_db, tmp_path):
-        eid = self._entry(isolated_db, tmp_path, engine="chatterbox")
+        eid = self._entry(isolated_db, tmp_path, engine="tada")
         did = _drama(isolated_db, source_language="zh")
         entry = cs.apply_voice_bank_entry(did, "A", eid)
-        assert entry["has_ref_audio"] is True and entry["clone_engine"] == "chatterbox"
+        assert entry["has_ref_audio"] is True and entry["clone_engine"] == "tada"
         assert entry["clone_engine_removed"] == (
-            "The Chatterbox engine was removed. Pick another voice engine.")
+            "The TADA engine was removed. Pick another voice engine.")
