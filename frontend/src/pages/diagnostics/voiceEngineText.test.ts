@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import type { VoiceEngineInstallRow } from '../../types/voiceEngines'
-import { canOfferVoiceEngine, voiceEngineResultLine, voiceEngineStatusLine } from './voiceEngineText'
+import { QWEN3_TTS_DAMAGED, canOfferVoiceEngine, canRemoveVoiceEngine, voiceEngineResultLine, voiceEngineStatusLine } from './voiceEngineText'
 
 const row = (o: Partial<VoiceEngineInstallRow> = {}): VoiceEngineInstallRow => ({
-  engine: 'qwen3_tts', label: 'Qwen3-TTS', installed: false, required_mb: 6000, refusal: null,
+  engine: 'qwen3_tts', label: 'Qwen3-TTS', installed: false, folder_present: false, required_mb: 6000, refusal: null,
   job_id: 'voice_engine_install_qwen3_tts', job: null, last_result: null, ...o,
 })
 const running = { status: 'running', progress: 0.4, message: 'Installing PyTorch…', error: null }
@@ -23,6 +23,13 @@ describe('Voice cloning: Qwen3-TTS row', () => {
     expect(voiceEngineStatusLine(row({ refusal: 'Not enough free disk space (about 6 GB needed).' })))
       .toBe('Not enough free disk space (about 6 GB needed).')
     expect(voiceEngineStatusLine(row({ installed: true, job: running }))).toBeNull()
+  })
+
+  it('offers Remove only for a folder that exists, and calls a half-installed one damaged', () => {
+    expect(canRemoveVoiceEngine(row())).toBe(false)
+    expect(canRemoveVoiceEngine(row({ installed: true, folder_present: true }))).toBe(true)
+    expect(canRemoveVoiceEngine(row({ folder_present: true, job: running }))).toBe(false)
+    expect(voiceEngineStatusLine(row({ folder_present: true }))).toBe(QWEN3_TTS_DAMAGED)
   })
 
   it('shows the last result with its tone, but not while a job runs', () => {

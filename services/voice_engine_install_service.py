@@ -47,6 +47,10 @@ def job_id(engine: str) -> str:
     return f"voice_engine_install_{engine}"
 
 
+def remove_job_id(engine: str) -> str:
+    return f"voice_engine_remove_{engine}"
+
+
 def _spec(engine: str) -> dict:
     if engine not in ENGINES:
         raise InvalidInputError("Unknown voice engine.")
@@ -59,13 +63,22 @@ def _clean(text) -> str:
     return diagnostics_report.redact_for_support(out)[:OUTPUT_LINE_CHARS]
 
 
-def _job_view(engine: str):
-    job = background_jobs.get_status(job_id(engine))
+def _job_view(jid: str):
+    job = background_jobs.get_status(jid)
     if not job:
         return None
     return {"status": job.get("status"), "progress": float(job.get("progress") or 0.0),
             "message": _clean(job.get("message") or ""),
             "error": _clean(job.get("error")) if job.get("error") else None}
+
+
+def _current_job(engine: str) -> dict:
+    """The install or the removal, whichever is running (else the install), so the card
+    polls and cancels the right one."""
+    remove = _job_view(remove_job_id(engine))
+    if remove and remove["status"] in ("running", "queued"):
+        return {"job_id": remove_job_id(engine), "job": remove}
+    return {"job_id": job_id(engine), "job": _job_view(job_id(engine))}
 
 
 def _free_mb() -> int:
@@ -113,8 +126,9 @@ def get_status() -> dict:
             last = dict(_RESULTS[engine]) if engine in _RESULTS else None
         engines.append({"engine": engine, "label": spec["label"],
                         "installed": voice_venv.is_ready(engine),
+                        "folder_present": os.path.lexists(voice_venv.venv_dir(engine)),
                         "required_mb": spec["required_mb"], "refusal": _refusal(engine),
-                        "job_id": job_id(engine), "job": _job_view(engine), "last_result": last})
+                        **_current_job(engine), "last_result": last})
     return {"free_mb": free, "engines": engines}
 
 
@@ -217,3 +231,41 @@ def _install_job(engine: str):
         raise RuntimeError(f"The {label} install could not start.") from None
     _store(engine, True, f"{label} installed.", tail)
     background_jobs.set_result(jid, {"status": "ok", "detail": f"{label} installed."})
+
+
+def start_remove(engine: str, confirm: bool = False) -> dict:
+    """PC only (the route is local_only()). Deletes the engine's own folder,
+    voice_engines/<engine>, and nothing else, as a background job. 422 unconfirmed, for an
+    unknown engine or when there is no folder; 409 while any job runs (a narration may be
+    using the venv)."""
+    label = _spec(engine)["label"]
+    admin_svc.guard(confirm)
+    if not os.path.lexists(voice_venv.venv_dir(engine)):
+        raise admin_svc.AdminActionNotPossible(f"{label} is not installed.")
+    if not job_launch.start_job(remove_job_id(engine), lambda: _remove_job(engine),
+                                description=f"Removing {label}", line_fields=()):
+        raise admin_svc.AdminActionJobsRunning(f"{label} is already being removed.")
+    return {"job_id": remove_job_id(engine), "started": True}
+
+
+def _remove_job(engine: str):
+    label = ENGINES[engine]["label"]
+    folder = voice_venv.venv_dir(engine)
+    background_jobs.update_progress(remove_job_id(engine), 0.1, f"Removing {label}…")
+    if os.path.islink(folder):
+        # Never follow a link out of the data folder: only the link itself goes.
+        os.unlink(folder)
+    else:
+        # The marker goes first, so a removal cut short never leaves a venv that counts
+        # as ready.
+        marker = os.path.join(folder, voice_venv.READY_MARKER)
+        if os.path.exists(marker):
+            os.remove(marker)
+        shutil.rmtree(folder, ignore_errors=True)
+    if os.path.lexists(folder):
+        message = (f"Some of {label}'s files could not be removed. Close anything using them "
+                   "and press Remove again.")
+        _store(engine, False, message, [])
+        raise RuntimeError(message)
+    _store(engine, True, f"{label} removed.", [])
+    background_jobs.set_result(remove_job_id(engine), {"status": "ok", "detail": f"{label} removed."})

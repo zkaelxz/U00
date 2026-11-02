@@ -1,7 +1,7 @@
 import { useCallback, useId, useState } from 'react'
 
 import { cancelJob } from '../../api/jobs'
-import { getVoiceEngines, installVoiceEngine } from '../../api/voiceEngines'
+import { getVoiceEngines, installVoiceEngine, removeVoiceEngine } from '../../api/voiceEngines'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
@@ -9,7 +9,10 @@ import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { adminErrorText, installBlockedReason, type AdminBusy } from './diagnosticsAdmin'
 import { jobProgressLine } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
-import { QWEN3_TTS_DISK, QWEN3_TTS_INTRO, canOfferVoiceEngine, voiceEngineResultLine, voiceEngineStatusLine } from './voiceEngineText'
+import {
+  QWEN3_TTS_DISK, QWEN3_TTS_INTRO, QWEN3_TTS_REMOVE_NOTE, canOfferVoiceEngine, canRemoveVoiceEngine, voiceEngineResultLine,
+  voiceEngineStatusLine,
+} from './voiceEngineText'
 
 const ENGINE = 'qwen3_tts'
 
@@ -44,11 +47,11 @@ export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished
   const result = voiceEngineResultLine(status)
   const tail = status.last_result?.output_tail ?? []
   const title = `Voice cloning: ${status.label}`
-  const start = async () => {
+  const run = async (action: (engine: string) => Promise<unknown>) => {
     setStarting(true)
     setError(null)
     try {
-      await installVoiceEngine(ENGINE)
+      await action(ENGINE)
       onStarted()
     } catch (e) {
       setError(adminErrorText(e, 'install'))
@@ -113,9 +116,28 @@ export function VoiceEngineInstall({ pc, jobsActive, busy, onStarted, onFinished
             disabled={!!blocked}
             describedBy={blocked ? reasonId : undefined}
             busy={starting}
-            onConfirm={() => void start()}
+            onConfirm={() => void run(installVoiceEngine)}
           />
           {blocked && <span className="muted" id={reasonId}>{blocked}</span>}
+        </div>
+      )}
+      {local && canRemoveVoiceEngine(status) && (
+        <div className="diag-stack" data-testid="qwen3-tts-remove">
+          <p className="muted">{QWEN3_TTS_REMOVE_NOTE}</p>
+          <div className="actions">
+            <ConfirmButton
+              name={status.label}
+              label={`Remove ${status.label}…`}
+              ariaLabel={`Remove ${status.label}`}
+              verb="remove"
+              tone="danger"
+              confirmLabel={`Confirm remove ${status.label}`}
+              disabled={!!blocked}
+              describedBy={blocked ? reasonId : undefined}
+              busy={starting}
+              onConfirm={() => void run(removeVoiceEngine)}
+            />
+          </div>
         </div>
       )}
     </div>

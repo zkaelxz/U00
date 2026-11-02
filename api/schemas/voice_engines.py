@@ -15,6 +15,8 @@ __all__ = [
     "VoiceEngineInstallStatus",
     "VoiceEngineInstallStarted",
     "VoiceEngineInstallRequest",
+    "VoiceEngineRemoveStarted",
+    "VoiceEngineRemoveRequest",
 ]
 
 
@@ -32,6 +34,7 @@ class VoiceEngineInstallRow(BaseModel):
     engine: str
     label: str
     installed: bool
+    folder_present: bool = Field(description="Its folder exists, ready or not (a damaged install).")
     required_mb: int
     refusal: Optional[str] = Field(None, description="Why the install can't start now, or null.")
     job_id: str
@@ -49,4 +52,12 @@ class VoiceEngineInstallStarted(JobStarted):
 
 
 class VoiceEngineInstallRequest(ConfirmRequest):
+    pass
+
+
+class VoiceEngineRemoveStarted(JobStarted):
+    pass
+
+
+class VoiceEngineRemoveRequest(ConfirmRequest):
     pass

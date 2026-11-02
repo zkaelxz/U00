@@ -13,3 +13,8 @@ export const getVoiceEngines = (f?: Fetch) =>
 export const installVoiceEngine = (engine: string, f?: Fetch) =>
   postJson<DiagnosticsJobStarted>(`/api/diagnostics/voice-engines/${encodeURIComponent(engine)}/install`,
     { confirm: true }, pcOnlyFetch(f))
+
+// Deletes only the engine's own folder on the server; only the engine key and the confirm are sent.
+export const removeVoiceEngine = (engine: string, f?: Fetch) =>
+  postJson<DiagnosticsJobStarted>(`/api/diagnostics/voice-engines/${encodeURIComponent(engine)}/remove`,
+    { confirm: true }, pcOnlyFetch(f))

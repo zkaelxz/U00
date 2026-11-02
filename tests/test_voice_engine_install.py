@@ -76,7 +76,7 @@ def test_status_is_booleans_sizes_and_text(client, env):
     body = client.get("/api/diagnostics/voice-engines").json()
     assert body["free_mb"] == 50_000
     assert body["engines"] == [{
-        "engine": "qwen3_tts", "label": "Qwen3-TTS", "installed": False,
+        "engine": "qwen3_tts", "label": "Qwen3-TTS", "installed": False, "folder_present": False,
         "required_mb": 6000, "refusal": None, "job_id": JOB, "job": None, "last_result": None}]
 
 
@@ -176,3 +176,71 @@ def test_the_steps_are_fixed_and_match_the_card(monkeypatch, tmp_path):
     assert steps[2][-1] == "qwen-tts==0.1.1" and "--index-url" not in steps[2]
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     assert "torch==2.11.0+cpu" in svc._commands("qwen3_tts")[1][2]
+
+
+REMOVE_JOB = svc.remove_job_id("qwen3_tts")
+
+
+def _remove(client, confirm=True):
+    return client.post("/api/diagnostics/voice-engines/qwen3_tts/remove", json={"confirm": confirm})
+
+
+@pytest.fixture
+def clean_remove_job():
+    background_jobs.clear_job(REMOVE_JOB)
+    yield
+    job_runner.wait_for_job_threads(10, job_ids=[REMOVE_JOB])
+    background_jobs.clear_job(REMOVE_JOB)
+
+
+def test_remove_deletes_only_the_engine_folder(client, env, clean_remove_job):
+    _install(client)
+    wait_for_job(JOB, timeout=15)
+    data = os.path.dirname(os.path.dirname(voice_venv.venv_dir("qwen3_tts")))
+    keep = os.path.join(data, "library", "voice_refs", "a.wav")
+    os.makedirs(os.path.dirname(keep))
+    open(keep, "w").close()
+    r = _remove(client)
+    assert r.status_code == 200 and r.json() == {"job_id": REMOVE_JOB, "started": True}
+    assert wait_for_job(REMOVE_JOB, timeout=15)["status"] == "done"
+    assert not os.path.lexists(voice_venv.venv_dir("qwen3_tts")) and os.path.exists(keep)
+    row = client.get("/api/diagnostics/voice-engines").json()["engines"][0]
+    assert row["installed"] is False and row["folder_present"] is False
+    assert row["last_result"]["message"] == "Qwen3-TTS removed."
+
+
+def test_remove_needs_confirm_and_a_folder(client, env, clean_remove_job):
+    assert _remove(client, confirm=False).status_code == 422
+    r = _remove(client)
+    assert r.status_code == 422 and "not installed" in r.json()["error"]["message"]
+    assert background_jobs.get_status(REMOVE_JOB) is None
+
+
+def test_a_damaged_folder_shows_and_can_be_removed(client, env, clean_remove_job):
+    os.makedirs(voice_venv.venv_dir("qwen3_tts"))
+    row = client.get("/api/diagnostics/voice-engines").json()["engines"][0]
+    assert row["installed"] is False and row["folder_present"] is True
+    _remove(client)
+    assert wait_for_job(REMOVE_JOB, timeout=15)["status"] == "done"
+    assert not os.path.lexists(voice_venv.venv_dir("qwen3_tts"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_remove_never_follows_a_link_out_of_the_data_folder(client, env, clean_remove_job, tmp_path):
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "precious.txt").write_text("x", encoding="utf-8")
+    os.makedirs(os.path.dirname(voice_venv.venv_dir("qwen3_tts")))
+    os.symlink(outside, voice_venv.venv_dir("qwen3_tts"))
+    _remove(client)
+    assert wait_for_job(REMOVE_JOB, timeout=15)["status"] == "done"
+    assert (outside / "precious.txt").exists()
+    assert not os.path.lexists(voice_venv.venv_dir("qwen3_tts"))
+
+
+def test_remove_is_refused_while_a_job_runs(client, env, clean_remove_job, monkeypatch):
+    from services import library_admin_service
+    os.makedirs(voice_venv.venv_dir("qwen3_tts"))
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
+    assert _remove(client).status_code == 409
+    assert os.path.exists(voice_venv.venv_dir("qwen3_tts"))

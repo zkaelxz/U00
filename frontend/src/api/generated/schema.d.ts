@@ -2675,6 +2675,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/voice-engines/{engine}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: delete a voice engine's own folder as a background job (confirm=true) */
+        post: operations["post_voice_engine_remove_api_diagnostics_voice_engines__engine__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diarization/dramas/{drama_id}/config": {
         parameters: {
             query?: never;
@@ -28660,6 +28677,11 @@ export interface components {
         VoiceEngineInstallRow: {
             /** Engine */
             engine: string;
+            /**
+             * Folder Present
+             * @description Its folder exists, ready or not (a damaged install).
+             */
+            folder_present: boolean;
             /** Installed */
             installed: boolean;
             job?: components["schemas"]["VoiceEngineInstallJob"] | null;
@@ -28689,6 +28711,21 @@ export interface components {
             engines: components["schemas"]["VoiceEngineInstallRow"][];
             /** Free Mb */
             free_mb: number;
+        };
+        /** VoiceEngineRemoveRequest */
+        VoiceEngineRemoveRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+        };
+        /** VoiceEngineRemoveStarted */
+        VoiceEngineRemoveStarted: {
+            /** Job Id */
+            job_id: string;
+            /** Started */
+            started: boolean;
         };
         /** WebSearchConfig */
         WebSearchConfig: {
@@ -35970,6 +36007,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VoiceEngineInstallStarted"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_voice_engine_remove_api_diagnostics_voice_engines__engine__remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceEngineRemoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceEngineRemoveStarted"];
                 };
             };
             /** @description Conflict */

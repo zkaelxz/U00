@@ -8,7 +8,7 @@ import { guard, mockDiagnostics } from './diagnosticsInstallsMocks'
 
 const JOB = 'voice_engine_install_qwen3_tts'
 const row = (o: Record<string, unknown> = {}) => ({
-  engine: 'qwen3_tts', label: 'Qwen3-TTS', installed: false, required_mb: 6000, refusal: null,
+  engine: 'qwen3_tts', label: 'Qwen3-TTS', installed: false, folder_present: false, required_mb: 6000, refusal: null,
   job_id: JOB, job: null, last_result: null, ...o,
 })
 
@@ -19,11 +19,15 @@ async function mockVoiceEngines(page: Page, sent: Request[]) {
     const engine = step < 0 ? row()
       : step <= 2 ? row({ job: { status: 'running', progress: 0.4, message: 'Installing PyTorch…', error: null } })
         : row({
-          installed: true, refusal: 'Qwen3-TTS is already installed.',
+          installed: true, folder_present: true, refusal: 'Qwen3-TTS is already installed.',
           job: { status: 'done', progress: 1, message: '', error: null },
           last_result: { ok: true, message: 'Qwen3-TTS installed.', output_tail: ['done'] },
         })
     return r.fulfill({ json: { free_mb: 50_000, engines: [engine] } })
+  })
+  await page.route((u) => u.pathname === '/api/diagnostics/voice-engines/qwen3_tts/remove', (r) => {
+    sent.push(r.request())
+    return r.fulfill({ json: { job_id: 'voice_engine_remove_qwen3_tts', started: true } })
   })
   await page.route((u) => u.pathname === '/api/diagnostics/voice-engines/qwen3_tts/install', (r) => {
     sent.push(r.request())
@@ -50,5 +54,14 @@ test('install takes two presses, shows progress, then says it is installed', asy
   await expect(block.getByTestId('qwen3-tts-result')).toContainText('Qwen3-TTS installed.', { timeout: 15_000 })
   await expect(block.getByTestId('qwen3-tts-status')).toHaveText('Qwen3-TTS is installed.')
   await expect(block.getByRole('button', { name: 'Install Qwen3-TTS' })).toHaveCount(0)
+  // Installed: Remove takes two presses too, says what it keeps, and sends only the confirm.
+  await expect(block.getByTestId('qwen3-tts-remove')).toContainText(
+    'Remove Qwen3-TTS? This deletes its separate folder (about 5 GB). Your voices and narration tracks are kept.')
+  await block.getByRole('button', { name: 'Remove Qwen3-TTS' }).click()
+  expect(sent).toHaveLength(1)
+  await block.getByRole('button', { name: 'Confirm remove Qwen3-TTS' }).click()
+  await expect.poll(() => sent.length).toBe(2)
+  expect(sent[1].url()).toContain('/api/diagnostics/voice-engines/qwen3_tts/remove')
+  expect(sent[1].postDataJSON()).toEqual({ confirm: true })
   expect(m.unmocked).toEqual([])
 })
