@@ -1,23 +1,14 @@
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
+
 import type { DramaDetail } from '../api/types'
 
 // Mirrors the Library* / DramaCreate* / DramaDelete* models in api/schemas/library.py.
 
-export interface LibraryUsage {
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  estimated_cost_usd: number
-  call_count: number
-}
+export type LibraryUsage = Schemas['LibraryUsage']
 
-export interface LibraryDashboard {
-  total_dramas: number
-  by_status: Record<string, number>
-  by_media_type: Record<string, number>
-  total_lines: number
-  translated_lines: number
-  usage: LibraryUsage
-}
+export type LibraryDashboard = Schemas['LibraryDashboard']
 
 interface LibraryDramaRef {
   id: number
@@ -85,17 +76,9 @@ interface LibraryContinueEntry {
 }
 
 // GET /api/library/filter-options: the "All dramas" filters' data-driven choices.
-export interface LibraryFilterOptions {
-  studios: string[]
-  authors: string[]
-  voice_actors: string[]
-  custom_tags: string[]
-}
+export type LibraryFilterOptions = Schemas['LibraryFilterOptions']
 
-export interface ReadingHistoryClearResult {
-  cleared: boolean
-  removed: number
-}
+export type ReadingHistoryClearResult = Schemas['ReadingHistoryClearResult']
 
 export interface LibraryPreset {
   id: number
@@ -145,14 +128,7 @@ export interface ProfileOptions {
   [transcribeOption: string]: string | number | boolean | string[] | undefined
 }
 
-export interface LibraryVoice {
-  id: number
-  name: string
-  language: string | null
-  clone_engine: string | null
-  source_drama: string | null
-  clip_available: boolean
-}
+export type LibraryVoice = Schemas['LibraryVoice']
 
 export interface DramaCreateRequest {
   source_language: string
@@ -174,37 +150,9 @@ export interface DramaCreateRequest {
 }
 
 // api/schemas/library.py DramaMetadataUpdate: partial, only sent keys are written.
-export interface DramaMetadataUpdate {
-  title_en?: string
-  title_zh?: string
-  author?: string
-  studio?: string
-  director?: string
-  voice_actors?: string
-  summary?: string
-  genre?: string
-  custom_tags?: string
-  source_url?: string // '' clears; else must start with http:// or https://
-  episode_summary?: string
-  chapter_count?: number // 0 clears
-  episode_number?: number // 0 clears
-  default_female_pronouns?: boolean // the Translate stage's she/her default
-  include_genre_notes?: boolean // the Translate stage's genre guidance
-  translate_by_sentence?: boolean // the Translate stage's whole-sentence mode
-  keep_original?: boolean // the Media stage's "Keep original files" pin
-  media_type?: string
-  release_date?: string // '' clears; else YYYY-MM-DD
-  publication_status?: string // unknown / ongoing / completed / hiatus
-  series_id?: number // 0 takes the drama out of its series
-  new_series_name?: string // not with series_id
-}
+export type DramaMetadataUpdate = Schemas['DramaMetadataUpdate']
 
-export interface DramaDeleteResult {
-  deleted: boolean
-  drama_id: number
-  // Set when the drama is gone but some of its files could not be removed.
-  warning?: string | null
-}
+export type DramaDeleteResult = Schemas['DramaDeleteResult']
 
 // api/schemas/library.py DramaPresetDefaults: a preset's session-only values, which
 // the client holds (only the preset's engine is saved on the drama).
