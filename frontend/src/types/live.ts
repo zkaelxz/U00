@@ -1,4 +1,7 @@
 // Hand-written mirrors of api/schemas/transcribe.py (Live* models).
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 type LiveStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
@@ -47,15 +50,9 @@ export interface LiveFormOptions {
   }
 }
 
-export interface LiveOllamaCheck {
-  ok: boolean
-  model: string
-  message: string | null
-}
+export type LiveOllamaCheck = Schemas['LiveOllamaCheck']
 
-export interface LiveSessionStarted {
-  session_id: string
-}
+export type LiveSessionStarted = Schemas['LiveSessionStarted']
 
 /** pending until the engine answers; failed, cancelled and skipped (the translation queue was full) keep the transcript. */
 type LiveTranslation = 'pending' | 'done' | 'failed' | 'cancelled' | 'skipped'
@@ -102,36 +99,16 @@ export interface LiveSessionStatus {
   next_index: number
 }
 
-export interface LiveSessionSummary {
-  session_id: string
-  status: LiveStatus | string
-  engine: string | null
-  model?: string | null
-  cue_count: number
-}
+export type LiveSessionSummary = Schemas['LiveSessionSummary']
 
-export interface LiveSessionStopped {
-  session_id: string
-  stopping: boolean
-  /** True: the session captions what it already captured, then ends; Stop again ends it at once. */
-  finishing?: boolean
-}
+export type LiveSessionStopped = Schemas['LiveSessionStopped']
 
 // Followed channels (api/routers/live_follow_routes.py). Never a URL:
 // `channel` is the short label ("@name", "channel/UC...").
 export type LiveFollowMode = 'notify' | 'auto'
 type LiveFollowState = '' | 'live' | 'upcoming' | 'not_live' | 'error'
 
-export interface LiveFollowOptions {
-  source_language: string
-  whisper_size: string
-  engine: string | null
-  model: string | null
-  max_minutes: number
-  use_gpu: boolean
-  glossary_drama_id: number | null
-  series_id: number | null
-}
+export type LiveFollowOptions = Schemas['LiveFollowOptions']
 
 export interface LiveFollow {
   id: number
@@ -173,11 +150,7 @@ export interface LiveFollowAdd {
   options?: LiveFollowOptions
 }
 
-export interface LiveFollowUpdate {
-  mode?: LiveFollowMode
-  auto_check?: boolean
-  options?: LiveFollowOptions
-}
+export type LiveFollowUpdate = Schemas['LiveFollowUpdate']
 
 /** skipped = shown as written: nothing in it to translate, or the translator was behind. */
 type LiveChatState = 'pending' | 'done' | 'failed' | 'skipped'
@@ -193,9 +166,4 @@ export interface LiveChatMessage {
 }
 
 /** GET /api/live/sessions/{id}/chat?after=: messages with an id above `after`. */
-export interface LiveChatPage {
-  state: 'connecting' | 'reading' | 'unavailable' | 'lost' | 'ended' | string
-  message: string
-  messages: LiveChatMessage[]
-  next_id: number
-}
+export type LiveChatPage = Schemas['LiveChatPage']
