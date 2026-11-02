@@ -39,6 +39,18 @@ test('the choice is remembered, and a link that names a stage still opens that s
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
 })
 
+test('a stage opened from the Simple page shows Full, and Simple there returns to the page', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 10) }))
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await page.getByRole('link', { name: 'Export' }).click()
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: 'Full' })).toBeChecked()
+  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await expect(page).toHaveURL(/#\/drama\/1$/)
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+})
+
 test('a novel has no Simple / Full switch', async ({ page }) => {
   await page.goto('/#/drama/2')
   await expect(page.getByTestId('drama-title')).toBeVisible()

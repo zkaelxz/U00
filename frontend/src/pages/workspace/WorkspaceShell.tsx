@@ -75,7 +75,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const comic = !!drama && isComicType(drama.media_type)
   const [storedView, storeView] = usePersistedState<string>(TITLE_VIEW_PREF, 'full')
   const twoViews = !!drama && hasSimpleView(titleKind(drama.media_type, drama.content_mode))
-  const view = asTitleView(storedView)
+  // A stage page is the Full workspace whatever the saved choice is; showing Simple there left the switch on a view it was already
+  // "in", so clicking Simple fired no change and the switch seemed dead.
+  const view = stage !== null ? 'full' : asTitleView(storedView)
   // Simple is a title page like the novel's, so a link that names a stage always opens the stage: choosing Simple there goes to the page itself.
   const chooseView = (v: TitleView) => {
     storeView(v)
