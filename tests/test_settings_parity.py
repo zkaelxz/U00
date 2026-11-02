@@ -132,7 +132,9 @@ def test_resolve_ocr_backend_auto(isolated_db, lang, prefer, expected, monkeypat
     assert expected == scanlate.auto_ocr_backend(lang, prefer)
 
 
-def test_resolve_ocr_backend_explicit_and_narrowed(isolated_db):
+def test_resolve_ocr_backend_explicit_and_narrowed(isolated_db, monkeypatch):
+    import ocr
+    monkeypatch.setattr(ocr, "backend_problem", lambda *a, **k: None)
     settings_service.set_settings({"ocr_backend": "tesseract"})
     assert settings_service.resolve_ocr_backend("ja") == "tesseract"
     settings_service.set_settings({"ocr_backend": "paddle_vl_manga"})

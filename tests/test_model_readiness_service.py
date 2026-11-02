@@ -188,6 +188,9 @@ def _route_id(case):
 def test_household_refused_when_model_missing(case, isolated_db, caches, monkeypatch):
     url, body, module, function, _populate = case
     started = _stub(monkeypatch, module, function)
+    import ocr
+    monkeypatch.setattr(ocr, "backend_problem",
+                        lambda backend, *a, **k: None if backend == "paddle" else object())
     _no_loaders(monkeypatch)
     did, session = _owned_drama(audio_filename="a.wav")
     r = _post(_household_client(), url.format(did=did), body, session)

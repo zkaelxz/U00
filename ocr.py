@@ -70,7 +70,9 @@ def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False)
         return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
     if source_language in ("zh", "ko"):
         # Callers don't pass an installed-check, so a PC without RapidOCR must not be sent to it.
-        return "rapidocr" if backend_problem("rapidocr") is None else "paddle"
+        if backend_problem("rapidocr") is None:
+            return "rapidocr"
+        return "paddle" if backend_problem("paddle") is None else "tesseract"
     return "tesseract"
 
 

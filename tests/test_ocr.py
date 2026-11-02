@@ -357,9 +357,13 @@ class TestExtractTextFromImagesUsesResolvedLang:
     def test_auto_picks_rapidocr_for_zh_ko_only_when_installed(self, monkeypatch):
         monkeypatch.setattr(ocr, "backend_problem", lambda backend, *a, **k: None)
         assert ocr.auto_ocr_backend("ko") == "rapidocr"
-        monkeypatch.setattr(ocr, "backend_problem", lambda backend, *a, **k: object())
+        monkeypatch.setattr(ocr, "backend_problem",
+                            lambda backend, *a, **k: object() if backend == "rapidocr" else None)
         assert ocr.auto_ocr_backend("zh") == "paddle"
         assert ocr.auto_ocr_backend("ko") == "paddle"
+        monkeypatch.setattr(ocr, "backend_problem",
+                            lambda backend, *a, **k: None if backend == "tesseract" else object())
+        assert ocr.auto_ocr_backend("zh") == ocr.auto_ocr_backend("ko") == "tesseract"
 
     def test_hardsub_default_is_auto_for_zh_ko(self):
         assert ocr.default_hardsub_backend("ko") == ocr.default_hardsub_backend("zh") == "auto"

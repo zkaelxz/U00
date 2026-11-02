@@ -134,15 +134,15 @@ def test_config_has_key_booleans_only(client, monkeypatch):
 
 
 def test_config_names_the_auto_backend_and_whether_it_is_installed(client, monkeypatch):
-    """A zh page under "auto" reports rapidocr only when it is installed, and paddle
-    (flagged not installed here) otherwise, so a PC without RapidOCR isn't sent to it."""
+    """A zh page under "auto" reports rapidocr only when it is installed, and falls back to
+    tesseract when neither RapidOCR nor PaddleOCR is, so a PC without RapidOCR isn't sent to it."""
     did = _drama()
     present = {"rapidocr"}
     monkeypatch.setattr(pages_svc.importlib.util, "find_spec",
                         lambda name: object() if name in present else None)
     body = client.get(f"/api/scanlate/dramas/{did}/config").json()
     # rapidocr is installed without its dependencies, so those count too.
-    assert body["ocr_backend"] == "paddle" and body["ocr_backend_installed"] is False
+    assert body["ocr_backend"] == "tesseract"
     present.update({"onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "yaml"})
     body = client.get(f"/api/scanlate/dramas/{did}/config").json()
     assert body["ocr_backend"] == "rapidocr" and body["ocr_backend_installed"] is True
