@@ -22,6 +22,14 @@ export interface SelectionActionContext {
   openRetranscribe: (lineIds: number[]) => void
 }
 
+type SelectionState = Pick<SelectionActionContext, 'selectedIds' | 'clear'> & { lineNumbers: (ids: number[]) => number[] }
+type SelectionOpeners = Pick<SelectionActionContext, 'openCompare' | 'openRetime' | 'openSetSpeaker' | 'openRetranscribe'>
+
+// Builds the context the selection bar's actions run with, so the panel that owns the selection doesn't spell out every field.
+export function selectionContext(dramaId: number, selection: SelectionState, notify: (message: string) => void, open: SelectionOpeners): SelectionActionContext {
+  return { dramaId, selectedIds: selection.selectedIds, lineNumbers: selection.lineNumbers(selection.selectedIds), clear: selection.clear, notify, ...open }
+}
+
 interface SelectionAction {
   id: string
   label: string
