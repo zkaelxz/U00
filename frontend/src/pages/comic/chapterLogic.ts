@@ -128,3 +128,32 @@ export function scopeCounts(pages: ComicPageInfo[], chapters: ComicChapter[], ch
       : null
   return { chapter, all: count(() => true) }
 }
+
+export interface ChapterRow {
+  id: string
+  label: string
+  meta: string
+  /** Ordinal the reader opens on: the chapter's first listed page. */
+  page: number
+}
+
+/**
+ * The title page's chapter list. A comic whose pages carry no chapter data has one "unknown" group, which is
+ * not a list worth showing, so it returns nothing. Hidden pages are left out of every count.
+ */
+export function chapterRows(pages: ComicPageInfo[], chapters: ComicChapter[]): ChapterRow[] {
+  if (chapters.length === 0 || (chapters.length === 1 && !chapters[0].known)) return []
+  const visible = pages.map((p, i) => (p.hidden ? 0 : i + 1)).filter(Boolean)
+  return chapters.map((c, i) => {
+    const inChapter = pages.filter((p) => p.chapter_id === c.id && !p.hidden)
+    const translated = inChapter.filter((p) => p.has_regions).length
+    const n = inChapter.length
+    const count = `${n} ${n === 1 ? 'page' : 'pages'}`
+    return {
+      id: c.id,
+      label: chapterLabel(c, i),
+      meta: n > 0 && translated > 0 ? `${count} · ${translated} translated` : count,
+      page: chapterStart(c, visible),
+    }
+  })
+}
