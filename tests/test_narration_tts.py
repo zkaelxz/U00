@@ -198,8 +198,7 @@ class TestCloneMapFromCharacters:
         m = dub.clone_map_from_characters(chars, "/d", default_engine="tada")
         assert m == {}  # a removed run engine voices nobody
 
-    @pytest.mark.parametrize("stored", ["f5tts", "f5", "edge_tts", "offline", "tada", "chatterbox",
-                                        "gpt_sovits"])
+    @pytest.mark.parametrize("stored", ["f5tts", "f5", "edge_tts", "offline", "tada", "gpt_sovits"])
     def test_a_character_stored_with_a_removed_engine_is_not_cloned_by_another_one(self, stored):
         chars = [self._char("A", ref_audio_filename="a.wav", ref_text="你好", clone_engine=stored)]
         assert dub.clone_map_from_characters(chars, "/d") == {}

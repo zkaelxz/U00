@@ -107,7 +107,7 @@ def _fake_omnivoice(calls=None, fail_on=None):
 
 
 class TestRemovedEngines:
-    """Edge TTS, Piper, F5-TTS, TADA, Chatterbox and GPT-SoVITS were removed:
+    """Edge TTS, Piper, F5-TTS, TADA and GPT-SoVITS were removed:
     nothing of them is left to
     call, and anything stored under their names is refused in plain words,
     never silently handed to another engine."""
@@ -124,7 +124,7 @@ class TestRemovedEngines:
 
     @pytest.mark.parametrize("key,label", [("edge_tts", "Edge TTS"), ("offline", "Piper"),
                                            ("f5tts", "F5-TTS"), ("f5", "F5-TTS"), ("tada", "TADA"),
-                                           ("chatterbox", "Chatterbox"), ("gpt_sovits", "GPT-SoVITS")])
+                                           ("gpt_sovits", "GPT-SoVITS")])
     def test_a_stored_key_gets_the_plain_removal_message(self, key, label):
         assert dub.removed_engine_message(key) == (
             f"The {label} engine was removed. Pick another voice engine.")
@@ -134,10 +134,10 @@ class TestRemovedEngines:
         for engine in dub.CLONE_ENGINES:
             assert dub.engine_refusal(engine) is None and dub.removed_engine_message(engine) is None
         assert dub.engine_refusal("nope") == "Unknown voice engine."
-        assert set(dub.CLONE_ENGINES) == {"omnivoice", "qwen3_tts"}
+        assert set(dub.CLONE_ENGINES) == {"omnivoice", "qwen3_tts", "chatterbox"}
         assert dub.DEFAULT_CLONE_ENGINE == "omnivoice"
 
-    @pytest.mark.parametrize("key", ["edge_tts", "offline", "f5tts", "tada", "chatterbox", "gpt_sovits"])
+    @pytest.mark.parametrize("key", ["edge_tts", "offline", "f5tts", "tada", "gpt_sovits"])
     def test_routing_a_removed_engine_entry_raises_the_message_not_a_traceback(self, key, tmp_path):
         with pytest.raises(RuntimeError, match="was removed. Pick another voice engine"):
             dub._synthesize_cloned({"engine": key, "ref_audio": "/r.wav", "ref_text": "x"}, "Hi",
@@ -193,7 +193,7 @@ class TestFallbackVoices:
         out = dub.clone_map_from_characters([], str(tmp_path), speaker_labels=labels)
         assert len(out) == len(labels)
 
-    @pytest.mark.parametrize("engine", ["tada", "chatterbox", "gpt_sovits"])
+    @pytest.mark.parametrize("engine", ["tada", "gpt_sovits"])
     def test_a_removed_run_engine_voices_nobody(self, engine, tmp_path):
         chars = [{"speaker_label": "A", "ref_audio_filename": "a.wav", "ref_text": "hi"}]
         assert dub.clone_map_from_characters(chars, str(tmp_path), default_engine=engine,
@@ -384,7 +384,7 @@ class TestCloneEngineOriginalLanguages:
 
     def test_removed_engines_are_not_gated_here_but_still_refused(self):
         # engine_refusal, not the language table, is what stops them.
-        for engine in ("tada", "chatterbox", "gpt_sovits"):
+        for engine in ("tada", "gpt_sovits"):
             assert dub.clone_engine_supports_language(engine, "ko")
             assert dub.engine_refusal(engine)
 

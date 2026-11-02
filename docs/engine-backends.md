@@ -475,7 +475,7 @@ Voices are in `dub.py` and narration in `dub_narration.py`; this page only maps 
   `clone_map_from_characters` builds one entry per speaker; a speaker with
   no clip gets an OmniVoice designed voice. Emotion tags do not reach the
   voice engine; they only steer translation.
-- **Removed engines:** `REMOVED_VOICE_ENGINES` (Edge TTS, Piper, F5-TTS, TADA, Chatterbox, GPT-SoVITS). A
+- **Removed engines:** `REMOVED_VOICE_ENGINES` (Edge TTS, Piper, F5-TTS, TADA, GPT-SoVITS; Chatterbox came back as a `VENV_ENGINES` engine). A
   stored `clone_engine` or request naming one gets `removed_engine_message`;
   nothing is rewritten or deleted.
 - **Narration:** `dub_narration.build_narration_track` (in `dub_narration.py`)

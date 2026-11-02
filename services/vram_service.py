@@ -26,6 +26,7 @@ import memory_headroom
 MODEL_VRAM_MB = {
     "OmniVoice": 2000,
     "Qwen3-TTS": 4000,      # the 1.7B Base model: about 3.4 GB of weights in half precision
+    "Chatterbox": 3500,     # the multilingual model in full precision: about 3 GB of weights
     "PaddleOCR-VL-For-Manga": 3000,
 }
 

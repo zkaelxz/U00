@@ -16,6 +16,7 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref, useRoute, type Route } from '../router'
 import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { BrowserInstall } from './diagnostics/BrowserInstall'
+import { VoiceEngineInstall } from './diagnostics/VoiceEngineInstall'
 import { DangerZone } from './diagnostics/DangerZone'
 import { CudaRuntimeInstall } from './diagnostics/CudaRuntimeInstall'
 import { DenoInstall } from './diagnostics/DenoInstall'
@@ -238,6 +239,14 @@ function DiagnosticsContent() {
           {card('deno', (
             <DenoInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('deno')}
               onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          ))}
+          {card('qwen3-tts', (
+            <VoiceEngineInstall engine="qwen3_tts" pc={pc} jobsActive={active} busy={adminBusy}
+              openSignal={signal('qwen3-tts')} onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          ))}
+          {card('chatterbox', (
+            <VoiceEngineInstall engine="chatterbox" pc={pc} jobsActive={active} busy={adminBusy}
+              openSignal={signal('chatterbox')} onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
           ))}
           {card('packages', overview && (
             <PackagesSection
