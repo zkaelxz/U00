@@ -5435,6 +5435,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/live/sessions/{session_id}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The session's chat messages after an id (poll from before the oldest pending one) */
+        get: operations["get_chat_api_live_sessions__session_id__chat_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/live/sessions/{session_id}/stop": {
         parameters: {
             query?: never;
@@ -19562,6 +19579,35 @@ export interface components {
              */
             tts_engine: string;
         };
+        /** LiveChatMessage */
+        LiveChatMessage: {
+            /** Author */
+            author: string;
+            /** Id */
+            id: number;
+            /**
+             * Paid
+             * @default
+             */
+            paid: string;
+            /** State */
+            state: string;
+            /** Text */
+            text: string;
+            /** Translation */
+            translation: string;
+        };
+        /** LiveChatPage */
+        LiveChatPage: {
+            /** Message */
+            message: string;
+            /** Messages */
+            messages: components["schemas"]["LiveChatMessage"][];
+            /** Next Id */
+            next_id: number;
+            /** State */
+            state: string;
+        };
         /** LiveCue */
         LiveCue: {
             /** End */
@@ -19824,6 +19870,12 @@ export interface components {
              */
             player_height: 360 | 480 | 720 | 1080;
             /**
+             * Read Chat
+             * @description YouTube links only: also read the stream's live chat and translate it.
+             * @default false
+             */
+            read_chat: boolean;
+            /**
              * Reply Without Thinking
              * @description Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.
              * @default true
@@ -19864,6 +19916,11 @@ export interface components {
         };
         /** LiveSessionStatus */
         LiveSessionStatus: {
+            /**
+             * Chat
+             * @default false
+             */
+            chat: boolean;
             /**
              * Chunks Measured
              * @default 0
@@ -44280,6 +44337,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveSessionStatus"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_chat_api_live_sessions__session_id__chat_get: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveChatPage"];
                 };
             };
             /** @description Not Found */

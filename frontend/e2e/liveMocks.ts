@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
 import { REMOTE_HEALTH_OFF } from './authMocks'
 import { json } from './mockHelpers'
 import { LIVE_FORM_FALLBACK } from '../src/api/live'
-import type { LiveFormOptions } from '../src/types/live'
+import type { LiveChatPage, LiveFormOptions } from '../src/types/live'
 
 // Shared page.route mocks for the Live specs. A real session would run
 // yt-dlp, ffmpeg and Whisper, so every /api call the page makes is mocked
@@ -82,6 +82,8 @@ interface LiveMocks {
     figures: Record<string, number | boolean>
     /** The first Stop is taken as "finish": the session keeps running until a second one. */
     finishOnStop: boolean
+    /** The session reads chat: GET .../chat answers this page. */
+    chat: LiveChatPage | null
   }
 }
 
@@ -95,7 +97,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
     follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
-    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, startMessage: 'Not allowed.', sessionsFail: false, model: null, notes: [], figures: {}, finishOnStop: false },
+    state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, startMessage: 'Not allowed.', sessionsFail: false, model: null, notes: [], figures: {}, finishOnStop: false, chat: null },
   }
   // Registered first, so it only answers what nothing below handles.
   await page.route('**/api/**', (route) => {
@@ -214,9 +216,10 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     m.polls.push(`after=${after}`)
     const { status, message, cues } = m.state
     return json(route, {
-      session_id: SID, status, message, model: m.state.model, progress: 0, notes: m.state.notes, cues: cues.slice(after), next_index: Math.max(after, cues.length), ...m.state.figures,
+      session_id: SID, status, message, model: m.state.model, progress: 0, notes: m.state.notes, chat: m.state.chat !== null, cues: cues.slice(after), next_index: Math.max(after, cues.length), ...m.state.figures,
     })
   })
+  await page.route(`**/api/live/sessions/${SID}/chat*`, (route) => json(route, m.state.chat))
   await page.route(`**/api/live/sessions/${SID}/stop`, (route) => {
     const r = route.request()
     m.posts.push({ url: r.url(), body: null, headers: r.headers() })

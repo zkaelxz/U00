@@ -649,3 +649,24 @@ def test_a_note_is_never_written_through_an_existing_file(isolated_db, tmp_path)
             pytest.skip("symlinks unavailable")
         storage.record_job_child("burned_video_1", os.getpid())
     assert target.read_text() == "keep"
+
+
+def test_legacy_sweep_removes_stale_own_prefix_files_only(tmp_path):
+    root = tmp_path / "systemtemp"
+    root.mkdir()
+    names = ("baihe_tmp_old.wav", "baihe_page_old.png", "other_old.wav")
+    t = time.time() - 2 * DAY
+    for name in names:
+        (root / name).write_bytes(b"x")
+        os.utime(root / name, (t, t))
+    (root / "baihe_tmp_fresh.wav").write_bytes(b"x")
+    assert storage.sweep_legacy_system_temp(system_temp=str(root)) == 2
+    assert sorted(os.listdir(root)) == ["baihe_tmp_fresh.wav", "other_old.wav"]
+
+
+def test_scratch_env_points_temp_at_a_folder_removed_afterwards():
+    with storage.scratch_env("pip-test") as env:
+        folder = env["TEMP"]
+        assert env["TMP"] == env["TMPDIR"] == folder
+        assert os.path.isdir(folder)
+    assert not os.path.exists(folder)

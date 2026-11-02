@@ -17,6 +17,27 @@ test('a chosen title is sent with Start, and None sends nothing extra', async ({
   expect(m.unmocked).toEqual([])
 })
 
+test('read chat is sent with Start and the chat shows beside the lines', async ({ page }) => {
+  const m = await mockLive(page)
+  m.state.status = 'running'
+  m.state.chat = { state: 'reading', message: 'Reading the chat.', next_id: 2, messages: [
+    { id: 1, author: 'Ann', text: '今天好开心', paid: '', translation: 'So happy today', state: 'done' },
+    { id: 2, author: 'Bo', text: '加油', paid: '$5.00', translation: '', state: 'pending' },
+  ] }
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await live.getByText('Advanced').click()
+  await live.getByRole('switch', { name: 'Read chat' }).click()
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ read_chat: true })
+  const chat = live.getByTestId('live-chat')
+  await expect(chat).toContainText('So happy today')
+  await expect(chat).toContainText('$5.00')
+  await expect(chat).toContainText('Translating…')
+  expect(m.unmocked).toEqual([])
+})
+
 test('a failed check for a running session is shown, not swallowed', async ({ page }) => {
   const m = await mockLive(page)
   m.state.sessionsFail = true

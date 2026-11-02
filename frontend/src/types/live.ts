@@ -19,6 +19,8 @@ export interface LiveSessionStart {
   player_height?: number
   /** A title whose glossary and language packs the translation may use (read-only). */
   glossary_drama_id?: number
+  /** YouTube links only: also read the stream's live chat and translate it. */
+  read_chat?: boolean
   /** Instead of a title: the series' glossary and the packs of its newest title with a pack choice. */
   series_id?: number
 }
@@ -94,6 +96,8 @@ export interface LiveSessionStatus {
   delayed_player?: boolean
   /** True once the delayed player's recording has something to play. */
   player_ready?: boolean
+  /** Whether this session reads the stream's chat (GET .../chat has the messages). */
+  chat?: boolean
   cues: LiveCue[]
   next_index: number
 }
@@ -173,4 +177,25 @@ export interface LiveFollowUpdate {
   mode?: LiveFollowMode
   auto_check?: boolean
   options?: LiveFollowOptions
+}
+
+/** skipped = shown as written: nothing in it to translate, or the translator was behind. */
+type LiveChatState = 'pending' | 'done' | 'failed' | 'skipped'
+
+export interface LiveChatMessage {
+  id: number
+  author: string
+  text: string
+  /** A Super Chat's amount as YouTube wrote it; empty for an ordinary message. */
+  paid: string
+  translation: string
+  state: LiveChatState | string
+}
+
+/** GET /api/live/sessions/{id}/chat?after=: messages with an id above `after`. */
+export interface LiveChatPage {
+  state: 'connecting' | 'reading' | 'unavailable' | 'lost' | 'ended' | string
+  message: string
+  messages: LiveChatMessage[]
+  next_id: number
 }
