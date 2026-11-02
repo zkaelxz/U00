@@ -298,20 +298,6 @@ work".
 | Reference | Read directly from the live site. No code ported. |
 | Tests | `tests/test_sources_piaotian.py` (small invented GBK fixtures shaped like the live pages; no network). |
 
-## ranobes.net — `sources/adapters/ranobes.py`
-
-| | |
-|---|---|
-| URL patterns | `ranobes.net/novels/<id>-<slug>.html` (series), `ranobes.net/<slug>-<id>/<chapter>.html` (chapter) |
-| Content type / language | novel, en (English translations) |
-| Status | Read against the live site while the adapter was built. The content status is not recorded in `docs/known-working-sources.md` (shown as unverified there). |
-| Access tier | `STATIC_HTTP` only. Series and chapter pages are server-rendered; the chapter list page is a Vue app, but the same data is already in the static HTML as a `window.__DATA__` JSON blob. |
-| Extraction | **Search:** POST `/index.php?do=search` (DataLife Engine's own search). **Series:** `h1.title`, description and cover from the series page. **Chapters:** `/chapters/<id>/` plus `/chapters/<id>/page/<n>/` for the remaining pages. **Chapter text:** `div#arrticle` (the site's own spelling). |
-| Domain | `ranobes.net` only. `ranobes.top` hit a live Cloudflare challenge when checked. |
-| Terms | robots.txt disallows `/engine/`, some listing and tag pagination paths and `ia_archiver`. `/rules.html` is a community-conduct policy and says nothing about automated access, so `automation_permission` stays `UNKNOWN`. |
-| Pacing | `docs/known-working-sources.md` records "Fast off" (2026-10-09): robots.txt disallows `/chapters/*/page/*`, which the adapter fetches for chapter-list pages 2 and later. |
-| Tests | `tests/test_sources_ranobes.py` |
-
 ## MangaK — `sources/adapters/mangak.py`
 
 | | |

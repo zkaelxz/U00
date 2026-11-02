@@ -27,7 +27,6 @@ FLOORS = {
     "lightnovel_fun": PERFECT,
     "ocr_zh": PERFECT,
     "piaotian_gbk": PERFECT,
-    "ranobes": PERFECT,
     "syosetu_ruby": PERFECT,
     "txt_big5": WITH_FRONT_MATTER,
     "txt_gbk": WITH_FRONT_MATTER,

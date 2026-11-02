@@ -31,7 +31,6 @@ first. **FREE-TIER-OK** = bigger but well bounded; a free Claude/Codex session w
 
 Found while recording the 2026-10-09 pacing vetting (`docs/source-status.json`). Not fixed; each is for the owner to decide.
 
-- `ranobes`: the adapter fetches `/chapters/*/page/*` for pages 2 and later, which robots.txt disallows.
 - `guazimanhua`: the adapter's search uses `/category.php?*keyword=`, which robots.txt disallows.
 - `syosetu`: the adapter scrapes HTML, while the terms (Art. 14 item 23) allow automated access only through the official なろうデベロッパー API.
 - `mangak`: the adapter ships although the site's terms of service (section 4) forbid bots.

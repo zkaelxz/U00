@@ -40,7 +40,7 @@ def layout_changed_class(site_name: str, subject: str = "page layout"):
     """The `LayoutChanged` error an adapter raises when a page lacks what it
     expects. Each adapter binds its own class, so `except mod.LayoutChanged`
     never catches another site's. `subject` is what changed ("API response"
-    for a JSON source); a name ending in an apostrophe (ranobes') is already
+    for a JSON source); a name ending in an apostrophe (Example') is already
     possessive."""
     possessive = site_name if site_name.endswith("'") else f"{site_name}'s"
 

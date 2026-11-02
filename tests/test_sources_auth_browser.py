@@ -387,6 +387,18 @@ class TestAutomationPermission:
         assert not caps.terms_restrictions()
         assert site_terms.capabilities_for("https://unrelated.invalid/") is None
 
+    def test_wuxiaworld_findings_are_recorded(self):
+        caps = site_terms.capabilities_for("https://www.wuxiaworld.com/novel/x")
+        assert caps is not None
+        assert caps.automation_permission == "EXPLICITLY_RESTRICTED"
+        assert caps.terms["tos_prohibited"] is True
+        assert "scraper" in caps.terms["clause"].lower()
+
+    def test_webnovel_findings_are_recorded(self):
+        caps = site_terms.capabilities_for("https://www.webnovel.com/book/x")
+        assert caps is not None
+        assert "cloudflare" in caps.terms["extraction_method"].lower()
+
     @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_an_ai_ml_use_restriction_refuses_too(self, isolated_db):
         default = SourceCapabilities(platform="AI-restricted",

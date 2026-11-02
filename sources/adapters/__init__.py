@@ -8,7 +8,7 @@ import importlib
 
 BUILTIN = ["manhuagui", "bilibili", "52shuku", "xbanxia", "bilibili_manga",
           "guazimanhua", "miaoqumh", "baozimh", "kuaikan", "manhuaku",
-          "zerosumonline", "ranobes", "missevan", "fanjiao",
+          "zerosumonline", "missevan", "fanjiao",
           "lightnovel_fun", "syosetu", "piaotian", "mangak", "twmanga", "rawkuma", "marumaru", "newxtoon"]
 
 
