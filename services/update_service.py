@@ -124,6 +124,7 @@ _release = None     # internal: {"version", "exe_name", "exe_url", "exe_size", "
 _verified = None    # internal: {"version", "name", "path", "sha256", "signature"}
 _download_thread = None
 _installing = False  # install() is copying and checking: a download now would delete its file
+_setup = None  # the Setup process install() started, while it may still be open
 _monotonic = time.monotonic
 
 
@@ -745,12 +746,20 @@ def _setup_env() -> dict:
 _SETUP_STARTING = "An app update is already starting."
 
 
+def setup_busy() -> bool:
+    """Whether install() is starting Setup or a Setup it started is still
+    open: the app-only update must not swap the app folder Setup replaces."""
+    with _lock:
+        return _installing or (_setup is not None and _setup.poll() is None)
+
+
 def install() -> dict:
     """Starts the verified installer's normal (visible) Setup from a private
     copy, and nothing else: the server keeps running. Refused off Windows,
-    for a source checkout, without a verified download, and while a
-    download or any job is running."""
+    for a source checkout, without a verified download, while a download or
+    any job is running, and while Setup or an app-only update is under way."""
     global _installing
+    from services import app_update_service
     if not _is_windows():
         raise UnsupportedOperationError("Installing an update is only possible on Windows.")
     if not _is_installed():
@@ -761,13 +770,17 @@ def install() -> dict:
     with _lock:
         if _state["download"] == "downloading":
             raise ConflictError("Wait for the download to finish.")
-        if _installing:
+        if _installing or (_setup is not None and _setup.poll() is None):
             raise ConflictError(_SETUP_STARTING)
         verified = _verified
         if verified is None:
             raise ConflictError("Download and verify the update first.")
         _installing = True
     try:
+        # Outside _lock: the app-only update takes its own lock and then
+        # calls setup_busy(), so holding both here could deadlock.
+        if app_update_service.apply_busy():
+            raise ConflictError(_SETUP_STARTING)
         return _install(verified)
     finally:
         with _lock:
@@ -775,7 +788,7 @@ def install() -> dict:
 
 
 def _install(verified) -> dict:
-    global _verified
+    global _verified, _setup
     # The option may have been switched off since the download; same rule as download().
     if not is_newer(verified["version"], current_version(), include_prereleases()):
         raise ConflictError("There is no newer version to install. Check for updates first.")
@@ -814,9 +827,11 @@ def _install(verified) -> dict:
     try:
         # The server's job lets a child out only for the length of this call.
         with process_guard.breakaway_allowed():
-            subprocess.Popen([copy], cwd=folder, env=_setup_env(),
-                             creationflags=_CREATE_BREAKAWAY_FROM_JOB | _CREATE_NEW_PROCESS_GROUP,
-                             close_fds=True)
+            setup = subprocess.Popen([copy], cwd=folder, env=_setup_env(),
+                                     creationflags=_CREATE_BREAKAWAY_FROM_JOB
+                                     | _CREATE_NEW_PROCESS_GROUP, close_fds=True)
+        with _lock:
+            _setup = setup
     except (OSError, ValueError):
         shutil.rmtree(folder, ignore_errors=True)
         raise DependencyUnavailableError(

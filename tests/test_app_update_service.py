@@ -337,6 +337,37 @@ def test_a_second_apply_is_refused_while_the_first_is_starting(env, monkeypatch)
     assert len(env["started"]) == 1
 
 
+def test_apply_is_refused_while_the_full_setup_is_open(env, monkeypatch):
+    """Setup replaces the app folder the swap renames: one at a time."""
+    class OpenSetup:
+        def poll(self):
+            return None
+    _serve(env)
+    us.check()
+    _download(env)
+    monkeypatch.setattr(us, "_setup", OpenSetup())
+    with pytest.raises(ConflictError, match="already starting"):
+        aus.apply()
+    assert not (env["root"] / "app-0.2.0").exists() and env["started"] == []
+    assert aus._applying is False
+
+
+def test_full_setup_is_refused_while_an_app_update_is_under_way(env, monkeypatch):
+    monkeypatch.setattr(us, "_setup", None)
+    monkeypatch.setattr(us, "_verified", {"version": "0.2.0", "name": "x.exe", "path": "x",
+                                          "sha256": "0" * 64, "signature": ""})
+    started = []
+    monkeypatch.setattr(us, "_install", lambda verified: started.append(verified))
+    monkeypatch.setattr(aus, "_applying", True)
+    with pytest.raises(ConflictError, match="already starting"):
+        us.install()
+    monkeypatch.setattr(aus, "_applying", False)
+    app_swap.write_journal(env["root"], app_swap.QUEUED, "0.1.0", "0.2.0", "0.1.0")
+    with pytest.raises(ConflictError, match="already starting"):
+        us.install()
+    assert started == [] and us._installing is False
+
+
 def test_a_failed_apply_lets_the_next_one_start(env, monkeypatch):
     _serve(env)
     us.check()

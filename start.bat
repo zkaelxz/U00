@@ -344,6 +344,9 @@ REM make this skip the install step entirely and fail later with a much
 REM less clear error. Keep the import list in :core_imports_ok in
 REM sync with requirements-core.txt's own packages. An update that changed the
 REM requirements or constraints files skips the check and installs anyway.
+REM If that install fails (offline, say) but the packages already here still
+REM import, start anyway: an update from away must not leave the app down.
+if defined BAIHE_FORCE_DEPS set "DEPS_RETRY=1"
 if defined BAIHE_FORCE_DEPS goto :install_deps
 REM The forced install above happens only on the run that updated; if it
 REM failed or was closed, the requirement files differ from the last install

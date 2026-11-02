@@ -539,10 +539,15 @@ def configure_timeouts(idle_seconds: int, absolute_seconds: int) -> None:
     IDLE_TIMEOUT_SECONDS, ABSOLUTE_TIMEOUT_SECONDS = int(idle_seconds), int(absolute_seconds)
 
 
+def _signed_in_at(sess: dict) -> float:
+    signed_in = sess.get("signed_in_at")
+    return sess["created_at"] if signed_in is None else signed_in
+
+
 def _expires_at(sess: dict) -> float:
     """The stored expiry, or sooner if the absolute timeout was shortened
-    after the session was created."""
-    return min(sess["expires_at"], sess["created_at"] + ABSOLUTE_TIMEOUT_SECONDS)
+    after the sign-in behind the session."""
+    return min(sess["expires_at"], _signed_in_at(sess) + ABSOLUTE_TIMEOUT_SECONDS)
 
 
 def _is_live(sess: dict, now: float) -> bool:
@@ -562,10 +567,11 @@ def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float 
                            label or device_label(user_agent), ip)
 
 
-def _insert_session(user_id: int, now: float, expires_at: float, label: str, ip: str) -> dict:
+def _insert_session(user_id: int, now: float, expires_at: float, label: str, ip: str,
+                    signed_in_at: float | None = None) -> dict:
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_insert_session(_hash(token), user_id, now, expires_at, label,
-                                 ip_prefix(ip), _hash(csrf))
+                                 ip_prefix(ip), _hash(csrf), signed_in_at)
     write_audit(user_id, "session.create", f"session {sid}")
     return {"session_token": token, "csrf_token": csrf, "session_id": sid,
             "expires_at": expires_at}
@@ -591,7 +597,8 @@ def create_child_session(parent_session_id: int, user_id: int, label: str, ip: s
     if parent is None:
         return None
     session = _insert_session(user_id, now,
-                              min(now + ABSOLUTE_TIMEOUT_SECONDS, _expires_at(parent)), label, ip)
+                              min(now + ABSOLUTE_TIMEOUT_SECONDS, _expires_at(parent)), label, ip,
+                              signed_in_at=_signed_in_at(parent))
     # Re-read after the insert: a revoke-all that deleted the parent after
     # the check above ran before this row existed and would miss it.
     if _live_session_row(parent_session_id, user_id, now) is None:

@@ -82,7 +82,6 @@ STALE_WORKDIR_SECONDS = TIMEOUT_SECONDS + 30 * 60
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[@-_]")
 _URL = re.compile(r"(https?://[^\s/?#'\"<>]+)[^\s'\"<>]*", re.IGNORECASE)
-_SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL|COOKIE|SESSION|AUTH", re.IGNORECASE)
 
 
 # --- detection -------------------------------------------------------------
@@ -180,9 +179,8 @@ def build_argv(program: str, url: str, chapters: str = "all", count: Optional[in
 def child_env(data_dir: str) -> dict:
     """The parent's environment minus anything secret-looking (and Baihe's
     own settings), with lncrawl pointed at the temp data folder."""
-    env = {k: v for k, v in os.environ.items()
-           if not _SECRET_ENV.search(k) and not k.upper().startswith(("BAIHE_", "LNCRAWL_"))
-           and k.upper() != "DATABASE_URL"}
+    env = {k: v for k, v in proc_run.secretless_env(("BAIHE_", "LNCRAWL_")).items()
+           if k.upper() != "DATABASE_URL"}
     # LNCRAWL_CONFIG / DATABASE_URL would point lncrawl at a config or
     # database outside the temp folder (lncrawl 4.x config.py).
     env.update({"LNCRAWL_DATA_PATH": data_dir, "PYTHONIOENCODING": "utf-8",
