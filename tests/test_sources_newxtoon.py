@@ -138,6 +138,11 @@ class TestPages:
         assert [p.url for p in a.get_pages(self._chapter())] == [
             "https://user1.files.example.invalid/a/1.jpg", "https://user1.files.example.invalid/a/2.jpg"]
 
+    def test_page_refs_carry_the_site_referer_the_image_host_requires(self):
+        a, _ = _adapter({f"{BASE}/comics/12/chapters/30": html(CHAPTER)})
+        refs = a.get_pages(self._chapter())
+        assert all(p.headers == {"Referer": f"{a.base_url}/"} for p in refs)
+
     def test_no_images_is_a_layout_change(self):
         a, _ = _adapter({f"{BASE}/comics/12/chapters/30": html("<html><img src='https://x.invalid/a.jpg'></html>")})
         with pytest.raises(newxtoon.LayoutChanged):
