@@ -38,7 +38,8 @@ from scanlate_detect import (
 )
 import scanlate_tuning
 from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
-                              lettering_size, reclassify_wordy_sfx)
+                              lettering_size, reclassify_wordy_sfx,
+                              region_excluded_from_auto)
 from scanlate_render import sample_text_style
 from scanlate_translate import translate_page_bubbles
 from scanlate_watermark import flag_site_marks
@@ -269,6 +270,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         bubbles.append(b)
     reclassify_wordy_sfx(bubbles)
     flag_site_marks(bubbles)
+    _note_skipped_sfx(bubbles, notes)
     if art_captions:
         bubbles += (captions if captions is not None
                     else _art_caption_regions(image_path, source_language, bubbles, page, notes,
@@ -299,6 +301,15 @@ def suggest_font_size(gray, region: dict) -> int:
         # Linear size grows with the square root of the free area.
         size *= min(t.TYPESET_GROW_MAX, (t.TYPESET_GROW_BELOW_FILL / fill) ** 0.5)
     return int(min(max(round(size), t.TYPESET_START_MIN_PX), t.TYPESET_START_MAX_PX))
+
+
+def _note_skipped_sfx(bubbles: list, notes: list) -> None:
+    """Says how many sound effects the page leaves as they are, so a page whose
+    big lettering was not translated does not look like a missed detection."""
+    skipped = sum(1 for b in bubbles if region_excluded_from_auto(b))
+    if skipped:
+        notes.append(("info", "1 sound-effect region left as it is." if skipped == 1
+                      else f"{skipped} sound-effect regions left as they are."))
 
 
 def _note_no_bubbles(image_path: str, page, notes: list) -> None:
