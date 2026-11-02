@@ -1602,19 +1602,40 @@ def test_trigger_in_sources_db_refused(isolated_db):
 
 
 @pytest.mark.parametrize("member", ["./backups/exports/planted.zip",
-                                    "extension_token.txt.", "backups/ /x", "a//b"])
+                                    "extension_token.txt.", "backups/ /x", "a//b",
+                                    "NUL", "media/con.txt", "CONIN$", "lpt1/x.wav"])
 def test_kept_name_variants_rejected_by_validation(isolated_db, member):
     with pytest.raises(InvalidInputError):
         lbr.validate_backup_zip(_zip({"library.db": b"x", member: b"x"}))
 
 
+@pytest.mark.parametrize("member", ["./backups/exports/planted.zip", "../outside.txt",
+                                    "/abs.txt", "C:/x.txt", "extension_token.txt.", "a//b",
+                                    "media/Aux.mp3", "CONOUT$"])
+def test_restore_core_refuses_unsafe_names_without_the_service_check(isolated_db, member):
+    """Direct call, no service validation: the core checks names itself, so
+    a second caller can't extract an unchecked zip."""
+    _new("A")
+    _write(page_server.TOKEN_FILENAME, b"current-token")
+    count = len(db.list_dramas())
+    data = _rewrite(_backup_bytes(), extra={member: b"x"})
+    with pytest.raises(ValueError, match="unsafe file path"):
+        lrs.restore_library_backup(data, db.LIBRARY_DIR)
+    assert len(db.list_dramas()) == count and not _leftovers()
+    with open(os.path.join(db.LIBRARY_DIR, page_server.TOKEN_FILENAME), "rb") as f:
+        assert f.read() == b"current-token"
+    with pytest.raises(NotFoundError):
+        las.admin_artifact_path("export")
+
+
 def test_kept_name_variants_removed_from_staging(isolated_db, tmp_path):
-    """Direct wjs call (the tab's path, no service validation): anything
-    the filesystem resolves to a kept name is removed from staging."""
+    """Direct call (no service validation): a name that passes the core's own
+    check but that the filesystem resolves to a kept name (a case variant on
+    Windows) is removed from staging. "./backups/..." is refused outright now
+    (test_restore_core_refuses_unsafe_names_without_the_service_check)."""
     _new("A")
     _write(page_server.TOKEN_FILENAME, b"current-token")
     data = _rewrite(_backup_bytes(), extra={
-        "./backups/exports/planted.zip": _zip({"x": b"x"}),
         "BACKUPS/planted.zip": b"x",
     })
     lrs.restore_library_backup(data, db.LIBRARY_DIR)

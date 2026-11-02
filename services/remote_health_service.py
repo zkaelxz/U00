@@ -25,6 +25,10 @@ reads the configured public-address check once even then.
   applies without a restart.
 - listener: the household listener accepts a TCP connection on this PC.
 
+The public name's addresses and the checked IP also go to
+`url_guard.set_home_addresses` (`refresh_home_addresses`, at monitor start and
+each cycle), so a link import can't reach this home through its WAN address.
+
 Alerts: the overall state is the worst check. On a change into warn or
 critical (or from warn up to critical) and on the change back to ok,
 `notification_service.notify_remote_access` is called once. The last result
@@ -203,14 +207,38 @@ def _current_public_ip(url):
     return ipaddress.ip_address(raw.decode("ascii").strip())
 
 
-def _resolve(host):
+_checked_ip = None   # this PC's public address from the last successful IP check
+
+
+def refresh_home_addresses(public_url, stop=None) -> None:
+    """Tells url_guard this home's own public addresses (the public name's
+    DNS answer plus the last checked IP), so a link import can't reach the
+    router or this PC through the home's WAN address. The monitor runs it
+    while remote access is on; Diagnostics' IP check test also fills the last
+    checked IP whenever a public URL is set. A failed, stopped or empty
+    lookup keeps the last set."""
+    from lib import url_guard
+    target = public_target(public_url)
+    if target is None:
+        return
+    try:
+        resolved = _resolve(target[0], stop)
+    except OSError:
+        return
+    if not resolved:
+        return
+    url_guard.set_home_addresses(
+        {str(a) for a in resolved} | ({str(_checked_ip)} if _checked_ip else set()))
+
+
+def _resolve(host, stop=None):
     """Every address `host` resolves to; getaddrinfo has no timeout of its
     own, so it is bounded by RESOLVE_TIMEOUT."""
     try:
         return _bounded(lambda: {ipaddress.ip_address(str(i[4][0]).split("%")[0])
                                  for i in socket.getaddrinfo(host, None,
                                                              type=socket.SOCK_STREAM)},
-                        RESOLVE_TIMEOUT)
+                        RESOLVE_TIMEOUT, stop)
     except Exception:
         raise OSError("not resolved") from None
 
@@ -220,15 +248,19 @@ def check_ddns(host) -> dict:
     if not url:
         return _check("not_configured", "The public address check is not set up.",
                       configured=False)
+    global _checked_ip
     try:
         current = _current_public_ip(url)
     except Exception:
         return _check("unknown", "This PC's public address could not be read.",
                       configured=True)
+    _checked_ip = current
     try:
         resolved = _resolve(host)
     except OSError:
         return _check("critical", "The public name does not resolve.", configured=True)
+    from lib import url_guard
+    url_guard.set_home_addresses({str(a) for a in resolved} | {str(current)})
     if resolved and not any(a.is_global for a in resolved):
         return _check("unknown", "The public name resolves to a local address here, "
                       "so it can't be compared.", configured=True)
@@ -467,8 +499,11 @@ def run_ip_check_test(public_url) -> dict:
 
 
 def reset_for_tests():
-    global _memory, _last_test, _test_workers
+    global _memory, _last_test, _test_workers, _checked_ip
+    from lib import url_guard
     _memory = None
+    _checked_ip = None
+    url_guard.set_home_addresses(())
     _last_test = 0.0
     with _test_workers_lock:
         _test_workers = 0

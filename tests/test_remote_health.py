@@ -208,6 +208,7 @@ def test_monitor_runs_the_check_when_on(env, monkeypatch):
         calls.append((url, port, host, isinstance(stop, threading.Event)))
         ran.set()
     monkeypatch.setattr(rhs, "run_check", fake_run)
+    monkeypatch.setattr(rhs, "refresh_home_addresses", lambda url, stop=None: calls.append(("home", url)))
     settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
                            google_client_id="cid", google_client_secret="s")
     try:
@@ -217,7 +218,22 @@ def test_monitor_runs_the_check_when_on(env, monkeypatch):
     finally:
         background.stop_remote_health_monitor()
     assert background._remote_health_poller is None
-    assert calls[0] == (PUBLIC_URL, PORT, "127.0.0.1", True)
+    # The home's addresses are learnt before the first wait, then before each check.
+    assert calls[:3] == [("home", PUBLIC_URL), ("home", PUBLIC_URL),
+                         (PUBLIC_URL, PORT, "127.0.0.1", True)]
+
+
+def test_monitor_learns_the_home_addresses_before_the_first_check_is_due(env, monkeypatch):
+    learnt = threading.Event()
+    monkeypatch.setattr(rhs, "refresh_home_addresses", lambda url, stop=None: learnt.set())
+    monkeypatch.setattr(rhs, "run_check", lambda *a, **k: pytest.fail("checked"))
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
+                           google_client_id="cid", google_client_secret="s")
+    try:
+        assert background.start_remote_health_monitor(settings, interval=3600, first=3600)
+        assert learnt.wait(5)
+    finally:
+        background.stop_remote_health_monitor()
 
 
 # --- DDNS ---------------------------------------------------------------------
@@ -244,6 +260,58 @@ def test_ddns_compares_public_ip_with_the_name(env, monkeypatch, resolved, state
     assert result["state"] == state and result["configured"] is True
 
 
+def test_the_checked_and_resolved_addresses_are_refused_to_link_imports(env, monkeypatch):
+    from lib import url_guard
+    env.write_text(f"{rhs.IP_CHECK_ENV}={CHECK_URL}\n")
+    monkeypatch.setattr(rhs, "_current_public_ip", lambda url: ipaddress.ip_address("93.184.216.34"))
+    monkeypatch.setattr(rhs, "_resolve", lambda host: {ipaddress.ip_address("1.1.1.1")})
+    rhs.check_ddns("baihe.example.com")
+    assert {str(n) for n in url_guard._home_networks} == {"93.184.216.34/32", "1.1.1.1/32"}
+    # The refresh at startup and each cycle keeps the last checked address.
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: {ipaddress.ip_address("1.0.0.1")})
+    rhs.refresh_home_addresses("https://baihe.example.com")
+    assert {str(n) for n in url_guard._home_networks} == {"93.184.216.34/32", "1.0.0.1/32"}
+
+
+def test_refreshing_home_addresses_does_nothing_with_remote_access_off(env, monkeypatch):
+    from lib import url_guard
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: pytest.fail("resolved"))
+    rhs.refresh_home_addresses("")
+    assert url_guard._home_networks == ()
+
+
+def test_a_failed_lookup_keeps_the_last_home_addresses(env, monkeypatch):
+    from lib import url_guard
+    url_guard.set_home_addresses({"93.184.216.34"})
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: (_ for _ in ()).throw(OSError("x")))
+    rhs.refresh_home_addresses("https://baihe.example.com")
+    assert [str(n) for n in url_guard._home_networks] == ["93.184.216.34/32"]
+
+
+def test_an_empty_lookup_keeps_the_last_home_addresses(env, monkeypatch):
+    from lib import url_guard
+    url_guard.set_home_addresses({"93.184.216.34"})
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: set())
+    rhs.refresh_home_addresses("https://baihe.example.com")
+    assert [str(n) for n in url_guard._home_networks] == ["93.184.216.34/32"]
+
+
+def test_a_stop_ends_a_hung_home_address_lookup_at_once(env, monkeypatch):
+    from lib import url_guard
+    url_guard.set_home_addresses({"93.184.216.34"})
+    release = threading.Event()
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: release.wait(10) and [])
+    stop = threading.Event()
+    stop.set()
+    started = time.monotonic()
+    try:
+        rhs.refresh_home_addresses("https://baihe.example.com", stop=stop)
+    finally:
+        release.set()
+    assert time.monotonic() - started < 1
+    assert [str(n) for n in url_guard._home_networks] == ["93.184.216.34/32"]
+
+
 def test_ddns_name_not_resolving_is_critical(env, monkeypatch):
     env.write_text(f"{rhs.IP_CHECK_ENV}={CHECK_URL}\n")
     monkeypatch.setattr(rhs, "_current_public_ip", lambda url: ipaddress.ip_address("93.184.216.34"))
@@ -254,7 +322,7 @@ def test_ddns_name_not_resolving_is_critical(env, monkeypatch):
 
 def test_ddns_check_url_failure_is_unknown(env, monkeypatch):
     env.write_text(f"{rhs.IP_CHECK_ENV}=http://ip.example.net/\n")   # not https
-    monkeypatch.setattr(rhs, "_resolve", lambda host: pytest.fail("resolved"))
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: pytest.fail("resolved"))
     assert rhs.check_ddns("baihe.example.com")["state"] == "unknown"
 
 
@@ -490,6 +558,7 @@ def test_monitor_stop_ends_a_running_cycle_within_the_join(env, monkeypatch, spi
         entered.set()
         return real_bounded(fn, timeout, stop)
     monkeypatch.setattr(rhs, "_bounded", bounded)
+    monkeypatch.setattr(rhs, "refresh_home_addresses", lambda url, stop=None: None)
     settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
                            google_client_id="cid", google_client_secret="s")
     try:

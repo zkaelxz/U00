@@ -524,8 +524,10 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
 
 
 def _checked_members(zf) -> list:
-    """The zip's members, refused (ValueError) unless it holds library.db, stays within the member
-    count and size limits and reads back without a CRC error."""
+    """The zip's members, refused (ValueError) unless it holds library.db, every name is a
+    plain relative path (no symlink entry), it stays within the member count and size limits
+    and it reads back without a CRC error. The caller's own name check is repeated here so a
+    second caller can't extract an unchecked zip."""
     if "library.db" not in zf.namelist():
         raise ValueError("This doesn't look like a Baihe library "
                           "backup (no library.db found inside the zip).")
@@ -537,6 +539,8 @@ def _checked_members(zf) -> list:
             "or unsafe to extract.")
     total_size = 0
     for info in infos:
+        if library_restore_sql._unsafe_member(info):
+            raise ValueError("The backup contains an unsafe file path.")
         if info.file_size > MAX_RESTORE_MEMBER_BYTES:
             raise ValueError(
                 f"Backup zip contains a file ({info.filename}) that would "

@@ -197,6 +197,15 @@ def _echo_engine_off_after_each_test():
 
 
 @pytest.fixture(autouse=True)
+def _home_addresses_forgotten():
+    """url_guard refuses the home's own public addresses process-wide; one
+    test's remote-health check must not make the next test's fetch refused."""
+    yield
+    from lib import url_guard
+    url_guard.set_home_addresses(())
+
+
+@pytest.fixture(autouse=True)
 def _ml_detector_failure_forgotten():
     """The comic detector remembers a failed model load process-wide; a test that
     triggers one must not make the next test's ML detection fail."""

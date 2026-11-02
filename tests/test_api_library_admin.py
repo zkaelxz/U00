@@ -406,6 +406,25 @@ class TestRestore:
         assert error_of(r)["message"].startswith("A restore can load at most")
         assert validated == [] and no_swap == []
 
+    def test_body_over_the_cap_is_refused_before_any_of_it_is_read(self, client, monkeypatch,
+                                                                    no_swap):
+        """The Content-Length is checked first, so a huge restore never
+        reaches the temp folder."""
+        monkeypatch.setattr(lbr, "RESTORE_MAX_UPLOAD_BYTES", 1000)
+        parsed = []
+        monkeypatch.setattr("lib.capped_request.capped", lambda *a, **k: parsed.append("read"))
+        r = _restore(client, b"0" * (library_admin_routes._MULTIPART_OVERHEAD + 2000))
+        assert r.status_code == 413
+        assert error_of(r)["message"].startswith("A restore can load at most")
+        assert "read" not in parsed and no_swap == []
+
+    def test_chunked_restore_is_refused(self, client, no_swap):
+        def body():
+            yield b"--x\r\n"
+        r = client.post(f"{BASE}/restore", content=body(),
+                        headers={**LOCAL_HDR, "Content-Type": "multipart/form-data; boundary=x"})
+        assert r.status_code == 422 and no_swap == []
+
     def test_read_capped_without_declared_size(self, monkeypatch):
         """No UploadFile.size (e.g. chunked): the single limit+1 read refuses."""
         from fastapi import UploadFile

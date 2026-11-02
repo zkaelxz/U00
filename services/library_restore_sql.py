@@ -8,6 +8,7 @@ import sqlite3
 import zipfile
 
 import db
+from lib.safe_paths import is_device_name
 
 
 def copy_rows(conn, src: str, table: str):
@@ -95,6 +96,9 @@ def _unsafe_member(info: zipfile.ZipInfo) -> bool:
     # part ending in a dot or space names the same file as without it on
     # Windows -- either could slip a member past the kept-name filter.
     if any(p in ("", ".", "..") or p.endswith((".", " ")) for p in parts):
+        return True
+    # Windows opens these as devices, not files, wherever they sit in the path.
+    if any(is_device_name(p) for p in parts):
         return True
     return (info.external_attr >> 16) & 0o170000 == 0o120000  # symlink entry
 

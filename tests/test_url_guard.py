@@ -130,3 +130,25 @@ def test_cross_origin_headers_drop_credentials_and_trim_the_referer():
 
 def test_cross_origin_headers_drop_a_referer_with_no_origin():
     assert ug.cross_origin_headers({"referer": "about:blank", "X": "1"}) == {"X": "1"}
+
+
+def test_the_homes_own_public_address_is_refused(monkeypatch):
+    """A router may serve its admin page to hairpin traffic on the WAN address."""
+    ug.set_home_addresses({"93.184.216.34", "2606:4700:10::5"})
+    for ip in ("93.184.216.34", "::ffff:93.184.216.34", "2606:4700:10::5",
+               "2606:4700:10::99"):           # another device on the home /64
+        _answers(monkeypatch, ip)
+        with pytest.raises(ug.UnsafeURLError) as exc:
+            ug.resolve_public("https://home.example.com/")
+        assert str(exc.value) == ug.NOT_PUBLIC, ip
+    for ip in ("93.184.216.35", "2606:4700:11::5"):
+        _answers(monkeypatch, ip)
+        assert ug.resolve_public("https://example.com/") == ip
+    ug.set_home_addresses(())
+    _answers(monkeypatch, "93.184.216.34")
+    assert ug.resolve_public("https://example.com/") == "93.184.216.34"
+
+
+def test_home_addresses_skip_what_is_not_a_public_address():
+    ug.set_home_addresses({"not an ip", "192.168.1.1", "::1", "8.8.8.8"})
+    assert ug._home_networks == (__import__("ipaddress").ip_network("8.8.8.8/32"),)
