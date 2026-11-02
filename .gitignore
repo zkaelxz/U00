@@ -58,10 +58,11 @@ Thumbs.db
 playwright_browsers/
 
 # Other app data a checkout keeps beside the code (portable.data_dir()):
-# downloaded models, a queued dependency install, saved comics, tool reports
+# downloaded models, a queued dependency install, saved comics, voice engine venvs, tool reports
 /model_cache/
 /pending_install/
 /saved_comics/
+/voice_engines/
 /asr-bench-report.md
 /self-test-report.txt
 /context-bench-report.md

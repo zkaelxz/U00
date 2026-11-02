@@ -757,6 +757,16 @@ def test_scanlate_with_paddle_chosen_needs_its_models(isolated_db, caches):
     assert all(need() for need in mrs.for_scanlate(did))
 
 
+def test_scanlate_art_captions_on_rapidocr_need_no_paddle_models(isolated_db, caches):
+    from services import settings_service
+    settings_service.set_settings({"ocr_backend": "rapidocr"})
+    did = db.create_drama(title_en="T", source_language="zh")
+    _rapidocr_pages(caches)
+    assert all(need() for need in mrs.for_scanlate(did, art_captions=True))
+    settings_service.set_settings({"ocr_backend": "manga_ocr"})
+    assert len(mrs.for_scanlate(did, art_captions=True)) == len(mrs.for_scanlate(did)) + 1
+
+
 def test_rapidocr_downloads_only_what_it_does_not_ship(caches):
     import ocr
     assert mrs.rapidocr_ready("zh", medium=False), "the small pair is inside the wheel"

@@ -140,6 +140,8 @@ EXPECTED_TOP_LEVEL_FILES = [
     "video_export.py",
     "vocab_export.py",
     "voice_id.py",
+    "voice_venv.py",
+    "voice_worker.py",
     "cuda_runtime_path.py",
     "whisper_hallucination.py",
     "whisper_models.py",
