@@ -29,6 +29,11 @@ test('Simple shows the five actions and the episode, and Full brings the stage t
 
 test('the choice is remembered, and a link that names a stage still opens that stage', async ({ page }) => {
   await page.route('**/api/workflow/dramas/3/progress', (route) => route.fulfill({ json: progress(3, 0, 0) }))
+  // Without audio the button stays a link to Transcribe; the seeded video may or may not have audio, so pin it.
+  await page.route('**/api/transcribe/dramas/3/config', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: false } })
+  })
   await page.goto('/#/drama/3')
   await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
   await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
