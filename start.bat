@@ -160,6 +160,19 @@ if errorlevel 1 (
 
 REM --- Virtual environment ------------------------------------------------
 if not exist %PY% (
+    REM Only when making a venv: an existing one keeps running the Python it
+    REM was made from, whatever `python` on PATH is now.
+    %PYCMD% -c "import sys; sys.exit(0 if sys.version_info[:2] >= (3, 12) else 1)" >nul 2>nul
+    if errorlevel 1 (
+        echo Python found, but older than 3.12.
+        echo.
+        echo Install Python 3.12 or newer from https://python.org/downloads/
+        echo and make sure to tick "Add python.exe to PATH" during setup,
+        echo then run this again.
+        echo ^(setup.bat on this PC can check and install what is missing.^)
+        if not defined BAIHE_NOPAUSE pause
+        exit /b 1
+    )
     echo Setting up a virtual environment in "%VENV_DIR%\" ^(first run only^)...
     %PYCMD% -m venv "%VENV_DIR%"
     if errorlevel 1 (

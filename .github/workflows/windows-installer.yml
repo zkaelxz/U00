@@ -7,7 +7,7 @@ name: Windows Installer
 # library landed in the data folder (not the program folder), stop, silent
 # uninstall, and check the data folder survived. Those installs opt out of
 # the boot service (/MERGETASKS=!service); the "Service --" steps then test
-# the default install: Baihe Studio as a Windows service (running, automatic
+# the install that ticks it (/MERGETASKS=service): Baihe Studio as a Windows service (running, automatic
 # start, its own account, loopback only, restarted after a crash, stopped
 # cleanly), an update over it, and an uninstall that removes it.
 #
@@ -293,11 +293,11 @@ jobs:
           if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "clean uninstall touched the first install's data folder"; exit 1 }
           Write-Host "Clean uninstall removed everything Baihe made and nothing else."
 
-      # The default install: Baihe Studio as a Windows service that starts
+      # The install with the service ticked: Baihe Studio as a Windows service that starts
       # with Windows (installer/service.py). Setup's service step needs
       # administrator rights; hosted runners run elevated (checked here, so
       # a prompt can never hang the job).
-      - name: Service -- the default install runs it at boot, loopback only
+      - name: Service -- the ticked install runs it at boot, loopback only
         shell: pwsh
         run: |
           $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -311,7 +311,7 @@ jobs:
           $log3 = Join-Path $env:RUNNER_TEMP "setup3.log"
           "APP_DIR3=$app3" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "DATA_DIR3=$data3" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app3`"","/DATADIR=`"$data3`"","/LOG=`"$log3`"" -Wait -PassThru
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/MERGETASKS=service","/DIR=`"$app3`"","/DATADIR=`"$data3`"","/LOG=`"$log3`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
           $account = (Get-CimInstance Win32_Service -Filter "Name='BaiheStudio'").StartName
           if ($account -ne 'NT SERVICE\BaiheStudio') { Write-Error "BaiheStudio runs as '$account'"; exit 1 }

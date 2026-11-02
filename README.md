@@ -32,7 +32,7 @@ You need Git. In PowerShell, from a folder you own:
 ```
 git clone https://github.com/zkaelxz/U00 Baihe
 cd Baihe
-.\setup.bat                    # checks Python 3.13, ffmpeg and Node.js 22 and installs what is missing
+.\setup.bat                    # checks Python 3.12+, ffmpeg and Node.js 22 and installs what is missing (Python 3.13 if it has to)
 .\start.bat --build-frontend   # first run: creates the environment and builds the interface (several minutes)
 ```
 
