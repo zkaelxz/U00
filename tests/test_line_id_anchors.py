@@ -57,6 +57,27 @@ def test_wiki_spoiler_limit_follows_the_line_not_its_old_position(isolated_db):
     assert [(e["name"], e["first_seen_line_idx"]) for e in shown] == [("Late", 2)]
 
 
+def test_wiki_known_through_follows_the_boundary_line(isolated_db):
+    did, lines = _drama_with_lines()
+    db.upsert_wiki_entry(did, "character", "A", known_through_line_idx=4, known_through_line_id=lines[4].id)
+    db.save_lines(did, [dataclasses.replace(ln, idx=i) for i, ln in enumerate(lines[2:])])
+    assert db.list_wiki_entries(did)[0]["known_through_line_idx"] == 2
+
+
+def test_wiki_known_through_keeps_the_furthest_boundary(isolated_db):
+    did, lines = _drama_with_lines()
+    db.upsert_wiki_entry(did, "character", "A", known_through_line_idx=4, known_through_line_id=lines[4].id)
+    db.upsert_wiki_entry(did, "character", "A", known_through_line_idx=1, known_through_line_id=lines[1].id)
+    assert db.list_wiki_entries(did)[0]["known_through_line_idx"] == 4
+
+
+def test_wiki_known_through_falls_back_to_the_stored_position_when_its_line_is_gone(isolated_db):
+    did, lines = _drama_with_lines()
+    db.upsert_wiki_entry(did, "character", "A", known_through_line_idx=0, known_through_line_id=lines[0].id)
+    _drop_first_line(did, lines)
+    assert db.list_wiki_entries(did)[0]["known_through_line_idx"] == 0
+
+
 def _bloat(path):
     conn = sqlite3.connect(path, isolation_level=None)
     conn.execute("CREATE TABLE IF NOT EXISTS junk (x BLOB)")

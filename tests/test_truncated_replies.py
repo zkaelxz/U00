@@ -366,6 +366,42 @@ class TestOtherRetryPathsDoNotRebill:
         assert engine.asked == [[10, 11, 12], [12], [12]]
         assert usage == _REASK_USAGE
 
+    def test_benchmark_case_failure_keeps_billed_tokens(self, monkeypatch):
+        from services import benchmark_case_service as svc
+        monkeypatch.setattr(shared.time, "sleep", lambda s: None)
+
+        class Engine:
+            name = "claude"
+            model = "claude-sonnet-5-5"
+            last_usage = {"input_tokens": 999, "output_tokens": 999,
+                          "cache_read_tokens": 0, "cache_write_tokens": 0}
+
+            def translate_batch(self, sources, context=None):
+                self.last_usage = {"input_tokens": 120, "output_tokens": 30,
+                                   "cache_read_tokens": 0, "cache_write_tokens": 0}
+                raise RuntimeError("unparseable reply")
+
+        result = svc.run_translation(Engine(), {"source_text": "一"})
+        assert result["error"]
+        assert result["usage"]["input_tokens"] == 120
+        assert result["usage"]["output_tokens"] == 30
+
+    def test_benchmark_case_failure_before_any_reply_is_free(self, monkeypatch):
+        from services import benchmark_case_service as svc
+        monkeypatch.setattr(shared.time, "sleep", lambda s: None)
+
+        class Engine:
+            name = "claude"
+            last_usage = {"input_tokens": 999, "output_tokens": 999,
+                          "cache_read_tokens": 0, "cache_write_tokens": 0}
+
+            def translate_batch(self, sources, context=None):
+                raise RuntimeError("no connection")
+
+        result = svc.run_translation(Engine(), {"source_text": "一"})
+        assert result["error"]
+        assert not any(result["usage"].values())
+
     def test_benchmark_case_retry_keeps_paid_replies(self, monkeypatch):
         from services import benchmark_case_service as svc
         monkeypatch.setattr(shared.time, "sleep", lambda s: None)

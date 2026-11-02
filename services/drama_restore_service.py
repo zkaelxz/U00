@@ -283,6 +283,8 @@ def _remap_line_ref(table, child, line_map, line_by_idx) -> bool:
 def _remap_first_seen(table, child, line_map):
     if table in _FIRST_SEEN_TABLES and child.get("first_seen_line_id") is not None:
         child["first_seen_line_id"] = line_map.get(child["first_seen_line_id"])
+    if table == "wiki_entries" and child.get("known_through_line_id") is not None:
+        child["known_through_line_id"] = line_map.get(child["known_through_line_id"])
 
 
 def refuse_newer_copy(src):

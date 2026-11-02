@@ -11,7 +11,7 @@ import db
 def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: str | None = None,
                        aliases: str | None = None, attributes: dict | None = None,
                        first_seen_line_idx: int | None = None, known_through_line_idx: int | None = None,
-                       first_seen_line_id: int | None = None):
+                       first_seen_line_id: int | None = None, known_through_line_id: int | None = None):
     """Adds or updates an encyclopedia entry. known_through_line_idx records
     how far into the story this entry was built from -- the spoiler boundary,
     so an entry is never shown to someone who hasn't read that far."""
@@ -19,8 +19,8 @@ def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: st
         conn.execute("""
             INSERT INTO wiki_entries (drama_id, entry_type, name, aliases, description,
                                        attributes_json, first_seen_line_idx, first_seen_line_id,
-                                       known_through_line_idx, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       known_through_line_idx, known_through_line_id, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(drama_id, entry_type, name) DO UPDATE SET
                 aliases = COALESCE(excluded.aliases, wiki_entries.aliases),
                 description = COALESCE(excluded.description, wiki_entries.description),
@@ -31,12 +31,17 @@ def upsert_wiki_entry(drama_id: int, entry_type: str, name: str, description: st
                 first_seen_line_id = CASE WHEN wiki_entries.first_seen_line_idx IS NULL
                     THEN COALESCE(wiki_entries.first_seen_line_id, excluded.first_seen_line_id)
                     ELSE wiki_entries.first_seen_line_id END,
+                -- The id follows whichever boundary is further, as the position does.
+                known_through_line_id = CASE
+                    WHEN COALESCE(excluded.known_through_line_idx, 0) >= COALESCE(wiki_entries.known_through_line_idx, 0)
+                    THEN COALESCE(excluded.known_through_line_id, wiki_entries.known_through_line_id)
+                    ELSE wiki_entries.known_through_line_id END,
                 known_through_line_idx = MAX(COALESCE(excluded.known_through_line_idx, 0),
                                               COALESCE(wiki_entries.known_through_line_idx, 0)),
                 updated_at = excluded.updated_at
         """, (drama_id, entry_type, name, aliases, description,
               json.dumps(attributes, ensure_ascii=False) if attributes else None,
-              first_seen_line_idx, first_seen_line_id, known_through_line_idx,
+              first_seen_line_idx, first_seen_line_id, known_through_line_idx, known_through_line_id,
               clock.utcnow().isoformat()))
         conn.commit()
 
@@ -54,8 +59,10 @@ def list_wiki_entries(drama_id: int, entry_type: str | None = None, spoiler_limi
         # rather than to "no position", which would show the entry to a reader
         # who hasn't reached it.
         seen_at = "COALESCE(l.idx, w.first_seen_line_idx)"
-        q = (f"SELECT w.*, {seen_at} AS current_idx FROM wiki_entries w "
+        q = (f"SELECT w.*, {seen_at} AS current_idx, "
+             "COALESCE(k.idx, w.known_through_line_idx) AS current_known_idx FROM wiki_entries w "
              "LEFT JOIN lines l ON l.id = w.first_seen_line_id AND l.drama_id = w.drama_id "
+             "LEFT JOIN lines k ON k.id = w.known_through_line_id AND k.drama_id = w.drama_id "
              "WHERE w.drama_id = ?")
         params: list[object] = [drama_id]
         if entry_type:
@@ -70,6 +77,7 @@ def list_wiki_entries(drama_id: int, entry_type: str | None = None, spoiler_limi
     for r in rows:
         d = dict(r)
         d["first_seen_line_idx"] = d.pop("current_idx")
+        d["known_through_line_idx"] = d.pop("current_known_idx")
         try:
             d["attributes"] = json.loads(d["attributes_json"]) if d["attributes_json"] else {}
         except (json.JSONDecodeError, TypeError):

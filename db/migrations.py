@@ -394,6 +394,14 @@ def _migrate_vocab_and_style_columns(conn):
     if "first_seen_line_id" not in wiki_cols:
         db._safe_alter(conn, "ALTER TABLE wiki_entries ADD COLUMN first_seen_line_id INTEGER")
         _backfill_first_seen_ids(conn, "wiki_entries")
+    if "known_through_line_id" not in wiki_cols:
+        db._safe_alter(conn, "ALTER TABLE wiki_entries ADD COLUMN known_through_line_id INTEGER")
+        conn.execute("""
+            UPDATE wiki_entries SET known_through_line_id = (
+                SELECT l.id FROM lines l
+                WHERE l.drama_id = wiki_entries.drama_id AND l.idx = wiki_entries.known_through_line_idx
+                ORDER BY l.id LIMIT 1)
+            WHERE known_through_line_idx IS NOT NULL""")
     style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
     if "history_json" not in style_cols:
         # Earlier learned-style profiles (newest first, at most
