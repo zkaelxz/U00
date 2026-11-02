@@ -41,7 +41,7 @@
 .review-editor { gap: var(--space-4); }
 /* Tablets and wider, with a source video: the video, seek bar and subtitles in
    a sticky card beside the lines, so the list scrolls under a small toolbar. */
-.review-editor.has-side { grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem); align-items: start; }
+.review-editor.has-side { grid-template-columns: minmax(0, 1fr) minmax(22rem, 32rem); align-items: start; }
 /* Tablets: a narrower card, and each line's source sits over its translation. */
 @media (max-width: 1023px) {
   .review-editor.has-side { grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); }

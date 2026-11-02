@@ -15,6 +15,7 @@ import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
+import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
@@ -525,7 +526,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           <div className="review-edit-row">
             {!prose && (
               <Field label="Speaker">
-                <input value={draft.speaker} onChange={(e) => actions.setDraft({ speaker: e.target.value })} />
+                <SpeakerSelect dramaId={dramaId} value={draft.speaker} onChange={(speaker) => actions.setDraft({ speaker })} />
               </Field>
             )}
             <Field label="Spoken language">
