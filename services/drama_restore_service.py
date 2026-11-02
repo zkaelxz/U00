@@ -65,6 +65,7 @@ _SKIPPED_TABLES = {
                                  "restored",
 }
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
+_FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
@@ -279,6 +280,11 @@ def _remap_line_ref(table, child, line_map, line_by_idx) -> bool:
     return True
 
 
+def _remap_first_seen(table, child, line_map):
+    if table in _FIRST_SEEN_TABLES and child.get("first_seen_line_id") is not None:
+        child["first_seen_line_id"] = line_map.get(child["first_seen_line_id"])
+
+
 def refuse_newer_copy(src):
     """A copy last opened by a newer Baihe may hold values this version would
     misread, the same reason a whole-library restore refuses it."""
@@ -366,6 +372,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             if table in _LINE_REF_TABLES and not _remap_line_ref(table, child, line_map,
                                                                  line_by_idx):
                 continue
+            _remap_first_seen(table, child, line_map)
             if "series_character_id" in child and child["series_character_id"] is not None:
                 child["series_character_id"] = char_map.get(child["series_character_id"])
                 if child["series_character_id"] is None and table == "voice_suggestion_dismissals":

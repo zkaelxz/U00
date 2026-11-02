@@ -276,6 +276,7 @@ def _create_line_annotation_tables(conn):
             definitions TEXT,        -- JSON-encoded list of strings
             language TEXT,
             first_seen_line_idx INTEGER,
+            first_seen_line_id INTEGER,
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             UNIQUE(drama_id, word)
@@ -483,6 +484,7 @@ def _create_review_tables(conn):
             description TEXT,
             attributes_json TEXT,     -- flexible: cultivation level, rank, affiliations, equipment
             first_seen_line_idx INTEGER,
+            first_seen_line_id INTEGER,
             known_through_line_idx INTEGER,  -- spoiler boundary: built only from lines up to here
             updated_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,

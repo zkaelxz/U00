@@ -55,6 +55,13 @@ def test_saving_options_keeps_the_other_ones_and_ignores_unknown_keys():
     assert out["saved"] == [{"autoTitle": {"create": True, "fill": False, "series": False}}]
 
 
+def test_the_settings_answer_never_carries_the_token():
+    out = _node("worker_get_settings")
+    assert out["reply"]["ok"] is True
+    assert "SECRET-TOKEN" not in json.dumps(out["reply"])
+    assert out["reply"]["data"]["serverUrl"] == "https://baihe.example"
+
+
 def test_the_popup_names_the_auto_choice_and_says_what_happened():
     out = _node("popup_auto")
     assert out["on"] == "Auto: create or reuse from this page"

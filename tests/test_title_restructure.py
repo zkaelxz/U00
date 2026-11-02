@@ -761,3 +761,16 @@ def test_routes_404_for_a_missing_title(client):
     assert client.get("/api/dramas/9999/restructure").status_code == 404
     r = client.post("/api/dramas/9999/restructure/preview", json={"target_id": b, "kind": "merge"})
     assert r.status_code == 404
+
+
+def test_moving_chapters_back_into_a_merged_title_clears_its_merged_tag(isolated_db):
+    a = _comic(title_en="A", custom_tags="gl")
+    b = _comic(title_en="B")
+    _add(a, ("c1", "Chapter 1", "src"), 2)
+    _run(a, b, "merge")
+    assert db.has_custom_tag(db.get_drama(a), db.MERGED_TAG)
+
+    _run(b, a, chapter_ids=["src:c1"])
+
+    assert not db.has_custom_tag(db.get_drama(a), db.MERGED_TAG)
+    assert "gl" in db.get_drama(a)["custom_tags"]
