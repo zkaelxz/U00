@@ -575,6 +575,11 @@ jobs:
             assets+=("$manifest")
           fi
           if [ -z "${BAIHE_RELEASE_SIGNING_KEY:-}" ]; then
+            case "$version" in
+              *-*) ;;
+              *) echo "::error::BAIHE_RELEASE_SIGNING_KEY is not set, and a release without a pre-release suffix must be signed. Nothing was published."
+                 exit 1 ;;
+            esac
             echo "::warning title=Unsigned release::BAIHE_RELEASE_SIGNING_KEY is not set, so this release is UNSIGNED (no .sig files). Copies that have a release public key will refuse it as an in-app update until a .sig is added (docs/runbook.md, App updates)."
           else
             seed="${BAIHE_RELEASE_SIGNING_KEY#ed25519-private:}"
@@ -593,6 +598,17 @@ jobs:
               exit 1
             fi
             openssl pkey -inform DER -in "$keydir/key.der" -pubout -outform DER -out "$keydir/pub.der"
+            public="ed25519-public:$(tail -c 32 "$keydir/pub.der" | base64 -w 0)"
+            # The app trusts only the key line it shipped with, so a secret that
+            # signs with a different key would publish a release no install accepts.
+            # Read at the tagged commit through the API: this job runs no repository code.
+            committed="$(gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/$GITHUB_REPOSITORY/contents/installer/release_public_key.txt?ref=$GITHUB_SHA" \
+              | grep -v '^#' | tr -d '[:space:]')"
+            if [ "$public" != "$committed" ]; then
+              echo "::error::The signing key's public half ($public) is not the line in installer/release_public_key.txt ($committed). Nothing was published."
+              exit 1
+            fi
             for file in "${signed[@]}"; do
               name="$(basename "$file")"
               dir="$(dirname "$file")"
@@ -604,8 +620,7 @@ jobs:
                 -in "$keydir/message" -sigfile "$keydir/sig.bin" > /dev/null
               { base64 -w 0 < "$keydir/sig.bin"; echo; } > "$dir/$name.sig"
               assets+=("$dir/$name.sig")
-              # The public half only: compare it with installer/release_public_key.txt.
-              echo "Signed $name with ed25519-public:$(tail -c 32 "$keydir/pub.der" | base64 -w 0)"
+              echo "Signed $name with $public"
             done
           fi
           flags=""
@@ -613,8 +628,27 @@ jobs:
           # Fixed short notes: generated notes list every commit since the previous
           # release, and GitHub refuses a body over 125000 characters (the first
           # release has no previous one, so it lists the whole history).
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            --verify-tag $flags \
-            --title "Baihe Studio $version" \
-            --notes "Baihe Studio $version. Check the installer against its .sha256 file before you run it." \
-            "${assets[@]}"
+          # A re-run after a failure that came once the release existed adds the
+          # files to it instead of failing on "already exists".
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag $flags \
+              --title "Baihe Studio $version" \
+              --notes "Baihe Studio $version. Check the installer against its .sha256 file before you run it." \
+              "${assets[@]}"
+          fi
+
+      # The signatures exist only on this runner; keeping them lets a failed
+      # publish be finished by hand (docs/runbook.md 1a) without signing again.
+      - name: Keep the signed files
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: BaiheStudio-Release-${{ github.ref_name }}-signed
+          path: |
+            out/**/*.sig
+            out/**/*.sha256
+          if-no-files-found: ignore
+          overwrite: true
