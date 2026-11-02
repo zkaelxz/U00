@@ -1,6 +1,6 @@
 // Characters extras (inventory C02, C08). The base characters calls
 // (list, save, clone engines, voice bank) live in ./translateStage.
-import type { MergeResult, RememberResult, RenameResult, RenameUndo, VoiceSuggestion, VoiceSuggestionResult } from '../types/characters'
+import type { MergeResult, RememberResult, RenameResult, RenameUndo, SpeakerChangeEntry, SpeakerChangeResult, VoiceSuggestion, VoiceSuggestionResult } from '../types/characters'
 import { getJson, postJson, type Fetch } from './client'
 
 const base = (id: number) => `/api/characters/dramas/${id}`
@@ -34,3 +34,12 @@ export const mergeSpeakers = (id: number, sourceLabel: string, targetLabel: stri
 
 export const undoMergeSpeakers = (id: number, undoId: string, f?: Fetch) =>
   postJson<MergeResult>(`${base(id)}/merge-speakers/undo`, { undo_id: undoId }, f)
+
+export const setLineSpeaker = (id: number, lineIds: number[], speaker: string, f?: Fetch) =>
+  postJson<SpeakerChangeResult>(`${base(id)}/set-line-speaker`, { line_ids: lineIds, speaker }, f)
+
+export const swapSpeakers = (id: number, first: string, second: string, f?: Fetch) =>
+  postJson<SpeakerChangeResult>(`${base(id)}/swap-speakers`, { first, second }, f)
+
+export const undoSpeakerChange = (id: number, undo: SpeakerChangeEntry[], f?: Fetch) =>
+  postJson<SpeakerChangeResult>(`${base(id)}/speaker-change/undo`, { undo }, f)

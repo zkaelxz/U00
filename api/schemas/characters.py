@@ -44,6 +44,11 @@ __all__ = [
     "CharactersRenameUndo",
     "CharactersRenameUndoRequest",
     "CharactersRenameResult",
+    "CharactersSpeakerChangeEntry",
+    "CharactersSetLineSpeakerRequest",
+    "CharactersSwapSpeakersRequest",
+    "CharactersSpeakerChangeUndoRequest",
+    "CharactersSpeakerChangeResult",
     "CharactersMergeRequest",
     "CharactersMergeUndo",
     "CharactersMergeUndoRequest",
@@ -377,6 +382,39 @@ class CharactersRenameResult(BaseModel):
     characters: List[CharactersEntry]
     renamed: int
     undo: Optional[CharactersRenameUndo] = None
+
+
+class CharactersSpeakerChangeEntry(BaseModel):
+    """One line's previous speaker and flag, and the speaker the change gave it."""
+    model_config = ConfigDict(extra="forbid")
+    id: StrictInt
+    from_speaker: str = Field(max_length=200)
+    from_manual: StrictBool
+    to_speaker: str = Field(max_length=200)
+
+
+class CharactersSetLineSpeakerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[StrictInt] = Field(min_length=1, max_length=10000)
+    speaker: str = Field(min_length=1, max_length=200)
+
+
+class CharactersSwapSpeakersRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    first: str = Field(min_length=1, max_length=200)
+    second: str = Field(min_length=1, max_length=200)
+
+
+class CharactersSpeakerChangeUndoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    undo: List[CharactersSpeakerChangeEntry] = Field(min_length=1, max_length=10000)
+
+
+class CharactersSpeakerChangeResult(BaseModel):
+    updated: int = Field(description="Lines whose speaker changed.")
+    line_ids: List[int]
+    skipped_ids: List[int] = Field(description="Requested ids that are not lines of this title.")
+    undo: List[CharactersSpeakerChangeEntry]
 
 
 class CharactersMergeRequest(BaseModel):
