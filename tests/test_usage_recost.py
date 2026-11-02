@@ -141,8 +141,8 @@ def test_batch_rows_use_the_batch_factor(isolated_db):
 def test_cache_read_tokens_are_priced_at_the_read_rate(isolated_db):
     _log(UNPRICED, OLD, cache=600_000)
     svc.apply(True, *_seen())
-    # 600k read at 10%, 400k as cache write at 125%, 100k output
-    expected = (600_000 * 0.1 + 400_000 * 1.25) / 1e6 * 2.0 + 0.1 * 10.0
+    # 600k read at Sonnet 5.5's 5%, 400k as cache write at 125%, 100k output
+    expected = (600_000 * 0.05 + 400_000 * 1.25) / 1e6 * 2.0 + 0.1 * 10.0
     assert _rows()[0]["estimated_cost_usd"] == pytest.approx(expected)
 
 
