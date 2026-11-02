@@ -6,6 +6,7 @@ other lettering, so without this it is translated and typeset onto the art.
 """
 
 import re
+from collections.abc import Sequence
 
 _DOMAIN = re.compile(
     r"(https?://|www\.|\b[a-z0-9][a-z0-9-]{1,}\.(?:com|net|org|co|kr|cc|me|tv|xyz|top|site|"
@@ -26,7 +27,7 @@ _MIN_REPEAT_CHARS = 3
 _STRIP = re.compile(r"[\W_]+", re.UNICODE)
 
 
-def _normal(text: str) -> str:
+def _normal(text: str | None) -> str:
     return _STRIP.sub("", (text or "")).lower()
 
 
@@ -47,7 +48,7 @@ def _on_edge(centre) -> bool:
     return any(c < _EDGE_BAND or c > 1 - _EDGE_BAND for c in centre)
 
 
-def _same_stamp(region: dict, centre, others: list, width: float, height: float) -> bool:
+def _same_stamp(region: dict, centre, others: Sequence[dict], width: float, height: float) -> bool:
     text = _normal(region.get("source_text"))
     for other in others:
         if _normal(other.get("source_text")) != text:
@@ -58,7 +59,7 @@ def _same_stamp(region: dict, centre, others: list, width: float, height: float)
     return False
 
 
-def flag_site_marks(regions: list, earlier_pages: list = (), width: int = 0, height: int = 0) -> int:
+def flag_site_marks(regions: list, earlier_pages: Sequence[list] = (), width: int = 0, height: int = 0) -> int:
     """Sets skip on every region that is a site watermark, so it is neither
     translated nor painted over. A region is one when its text is an address or
     a known site name, or when it sits in the page's edge band with the same
