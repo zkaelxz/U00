@@ -129,6 +129,13 @@ def _slots(href: str):
         raise LayoutChanged("a valid chapter link") from None
 
 
+def _same_series(link_slug: str, series_id: str) -> bool:
+    """The chapter list's links name the comic as `<slug>_<suffix>` while the
+    series page and the chapter pages use the bare slug."""
+    return link_slug == series_id or (link_slug.startswith(series_id + "_")
+                                      and _SLUG_RE.fullmatch(link_slug[len(series_id) + 1:]) is not None)
+
+
 @register
 class TwmangaSource(SourceAdapter):
     name = "twmanga"
@@ -223,7 +230,7 @@ class TwmangaSource(SourceAdapter):
         for a in _soup(html).select("a.comics-chapters__item"):
             href = a.get("href", "")
             slots = _slots(href) if isinstance(href, str) else None
-            if slots is None or slots[0] != series_id:
+            if slots is None or not _same_series(slots[0], series_id):
                 continue
             found.setdefault(slots[1], a.get_text(strip=True) or slots[1])
         if not found:
