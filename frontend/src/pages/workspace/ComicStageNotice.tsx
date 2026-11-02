@@ -19,6 +19,9 @@ export function ComicStageNotice({ id }: { id: number }) {
       <ButtonLink href={routeHref({ name: 'comic', id, page: null })} variant="primary" className="comic-open-scanlate" data-testid="open-in-scanlate">
         Open in Scanlate
       </ButtonLink>
+      <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })} data-testid="open-comic-glossary">
+        Glossary and characters
+      </ButtonLink>
     </Card>
   )
 }

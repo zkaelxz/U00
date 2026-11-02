@@ -358,7 +358,7 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
 
 def join_caption_across_pages(previous: dict, bubbles: list, engine,
                               drama_meta: dict, context: str, glossary_terms, usage_cb,
-                              save_fn=None) -> str:
+                              save_fn=None, character_notes: str = "") -> str:
     """A caption cut by the page break is OCR'd as two fragments that translate
     badly alone. Translates the pair as one line and splits the English back
     between the pages by the share of source each held, changing both regions
@@ -384,7 +384,8 @@ def join_caption_across_pages(previous: dict, bubbles: list, engine,
               "source_text": upper["source_text"] + lower["source_text"], "translated_text": ""}
     try:
         new_context = translate_page_bubbles([joined], engine, drama_meta, previous_context=context,
-                                             glossary_terms=glossary_terms, usage_cb=usage_cb)
+                                             glossary_terms=glossary_terms, usage_cb=usage_cb,
+                                             character_notes=character_notes)
     except (HeadroomError, LLMTaskTimeout, TranslateRunStopped, TranslationCancelled):
         raise
     except Exception:
