@@ -50,8 +50,9 @@ def _reads_as_japanese_sentence(text: str) -> bool:
 
 def reclassify_wordy_sfx(regions: list) -> int:
     """Turns a region the detector called an SFX into a sign when its text is
-    too long to be one, or reads as a Japanese sentence. The detector sees only pixels, so a caption on dark
-    art looks the same as a stylised sound effect until the text is read.
+    too long to be one, or reads as a Japanese sentence. The detector sees
+    only pixels, so a caption on dark art looks the same as a stylised sound
+    effect until the text is read.
     Leaves a region the person set to include_sfx alone. Returns the count."""
     changed = 0
     for region in regions:
