@@ -335,16 +335,29 @@ def _server_port():
     return port if 1 <= port <= 65535 else None
 
 
+def apply_busy() -> bool:
+    """Whether an apply is under way or handed over and not yet finished (its
+    journal is still there): the full Setup must not start meanwhile."""
+    with _lock:
+        if _applying:
+            return True
+    return app_swap.read_journal(install_root()) is not None
+
+
 def apply() -> dict:
     """Checks and unpacks the verified app zip beside the running app, then
     hands over to the swap helper, which restarts Baihe Studio. One at a
-    time: a second click or tab is refused until the first has handed over
-    or failed."""
+    time, and not while the full Setup is starting or open: a second click
+    or tab is refused until the first has handed over or failed."""
     global _applying
     with _lock:
         if _applying:
             raise ConflictError("An app update is already starting.")
         _applying = True
+    if us.setup_busy():
+        with _lock:
+            _applying = False
+        raise ConflictError("An app update is already starting.")
     try:
         return _apply()
     finally:

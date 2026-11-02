@@ -174,6 +174,13 @@ class TestDependencyInstallOwed:
             "if defined DEPS_RETRY if not errorlevel 1 (") < failed.index("goto :deps_ready")
         assert failed.index("goto :deps_ready") < failed.index("exit /b 1")
 
+    def test_a_failed_install_on_the_updated_run_still_starts_when_the_packages_import(self):
+        # An update from away whose pip install fails must not leave the
+        # server down: the forced install falls back the way a retry does.
+        text = "\n".join(_lines(False))
+        assert ("if defined BAIHE_FORCE_DEPS set \"DEPS_RETRY=1\"\n"
+                "if defined BAIHE_FORCE_DEPS goto :install_deps") in text
+
     def test_the_import_check_is_one_helper(self):
         text = "\n".join(_lines(False))
         assert text.count('%PY% -c "import requests') == 1

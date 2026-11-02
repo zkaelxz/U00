@@ -124,8 +124,8 @@ def run_batch(engine: str, items: list, workdir: str, timeout: float, cancel=Non
         # so the worker can't pick up the app's own packages; it also ignores
         # PYTHONIOENCODING, hence -X utf8 for non-ASCII text and paths on Windows.
         cmd = [python, "-I", "-X", "utf8", WORKER_SCRIPT, spec_path]
-        stream = proc.stream_tree(cmd, timeout, cwd=workdir, cancel=cancel, on_start=on_start,
-                                  own_group=own_group)
+        stream = proc.stream_tree(cmd, timeout, cwd=workdir, env=proc.secretless_env(),
+                                  cancel=cancel, on_start=on_start, own_group=own_group)
         for item in stream:
             line = item.get("line")
             if line is None:

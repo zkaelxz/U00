@@ -1183,6 +1183,23 @@ class TestPhoneAppHandOff:
         assert r.headers["location"] == "/"
         assert max(s["expires_at"] for s in db.auth_list_sessions(user["id"])) == browser_end
 
+    def test_shortened_absolute_timeout_ends_app_session_with_its_browser(
+            self, isolated_db, app, monkeypatch):
+        """A timeout shortened after the hand-off counts from the browser's
+        sign-in, not from when the app's session was made."""
+        user = _add()
+        signed_in = time.time() - 10 * 86400
+        browser = auth_service.create_session(user["id"], now=signed_in)
+        db.auth_touch_session(browser["session_id"], time.time())
+        r = self._redeem(app, _hand_off(app, user, session=browser))
+        assert r.headers["location"] == "/"
+        token = next(c.split("=", 1)[1].split(";")[0] for c in _cookies(r)
+                     if c.lower().startswith("__host-baihe_session="))
+        assert auth_service.resolve_session(token) is not None
+        monkeypatch.setattr(auth_service, "ABSOLUTE_TIMEOUT_SECONDS", 7 * 86400)
+        assert auth_service.resolve_session(token) is None
+        assert auth_service.resolve_session(browser["session_token"]) is None
+
     def test_code_minted_before_sign_out_everywhere_is_refused(self, isolated_db, app):
         user = _add()
         code = _hand_off(app, user)

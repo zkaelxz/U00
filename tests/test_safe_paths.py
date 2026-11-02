@@ -22,7 +22,7 @@ def test_plain_name_is_joined(folder):
     None, "", ".", "..", 5, "../x.wav", "a/b.wav", "..\\x.wav", "sub\\x.wav",
     "/etc/passwd", "C:\\Windows\\x.wav", "C:x.wav", "\\\\server\\share\\x.wav",
     "//server/share/x.wav", "a\x00.wav",
-    "con", "NUL.txt", "aux.wav", "com1", "LPT9.wav", "nul .wav",
+    "con", "NUL.txt", "aux.wav", "com1", "LPT9.wav", "nul .wav", "CONIN$", "conout$.wav",
 ])
 def test_refuses_anything_but_a_plain_name(folder, name):
     assert plain_file_in(folder, name) is None

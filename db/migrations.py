@@ -464,6 +464,12 @@ def _migrate_auth_session_columns(conn):
         # A coarse "Chrome on Android" label (lib.device_label),
         # the only device detail the signed-in-devices list shows.
         db._safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
+    if "signed_in_at" not in session_cols:
+        # When the Google sign-in behind a session happened, for a session
+        # handed to another device (NULL: its own created_at). The absolute
+        # timeout counts from it, so a shortened timeout ends the hand-off's
+        # session no later than the browser session it came from.
+        db._safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN signed_in_at REAL")
     # Sessions from before the label kept the first 60 characters of the
     # user agent: label them from it, then drop it, so no raw user agent
     # stays stored. Rows already blanked don't match, so this runs once.

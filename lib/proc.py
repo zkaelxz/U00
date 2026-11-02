@@ -18,6 +18,7 @@ except an explicit allow-list of short probes.
 
 import os
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -30,6 +31,17 @@ _POLL_SECONDS = 0.5
 # A runaway child must not fill memory: run_captured keeps the newest output.
 _CAPTURE_LIMIT_CHARS = 4_000_000
 _EOF = object()
+
+
+_SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL|COOKIE|SESSION|AUTH", re.IGNORECASE)
+
+
+def secretless_env(drop_prefixes: tuple = ("BAIHE_",)) -> dict:
+    """The parent's environment minus anything secret-looking and Baihe's own
+    settings, for a child that runs third-party code: API keys set as
+    environment variables must not reach it."""
+    return {k: v for k, v in os.environ.items()
+            if not _SECRET_ENV.search(k) and not k.upper().startswith(drop_prefixes)}
 
 
 def group_kwargs(own_group: bool = True) -> dict:

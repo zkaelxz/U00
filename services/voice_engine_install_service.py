@@ -16,7 +16,7 @@ import voice_venv
 from engine_backends import shared
 from jobs import job_launch
 from lib.errors import ConflictError, InvalidInputError
-from lib.proc import stream_tree
+from lib.proc import secretless_env, stream_tree
 from services import diagnostics_admin_service as admin_svc
 
 # Only these engines, with these exact packages, ever reach pip: nothing in a request
@@ -254,7 +254,8 @@ def _install_job(engine: str):
         for progress, message, argv, timeout in _commands(engine):
             background_jobs.update_progress(jid, progress, message)
             end = {"returncode": None, "timed_out": False, "cancelled": False}
-            for item in stream_tree(argv, timeout, cancel=lambda: background_jobs.is_cancel_requested(jid),
+            for item in stream_tree(argv, timeout, env=secretless_env(),
+                                    cancel=lambda: background_jobs.is_cancel_requested(jid),
                                     warn=job_process_kill._warn_via_jobs):
                 if "line" in item:
                     line = _clean(item["line"].strip())

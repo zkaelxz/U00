@@ -196,6 +196,7 @@ def test_source_title_is_the_fallback_and_cjk_survives(client, isolated_db):
     ("nul.txt", "_nul.txt"),
     ("COM1.foo", "_COM1.foo"),
     ("COM\u00b9.foo", "_COM\u00b9.foo"),
+    ("CONOUT$.foo", "_CONOUT$.foo"),
     ("LPT\u00b3 .foo", "_LPT\u00b3 .foo"),
     ("Mr. Smith", "Mr. Smith"),
     ("evil\u202etxt.exe", "eviltxt.exe"),

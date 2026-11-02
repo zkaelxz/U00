@@ -2313,7 +2313,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "users": ("share_by_default",),
     "progress": ("view_prefs",),
     "translate_history": ("user_id",),
-    "auth_sessions": ("device_label",),
+    "auth_sessions": ("device_label", "signed_in_at"),
     "benchmark_results": ("scorer", "ref_version", "timing", "judge_scores", "recognised_text",
                           "read_score"),
     "benchmark_sessions": ("judge_meta",),
