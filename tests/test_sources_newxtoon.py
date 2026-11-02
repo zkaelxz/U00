@@ -3,6 +3,8 @@ tests/test_sources_newxtoon.py -- the NewXToon adapter, against small
 invented fixtures shaped like the page layout reported for the live site.
 No request reaches the real site.
 """
+import json
+
 import pytest
 
 from sources.adapters import newxtoon
@@ -29,6 +31,10 @@ def _series_page(chapter_ids, extra=""):
             f'<meta property="og:image" content="https://files.example.invalid/c12.jpg">'
             f'<meta property="og:description" content="A story."></head><body><h1>Other</h1>'
             f'{links}<a href="/comics/12/chapters/999">elsewhere?</a>{extra}</body></html>')
+
+
+def _chapters_json(rows, has_more):
+    return json.dumps({"chapters": [{"id": i, "title": t} for i, t in rows], "has_more": has_more})
 
 
 CHAPTER = ('<html><body><img src="https://files.example.invalid/ads/top.gif">'
@@ -66,6 +72,11 @@ class TestSeries:
         assert (info.title, info.description, info.language) == ("Title Twelve", "A story.", "ko")
         assert info.cover_url == "https://files.example.invalid/c12.jpg"
 
+    def test_the_site_name_is_dropped_from_the_title(self):
+        page = _series_page([1]).replace('content="Title Twelve"', 'content="Title Twelve — 뉴엑스툰"')
+        a, _ = _adapter({f"{BASE}/comics/12": html(page)})
+        assert a.get_series("12").title == "Title Twelve"
+
     def test_no_title_is_a_layout_change(self):
         a, _ = _adapter({f"{BASE}/comics/12": html("<html><body></body></html>")})
         with pytest.raises(newxtoon.LayoutChanged):
@@ -78,13 +89,39 @@ class TestSeries:
 
 
 class TestChapters:
-    def test_pages_through_the_list_oldest_first_without_repeats(self):
-        a, _ = _adapter({f"{BASE}/comics/12": html(_series_page([30, 10])),
-                         f"{BASE}/comics/12?page=2": html(_series_page([20, 10])),
-                         f"{BASE}/comics/12?page=3": html(_series_page([20]))})
+    def test_first_page_alone_when_the_series_names_no_more_pages(self):
+        a, t = _adapter({f"{BASE}/comics/12": html(_series_page([30, 10]))})
         chapters = a.get_chapters("12")
-        assert [c.chapter_id for c in chapters] == ["10", "20", "30", "999"]
+        assert [c.chapter_id for c in chapters] == ["10", "30", "999"]
         assert chapters[0].url == f"{BASE}/comics/12/chapters/10"
+        assert len(t.calls) == 1
+
+    def test_follows_the_json_list_oldest_first_without_repeats(self):
+        marker = '<div data-chapters-url="/comics/12/chapters" data-chapter-next-page="2"></div>'
+        a, _ = _adapter({
+            f"{BASE}/comics/12": html(_series_page([30, 10], marker)),
+            f"{BASE}/comics/12/chapters?page=2": html(_chapters_json([(20, "Ep 20"), (10, "Ep 10")], True)),
+            f"{BASE}/comics/12/chapters?page=3": html(_chapters_json([(5, "Ep 5")], False))})
+        chapters = a.get_chapters("12")
+        assert [c.chapter_id for c in chapters] == ["5", "10", "20", "30", "999"]
+        assert chapters[2].title == "Ep 20"
+
+    def test_a_list_that_never_ends_is_a_layout_change_not_a_silent_cut(self, monkeypatch):
+        monkeypatch.setattr(newxtoon, "MAX_LIST_PAGES", 3)
+        marker = '<div data-chapters-url="/comics/12/chapters"></div>'
+        a, _ = _adapter({
+            f"{BASE}/comics/12": html(_series_page([1], marker)),
+            f"{BASE}/comics/12/chapters?page=2": html(_chapters_json([(2, "Ep 2")], True)),
+            f"{BASE}/comics/12/chapters?page=3": html(_chapters_json([(3, "Ep 3")], True))})
+        with pytest.raises(newxtoon.LayoutChanged):
+            a.get_chapters("12")
+
+    def test_a_json_list_without_chapters_is_a_layout_change(self):
+        marker = '<div data-chapters-url="/comics/12/chapters"></div>'
+        a, _ = _adapter({f"{BASE}/comics/12": html(_series_page([1], marker)),
+                         f"{BASE}/comics/12/chapters?page=2": html("not json")})
+        with pytest.raises(newxtoon.LayoutChanged):
+            a.get_chapters("12")
 
     def test_no_chapters_is_a_layout_change(self):
         a, _ = _adapter({f"{BASE}/comics/12": html("<html><h1>x</h1></html>")})
