@@ -382,7 +382,7 @@ def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=Fa
             except OSError:
                 failed += 1
         if failed:
-            raise ServiceError("A backup copy could not be deleted; is it open somewhere?",
+            raise ConflictError("A backup copy could not be deleted; is it open somewhere?",
                                details={"deleted": count, "not_deleted": failed})
     return {"deleted": True, "count": count, "kept_unmanaged": left}
 
