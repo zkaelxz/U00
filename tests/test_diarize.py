@@ -665,3 +665,59 @@ class TestFewSpeakersNotice:
         diarize.diarize_subprocess_worker("/a.wav", "hf_x", None, {}, q)
         outcome = _final(q)
         assert outcome[0] == "ok" and "Found 2 speakers." in outcome[1]["speaker_count_hint"]
+
+
+class TestNemotronBackend:
+    """The opt-in Nemotron backend: pyannote stays the default and the fallback."""
+
+    @staticmethod
+    def _run(monkeypatch, options, num_speakers=None, nemotron=None):
+        import diarize_nemotron
+        calls = []
+
+        def fake(audio_path, use_gpu=False, on_progress=None):
+            calls.append(audio_path)
+            if isinstance(nemotron, Exception):
+                raise nemotron
+            return nemotron
+
+        monkeypatch.setattr(diarize_nemotron, "diarize", fake)
+        monkeypatch.setattr(diarize, "diarize", lambda *a, **k: (
+            [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}], "pyannote-fake", {}))
+        result_queue = queue.Queue()
+        diarize.diarize_subprocess_worker("/fake/audio.wav", "hf_xxx", num_speakers, options, result_queue)
+        return _final(result_queue), calls
+
+    def test_turns_from_segments_uses_pyannote_style_labels(self):
+        import diarize_nemotron
+        turns = diarize_nemotron.turns_from_segments([
+            {"Start": 2.0, "End": 3.0, "Speaker": 1}, {"Start": 0.0, "End": 1.5, "Speaker": 0},
+            {"Start": 4.0, "End": 4.0, "Speaker": 0}])
+        assert turns == [{"start": 0.0, "end": 1.5, "speaker": "SPEAKER_00"},
+                         {"start": 2.0, "end": 3.0, "speaker": "SPEAKER_01"}]
+
+    def test_nemotron_turns_are_used_when_chosen(self, monkeypatch):
+        turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_03"}]
+        outcome, calls = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=turns)
+        assert calls == ["/fake/audio.wav"]
+        assert outcome[0] == "ok"
+        assert outcome[1]["segments"] == turns
+        assert outcome[1]["model"] == "nemotron-3-diarization"
+        assert outcome[1]["embeddings"] == {}
+
+    @pytest.mark.parametrize("failure", [RuntimeError("no librosa"), []])
+    def test_failure_or_empty_result_falls_back_to_pyannote(self, monkeypatch, failure):
+        outcome, calls = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=failure)
+        assert calls == ["/fake/audio.wav"]
+        assert outcome[0] == "ok"
+        assert outcome[1]["model"] == "pyannote-fake"
+        assert outcome[1]["backend_fallback_reason"]
+
+    @pytest.mark.parametrize("options,num", [({"backend": "nemotron"}, 2),
+                                             ({"backend": "nemotron", "min_speakers": 2}, None),
+                                             ({"backend": "nemotron", "max_speakers": 3}, None),
+                                             ({}, None), ({"backend": "pyannote"}, None)])
+    def test_pyannote_is_used_for_hints_and_by_default(self, monkeypatch, options, num):
+        outcome, calls = self._run(monkeypatch, options, num_speakers=num, nemotron=[])
+        assert calls == []
+        assert outcome[1]["model"] == "pyannote-fake"
