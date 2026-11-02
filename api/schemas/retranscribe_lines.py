@@ -19,6 +19,7 @@ __all__ = [
     "TranscribeGaps",
     "GapAddLinesRequest",
     "GapAddLinesResult",
+    "TalkOverAddResult",
 ]
 
 
@@ -118,5 +119,14 @@ class GapAddLinesResult(BaseModel):
     new_line_ids: List[int]
     line_ids: List[int]
     split: str
+    history_id: Optional[int] = None
+    lines_fingerprint: Optional[str] = None
+
+
+class TalkOverAddResult(BaseModel):
+    """added_count 0 means nothing was written (no history entry)."""
+    added_count: int
+    new_line_ids: List[int]
+    line_ids: List[int]
     history_id: Optional[int] = None
     lines_fingerprint: Optional[str] = None

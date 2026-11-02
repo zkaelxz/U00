@@ -8,6 +8,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
 import { Section } from '../../../../components/Section'
 import { checkSourceText } from '../../../../api/sourceSuspect'
+import { addTalkOverLines } from '../../../../api/workspace'
 import { useStage } from '../../StageContext'
 import { clearMessage, MODE_HELP, MODE_OPTIONS } from './readingSpeed'
 import { TimingCheck } from './TimingCheck'
@@ -26,6 +27,14 @@ const ACTIONS: Action[] = [
     label: 'Flag overlapping lines',
     writes: 'Marks each line that overlaps the next one, and is not flagged yet, for review. Only flags and flag notes are written.',
     run: (id) => flagOverlaps(id).then((r) => `Flagged ${plural(r.flagged_count, 'line')}.`),
+  },
+  {
+    id: 'talk-over',
+    label: 'Add lines for talk-over',
+    writes: 'Where Detect speakers heard a second speaker over a line that has no line of their own, adds a blank flagged line for them to type into. Needs saved speaker detection. Undoable.',
+    run: (id) =>
+      addTalkOverLines(id).then((r) =>
+        r.added_count ? `Added ${plural(r.added_count, 'line')}; type what they say.` : 'No talk-over found.'),
   },
   {
     id: 'qc',
