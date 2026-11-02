@@ -601,6 +601,22 @@ _QWEN3_VL_NO_TEXT = re.compile(
     r"^\W*(<\s*no text\s*>|there is no (visible )?text.*|no (visible )?text.*)$", re.IGNORECASE)
 
 
+def _stop_when(should_stop):
+    """Lets Cancel end a slow frame early (crowded frames took minutes on a 12 GB card)
+    instead of waiting for it to finish; the caller raises the cancel on its next check."""
+    if should_stop is None:
+        return None
+    from transformers import StoppingCriteria, StoppingCriteriaList
+
+    class _Stop(StoppingCriteria):
+        def __call__(self, input_ids, scores, **kwargs):
+            import torch
+            # generate() ORs one boolean per sequence in the batch.
+            return torch.full((input_ids.shape[0],), bool(should_stop()), dtype=torch.bool,
+                              device=input_ids.device)
+    return StoppingCriteriaList([_Stop()])
+
+
 def trim_repeated_lines(text: str, limit: int = _QWEN3_VL_REPEAT_LIMIT) -> str:
     """Drops a line once it has appeared `limit` times: a looping vision model repeats one
     line (the 2B did with furigana) until the token cap, and a caption never repeats a line."""
@@ -615,7 +631,7 @@ def trim_repeated_lines(text: str, limit: int = _QWEN3_VL_REPEAT_LIMIT) -> str:
     return "\n".join(kept).strip()
 
 
-def extract_text_qwen3_vl(image_path: str, backend: str = "qwen3_vl_4b") -> str:
+def extract_text_qwen3_vl(image_path: str, backend: str = "qwen3_vl_4b", should_stop=None) -> str:
     """Burned-in caption text from a cropped frame, read by Qwen3-VL (Apache-2.0) on the GPU.
     Native transformers class, no downloaded code. Downloads the pinned revision on first use.
 
@@ -653,7 +669,8 @@ def extract_text_qwen3_vl(image_path: str, backend: str = "qwen3_vl_4b") -> str:
             return_tensors="pt").to(model.device)
         with torch.no_grad():
             output_ids = model.generate(**inputs, max_new_tokens=_QWEN3_VL_MAX_NEW_TOKENS,
-                                        do_sample=False, repetition_penalty=1.05)
+                                        do_sample=False, repetition_penalty=1.05,
+                                        stopping_criteria=_stop_when(should_stop))
         generated = output_ids[:, inputs["input_ids"].shape[1]:]
         text = trim_repeated_lines(processor.batch_decode(generated, skip_special_tokens=True)[0])
         return "" if _QWEN3_VL_NO_TEXT.match(text) else text
