@@ -114,6 +114,18 @@ def lettering_size(gray, box: dict, orientation: str | None):
     return float(np.median(runs)) if runs else None
 
 
+def lettering_fill(gray, box: dict):
+    """Share of the box's OCR-inset area taken by the block around all its
+    lettering, or None when no lettering is found. A small share means short
+    text in a large balloon."""
+    letters = _letter_ink(gray, box)
+    if letters is None or not letters.any():
+        return None
+    rows, cols = np.flatnonzero(letters.any(axis=1)), np.flatnonzero(letters.any(axis=0))
+    block = (rows[-1] - rows[0] + 1) * (cols[-1] - cols[0] + 1)
+    return min(1.0, block / float(letters.shape[0] * letters.shape[1]))
+
+
 def estimate_text_orientation(gray, box: dict, language: str) -> str:
     """"vertical" or "horizontal" for the text inside `box` of a grayscale
     page. Only CJK text is ever vertical. CJK characters leave gaps in both
