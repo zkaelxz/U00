@@ -6,6 +6,8 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.KeyEvent;
@@ -20,8 +22,10 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import android.util.Base64;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -112,6 +116,143 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         setContentView(root);
         root.setFitsSystemWindows(true);
         if (state != null) web.restoreState(state);
+        else handleShare(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleShare(intent);
+    }
+
+    /** What another app shared: a link opens in the browser, images go straight to Baihe. */
+    private void handleShare(Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        String type = intent.getType();
+        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action)) return;
+        if (SharedImages.isImageType(type)) {
+            shareImages(intent);
+        } else if (type != null && type.startsWith("text/")) {
+            String link = ShareLink.firstLink(intent.getStringExtra(Intent.EXTRA_TEXT));
+            String url = link == null ? null : ServerAddress.browsable(link);
+            if (url == null) say("No web link found in what was shared.");
+            else web.loadUrl(url);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private List<Uri> sharedUris(Intent intent) {
+        List<Uri> uris = new ArrayList<>();
+        if (Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction())) {
+            ArrayList<Uri> many = Build.VERSION.SDK_INT >= 33
+                    ? intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri.class)
+                    : intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            if (many != null) uris.addAll(many);
+        } else {
+            Uri one = Build.VERSION.SDK_INT >= 33
+                    ? intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class)
+                    : intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (one != null) uris.add(one);
+        }
+        List<Uri> readable = new ArrayList<>();
+        for (Uri uri : uris) {
+            if (uri != null && SharedImages.isReadableScheme(uri.getScheme())) readable.add(uri);
+        }
+        return readable;
+    }
+
+    private void shareImages(Intent intent) {
+        if (grabbing) {
+            say("Wait for the current grab to finish.");
+            return;
+        }
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set the server and token in Settings, then share again.");
+            showSettings();
+            return;
+        }
+        List<Uri> all = sharedUris(intent);
+        if (all.isEmpty()) {
+            say("Could not read the shared images.");
+            return;
+        }
+        boolean cut = all.size() > SharedImages.MAX_IMAGES;
+        List<Uri> uris = SharedImages.limit(all);
+        String subject = intent.getStringExtra(Intent.EXTRA_SUBJECT);
+        EditText name = new EditText(this);
+        name.setHint("Title name");
+        name.setSingleLine(true);
+        if (subject != null) name.setText(subject.length() > 200 ? subject.substring(0, 200) : subject);
+        new AlertDialog.Builder(this)
+                .setTitle("Send to which title?")
+                .setView(name)
+                .setPositiveButton("Send", (d, w) -> {
+                    String title = name.getText().toString().trim();
+                    if (title.isEmpty()) {
+                        say("Enter a title name.");
+                        return;
+                    }
+                    sendShared(uris, title, cut, server, token);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token) {
+        grabbing = true;
+        uploading = true;
+        runOnUiThread(() -> grab.setEnabled(false));
+        say("Reading shared images");
+        sender.execute(() -> {
+            List<PageImage> images = new ArrayList<>();
+            long used = 0;
+            int unreadable = 0;
+            boolean truncated = cut;
+            for (Uri uri : uris) {
+                PageImage image = readShared(uri, images.size());
+                if (image == null) {
+                    unreadable++;
+                } else if (!SharedImages.fitsTotal(used, image.base64.length())) {
+                    truncated = true;
+                    break;
+                } else {
+                    used += image.base64.length();
+                    images.add(image);
+                }
+            }
+            if (images.isEmpty()) {
+                finishGrab("Could not read the shared images.");
+                return;
+            }
+            upload(new BaiheClient(server, token), "", java.util.Collections.singletonList(title),
+                    images, unreadable, truncated);
+        });
+    }
+
+    /** One shared image as base64, or null when it is not an image or is too large to send. */
+    private PageImage readShared(Uri uri, int index) {
+        try {
+            String type = getContentResolver().getType(uri);
+            if (!SharedImages.isImageType(type)) return null;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) return null;
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    if (out.size() + n > Batches.MAX_IMAGE_BYTES) return null;
+                    out.write(buffer, 0, n);
+                }
+                String base64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                return new PageImage("share-" + index, "", type, base64);
+            }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Button button(String label, android.view.View.OnClickListener click) {
