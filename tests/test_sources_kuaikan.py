@@ -335,3 +335,33 @@ class TestRegistration:
         adapter = registry.find_for_url(f"{BASE}/web/topic/10189")
         assert adapter is not None
         assert adapter.name == "kuaikan"
+
+
+def _image_only_page(payload) -> str:
+    """A reader page the way the real site serves it: the data sits in the
+    embedded state and almost no text is visible."""
+    state = _nuxt_html(payload).replace("</script>", "/*" + "x" * 25_000 + "*/</script>")
+    return state.replace("<body>", "<body><div id=\"__nuxt\"></div>" + "<script src=\"/a.js\"></script>" * 12)
+
+
+class TestImageOnlyReaderPage:
+    def test_a_page_whose_data_is_in_the_embedded_state_is_not_an_empty_shell(self):
+        from sources import detect
+        page = _image_only_page(CHAPTER_PAYLOAD)
+        assert detect.classify(200, {}, page, f"{BASE}/web/comic/1001", f"{BASE}/web/comic/1001") == []
+
+    def test_a_client_only_shell_with_a_small_config_is_still_flagged(self):
+        from sources import detect
+        from sources.models import FailureReason
+        page = ("<html><body><div id=\"__nuxt\"></div>" + "<script src=\"/a.js\"></script>" * 12
+                + "<script>window.__NUXT__={config:{}}</script>" + " " * 3000 + "</body></html>")
+        reasons = detect.classify(200, {}, page, BASE, BASE)
+        assert FailureReason.EMPTY_SPA_SHELL in reasons
+
+    def test_the_static_tier_accepts_a_chapter_page_and_the_adapter_reads_its_images(self):
+        from sources import ladder
+        url = f"{BASE}/web/comic/1001"
+        a, _ = _adapter({url: html(_image_only_page(CHAPTER_PAYLOAD))})
+        assert ladder.static_tier(a.client)(url).ok
+        chapter = ChapterInfo("kuaikan", "10189", "1001", "Chapter 0", url)
+        assert len(a.get_pages(chapter)) == 2

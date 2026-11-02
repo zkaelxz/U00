@@ -50,6 +50,11 @@ _JS_REQUIRED_MARKERS = ("enable javascript", "javascript is required", "requires
                         "자바스크립트를 활성화")
 _CRYPTO_MARKERS = ("crypto-js", "cryptojs.aes", "crypto.aes.decrypt", "aes.decrypt(")
 _VUE_MARKERS = ("v-if=", "v-for=", "{{ ", "vue.min.js", "vue.js", "__vue__", "data-v-")
+# A server-rendered Nuxt page carries its data in this script; a client-only
+# (SPA-mode) one carries just a small config. Image-only reader pages have
+# almost no visible text, so the payload size is what tells them apart.
+_EMBEDDED_STATE_START = "window.__NUXT__"
+_EMBEDDED_STATE_MIN_CHARS = 20_000
 _DRM_MARKERS = ("requestmediakeysystemaccess", "com.widevine.alpha", "com.microsoft.playready",
                 "com.apple.fps", "encrypted-media")
 
@@ -238,7 +243,7 @@ def classify(status: Optional[int], headers=None, body: str = "", url: str = "",
         reasons.append(FailureReason.ENCRYPTED_RESOURCE)
         reasons.append(FailureReason.JAVASCRIPT_REQUIRED)
 
-    if FailureReason.JAVASCRIPT_REQUIRED not in reasons:
+    if FailureReason.JAVASCRIPT_REQUIRED not in reasons and not has_embedded_state(body):
         from page_fetch import looks_like_unrendered_shell
         shell = looks_like_unrendered_shell(body, text)
         js_notice = any(m in lower for m in _JS_REQUIRED_MARKERS)
@@ -246,6 +251,14 @@ def classify(status: Optional[int], headers=None, body: str = "", url: str = "",
             reasons.append(FailureReason.EMPTY_SPA_SHELL)
             reasons.append(FailureReason.JAVASCRIPT_REQUIRED)
     return reasons
+
+
+def has_embedded_state(body: str) -> bool:
+    start = body.find(_EMBEDDED_STATE_START)
+    if start < 0:
+        return False
+    end = body.find("</script>", start)
+    return (end if end >= 0 else len(body)) - start >= _EMBEDDED_STATE_MIN_CHARS
 
 
 def evidence(status, headers, body, url, final_url="") -> dict:
