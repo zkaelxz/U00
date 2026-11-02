@@ -1,8 +1,8 @@
 """voice_worker.py -- the child that speaks a batch of lines inside a voice engine's own venv.
 
 voice_venv.run_batch starts it as `<venv python> -I -X utf8 voice_worker.py <spec file>`.
-It runs under a different interpreter whose packages clash with the app's (qwen-tts pins
-an older transformers), so it imports nothing from the app and only the standard library
+It runs under a different interpreter whose packages clash with the app's (qwen-tts and
+chatterbox-tts pin other transformers), so it imports nothing from the app and only the standard library
 at module level; an engine's packages are imported by its adapter once the spec names it.
 
 The model is loaded once per batch, then each item is written to its "out" path. Events
@@ -61,8 +61,71 @@ def _load_qwen3_tts(spec: dict):
     return speak
 
 
+# Chatterbox stops after 1000 speech tokens (about 40 s), dropping the rest of the text
+# without an error, so a long narration unit is spoken in pieces well under that.
+CHATTERBOX_MAX_CHARS_CJK = 120
+CHATTERBOX_MAX_CHARS = 280
+_SENTENCE_ENDS = "。！？；…!?;."
+
+
+def _is_cjk(text: str) -> bool:
+    return any("\u3040" <= ch <= "\u30ff" or "\u3400" <= ch <= "\u9fff"
+               or "\uac00" <= ch <= "\ud7af" for ch in text)
+
+
+def _chatterbox_pieces(text: str) -> list:
+    """`text` cut at sentence ends into pieces of at most the cap (a sentence longer
+    than that is cut at the cap)."""
+    cap = CHATTERBOX_MAX_CHARS_CJK if _is_cjk(text) else CHATTERBOX_MAX_CHARS
+    sentences, start = [], 0
+    for i, ch in enumerate(text):
+        if ch in _SENTENCE_ENDS:
+            sentences.append(text[start:i + 1])
+            start = i + 1
+    sentences.append(text[start:])
+    pieces, current = [], ""
+    for sentence in sentences:
+        while len(sentence) > cap:
+            if current.strip():
+                pieces.append(current)
+            current = ""
+            pieces.append(sentence[:cap])
+            sentence = sentence[cap:]
+        if len(current) + len(sentence) > cap and current.strip():
+            pieces.append(current)
+            current = ""
+        current += sentence
+    if current.strip():
+        pieces.append(current)
+    return [p.strip() for p in pieces if p.strip()]
+
+
+def _load_chatterbox(spec: dict):
+    import numpy
+    import soundfile as sf
+    import torch
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+    model = ChatterboxMultilingualTTS.from_pretrained(
+        device="cuda" if torch.cuda.is_available() else "cpu")
+    voices = {}
+
+    def speak(item):
+        # The model keeps one voice at a time; encoding a clip is the slow part, so each
+        # voice's encoding is kept and swapped back in for its next line.
+        if item["ref_audio"] not in voices:
+            model.prepare_conditionals(item["ref_audio"])
+            voices[item["ref_audio"]] = model.conds
+        model.conds = voices[item["ref_audio"]]
+        # Chatterbox takes the language codes the app uses (zh, ja, ko, en).
+        parts = [model.generate(piece, language_id=item.get("language") or "en").squeeze(0).numpy()
+                 for piece in _chatterbox_pieces(item["text"]) or [item["text"]]]
+        sf.write(item["out"], numpy.concatenate(parts) if len(parts) > 1 else parts[0], model.sr)
+    return speak
+
+
 # engine -> load(spec) returning speak(item), which writes item["out"].
-ADAPTERS = {"qwen3_tts": _load_qwen3_tts}
+ADAPTERS = {"qwen3_tts": _load_qwen3_tts, "chatterbox": _load_chatterbox}
 
 
 def _error_text(exc: BaseException) -> str:

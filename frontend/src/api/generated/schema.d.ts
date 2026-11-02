@@ -2675,6 +2675,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/voice-engines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Voice engines in a folder of their own: what is installed, the install jobs */
+        get: operations["get_voice_engines_api_diagnostics_voice_engines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/voice-engines/{engine}/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: install a voice engine into its own folder as a background job (confirm=true) */
+        post: operations["post_voice_engine_install_api_diagnostics_voice_engines__engine__install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/voice-engines/{engine}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: delete a voice engine's own folder as a background job (confirm=true) */
+        post: operations["post_voice_engine_remove_api_diagnostics_voice_engines__engine__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diarization/dramas/{drama_id}/config": {
         parameters: {
             query?: never;
@@ -28766,6 +28817,97 @@ export interface components {
             /** Speaker Label */
             speaker_label: string;
         };
+        /** VoiceEngineInstallJob */
+        VoiceEngineInstallJob: {
+            /** Error */
+            error?: string | null;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Progress
+             * @default 0
+             */
+            progress: number;
+            /** Status */
+            status?: string | null;
+        };
+        /** VoiceEngineInstallRequest */
+        VoiceEngineInstallRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+        };
+        /** VoiceEngineInstallResult */
+        VoiceEngineInstallResult: {
+            /** Message */
+            message: string;
+            /** Ok */
+            ok: boolean;
+            /**
+             * Output Tail
+             * @description A few redacted lines of pip's output.
+             */
+            output_tail: string[];
+        };
+        /** VoiceEngineInstallRow */
+        VoiceEngineInstallRow: {
+            /** Engine */
+            engine: string;
+            /**
+             * Folder Present
+             * @description Its folder exists, ready or not (a damaged install).
+             */
+            folder_present: boolean;
+            /** Installed */
+            installed: boolean;
+            job?: components["schemas"]["VoiceEngineInstallJob"] | null;
+            /** Job Id */
+            job_id: string;
+            /** Label */
+            label: string;
+            last_result?: components["schemas"]["VoiceEngineInstallResult"] | null;
+            /**
+             * Refusal
+             * @description Why the install can't start now, or null.
+             */
+            refusal?: string | null;
+            /** Required Mb */
+            required_mb: number;
+        };
+        /** VoiceEngineInstallStarted */
+        VoiceEngineInstallStarted: {
+            /** Job Id */
+            job_id: string;
+            /** Started */
+            started: boolean;
+        };
+        /** VoiceEngineInstallStatus */
+        VoiceEngineInstallStatus: {
+            /** Engines */
+            engines: components["schemas"]["VoiceEngineInstallRow"][];
+            /** Free Mb */
+            free_mb: number;
+        };
+        /** VoiceEngineRemoveRequest */
+        VoiceEngineRemoveRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+        };
+        /** VoiceEngineRemoveStarted */
+        VoiceEngineRemoveStarted: {
+            /** Job Id */
+            job_id: string;
+            /** Started */
+            started: boolean;
+        };
         /** WebSearchConfig */
         WebSearchConfig: {
             /** Base Url */
@@ -36049,6 +36191,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiagnosticsUpgradeCheckState"];
+                };
+            };
+        };
+    };
+    get_voice_engines_api_diagnostics_voice_engines_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceEngineInstallStatus"];
+                };
+            };
+        };
+    };
+    post_voice_engine_install_api_diagnostics_voice_engines__engine__install_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceEngineInstallRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceEngineInstallStarted"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_voice_engine_remove_api_diagnostics_voice_engines__engine__remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceEngineRemoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceEngineRemoveStarted"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
