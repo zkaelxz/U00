@@ -134,19 +134,23 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
     return context, character_names
 
 
-def _prompt_chars(context: dict) -> int:
+def _prompt_tokens(context: dict) -> float:
     try:
-        return len(prompts.build_stable_system_text(dict(context)))
+        return pricing.estimate_text_tokens(prompts.build_stable_system_text(dict(context)))
     except Exception:
         return 0
 
 
-def _estimate(engine_name: str, zh: str, prompt_chars: int, context_chars: int = 0) -> float:
+def _context_tokens(recent: list) -> float:
+    return sum(pricing.estimate_text_tokens(z) + pricing.estimate_text_tokens(e) for z, e in recent)
+
+
+def _estimate(engine_name: str, zh: str, prompt_tokens: float, context_tokens: float = 0) -> float:
     """Cost of one single-line call: the whole fixed prompt (instructions,
     glossary, style guide, novel excerpt) plus the line and its context,
-    at the same ~3.5 chars/token as the run estimate. No key needed."""
+    with the same CJK-aware token estimate as the run estimate. No key needed."""
     probe = _Probe(engine_name)
-    input_tokens = int((prompt_chars + context_chars + len(zh)) / 3.5) + 100
+    input_tokens = int(prompt_tokens + context_tokens + pricing.estimate_text_tokens(zh)) + 100
     output_tokens = int(len(zh) / 2.5) + 20
     return round(pricing.estimate_cost_for_engine(probe, input_tokens, output_tokens), 6)
 
@@ -171,16 +175,16 @@ def get_suggestions(drama_id: int) -> dict:
         return out
     lines = db.load_line_objects(drama_id)
     glossary = _glossary(drama)
-    prompt_chars = None
+    prompt_tokens = None
     for pos, ln in enumerate(lines):
         reasons = line_reasons(ln, glossary)
         if not reasons:
             continue
-        if prompt_chars is None:  # built once, only when something is suggested
-            prompt_chars = _prompt_chars(_run_context(drama_id, drama, lines, _Probe(stronger))[0])
-        ctx_chars = sum(len(z) + len(e) for z, e in _recent(lines, pos))
+        if prompt_tokens is None:  # built once, only when something is suggested
+            prompt_tokens = _prompt_tokens(_run_context(drama_id, drama, lines, _Probe(stronger))[0])
+        ctx_tokens = _context_tokens(_recent(lines, pos))
         out["lines"].append({"line_id": ln.id, "reasons": reasons,
-                             "estimate_usd": _estimate(stronger, ln.zh, prompt_chars, ctx_chars)})
+                             "estimate_usd": _estimate(stronger, ln.zh, prompt_tokens, ctx_tokens)})
     return out
 
 
@@ -269,7 +273,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     context, character_names = _run_context(drama_id, drama, lines, _Probe(engine_name))
     recent = _recent(lines, pos)
     _refuse_over_cap(engine_name, free_tier, _estimate(
-        engine_name, line.zh, _prompt_chars(context), sum(len(z) + len(e) for z, e in recent)))
+        engine_name, line.zh, _prompt_tokens(context), _context_tokens(recent)))
     try:
         engine = engine_registry.get_engine(
             engine_name, api_key, None, free_tier=free_tier,

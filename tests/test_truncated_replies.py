@@ -247,3 +247,47 @@ def test_claude_context_window_stop_is_a_cut_off_too():
                lambda kw: _claude_resp('{"2":"E2"}')]
     engine = _claude(replies)
     assert engine.translate_batch(["a", "b"], {}) == ["E1", "E2"]
+
+
+class TestRetryDoesNotRebillFinishedRequests:
+    def test_a_retried_call_only_asks_for_what_is_still_missing(self):
+        asked = []
+
+        def call_model(numbered):
+            asked.append(_ids_asked(numbered))
+            if len(asked) == 1:
+                return json.dumps({"1": "a", "2": "b"})  # 3 is missing: a second request follows
+            if len(asked) == 2:
+                raise RuntimeError("blip")  # the sub-request fails, so the whole call is retried
+            return json.dumps({"3": "c"})
+
+        def attempt():
+            return shared.request_translations_with_retry(["一", "二", "三"], None, call_model,
+                                                          engine_name="claude")
+
+        with shared.keep_answers_across_retries():
+            out = shared.call_with_backoff(attempt, max_retries=2)
+        assert out == ["a", "b", "c"]
+        assert asked == [[1, 2, 3], [3], [3]]
+
+    def test_without_the_scope_a_retry_starts_over(self):
+        asked = []
+
+        def call_model(numbered):
+            asked.append(_ids_asked(numbered))
+            if len(asked) == 2:
+                raise RuntimeError("blip")
+            return json.dumps({"1": "a"} if len(asked) == 1 else {"1": "a", "2": "b"})
+
+        shared.call_with_backoff(lambda: shared.request_translations_with_retry(
+            ["一", "二"], None, call_model, engine_name="claude"), max_retries=2)
+        assert asked[2] == [1, 2]
+
+    def test_another_engine_does_not_adopt_the_replies(self):
+        with shared.keep_answers_across_retries():
+            shared.request_translations_with_retry(["一"], None, lambda n: json.dumps({"1": "a"}),
+                                                   engine_name="claude")
+            asked = []
+            out = shared.request_translations_with_retry(
+                ["一"], None, lambda n: asked.append(1) or json.dumps({"1": "z"}), engine_name="gemini")
+        assert out == ["z"] and asked
