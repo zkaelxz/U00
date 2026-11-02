@@ -1,6 +1,7 @@
-"""The JSON body cap: a JSON request over the limit is 413 whether the
-Content-Length says so or the bytes that arrive do; other content types and
-bodies under the limit pass through."""
+"""The body cap: a request over the limit is 413 whether the Content-Length
+says so or the bytes that arrive do, whatever its Content-Type says (FastAPI
+reads the whole body before it checks that); multipart uploads and bodies
+under the limit pass through."""
 import asyncio
 import json
 
@@ -59,6 +60,16 @@ def test_body_longer_than_its_content_length_is_cut_off():
     assert _call(_json((b"content-length", b"10")), [b"x" * 60, b"x" * 60])[0] == 413
 
 
-def test_other_content_types_are_left_to_their_routes():
+@pytest.mark.parametrize("headers", [
+    [(b"content-type", b"text/plain")],
+    [(b"content-type", b"application/x-www-form-urlencoded")],
+    [],
+])
+def test_a_body_not_labelled_json_is_capped_too(headers):
+    assert _call(headers, [b"x" * 60, b"x" * 60])[0] == 413
+    assert _call(headers + [(b"content-length", b"101")], [])[0] == 413
+
+
+def test_multipart_uploads_are_left_to_their_routes():
     headers = [(b"content-type", b"multipart/form-data; boundary=x")]
     assert _call(headers, [b"x" * 300]) == (200, b"300")
