@@ -1,7 +1,7 @@
 /*
  * Reader for one saved chapter (#/manga/<source>/<series>/<chapter>[?page=N]):
  * the comic viewer's page view, view settings ("Aa": vertical scroll or one
- * page at a time, right to left, fit), pager, zoom, keys and tap thirds, over
+ * page (or a two-page spread) at a time, right to left, fit), pager, zoom, keys and tap thirds, over
  * the page images inside the CBZ file. Without ?page it resumes where this
  * browser left off in this chapter. Where the reader is (chapter and page) is
  * kept per series in localStorage, so the list can offer Continue. Previous
@@ -17,9 +17,10 @@ import type { ComicPageInfo } from '../types/comic'
 import type { SavedChapterPages } from '../types/savedComics'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
-import { clampPage, inRenderWindow, ZOOM, type ComicPrefs } from './comic/comicLogic'
+import { clampPage, inRenderWindow, spreadDisplayOrder, ZOOM, type ComicPrefs } from './comic/comicLogic'
 import { useJumpRequest, usePageJump } from './comic/usePageJump'
 import { readerClasses, usePagedReader } from './comic/usePagedReader'
+import { useSpreads } from './comic/useSpreads'
 import {
   hashIsReading, loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos, saveLastRead, saveMangaPrefs, seriesTitle,
 } from './manga/mangaLogic'
@@ -106,7 +107,9 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   )
 
   const srcFor = useCallback((p: ComicPageInfo) => savedPageUrl(source, series, chapter, p.id), [source, series, chapter])
-  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor })
+  const allPages = useMemo(() => pages.map((_, i) => i + 1), [pages])
+  const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, allPages, pages, current)
+  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
 
   usePageJump({
     activeJump,
@@ -151,7 +154,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const currentPage = current !== null ? pages[current - 1] : undefined
   const z = zoom.zoom
   const zoomed = z.scale > 1
-  const label = current !== null && count ? `${current} / ${count}` : ''
+  const label = current !== null && count ? spreadCounter(count) : ''
 
   const view = (
     <ComicViewControl prefs={prefs} onChange={setPrefs} canTypeset={false} phone={phone}>
@@ -167,7 +170,13 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   )
 
   const shownPages: [ComicPageInfo, number][] =
-    paged ? (currentPage && current !== null ? [[currentPage, current]] : []) : pages.map((p, i) => [p, i + 1])
+    paged
+      ? spread
+        ? spreadDisplayOrder(spread, rtl).flatMap((n): [ComicPageInfo, number][] => (pages[n - 1] ? [[pages[n - 1], n]] : []))
+        : currentPage && current !== null
+          ? [[currentPage, current]]
+          : []
+      : pages.map((p, i) => [p, i + 1])
 
   return (
     <div className={readerClasses(phone, chrome, prefs.mode)}>
@@ -189,7 +198,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
             <span>{title}</span>
           </nav>
           {current !== null && count > 0 ? (
-            <ComicPager page={current} count={count} rtl={rtl} onGo={go} />
+            <ComicPager page={current} count={count} rtl={rtl} onGo={go} onStep={spreads ? step : undefined} label={pagerLabel(count)} />
           ) : (
             data === null && !error && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
           )}
@@ -219,7 +228,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
         <div className="comic-body">
           <div
             ref={stageRef}
-            className={`comic-stage comic-stage-${prefs.mode}${zoomed ? ' comic-zoomed' : ''}`}
+            className={`comic-stage comic-stage-${prefs.mode}${zoomed ? ' comic-zoomed' : ''}${spread && spread.length > 1 ? ' comic-stage-spread' : ''}`}
             data-testid="comic-stage"
             {...zoom.handlers}
           >
@@ -252,7 +261,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
 
       {phone && current !== null && count > 0 && (
         <div className="reader-bottom comic-bottom">
-          <ComicPager page={current} count={count} rtl={rtl} onGo={go} compact />
+          <ComicPager page={current} count={count} rtl={rtl} onGo={go} onStep={spreads ? step : undefined} compact />
         </div>
       )}
     </div>
