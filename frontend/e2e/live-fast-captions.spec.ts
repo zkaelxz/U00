@@ -26,6 +26,20 @@ test('Fast captions fills the chunk options and the start body carries them', as
   })
 })
 
+test('Balanced captions fills large-v3 with an 8 s chunk', async ({ page }) => {
+  const m = await mockLive(page)
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  await live.getByTestId('live-balanced-captions').click()
+  await expect(live.getByLabel('Chunk', { exact: true })).toHaveValue('8')
+  await expect(live.getByLabel('Overlap', { exact: true })).toHaveValue('3')
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('large-v3')
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ segment_seconds: 8, overlap_seconds: 3, whisper_size: 'large-v3' })
+})
+
 test('skipped chunks and catching up stay on screen', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)
