@@ -1,11 +1,9 @@
-// The optional web-search fallback (api/web_search_schemas.py, roadmap item 114).
+// The optional web-search fallback (api/web_search_schemas.py), from the generated schema.
+import type { components } from '../api/generated/schema'
 
-export type WebSearchStatus = { enabled: boolean }
+type Schemas = components['schemas']
 
-export type WebSearchConfig = { enabled: boolean; base_url: string | null }
-
-type WebSearchResult = { title: string; snippet: string; url: string; domain: string }
-
-export type WebSearchResults = { query: string; source: 'searxng'; results: WebSearchResult[] }
-
-export type WebSearchTestResult = { ok: boolean; result_count: number }
+export type WebSearchStatus = Schemas['WebSearchStatus']
+export type WebSearchConfig = Schemas['WebSearchConfig']
+export type WebSearchResults = Schemas['WebSearchResults']
+export type WebSearchTestResult = Schemas['WebSearchTestResult']
