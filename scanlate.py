@@ -40,6 +40,7 @@ import scanlate_tuning
 from scanlate_regions import analyze_page_regions, detect_script_language, lettering_fill, lettering_size
 from scanlate_render import sample_text_style
 from scanlate_translate import translate_page_bubbles
+from scanlate_watermark import flag_site_marks
 
 
 def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1600,
@@ -264,6 +265,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b.update(translated_text="", font_size=suggest_font_size(gray, b), skip=False,
                  include_sfx=False)
         bubbles.append(b)
+    flag_site_marks(bubbles)
     if art_captions:
         bubbles += (captions if captions is not None
                     else _art_caption_regions(image_path, source_language, bubbles, page, notes))

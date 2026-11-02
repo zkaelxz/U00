@@ -293,3 +293,17 @@ def test_default_engine_is_the_settings_default_when_nothing_can_run(isolated_db
     from services import scanlate_pages_service as svc
     assert svc.default_engine(_engines(claude=False, deepseek=False)) == "claude"
     assert svc.default_engine([]) == "claude"
+
+
+def test_a_stamp_repeated_in_place_from_the_pages_before_is_not_translated(harness, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    p1, p2 = _page(did, 0), _page(did, 1)
+    stamp = dict(x=10, y=PAGE_H - 12, h=12)
+    _detect_by_page(monkeypatch, {
+        p1: [_region("你好"), _region("水印站", **stamp)],
+        p2: [_region("世界"), _region("水印站", **stamp)]})
+    engine = _MT()
+    run_svc._run_job("j", did, "all", [p1, p2], "mt", engine, "auto")
+    # The first page has nothing before it to repeat, so its copy is still read.
+    assert "水印站" in engine.calls and engine.calls.count("水印站") == 1
+    assert _texts(p2)["水印站"] == ""
