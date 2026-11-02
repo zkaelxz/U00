@@ -575,3 +575,14 @@ def move_pages(source_id: int, target_id: int, moves) -> bool:
         raise
     finally:
         conn.close()
+
+
+def page_progress_by_drama() -> dict:
+    """{drama_id: (page_count, pages_with_translated_text)} for every drama with pages, in one query,
+    for the Library list's per-comic progress."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT p.drama_id, COUNT(*) AS n, SUM(EXISTS(SELECT 1 FROM bubbles b WHERE b.page_id = p.id "
+            "AND TRIM(COALESCE(b.translated_text, '')) != '')) AS done "
+            "FROM pages p GROUP BY p.drama_id").fetchall()
+    return {r["drama_id"]: (r["n"], r["done"] or 0) for r in rows}
