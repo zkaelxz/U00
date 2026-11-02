@@ -1,5 +1,8 @@
 // Mirrors the Library* admin models and the PC-only delete
 // results for presets and voice bank entries in api/schemas/library.py.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 // services/library_admin_service.py STATUSES and db.ORGANIZATIONAL_TAGS.
 export const LIBRARY_STATUSES = ['not started', 'aligned', 'translated', 'dubbed', 'exported'] as const
@@ -26,102 +29,28 @@ export const ADMIN_JOB_IDS = {
 } as const
 
 // error: not_found | job_running | upload_running | delete_failed | not_translated
-export interface LibraryBulkItem {
-  drama_id: number
-  ok: boolean
-  error?: string | null
-  message?: string | null
-  warning?: string | null
-  freed_bytes?: number | null
-}
+export type LibraryBulkItem = Schemas['LibraryBulkItem']
 
-export interface LibraryBulkResult {
-  results: LibraryBulkItem[]
-  updated: number
-}
+export type LibraryBulkResult = Schemas['LibraryBulkResult']
 
-export interface LibraryBulkDeleteResult {
-  results: LibraryBulkItem[]
-  deleted: number
-}
+export type LibraryBulkDeleteResult = Schemas['LibraryBulkDeleteResult']
 
-export interface LibraryBulkTranslateSkip {
-  drama_id: number
-  reason: string
-}
+export type LibraryBulkTranslateSkip = Schemas['LibraryBulkTranslateSkip']
 
-export interface LibraryBulkTranslateStarted {
-  job_id: string
-  queued: number[]
-  skipped: LibraryBulkTranslateSkip[]
-}
+export type LibraryBulkTranslateStarted = Schemas['LibraryBulkTranslateStarted']
 
-export interface LibraryExportStarted {
-  job_id: string
-  drama_ids: number[]
-  results?: LibraryBulkItem[] | null
-}
+export type LibraryExportStarted = Schemas['LibraryExportStarted']
 
-export interface LibraryJobStarted {
-  job_id: string
-}
+export type LibraryJobStarted = Schemas['LibraryJobStarted']
 
-export interface LibraryArtifactInfo {
-  kind: ArtifactKind
-  name: string
-  size: number
-}
+export type LibraryArtifactInfo = Schemas['LibraryArtifactInfo']
 
-export interface LibraryRestoreDone {
-  restored: boolean
-  sessions_revoked: number
-  media_kept: boolean
-  previous_library_kept: boolean
-  // How many accounts came from the backup (only into a library that had none).
-  accounts_restored: number
-  // Titles whose owner became the live account with the same email, or the PC owner.
-  titles_reassigned: number
-  // Names of the previous library's folders this backup lacks; they stay in the previous library.
-  folders_left_behind: string[]
-}
+export type LibraryRestoreDone = Schemas['LibraryRestoreDone']
 
-interface LibraryStorageCategory {
-  key: string
-  label: string
-  note: string
-  bytes: number
-  selected: boolean
-}
+export type LibraryStorageScan = Schemas['LibraryStorageScan']
 
-interface LibraryStorageDrama {
-  drama_id: number
-  total_bytes: number
-  would_free_bytes: number
-  job_running: boolean
-}
+export type LibraryStorageCleanResult = Schemas['LibraryStorageCleanResult']
 
-export interface LibraryStorageScan {
-  preset: string
-  categories_to_clean: string[]
-  total_bytes: number
-  reclaimable_bytes: number
-  would_free_bytes: number
-  categories: LibraryStorageCategory[]
-  per_drama: LibraryStorageDrama[]
-}
+export type PresetDeleteResult = Schemas['PresetDeleteResult']
 
-export interface LibraryStorageCleanResult {
-  preset: string
-  freed_bytes: number
-  results: LibraryBulkItem[]
-}
-
-export interface PresetDeleteResult {
-  preset_id: number
-  deleted: boolean
-}
-
-export interface VoiceBankDeleteResult {
-  entry_id: number
-  deleted: boolean
-}
+export type VoiceBankDeleteResult = Schemas['VoiceBankDeleteResult']
