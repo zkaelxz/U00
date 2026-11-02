@@ -1,20 +1,12 @@
 // Mirrors api/schemas/library.py: ExportReadiness, FlagActionResult, AutoQcFlagResult,
 // AssStyleOverrides, AssExportRequest, AssStyleOptions, MediaExportStarted, ArtifactInfo.
+import type { components } from '../api/generated/schema'
 
-export interface ExportReadiness {
-  drama_id: number
-  total_lines: number
-  zh_filled: number
-  en_filled: number
-  fully_translated: boolean
-  overlap_count: number
-  auto_qc_issue_count: number
-  dense_line_count: number
-}
+type Schemas = components['schemas']
 
-export interface FlagActionResult {
-  flagged_count: number
-}
+export type ExportReadiness = Schemas['ExportReadiness']
+
+export type FlagActionResult = Schemas['FlagActionResult']
 
 export type ReadingSpeedMode = 'normal' | 'relaxed' | 'off'
 
@@ -22,18 +14,9 @@ export interface ReadingSpeedModeResult {
   mode: ReadingSpeedMode
 }
 
-export interface ClearReadingSpeedFlagsResult {
-  cleared_count: number
-  flagged_count: number
-  history_id: number | null
-}
+export type ClearReadingSpeedFlagsResult = Schemas['ClearReadingSpeedFlagsResult']
 
-export interface AutoQcFlagResult {
-  flagged: number
-  cleared: number
-  already_flagged: number
-  checked: number
-}
+export type AutoQcFlagResult = Schemas['AutoQcFlagResult']
 
 type SubtitleFormat = 'srt' | 'vtt' | 'lrc'
 export type SubtitleField = 'en' | 'zh' | 'bilingual'
@@ -84,15 +67,9 @@ export interface AssStyleOptions {
   shadow_range: number[]
 }
 
-export interface MediaExportStarted {
-  job_id: string
-}
+export type MediaExportStarted = Schemas['MediaExportStarted']
 
-export interface ArtifactInfo {
-  name: string
-  size: number
-  kind: string
-}
+export type ArtifactInfo = Schemas['ArtifactInfo']
 
 // Each video export has its own artifact kind, so each section downloads its own file.
 export type ExportMediaKind = 'audio' | 'video' | 'softsub_video' | 'dubbed_video'
@@ -110,7 +87,4 @@ export interface DubbedVideoRequest {
 }
 
 // Parity E22.
-export interface MarkExportedResult {
-  drama_id: number
-  status: string
-}
+export type MarkExportedResult = Schemas['MarkExportedResult']
