@@ -718,6 +718,13 @@ class TestQwen3Vl:
     def test_distinct_lines_are_untouched(self):
         assert ocr.trim_repeated_lines("一\n二\n三\n四") == "一\n二\n三\n四"
 
+    @pytest.mark.parametrize("answer", ["There is no text visible in the image.", "<no text>", "No text."])
+    def test_a_no_text_answer_is_not_a_caption(self, answer):
+        assert ocr._QWEN3_VL_NO_TEXT.match(answer)
+
+    def test_a_caption_that_mentions_text_is_kept(self):
+        assert not ocr._QWEN3_VL_NO_TEXT.match("There is a text message for you")
+
     def test_unknown_backend_is_a_problem(self):
         assert "Unknown" in ocr.qwen3_vl_problem("qwen3_vl_99b")
 

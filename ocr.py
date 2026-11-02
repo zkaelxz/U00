@@ -15,6 +15,7 @@ Backends:
 
 import functools
 import importlib.util
+import re
 import shutil
 import threading
 from typing import Any, NamedTuple, Optional
@@ -594,6 +595,12 @@ def qwen3_vl_problem(backend: str):
     return None
 
 
+# On a frame with no caption the model answers in a sentence instead of nothing, despite the
+# prompt; it must not become a caption.
+_QWEN3_VL_NO_TEXT = re.compile(
+    r"^\W*(<\s*no text\s*>|there is no (visible )?text.*|no (visible )?text.*)$", re.IGNORECASE)
+
+
 def trim_repeated_lines(text: str, limit: int = _QWEN3_VL_REPEAT_LIMIT) -> str:
     """Drops a line once it has appeared `limit` times: a looping vision model repeats one
     line (the 2B did with furigana) until the token cap, and a caption never repeats a line."""
@@ -648,7 +655,8 @@ def extract_text_qwen3_vl(image_path: str, backend: str = "qwen3_vl_4b") -> str:
             output_ids = model.generate(**inputs, max_new_tokens=_QWEN3_VL_MAX_NEW_TOKENS,
                                         do_sample=False, repetition_penalty=1.05)
         generated = output_ids[:, inputs["input_ids"].shape[1]:]
-        return trim_repeated_lines(processor.batch_decode(generated, skip_special_tokens=True)[0])
+        text = trim_repeated_lines(processor.batch_decode(generated, skip_special_tokens=True)[0])
+        return "" if _QWEN3_VL_NO_TEXT.match(text) else text
 
 
 def extract_text_manga_ocr(image_path: str) -> str:
