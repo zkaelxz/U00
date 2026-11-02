@@ -122,7 +122,7 @@ def ocr_box_region(image_path: str, box: dict, source_language: str, backend: st
         crop = _PILImage.fromarray(np.ascontiguousarray(region[:, :, ::-1]))
         if resolved_backend in scanlate_tuning.OCR_DENOISE_BACKENDS:
             crop = clean_ocr_crop(crop)
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(prefix="baihe_tmp_", suffix=".png", delete=False) as tmp:
             crop.save(tmp.name)
             tmp_path = tmp.name
     else:
@@ -131,7 +131,7 @@ def ocr_box_region(image_path: str, box: dict, source_language: str, backend: st
                               ocr_box["x"] + ocr_box["w"], ocr_box["y"] + ocr_box["h"]))
             if resolved_backend in scanlate_tuning.OCR_DENOISE_BACKENDS:
                 crop = clean_ocr_crop(crop)
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(prefix="baihe_tmp_", suffix=".png", delete=False) as tmp:
                 crop.save(tmp.name)
                 tmp_path = tmp.name
     try:
