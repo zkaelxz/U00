@@ -14,6 +14,7 @@ const PREFS = {
   default_style_note: '',
   scene_aware_batches: true,
   translate_reply_guard: 'auto',
+  translate_alignment_check: false,
   episode_summary_engine: 'ollama',
   monthly_cap_usd: null as number | null,
   max_upload_mb: 20480,
