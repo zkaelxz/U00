@@ -841,8 +841,10 @@ def test_a_second_setup_is_refused_while_the_first_is_open(verified, monkeypatch
     FakePopen.returncode = None
     assert us.install()["launched"] is True
     assert us.setup_busy() is True
-    with pytest.raises(ConflictError, match="already starting"):
+    with pytest.raises(ConflictError) as exc:
         us.install()
+    assert str(exc.value) == ("The full installer is starting or open. Finish or close it, "
+                              "then try again.")
     FakePopen.returncode = 0
     assert us.setup_busy() is False
     assert us.install()["launched"] is True and len(FakePopen.calls) == 2

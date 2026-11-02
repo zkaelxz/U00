@@ -744,6 +744,9 @@ def _setup_env() -> dict:
 
 # Same wording as the app-only update's refusal: no new text for the same situation.
 _SETUP_STARTING = "An app update is already starting."
+SETUP_OPEN = "The full installer is starting or open. Finish or close it, then try again."
+_APP_UPDATE_APPLYING = ("The app-only update is being applied. Wait for Baihe Studio to "
+                        "restart, then try again.")
 
 
 def setup_busy() -> bool:
@@ -770,8 +773,10 @@ def install() -> dict:
     with _lock:
         if _state["download"] == "downloading":
             raise ConflictError("Wait for the download to finish.")
-        if _installing or (_setup is not None and _setup.poll() is None):
+        if _installing:
             raise ConflictError(_SETUP_STARTING)
+        if _setup is not None and _setup.poll() is None:
+            raise ConflictError(SETUP_OPEN)
         verified = _verified
         if verified is None:
             raise ConflictError("Download and verify the update first.")
@@ -780,7 +785,7 @@ def install() -> dict:
         # Outside _lock: the app-only update takes its own lock and then
         # calls setup_busy(), so holding both here could deadlock.
         if app_update_service.apply_busy():
-            raise ConflictError(_SETUP_STARTING)
+            raise ConflictError(_APP_UPDATE_APPLYING)
         return _install(verified)
     finally:
         with _lock:
