@@ -25,7 +25,7 @@ import { JobPill } from './JobPill'
 import { NovelTitlePage } from './NovelTitlePage'
 import { SimpleTitlePage } from './SimpleTitlePage'
 import { TitleViewSwitch } from './TitleViewSwitch'
-import { TITLE_VIEW_PREF, asTitleView, defaultTitleView, hasSimpleView, titleViewPref, trimsStages, type TitleView } from './titleView'
+import { TITLE_VIEW_PREF, asTitleView, defaultTitleView, hasSimpleView, opensSimpleStage, titleViewPref, trimsStages, type TitleView } from './titleView'
 import { titleKind } from './titleKind'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { StageContext, type StageContextValue } from './StageContext'
@@ -148,6 +148,26 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
   if (stage === null && drama && twoViews && view === 'simple') {
     return kind === 'novel' ? <NovelTitlePage id={id} drama={drama} onView={chooseView} /> : <SimpleTitlePage id={id} drama={drama} comic={kind === 'comic'} onView={chooseView} />
+  }
+  // The novel page's buttons open these stages; the stage tab strip would drop a Simple reader into the full workspace.
+  if (stage !== null && drama && twoViews && !!kind && view === 'simple' && opensSimpleStage(kind, active) && Stage && ctx) {
+    return (
+      <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
+        <header className="workspace-header">
+          <ButtonLink href={routeHref({ name: 'drama', id, stage: null })} variant="ghost" size="sm" className="ws-back" aria-label="Back to novel page">
+            <span aria-hidden="true">‹</span>
+            <span className="ws-back-text" aria-hidden="true">{title}</span>
+          </ButtonLink>
+          <h1 data-testid="drama-title" title={title}>{title}</h1>
+          <JobPill dramaId={id} onFinished={refetch} />
+          <TitleViewSwitch view={view} onChange={chooseView} />
+        </header>
+        <ErrorBanner error={error} />
+        <StageContext.Provider value={ctx}>
+          <Stage />
+        </StageContext.Provider>
+      </section>
+    )
   }
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
