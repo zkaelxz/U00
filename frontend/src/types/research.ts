@@ -1,67 +1,17 @@
 // Mirrors api/metadata_research_schemas.py (grounded research).
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export type ResearchMode = 'quick' | 'deep' | 'verify'
 export type ResearchChoice = 'keep' | 'replace' | 'save_both' | 'confirm'
 
-interface ResearchSource {
-  title?: string | null
-  url: string
-}
+export type ResearchField = Schemas['ResearchField']
 
-export interface ResearchField {
-  field: string
-  value: string
-  current?: string | null
-  status: 'new' | 'same' | 'conflict'
-  sources: ResearchSource[]
-  confidence?: number | null
-}
+// per_model was optional before the types were generated and fixtures omit it, so it stays optional.
+export type ResearchBudget = Omit<Schemas['ResearchBudget'], 'per_model'> & Partial<Pick<Schemas['ResearchBudget'], 'per_model'>>
 
-interface ResearchModelBudget {
-  free_daily_limit: number
-  requests_today: number
-  free_remaining: number
-  // Whether a lookup on this model is a free one now.
-  runs_free: boolean
-  used_up: boolean
-}
-
-export interface ResearchBudget {
-  // The top-level limit and free_remaining are the default model's; per_model has each model's own.
-  free_daily_limit: number
-  used_today: number
-  free_monthly_limit: number
-  used_this_month: number
-  free_remaining: number
-  per_model?: Record<string, ResearchModelBudget>
-  paid_price_per_search_usd: number
-  // Below this many free searches left, a lookup counts as paid.
-  free_lookup_min: number
-  free_tier_key: boolean
-  key_configured: boolean
-  monthly_cap_usd: number
-  month_spend_usd: number
-  models: string[]
-  modes: string[]
-  // Token cost of one lookup (before any paid search fee), by mode then model.
-  estimates_usd: Record<string, Record<string, number>>
-}
-
-export interface ResearchResult {
-  drama_id: number
-  // null for a cached read (nothing stored); Apply then names mode, model and retrieved_at.
-  research_id: string | null
-  cached: boolean
-  mode: string
-  model: string
-  retrieved_at: string
-  fields: ResearchField[]
-  sources: ResearchSource[]
-  related: { title: string; relation: string }[]
-  search_queries: string[]
-  cost_usd: number
-  budget: ResearchBudget
-}
+export type ResearchResult = Schemas['ResearchResult']
 
 export interface ResearchRequest {
   mode: ResearchMode
@@ -72,29 +22,8 @@ export interface ResearchRequest {
 
 // One stored per-field evidence row. The API also returns source URLs; the
 // note shows source titles only.
-export interface ProvenanceRow {
-  id: number
-  field: string
-  value: string
-  source?: string | null
-  source_url?: string | null
-  sources: ResearchSource[]
-  retrieved_at?: string | null
-  confidence?: number | null
-  last_verified?: string | null
-  // 'applied' (replaced), 'alternate' (saved beside) or 'verified' (confirmed).
-  status: string
-}
+export type ProvenanceRow = Schemas['ProvenanceRow']
 
-export interface ProvenanceList {
-  drama_id: number
-  fields: ProvenanceRow[]
-}
+export type ProvenanceList = Schemas['ProvenanceList']
 
-export interface ResearchApplied {
-  drama_id: number
-  replaced: string[]
-  saved_alternates: string[]
-  confirmed: string[]
-  kept: string[]
-}
+export type ResearchApplied = Schemas['ResearchApplied']
