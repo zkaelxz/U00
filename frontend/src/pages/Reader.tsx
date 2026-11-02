@@ -123,7 +123,7 @@ function GoTo({ count, onGo, withLabel = false }: { count: number; onGo: (n: num
   )
 }
 
-function WatchSection({ dramaId, media, sourceLanguage }: { dramaId: number; media: ReaderMediaAvailability; sourceLanguage: string }) {
+function WatchSection({ dramaId, media, sourceLanguage, trackVersion }: { dramaId: number; media: ReaderMediaAvailability; sourceLanguage: string; trackVersion: number }) {
   const [failed, setFailed] = useState(false)
   const kinds = [media.original === 'video' ? 'video' : media.original === 'audio' ? 'audio' : null, media.narration ? 'narration' : null]
   const summary = kinds.filter(Boolean).join(' · ')
@@ -140,7 +140,7 @@ function WatchSection({ dramaId, media, sourceLanguage }: { dramaId: number; med
       {media.original === 'audio' && (
         <audio controls preload="metadata" src={mediaStreamUrl(dramaId, 'audio')} onError={() => setFailed(true)} />
       )}
-      {media.narration && <ReadAlong dramaId={dramaId} onError={() => setFailed(true)} />}
+      {media.narration && <ReadAlong dramaId={dramaId} version={trackVersion} onError={() => setFailed(true)} />}
       {failed && <p className="muted">Can't play this here. It needs media playback permission, or the file is missing.</p>}
     </Section>
   )
@@ -217,6 +217,8 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [resumed, setResumed] = useState<number | null>(null)
   const [lastIdx, setLastIdx] = useState<{ page: number; size: number; idx: number } | null>(null)
   const [media, setMedia] = useState<ReaderMediaAvailability | null>(null)
+  // Bumped when Listen replaces the narration, so the player drops the old file it has cached.
+  const [trackVersion, setTrackVersion] = useState(0)
   const [vocab, setVocab] = useState<ReaderVocabList | null>(null)
   const [terms, setTerms] = useState<GlossaryTerm[]>([])
   const [engines, setEngines] = useState<TranslateEngine[]>([])
@@ -498,8 +500,11 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         </section>
       ) : (
         <>
-          <ListenSection dramaId={id} onReady={() => void readerApi.media(id).then(setMedia, () => setMedia(null))} />
-          {hasMedia && media && <WatchSection dramaId={id} media={media} sourceLanguage={sourceLanguage} />}
+          <ListenSection dramaId={id} onReady={() => {
+            void readerApi.media(id).then(setMedia, () => setMedia(null))
+            setTrackVersion((v) => v + 1)
+          }} />
+          {hasMedia && media && <WatchSection dramaId={id} media={media} sourceLanguage={sourceLanguage} trackVersion={trackVersion} />}
           {!phone && page !== null && (
             <div className="reader-bar">
               <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo />

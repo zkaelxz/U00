@@ -19,7 +19,8 @@ async function loadLines(dramaId: number, language: string): Promise<AlongLine[]
   return alongLines(rows, language)
 }
 
-export function ReadAlong({ dramaId, onError }: { dramaId: number; onError: () => void }) {
+// version: counts the times the narration was replaced while this page was open.
+export function ReadAlong({ dramaId, version, onError }: { dramaId: number; version: number; onError: () => void }) {
   const [lines, setLines] = useState<AlongLine[] | null>(null)
   const [time, setTime] = useState(0)
   const audio = useRef<HTMLAudioElement | null>(null)
@@ -36,7 +37,7 @@ export function ReadAlong({ dramaId, onError }: { dramaId: number; onError: () =
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, version])
 
   const current = useMemo(() => (lines ? activeIndex(lines, time) : null), [lines, time])
 
@@ -58,7 +59,7 @@ export function ReadAlong({ dramaId, onError }: { dramaId: number; onError: () =
         ref={audio}
         controls
         preload="none"
-        src={listenTrackUrl(dramaId)}
+        src={version > 0 ? `${listenTrackUrl(dramaId)}?v=${version}` : listenTrackUrl(dramaId)}
         onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
         onError={onError}
       />
