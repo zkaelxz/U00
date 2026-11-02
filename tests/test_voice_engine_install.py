@@ -32,7 +32,12 @@ STEP = textwrap.dedent("""
     if step == "venv":
         os.makedirs(os.path.dirname(python), exist_ok=True)
         open(python, "w").close()
-    print("key " + os.environ["FAKE_SECRET"] + " in " + python, flush=True)
+    # The key arrives as output (as a package might print one), not by
+    # name: secret-named variables never reach the child.
+    print("key " + os.environ["FAKE_PRINTED_TEXT"] + " in " + python, flush=True)
+    if "GROQ_API_KEY" in os.environ or "BAIHE_GEMINI_KEY" in os.environ:
+        print("ERROR: a key reached the install step", flush=True)
+        sys.exit(1)
     if mode == "hang" and step == "torch":
         time.sleep(60)
     if mode == "fail" and step == "engine":
@@ -45,7 +50,9 @@ STEP = textwrap.dedent("""
 def env(isolated_db, monkeypatch, tmp_path):
     state = {"mode": "ok", "free": 50_000, "tmp": tmp_path}
     monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("FAKE_SECRET", SECRET)
+    monkeypatch.setenv("FAKE_PRINTED_TEXT", SECRET)
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-not-for-the-child")
+    monkeypatch.setenv("BAIHE_GEMINI_KEY", "gemini-not-for-the-child")
     script = tmp_path / "step.py"
     script.write_text(STEP, encoding="utf-8")
     python = voice_venv.venv_python("qwen3_tts")

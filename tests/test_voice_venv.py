@@ -12,7 +12,7 @@ import voice_venv
 import voice_worker
 
 FAKE_WORKER = r'''
-import json, sys, time
+import json, os, sys, time
 spec = json.load(open(sys.argv[1], encoding="utf-8"))
 prefix = "@@voice-" + spec["nonce"] + " "
 def emit(event):
@@ -23,6 +23,10 @@ emit({"loaded": True})
 if mode == "hang":
     time.sleep(60)
 items = spec["items"]
+if mode == "env":
+    with open(items[0]["out"], "w", encoding="utf-8") as f:
+        json.dump(sorted(os.environ), f)
+    emit({"done": items[0]["id"]})
 if mode == "mixed":
     print("@@voice-" + "0" * 32 + ' {"done": "b"}')    # forged: wrong nonce
     print(prefix + "{not json")
@@ -197,6 +201,19 @@ def test_text_and_paths_stay_off_the_command_line(fake_venv, monkeypatch):
     assert seen["cmd"][:4] == [sys.executable, "-I", "-X", "utf8"]
     assert not any("你好" in part or "a.wav" in part for part in seen["cmd"])
     assert json.dumps(seen["cmd"]).count("voice_spec_") == 1
+
+
+def test_the_engine_child_gets_no_keys_from_the_environment(fake_venv, monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-secret")
+    monkeypatch.setenv("BAIHE_GEMINI_KEY", "gemini-secret")
+    monkeypatch.setenv("HF_TOKEN", "hf-secret")
+    monkeypatch.setenv("BAIHE_TEST_PLAIN", "1")
+    events = list(voice_venv.run_batch("fake", _items(fake_venv, "a"), str(fake_venv), 60,
+                                       options={"mode": "env"}))
+    assert {"done": "a"} in events
+    names = json.loads((fake_venv / "a.wav").read_text(encoding="utf-8"))
+    assert "PATH" in names or "Path" in names
+    assert not {"GROQ_API_KEY", "BAIHE_GEMINI_KEY", "HF_TOKEN", "BAIHE_TEST_PLAIN"} & set(names)
 
 
 class _FakeQwenModel:
