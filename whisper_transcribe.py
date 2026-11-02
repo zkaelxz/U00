@@ -191,7 +191,7 @@ def _cut_tail(audio_path: str, resume):
     import audio_extract
     if not resume.at:
         return None
-    fd, path = tempfile.mkstemp(suffix=".wav")
+    fd, path = tempfile.mkstemp(prefix="baihe_tmp_", suffix=".wav")
     os.close(fd)
     try:
         # No upper end: an end past the file is clamped by ffmpeg, and the real length is not known here.
@@ -345,7 +345,7 @@ def _decode_opening(audio_path, seconds):
 
     import audio_extract
     from asr_backend import load_audio_16k
-    fd, clip = tempfile.mkstemp(suffix=".wav")
+    fd, clip = tempfile.mkstemp(prefix="baihe_tmp_", suffix=".wav")
     os.close(fd)
     try:
         audio_extract.extract_audio_slice(audio_path, 0.0, seconds, clip)
