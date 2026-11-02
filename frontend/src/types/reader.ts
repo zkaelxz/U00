@@ -1,4 +1,7 @@
 // Hand-written mirrors of api/schemas/reader.py (Reader models).
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export interface ReaderPage {
   html: string
@@ -30,27 +33,13 @@ export interface ReaderOverview {
   last_line_idx: number | null
 }
 
-export interface ReaderProgress {
-  drama_id: number
-  last_page: number
-  last_line_idx: number
-  percent_complete: number
-}
+export type ReaderProgress = Schemas['ReaderProgress']
 
-export interface ReaderNotes {
-  drama_id: number
-  notes: string
-}
+export type ReaderNotes = Schemas['ReaderNotes']
 
 export type CaptionTrack = 'Source' | 'English' | 'Bilingual'
 
-export interface ReaderMediaAvailability {
-  drama_id: number
-  original: 'video' | 'audio' | null
-  narration: boolean
-  caption_tracks: string[]
-  captions_overlay: boolean
-}
+export type ReaderMediaAvailability = Schemas['ReaderMediaAvailability']
 
 // Every LLM request. An omitted engine means Claude on the server and
 // counts as paid, so the page always sends the chosen engine.
@@ -65,74 +54,19 @@ export interface ReaderLookupRequest extends ReaderEngineFields {
   use_llm: boolean
 }
 
-interface ReaderDefinition {
-  reading: string | null
-  definitions: string[]
-}
+export type ReaderLookupResult = Schemas['ReaderLookupResult']
 
-export interface ReaderLookupResult {
-  drama_id: number
-  page: number
-  definitions: Record<string, ReaderDefinition>
-  saved: number
-}
+export type ReaderVocabList = Schemas['ReaderVocabList']
 
-interface ReaderVocabWord {
-  word: string
-  reading: string | null
-  definitions: string[]
-  language: string | null
-  first_seen_line_idx: number | null
-  export_rich: boolean
-}
+export type ReaderRichExportResult = Schemas['ReaderRichExportResult']
 
-export interface ReaderVocabList {
-  drama_id: number
-  count: number
-  words: ReaderVocabWord[]
-}
+export type ReaderAnswer = Schemas['ReaderAnswer']
 
-export interface ReaderRichExportResult {
-  drama_id: number
-  updated: number
-  queued: boolean
-  rich_count: number
-}
+export type ReaderRecap = Schemas['ReaderRecap']
 
-export interface ReaderAnswer {
-  drama_id: number
-  answer: string | null
-}
+export type ReaderRelationshipMap = Schemas['ReaderRelationshipMap']
 
-export interface ReaderRecap {
-  drama_id: number
-  summary: string | null
-  truncated: boolean
-}
-
-export interface ReaderRelationshipMap {
-  drama_id: number
-  characters: Record<string, unknown>[]
-  relationships: Record<string, unknown>[]
-  mermaid: string
-}
-
-interface ReaderWikiEntry {
-  id: number | null
-  entry_type: string | null
-  name: string | null
-  aliases: unknown
-  description: string | null
-  attributes: Record<string, unknown>
-  first_seen_line_idx: number | null
-  known_through_line_idx: number | null
-}
-
-export interface ReaderWikiList {
-  drama_id: number
-  entry_types: string[]
-  entries: ReaderWikiEntry[]
-}
+export type ReaderWikiList = Schemas['ReaderWikiList']
 
 export interface ReaderWikiUpdateResult {
   drama_id: number
@@ -141,15 +75,9 @@ export interface ReaderWikiUpdateResult {
   next_line_idx: number | null
 }
 
-export interface ReaderWikiClearResult {
-  drama_id: number
-  cleared: boolean
-}
+export type ReaderWikiClearResult = Schemas['ReaderWikiClearResult']
 
-export interface ReaderChatTurn {
-  role: 'user' | 'assistant'
-  content: string
-}
+export type ReaderChatTurn = Schemas['ReaderChatTurn']
 
 // The rich sentence-card deck, fetched in JS so its headers can be read.
 export interface RichDeckDownload {

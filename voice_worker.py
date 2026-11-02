@@ -27,6 +27,38 @@ QWEN3_TTS_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 QWEN3_TTS_LANGUAGES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean", "en": "English"}
 
 
+# Both engines can leave hiss or a stray syllable after the last word and end on a
+# non-zero sample, which clicks. Everything quieter than this below the clip's peak
+# after the last real speech is cut, a short natural tail is kept, and the end is faded.
+TAIL_FLOOR_DB = -40.0
+TAIL_FRAME_SECONDS = 0.01
+TAIL_KEEP_SECONDS = 0.12
+TAIL_FADE_SECONDS = 0.05
+
+
+def _trim_tail(wav, rate: int):
+    """`wav` as a flat float32 array with the post-speech tail trimmed and faded out."""
+    import numpy
+
+    samples = numpy.asarray(wav, dtype=numpy.float32).reshape(-1)
+    peak = float(numpy.abs(samples).max()) if samples.size else 0.0
+    if peak == 0.0:
+        return samples
+    frame = max(1, int(rate * TAIL_FRAME_SECONDS))
+    usable = samples[: samples.size // frame * frame]
+    if usable.size:
+        rms = numpy.sqrt((usable.reshape(-1, frame) ** 2).mean(axis=1))
+        loud = numpy.nonzero(rms > peak * 10 ** (TAIL_FLOOR_DB / 20))[0]
+        if loud.size:
+            end = min(samples.size, (int(loud[-1]) + 1) * frame + int(rate * TAIL_KEEP_SECONDS))
+            samples = samples[:end]
+    fade = min(samples.size, int(rate * TAIL_FADE_SECONDS))
+    if fade:
+        samples = samples.copy()
+        samples[-fade:] *= numpy.linspace(1.0, 0.0, fade, dtype=numpy.float32)
+    return samples
+
+
 def _load_qwen3_tts(spec: dict):
     import soundfile as sf
     import torch
@@ -57,7 +89,7 @@ def _load_qwen3_tts(spec: dict):
         wavs, rate = model.generate_voice_clone(
             text=item["text"], language=QWEN3_TTS_LANGUAGES.get(item.get("language"), "Auto"),
             voice_clone_prompt=prompts[key])
-        sf.write(item["out"], wavs[0], rate)
+        sf.write(item["out"], _trim_tail(wavs[0], rate), rate)
     return speak
 
 
@@ -118,7 +150,8 @@ def _load_chatterbox(spec: dict):
             voices[item["ref_audio"]] = model.conds
         model.conds = voices[item["ref_audio"]]
         # Chatterbox takes the language codes the app uses (zh, ja, ko, en).
-        parts = [model.generate(piece, language_id=item.get("language") or "en").squeeze(0).numpy()
+        parts = [_trim_tail(model.generate(piece, language_id=item.get("language") or "en")
+                            .squeeze(0).numpy(), model.sr)
                  for piece in _chatterbox_pieces(item["text"]) or [item["text"]]]
         sf.write(item["out"], numpy.concatenate(parts) if len(parts) > 1 else parts[0], model.sr)
     return speak
