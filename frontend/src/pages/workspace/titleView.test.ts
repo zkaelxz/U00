@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { asTitleView, episodeRows, episodeState, hasSimpleView } from './titleView'
+import { asTitleView, defaultTitleView, episodeRows, episodeState, hasSimpleView, titleViewPref } from './titleView'
 
 describe('title view', () => {
   it('defaults to Full so nothing changes until the switch is used', () => {
@@ -9,10 +9,17 @@ describe('title view', () => {
     expect(asTitleView('simple')).toBe('simple')
   })
 
-  it('offers Simple for audio and video titles only', () => {
-    expect(hasSimpleView('audio')).toBe(true)
-    expect(hasSimpleView('video')).toBe(true)
-    for (const k of ['novel', 'comic', 'subtitle'] as const) expect(hasSimpleView(k)).toBe(false)
+  it('offers Simple for every kind but a subtitle-only title', () => {
+    for (const k of ['audio', 'video', 'novel', 'comic'] as const) expect(hasSimpleView(k)).toBe(true)
+    expect(hasSimpleView('subtitle')).toBe(false)
+  })
+
+  it('lands a novel on its page and keeps one saved choice per group of kinds', () => {
+    expect(defaultTitleView('novel')).toBe('simple')
+    for (const k of ['audio', 'video', 'comic'] as const) expect(defaultTitleView(k)).toBe('full')
+    expect(asTitleView('', 'simple')).toBe('simple')
+    expect(asTitleView('full', 'simple')).toBe('full')
+    expect(new Set([titleViewPref('audio'), titleViewPref('video'), titleViewPref('novel'), titleViewPref('comic')]).size).toBe(3)
   })
 
   it('words an episode by how far its lines are', () => {
