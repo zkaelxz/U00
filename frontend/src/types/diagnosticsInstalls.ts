@@ -1,38 +1,16 @@
 // Mirrors api/diagnostics_install_schemas.py (package install and GPU PyTorch
 // setup, Deno install, "Test first").
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
+
 import type { DiagnosticsTorchVerify } from './diagnostics'
 
-export interface DiagnosticsJobState {
-  status: string | null
-  progress: number
-  message: string
-  error: string | null
-}
+export type DiagnosticsJobState = Schemas['DiagnosticsJobState']
 
-export interface DiagnosticsJobStarted {
-  job_id: string
-  started: boolean
-}
+export type DiagnosticsJobStarted = Schemas['DiagnosticsJobStarted']
 
-interface DiagnosticsDenoResult {
-  ok: boolean
-  on_path: boolean
-  needs_restart: boolean
-  message: string
-  output_tail: string[]
-}
-
-export interface DiagnosticsDenoStatus {
-  runtime_found: boolean
-  runtime_name: string | null
-  deno_on_path: boolean
-  deno_installed: boolean
-  can_install: boolean
-  install_method: 'winget' | 'download' | string
-  job_id: string
-  job: DiagnosticsJobState | null
-  last_result: DiagnosticsDenoResult | null
-}
+export type DiagnosticsDenoStatus = Schemas['DiagnosticsDenoStatus']
 
 type UpgradeVerdict = 'safe' | 'broken' | 'conflict' | 'incomplete' | string
 
@@ -77,9 +55,4 @@ export interface DiagnosticsDependencyInstallState {
   job: DiagnosticsJobState | null
 }
 
-export interface DiagnosticsCudaRuntimeStatus {
-  missing: boolean
-  show: boolean
-  install: DiagnosticsDependencyInstallState | null
-  job: DiagnosticsJobState | null
-}
+export type DiagnosticsCudaRuntimeStatus = Schemas['DiagnosticsCudaRuntimeStatus']
