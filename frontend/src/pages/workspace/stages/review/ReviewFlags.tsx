@@ -31,7 +31,7 @@ const ACTIONS: Action[] = [
   {
     id: 'talk-over',
     label: 'Add lines for talk-over',
-    writes: 'Where Detect speakers heard a second speaker over another speaker\'s line, starts that speaker\'s own next line where their voice begins, or adds a blank flagged line for them to type into when they have none near. Needs saved speaker detection. Saved to line history.',
+    writes: 'Starts a second speaker\'s late line where their voice begins, or adds a blank flagged line for them. Needs saved speaker detection; saved to line history.',
     run: (id) =>
       addTalkOverLines(id).then((r) => {
         if (!r.added_count && !r.moved_count) return 'No talk-over found.'
