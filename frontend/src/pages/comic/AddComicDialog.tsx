@@ -18,15 +18,20 @@ import { useCanUpload } from '../../hooks/useHolds'
 import { routeHref } from '../../router'
 import { SOURCE_LANGUAGES } from '../libraryForm'
 import { newDramaRequest } from '../sources/urlImportFormat'
-import { ADD_WAYS, addComic, canAdd, cbzPages, startPrefs, type AddComicInput, type AddWay } from './addComicLogic'
-import { MODE_OPTIONS, saveComicPrefs, type ComicMode } from './comicLogic'
+import { ADD_WAYS, addComic, canAdd, cbzPages, folderPages, startPrefs, type AddComicInput, type AddWay } from './addComicLogic'
+import { markReadTranslated, MODE_OPTIONS, saveComicPrefs, type ComicMode } from './comicLogic'
 
 const PICK: Record<Exclude<AddWay, 'link'>, { accept: string; multiple: boolean }> = {
   images: { accept: '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp', multiple: true },
   file: { accept: '.cbz,application/vnd.comicbook+zip,application/zip', multiple: false },
+  folder: { accept: '', multiple: true },
 }
 
-export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+// The one line shown when "Read translated" cannot start from the link.
+export const READ_TRANSLATED_ERROR = 'Couldn’t read that link. Check it and try again.'
+
+/** `readTranslated` is the link-only "Read translated" form: the pages are translated as they are read. */
+export function AddComicDialog({ open, onClose, readTranslated = false }: { open: boolean; onClose: () => void; readTranslated?: boolean }) {
   const canUpload = useCanUpload()
   const [title, setTitle] = useState('')
   const [language, setLanguage] = useState('zh')
@@ -50,7 +55,8 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
     let id = made?.id ?? null
     let freshId: number | null = null
     try {
-      const pages = way === 'file' ? cbzPages(new Uint8Array(await files[0].arrayBuffer())) : files
+      const pages =
+        way === 'file' ? cbzPages(new Uint8Array(await files[0].arrayBuffer())) : way === 'folder' ? folderPages(files) : files
       if (id === null) {
         id = (await createDrama(request)).id
         freshId = id
@@ -62,6 +68,7 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
         upload: (dramaId, f) => scanlateApi.upload(dramaId, f, true),
       })
       saveComicPrefs(browserStorage(), id, startPrefs(mediaType, mode))
+      if (readTranslated) markReadTranslated(browserStorage(), id)
       onClose()
       window.location.hash = routeHref({ name: 'comic', id, page: null })
     } catch (e) {
@@ -76,7 +83,7 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
   }
 
   return (
-    <Sheet open={open} title="Add a Comic" onClose={onClose}>
+    <Sheet open={open} title={readTranslated ? 'Read translated' : 'Add a Comic'} onClose={onClose}>
       <div className="stack add-comic">
         <Field label="Title">
           <input type="text" value={title} maxLength={300} disabled={made !== null} onChange={(e) => setTitle(e.target.value)} />
@@ -86,19 +93,21 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
             {SOURCE_LANGUAGES.map((l) => <option key={l} value={l}>{humanize('language', l)}</option>)}
           </select>
         </Field>
-        <Tabs
-          label="Add a Comic"
-          idPrefix="add-comic"
-          tabs={ways}
-          active={way}
-          onSelect={(w) => {
-            setWay(w)
-            setFiles([])
-            setError(null)
-          }}
-        />
+        {!readTranslated && (
+          <Tabs
+            label="Add a Comic"
+            idPrefix="add-comic"
+            tabs={ways}
+            active={way}
+            onSelect={(w) => {
+              setWay(w)
+              setFiles([])
+              setError(null)
+            }}
+          />
+        )}
         {way === 'link' ? (
-          <Field label="Link">
+          <Field label={readTranslated ? 'Chapter link' : 'Link'}>
             <input type="url" value={link} onChange={(e) => setLink(e.target.value)} />
           </Field>
         ) : (
@@ -108,19 +117,26 @@ export function AddComicDialog({ open, onClose }: { open: boolean; onClose: () =
               type="file"
               accept={PICK[way].accept}
               multiple={PICK[way].multiple}
+              {...(way === 'folder' ? { webkitdirectory: '' } : {})}
               onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             />
           </Field>
         )}
-        <Field label="Reading mode">
-          <select value={mode} onChange={(e) => setMode(e.target.value as ComicMode)}>
-            {MODE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </Field>
-        <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+        {!readTranslated && (
+          <Field label="Reading mode">
+            <select value={mode} onChange={(e) => setMode(e.target.value as ComicMode)}>
+              {MODE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </Field>
+        )}
+        {readTranslated ? (
+          error !== null && <p role="alert" className="error">{READ_TRANSLATED_ERROR}</p>
+        ) : (
+          <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+        )}
         <div className="actions">
           <button type="button" className={buttonClass('primary')} disabled={busy || !canAdd(input)} onClick={() => void add()}>
-            {busy ? 'Adding…' : 'Add'}
+            {readTranslated ? 'Read translated' : busy ? 'Adding…' : 'Add'}
           </button>
         </div>
       </div>

@@ -313,6 +313,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/app/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Phone app sign-in: hand off */
+        post: operations["app_confirm_api_auth_app_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/app/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Phone app sign-in: finish */
+        post: operations["app_redeem_api_auth_app_redeem_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/app/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Phone app sign-in: confirm */
+        get: operations["app_start_api_auth_app_start_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/callback": {
         parameters: {
             query?: never;
@@ -8098,6 +8149,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scanlate/dramas/{drama_id}/view-prefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How this title was last shown in the viewer */
+        get: operations["get_view_prefs_api_scanlate_dramas__drama_id__view_prefs_get"];
+        put?: never;
+        /** Remember how this title is shown in the viewer */
+        post: operations["post_view_prefs_api_scanlate_dramas__drama_id__view_prefs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series": {
         parameters: {
             query?: never;
@@ -14483,6 +14552,32 @@ export interface components {
             source: string;
         };
         /**
+         * ComicViewPrefs
+         * @description How the reader shows a title: the same choices the viewer keeps per title.
+         */
+        ComicViewPrefs: {
+            /**
+             * Fit
+             * @enum {string}
+             */
+            fit: "width" | "height" | "original";
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "vertical" | "paged";
+            /** Rtl */
+            rtl: boolean;
+            /** Text */
+            text: boolean;
+            /** Typeset */
+            typeset: boolean;
+        };
+        /** ComicViewPrefsView */
+        ComicViewPrefsView: {
+            view_prefs?: components["schemas"]["ComicViewPrefs"] | null;
+        };
+        /**
          * ComicVisibilityRequest
          * @description Hide or restore pages: by page ids, or the first/last `count` pages of
          *     one chapter. Exactly one of the two.
@@ -16258,10 +16353,28 @@ export interface components {
             /** Narration Language */
             narration_language?: string | null;
             /**
+             * New Chapters
+             * @description New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.
+             * @default 0
+             */
+            new_chapters: number;
+            /**
              * Owned By Me
              * @description The signed-in viewer created it. Only set in the Library list.
              */
             owned_by_me?: boolean | null;
+            /**
+             * Page Count
+             * @description Pages a comic has. Only counted in the Library list.
+             * @default 0
+             */
+            page_count: number;
+            /**
+             * Pages Translated
+             * @description Comic pages with translated text. Only counted in the Library list.
+             * @default 0
+             */
+            pages_translated: number;
             preset_defaults?: components["schemas"]["DramaPresetDefaults"] | null;
             /** Profile Skipped */
             profile_skipped?: string[];
@@ -16387,10 +16500,28 @@ export interface components {
             /** Narration Language */
             narration_language?: string | null;
             /**
+             * New Chapters
+             * @description New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.
+             * @default 0
+             */
+            new_chapters: number;
+            /**
              * Owned By Me
              * @description The signed-in viewer created it. Only set in the Library list.
              */
             owned_by_me?: boolean | null;
+            /**
+             * Page Count
+             * @description Pages a comic has. Only counted in the Library list.
+             * @default 0
+             */
+            page_count: number;
+            /**
+             * Pages Translated
+             * @description Comic pages with translated text. Only counted in the Library list.
+             * @default 0
+             */
+            pages_translated: number;
             /** Publication Status */
             publication_status?: string | null;
             /**
@@ -16568,10 +16699,28 @@ export interface components {
             /** Media Type */
             media_type?: string | null;
             /**
+             * New Chapters
+             * @description New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.
+             * @default 0
+             */
+            new_chapters: number;
+            /**
              * Owned By Me
              * @description The signed-in viewer created it. Only set in the Library list.
              */
             owned_by_me?: boolean | null;
+            /**
+             * Page Count
+             * @description Pages a comic has. Only counted in the Library list.
+             * @default 0
+             */
+            page_count: number;
+            /**
+             * Pages Translated
+             * @description Comic pages with translated text. Only counted in the Library list.
+             * @default 0
+             */
+            pages_translated: number;
             /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
@@ -23897,6 +24046,8 @@ export interface components {
             mode: "missing" | "page" | "all";
             /** Page Id */
             page_id?: number | null;
+            /** Read Ahead From */
+            read_ahead_from?: number | null;
         };
         /** ScanlateUploadLimits */
         ScanlateUploadLimits: {
@@ -25016,6 +25167,8 @@ export interface components {
             uroman: boolean;
             /** Whisper Cached Base */
             whisper_cached_base: boolean;
+            /** Whisper Cached Large V3 */
+            whisper_cached_large_v3: boolean;
             /** Whisper Cached Large V3 Turbo */
             whisper_cached_large_v3_turbo: boolean;
             /** Whisper Cached Medium */
@@ -29466,6 +29619,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssistantTools"];
+                };
+            };
+        };
+    };
+    app_confirm_api_auth_app_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
+    app_redeem_api_auth_app_redeem_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    app_start_api_auth_app_start_get: {
+        parameters: {
+            query?: {
+                challenge?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -41399,6 +41623,8 @@ export interface operations {
                 quick_filter?: string | null;
                 /** @description Repeatable; a drama must carry every tag. */
                 tag?: string[];
+                /** @description False skips the per-title line counts (line_count and translated_count come back 0) for a caller that only needs names. */
+                progress?: boolean;
             };
             header?: never;
             path?: never;
@@ -52763,6 +52989,90 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_view_prefs_api_scanlate_dramas__drama_id__view_prefs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicViewPrefsView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_view_prefs_api_scanlate_dramas__drama_id__view_prefs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicViewPrefs"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicViewPrefs"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -248,9 +248,10 @@ class TestFolders:
 
         import browser_support
         import pending_install
+        import voice_venv
         from services import sources_save_service, vdb_names_service
         for name in (os.path.basename(pending_install.state_dir()), browser_support.FOLDER_NAME,
-                     sources_save_service.SAVE_DIRNAME):
+                     sources_save_service.SAVE_DIRNAME, voice_venv.VENVS_DIRNAME):
             (layout.data / name).mkdir()
         (layout.data / vdb_names_service.FILE_NAME).write_text("{}", encoding="utf-8")
         assert service_layout.data_folder_contents_problem(layout.data) == ""
@@ -260,6 +261,16 @@ class TestFolders:
                      ".restore_staging_abc123"):
             (layout.data / name).mkdir()
         assert service_layout.data_folder_contents_problem(layout.data) == ""
+
+    def test_the_lock_file_a_crashed_restore_left_is_not_foreign(self, layout):
+        (layout.data / "library.restore-lock").write_bytes(b"")
+        assert service_layout.data_folder_contents_problem(layout.data) == ""
+
+    def test_a_folder_only_named_like_a_kept_copy_is_foreign(self, layout):
+        for name in ("library.pre_restore_my files", "library.pre_reset_", ".restore_staging_old copy"):
+            (layout.data / name).mkdir()
+            assert name in service_layout.data_folder_contents_problem(layout.data)
+            (layout.data / name).rmdir()
 
     def test_links_are_refused(self, tmp_path):
         (tmp_path / "real").mkdir()

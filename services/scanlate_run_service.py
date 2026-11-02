@@ -118,13 +118,21 @@ def _require_opencv() -> None:
             details={"reason": "missing_package", "package": "opencv-python"})
 
 
+# Small on purpose: a reader who stops after a page should not have paid for a whole chapter.
+READ_AHEAD_PAGES = 3
+
+
 def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, confirm: bool = False,
               engine: str | None = None, detect_backend: str = "auto",
-              chapter_id: str | None = None, art_captions: bool = False) -> dict:
+              chapter_id: str | None = None, art_captions: bool = False,
+              read_ahead_from: int | None = None) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
     pages. `chapter_id` limits "missing"/"all" to one chapter. `art_captions` also
-    translates the large text drawn on the art (needs PaddleOCR). Returns {job_id, engine, mode}."""
+    translates the large text drawn on the art (needs PaddleOCR). `read_ahead_from` is the page
+    a reader is on: the run covers it and the READ_AHEAD_PAGES visible pages after it ("missing" skips the translated ones), and (nobody
+    having asked for this spend) is refused for a capped engine while no monthly cap is set.
+    Returns {job_id, engine, mode}."""
     pages_svc.require_drama(drama_id)
     if mode not in MODES:
         raise InvalidInputError("mode must be 'missing', 'page' or 'all'.")
@@ -143,9 +151,16 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
         raise InvalidInputError("chapter_id can't be combined with a single page.")
     if mode == "all" and not confirm:
         raise ConflictError(_CONFIRM_ALL)
+    if read_ahead_from is not None and (mode != "missing" or chapter_id is not None):
+        raise InvalidInputError("read_ahead_from only works with mode 'missing' and no chapter.")
     # Pages marked "not part of the story" are skipped, and a chapter limits the run.
     targets = ([page_id] if mode == "page"
                else comic_chapters_service.run_page_ids(drama_id, chapter_id))
+    if read_ahead_from is not None:
+        if read_ahead_from not in targets:
+            raise UnsupportedOperationError("That page is not in the reading order.")
+        start = targets.index(read_ahead_from)
+        targets = targets[start:start + 1 + READ_AHEAD_PAGES]
     if not targets:
         raise UnsupportedOperationError("No pages to run: they are all hidden.")
     _require_opencv()
@@ -153,6 +168,9 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
     if art_captions:
         _require_paddle()
     engine_name = engine or str(settings_service.get("default_engine"))
+    if read_ahead_from is not None:
+        paid_job_service.require_cap_for_unattended(
+            engine_name, bool(settings_service.get("gemini_free_tier")))
     # Pure-MT engines are called once per region, outside call_llm_json.
     built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(
@@ -180,6 +198,9 @@ def _predecessor_context(drama_id: int, page_id: int) -> str:
         if page_id not in visible or p["id"] in visible:
             prev = p
     return (prev or {}).get("context_summary") or ""
+
+
+_STAMP_LOOKBACK_PAGES = 4
 
 
 def _detector_note(detect_backend: str, notes: list) -> tuple:
@@ -305,6 +326,26 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
     return existing, expected_ids, expected_rev, bubbles, detect_notes
 
 
+def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list) -> None:
+    """Skips a region that repeats, in place, a region of the few pages before
+    this one: a site's stamp, which the per-page check misses when OCR drops
+    the address. Runs when the page is processed, not when it is detected: the
+    read-ahead detects the next page before this one's regions are saved."""
+    import scanlate_watermark
+    page = db.get_page(page_id) or {}
+    width, height = int(page.get("width") or 0), int(page.get("height") or 0)
+    earlier = []
+    for p in db.list_pages(drama_id):
+        if p["idx"] >= int(page.get("idx") or 0):
+            break
+        if (int(p.get("width") or 0), int(p.get("height") or 0)) == (width, height):
+            earlier.append(p["id"])
+    # The nearest few pages: a stamp is on every page, and loading all would
+    # cost a query per page of a long chapter.
+    earlier_regions = [db.load_bubbles(pid) for pid in earlier[-_STAMP_LOOKBACK_PAGES:]]
+    scanlate_watermark.flag_site_marks(bubbles, earlier_regions, width, height)
+
+
 def _rerender(drama_id: int, page_id: int, jid: str) -> None:
     """Typesets a page again after its text changed. A failed render clears the
     page's typeset image, which shows the old text, so the original is shown."""
@@ -362,6 +403,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if isinstance(result, str):
         return result
     existing, expected_ids, expected_rev, bubbles, detect_notes = result
+    _flag_repeated_site_marks(drama_id, page_id, bubbles)
     notes = [_detector_note(detect_kwargs["detect_backend"], detect_notes)]
     notes += detect_notes
     new_context, translated_ok = None, True

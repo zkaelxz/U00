@@ -160,6 +160,25 @@ if errorlevel 1 (
 
 REM --- Virtual environment ------------------------------------------------
 if not exist %PY% (
+    REM Only when making a venv: an existing one keeps running the Python it
+    REM was made from, whatever `python` on PATH is now.
+    REM Exit 1 = older than 3.12, because core numpy needs 3.12+. 2 = newer than 3.13:
+    REM CI and the installer use 3.13, and PaddleOCR has no wheel for 3.14.
+    %PYCMD% -c "import sys; v = sys.version_info[:2]; sys.exit(1 if v < (3, 12) else 2 if v > (3, 13) else 0)" >nul 2>nul
+    if errorlevel 2 (
+        echo Python is newer than 3.13. Baihe Studio is tested on 3.13, and the optional
+        echo PaddleOCR package has no build for this Python yet. Starting anyway; to use
+        echo 3.13 instead, install it and run start.bat --python-version 3.13
+    ) else if errorlevel 1 (
+        echo Python found, but older than 3.12.
+        echo.
+        echo Install Python 3.12 or newer from https://python.org/downloads/
+        echo and make sure to tick "Add python.exe to PATH" during setup,
+        echo then run this again.
+        echo ^(setup.bat on this PC can check and install what is missing.^)
+        if not defined BAIHE_NOPAUSE pause
+        exit /b 1
+    )
     echo Setting up a virtual environment in "%VENV_DIR%\" ^(first run only^)...
     %PYCMD% -m venv "%VENV_DIR%"
     if errorlevel 1 (

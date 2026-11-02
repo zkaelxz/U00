@@ -26,8 +26,8 @@ torch<3               # the tested GPU set is torch 2.11.0 / torchvision 0.26.0 
 torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics_torch.TORCH_VARIANTS;
                       # Diagnostics > GPU PyTorch installs it). Every Diagnostics install
                       # also pins whatever torch family is installed, exactly.
-pillow<13            # 13 is untested against scanlate*.py and the installer bundle; lift after a
-                      # real page run.
+pillow<14            # 14 will remove more deprecated APIs (JpegImageFile.load_djpeg among them);
+                      # lift after the tests and a real Scanlate page run on it.
 huggingface-hub<2      # gradio (pulled in by the optional omnivoice voice-clone install) requires <2.0, so
                       # an uncapped resolve leaves a pip conflict; transformers 5 accepts 1.x too.
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.
@@ -43,7 +43,7 @@ nvidia-cudnn-cu12>=9.27.0.42,<10       # GPU runtime) needs cuBLAS 12 and cuDNN 
 # CI and source installs test what the installer bundles. Bump these together with the
 # lock (tests/test_constraints_lock_parity.py fails if they differ).
 fastapi==0.162.0
-pydantic==2.14.1
+pydantic==2.14.2
 starlette==1.10.0
 python-multipart==0.0.32
 uvicorn==0.54.0

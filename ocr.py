@@ -20,6 +20,7 @@ import threading
 from typing import Any, NamedTuple, Optional
 
 import model_pins
+import ocr_layout
 from lib import proc
 
 # Tesseract language codes per source language. "zh" defaults to
@@ -29,25 +30,28 @@ TESSERACT_LANG_ZH_TRADITIONAL = "chi_tra"
 
 # Shared with the UI: Settings' own default-backend picker and Scanlate's
 # per-page override both offer the same choices, from this one list.
-OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "tesseract"]
+OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "rapidocr", "tesseract"]
 
 # Burned-in video captions only: manga_ocr and paddle_vl_manga are trained on
 # manga bubbles, so they are not offered here.
-HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "auto"]
+HARDSUB_OCR_BACKEND_OPTIONS = ["tesseract", "paddle", "rapidocr", "auto"]
 
 
 def default_hardsub_backend(source_language: str) -> str:
-    """PaddleOCR for Chinese (confirmed more accurate on
-    stylized/small captions), Tesseract otherwise."""
-    return "paddle" if source_language == "zh" else "tesseract"
+    """Auto for Chinese and Korean, so RapidOCR (on real hard-sub frames it read Chinese
+    captions as well as PaddleOCR and kept lines whole where PaddleOCR split them) is used
+    only where installed and a title that read fine on PaddleOCR or Tesseract still does."""
+    return "auto" if source_language in ("zh", "ko") else "tesseract"
 
 
 def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
     """
     Default OCR backend by source language, the way comic-translate does
     but with maintained choices -- manga_ocr for Japanese (already a
-    Baihe dependency), paddle for Chinese, paddle for Korean too
-    (PaddleOCR supports both, unlike Tesseract-vs-nothing before this).
+    Baihe dependency; it reads vertical columns in order and skips
+    furigana, which RapidOCR does not), RapidOCR for Chinese and Korean
+    (PP-OCRv6 and its Korean recognizer matched PaddleOCR on real pages
+    without PaddleOCR's numpy and OpenCV downgrades).
     Explicitly not Pororo for Korean (comic-translate's own choice) --
     checked its maintenance status directly: even a Hugging Face mirror
     of just its OCR piece exists specifically because people are worried
@@ -65,7 +69,10 @@ def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False)
     if source_language == "ja":
         return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
     if source_language in ("zh", "ko"):
-        return "paddle"
+        # Callers don't pass an installed-check, so a PC without RapidOCR must not be sent to it.
+        if backend_problem("rapidocr") is None:
+            return "rapidocr"
+        return "paddle" if backend_problem("paddle") is None else "tesseract"
     return "tesseract"
 
 
@@ -236,6 +243,159 @@ def paddle_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
     return lines
 
 
+# The wheel's default recognizer has no Korean; this one is fetched once through
+# lib.http and handed to RapidOCR by path, so RapidOCR's own downloader never runs.
+# Pinned to the rapidocr release the URL names so the checksum stays valid.
+RAPIDOCR_KOREAN_MODEL = {
+    "file": "korean_PP-OCRv5_rec_mobile.onnx",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "onnx/PP-OCRv5/rec/korean_PP-OCRv5_rec_mobile.onnx"),
+    "sha256": "cd6e2ea50f6943ca7271eb8c56a877a5a90720b7047fe9c41a2e541a25773c9b",
+    "max_bytes": 32 * 1024 * 1024,
+}
+# Comic and novel pages read with the larger PP-OCRv6 pair: on real Chinese pages and
+# captions it fixed misreads the wheel's small pair made, at about 3x the time per page,
+# which a chapter can afford and a video's thousand frames can't (hard-sub stays small).
+RAPIDOCR_MEDIUM_DET_MODEL = {
+    "file": "PP-OCRv6_det_medium.onnx",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "onnx/PP-OCRv6/det/PP-OCRv6_det_medium.onnx"),
+    "sha256": "92078b7355007ccfffcd4c8cd441a3afd4538904d06881b29a155e1e679907c2",
+    "max_bytes": 96 * 1024 * 1024,
+}
+RAPIDOCR_MEDIUM_REC_MODEL = {
+    "file": "PP-OCRv6_rec_medium.onnx",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx"),
+    "sha256": "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b",
+    "max_bytes": 128 * 1024 * 1024,
+}
+_RAPIDOCR_DOWNLOAD_TIMEOUT = (15, 60)
+_RAPIDOCR_DOWNLOAD_DEADLINE = 15 * 60
+# Separate from _MODEL_LOCK so a slow download doesn't hold every other OCR model's inference.
+_RAPIDOCR_DOWNLOAD_LOCK = threading.Lock()
+
+
+class RapidOcrModelUnavailable(RuntimeError):
+    """The extra model could not be fetched; the message is short and has no URL or path."""
+
+
+def rapidocr_model_path(spec: dict) -> str:
+    import os
+    import portable
+    return os.path.join(portable.data_dir(), "model_cache", "rapidocr", spec["file"])
+
+
+def ensure_rapidocr_model(spec: dict) -> str:
+    """The model's local path, downloading it first if it is missing. Checked against its
+    SHA-256 before it is put in place, so a cut or tampered download is never loaded."""
+    import hashlib
+    import os
+    import tempfile
+    from lib import http, model_offline
+    path = rapidocr_model_path(spec)
+    if os.path.isfile(path):
+        return path
+    if model_offline.active():
+        raise RapidOcrModelUnavailable(model_offline.NOT_DOWNLOADED_MESSAGE)
+    with _RAPIDOCR_DOWNLOAD_LOCK:
+        if os.path.isfile(path):
+            return path
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        try:
+            resp = http.get(spec["url"], timeout=_RAPIDOCR_DOWNLOAD_TIMEOUT, max_bytes=spec["max_bytes"],
+                            deadline=_RAPIDOCR_DOWNLOAD_DEADLINE)
+        except Exception as exc:
+            raise RapidOcrModelUnavailable("Could not download the RapidOCR model.") from exc
+        if not resp.ok or hashlib.sha256(resp.body).hexdigest() != spec["sha256"]:
+            raise RapidOcrModelUnavailable("The RapidOCR model download was incomplete or changed.")
+        fd, part = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".part")
+        try:
+            with os.fdopen(fd, "wb") as out:
+                out.write(resp.body)
+            os.replace(part, path)
+        except BaseException:
+            if os.path.exists(part):
+                os.unlink(part)
+            raise
+    return path
+
+
+def _rapidocr_params(key: str) -> dict:
+    # The text-orientation classifier flips some upright lines and they come back as
+    # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
+    # subtitle lines are upright, so it is left off.
+    params = {"Global.log_level": "warning", "Global.use_cls": False}
+    if key != "small":
+        from rapidocr import LangRec, ModelType, OCRVersion
+    if key == "ko":
+        params.update({"Rec.model_path": ensure_rapidocr_model(RAPIDOCR_KOREAN_MODEL),
+                       "Rec.ocr_version": OCRVersion.PPOCRV5, "Rec.model_type": ModelType.MOBILE,
+                       "Rec.lang_type": LangRec.KOREAN})
+    elif key == "medium":
+        params.update({"Det.model_path": ensure_rapidocr_model(RAPIDOCR_MEDIUM_DET_MODEL),
+                       "Det.model_type": ModelType.MEDIUM,
+                       "Rec.model_path": ensure_rapidocr_model(RAPIDOCR_MEDIUM_REC_MODEL),
+                       "Rec.model_type": ModelType.MEDIUM})
+    return params
+
+
+def _run_rapidocr(key: str, source):
+    """One RapidOCR pass over an image path or BGR array with the engine for `key`
+    ("small", "medium" or "ko"), built on first use."""
+    from rapidocr import RapidOCR
+    engines = globals().setdefault("_rapidocr_instances", {})
+    # Fetched before taking _MODEL_LOCK: a minutes-long download must not block other OCR models.
+    params = _rapidocr_params(key) if key not in engines else None
+    with _MODEL_LOCK:
+        if key not in engines:
+            engines[key] = RapidOCR(params=params or _rapidocr_params(key))
+        return engines[key](source)
+
+
+def rapidocr_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
+    """Every text line RapidOCR finds on the page (a BGR array) as
+    (text, confidence, (x, y, w, h)) in full-page pixels, the same shape as
+    paddle_lines. Uses the medium pair page OCR uses (Korean its own recognizer),
+    so the models page OCR needs are the only ones this needs. `scale` shrinks
+    the page for detection only."""
+    import cv2
+    source = image
+    if scale < 1.0:
+        source = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    result = _run_rapidocr("ko" if lang == "ko" else "medium", source)
+    texts = result.txts or ()
+    scores = getattr(result, "scores", None)
+    boxes = getattr(result, "boxes", None)
+    # Pairing by position is only safe when the three lists line up.
+    if boxes is None or scores is None or not (len(texts) == len(boxes) == len(scores)):
+        return []
+    lines = []
+    for text, conf, quad in zip(texts, scores, boxes):
+        xs, ys = [p[0] / scale for p in quad], [p[1] / scale for p in quad]
+        lines.append((text, float(conf),
+                      (int(min(xs)), int(min(ys)), int(max(xs) - min(xs)), int(max(ys) - min(ys)))))
+    return lines
+
+
+def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: bool = False,
+                         vertical: bool = False) -> str:
+    """Chinese and Japanese text through RapidOCR's PP-OCRv6 models: the small pair inside its
+    wheel, or with `medium` the larger pair (RAPIDOCR_MEDIUM_*). Korean always uses its own
+    recognizer. One engine is kept per model set, since the models are fixed when it is built.
+
+    RapidOCR lists lines in detection order, which scrambles vertical columns
+    and mixes in furigana, so the lines are filtered and re-ordered by their
+    boxes (ocr_layout); without boxes its own order is kept."""
+    key = "ko" if source_language == "ko" else ("medium" if medium else "small")
+    result = _run_rapidocr(key, image_path)
+    texts = result.txts or ()
+    lines = ocr_layout.lines_from_boxes(texts, getattr(result, "boxes", None))
+    if lines is None:
+        return "\n".join(texts)
+    return ocr_layout.layout_text(lines, vertical)
+
+
 _PADDLE_VL_MANGA_REPO = "jzhang533/PaddleOCR-VL-For-Manga"
 # The manga repo's tokenizer files lack `image_token`, so its own processor
 # fails to load; the base repo's processor is compatible with the manga weights.
@@ -252,6 +412,9 @@ _BACKEND_PACKAGES = {
     "manga_ocr": (("manga_ocr", "manga-ocr"),),
     "paddle": (("paddleocr", "paddleocr"), ("paddle", "paddlepaddle")),
     "paddle_vl_manga": (("transformers", "transformers"),),
+    "rapidocr": (("rapidocr", "rapidocr"), ("onnxruntime", "onnxruntime"), ("shapely", "shapely"),
+                 ("pyclipper", "pyclipper"), ("omegaconf", "omegaconf"), ("colorlog", "colorlog"),
+                 ("six", "six"), ("tqdm", "tqdm"), ("yaml", "PyYAML")),
     "tesseract": (("pytesseract", "pytesseract"),),
 }
 _TESSERACT_PROBE_SECONDS = 10
@@ -476,7 +639,8 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
     them with the language's "_vert" pack and PSM 5 when that pack is
     installed (the horizontal model reads columns as noise; on the Scanlate
     bench the vertical pack cut the character error on columns by a third),
-    and as before when it is not. The other backends read columns as they are."""
+    and as before when it is not. RapidOCR orders the columns right to left and
+    drops furigana beside them. The other backends read columns as they are."""
     if backend == "manga_ocr":
         fn = extract_text_manga_ocr
     elif backend == "paddle_vl_manga":
@@ -484,6 +648,9 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
     elif backend == "paddle":
         paddle_lang = _PADDLE_LANG_BY_SOURCE.get(source_language, "ch")
         fn = lambda p: extract_text_paddle(p, lang=paddle_lang)
+    elif backend == "rapidocr":
+        fn = functools.partial(extract_text_rapidocr, source_language=source_language,
+                               medium=True, vertical=vertical)
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
         vertical_pack = (vertical and source_language in TESSERACT_LANG

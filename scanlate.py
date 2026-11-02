@@ -37,9 +37,11 @@ from scanlate_detect import (
     merge_fragment_boxes, page_gray, split_webtoon_strip,
 )
 import scanlate_tuning
-from scanlate_regions import analyze_page_regions, detect_script_language, lettering_size
+from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
+                              lettering_size, reclassify_wordy_sfx)
 from scanlate_render import sample_text_style
 from scanlate_translate import translate_page_bubbles
+from scanlate_watermark import flag_site_marks
 
 
 def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1600,
@@ -233,7 +235,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     if not boxes:
         # A page of lettering on the art alone is not "no bubbles found".
         if art_captions:
-            captions = _art_caption_regions(image_path, source_language, [], page, notes)
+            captions = _art_caption_regions(image_path, source_language, [], page, notes,
+                                               ocr_backend)
         if not captions:
             _note_no_bubbles(image_path, page, notes)
             return [], notes
@@ -264,9 +267,12 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b.update(translated_text="", font_size=suggest_font_size(gray, b), skip=False,
                  include_sfx=False)
         bubbles.append(b)
+    reclassify_wordy_sfx(bubbles)
+    flag_site_marks(bubbles)
     if art_captions:
         bubbles += (captions if captions is not None
-                    else _art_caption_regions(image_path, source_language, bubbles, page, notes))
+                    else _art_caption_regions(image_path, source_language, bubbles, page, notes,
+                                          ocr_backend))
     if ocr_failed:
         # Fixed text: the exception may carry a model path, and the caller
         # needs "OCR broke" kept apart from "the bubble holds no text".
@@ -279,13 +285,20 @@ def suggest_font_size(gray, region: dict) -> int:
     """The size the English starts at for a region: its source lettering's
     size scaled by scanlate_tuning.TYPESET_FONT_PER_SOURCE_PX, within
     TYPESET_START_MIN_PX..TYPESET_START_MAX_PX; the render then shrinks it to fit
-    the balloon. TYPESET_DEFAULT_FONT_PX when no lettering is measurable."""
+    the balloon. Short lettering in a much larger balloon starts bigger (up to
+    TYPESET_GROW_MAX), because the render only ever shrinks and would otherwise
+    leave a few small words floating in the balloon.
+    TYPESET_DEFAULT_FONT_PX when no lettering is measurable."""
     t = scanlate_tuning
     size = lettering_size(gray, region, region.get("orientation")) if gray is not None else None
     if not size:
         return t.TYPESET_DEFAULT_FONT_PX
-    return int(min(max(round(size * t.TYPESET_FONT_PER_SOURCE_PX), t.TYPESET_START_MIN_PX),
-                   t.TYPESET_START_MAX_PX))
+    size *= t.TYPESET_FONT_PER_SOURCE_PX
+    fill = lettering_fill(gray, region)
+    if fill and fill < t.TYPESET_GROW_BELOW_FILL:
+        # Linear size grows with the square root of the free area.
+        size *= min(t.TYPESET_GROW_MAX, (t.TYPESET_GROW_BELOW_FILL / fill) ** 0.5)
+    return int(min(max(round(size), t.TYPESET_START_MIN_PX), t.TYPESET_START_MAX_PX))
 
 
 def _note_no_bubbles(image_path: str, page, notes: list) -> None:
@@ -302,14 +315,15 @@ def _note_no_bubbles(image_path: str, page, notes: list) -> None:
 
 
 def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,
-                         notes: list) -> list:
+                         notes: list, ocr_backend: str | None = None) -> list:
     """Regions (kind "caption") for lettering on the artwork that no bubble
     covers, with the OCR detector's own text. Appended after the bubbles in
     reading order. A failure leaves the page with its bubbles and a note."""
     import scanlate_art_text
     try:
         found = scanlate_art_text.find_art_captions(image_path, source_language, bubbles,
-                                                    image=page)
+                                                    image=page,
+                                                    backend=ocr_backend or auto_ocr_backend(source_language))
     except HeadroomError:
         raise
     except Exception as exc:

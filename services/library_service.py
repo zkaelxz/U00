@@ -18,6 +18,7 @@ from lib import ids as lib_ids
 import db
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import ownership_service
+from sources import store as sources_store
 
 
 def cache_hit_share(usage: dict) -> float:
@@ -35,7 +36,7 @@ def split_custom_tags(drama: dict) -> list:
 def list_library_dramas(search: str = "", studio: str = "", author: str = "",
                         voice_actor: str = "", status: str = "", source_language: str = "",
                         media_type: str = "", quick_filter: str | None = None, custom_tags=(),
-                        principal=None):
+                        principal=None, with_progress: bool = True):
     """Every drama matching all the given filters, newest first -- the
     Library page's "All dramas" list.
 
@@ -44,7 +45,8 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
     anything else raises `InvalidInputError` rather than silently
     matching nothing, since those tags are a fixed set the UI offers.
     `custom_tags` is free-form: a drama must carry every one listed.
-    `principal` (None = auth off): only dramas it may see."""
+    `principal` (None = auth off): only dramas it may see.
+    `with_progress` False skips the whole-table line count; the counts read 0."""
     if quick_filter and quick_filter not in db.ORGANIZATIONAL_TAGS:
         raise InvalidInputError(
             f"Unknown quick filter {quick_filter!r}.",
@@ -59,15 +61,30 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
         dramas = [d for d in dramas
                   if all(t in [x.strip() for x in (d.get("custom_tags") or "").split(",")]
                          for t in custom_tags)]
-    return _with_progress(_with_sharing(dramas, principal))
+    dramas = _with_sharing(dramas, principal)
+    return _with_progress(dramas) if with_progress else dramas
 
 
 def _with_progress(dramas: list) -> list:
-    """Add `line_count` and `translated_count` so a card can show where a
-    title stands without opening it."""
+    """Add `line_count`, `translated_count`, `page_count`, `pages_translated` and
+    `new_chapters` so a card can show where a title stands without opening it."""
     counts = db.line_progress_by_drama() if dramas else {}
+    pages = db.page_progress_by_drama() if dramas else {}
+    new = _new_chapter_counts() if dramas else {}
     return [{**d, "line_count": counts.get(d["id"], (0, 0))[0],
-             "translated_count": counts.get(d["id"], (0, 0))[1]} for d in dramas]
+             "translated_count": counts.get(d["id"], (0, 0))[1],
+             "page_count": pages.get(d["id"], (0, 0))[0],
+             "pages_translated": pages.get(d["id"], (0, 0))[1],
+             "new_chapters": new.get(d["id"], 0)} for d in dramas]
+
+
+def _new_chapter_counts() -> dict:
+    # sources.db is a separate file that can be locked or unreadable (e.g.
+    # during a restore); the Library list must still load without the badge.
+    try:
+        return sources_store.new_chapter_counts_by_drama()
+    except sqlite3.Error:
+        return {}
 
 
 def _with_sharing(dramas: list, principal) -> list:

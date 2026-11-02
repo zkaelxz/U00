@@ -48,25 +48,6 @@ def test_miaoqumh_payload_errors_are_not_echoed(monkeypatch):
     _assert_clean(e)
 
 
-def test_toonkor_payload_error_is_not_echoed(monkeypatch):
-    from sources.adapters import toonkor
-
-    def boom(_):
-        raise ValueError(EVIL)
-    monkeypatch.setattr(base64, "b64decode", boom)
-    with pytest.raises(toonkor.LayoutChanged) as e:
-        toonkor.decode_toon_img("var toon_img = 'abc'")
-    _assert_clean(e)
-
-
-def test_ranobes_data_blob_error_is_not_echoed(monkeypatch):
-    from sources.adapters import ranobes
-    monkeypatch.setattr(ranobes.json, "loads", _raises_evil)
-    with pytest.raises(ranobes.LayoutChanged) as e:
-        ranobes._extract_data_blob("window.__DATA__ = {}")
-    _assert_clean(e)
-
-
 def test_mangak_slug_is_not_echoed():
     from sources.adapters import mangak
     with pytest.raises(mangak.LayoutChanged) as e:

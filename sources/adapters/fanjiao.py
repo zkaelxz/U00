@@ -18,7 +18,7 @@ What the public web actually offers (read directly, 2026-09-30):
     the share page in a real browser (`page_fetch.api_capture_session`)
     and reads the responses the page's own script already made and
     earned -- the same "let the site's own execution path produce the
-    result" rule `bilibili_manga.py` and `manhuaku.py` follow. Nothing about the signature is read, stored or reproduced.
+    result" rule `bilibili_manga.py` follows. Nothing about the signature is read, stored or reproduced.
   - The page's script makes these calls, which are the only ones read:
       `album/album_info?album_id=<id>&from=H5` -> `data.{name, description,
         cover, play, liked, album_id, ...}` (the page renders name, cover,

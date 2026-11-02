@@ -62,6 +62,11 @@ FRAGMENT_GAP = 0.3
 # caption box rather than lettering on the art.
 CLASSIFY_LIGHT_LEVEL = 200
 CLASSIFY_MIN_LIGHT_SHARE = 0.55
+# Lettering on dark, busy art is first guessed to be a sound effect. Once it
+# is read, a sound effect is a few big characters: more characters than this,
+# or more lines, is a caption or sign on the art and is translated like one.
+SFX_MAX_CHARS = 12
+SFX_MAX_LINES = 2
 
 # --- Text direction (scanlate_regions.estimate_text_orientation) ---
 # Lettering this many times wider than tall is horizontal, as tall as wide
@@ -97,6 +102,10 @@ TYPESET_FONT_PER_SOURCE_PX = 1.0
 TYPESET_DEFAULT_FONT_PX = 18
 TYPESET_START_MIN_PX = 12
 TYPESET_START_MAX_PX = 40
+# Lettering whose block takes less than GROW_BELOW_FILL of its box starts the
+# English larger, by up to GROW_MAX times, so a short line fills its balloon.
+TYPESET_GROW_BELOW_FILL = 0.25
+TYPESET_GROW_MAX = 1.8
 TYPESET_SMALLEST_PX = 8
 # Below this height English is hard to read, so a word too wide for its
 # balloon is hyphenated before the text shrinks past it.
@@ -104,6 +113,13 @@ TYPESET_COMFORT_PX = 13
 # Space between lines, and between the text and a balloon's outline.
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
+
+# --- OCR line layout (ocr_layout) ---
+# A line thinner than this share of a larger line beside it is furigana. Ruby
+# is about half the base glyph, and its box is padded, so 0.6 separates it
+# from a base line while leaving small narration (which has no larger
+# neighbour) alone.
+FURIGANA_MAX_THICKNESS_RATIO = 0.6
 
 
 def reads_right_to_left(language: str) -> bool:

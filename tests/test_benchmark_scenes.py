@@ -296,3 +296,23 @@ class TestSceneBugHunt:
         errors = {r["case_label"]: r["error"] or "" for r in lab.get_run(_run({"batch_size": 1}))["results"]}
         assert "content filter" in errors["T #1"] and not errors["T #3"]
         assert "content filter" not in errors["T #2"]
+
+
+class TestCjkEstimate:
+    OPTIONS = {"batch_size": 5, "context_window": 0, "context_window_ahead": 0, "memory_examples": False,
+               "reflect": False, "series_id": None}
+
+    def _cost(self, monkeypatch, text, guidelines="", context=0):
+        probe = type("P", (), {"name": "claude", "model": "claude-sonnet-5-5", "free_tier": False,
+                               "supports_reference": True})()
+        monkeypatch.setattr(scene, "style_context", lambda options, examples=None: (None, guidelines))
+        cases = [{"id": i, "source_text": text, "title": "T", "scene_order": i} for i in range(5)]
+        return scene.estimate_cost(probe, dict(self.OPTIONS, context_window=context), cases)
+
+    def test_cjk_style_guidelines_cost_more_than_latin_ones(self, monkeypatch):
+        assert self._cost(monkeypatch, "x", "术" * 3000) > self._cost(monkeypatch, "x", "a" * 3000)
+
+    def test_cjk_context_lines_cost_more_than_latin_ones(self, monkeypatch):
+        def grown(text):
+            return self._cost(monkeypatch, text, context=20) - self._cost(monkeypatch, text)
+        assert grown("你" * 200) > grown("a" * 200) * 2

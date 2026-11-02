@@ -1,23 +1,8 @@
-// Mirrors api/schemas/voice.py VoiceClone* (voice-clone setup).
+// api/schemas/voice.py VoiceClone* (voice-clone setup), from the generated schema.
 // Candidate clips are addressed by an opaque id; no path or filename exists here.
+import type { components } from '../api/generated/schema'
 
-interface VoiceCloneCandidate {
-  id: string
-  start: number
-  end: number
-  duration: number
-  ref_text: string
-}
+type Schemas = components['schemas']
 
-export interface VoiceCloneSpeakerCandidates {
-  speaker_label: string
-  candidates: VoiceCloneCandidate[]
-  // 'too_short' | 'too_long' | 'no_segments' when an extraction found nothing.
-  skip_reason: string | null
-  closest_duration: number | null
-}
-
-export interface VoiceCloneCandidates {
-  drama_id: number
-  speakers: VoiceCloneSpeakerCandidates[]
-}
+export type VoiceCloneSpeakerCandidates = Schemas['VoiceCloneSpeakerCandidates']
+export type VoiceCloneCandidates = Schemas['VoiceCloneCandidates']

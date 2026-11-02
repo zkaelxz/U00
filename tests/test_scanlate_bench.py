@@ -80,6 +80,13 @@ class TestPages:
         assert a.image.tobytes() == b.image.tobytes()
         assert [(x.x, x.y, x.text) for x in a.balloons] == [(x.x, x.y, x.text) for x in b.balloons]
 
+    def test_ruby_leaves_the_layout_alone_and_is_never_in_the_answer(self, fonts):
+        plain, withruby = bench.make_page(1, "ja", fonts), bench.make_page(1, "ja", fonts, ruby=True)
+        assert [(b.x, b.y, b.text) for b in plain.balloons] == [(b.x, b.y, b.text) for b in withruby.balloons]
+        drawn = [b for b in withruby.balloons if b.vertical]
+        assert drawn and all(b.ruby and not set(b.ruby) & set(b.text) for b in drawn)
+        assert plain.image.tobytes() != withruby.image.tobytes()
+
     def test_balloons_sit_on_the_page_in_reading_order(self, fonts):
         for lang in bench.LANGS:
             page = bench.make_page(0, lang, fonts)

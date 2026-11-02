@@ -134,18 +134,18 @@ def test_config_has_key_booleans_only(client, monkeypatch):
 
 
 def test_config_names_the_auto_backend_and_whether_it_is_installed(client, monkeypatch):
-    """Scanlate never swaps backends silently: a zh page under "auto" reports
-    paddle even when it's missing, so the UI can say "(not installed)"."""
+    """A zh page under "auto" reports rapidocr only when it is installed, and falls back to
+    tesseract when neither RapidOCR nor PaddleOCR is, so a PC without RapidOCR isn't sent to it."""
     did = _drama()
-    present = {"paddleocr"}
+    present = {"rapidocr"}
     monkeypatch.setattr(pages_svc.importlib.util, "find_spec",
                         lambda name: object() if name in present else None)
     body = client.get(f"/api/scanlate/dramas/{did}/config").json()
-    # paddleocr 3.x alone isn't enough: the paddlepaddle module is separate.
-    assert body["ocr_backend"] == "paddle" and body["ocr_backend_installed"] is False
-    present.add("paddle")
+    # rapidocr is installed without its dependencies, so those count too.
+    assert body["ocr_backend"] == "tesseract"
+    present.update({"onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "yaml"})
     body = client.get(f"/api/scanlate/dramas/{did}/config").json()
-    assert body["ocr_backend"] == "paddle" and body["ocr_backend_installed"] is True
+    assert body["ocr_backend"] == "rapidocr" and body["ocr_backend_installed"] is True
 
 
 def test_page_detail_keyed_by_id_and_scoped(client):
@@ -1423,3 +1423,46 @@ def test_blank_regions_note_names_regions_by_position_among_all_bubbles():
         "Regions 2, 4 and 5 had no translation and were left as the original.")
     assert note([bubbles[0], bubbles[1]], bubbles) == (
         "Regions 1 and 2 had no translation and were left as the original.")
+
+
+def _read_ahead(monkeypatch, engine="claude"):
+    """Runs start_run with the job launch stubbed; returns the pages the job would cover."""
+    monkeypatch.setattr(run_svc, "_require_opencv", lambda: None)
+    monkeypatch.setattr(run_svc, "_require_ocr_backend", lambda did: None)
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    started = {}
+    monkeypatch.setattr(pages_svc, "start_drama_job",
+                        lambda did, fn, jid, *args, description: started.update(targets=args[2]) or {"job_id": jid})
+    return started
+
+
+def test_read_ahead_covers_the_readers_page_and_the_few_visible_pages_after_it(client, monkeypatch):
+    from services import translate_run_service
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
+    started = _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(6)]
+    import comic_chapters
+    comic_chapters.set_hidden(did, [db.get_page(ids[2])["filename"]], True)
+    run_svc.start_run(did, read_ahead_from=ids[1], engine="claude")
+    assert started["targets"] == [ids[1], ids[3], ids[4], ids[5]]
+
+
+def test_read_ahead_on_a_paid_engine_needs_a_monthly_cap(client, monkeypatch):
+    from services import translate_run_service
+    from lib.errors import UnsupportedOperationError
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
+    started = _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(3)]
+    with pytest.raises(UnsupportedOperationError):
+        run_svc.start_run(did, read_ahead_from=ids[0], engine="claude")
+    assert not started
+
+
+def test_read_ahead_only_runs_missing_mode(client, monkeypatch):
+    _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(2)]
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="all", confirm=True, read_ahead_from=ids[0], engine="claude")

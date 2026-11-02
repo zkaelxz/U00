@@ -1,18 +1,8 @@
-export interface SourceSuspectCheckResult {
-  flagged_count: number
-  cleared_count: number
-}
+// Source-line suspect check results, from the generated schema.
+import type { components } from '../api/generated/schema'
 
-export interface SourceSuspectItem {
-  line_id: number
-  idx: number
-  zh: string
-  note: string
-  next_line_id: number | null
-  next_zh: string
-}
+type Schemas = components['schemas']
 
-export interface SourceSuspectList {
-  count: number
-  items: SourceSuspectItem[]
-}
+export type SourceSuspectCheckResult = Schemas['SourceSuspectCheckResult']
+export type SourceSuspectItem = Schemas['SourceSuspectItem']
+export type SourceSuspectList = Schemas['SourceSuspectList']

@@ -315,6 +315,36 @@ def test_progress_422_and_404(client, isolated_db, comic):
     assert client.post("/api/scanlate/dramas/9999/progress", json={"page": 1}).status_code == 404
 
 
+def test_view_prefs_round_trip_without_touching_the_resume_point(client, isolated_db, comic):
+    import db
+    d = comic["drama"]
+    url = f"/api/scanlate/dramas/{d}/view-prefs"
+    prefs = {"mode": "paged", "rtl": True, "fit": "height", "typeset": False, "text": True}
+    assert client.get(url).json() == {"view_prefs": None}
+    client.post(f"/api/scanlate/dramas/{d}/progress", json={"page": 2})
+    assert client.post(url, json=prefs).json() == prefs
+    assert client.get(url).json() == {"view_prefs": prefs}
+    assert client.get(f"/api/scanlate/dramas/{d}/progress").json() == {"last_page": 2, "percent_complete": 100.0}
+    # Saving first must not make an unread title look "in progress" on the Continue shelf.
+    other = db.create_drama(title_en="Other", media_type="manga")
+    client.post(f"/api/scanlate/dramas/{other}/view-prefs", json=prefs)
+    assert other not in [r["id"] for r in db.list_continue_reading()]
+
+
+def test_view_prefs_reject_bad_values_and_ignore_a_damaged_row(client, isolated_db, comic):
+    import db
+    d = comic["drama"]
+    url = f"/api/scanlate/dramas/{d}/view-prefs"
+    good = {"mode": "paged", "rtl": True, "fit": "height", "typeset": False, "text": True}
+    for bad in ({**good, "mode": "sideways"}, {**good, "extra": 1}, {"mode": "paged"}, {**good, "rtl": "yes"}):
+        assert client.post(url, json=bad).status_code == 422, bad
+    assert client.post("/api/scanlate/dramas/9999/view-prefs", json=good).status_code == 404
+    db.save_view_prefs(d, '{"mode": "paged", "rtl": "x"}')
+    assert client.get(url).json() == {"view_prefs": None}
+    db.save_view_prefs(d, "not json")
+    assert client.get(url).json() == {"view_prefs": None}
+
+
 # --- permissions ---------------------------------------------------------------
 
 def test_permissions_with_auth_on(isolated_db, comic):
@@ -340,6 +370,9 @@ def test_permissions_with_auth_on(isolated_db, comic):
               ("get", f"/api/scanlate/dramas/{d}/pages/{p1}/regions", "lines.read", None),
               ("get", f"/api/scanlate/dramas/{d}/progress", "library.read", None),
               ("post", f"/api/scanlate/dramas/{d}/progress", "lines.edit", {"page": 1}),
+              ("get", f"/api/scanlate/dramas/{d}/view-prefs", "library.read", None),
+              ("post", f"/api/scanlate/dramas/{d}/view-prefs", "lines.edit",
+               {"mode": "paged", "rtl": True, "fit": "height", "typeset": False, "text": True}),
               ("post", f"/api/scanlate/dramas/{d}/pages/visibility", "lines.edit",
                {"hidden": True, "page_ids": [p1]})]
     for i, (method, url, perm, body) in enumerate(routes):

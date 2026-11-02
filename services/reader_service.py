@@ -530,9 +530,11 @@ def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAUL
 
     defs = _run_engine(work, (engine, "reader_define", drama_id) if engine is not None else None)
     for word, entry in defs.items():
-        first_line = next((ln.idx for ln in page_lines if word in ln.zh), None)
+        first_line = next((ln for ln in page_lines if word in ln.zh), None)
         db.save_vocab_lookup(drama_id, word, entry.get("reading"),
-                             entry.get("definitions", []), lang, first_line)
+                             entry.get("definitions", []), lang,
+                             first_line.idx if first_line else None,
+                             first_line.id if first_line else None)
     return {"drama_id": drama_id, "page": page, "definitions": defs, "saved": len(defs)}
 
 
@@ -739,11 +741,13 @@ def update_wiki(drama_id: int, up_to_line_idx: int | None = None,
     found = _run_engine(lambda: universe_wiki.extract_wiki_entries(
         batch, engine, batch_limit, drama, existing_entries=db.list_wiki_entries(drama_id)),
         (engine, "reader_wiki", drama_id))
+    id_by_idx = {ln.idx: ln.id for ln in batch}
     for e in found:
         db.upsert_wiki_entry(
             drama_id, e["entry_type"], e["name"], description=e.get("description"),
             aliases=e.get("aliases"), attributes=e.get("attributes"),
             first_seen_line_idx=e.get("first_seen_line_idx"),
+            first_seen_line_id=id_by_idx.get(e.get("first_seen_line_idx")),
             known_through_line_idx=e.get("known_through_line_idx"))
     return {"drama_id": drama_id, "updated": len(found), "remaining": remaining,
             "next_line_idx": todo[len(batch)].idx if remaining else None}

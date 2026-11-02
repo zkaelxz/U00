@@ -89,16 +89,19 @@ def split_by_source_share(text: str, upper_src: str, lower_src: str):
     return " ".join(words[:cut]), " ".join(words[cut:])
 
 
-def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None) -> list:
+def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None,
+                      backend: str | None = None) -> list:
     """Caption boxes on the artwork that no existing region covers, as
-    {"x","y","w","h","source_text"} in full-page pixels."""
+    {"x","y","w","h","source_text"} in full-page pixels. Lines are read with
+    RapidOCR when that is the page OCR backend, else with PaddleOCR."""
     import ocr
     from scanlate_detect import decode_page
     page = image if image is not None else decode_page(image_path)
     h, w = page.shape[:2]
     scale = min(1.0, _DETECT_LIMIT_SIDE / float(max(h, w)))
     lines = []
-    for text, conf, (x, y, bw, bh) in ocr.paddle_lines(page, lang, scale):
+    read_lines = ocr.rapidocr_lines if backend == "rapidocr" else ocr.paddle_lines
+    for text, conf, (x, y, bw, bh) in read_lines(page, lang, scale):
         if conf < _MIN_CONFIDENCE or not text.strip() or bh < _MIN_LINE_HEIGHT:
             continue
         box = {"x": x, "y": y, "w": bw, "h": bh}

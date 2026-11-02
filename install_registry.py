@@ -27,6 +27,12 @@ CV2_SWAP_UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
 CV2_CONTRIB = "opencv-contrib-python"
 # Keys whose install pulls the exact contrib build (PaddleX pins it).
 NEEDS_CV2_CONTRIB = frozenset({"paddleocr"})
+# RapidOCR declares opencv-python-headless, which would share the 'cv2' folder with
+# the build the app already has; its other requirements are keys of their own.
+INSTALL_WITHOUT_DEPS = frozenset({"rapidocr"})
+# The rest of its requirements, installed beside it because --no-deps skips them.
+RAPIDOCR_KEYS = frozenset({"rapidocr", "onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog",
+                           "six", "tqdm", "PyYAML"})
 
 
 def installable_packages() -> set:
@@ -48,10 +54,18 @@ def unqueueable_reason(keys) -> str | None:
     for key in keys:
         if key not in known:
             return "Unknown or non-installable package."
+    if INSTALL_WITHOUT_DEPS & set(keys) and set(keys) - RAPIDOCR_KEYS:
+        # --no-deps covers the whole command, so other packages would lose their own requirements.
+        return "RapidOCR is installed on its own, without other packages in the same install."
     if any(k in diagnostics_torch.TORCH_FAMILY for k in keys) and shutil.which("nvidia-smi"):
         return ("PyTorch on an NVIDIA PC is set up under GPU PyTorch, not here, so it keeps "
                 "its CUDA build.")
     return None
+
+
+def dependency_flags(keys) -> list:
+    """`--no-deps` for the keys that must not pull their own requirements, else nothing."""
+    return ["--no-deps"] if INSTALL_WITHOUT_DEPS & set(keys) else []
 
 
 def install_dists(keys) -> list:
@@ -72,6 +86,7 @@ def install_argv(keys, python: str | None = None, torch_pins_path: str | None = 
     reqs = install_dists(keys) if specs is None else specs
     argv = [python or sys.executable, "-m", "pip", "install", *diagnostics.PIP_INSTALL_FLAGS,
             *reqs, *dependency_updates.constraints_pip_args(project_root or ROOT)]
+    argv[argv.index("install") + 1:argv.index("install") + 1] = dependency_flags(keys)
     if torch_pins_path:
         argv += ["-c", torch_pins_path]
     return argv

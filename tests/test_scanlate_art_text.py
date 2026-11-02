@@ -69,6 +69,16 @@ class TestFindArtCaptions:
                                       image=page)
         assert [c["source_text"] for c in found] == ["keep"]
 
+    def test_rapidocr_backend_reads_the_lines_and_paddle_is_left_alone(self, monkeypatch):
+        def boom(*a, **k):
+            raise AssertionError("paddle used")
+        monkeypatch.setattr(ocr, "paddle_lines", boom)
+        monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [
+            ("keep", 0.9, (10, 10, 200, 60)), ("unsure", 0.3, (10, 100, 200, 60))])
+        found = art.find_art_captions("p.png", "zh", [], image=np.zeros((300, 400, 3), np.uint8),
+                                      backend="rapidocr")
+        assert [c["source_text"] for c in found] == ["keep"]
+
     def test_tall_pages_are_detected_at_a_capped_size(self, monkeypatch):
         seen = self._fake(monkeypatch, [])
         art.find_art_captions("p.png", "zh", [], image=np.zeros((2560, 1280, 3), np.uint8))
@@ -260,6 +270,14 @@ class TestDetectAndOcrWithCaptions:
         monkeypatch.setattr(art, "find_art_captions", boom)
         bubbles, notes = scanlate.detect_and_ocr_page(page_file, "zh")
         assert bubbles == []
+
+    def test_the_page_ocr_backend_picks_who_reads_the_captions(self, page_file, monkeypatch):
+        seen = []
+        monkeypatch.setattr(art, "find_art_captions",
+                            lambda *a, **k: seen.append(k["backend"]) or [])
+        scanlate.detect_and_ocr_page(page_file, "zh", ocr_backend="rapidocr", art_captions=True)
+        scanlate.detect_and_ocr_page(page_file, "zh", ocr_backend="paddle", art_captions=True)
+        assert seen == ["rapidocr", "paddle"]
 
     def test_on_it_returns_caption_regions_that_need_translating(self, page_file, monkeypatch):
         monkeypatch.setattr(art, "find_art_captions", lambda *a, **k: [

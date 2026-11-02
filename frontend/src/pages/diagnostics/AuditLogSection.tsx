@@ -41,7 +41,7 @@ function AuditBody() {
     listAudit({ action: f.action || null, user_id: f.userId }).then((p) => {
       if (mine !== seq.current) return
       setEvents(p.events)
-      setNext(p.next_before_id)
+      setNext(p.next_before_id ?? null)
       setActions(p.actions)
       setError(null)
     }, (e: unknown) => {
@@ -63,7 +63,7 @@ function AuditBody() {
       const p = await listAudit({ before_id: next, action: filter.action || null, user_id: filter.userId })
       if (mine !== seq.current) return
       setEvents((cur) => appendAudit(cur ?? [], p.events))
-      setNext(p.next_before_id)
+      setNext(p.next_before_id ?? null)
     } catch (e) {
       setError(e)
     } finally {
@@ -111,7 +111,7 @@ function AuditBody() {
                 {events.map((e) => (
                   <tr key={e.id}>
                     <td>{auditTime(e.ts)}</td>
-                    <td>{auditActor(e.user_id, users)}</td>
+                    <td>{auditActor(e.user_id ?? null, users)}</td>
                     <td title={e.action}>{auditActionLabel(e.action)}</td>
                     <td className="audit-detail">{e.detail}</td>
                   </tr>

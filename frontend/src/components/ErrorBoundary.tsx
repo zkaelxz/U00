@@ -1,14 +1,27 @@
-import { Component, useState } from 'react'
+import { Component, useEffect, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 
+import { isChunkLoadError, serverReachable } from '../chunkReload'
 import { useHolds } from '../hooks/useHolds'
 import { routeHref, useRoute } from '../router'
 import { copyText } from './clipboard'
+import { couldNotReachBaihe } from './errorMessages'
 import { errorText } from './errorFallbackText'
 
 function ErrorFallback({ error }: { error: unknown }) {
   const [copied, setCopied] = useState<'idle' | 'ok' | 'failed'>('idle')
-  const text = errorText(error)
+  // A page that failed to download is a connection problem, not a bug in it: say so, and reload once Baihe answers again.
+  const offline = isChunkLoadError(error)
+  const text = offline ? couldNotReachBaihe() : errorText(error)
+  useEffect(() => {
+    if (!offline) return
+    const timer = window.setInterval(() => {
+      void serverReachable().then((up) => {
+        if (up) window.location.reload()
+      })
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [offline])
   // The Diagnostics page is admin-only, so a member's crash screen must not send them there.
   const canDiagnose = useHolds('admin.diagnostics')
   return (
@@ -19,12 +32,14 @@ function ErrorFallback({ error }: { error: unknown }) {
       </p>
       <pre className="error-fallback-text" data-testid="error-fallback-text">{text}</pre>
       <div className="error-fallback-actions">
-        <button
-          type="button"
-          onClick={() => copyText(text).then((ok) => setCopied(ok ? 'ok' : 'failed'))}
-        >
-          {copied === 'ok' ? 'Copied' : copied === 'failed' ? 'Copy failed, select the text above' : 'Copy error'}
-        </button>
+        {!offline && (
+          <button
+            type="button"
+            onClick={() => copyText(text).then((ok) => setCopied(ok ? 'ok' : 'failed'))}
+          >
+            {copied === 'ok' ? 'Copied' : copied === 'failed' ? 'Copy failed, select the text above' : 'Copy error'}
+          </button>
+        )}
         <button type="button" className="primary" onClick={() => window.location.reload()}>
           Reload
         </button>

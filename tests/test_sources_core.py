@@ -1037,13 +1037,13 @@ class TestRealCaseMatrix:
             assert r.technical_status != TechnicalStatus.DISQUALIFIED.value
             assert r.reasons == [FailureReason.ACCESS_DENIED]
 
-    def test_manhuaku_shaped_page_routes_to_browser_and_is_never_decoded(self, isolated_db):
-        u = "https://manhuaku.invalid/chapter/1"
+    def test_aes_encrypted_js_page_routes_to_browser_and_is_never_decoded(self, isolated_db):
+        u = "https://reader.invalid/chapter/1"
         page = ('<html><head><script src="/js/crypto-js.min.js"></script>'
                 '<script src="/js/vue.min.js"></script></head><body><div id="app">'
                 '<img v-for="p in pages" :src="p"></div>'
                 '<script>var d=CryptoJS.AES.decrypt(enc,key);</script></body></html>')
-        client = make_client("manhuaku", ScriptedTransport({u: html(page)}))
+        client = make_client("fanjiao", ScriptedTransport({u: html(page)}))
         rendered = []
 
         def fake_render(url):
@@ -1395,15 +1395,17 @@ _LAYOUT_CHANGED_MESSAGES = {
     "kuaikan": "Kuaikan's page layout has changed",
     "lightnovel_fun": "轻之国度's page layout has changed",
     "mangak": "MangaK's page layout has changed",
+    "marumaru": "Marumaru's API response has changed",
     "manhuagui": "manhuagui's page layout has changed",
-    "manhuaku": "manhuaku's page layout has changed",
     "miaoqumh": "miaoqumh's page layout has changed",
+    "newxtoon": "NewXToon's page layout has changed",
     "missevan": "MissEvan's API response has changed",
+    "nihonkuni": "NihonKuni's page layout has changed",
     "piaotian": "Piaotian's page layout has changed",
-    "ranobes": "ranobes' page layout has changed",
+    "rawkuma": "Rawkuma's page layout has changed",
     "syosetu": "Syosetu's page layout has changed",
-    "toonkor": "ToonKor's page layout has changed",
     "twmanga": "twmanga's page layout has changed",
+    "weloma": "Weloma's page layout has changed",
     "xbanxia": "xbanxia's page layout has changed",
     "zerosumonline": "zerosumonline's API response has changed",
 }
@@ -1428,7 +1430,7 @@ def test_layout_changed_factory_builds_the_shared_message():
                                    "The adapter needs updating.")
     assert str(layout_changed_class("Example", "API response")("x")).startswith(
         "Example's API response has changed")
-    assert str(layout_changed_class("ranobes'")("x")).startswith("ranobes' page layout")
+    assert str(layout_changed_class("Example'")("x")).startswith("Example' page layout")
     assert cls("a thing").reason is FailureReason.LAYOUT_CHANGED
     assert cls is not layout_changed_class("Example")
 
@@ -1443,7 +1445,7 @@ def test_shared_soup_parses_html_and_tolerates_none():
 # The shared plain image download
 # ---------------------------------------------------------------------------
 
-_PLAIN_IMAGE_ADAPTERS = ("baozimh", "guazimanhua", "kuaikan", "miaoqumh", "toonkor",
+_PLAIN_IMAGE_ADAPTERS = ("baozimh", "guazimanhua", "kuaikan", "miaoqumh",
                          "zerosumonline")
 
 

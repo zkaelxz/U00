@@ -43,7 +43,8 @@ def client(isolated_db):
 
 @pytest.fixture
 def ffmpeg(monkeypatch):
-    fake = FakeFfmpeg(_pcm(*([0] * 100 + [32767] * 100 + [-16384] * 200)))
+    # Exactly the 10-second window the tests ask for, at SAMPLE_RATE.
+    fake = FakeFfmpeg(_pcm(*([0] * 20000 + [32767] * 20000 + [-16384] * 40000)))
     monkeypatch.setattr(svc.subprocess, "run", fake)
     monkeypatch.setattr(svc.shutil, "which", lambda name: "/usr/bin/ffmpeg")
     return fake
@@ -71,6 +72,16 @@ def test_peaks_per_bucket(client, did, ffmpeg):
     assert (body["start"], body["end"], body["buckets"]) == (10, 20, 16)
     assert len(body["peaks"]) == 16
     assert body["peaks"][0] == 0 and body["peaks"][4] == 255 and body["peaks"][-1] == 128
+
+
+def test_a_window_past_the_end_of_the_media_gets_a_silent_tail(client, did, monkeypatch):
+    # A 10.2 s clip asked for 0-20 s decodes to 10.2 s of audio; it must fill the
+    # first half of the buckets (bucket 10 holds the last 0.2 s), not be stretched.
+    clip = _pcm(*([32767] * int(10.2 * svc.SAMPLE_RATE)))
+    monkeypatch.setattr(svc.subprocess, "run", FakeFfmpeg(clip))
+    monkeypatch.setattr(svc.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    peaks = client.get(_url(did, start=0, end=20, buckets=20)).json()["peaks"]
+    assert peaks[:11] == [255] * 11 and peaks[11:] == [0] * 9
 
 
 def test_ffmpeg_gets_the_window_and_a_timeout_and_no_shell(client, did, ffmpeg):
