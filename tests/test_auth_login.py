@@ -982,10 +982,10 @@ class TestCli:
 _VERIFIER = "v" * 20 + "erifier-for-the-phone-app-0123456789"
 
 
-def _browser(app, user):
+def _browser(app, user, session=None):
     """A browser (Chrome on the phone) already signed in as `user`."""
     c = _client(app)
-    s = auth_service.create_session(user["id"])
+    s = session or auth_service.create_session(user["id"])
     c.cookies.set("__Host-baihe_session", s["session_token"], domain="baihe.example.com")
     return c
 
@@ -995,9 +995,9 @@ def _confirm_form(page_html):
     return dict(re.findall(r"name=(challenge|ticket) value='([^']*)'", page_html))
 
 
-def _hand_off(app, user, verifier=_VERIFIER):
+def _hand_off(app, user, verifier=_VERIFIER, session=None):
     """Chrome confirms; returns the code from the app link."""
-    c = _browser(app, user)
+    c = _browser(app, user, session)
     challenge = oidc_service.app_challenge_for(verifier)
     page = c.get("/api/auth/app/start", params={"challenge": challenge})
     assert page.status_code == 200, page.text
@@ -1159,6 +1159,65 @@ class TestPhoneAppHandOff:
         auth_service.deactivate_user(user["id"])
         r = _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER})
         assert r.headers["location"] == "/?login_error=not_allowed"
+
+    def _redeem(self, app, code):
+        return _app(app).post("/api/auth/app/redeem", data={"code": code, "verifier": _VERIFIER})
+
+    def test_app_session_ends_when_the_confirming_session_would(self, isolated_db, app):
+        """Walking a session cookie through the hand-off again and again must
+        not outlast the absolute timeout."""
+        user = _add()
+        old_start = time.time() - 29 * 86400
+        browser = auth_service.create_session(user["id"], now=old_start)
+        db.auth_touch_session(browser["session_id"], time.time())
+        browser_end = old_start + auth_service.ABSOLUTE_TIMEOUT_SECONDS
+        r = self._redeem(app, _hand_off(app, user, session=browser))
+        assert r.headers["location"] == "/"
+        app_row = next(s for s in db.auth_list_sessions(user["id"]) if s["id"] != browser["session_id"])
+        assert app_row["expires_at"] == browser_end
+        # And the app's own session, used as the next "browser", passes on the same end.
+        token = next(c.split("=", 1)[1].split(";")[0] for c in _cookies(r)
+                     if c.lower().startswith("__host-baihe_session="))
+        child = {"session_token": token}
+        r = self._redeem(app, _hand_off(app, user, session=child))
+        assert r.headers["location"] == "/"
+        assert max(s["expires_at"] for s in db.auth_list_sessions(user["id"])) == browser_end
+
+    def test_code_minted_before_sign_out_everywhere_is_refused(self, isolated_db, app):
+        user = _add()
+        code = _hand_off(app, user)
+        auth_service.revoke_all_for_user(user["id"])
+        r = self._redeem(app, code)
+        assert r.headers["location"] == "/?login_error=expired"
+        assert "__host-baihe_session=" not in "\n".join(_cookies(r)).lower()
+        assert db.auth_list_sessions(user["id"]) == []
+        assert any("app_browser_signed_out" in a["detail_redacted"] for a in _audit("login.error"))
+
+    def test_code_from_a_browser_that_signed_out_is_refused(self, isolated_db, app):
+        user = _add()
+        browser = auth_service.create_session(user["id"])
+        other = auth_service.create_session(user["id"])
+        code = _hand_off(app, user, session=browser)
+        auth_service.revoke_session(browser["session_id"], user["id"])
+        r = self._redeem(app, code)
+        assert r.headers["location"] == "/?login_error=expired"
+        assert [s["id"] for s in db.auth_list_sessions(user["id"])] == [other["session_id"]]
+
+    def test_sign_out_everywhere_during_redeem_leaves_no_session(self, isolated_db, app,
+                                                                 monkeypatch):
+        """The revoke-all lands between the parent check and the insert."""
+        user = _add()
+        code = _hand_off(app, user)
+        real_insert = auth_service._insert_session
+
+        def insert_after_revoke(*a, **kw):
+            auth_service.revoke_all_for_user(user["id"])
+            return real_insert(*a, **kw)
+
+        monkeypatch.setattr(auth_service, "_insert_session", insert_after_revoke)
+        r = self._redeem(app, code)
+        assert r.headers["location"] == "/?login_error=expired"
+        assert db.auth_list_sessions(user["id"]) == []
 
     def test_codes_are_capped_per_user(self, isolated_db, app):
         user = _add()
