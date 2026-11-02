@@ -481,6 +481,12 @@ class TestLookupDefinitions:
         assert out["definitions"] == {"猫": {"reading": "māo", "definitions": ["cat"]}}
         assert [r["word"] for r in isolated_db.list_vocab_lookups(did)] == ["猫"]
 
+    def test_saved_lookup_records_the_line_id(self, isolated_db, monkeypatch):
+        did = self._setup(isolated_db, monkeypatch)
+        reader_service.lookup_page_definitions(did, 1)
+        line = isolated_db.load_lines(did)[0]
+        assert isolated_db.list_vocab_lookups(did)[0]["first_seen_line_id"] == line["id"]
+
     def test_llm_fallback_matches_by_id_not_position(self, isolated_db, monkeypatch):
         did = self._setup(isolated_db, monkeypatch)
         _fake_engine(monkeypatch)
@@ -650,6 +656,17 @@ class TestStoryWikiQa:
             reader_service.list_wiki(did, entry_type="spaceship")
         reader_service.clear_wiki(did, confirm=True)
         assert reader_service.list_wiki(did)["entries"] == []
+
+    def test_update_wiki_records_the_first_seen_line_id(self, isolated_db, monkeypatch):
+        did = self._drama_lines(isolated_db)
+        _fake_engine(monkeypatch)
+        import universe_wiki
+        monkeypatch.setattr(universe_wiki, "extract_wiki_entries", lambda *a, **k: [
+            {"entry_type": "character", "name": "Early", "first_seen_line_idx": 4,
+             "known_through_line_idx": 9}])
+        reader_service.update_wiki(did)
+        row = isolated_db.list_wiki_entries(did)[0]
+        assert row["first_seen_line_id"] == isolated_db.load_lines(did)[4]["id"]
 
     def test_qa_passes_history_and_validates(self, isolated_db, monkeypatch):
         did = self._drama_lines(isolated_db)
