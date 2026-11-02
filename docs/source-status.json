@@ -47,17 +47,6 @@
       "pace": "Fast off: robots.txt returns 404 and the agreement pages are unreadable SPA shells; bilibili agreement 4.3.15 likely applies.",
       "pace_verified": "2026-10-09"
     },
-    "toonkor": {
-      "status": "confirmed_live",
-      "last_verified": "",
-      "reason": "",
-      "notes": "`toonkor0.org` confirmed correct/live domain.",
-      "hosts": [
-        "toonkor0.org"
-      ],
-      "pace": "Fast allowed (1.0/2.5/2): robots.txt is User-agent * Allow /, no Crawl-delay; no terms page found on the home page.",
-      "pace_verified": "2026-10-09"
-    },
     "guazimanhua": {
       "status": "confirmed_live",
       "last_verified": "",

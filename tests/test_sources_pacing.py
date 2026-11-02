@@ -244,7 +244,7 @@ class TestHardening:
         assert all(store.source_pace(n) == "careful" for n in names)
 
 
-FAST_VETTED = {"52shuku", "xbanxia", "piaotian", "zerosumonline", "toonkor"}
+FAST_VETTED = {"52shuku", "xbanxia", "piaotian", "zerosumonline"}
 
 
 class TestVettedAdapters:

@@ -95,22 +95,6 @@ work".
 | Known limits | This adapter's real value is a populated `SourceCapabilities` record (so a future pass doesn't have to re-derive these findings), source-health tracking, and the token-reuse extraction mechanism -- not a full Mihon-style browsing experience. A direct chapter URL still works via `parse_url()` + `get_pages()`, the same "paste one URL, get its pages" path the front door already offers a site with no dedicated adapter at all. The chapter-URL shape `parse_url()` matches is an explicitly-hedged guess, not independently confirmed against a real chapter URL. |
 | Tests | `tests/test_sources_bilibili_manga.py`. All fetches (static and rendered) are mocked fixtures; no real Bilibili or Playwright call is made. |
 
-## ToonKor (툰코) — `sources/adapters/toonkor.py`
-
-| | |
-|---|---|
-| URL patterns | `toonkor<digit?>.(org\|com\|net)/<slug>[.html]` -- anchored loosely on the site's own history of domain rotation, not a hardcoded current numeral |
-| Content type / language | manhwa, ko |
-| Status | `VERIFIED` (2026-09-26) -- a live pass ran `search`, `get_series`, `get_chapters` and `get_pages` end to end: real search results for a real title, a real chapter list, and 249 real page-image URLs correctly Base64-decoded from a real chapter. `toonkor0.org` is still the correct, live, unchallenged domain. |
-| Access tier | `STATIC_HTTP` only. Plain server-rendered HTML; the page-image list is lightly obfuscated (see Extraction) but needs no JavaScript execution to recover. |
-| Auth | None observed. No `login()`. |
-| Extraction | **Search:** `/bbs/search.php?sfl=wr_subject\|\|wr_content&stx=<query>`, `div.section-item-inner` (shared with the popular-listing markup). **Series:** `table.bt_view1` (`td.bt_title`/`td.bt_over`/`td.bt_thumb img`). **Chapters:** `table.web_list`, rows carrying a `data-role` attribute on `td.content__title` for the chapter URL. **Pages:** a `<script>` tag's `var toon_img = '<base64>'` assignment -- Base64-decoded to an HTML fragment, then every `src="..."` in that fragment, in order. Confirmed end-to-end against a real chapter (128 real page images decoded correctly) while building this adapter. |
-| Domain rotation | **A real, confirmed history, not theoretical.** The domain is a list (`sources/domains.py`, default `toonkor0.org`), tried in order with the last one that worked first (remembered in `sources.db`), and editable by the owner on the PC (`/api/source-domains`). A page a listed domain redirects to another host is not used or cached; if that page is https and passes `verify_site` (툰코/ToonKor in the title and three or more `div.section-item-inner` webtoon cards, i.e. a home or listing page), its host becomes a pending proposal the owner confirms or dismisses. If every domain fails and nothing is pending, the source's health shows "all domains unreachable" and, with the maintenance assistant on, one backlog item is filed. `toonkor0.org` answered HTTP 522 (Cloudflare: origin unreachable) on 2026-09-30. |
-| Terms, recorded separately | `robots.txt`: `User-agent: *` with `Allow: /` and no `Disallow` lines at all -- fully permissive. Cloudflare observed acting only as a CDN, not an active challenge. (Re-verified by direct fetch while building this adapter, not carried over from an earlier vetting pass.) The ToS has not been reviewed. |
-| Reference | `keiyoushi/extensions-source src/ko/toonkor` (Apache-2.0). Technique only, no code ported. |
-| Known limits | If the site changes its markup, the adapter reports "layout has changed" rather than guessing. `url_patterns` stays loose (`toonkor<digit>`), so a pasted link from a same-shaped new domain still routes here; a confirmed domain of another shape is used for requests but a pasted link from it isn't recognised until `url_patterns` is widened. |
-| Tests | `tests/test_sources_toonkor.py`, including a full Base64-decode round-trip test. |
-
 ## 瓜子漫画 Guazimanhua — `sources/adapters/guazimanhua.py`
 
 | | |
