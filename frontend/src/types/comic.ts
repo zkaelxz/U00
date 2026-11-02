@@ -1,5 +1,8 @@
 // Comic viewer API shapes (/api/scanlate/dramas/{id}: pages, regions
 // and progress). No filenames or paths ever come back from these routes.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export type ComicVariant = 'original' | 'rendered'
 
@@ -69,24 +72,11 @@ export interface ComicRegionsResponse {
 }
 
 // C4 / C5: GET and POST /progress (last_page is 1-based)
-export interface ComicProgress {
-  last_page: number
-  percent_complete: number | null
-}
+export type ComicProgress = Schemas['ComicProgress']
 
 // GET and POST /view-prefs: how the title was last shown, kept on the server so it follows the reader to another device.
-export interface ComicViewPrefsView {
-  view_prefs: ComicViewPrefs | null
-}
-export interface ComicViewPrefs {
-  mode: 'vertical' | 'paged'
-  rtl: boolean
-  fit: 'width' | 'height' | 'original'
-  typeset: boolean
-  text: boolean
-  spread: 'auto' | 'single' | 'double'
-  coverAlone: boolean
-}
+export type ComicViewPrefsView = Schemas['ComicViewPrefsView']
+export type ComicViewPrefs = Schemas['ComicViewPrefs']
 
 // POST /pages/visibility: page ids, or the first/last `count` pages of a chapter.
 export interface ComicVisibilityRequest {
@@ -97,19 +87,9 @@ export interface ComicVisibilityRequest {
   count?: number
 }
 
-export interface ComicVisibilityResult {
-  changed: number
-  hidden_count: number
-}
+export type ComicVisibilityResult = Schemas['ComicVisibilityResult']
 
-export interface ComicSourceChapter {
-  // Set for a chapter the app can import by id; '' for a link only the extension can send.
-  chapter_id: string
-  title: string
-  // The chapter's page on its source (scheme, host and path only); '' when imported by id.
-  url: string
-  imported: boolean
-}
+export type ComicSourceChapter = Schemas['ComicSourceChapter']
 
 export interface ComicSourceChapters {
   mode: 'adapter' | 'links' | 'none'

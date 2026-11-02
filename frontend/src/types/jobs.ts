@@ -1,4 +1,7 @@
 // Mirrors api/schemas/system.py JobRecord / JobListResponse / JobCancelResult.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
@@ -81,12 +84,7 @@ export const CANCEL_RULE_NOTE = 'Only the person who started a job, the title’
 
 // Mirrors api/schemas/system.py JobQueueSummary: counts for everyone, places
 // only for the caller's own waiting jobs.
-export interface JobQueueSummary {
-  lane: 'gpu'
-  running: number
-  waiting: number
-  mine: { job_id: string; position: number }[]
-}
+export type JobQueueSummary = Schemas['JobQueueSummary']
 
 export function queueLine(s: Pick<JobQueueSummary, 'running' | 'waiting'>): string {
   return `${s.running} ${s.running === 1 ? 'job' : 'jobs'} running (all lanes), ${s.waiting} waiting in the GPU queue`
@@ -156,12 +154,7 @@ export interface JobListResponse {
   count: number
 }
 
-export interface JobForceStopResult {
-  job_id: string
-  force_stopped: boolean
-  status: string
-  worker_still_running: boolean
-}
+export type JobForceStopResult = Schemas['JobForceStopResult']
 
 export const FORCE_STOP_HINT =
   'Cancel was sent but the job has not stopped. Force stop ends it here; its worker keeps running in the background until it finishes, and a hosted AI request already sent keeps running and is still billed.'
@@ -211,30 +204,9 @@ export function offersForceStop(job: Pick<JobRecord, 'status' | 'can_force_stop'
   return job.status === 'running' && job.can_force_stop === true && offersCancel(job, anyJob)
 }
 
-export interface JobCancelResult {
-  job_id: string
-  cancel_requested: boolean
-  status: string
-}
+export type JobCancelResult = Schemas['JobCancelResult']
 
-// Mirrors api/job_stage_schemas.py JobStageTimings (GET /api/jobs/{id}/stages).
-interface JobStage {
-  stage: string
-  started_at: number
-  duration_seconds: number
-  cost_usd: number
-}
-
-export interface JobStageRun {
-  run_started_at: number
-  running: boolean
-  total_seconds: number
-  cost_usd: number
-  stages: JobStage[]
-}
+export type JobStageRun = Schemas['JobStageRun']
 
 // Newest run first, at most 10; empty for a job recorded before stage timing.
-export interface JobStageTimings {
-  job_id: string
-  runs: JobStageRun[]
-}
+export type JobStageTimings = Schemas['JobStageTimings']
