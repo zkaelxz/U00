@@ -64,6 +64,9 @@
 .comic-stage-spread .comic-zoom-layer { display: flex; justify-content: center; align-items: center; }
 .comic-stage-spread .comic-page { flex: 1 1 0; min-width: 0; max-width: 50%; }
 .comic-stage-spread .comic-fit-original { max-width: none; flex: 0 0 auto; }
+/* A page narrower than its half (fit to height) hugs the spine instead of floating mid-half. */
+.comic-stage-spread .comic-page:first-child .comic-page-inner { margin-inline: auto 0; }
+.comic-stage-spread .comic-page:last-child .comic-page-inner { margin-inline: 0 auto; }
 
 .comic-page { margin: 0; width: 100%; max-width: var(--comic-page-max); scroll-margin-top: 120px; }
 /* safe: a page wider than the screen (Original size) starts at its left edge, never cut off. */

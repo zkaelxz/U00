@@ -109,7 +109,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const srcFor = useCallback((p: ComicPageInfo) => savedPageUrl(source, series, chapter, p.id), [source, series, chapter])
   const allPages = useMemo(() => pages.map((_, i) => i + 1), [pages])
   const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, allPages, pages, current)
-  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
+  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
 
   usePageJump({
     activeJump,
@@ -198,7 +198,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
             <span>{title}</span>
           </nav>
           {current !== null && count > 0 ? (
-            <ComicPager page={current} count={count} rtl={rtl} onGo={go} label={pagerLabel(count)} />
+            <ComicPager page={current} count={count} rtl={rtl} onGo={go} onStep={spreads ? step : undefined} label={pagerLabel(count)} />
           ) : (
             data === null && !error && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
           )}
@@ -261,7 +261,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
 
       {phone && current !== null && count > 0 && (
         <div className="reader-bottom comic-bottom">
-          <ComicPager page={current} count={count} rtl={rtl} onGo={go} compact />
+          <ComicPager page={current} count={count} rtl={rtl} onGo={go} onStep={spreads ? step : undefined} compact />
         </div>
       )}
     </div>

@@ -80,6 +80,15 @@ test('paged reading shows two pages, right page first for right to left, and Alw
   const shown = await figs.evaluateAll((els) => els.map((e) => ({ n: e.getAttribute('data-page'), x: e.getBoundingClientRect().x })))
   expect(shown.map((f) => f.n)).toEqual(['3', '2'])
   expect(shown[0].x).toBeLessThan(shown[1].x)
+  // Narrow pages meet at the spine rather than floating mid-half.
+  const inner = await figs.locator('.comic-page-inner').evaluateAll((els) => els.map((e) => e.getBoundingClientRect()))
+  expect(inner[1].left - inner[0].right).toBeLessThan(2)
+  // The pager's Next turns a whole spread (2–3 to 4), not one page number.
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(label(page)).toHaveText('Page 4 of 4')
+  await expect(page).toHaveURL(/page=4$/)
+  await page.getByRole('button', { name: 'Previous page' }).click()
+  await expect(label(page)).toHaveText('Pages 2–3 of 4')
 
   await page.getByRole('button', { name: 'View settings' }).click()
   await page.getByLabel('Double page', { exact: true }).selectOption('single')
