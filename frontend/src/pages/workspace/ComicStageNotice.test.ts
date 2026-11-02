@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { isCastTab, isLineStageForComic } from './ComicStageNotice'
+import { isLineStageForComic } from './ComicStageNotice'
+import { isCastTab } from './stages'
 
 describe('isLineStageForComic', () => {
   it('covers the line stages and leaves Source and no stage alone', () => {

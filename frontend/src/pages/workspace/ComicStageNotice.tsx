@@ -3,11 +3,6 @@ import { Card } from '../../components/Card'
 import { routeHref } from '../../router'
 import type { StageId } from './stages'
 
-// The Translate stage's Glossary and Characters tabs hold the series glossary and cast that Scanlate translates with, so a link to either shows them even for a comic.
-export function isCastTab(tab: string | undefined): boolean {
-  return tab === 'glossary' || tab === 'characters'
-}
-
 // Comic bubbles live in Scanlate, not in lines, so these stages have nothing to show for them.
 const LINE_STAGES: readonly StageId[] = ['translate', 'review', 'export']
 
