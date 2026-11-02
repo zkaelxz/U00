@@ -231,7 +231,7 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     if len(words) < 2:
         return [segment]
 
-    fd, slice_path = tempfile.mkstemp(suffix=".wav")
+    fd, slice_path = tempfile.mkstemp(prefix="baihe_tmp_", suffix=".wav")
     os.close(fd)
     try:
         import audio_extract
