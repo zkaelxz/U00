@@ -805,3 +805,18 @@ class TestOtherPaidPathsAreLogged:
         assert "groq_usage" not in result  # the job result keeps its old shape
         (row,) = _usage_rows()
         assert row["estimated_cost_usd"] == 0
+
+
+class TestBenchmarkFailedAttemptSpend:
+    def test_a_billed_attempt_that_then_failed_is_still_counted(self):
+        from services import benchmark_case_service as cases_svc
+        engine = FakeClaude()
+
+        def billed_then_fail(texts, ctx):
+            engine.last_usage = {"input_tokens": 40, "output_tokens": 7}
+            raise ValueError("unreadable reply")
+
+        engine.translate_batch = billed_then_fail
+        result = cases_svc.run_translation(engine, {"source_text": "你好"})
+        assert result["error"]
+        assert result["usage"]["input_tokens"] == 40 and result["usage"]["output_tokens"] == 7

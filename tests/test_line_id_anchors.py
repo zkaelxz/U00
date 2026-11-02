@@ -153,3 +153,21 @@ def test_compaction_announces_itself_and_needs_room_for_two_copies(isolated_db, 
                         lambda p: shutil._ntuple_diskusage(10**9, 10**9, room))
     told.clear()
     assert compact.compact_if_worthwhile(notify=told.append) is False and told == []
+
+
+def test_wiki_known_through_follows_its_line_when_earlier_lines_are_deleted(isolated_db):
+    did, lines = _drama_with_lines()
+    db.upsert_wiki_entry(did, "character", "A", known_through_line_idx=3, known_through_line_id=lines[3].id)
+
+    _drop_first_line(did, lines)
+
+    assert db.list_wiki_entries(did)[0]["known_through_line_idx"] == 2
+
+
+def test_wiki_known_through_keeps_the_furthest_line_by_current_position(isolated_db):
+    did, lines = _drama_with_lines()
+    db.upsert_wiki_entry(did, "character", "A", known_through_line_idx=3, known_through_line_id=lines[3].id)
+
+    db.upsert_wiki_entry(did, "character", "A", known_through_line_idx=1, known_through_line_id=lines[1].id)
+
+    assert db.list_wiki_entries(did)[0]["known_through_line_idx"] == 3

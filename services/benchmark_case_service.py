@@ -154,12 +154,14 @@ def run_translation(engine, case: dict, key: str | None = None) -> dict:
     started = time.monotonic()
     usage = None
     stop_reason = ""
+    called = False
     try:
         # Same retry as a normal translation: a transient 429/5xx shouldn't
         # score 0 and skew the Arena.
         ctx = _translation_context(case)
         # Bounded, because a Cancel pressed while a hung engine is answering
         # would otherwise wait for the SDK's own timeout.
+        called = True
         with shared.keep_answers_across_retries():
             out = shared.call_with_backoff(
                 lambda: llm_tasks.call_batch_bounded(
@@ -173,6 +175,13 @@ def run_translation(engine, case: dict, key: str | None = None) -> dict:
     except Exception as exc:
         output_text, error = "", redact(exc, key)
         stop_reason = paid_calls.stop_reason_for(exc)
+        # An attempt that was billed and then failed (a parse retry, then a rate
+        # limit) still cost money. An abandoned call is not read: its late
+        # result is logged by on_late_result, so counting it here would bill twice.
+        if called and not isinstance(exc, (shared.TranslationCancelled, llm_tasks.LLMTaskTimeout)):
+            failed_usage = getattr(engine, "last_usage", None)
+            if failed_usage and (failed_usage.get("input_tokens") or failed_usage.get("output_tokens")):
+                usage = failed_usage
     cost = 0.0
     if usage:
         cost = pricing.estimate_cost_for_engine(

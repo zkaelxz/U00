@@ -2308,7 +2308,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "bulk_jobs": ("kind", "stage", "pipeline_id"),
     "bulk_job_lines": ("result_text", "state_at_submit"),
     "vocab_lookups": ("export_rich", "first_seen_line_id"),
-    "wiki_entries": ("first_seen_line_id",),
+    "wiki_entries": ("first_seen_line_id", "known_through_line_id"),
     "style_profile": ("history_json",),
     "users": ("share_by_default",),
     "progress": ("view_prefs",),

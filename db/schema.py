@@ -486,6 +486,7 @@ def _create_review_tables(conn):
             first_seen_line_idx INTEGER,
             first_seen_line_id INTEGER,
             known_through_line_idx INTEGER,  -- spoiler boundary: built only from lines up to here
+            known_through_line_id INTEGER,   -- the same boundary by line id, so edits elsewhere don't move it
             updated_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
             UNIQUE(drama_id, entry_type, name)

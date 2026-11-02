@@ -742,13 +742,15 @@ def update_wiki(drama_id: int, up_to_line_idx: int | None = None,
         batch, engine, batch_limit, drama, existing_entries=db.list_wiki_entries(drama_id)),
         (engine, "reader_wiki", drama_id))
     id_by_idx = {ln.idx: ln.id for ln in batch}
+    scoped_id_by_idx = {ln.idx: ln.id for ln in scoped}
     for e in found:
         db.upsert_wiki_entry(
             drama_id, e["entry_type"], e["name"], description=e.get("description"),
             aliases=e.get("aliases"), attributes=e.get("attributes"),
             first_seen_line_idx=e.get("first_seen_line_idx"),
             first_seen_line_id=id_by_idx.get(e.get("first_seen_line_idx")),
-            known_through_line_idx=e.get("known_through_line_idx"))
+            known_through_line_idx=e.get("known_through_line_idx"),
+            known_through_line_id=scoped_id_by_idx.get(e.get("known_through_line_idx")))
     return {"drama_id": drama_id, "updated": len(found), "remaining": remaining,
             "next_line_idx": todo[len(batch)].idx if remaining else None}
 

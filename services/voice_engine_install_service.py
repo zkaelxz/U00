@@ -57,6 +57,9 @@ class AlreadyInstalled(admin_svc.AdminActionRefused, ConflictError):
     pass
 
 
+_START_LOCK = threading.Lock()
+
+
 def job_id(engine: str) -> str:
     return f"voice_engine_install_{engine}"
 
@@ -179,11 +182,16 @@ def start_install(engine: str, confirm: bool = False) -> dict:
         if voice_venv.is_ready(engine):
             raise AlreadyInstalled(reason)
         raise admin_svc.AdminActionNotPossible(reason)
-    if not job_launch.start_job(job_id(engine), lambda: _install_job(engine),
-                                description=f"Installing {ENGINES[engine]['label']}",
-                                line_fields=()):
-        raise admin_svc.AdminActionJobsRunning(
-            f"The {ENGINES[engine]['label']} install is already running.")
+    # One lock over the check and the start: an install and a removal both work on the
+    # same folder, so neither may begin while the other is running.
+    with _START_LOCK:
+        if _busy(remove_job_id(engine)):
+            raise admin_svc.AdminActionJobsRunning(f"{ENGINES[engine]['label']} is being removed.")
+        if not job_launch.start_job(job_id(engine), lambda: _install_job(engine),
+                                    description=f"Installing {ENGINES[engine]['label']}",
+                                    line_fields=()):
+            raise admin_svc.AdminActionJobsRunning(
+                f"The {ENGINES[engine]['label']} install is already running.")
     return {"job_id": job_id(engine), "started": True}
 
 
@@ -231,6 +239,16 @@ def _commands(engine: str) -> list:
 def _store(engine: str, ok: bool, message: str, tail) -> None:
     with _STATE_LOCK:
         _RESULTS[engine] = {"ok": ok, "message": message, "output_tail": list(tail)}
+
+
+def _busy(jid: str) -> bool:
+    view = _job_view(jid)
+    return bool(view and view["status"] in ("running", "queued"))
+
+
+def _is_link(path: str) -> bool:
+    """A symlink, or on Windows a junction, which os.path.islink does not report."""
+    return os.path.islink(path) or getattr(os.path, "isjunction", lambda _p: False)(path)
 
 
 def _remove_partial(engine: str) -> None:
@@ -291,9 +309,13 @@ def start_remove(engine: str, confirm: bool = False) -> dict:
     admin_svc.guard(confirm)
     if not os.path.lexists(voice_venv.venv_dir(engine)):
         raise admin_svc.AdminActionNotPossible(f"{label} is not installed.")
-    if not job_launch.start_job(remove_job_id(engine), lambda: _remove_job(engine),
-                                description=f"Removing {label}", line_fields=()):
-        raise admin_svc.AdminActionJobsRunning(f"{label} is already being removed.")
+    with _START_LOCK:
+        if _busy(job_id(engine)):
+            raise admin_svc.AdminActionJobsRunning(
+                f"The {label} install is running. Cancel it first, then remove.")
+        if not job_launch.start_job(remove_job_id(engine), lambda: _remove_job(engine),
+                                    description=f"Removing {label}", line_fields=()):
+            raise admin_svc.AdminActionJobsRunning(f"{label} is already being removed.")
     return {"job_id": remove_job_id(engine), "started": True}
 
 
@@ -301,9 +323,13 @@ def _remove_job(engine: str):
     label = ENGINES[engine]["label"]
     folder = voice_venv.venv_dir(engine)
     background_jobs.update_progress(remove_job_id(engine), 0.1, f"Removing {label}…")
-    if os.path.islink(folder):
+    if _is_link(folder):
         # Never follow a link out of the data folder: only the link itself goes.
-        os.unlink(folder)
+        # A junction is a directory to Windows, so unlink can't delete it.
+        if os.path.islink(folder):
+            os.unlink(folder)
+        else:
+            os.rmdir(folder)
     else:
         # The marker goes first, so a removal cut short never leaves a venv that counts
         # as ready.

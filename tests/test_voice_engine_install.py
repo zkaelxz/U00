@@ -290,3 +290,28 @@ def test_remove_is_refused_while_a_job_runs(client, env, clean_remove_job, monke
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: True)
     assert _remove(client).status_code == 409
     assert os.path.exists(voice_venv.venv_dir("qwen3_tts"))
+
+
+def test_remove_deletes_a_junction_itself_not_its_target(client, env, clean_remove_job, monkeypatch):
+    os.makedirs(voice_venv.venv_dir("qwen3_tts"))
+    # Windows reports a junction as a directory that isjunction() accepts and islink() does not.
+    monkeypatch.setattr(os.path, "isjunction", lambda p: p == voice_venv.venv_dir("qwen3_tts"),
+                        raising=False)
+    monkeypatch.setattr(svc.shutil, "rmtree", lambda *a, **k: pytest.fail("followed the junction"))
+    _remove(client)
+    assert wait_for_job(REMOVE_JOB, timeout=15)["status"] == "done"
+    assert not os.path.lexists(voice_venv.venv_dir("qwen3_tts"))
+
+
+def test_remove_does_not_start_while_this_engines_install_is_running(client, env, clean_remove_job, monkeypatch):
+    os.makedirs(voice_venv.venv_dir("qwen3_tts"))
+    monkeypatch.setattr(svc, "_busy", lambda jid: jid == JOB)
+    r = _remove(client)
+    assert r.status_code == 409
+    assert os.path.exists(voice_venv.venv_dir("qwen3_tts")) and background_jobs.get_status(REMOVE_JOB) is None
+
+
+def test_install_does_not_start_while_this_engine_is_being_removed(client, env, monkeypatch):
+    monkeypatch.setattr(svc, "_busy", lambda jid: jid == REMOVE_JOB)
+    r = _install(client)
+    assert r.status_code == 409 and background_jobs.get_status(JOB) is None

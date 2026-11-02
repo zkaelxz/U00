@@ -60,6 +60,8 @@ pip install -r requirements-media.txt -c constraints.txt      # audio/video: ali
 pip install -r requirements-optional.txt -c constraints.txt   # per feature; install only the lines you need
 ```
 
+If you want GPU features, install a GPU PyTorch from the Diagnostics page before the optional file. Several optional packages depend on torch, and if none is installed yet pip fetches the default build, which may be CPU-only. Check afterwards with `python -c "import torch; print(torch.cuda.is_available())"`.
+
 `requirements.txt` is those three files combined. The Diagnostics page's Install buttons do the same picking without typing. `-c constraints.txt` caps packages at major versions known not to break the app (it installs nothing itself). Then `python -m api` and open `http://127.0.0.1:8600/`.
 
 ### Portable mode
