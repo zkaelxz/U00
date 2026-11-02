@@ -52,7 +52,7 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   const panel = page.getByRole('region', { name: 'Series' })
   await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   await expect(page.getByTestId('search-results')).toBeHidden()
-  await expect(panel.getByRole('heading', { level: 2 })).toBeFocused()
+  await expect(panel.getByRole('heading', { level: 2, name: 'Heaven Book 1' })).toBeFocused()
   await expectNoSidewaysScroll(page)
   await tallTargets(page)
   const more = panel.getByRole('button', { name: 'More' })

@@ -123,7 +123,7 @@ export function Section({ title, summary, count, defaultOpen = false, storageKey
       }}
     >
       <summary>
-        <span className="section-title">{title}</span>
+        <h2 className="section-title">{title}</h2>
         {count !== undefined && <span className="badge section-count">{count}</span>}
         {!open && summary && <span className="section-summary">{capFirst(summary)}</span>}
       </summary>

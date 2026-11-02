@@ -477,7 +477,7 @@ def hard_delete_drama(drama_id) -> bool:
             os.rename(folder, tomb)
         except OSError as e:
             # Nothing changed yet (row and folder intact); no paths in the message.
-            raise ServiceError("The title's files are in use, so it was not deleted. "
+            raise ConflictError("The title's files are in use, so it was not deleted. "
                                "Close anything using them and try again.") from e
         # A rename keeps the folder's old mtime; stamp it now so the startup
         # sweep (cleanup_stale_tombstones) never mistakes an in-flight delete

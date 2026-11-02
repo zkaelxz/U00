@@ -206,6 +206,20 @@ class TestSharedFolder:
                 assert c["kept_as"] is None
         assert info["default_copy"] is None or info["default_copy"] in written["B"]
 
+    def test_a_copy_that_cannot_be_removed_is_a_conflict_not_a_500(self, isolated_db, tmp_path,
+                                                                  monkeypatch):
+        db.create_drama(title_en="A")
+        abs_.set_settings(folder=str(tmp_path))
+        _become({"library_id": "a" * 32, "sequence": 0})
+        name = _run_at(monkeypatch, _at(3))
+
+        def locked(path, *a, **k):
+            raise PermissionError("in use")
+        monkeypatch.setattr(abs_.os, "remove", locked)
+        with pytest.raises(ConflictError) as e:
+            abs_.delete_snapshot(confirm=True, confirm_text="DELETE", snapshot=name)
+        assert e.value.details == {"deleted": 0, "not_deleted": 1}
+
     def test_delete_all_deletes_only_this_librarys_copies(self, isolated_db, tmp_path,
                                                           monkeypatch):
         db.create_drama(title_en="A")
