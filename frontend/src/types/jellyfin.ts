@@ -1,31 +1,12 @@
-// Mirrors api/jellyfin_schemas.py (optional Jellyfin connector).
+// api/jellyfin_schemas.py (optional Jellyfin connector); responses come from the generated schema.
+import type { components } from '../api/generated/schema'
 import type { AssExportRequest } from './export'
 
-export interface JellyfinConfig {
-  enabled: boolean
-  server_url: string | null
-  library_dir: string | null
-  key_configured: boolean
-}
+type Schemas = components['schemas']
 
-export interface JellyfinScanItem {
-  id: string
-  name: string
-  series: string | null
-  season: number | null
-  episode: number | null
-  type: 'movie' | 'episode'
-  writable: boolean
-}
-
-export interface JellyfinScanReport {
-  language: string
-  total: number
-  with_subtitles: number
-  missing: number
-  items: JellyfinScanItem[]
-  truncated: boolean
-}
+export type JellyfinConfig = Schemas['JellyfinConfig']
+export type JellyfinScanItem = Schemas['JellyfinScanItem']
+export type JellyfinScanReport = Schemas['JellyfinScanReport']
 
 export type JellyfinLanguage = 'en' | 'zh' | 'ja' | 'ko'
 
@@ -40,8 +21,4 @@ export interface JellyfinSendRequest {
   ass?: AssExportRequest
 }
 
-export interface JellyfinSendResult {
-  drama_id: number
-  files: string[]
-  refresh: 'done' | 'failed' | 'skipped'
-}
+export type JellyfinSendResult = Schemas['JellyfinSendResult']
