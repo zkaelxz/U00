@@ -36,8 +36,8 @@ describe('saved manga logic', () => {
   it('view settings default to vertical scroll and never turn on typeset or text', () => {
     const s = memory()
     expect(loadMangaPrefs(s, 'MangaK', 'A')).toEqual(MANGA_DEFAULTS)
-    saveMangaPrefs(s, 'MangaK', 'A', { mode: 'paged', rtl: true, fit: 'height', typeset: true, text: true })
-    expect(loadMangaPrefs(s, 'MangaK', 'A')).toEqual({ mode: 'paged', rtl: true, fit: 'height', typeset: false, text: false })
+    saveMangaPrefs(s, 'MangaK', 'A', { mode: 'paged', rtl: true, fit: 'height', typeset: true, text: true, spread: 'double', coverAlone: false })
+    expect(loadMangaPrefs(s, 'MangaK', 'A')).toEqual({ mode: 'paged', rtl: true, fit: 'height', typeset: false, text: false, spread: 'single', coverAlone: true })
     expect(loadMangaPrefs(s, 'MangaK', 'B')).toEqual(MANGA_DEFAULTS)
   })
 

@@ -106,7 +106,7 @@ budoux>=0.10.2           # Japanese/Chinese phrase-aware subtitle line breaking
 # against real weights in the environment this was built in -- see
 # scanlate.py's own docstrings; sanity-check on one page before relying
 # on either for a whole batch.
-huggingface_hub>=0.20
+huggingface_hub>=2.4.0
 torch>=2.0
 safetensors>=0.8.0
 

@@ -84,6 +84,8 @@ export interface ComicViewPrefs {
   fit: 'width' | 'height' | 'original'
   typeset: boolean
   text: boolean
+  spread: 'auto' | 'single' | 'double'
+  coverAlone: boolean
 }
 
 // POST /pages/visibility: page ids, or the first/last `count` pages of a chapter.

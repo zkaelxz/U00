@@ -69,6 +69,9 @@ class ComicViewPrefs(BaseModel):
     fit: Literal["width", "height", "original"]
     typeset: StrictBool
     text: StrictBool
+    # Defaults keep prefs saved before the double-page option valid.
+    spread: Literal["auto", "single", "double"] = "auto"
+    coverAlone: StrictBool = True
 
 
 class ComicProgress(BaseModel):

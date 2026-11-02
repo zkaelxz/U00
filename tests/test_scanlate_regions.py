@@ -514,6 +514,15 @@ class TestWordySfxBecomesSign:
         region = {"kind": "sfx", "source_text": "あなたをずっと待っていました"}
         assert scanlate_regions.reclassify_wordy_sfx([region]) == 1
 
+    def test_a_short_vertical_sentence_on_dark_art_is_a_sign(self):
+        region = {"kind": "sfx", "source_text": "いいのか？任せても"}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 1
+        assert region["kind"] == "sign"
+
+    def test_a_kanji_sound_effect_without_hiragana_stays(self):
+        region = {"kind": "sfx", "source_text": "斬"}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
+
     def test_a_short_sound_effect_stays(self):
         region = {"kind": "sfx", "source_text": "ドドド"}
         assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
@@ -561,3 +570,21 @@ class TestSeriesCastInScanlateTranslation:
     def test_title_without_a_series_has_no_guide(self, isolated_db):
         from services import scanlate_run_service as run_svc
         assert run_svc.load_translation_guide({"series_id": None}) == (None, "")
+
+
+class TestSkippedSfxNote:
+    def test_says_how_many_sound_effects_are_left_alone(self):
+        sfx = {"kind": "sfx"}
+        included = {"kind": "sfx", "include_sfx": True}
+        bubble = {"kind": "bubble"}
+        notes = []
+        scanlate._note_skipped_sfx([sfx, dict(sfx), included, bubble], notes)
+        assert notes == [("info", "2 sound-effect regions left as they are.")]
+        notes = []
+        scanlate._note_skipped_sfx([sfx, bubble], notes)
+        assert notes == [("info", "1 sound-effect region left as it is.")]
+
+    def test_silent_without_sound_effects(self):
+        notes = []
+        scanlate._note_skipped_sfx([{"kind": "bubble"}, {"kind": "sfx", "include_sfx": True}], notes)
+        assert notes == []
