@@ -55,6 +55,7 @@ WARN_DAYS = 14
 CRITICAL_DAYS = 5
 CONNECT_TIMEOUT = 5.0
 RESOLVE_TIMEOUT = 5.0
+IP_CHECK_TIMEOUT = 10.0
 IP_CHECK_MAX_BYTES = 64
 IP_CHECK_MAX_URL = 512
 IP_CHECK_ENV = "BAIHE_REMOTE_IP_CHECK_URL"
@@ -194,7 +195,8 @@ def _current_public_ip(url):
     from lib import http, url_guard
     if urlsplit(url).scheme != "https":
         raise ValueError("not https")
-    ip = _bounded(lambda: url_guard.resolve_public(url), RESOLVE_TIMEOUT)
+    ip = _bounded(lambda: url_guard.resolve_public(url, wait_for_home=False),
+                  RESOLVE_TIMEOUT)
     resp = http.pinned_get(url, ip, {"Accept": "text/plain"})
     try:
         if resp.status_code != 200:
@@ -211,12 +213,12 @@ _checked_ip = None   # this PC's public address from the last successful IP chec
 
 
 def refresh_home_addresses(public_url, stop=None) -> None:
-    """Tells url_guard this home's own public addresses (the public name's
-    DNS answer plus the last checked IP), so a link import can't reach the
-    router or this PC through the home's WAN address. The monitor runs it
-    while remote access is on; Diagnostics' IP check test also fills the last
-    checked IP whenever a public URL is set. A failed, stopped or empty
-    lookup keeps the last set."""
+    """Tells url_guard this home's own public addresses (the last checked IP,
+    or the public name's DNS answer, and this PC's own global addresses), so a
+    link import can't reach the router or this PC through the home's WAN
+    address. The monitor runs it while remote access is on; Diagnostics' IP
+    check test also fills the last checked IP whenever a public URL is set. A
+    failed, stopped or empty lookup of the public name keeps the last set."""
     from lib import url_guard
     target = public_target(public_url)
     if target is None:
@@ -227,8 +229,49 @@ def refresh_home_addresses(public_url, stop=None) -> None:
         return
     if not resolved:
         return
-    url_guard.set_home_addresses(
-        {str(a) for a in resolved} | ({str(_checked_ip)} if _checked_ip else set()))
+    _publish_home_addresses(resolved, stop)
+
+
+def _publish_home_addresses(name_answer, stop=None) -> None:
+    """With an IP check, its answer is the home's address and the public
+    name's is left out: behind a CDN or tunnel the name resolves to addresses
+    shared with other sites, and refusing those would refuse those sites too.
+    Without one, the name's answer is all there is, so it counts, but only
+    each address itself, never an IPv6 /64."""
+    from lib import url_guard
+    own = _own_addresses(stop)
+    if _checked_ip:
+        url_guard.set_home_addresses({str(_checked_ip)} | own)
+    else:
+        url_guard.set_home_addresses(own, exact={str(a) for a in name_answer})
+
+
+def learn_home_addresses(public_url, stop=None) -> None:
+    """The monitor's first lookup: reads the IP check too when one is set,
+    since with a tunnel in front the public name never resolves to the home,
+    and then releases the link imports url_guard held back meanwhile."""
+    from lib import url_guard
+    global _checked_ip
+    try:
+        url = _ip_check_url()
+        if url and public_target(public_url) is not None:
+            try:
+                _checked_ip = _bounded(lambda: _current_public_ip(url), IP_CHECK_TIMEOUT, stop)
+            except Exception:
+                pass   # the regular check reports it; the DNS answer still counts
+        refresh_home_addresses(public_url, stop)
+    finally:
+        url_guard.home_lookup_done()
+
+
+def _own_addresses(stop=None) -> set:
+    """This PC's own addresses as its host name resolves, so its IPv6
+    addresses count whichever /64 they are on. Windows answers with every
+    interface's address; Linux usually only with what /etc/hosts lists."""
+    try:
+        return {str(a) for a in _resolve(socket.gethostname(), stop)}
+    except OSError:
+        return set()
 
 
 def _resolve(host, stop=None):
@@ -259,8 +302,7 @@ def check_ddns(host) -> dict:
         resolved = _resolve(host)
     except OSError:
         return _check("critical", "The public name does not resolve.", configured=True)
-    from lib import url_guard
-    url_guard.set_home_addresses({str(a) for a in resolved} | {str(current)})
+    _publish_home_addresses(resolved)
     if resolved and not any(a.is_global for a in resolved):
         return _check("unknown", "The public name resolves to a local address here, "
                       "so it can't be compared.", configured=True)
@@ -435,7 +477,8 @@ def validate_ip_check_url(value) -> str:
             or parts.password is not None):
         raise InvalidInputError(_BAD_IP_CHECK)
     try:
-        _bounded(lambda: url_guard.resolve_public(value), RESOLVE_TIMEOUT)
+        _bounded(lambda: url_guard.resolve_public(value, wait_for_home=False),
+                 RESOLVE_TIMEOUT)
     except url_guard.UnsafeURLError:
         raise InvalidInputError(_BAD_IP_CHECK) from None
     except Exception:

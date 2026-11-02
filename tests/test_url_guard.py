@@ -152,3 +152,41 @@ def test_the_homes_own_public_address_is_refused(monkeypatch):
 def test_home_addresses_skip_what_is_not_a_public_address():
     ug.set_home_addresses({"not an ip", "192.168.1.1", "::1", "8.8.8.8"})
     assert ug._home_networks == (__import__("ipaddress").ip_network("8.8.8.8/32"),)
+
+
+def test_a_fetch_waits_for_the_first_home_address_lookup(monkeypatch):
+    """Right after start, a link import must not go out before the home's
+    address is known."""
+    import threading
+    _answers(monkeypatch, "93.184.216.34")
+    ug.expect_home_addresses()
+    outcome = []
+
+    def fetch():
+        try:
+            outcome.append(ug.resolve_public("https://home.example.com/"))
+        except ug.UnsafeURLError as exc:
+            outcome.append(str(exc))
+    worker = threading.Thread(target=fetch)
+    worker.start()
+    worker.join(0.3)
+    assert worker.is_alive() and outcome == []
+    ug.set_home_addresses({"93.184.216.34"})
+    worker.join(5)
+    assert outcome == [ug.NOT_PUBLIC]
+
+
+def test_a_lookup_that_found_nothing_releases_waiting_fetches(monkeypatch):
+    _answers(monkeypatch, "93.184.216.34")
+    ug.expect_home_addresses()
+    # The lookup's own IP check does not wait for itself.
+    assert ug.resolve_public("https://ip.example.net/", wait_for_home=False) == "93.184.216.34"
+    ug.home_lookup_done()
+    assert ug.resolve_public("https://example.com/") == "93.184.216.34"
+
+
+def test_a_lookup_that_never_ends_holds_fetches_only_so_long(monkeypatch):
+    _answers(monkeypatch, "93.184.216.34")
+    monkeypatch.setattr(ug, "HOME_WAIT_SECONDS", 0.2)
+    ug.expect_home_addresses()
+    assert ug.resolve_public("https://example.com/") == "93.184.216.34"
