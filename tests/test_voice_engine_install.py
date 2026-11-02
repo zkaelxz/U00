@@ -49,9 +49,11 @@ def env(isolated_db, monkeypatch, tmp_path):
     script.write_text(STEP, encoding="utf-8")
     python = voice_venv.venv_python("qwen3_tts")
     monkeypatch.setattr(svc, "_free_mb", lambda: state["free"])
+    monkeypatch.setattr(svc.portable, "is_installed", lambda: state.get("installed", False))
+    monkeypatch.setattr(svc.diagnostics_torch, "nvidia_driver_info", lambda: state.get("nvidia"))
     monkeypatch.setattr(svc, "_commands", lambda engine: [
         (0.1, "step", [sys.executable, str(script), step, state["mode"], python], 30)
-        for step in ("venv", "torch", "engine")])
+        for step in ("venv", "torch", "engine", "check")])
     background_jobs.clear_job(JOB)
     svc._RESULTS.clear()
     yield state
@@ -138,6 +140,18 @@ def test_refusals_start_nothing(client, env, engine, confirm, free, status, text
     assert background_jobs.get_status(JOB) is None
 
 
+@pytest.mark.parametrize("setup, text", [
+    ({"installed": True}, "runs from start.bat"),
+    ({"nvidia": {"gpu_name": "GTX", "driver_version": "450.80"}}, "too old for CUDA 12"),
+])
+def test_copies_it_cannot_work_on_are_refused(client, env, setup, text):
+    env.update(setup)
+    r = _install(client)
+    assert r.status_code == 422 and text in r.json()["error"]["message"]
+    assert text in client.get("/api/diagnostics/voice-engines").json()["engines"][0]["refusal"]
+    assert background_jobs.get_status(JOB) is None
+
+
 def test_installed_is_409(client, env):
     _install(client)
     wait_for_job(JOB, timeout=15)
@@ -151,6 +165,8 @@ def test_the_steps_are_fixed_and_match_the_card(monkeypatch, tmp_path):
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: {"gpu_name": "V100"})
     monkeypatch.setattr(diagnostics_torch, "recommended_gpu_variant", lambda: ("cu126", "old"))
     steps = [argv for _p, _m, argv, _t in svc._commands("qwen3_tts")]
+    assert steps[3] == [voice_venv.venv_python("qwen3_tts"), "-I", "-c",
+                        "import torch, torchaudio, qwen_tts"]
     python = voice_venv.venv_python("qwen3_tts")
     assert steps[0] == [sys.executable, "-m", "venv", "--without-pip",
                         voice_venv.venv_dir("qwen3_tts")]

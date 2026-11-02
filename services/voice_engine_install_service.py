@@ -23,6 +23,7 @@ from services import diagnostics_admin_service as admin_svc
 # names a package or a folder.
 ENGINES = {
     "qwen3_tts": {"label": "Qwen3-TTS", "packages": ("qwen-tts==0.1.1",),
+                  "check": "import torch, torchaudio, qwen_tts",
                   # CUDA PyTorch (about 2.5 GB), qwen-tts and its dependencies, with room
                   # left for the model the first narration downloads.
                   "required_mb": 6000},
@@ -30,6 +31,7 @@ ENGINES = {
 VENV_TIMEOUT_SECONDS = 300
 # The CUDA torch wheels are about 2.5 GB; allow a slow link far longer.
 PIP_TIMEOUT_SECONDS = 3600
+VERIFY_TIMEOUT_SECONDS = 300    # a cold `import torch` from a fresh venv can be slow
 OUTPUT_TAIL_LINES = 12
 OUTPUT_LINE_CHARS = 200
 
@@ -81,6 +83,21 @@ def _refusal(engine: str):
     spec = _spec(engine)
     if voice_venv.is_ready(engine):
         return f"{spec['label']} is already installed."
+    if portable.is_installed():
+        # The installed app's embeddable Python has no venv launcher, and its ._pth would
+        # put the app's own packages ahead of the venv's: the clash this folder avoids.
+        return (f"{spec['label']} can't be installed in this copy yet: it needs a copy of "
+                "Baihe that runs from start.bat.")
+    lo, hi = diagnostics_torch.TORCH_SUPPORTED_PYTHON
+    if not lo <= sys.version_info[:2] <= hi:
+        return f"PyTorch has wheels for Python {lo[0]}.{lo[1]} to {hi[0]}.{hi[1]} only."
+    nvidia = diagnostics_torch.nvidia_driver_info()
+    if nvidia:
+        drv = diagnostics_torch.driver_check(nvidia["driver_version"], variant=_torch_variant())
+        if drv["status"] == "too_old":
+            return (f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12 "
+                    f"(needs at least {drv['minimum']}, recommended {drv['recommended']}). "
+                    "Update the driver from nvidia.com, then try again.")
     if _free_mb() < spec["required_mb"]:
         return f"Not enough free disk space (about {spec['required_mb'] // 1000} GB needed)."
     return None
@@ -142,6 +159,9 @@ def _commands(engine: str) -> list:
         (0.05, "Installing PyTorch…",
          [*pip, *torch_pins, "--index-url", torch_spec["index_url"]], PIP_TIMEOUT_SECONDS),
         (0.6, f"Installing {label}…", [*pip, *ENGINES[engine]["packages"]], PIP_TIMEOUT_SECONDS),
+        # A venv that can't import its engine must not count as ready.
+        (0.95, f"Checking {label}…", [python, "-I", "-c", ENGINES[engine]["check"]],
+         VERIFY_TIMEOUT_SECONDS),
     ]
 
 
