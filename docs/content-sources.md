@@ -332,7 +332,7 @@ work".
 
 | | |
 |---|---|
-| URL patterns | `rawkuma.net/manga/<slug>/` (series), `rawkuma.net/manga/<slug>/chapter-<n>.<id>/` (chapter) |
+| URL patterns | `rawkuma.net/manga/<slug>/` (series), `rawkuma.net/manga/<slug>/chapter-<n>.<id>/` (chapter). `raw.senmanga.com/<slug>[/<n>[.<id>]]` links also route here: that site serves Rawkuma's catalogue under the same slugs and chapter ids (checked 2026-11-01); a bare number is resolved from the series page. |
 | Content type / language | manga; ja (Japanese raws) |
 | Status | **Read against the live site 2026-11-01** (plain GETs, no login): search, a 205-chapter series, its chapter links and one chapter's image URLs. No image download or import has been run through the app. |
 | Access tier | `STATIC_HTTP`. A server-rendered WordPress site behind Cloudflare that answered plainly; nothing needs JavaScript. |

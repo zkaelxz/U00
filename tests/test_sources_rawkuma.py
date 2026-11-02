@@ -133,3 +133,26 @@ class TestParseUrl:
         assert kind == "chapter" and ch.chapter_id == "chapter-2.200"
         assert a.parse_url(f"{BASE}/library/") is None
         assert a.parse_url("https://example.com/manga/x/") is None
+
+
+class TestSenmangaLinks:
+    def test_series_and_chapter_links_map_to_rawkuma_ids(self):
+        a, _ = _adapter({})
+        assert a.matches_url("https://raw.senmanga.com/test-camp/2.200")
+        assert a.parse_url("https://raw.senmanga.com/test-camp") == ("series", "test-camp")
+        kind, ch = a.parse_url("https://raw.senmanga.com/test-camp/2.200")
+        assert (kind, ch.chapter_id, ch.url) == ("chapter", "chapter-2.200", CHAPTER_URL)
+        assert a.parse_url("https://raw.senmanga.com/api/read/x") is None
+        assert a.parse_url("https://raw.senmanga.com/test-camp/not-a-number") is None
+
+    def test_a_bare_chapter_number_is_resolved_from_the_series_page(self):
+        a, _ = _adapter({SERIES_URL: html(SERIES), CHAPTER_URL: html(CHAPTER)})
+        _, ch = a.parse_url("https://raw.senmanga.com/test-camp/2")
+        pages = a.get_pages(ch)
+        assert [p.url for p in pages][0].endswith("chapter-2/1.jpg")
+
+    def test_a_number_the_series_lacks_is_a_layout_change(self):
+        a, _ = _adapter({SERIES_URL: html(SERIES)})
+        _, ch = a.parse_url("https://raw.senmanga.com/test-camp/99")
+        with pytest.raises(rawkuma.LayoutChanged):
+            a.get_pages(ch)
