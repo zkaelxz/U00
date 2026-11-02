@@ -115,6 +115,8 @@ class ScanlateRunRequest(BaseModel):
     detect_backend: Literal["auto", "cv", "ml"] = "auto"
     # Also translate the large text drawn on the art (paints it out first).
     art_captions: bool = False
+    # The page a reader is on: translate the few untranslated pages after it.
+    read_ahead_from: Optional[int] = Field(None, ge=1, le=2**31 - 1)
 
 
 class ScanlateRegionRedoRequest(BaseModel):

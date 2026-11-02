@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { continueItems, countDramas, hideLibraryBar, parseTime, readHref, shownTags, tileText, workspaceHref } from './libraryView'
+import { cardProgress, continueItems, countDramas, hideLibraryBar, parseTime, readHref, shownTags, tileText, workspaceHref } from './libraryView'
 
 const t = (title_en: string | null, title_zh: string | null) => ({ title_en, title_zh })
 
@@ -72,5 +72,14 @@ describe('hideLibraryBar', () => {
     expect(hideLibraryBar(1, false)).toBe(false)
     expect(hideLibraryBar(null, false)).toBe(false)
     expect(hideLibraryBar(0, true)).toBe(false)
+  })
+})
+
+describe('cardProgress for comics', () => {
+  it('counts translated pages once translation has started', () => {
+    expect(cardProgress({ status: null, page_count: 12, pages_translated: 4 })).toEqual({ text: 'Translated 4 of 12 pages', share: 4 / 12 })
+  })
+  it('shows nothing for a comic nobody has translated', () => {
+    expect(cardProgress({ status: null, page_count: 12, pages_translated: 0 })).toBeNull()
   })
 })

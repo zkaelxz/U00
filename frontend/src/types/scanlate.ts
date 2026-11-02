@@ -76,6 +76,8 @@ export interface ScanlateRunRequest {
   detect_backend?: ScanlateDetectBackend
   // Also translate large lettering drawn on the artwork (off unless set).
   art_captions?: boolean
+  // The page the reader is on: translates the next few untranslated pages (mode 'missing' only).
+  read_ahead_from?: number
 }
 
 export type ScanlateExportFormat = 'zip' | 'pdf'

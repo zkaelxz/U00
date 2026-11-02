@@ -1423,3 +1423,46 @@ def test_blank_regions_note_names_regions_by_position_among_all_bubbles():
         "Regions 2, 4 and 5 had no translation and were left as the original.")
     assert note([bubbles[0], bubbles[1]], bubbles) == (
         "Regions 1 and 2 had no translation and were left as the original.")
+
+
+def _read_ahead(monkeypatch, engine="claude"):
+    """Runs start_run with the job launch stubbed; returns the pages the job would cover."""
+    monkeypatch.setattr(run_svc, "_require_opencv", lambda: None)
+    monkeypatch.setattr(run_svc, "_require_ocr_backend", lambda did: None)
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    started = {}
+    monkeypatch.setattr(pages_svc, "start_drama_job",
+                        lambda did, fn, jid, *args, description: started.update(targets=args[2]) or {"job_id": jid})
+    return started
+
+
+def test_read_ahead_covers_the_readers_page_and_the_few_visible_pages_after_it(client, monkeypatch):
+    from services import translate_run_service
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
+    started = _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(6)]
+    import comic_chapters
+    comic_chapters.set_hidden(did, [db.get_page(ids[2])["filename"]], True)
+    run_svc.start_run(did, read_ahead_from=ids[1], engine="claude")
+    assert started["targets"] == [ids[1], ids[3], ids[4], ids[5]]
+
+
+def test_read_ahead_on_a_paid_engine_needs_a_monthly_cap(client, monkeypatch):
+    from services import translate_run_service
+    from lib.errors import UnsupportedOperationError
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
+    started = _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(3)]
+    with pytest.raises(UnsupportedOperationError):
+        run_svc.start_run(did, read_ahead_from=ids[0], engine="claude")
+    assert not started
+
+
+def test_read_ahead_only_runs_missing_mode(client, monkeypatch):
+    _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(2)]
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="all", confirm=True, read_ahead_from=ids[0], engine="claude")

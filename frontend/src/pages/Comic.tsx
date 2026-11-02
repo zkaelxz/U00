@@ -25,7 +25,7 @@ import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
-import { AddComicDialog } from './comic/AddComicDialog'
+import { AddComicButtons } from './comic/AddComicButtons'
 import { ChapterBar } from './comic/ChapterBar'
 import {
   chapterIndex,
@@ -49,6 +49,7 @@ import {
   clampPage,
   comicHref,
   hashIsComic,
+  isReadTranslated,
   defaultPrefs,
   inRenderWindow,
   loadComicPrefs,
@@ -62,6 +63,7 @@ import {
 } from './comic/comicLogic'
 import { useJumpRequest, usePageJump } from './comic/usePageJump'
 import { readerClasses, usePagedReader } from './comic/usePagedReader'
+import { useReadAhead } from './comic/useReadAhead'
 import './reader/reader.css'
 import './comic/comic.css'
 import { browserStorage } from '../hooks/usePersistedState'
@@ -98,7 +100,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [editing, setEditing] = useState<TappedLine | null>(null)
   const original = useOriginalPages()
   const [toolsOpen, setToolsOpen] = useState(false)
-  const [addOpen, setAddOpen] = useState(false)
   const [initialPage] = useState(routePage)
   const [chapterPrefs, setChapterPrefs] = useState<ChapterPrefs | null>(null)
 
@@ -215,6 +216,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const position = current === null ? 0 : visible.indexOf(current) + 1
   // Every listed page ignoring the one-chapter limit: chapter jumps and the overall position.
   const visibleAll = useMemo(() => visibleOrdinals(pages, { ...cprefs, chapterOnly: false }, null), [pages, cprefs])
+  useReadAhead({ titleId: id, pages, visible, position, count, canTypeset, onFinished: loadPages })
   const resumed = initialPage === null && !resumeDismissed && start !== null && start > 1 ? start : null
   // Set after hiding or restoring pages: the reload shifts the layout, so the reader is put back on their page.
   const reanchor = useRef(false)
@@ -359,11 +361,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       Translate
     </button>
   )
-  const addButton = (
-    <button type="button" className="comic-tools-btn" onClick={() => setAddOpen(true)}>
-      Add a Comic
-    </button>
-  )
+  const addButton = <AddComicButtons />
   // Boxes are edited with lines.edit; without it the editor would only show refusals.
   const canEdit = useHolds('lines.edit')
   // Always present once allowed, so the bar does not shift when the page list arrives.
@@ -567,7 +565,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
       {empty ? (
         <div className="comic-scanlate comic-empty">
-          <p>No pages to read yet. Upload page images or a PDF to translate them.</p>
+          <p>{isReadTranslated(browserStorage(), id) ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
           {panel}
         </div>
       ) : !data || current === null ? (
@@ -607,7 +605,6 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         </Sheet>
       )}
       {editing && <LineEditSheet dramaId={id} line={editing} onClose={() => setEditing(null)} onSaved={setWatchedJob} />}
-      {addOpen && <AddComicDialog open onClose={() => setAddOpen(false)} />}
       {phone && currentPage && current !== null && (
         <Sheet open={linesOpen} title={`Page ${current} text`} onClose={() => setLinesOpen(false)}>
           <ComicLines page={current} state={regionsFor(currentPage)} onRetry={() => retryText(currentPage.id)} />

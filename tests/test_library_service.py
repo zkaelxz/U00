@@ -32,6 +32,19 @@ class TestListLibraryDramas:
         assert (rows[a]["line_count"], rows[a]["translated_count"]) == (2, 1)
         assert (rows[b]["line_count"], rows[b]["translated_count"]) == (0, 0)
 
+    def test_each_row_carries_its_comic_page_progress(self, isolated_db):
+        a = _make(isolated_db, title_en="A")
+        b = _make(isolated_db, title_en="B")
+        p1 = isolated_db.create_page(a, 0, "1.png", 10, 10)
+        p2 = isolated_db.create_page(a, 1, "2.png", 10, 10)
+        isolated_db.save_bubbles(p1, [{"idx": 0, "x": 0, "y": 0, "w": 5, "h": 5,
+                                       "source_text": "一", "translated_text": "one"}])
+        isolated_db.save_bubbles(p2, [{"idx": 0, "x": 0, "y": 0, "w": 5, "h": 5,
+                                       "source_text": "二", "translated_text": ""}])
+        rows = {d["id"]: d for d in library_service.list_library_dramas()}
+        assert (rows[a]["page_count"], rows[a]["pages_translated"]) == (2, 1)
+        assert (rows[b]["page_count"], rows[b]["pages_translated"]) == (0, 0)
+
     def test_rows_carry_undismissed_new_chapters_of_the_linked_series(self, isolated_db):
         from sources import store
         from sources.models import ChapterInfo

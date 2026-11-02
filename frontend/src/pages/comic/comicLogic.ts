@@ -231,3 +231,14 @@ export function zoomAt(z: Zoom, factor: number, cx: number, cy: number, w: numbe
 export function toggleZoomAt(z: Zoom, cx: number, cy: number, w: number, h: number): Zoom {
   return z.scale > 1 ? NO_ZOOM : zoomAt(NO_ZOOM, ZOOM.double, cx, cy, w, h)
 }
+
+// Set when a title was made with "Read translated": its pages are translated as they are read, from the first page.
+const readTranslatedKey = (dramaId: number) => `comic.readTranslated.${dramaId}`
+
+export function isReadTranslated(storage: StorageLike | null, dramaId: number): boolean {
+  return readPref<boolean>(storage, readTranslatedKey(dramaId), false) === true
+}
+
+export function markReadTranslated(storage: StorageLike | null, dramaId: number): boolean {
+  return writePref(storage, readTranslatedKey(dramaId), true)
+}

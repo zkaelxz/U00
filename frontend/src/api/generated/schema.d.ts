@@ -16363,6 +16363,18 @@ export interface components {
              * @description The signed-in viewer created it. Only set in the Library list.
              */
             owned_by_me?: boolean | null;
+            /**
+             * Page Count
+             * @description Pages a comic has. Only counted in the Library list.
+             * @default 0
+             */
+            page_count: number;
+            /**
+             * Pages Translated
+             * @description Comic pages with translated text. Only counted in the Library list.
+             * @default 0
+             */
+            pages_translated: number;
             preset_defaults?: components["schemas"]["DramaPresetDefaults"] | null;
             /** Profile Skipped */
             profile_skipped?: string[];
@@ -16498,6 +16510,18 @@ export interface components {
              * @description The signed-in viewer created it. Only set in the Library list.
              */
             owned_by_me?: boolean | null;
+            /**
+             * Page Count
+             * @description Pages a comic has. Only counted in the Library list.
+             * @default 0
+             */
+            page_count: number;
+            /**
+             * Pages Translated
+             * @description Comic pages with translated text. Only counted in the Library list.
+             * @default 0
+             */
+            pages_translated: number;
             /** Publication Status */
             publication_status?: string | null;
             /**
@@ -16685,6 +16709,18 @@ export interface components {
              * @description The signed-in viewer created it. Only set in the Library list.
              */
             owned_by_me?: boolean | null;
+            /**
+             * Page Count
+             * @description Pages a comic has. Only counted in the Library list.
+             * @default 0
+             */
+            page_count: number;
+            /**
+             * Pages Translated
+             * @description Comic pages with translated text. Only counted in the Library list.
+             * @default 0
+             */
+            pages_translated: number;
             /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
@@ -24010,6 +24046,8 @@ export interface components {
             mode: "missing" | "page" | "all";
             /** Page Id */
             page_id?: number | null;
+            /** Read Ahead From */
+            read_ahead_from?: number | null;
         };
         /** ScanlateUploadLimits */
         ScanlateUploadLimits: {
