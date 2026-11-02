@@ -102,7 +102,7 @@ export function MoveHere({ source, seriesId, title, candidates, onMoved }: Props
               <Names items={preview.only_old} />
             </li>
             <li>
-              {preview.new.length} are new here and the next check will announce them.
+              {preview.new.length} are new here. The next check will announce them, and import them if auto-import is on.
               <Names items={preview.new} />
             </li>
           </ul>

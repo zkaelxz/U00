@@ -38,7 +38,7 @@ def _make(name, comic=True):
         SourceAdapter.__init__(self, client, **kw)
 
     def get_series(self, series_id):
-        return SeriesInfo(name, series_id, "Series T", f"{HOST}/series/{series_id}")
+        return SeriesInfo(name, series_id, "Series T", f"{HOST}/series/{series_id}?t=secret")
 
     def get_chapters(self, series_id):
         return [ChapterInfo(name, series_id, cid, title, f"{HOST}/c/{cid}")
@@ -96,9 +96,58 @@ def test_matching_pairs_by_number_not_by_title_wording():
     assert pairs == [(0, 0), (1, 1), (3, 3)] and old_only == [2] and new_only == [2]
 
 
-def test_matching_never_pairs_a_chapter_twice_or_guesses_without_a_key():
-    pairs, old_only, new_only = chapter_order.match_chapters(["Ch 1", "Ch 1"], ["Chapter 1", "", "x"])
-    assert pairs == [(0, 0)] and old_only == [1] and new_only == [1, 2]
+def test_matching_pairs_only_unambiguous_chapters():
+    # A key listed twice on either side pairs nothing: the sites list in different orders.
+    pairs, old_only, new_only = chapter_order.match_chapters(
+        ["Ch 1", "Ch 1", "Ch 2"], ["Chapter 1", "", "Chapter 2"])
+    assert pairs == [(2, 2)] and old_only == [0, 1] and new_only == [0, 1]
+
+
+@pytest.mark.parametrize("old,new", [
+    ("Season 2 Episode 1", "Episode 1"), ("第2季 第1话", "第1话"), ("第10话(上)", "第10话(下)"),
+    ("新的秩序", "程序员的日常"), ("Season 2 Announcement", "Chapter 2"),
+    ("2024 Notice", "Chapter 2024"), ("2nd Anniversary Special", "Special 2"),
+])
+def test_look_alike_titles_are_never_matched(old, new):
+    assert chapter_order.match_chapters([old], [new])[0] == []
+
+
+def test_season_one_is_not_paired_with_a_newest_first_listing():
+    old = [f"第{n}话" for n in range(1, 4)]
+    new = [f"第{n}话" for n in (3, 2, 1)] + ["Season 2 Episode 1"]
+    pairs, _, new_only = chapter_order.match_chapters(old, new)
+    assert sorted(pairs) == [(0, 2), (1, 1), (2, 0)] and new_only == [3]
+
+
+def test_chapter_owed_a_retry_is_announced_not_marked_done(client):
+    did = db.create_drama(title_en="T", media_type="manhua")
+    _tracked_old(did)
+    store.record_import_retry("old", "o1", did, [("a3", "第3话", "failed", "x")])
+    LISTINGS[("new", "n1")].append(("b3", "Chapter 3"))
+    _open_new(client)
+    body = client.post("/api/sources/tracked/move/preview", json=BODY).json()
+    assert "Chapter 3" in [c["title"] for c in body["new"]]
+    assert client.post("/api/sources/tracked/move", json=BODY).status_code == 200
+    assert "b3" not in store.known_chapter_ids("new", "n1")
+
+
+def test_move_refused_when_the_link_changed_or_a_check_holds_the_lease(client):
+    did = db.create_drama(title_en="T", media_type="manhua")
+    _tracked_old(did)
+    _open_new(client)
+    args = ("old", "o1", "new", "n1", "T", "", [("a1", "b1", "x")])
+    assert store.move_tracked_series(*args, did + 1, 3600) == "changed"
+    assert store.claim_check_cycle(__import__("time").time(), 3600) is not None
+    assert store.move_tracked_series(*args, did, 3600) == "busy"
+    assert [r["series_id"] for r in store.list_tracked_series()] == ["o1"]
+
+
+def test_stored_url_has_no_query(client):
+    did = db.create_drama(title_en="T", media_type="manhua")
+    _tracked_old(did)
+    _open_new(client)
+    client.post("/api/sources/tracked/move", json=BODY)
+    assert "?" not in store.list_tracked_series()[0]["url"]
 
 
 def test_preview_lists_matched_old_only_and_new(client):
