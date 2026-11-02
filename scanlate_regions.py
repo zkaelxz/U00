@@ -39,10 +39,20 @@ def region_excluded_from_auto(region: dict) -> bool:
     return (region.get("kind") == "sfx") and not region.get("include_sfx")
 
 
+def _reads_as_japanese_sentence(text: str) -> bool:
+    """Kanji together with hiragana is how a Japanese sentence is written; a
+    sound effect is kana alone or a single kanji, so this text is speech
+    sitting on dark art (a vertical line the detector took for lettering on
+    the picture), not an onomatopoeia."""
+    import re
+    return bool(re.search(r"[぀-ゟ]", text) and re.search(r"[一-鿿]", text))
+
+
 def reclassify_wordy_sfx(regions: list) -> int:
     """Turns a region the detector called an SFX into a sign when its text is
-    too long to be one. The detector sees only pixels, so a caption on dark
-    art looks the same as a stylised sound effect until the text is read.
+    too long to be one, or reads as a Japanese sentence. The detector sees
+    only pixels, so a caption on dark art looks the same as a stylised sound
+    effect until the text is read.
     Leaves a region the person set to include_sfx alone. Returns the count."""
     changed = 0
     for region in regions:
@@ -51,7 +61,8 @@ def reclassify_wordy_sfx(regions: list) -> int:
         text = (region.get("source_text") or "").strip()
         chars = len("".join(text.split()))
         lines = len([ln for ln in text.splitlines() if ln.strip()])
-        if chars > scanlate_tuning.SFX_MAX_CHARS or lines > scanlate_tuning.SFX_MAX_LINES:
+        if (chars > scanlate_tuning.SFX_MAX_CHARS or lines > scanlate_tuning.SFX_MAX_LINES
+                or _reads_as_japanese_sentence(text)):
             region["kind"] = "sign"
             changed += 1
     return changed
