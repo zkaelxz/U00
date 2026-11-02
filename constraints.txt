@@ -28,10 +28,10 @@ torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics_torc
                       # also pins whatever torch family is installed, exactly.
 pillow<14            # 14 will remove more deprecated APIs (JpegImageFile.load_djpeg among them);
                       # lift after the tests and a real Scanlate page run on it.
-huggingface-hub<2      # gradio (pulled in by the optional omnivoice voice-clone install) requires <2.0, so
+huggingface-hub<3      # gradio (pulled in by the optional omnivoice voice-clone install) requires <2.0, so
                       # an uncapped resolve leaves a pip conflict; transformers 5 accepts 1.x too.
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.
-av<19                 # PyAV 19 breaks faster-whisper's decode_audio (tests/test_constraints_lock_parity.py
+av<20                 # PyAV 19 breaks faster-whisper's decode_audio (tests/test_constraints_lock_parity.py
                       # decodes a WAV through it).
 urllib3>=2.6           # a floor, not a cap: requests alone would allow 1.26, which has no
                        # read1 (sources/http.py, url_media_service) and CVE-2025-66471.
