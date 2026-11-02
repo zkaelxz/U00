@@ -57,14 +57,17 @@ def _check_window(start, end, buckets):
         raise InvalidInputError(f"buckets must be {MIN_BUCKETS} to {MAX_BUCKETS}.")
 
 
-def bucket_peaks(pcm: bytes, buckets: int) -> list:
-    """Peak |sample| of each of `buckets` equal slices of s16le mono PCM,
-    scaled to 0-255. Short or empty input gives zeros for the missing tail."""
+def bucket_peaks(pcm: bytes, buckets: int, window_samples: int = 0) -> list:
+    """Peak |sample| of each of `buckets` equal slices of the window, from s16le
+    mono PCM, scaled to 0-255. The slices are of `window_samples`, not of the
+    PCM length: a window that runs past the end of the media decodes to less
+    audio than it spans, and slicing that shorter audio would stretch it over
+    the whole window. The missing tail gives zeros."""
     samples = array.array("h")
     samples.frombytes(pcm[:len(pcm) - len(pcm) % 2])
     if samples.itemsize != 2:  # pragma: no cover -- 'h' is 2 bytes on every supported platform
         raise RuntimeError("unexpected sample width")
-    n = len(samples)
+    n = max(len(samples), window_samples)
     out = []
     for i in range(buckets):
         lo, hi = n * i // buckets, n * (i + 1) // buckets
@@ -129,7 +132,8 @@ def get_peaks(drama_id: int, start: float, end: float, buckets: int, caller: str
                 raise RateLimitedError(BUSY)
             _active_callers.add(caller)
         try:
-            hit = bucket_peaks(_decode(path, start, end), buckets)
+            hit = bucket_peaks(_decode(path, start, end), buckets,
+                               round((end - start) * SAMPLE_RATE))
         finally:
             with _active_lock:
                 _active_callers.discard(caller)
