@@ -2,40 +2,18 @@
 // reader.py (Novel*) for the Workspace Source/Transcribe stage:
 // MediaStatus, MediaUploadResult, UploadAndTranscribeResult, TranscribeConfig(Update),
 // TranscribeRunRequest/Result, DiarizationRunResult, NovelAttach*, NovelStatus.
+import type { components } from '../api/generated/schema'
 
-export interface MediaStatus {
-  drama_id: number
-  has_audio: boolean
-  has_source_video: boolean
-  reads_burned_in_subtitles?: boolean
-  upload_max_mb: number
-  // Superseded originals and failed uploads kept in the title's folder (numbers only).
-  kept_media_files: number
-  kept_media_bytes: number
-}
+type Schemas = components['schemas']
 
-export interface MediaUploadResult {
-  name: string | null
-  size: number
-  kind: string
-  // Set for a video: the background audio-extraction job.
-  job_id?: string | null
-}
+export type MediaStatus = Schemas['MediaStatus']
 
-export interface UploadAndTranscribeResult {
-  upload: MediaUploadResult
-  job_id: string
-}
+export type MediaUploadResult = Schemas['MediaUploadResult']
+
+export type UploadAndTranscribeResult = Schemas['UploadAndTranscribeResult']
 
 // The Transcribe form's run choices saved on a title (the transcript text is never kept).
-export interface TranscribeRunStart {
-  run_diarize: boolean
-  expected_speakers: number | null
-  min_speakers: number | null
-  max_speakers: number | null
-  extra_names: string
-  initial_prompt: string
-}
+export type TranscribeRunStart = Schemas['TranscribeRunStart']
 
 export interface TranscribeConfig {
   drama_id: number
@@ -161,30 +139,13 @@ export interface JobStarted {
   job_id: string
 }
 
-export interface NovelAttachResult {
-  char_count: number
-  // EPUB attach only: chapters found and the range used (1-based, inclusive).
-  epub_chapters?: number
-  chapter_from?: number
-  chapter_to?: number
-}
+export type NovelAttachResult = Schemas['NovelAttachResult']
 
 // POST /api/metadata/dramas/{id}/romanize-credits
-export interface RomanizeCreditsResult {
-  drama_id: number
-  romanized: Record<string, string>
-  updated: boolean
-}
+export type RomanizeCreditsResult = Schemas['RomanizeCreditsResult']
 
 // POST /api/dramas/{id}/cover
-export interface CoverArtResult {
-  drama_id: number
-  has_cover_art: boolean
-  format: string
-  width: number
-  height: number
-  size_bytes: number
-}
+export type CoverArtResult = Schemas['CoverArtResult']
 
 // GET /api/discover/platforms (known_sites.KNOWN_SITES)
 export interface KnownPlatform {
@@ -199,27 +160,13 @@ export interface KnownPlatform {
 export type NovelMode = 'replace' | 'append'
 
 // Mirrors api/schemas/sources.py LncrawlStatus / LncrawlImportRequest.
-export interface LncrawlStatus {
-  installed: boolean
-  path_configured: boolean
-}
+export type LncrawlStatus = Schemas['LncrawlStatus']
 
 export type LncrawlChapters = 'all' | 'first' | 'last'
 
-export interface LncrawlImportRequest {
-  url: string
-  chapters: LncrawlChapters
-  count?: number
-  mode: NovelMode
-}
+export type LncrawlImportRequest = Schemas['LncrawlImportRequest']
 
-export interface NovelStatus {
-  drama_id: number
-  has_novel_text: boolean
-  char_count: number
-  chapters: number
-  ocr_running: boolean
-}
+export type NovelStatus = Schemas['NovelStatus']
 
 // Mirrors api/schemas/library.py MediaAnalysis / AutofillRequest / AutofillSuggestion.
 export interface MediaAnalysis {
@@ -245,30 +192,12 @@ interface MediaSubtitleTrack {
   language: string | null
 }
 
-export interface AutofillRequest {
-  url?: string
-  page_text?: string
-}
+export type AutofillRequest = Schemas['AutofillRequest']
 
-export interface AutofillSuggestion {
-  drama_id: number
-  suggestion: Record<string, string>
-  found: boolean
-}
+export type AutofillSuggestion = Schemas['AutofillSuggestion']
 
 // api/schemas/transcribe.py SourceConfig / SourceConfigUpdate (Source-stage config).
-export interface SourceConfig {
-  drama_id: number
-  source_language: string
-  chinese_script: string
-  content_mode: string
-  has_audio_pipeline: boolean
-  audio_available: boolean
-  has_video_source: boolean
-  transcript_mode: string
-  transcript_mode_options: string[]
-  has_raw_novel_context: boolean
-}
+export type SourceConfig = Schemas['SourceConfig']
 
 export type SourceConfigUpdate = Partial<
   Pick<SourceConfig, 'source_language' | 'chinese_script' | 'content_mode' | 'transcript_mode'>
@@ -280,34 +209,16 @@ export interface RetranscribeLineRequest {
   extra_names?: string
 }
 
-export interface RetranscribeLineResult {
-  job_id: string
-  drama_id: number
-  line_id: number
-}
+export type RetranscribeLineResult = Schemas['RetranscribeLineResult']
 
 // api/schemas/transcribe.py RetranscribeResult: the finished proposal, raw (GET .../retranscribe).
-export interface RetranscribeResult {
-  job_id: string
-  line_id: number
-  status: string
-  proposed_zh: string
-  base_zh: string
-}
+export type RetranscribeResult = Schemas['RetranscribeResult']
 
 // api/schemas/transcribe.py RetranscribeApplyRequest / RetranscribeApplyResult: "Use this"
 // for exactly the proposal shown (expected_zh = base_zh, expected_proposed = proposed_zh).
-export interface RetranscribeApplyRequest {
-  job_id: string
-  expected_zh: string
-  expected_proposed: string
-}
+export type RetranscribeApplyRequest = Schemas['RetranscribeApplyRequest']
 
-export interface RetranscribeApplyResult {
-  drama_id: number
-  line_id: number
-  zh: string
-}
+export type RetranscribeApplyResult = Schemas['RetranscribeApplyResult']
 
 // api/schemas/retranscribe_lines.py: Review's "Re-transcribe selected" (several lines, one job).
 export interface RetranscribeManyRequest {
@@ -316,50 +227,20 @@ export interface RetranscribeManyRequest {
   extra_names?: string
 }
 
-export interface RetranscribeManyStarted {
-  job_id: string
-  drama_id: number
-  line_count: number
-}
+export type RetranscribeManyStarted = Schemas['RetranscribeManyStarted']
 
 // Raw line text (the proposal is only readable here, never in the job record).
 // had_english: applying it keeps that English and flags the line source_changed.
-export interface RetranscribeManyProposal {
-  line_id: number
-  number: number
-  base_zh: string
-  proposed_zh: string
-  had_english: boolean
-}
+export type RetranscribeManyProposal = Schemas['RetranscribeManyProposal']
 
 // reason: "empty" | "audio_slice" | "line_gone"
-export interface RetranscribeManyFailure {
-  line_id: number
-  number: number
-  reason: string
-}
+export type RetranscribeManyFailure = Schemas['RetranscribeManyFailure']
 
-export interface RetranscribeManyResult {
-  job_id: string
-  line_count: number
-  proposals: RetranscribeManyProposal[]
-  failures: RetranscribeManyFailure[]
-  unchanged_count: number
-  truncated: boolean
-  device_notice: string | null
-}
+export type RetranscribeManyResult = Schemas['RetranscribeManyResult']
 
-export interface RetranscribeManyApplyItem {
-  line_id: number
-  expected_zh: string
-  expected_proposed: string
-}
+export type RetranscribeManyApplyItem = Schemas['RetranscribeManyApplyItem']
 
-export interface RetranscribeManyApplyResult {
-  applied: number[]
-  skipped: number[]
-  untranslated_count: number
-}
+export type RetranscribeManyApplyResult = Schemas['RetranscribeManyApplyResult']
 
 // A stretch no subtitle line covers. speech: true when the speech coverage
 // check found speech there, null when it has not run (never false).
@@ -380,20 +261,9 @@ export interface TranscribeGaps {
   speech_checked: boolean
 }
 
-export interface GapAddLinesRequest {
-  expected_line_ids: number[]
-  start: number
-  end: number
-  after_line_id: number | null
-}
+export type GapAddLinesRequest = Schemas['GapAddLinesRequest']
 
-export interface GapAddLinesResult {
-  new_line_ids: number[]
-  line_ids: number[]
-  split: 'single' | 'pauses' | 'even'
-  history_id: number | null
-  lines_fingerprint: string | null
-}
+export type GapAddLinesResult = Schemas['GapAddLinesResult']
 
 // GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).
 type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
@@ -425,29 +295,7 @@ export type CompareSelection =
   | { kind: 'speaker'; speaker: string }
   | { kind: 'time'; start_seconds: number; end_seconds: number }
 
-interface CompareBackendOption {
-  id: string
-  label: string
-  available: boolean
-  reason: string | null
-}
-
-export interface CompareOptions {
-  has_audio: boolean
-  no_audio_reason: string | null
-  max_lines: number
-  saved_whisper_size: string
-  saved_asr_backend: string
-  saved_alignment_method: string
-  whisper_sizes: string[]
-  // The subset of whisper_sizes the picker offers; a saved size outside it is listed as an older choice.
-  selectable_whisper_sizes?: string[]
-  source_language: string
-  whisper_exclusions: Record<string, Record<string, string>>
-  backends: CompareBackendOption[]
-  translation_engine: string
-  aligner_reason?: string | null
-}
+export type CompareOptions = Schemas['CompareOptions']
 
 interface CompareTranslateFields {
   translate?: boolean
@@ -482,24 +330,9 @@ export interface CompareRunRequest extends CompareTranslateFields {
   extra_names?: string
 }
 
-export interface CompareRunResult {
-  job_id: string
-  drama_id: number
-  line_count: number
-}
+export type CompareRunResult = Schemas['CompareRunResult']
 
-export interface CompareProposal {
-  line_id: number
-  number: number
-  start: number
-  end: number
-  base_zh: string
-  base_en: string
-  candidate_zh: string
-  current_en: string
-  candidate_en: string
-  translated: boolean
-}
+export type CompareProposal = Schemas['CompareProposal']
 
 export interface CompareResult {
   job_id: string
@@ -513,60 +346,18 @@ export interface CompareResult {
   errors: string[]
 }
 
-interface CompareApplyItem {
-  line_id: number
-  expected_base_zh: string
-  expected_candidate_zh: string
-  use_english?: boolean
-  expected_candidate_en?: string
-}
+export type CompareApplyRequest = Schemas['CompareApplyRequest']
 
-export interface CompareApplyRequest {
-  job_id: string
-  items: CompareApplyItem[]
-}
-
-export interface CompareApplyResult {
-  applied: number[]
-  skipped: number[]
-}
+export type CompareApplyResult = Schemas['CompareApplyResult']
 
 // api/schemas/transcribe.py Retime* (Review: Re-time with the Qwen3 aligner).
-export interface RetimeRunRequest {
-  line_ids: number[]
-}
+export type RetimeRunRequest = Schemas['RetimeRunRequest']
 
-export interface RetimeProposal {
-  line_id: number
-  number: number
-  base_zh: string
-  start: number
-  end: number
-  new_start: number
-  new_end: number
-  uncertain: boolean
-}
+export type RetimeProposal = Schemas['RetimeProposal']
 
-export interface RetimeResult {
-  job_id: string
-  proposals: RetimeProposal[]
-  line_count: number
-  partial: boolean
-  device: string | null
-  device_notice: string | null
-  errors: string[]
-}
+export type RetimeResult = Schemas['RetimeResult']
 
-interface RetimeApplyItem {
-  line_id: number
-  expected_new_start: number
-  expected_new_end: number
-}
-
-export interface RetimeApplyRequest {
-  job_id: string
-  items: RetimeApplyItem[]
-}
+export type RetimeApplyRequest = Schemas['RetimeApplyRequest']
 
 export interface RetimeApplyResult extends CompareApplyResult {
   overlapping: number[]
@@ -587,10 +378,4 @@ export interface AsrAdviceRequest {
   check_environment: boolean
 }
 
-export interface AsrAdviceNote {
-  id: string
-  severity: 'tip' | 'warn' | 'blocked'
-  text: string
-  /** Plain setting changes (config field to value), or null when the fix is not one. */
-  fix: Record<string, string | boolean> | null
-}
+export type AsrAdviceNote = Schemas['AsrAdviceNote']
