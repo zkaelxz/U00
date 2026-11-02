@@ -550,9 +550,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       {sideVideo && (
         <aside className="card review-watch" aria-label="Video with subtitles">
           <h2 className="card-title">Video with subtitles</h2>
-          <div className="review-watch-dock" ref={setSideDock} />
-          {/* Here, not in the scrolling toolbar, so the video, waveform and lines are in view together. */}
-          {waveform}
+          <div className="review-watch-dock" ref={setSideDock} />{waveform}
           <ReadFromVideo
             player={player}
             sourceLanguage={sourceLanguage ?? ''}
