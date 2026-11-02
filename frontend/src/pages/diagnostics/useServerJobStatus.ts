@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { DiagnosticsJobState } from '../../types/diagnosticsInstalls'
 import { JOB_POLL_MS, jobRunning } from './jobPoll'
 import { useInterval } from '../../hooks/useInterval'
 
@@ -9,7 +8,7 @@ import { useInterval } from '../../hooks/useInterval'
  * JOB_POLL_MS while that job runs. `onFinished` fires once when a job this
  * page saw running stops (so the caller can refresh what it changed).
  */
-export function useServerJobStatus<T extends { job: DiagnosticsJobState | null }>(
+export function useServerJobStatus<T extends { job?: { status?: string | null } | null }>(
   load: () => Promise<T>, onFinished?: (s: T) => void,
 ) {
   const [status, setStatus] = useState<T | null>(null)
