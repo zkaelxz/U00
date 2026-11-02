@@ -38,7 +38,7 @@ jobs:
           grep -Ev '^[A-Za-z0-9_.-]+==' constraints.txt > "$RUNNER_TEMP/caps.txt"
           "$RUNNER_TEMP/canary/bin/pip" install --upgrade \
             -r requirements-core.txt faster-whisper \
-            pytest pytest-xdist httpx -c "$RUNNER_TEMP/caps.txt"
+            pytest pytest-xdist httpx jsonschema -c "$RUNNER_TEMP/caps.txt"
           "$RUNNER_TEMP/canary/bin/pip" list --format=freeze
 
       # Mocked tests only (no GPU, models or network). Slow-by-design GPU or
