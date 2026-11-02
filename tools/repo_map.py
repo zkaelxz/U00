@@ -29,7 +29,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # one read stays well under a 64K window with room left for the code itself.
 BUDGET_BYTES = 24_000
 SKIP_DIRS = {".git", "__pycache__", "node_modules", "tests", "library", "model_cache", "venv",
-             ".venv", "env", "build", "dist", "tmp", "smoke_pack", "test-results", "frontend"}
+             ".venv", "env", "build", "dist", "tmp", "smoke_pack", "test-results", "frontend",
+             "voice_engines"}
 FRONTEND_DIRS = ("frontend/src/api", "frontend/src/types", "frontend/src/pages/workspace/stages")
 DOC_CHARS = 100
 EXPR_CHARS = 40
