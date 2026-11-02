@@ -27210,6 +27210,8 @@ export interface components {
             line_ids: number[];
             /** Lines Fingerprint */
             lines_fingerprint?: string | null;
+            /** Moved Count */
+            moved_count: number;
             /** New Line Ids */
             new_line_ids: number[];
         };

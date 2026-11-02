@@ -33,7 +33,23 @@ BASE = (
 class TestFindTalkOver:
     def test_second_voice_under_a_line_gets_a_stretch_named_after_its_lines(self):
         assert svc.find_talk_over(TURNS, _lines(*BASE)) == [
-            {"start": 296.018, "end": 296.93, "speaker": "Anok"}]
+            {"start": 296.018, "end": 296.93, "speaker": "Anok", "line_id": None}]
+
+    def test_the_speakers_own_line_starting_just_after_is_named_as_the_late_one(self):
+        lines = _lines(*BASE[:3], (297.65, 298.45, "Anok"))
+        assert svc.find_talk_over(TURNS, lines) == [
+            {"start": 296.018, "end": 296.93, "speaker": "Anok", "line_id": 4}]
+
+    def test_a_line_that_starts_part_way_into_their_voice_is_late_too(self):
+        lines = _lines(*BASE[:3], (296.45, 298.45, "Anok"))
+        assert [x["line_id"] for x in svc.find_talk_over(TURNS, lines)] == [4]
+
+    def test_a_line_that_starts_only_a_moment_late_is_left_alone(self):
+        assert svc.find_talk_over(TURNS, _lines(*BASE[:3], (296.3, 298.45, "Anok"))) == []
+
+    def test_a_line_far_after_is_not_the_late_one(self):
+        lines = _lines(*BASE[:3], (299.0, 300.0, "Anok"))
+        assert [x["line_id"] for x in svc.find_talk_over(TURNS, lines)] == [None]
 
     def test_a_speaker_who_already_has_a_line_there_is_left_alone(self):
         lines = _lines(*BASE, (296.0, 296.95, "Anok"))
@@ -53,7 +69,7 @@ class TestFindTalkOver:
 
     def test_a_label_with_no_lines_keeps_its_own_name(self):
         out = svc.find_talk_over(TURNS, _lines((294.09, 296.61, "Uririn")))
-        assert out == [{"start": 296.018, "end": 296.93, "speaker": "S01"}]
+        assert out == [{"start": 296.018, "end": 296.93, "speaker": "S01", "line_id": None}]
 
     def test_touching_stretches_of_one_speaker_join(self):
         turns = [{"start": 0, "end": 10, "speaker": "S00"},
@@ -65,17 +81,28 @@ class TestFindTalkOver:
         assert svc.find_talk_over([{"start": "x", "end": 1, "speaker": "S0"}, {}], _lines(*BASE)) == []
 
 
-def _drama(isolated_db, turns=TURNS):
+def _drama(isolated_db, turns=TURNS, rows=BASE):
     sid = isolated_db.get_or_create_series("S")
     did = isolated_db.create_drama(title_en="D", series_id=sid, audio_filename="audio.wav",
                                    source_language="zh", status="aligned")
-    isolated_db.save_lines(did, _lines(*BASE))
+    isolated_db.save_lines(did, _lines(*rows))
     if turns is not None:
         diarize.save_turns(isolated_db.drama_dir(did), turns)
     return did
 
 
 class TestAddTalkOverLines:
+    def test_the_speakers_late_line_is_started_where_their_voice_begins(self, isolated_db):
+        did = _drama(isolated_db, rows=(*BASE[:3], (297.65, 298.45, "Anok")))
+        out = svc.add_talk_over_lines(did)
+        assert (out["added_count"], out["moved_count"], out["new_line_ids"]) == (0, 1, [])
+        lines = isolated_db.load_line_objects(did)
+        assert len(lines) == 4
+        assert (lines[3].start, lines[3].end, lines[3].zh) == (296.018, 298.45, "行3")
+        assert (lines[2].start, lines[2].end) == (295.93, 296.61)
+        assert svc.add_talk_over_lines(did)["moved_count"] == 0
+
+
     def test_adds_a_blank_flagged_line_for_the_second_voice_in_time_order(self, isolated_db):
         did = _drama(isolated_db)
         out = svc.add_talk_over_lines(did)

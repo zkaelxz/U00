@@ -126,6 +126,7 @@ class GapAddLinesResult(BaseModel):
 class TalkOverAddResult(BaseModel):
     """added_count 0 means nothing was written (no history entry)."""
     added_count: int
+    moved_count: int
     new_line_ids: List[int]
     line_ids: List[int]
     history_id: Optional[int] = None

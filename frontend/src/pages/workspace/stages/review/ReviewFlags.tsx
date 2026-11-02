@@ -31,10 +31,17 @@ const ACTIONS: Action[] = [
   {
     id: 'talk-over',
     label: 'Add lines for talk-over',
-    writes: 'Where Detect speakers heard a second speaker over a line that has no line of their own, adds a blank flagged line for them to type into. Needs saved speaker detection. Undoable.',
+    writes: 'Where Detect speakers heard a second speaker over another speaker\'s line, starts that speaker\'s own next line where their voice begins, or adds a blank flagged line for them to type into when they have none near. Needs saved speaker detection. Saved to line history.',
     run: (id) =>
-      addTalkOverLines(id).then((r) =>
-        r.added_count ? `Added ${plural(r.added_count, 'line')}; type what they say.` : 'No talk-over found.'),
+      addTalkOverLines(id).then((r) => {
+        if (!r.added_count && !r.moved_count) return 'No talk-over found.'
+        const parts = [
+          r.moved_count ? `started ${plural(r.moved_count, 'line')} earlier` : '',
+          r.added_count ? `added ${plural(r.added_count, 'blank line')}; type what they say` : '',
+        ].filter(Boolean)
+        const text = parts.join(', ')
+        return `${text[0].toUpperCase()}${text.slice(1)}.`
+      }),
   },
   {
     id: 'qc',

@@ -1,4 +1,4 @@
-"""Talk-over lines: where saved speaker turns overlap and the quieter speaker has no line, add a blank flagged line for them."""
+"""Talk-over lines: where saved speaker turns overlap and the quieter speaker has no line, pull their next line back to where they start, or add a blank flagged line when none is near."""
 from collections import Counter
 
 import db
@@ -12,6 +12,9 @@ from core import Line
 MIN_OVERLAP_SECONDS = 0.4
 # A speaker with lines over at least this share of the stretch already has it.
 _COVERED_SHARE = 0.5
+# A speaker's own line that starts this soon after their voice began is that voice's
+# words, transcribed late (Whisper starts a line when it hears the next sentence).
+NEAR_LINE_SECONDS = 1.5
 TALK_OVER_FLAG = "talk_over"
 TALK_OVER_NOTE = "Another speaker talks here; type what they say or delete the line"
 
@@ -59,10 +62,33 @@ def _covered(name: str, start: float, end: float, lines) -> float:
     return total
 
 
+def _lacks_line(name: str, start: float, end: float, lines) -> bool:
+    """True when `name` has no line over most of the stretch, or their line over
+    it begins well after their voice did (the words ended as, or part way
+    into, the line: Whisper timed the line by the later sentence)."""
+    if _covered(name, start, end, lines) < _COVERED_SHARE * (end - start):
+        return True
+    from_start = [float(ln.start) for ln in lines
+                  if ln.speaker == name and float(ln.end) > float(ln.start)
+                  and float(ln.start) < end and float(ln.end) > start]
+    return min(from_start) - start >= MIN_OVERLAP_SECONDS
+
+
+def _late_line(name: str, start: float, end: float, lines):
+    """The earliest timed line of `name` that starts inside the stretch or within
+    NEAR_LINE_SECONDS after it: the words the stretch's voice is saying."""
+    near = [ln for ln in lines
+            if ln.speaker == name and float(ln.end) > float(ln.start)
+            and start < float(ln.start) <= end + NEAR_LINE_SECONDS]
+    return min(near, key=lambda ln: float(ln.start)) if near else None
+
+
 def find_talk_over(turns, lines) -> list:
-    """[{start, end, speaker}] for each stretch where two speakers' turns overlap,
-    one of them has lines there and the other has none: the other's missing
-    line. A stretch nobody has a line over is an untranscribed gap, not talk-over."""
+    """[{start, end, speaker, line_id}] for each stretch where two speakers' turns
+    overlap, one of them has lines there and the other has none. line_id is that
+    speaker's own line that starts just after (their words, timed late) or None
+    when the voice has no line near. A stretch nobody has a line over is an
+    untranscribed gap, not talk-over."""
     turns = _valid_turns(turns)
     names = _speaker_names(turns, lines)
     found: dict = {}
@@ -75,9 +101,8 @@ def find_talk_over(turns, lines) -> list:
             start, end = max(a["start"], b["start"]), min(a["end"], b["end"])
             if end - start < MIN_OVERLAP_SECONDS:
                 continue
-            share = {t["speaker"]: _covered(names.get(t["speaker"], t["speaker"]), start, end, lines)
-                     / (end - start) for t in (a, b)}
-            missing = [s for s, v in share.items() if v < _COVERED_SHARE]
+            missing = [t["speaker"] for t in (a, b)
+                       if _lacks_line(names.get(t["speaker"], t["speaker"]), start, end, lines)]
             if len(missing) != 1:
                 continue
             found.setdefault(missing[0], []).append((start, end))
@@ -89,31 +114,47 @@ def find_talk_over(turns, lines) -> list:
                 merged[-1][1] = max(merged[-1][1], e)
             else:
                 merged.append([s, e])
-        out.extend({"start": round(s, 3), "end": round(e, 3), "speaker": names.get(label, label)}
-                   for s, e in merged if e - s >= MIN_OVERLAP_SECONDS)
+        for s, e in merged:
+            if e - s < MIN_OVERLAP_SECONDS:
+                continue
+            name = names.get(label, label)
+            late = _late_line(name, s, e, lines)
+            out.append({"start": round(s, 3), "end": round(e, 3), "speaker": name,
+                        "line_id": late.id if late else None})
     return sorted(out, key=lambda x: x["start"])
 
 
 def add_talk_over_lines(drama_id: int) -> dict:
-    """Adds one blank line (flag TALK_OVER_FLAG, speaker set by hand) per
-    find_talk_over stretch, overlapping the line it is spoken over, in one
-    history snapshot. Returns the structural write's result plus
-    `added_count` and `new_line_ids`. ConflictError when no speaker detection
-    is saved or a job runs on the title; NotFoundError for an unknown drama."""
+    """For each find_talk_over stretch: starts that speaker's own next line at the
+    stretch's start (their words were timed late, and the line then overlaps the
+    one spoken over), or, with no such line, adds a blank line (flag
+    TALK_OVER_FLAG, speaker set by hand) over the stretch. One history snapshot.
+    Returns the structural write's result plus `added_count`, `moved_count` and
+    `new_line_ids`. ConflictError when no speaker detection is saved or a job
+    runs on the title; NotFoundError for an unknown drama."""
     restructure._require_drama(drama_id)
     turns = diarize.load_turns(db.drama_dir(drama_id))
     if turns is None:
         raise ConflictError("No saved speaker detection for this title; run Detect speakers first.")
     current = db.load_line_objects(drama_id)
     if not find_talk_over(turns, current):
-        return {"added_count": 0, "new_line_ids": [], "line_ids": [ln.id for ln in current],
-                "history_id": None, "lines_fingerprint": None}
+        return {"added_count": 0, "moved_count": 0, "new_line_ids": [],
+                "line_ids": [ln.id for ln in current], "history_id": None, "lines_fingerprint": None}
     expected = [ln.id for ln in current]
+    counts = {"moved": 0}
 
     def build(lines):
-        new = []
+        new, moved = [], []
         # Founded on the lines as they are under the lock, not as they were read above.
         for stretch in find_talk_over(turns, lines):
+            late = next((ln for ln in lines if ln.id == stretch["line_id"]), None)
+            at = lines.index(late) if late else -1
+            # Stored order is time order: a line pulled back past its predecessor's start
+            # would sit out of order, so it gets a blank line like a voice with no line.
+            if late and (at == 0 or float(lines[at - 1].start) <= stretch["start"]):
+                late.start = stretch["start"]
+                moved.append(late)
+                continue
             pos = 1 + max((i for i, ln in enumerate(lines)
                            if float(ln.end) > float(ln.start) and float(ln.start) <= stretch["start"]),
                           default=-1)
@@ -123,8 +164,10 @@ def add_talk_over_lines(drama_id: int) -> dict:
                         flag=TALK_OVER_FLAG, flag_note=TALK_OVER_NOTE)
             lines = lines[:pos] + [line] + lines[pos:]
             new.append(line)
-        return lines, new
+        counts["moved"] = len(moved)
+        return lines, new + moved
 
     result = restructure.structural_write(drama_id, expected, "before adding talk-over lines", build)
-    return {**result, "added_count": len(result["lines"]),
-            "new_line_ids": [ln["id"] for ln in result["lines"]]}
+    added = [ln["id"] for ln in result["lines"]]
+    return {**result, "added_count": len(added) - counts["moved"], "moved_count": counts["moved"],
+            "new_line_ids": added[:len(added) - counts["moved"]]}
