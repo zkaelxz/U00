@@ -875,7 +875,7 @@ class TestTranscribeConfigEndpoints:
             "separate_vocals_first": False, "separation_backend": "auto",
             "realign_long_segments": False, "whisper_fast_mode": False,
             "whisper_repeat_guard": False, "split_by_sentences": False, "difficult_audio": False, "vocabulary_hint": False, "use_groq": False,
-            "has_video_source": False, "hardsub_ocr_backend": "paddle",
+            "has_video_source": False, "hardsub_ocr_backend": "auto",
             "hardsub_interval_sec": 1.0, "auto_initial_prompt": "",
             "source_language": "zh", "chinese_script": "simplified",
             "run_start": {"run_diarize": False, "expected_speakers": None, "min_speakers": None,

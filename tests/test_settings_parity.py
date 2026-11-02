@@ -121,16 +121,20 @@ def test_monthly_cap_saved_value_wins_over_env(isolated_db, env_file):
 
 
 @pytest.mark.parametrize("lang,prefer,expected", [
-    ("ja", False, "manga_ocr"), ("ja", True, "paddle_vl_manga"), ("zh", False, "paddle"),
-    ("ko", False, "paddle"), ("en", False, "tesseract")])
-def test_resolve_ocr_backend_auto(isolated_db, lang, prefer, expected):
+    ("ja", False, "manga_ocr"), ("ja", True, "paddle_vl_manga"), ("zh", False, "rapidocr"),
+    ("ko", False, "rapidocr"), ("en", False, "tesseract")])
+def test_resolve_ocr_backend_auto(isolated_db, lang, prefer, expected, monkeypatch):
+    import ocr
     import scanlate
+    monkeypatch.setattr(ocr, "backend_problem", lambda *a, **k: None)
     settings_service.set_settings({"ocr_prefer_paddle_vl_manga": prefer})
     assert settings_service.resolve_ocr_backend(lang) == expected
     assert expected == scanlate.auto_ocr_backend(lang, prefer)
 
 
-def test_resolve_ocr_backend_explicit_and_narrowed(isolated_db):
+def test_resolve_ocr_backend_explicit_and_narrowed(isolated_db, monkeypatch):
+    import ocr
+    monkeypatch.setattr(ocr, "backend_problem", lambda *a, **k: None)
     settings_service.set_settings({"ocr_backend": "tesseract"})
     assert settings_service.resolve_ocr_backend("ja") == "tesseract"
     settings_service.set_settings({"ocr_backend": "paddle_vl_manga"})

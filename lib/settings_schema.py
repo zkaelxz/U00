@@ -226,7 +226,7 @@ SETTINGS = (
           help="For a PC that can't reach Hugging Face: a folder on the Baihe PC with a downloaded faster-whisper model. Blank downloads it on first use.",
           tab="system", section="Advanced"),
     _pref("ocr_backend", "choice", "auto", choices="ocr_backends", label="Default backend",
-          help="Used when a page has no OCR choice. Auto picks manga_ocr for Japanese, PaddleOCR for Chinese and Korean, otherwise Tesseract.",
+          help="Auto uses manga_ocr for Japanese, RapidOCR for Chinese and Korean, else Tesseract.",
           tab="system", section="Advanced"),
     _pref("ocr_prefer_paddle_vl_manga", "bool", False, label="Japanese: prefer PaddleOCR-VL",
           help="Changes only what Auto picks for Japanese. Leave off unless it reads your pages better than manga_ocr.",

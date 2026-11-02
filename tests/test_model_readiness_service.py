@@ -29,9 +29,11 @@ MESSAGE = "This model is not downloaded yet. Ask the owner of the main PC to dow
 def caches(tmp_path, monkeypatch):
     """Every model cache the checks read, empty, under tmp_path."""
     import audio_preprocess
-    paths = {name: tmp_path / name for name in ("hf", "torch", "modelscope", "paddlex", "sep")}
+    import ocr
+    paths = {name: tmp_path / name for name in ("hf", "torch", "modelscope", "paddlex", "sep", "rapidocr")}
     for p in paths.values():
         p.mkdir()
+    monkeypatch.setattr(ocr, "rapidocr_model_path", lambda spec: str(paths["rapidocr"] / spec["file"]))
     monkeypatch.setenv("HF_HUB_CACHE", str(paths["hf"]))
     monkeypatch.setenv("TORCH_HOME", str(paths["torch"]))
     monkeypatch.setenv("MODELSCOPE_CACHE", str(paths["modelscope"]))
@@ -81,6 +83,12 @@ def _sensevoice(caches):
     folder = caches["modelscope"] / "models" / "iic" / "SenseVoiceSmall"
     folder.mkdir(parents=True)
     (folder / "model.pt").write_bytes(b"x")
+
+
+def _rapidocr_pages(caches):
+    import ocr
+    for spec in (ocr.RAPIDOCR_MEDIUM_DET_MODEL, ocr.RAPIDOCR_MEDIUM_REC_MODEL):
+        (caches["rapidocr"] / spec["file"]).write_bytes(b"x")
 
 
 def _paddle_ch(caches):
@@ -134,7 +142,7 @@ ROUTES = [
     ("/api/listen/dramas/{did}/run", {}, "listen_service", "start_listen",
      _transformers_repo("k2-fsa/OmniVoice")),
     ("/api/scanlate/dramas/{did}/run", {"engine": "ollama"}, "scanlate_run_service", "start_run",
-     _paddle_ch),
+     _rapidocr_pages),
     ("/api/review-jobs/dramas/{did}/fix-flagged", {"engine": "ollama"}, "review_jobs_service",
      "start_fix_flagged", _whisper),
     ("/api/review-extras/dramas/{did}/sensevoice", None, "review_extras_service",
@@ -180,6 +188,9 @@ def _route_id(case):
 def test_household_refused_when_model_missing(case, isolated_db, caches, monkeypatch):
     url, body, module, function, _populate = case
     started = _stub(monkeypatch, module, function)
+    import ocr
+    monkeypatch.setattr(ocr, "backend_problem",
+                        lambda backend, *a, **k: None if backend == "paddle" else object())
     _no_loaders(monkeypatch)
     did, session = _owned_drama(audio_filename="a.wav")
     r = _post(_household_client(), url.format(did=did), body, session)
@@ -192,6 +203,8 @@ def test_household_refused_when_model_missing(case, isolated_db, caches, monkeyp
 def test_household_runs_once_model_on_disk(case, isolated_db, caches, monkeypatch):
     url, body, module, function, populate = case
     started = _stub(monkeypatch, module, function)
+    import ocr
+    monkeypatch.setattr(ocr, "backend_problem", lambda *a, **k: None)
     did, session = _owned_drama(audio_filename="a.wav")
     populate(caches)
     r = _post(_household_client(), url.format(did=did), body, session)
@@ -733,3 +746,23 @@ def test_a_queue_item_saved_without_at_pc_counts_as_away_from_the_pc():
     raw = {"id": 1, "drama_id": 2, "step": "transcribe", "status": "waiting", "override": True}
     assert queue_service._clean_item(raw)["at_pc"] is False
     assert queue_service._clean_item(dict(raw, at_pc=True))["at_pc"] is True
+
+
+def test_scanlate_with_paddle_chosen_needs_its_models(isolated_db, caches):
+    from services import settings_service
+    settings_service.set_settings({"ocr_backend": "paddle"})
+    did = db.create_drama(title_en="T", source_language="zh")
+    assert not all(need() for need in mrs.for_scanlate(did))
+    _paddle_ch(caches)
+    assert all(need() for need in mrs.for_scanlate(did))
+
+
+def test_rapidocr_downloads_only_what_it_does_not_ship(caches):
+    import ocr
+    assert mrs.rapidocr_ready("zh", medium=False), "the small pair is inside the wheel"
+    assert not mrs.rapidocr_ready("zh", medium=True)
+    assert not mrs.rapidocr_ready("ko", medium=False)
+    _rapidocr_pages(caches)
+    assert mrs.rapidocr_ready("zh", medium=True)
+    (caches["rapidocr"] / ocr.RAPIDOCR_KOREAN_MODEL["file"]).write_bytes(b"x")
+    assert mrs.rapidocr_ready("ko", medium=False)

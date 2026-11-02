@@ -71,10 +71,13 @@ def fake_rapidocr(monkeypatch):
     def install(result):
         fake = types.ModuleType("rapidocr")
         fake.RapidOCR = lambda params=None: lambda path: result
+        fake.LangRec = fake.ModelType = fake.OCRVersion = types.SimpleNamespace(
+            KOREAN="ko", MEDIUM="medium", MOBILE="mobile", PPOCRV5="v5")
         monkeypatch.setitem(sys.modules, "rapidocr", fake)
-        monkeypatch.delitem(vars(ocr), "_rapidocr_instance", raising=False)
+        monkeypatch.setattr(ocr, "ensure_rapidocr_model", lambda spec: "/fake/" + spec["file"])
+        monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
     yield install
-    monkeypatch.delitem(vars(ocr), "_rapidocr_instance", raising=False)
+    monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
 
 
 def test_rapidocr_text_follows_the_boxes(fake_rapidocr):

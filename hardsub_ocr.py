@@ -184,6 +184,9 @@ _HARDSUB_PADDLE_LANG = {"zh": "ch", "ko": "korean", "ja": "japan"}
 
 PADDLE_MISSING_NOTE = "PaddleOCR isn't installed, so Tesseract was used."
 
+# RapidOCR's wheel model reads Chinese; Korean has its own recognizer (ocr.extract_text_rapidocr).
+_HARDSUB_RAPIDOCR_LANGS = {"zh", "ko"}
+
 
 def paddle_installed() -> bool:
     # Both are needed: paddleocr is only the wrapper, paddlepaddle runs it.
@@ -193,12 +196,14 @@ def paddle_installed() -> bool:
 
 def resolve_backend(requested: str, language: str):
     """(backend that will run, note or None). Only "auto" is ever changed: an
-    explicit "paddle" or "tesseract" is kept, so a missing PaddleOCR then
-    fails loudly instead of silently reading with a different engine."""
+    explicit backend is kept, so a missing one then fails loudly instead of
+    silently reading with a different engine. Auto prefers RapidOCR, then PaddleOCR."""
     if requested != "auto":
         return requested, None
     if language not in _HARDSUB_PADDLE_LANG:
         return "tesseract", None
+    if language in _HARDSUB_RAPIDOCR_LANGS and ocr_module.backend_problem("rapidocr") is None:
+        return "rapidocr", None
     if paddle_installed():
         return "paddle", None
     return "tesseract", PADDLE_MISSING_NOTE
@@ -206,8 +211,8 @@ def resolve_backend(requested: str, language: str):
 
 def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str | None = None,
                       on_timeout=None) -> str:
-    """lang is in the chosen engine's own code: a Tesseract pack name, or a
-    PaddleOCR language for backend "paddle". on_timeout is called when
+    """lang is in the chosen engine's own code: a Tesseract pack name, a
+    PaddleOCR language for backend "paddle", or the source language for "rapidocr". on_timeout is called when
     Tesseract timed out on the frame (only Tesseract has a per-frame timeout)."""
     img = cv2.imread(path)
     if img is None:  # an unreadable frame reads as no caption, not a crash
@@ -221,6 +226,8 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd:
         cv2.imwrite(crop_path, crop)
         if backend == "paddle":
             return ocr_module.extract_text_paddle(crop_path, lang=lang).strip()
+        if backend == "rapidocr":
+            return ocr_module.extract_text_rapidocr(crop_path, lang).strip()
         return ocr_module.extract_text_tesseract(
             crop_path, lang=lang, tesseract_cmd=tesseract_cmd, on_timeout=on_timeout).strip()
     finally:
@@ -338,7 +345,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
     cues), but pass 1 to disable the filter entirely if a source is
     dropping genuinely short captions because of it.
 
-    ocr_backend is "tesseract", "paddle" or "auto" (see resolve_backend).
+    ocr_backend is "tesseract", "paddle", "rapidocr" or "auto" (see resolve_backend).
     info, when given, is filled with {"backend": the engine that ran,
     "note": a fallback note or None, "dropped_frames": how many sampled
     frames Tesseract timed out on and so read as blank} for the caller to
@@ -349,6 +356,8 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
         info.update(backend=ocr_backend, note=note, dropped_frames=0)
     if ocr_backend == "paddle":
         lang = _HARDSUB_PADDLE_LANG.get(language, "ch")
+    elif ocr_backend == "rapidocr":
+        lang = language
     else:
         lang = ocr_module.resolve_tesseract_lang(language, chinese_script)
     with storage.job_workdir(job_id, dir=tmp_dir) as frame_dir:
