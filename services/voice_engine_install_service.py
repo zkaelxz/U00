@@ -22,6 +22,12 @@ from services import diagnostics_admin_service as admin_svc
 # Only these engines, with these exact packages, ever reach pip: nothing in a request
 # names a package or a folder.
 ENGINES = {
+    # Pulls its own huggingface-hub and pillow pins, which the app's own Python can't take.
+    "omnivoice": {"label": "OmniVoice", "packages": ("omnivoice==0.2.1",),
+                  "check": "import torch, torchaudio, omnivoice",
+                  # CUDA PyTorch (about 2.5 GB) and the package, with room left for the
+                  # checkpoint and Whisper model the first narration downloads.
+                  "required_mb": 8000},
     "qwen3_tts": {"label": "Qwen3-TTS", "packages": ("qwen-tts==0.1.1",),
                   "check": "import torch, torchaudio, qwen_tts",
                   # CUDA PyTorch (about 2.5 GB), qwen-tts and its dependencies, with room

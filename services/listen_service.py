@@ -8,7 +8,6 @@ the names the narration path always had, so existing jobs and tracks still work.
 No FastAPI import: plain dicts out, no filesystem path.
 """
 import functools
-import importlib.metadata
 import importlib.util
 import os
 import shutil
@@ -35,8 +34,6 @@ TRACK_NAME = "narration_track.wav"
 # is never imported here: its module names the package inside its own venv.
 _ENGINE_PACKAGES = {"omnivoice": ("omnivoice", "OmniVoice"), "qwen3_tts": ("qwen_tts", "Qwen3-TTS"),
                     "chatterbox": ("chatterbox", "Chatterbox")}
-# OmniVoice needs transformers 5.3+; the install can exist but not load.
-_OMNIVOICE_MIN_TRANSFORMERS: tuple[int, ...] = (5, 3)
 
 
 def _drama_path(drama_id: int) -> str:
@@ -103,14 +100,6 @@ def get_listen_track(drama_id: int) -> dict:
     return {"path": path, "name": TRACK_NAME}
 
 
-def _transformers_version() -> tuple[int, ...] | None:
-    try:
-        parts = importlib.metadata.version("transformers").split(".")[:2]
-        return tuple(int("".join(ch for ch in p if ch.isdigit()) or 0) for p in parts)
-    except importlib.metadata.PackageNotFoundError:
-        return None
-
-
 def _engine_install_problem(engine: str):
     """Fixed-text reason `engine` can't run on this PC, or None. Never names
     a path."""
@@ -119,8 +108,6 @@ def _engine_install_problem(engine: str):
         return None if voice_venv.is_ready(engine) else f"{label} is not installed. Install it in Diagnostics."
     if importlib.util.find_spec(module) is None:
         return f"{label} is not installed. Install it in Diagnostics."
-    if engine == "omnivoice" and (_transformers_version() or (0, 0)) < _OMNIVOICE_MIN_TRANSFORMERS:
-        return "OmniVoice needs a newer transformers than is installed. Check Diagnostics."
     return None
 
 

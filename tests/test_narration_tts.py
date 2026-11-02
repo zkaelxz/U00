@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import novel_text
 import dub
 import dub_narration
+from .voice_helpers import speak_with
 from core import Line
 
 
@@ -140,48 +141,6 @@ def _touch_synth(calls, name):
 
 # ------------------------------------------------ engine functions themselves
 
-class TestOmniVoice:
-    def _install(self, monkeypatch):
-        generated, loaded = [], []
-
-        class FakeModel:
-            def generate(self, **kwargs):
-                generated.append(kwargs)
-                return [np.zeros(3)]
-
-        class OmniVoice:
-            @staticmethod
-            def from_pretrained(repo, **kwargs):
-                loaded.append((repo, kwargs))
-                return FakeModel()
-
-        module = types.ModuleType("omnivoice")
-        module.OmniVoice = OmniVoice
-        monkeypatch.setitem(sys.modules, "omnivoice", module)
-        monkeypatch.setattr(dub, "_omnivoice_model", None)
-        return generated, loaded
-
-    def test_clones_from_a_clip_with_its_transcript(self, monkeypatch, tmp_path, fake_soundfile, fake_torch):
-        generated, loaded = self._install(monkeypatch)
-        out = str(tmp_path / "a.wav")
-        dub.synthesize_line_omnivoice("Hello there.", out, ref_audio_path="/refs/a.wav", ref_text="你好")
-        assert generated == [{"text": "Hello there.", "ref_audio": "/refs/a.wav", "ref_text": "你好"}]
-        assert fake_soundfile == [(out, dub.OMNIVOICE_SAMPLE_RATE)]
-        assert loaded == [("k2-fsa/OmniVoice", {"device_map": "cpu", "dtype": "float32"})]
-
-    def test_voice_design_needs_no_clip(self, monkeypatch, tmp_path, fake_soundfile, fake_torch):
-        generated, _ = self._install(monkeypatch)
-        dub.synthesize_line_omnivoice("Hello.", str(tmp_path / "a.wav"),
-                                      instruct="female, low pitch, british accent")
-        assert generated == [{"text": "Hello.", "instruct": "female, low pitch, british accent"}]
-
-    def test_model_loads_once_across_lines(self, monkeypatch, tmp_path, fake_soundfile, fake_torch):
-        _, loaded = self._install(monkeypatch)
-        dub.synthesize_line_omnivoice("One.", str(tmp_path / "1.wav"), instruct="male")
-        dub.synthesize_line_omnivoice("Two.", str(tmp_path / "2.wav"), instruct="male")
-        assert len(loaded) == 1
-
-
 # ---------------------------------------------- per-character engine routing
 
 class TestCloneMapFromCharacters:
@@ -250,7 +209,7 @@ class TestEngineSelectionFollowsTheClonePattern:
     @pytest.fixture
     def calls(self, monkeypatch):
         calls = []
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", _touch_synth(calls, "synthesize_line_omnivoice"))
+        speak_with(monkeypatch, _touch_synth(calls, "synthesize_line_omnivoice"))
         return calls
 
     CASES = [
@@ -286,7 +245,7 @@ class TestNarrationTTSUnits:
         def fake(text, out_path, **kwargs):
             calls.append(text)
             open(out_path, "w").close()
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", fake)
+        speak_with(monkeypatch, fake)
         return calls
 
     def test_one_tts_call_covers_several_subtitle_cues(self, synth_calls, fake_pydub, tmp_path):
@@ -336,8 +295,7 @@ class TestNarrationTTSUnits:
         assert synth_calls == ["Before.", "Chapter 2: A Rainy Night", "After."]
 
     def test_a_failed_unit_leaves_each_of_its_lines_a_silent_gap(self, monkeypatch, fake_pydub, tmp_path):
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+        speak_with(monkeypatch, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="N")]
         _, errors = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
@@ -365,7 +323,7 @@ class TestSequentialNarration:
         def fake(text, out_path, **kwargs):
             spoken.append(text)
             open(out_path, "w").close()
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice", fake)
+        speak_with(monkeypatch, fake)
         os.makedirs(tmp_path / "dub_clips")
         previous = f"line_0001_{dub.clip_signature('Line 1.', VOICE)}.wav"
         (tmp_path / "dub_clips" / previous).write_text("from a previous run")
@@ -380,8 +338,7 @@ class TestSequentialNarration:
 
     def test_a_speaker_with_no_voice_is_a_failed_unit_not_a_crash(self, monkeypatch, fake_pydub, tmp_path):
         spoken = []
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                            lambda text, out_path, **kw: spoken.append(text) or open(out_path, "w").close())
+        speak_with(monkeypatch, lambda text, out_path, **kw: spoken.append(text) or open(out_path, "w").close())
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="B")]
         _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"A": dict(VOICE)}, gap_ms=350)
@@ -494,8 +451,7 @@ class TestExportM4b:
     def test_chapters_match_the_narrations_paragraph_breaks(self, monkeypatch, fake_pydub, tmp_path):
         """End to end: narrate, then export -- the chapter markers land on the
         first line of each paragraph, at the timing narration gave it."""
-        monkeypatch.setattr(dub, "synthesize_line_omnivoice",
-                            lambda text, out_path, **kw: open(out_path, "w").close())
+        speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
         (tmp_path / dub_narration.NOVEL_SOURCE_FILENAME).write_text("一。二。\n三。", encoding="utf-8")
         lines = [Line(idx=0, start=0, end=0, zh="一。", en="One."),
                  Line(idx=1, start=0, end=0, zh="二。", en="Two."),

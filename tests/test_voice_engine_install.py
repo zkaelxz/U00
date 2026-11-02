@@ -76,6 +76,10 @@ def client(env):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
 
 
+# Rows come in the order of svc.ENGINES.
+_QWEN = list(svc.ENGINES).index("qwen3_tts")
+
+
 def _install(client, engine="qwen3_tts", confirm=True):
     return client.post(f"/api/diagnostics/voice-engines/{engine}/install",
                        json={"confirm": confirm})
@@ -85,6 +89,9 @@ def test_status_is_booleans_sizes_and_text(client, env):
     body = client.get("/api/diagnostics/voice-engines").json()
     assert body["free_mb"] == 50_000
     assert body["engines"] == [{
+        "engine": "omnivoice", "label": "OmniVoice", "installed": False, "folder_present": False,
+        "required_mb": 8000, "refusal": None, "job_id": svc.job_id("omnivoice"), "job": None,
+        "last_result": None}, {
         "engine": "qwen3_tts", "label": "Qwen3-TTS", "installed": False, "folder_present": False,
         "required_mb": 6000, "refusal": None, "job_id": JOB, "job": None, "last_result": None}, {
         "engine": "chatterbox", "label": "Chatterbox", "installed": False, "folder_present": False,
@@ -98,7 +105,7 @@ def test_install_makes_a_ready_venv_and_reports_redacted_output(client, env):
     assert wait_for_job(JOB, timeout=15)["status"] == "done"
     assert voice_venv.is_ready("qwen3_tts")
     body = client.get("/api/diagnostics/voice-engines").json()
-    row = body["engines"][0]
+    row = body["engines"][_QWEN]
     assert row["installed"] is True and row["last_result"]["ok"] is True
     assert row["last_result"]["message"] == "Qwen3-TTS installed."
     assert row["refusal"] == "Qwen3-TTS is already installed."
@@ -110,7 +117,7 @@ def test_a_failed_install_says_so_and_leaves_no_folder(client, env):
     env["mode"] = "fail"
     _install(client)
     assert wait_for_job(JOB, timeout=15)["status"] == "error"
-    last = client.get("/api/diagnostics/voice-engines").json()["engines"][0]["last_result"]
+    last = client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]["last_result"]
     assert last == {"ok": False, "message": "The Qwen3-TTS install failed; see the output.",
                     "output_tail": last["output_tail"]}
     assert any("No matching distribution" in line for line in last["output_tail"])
@@ -161,7 +168,7 @@ def test_copies_it_cannot_work_on_are_refused(client, env, setup, text):
     env.update(setup)
     r = _install(client)
     assert r.status_code == 422 and text in r.json()["error"]["message"]
-    assert text in client.get("/api/diagnostics/voice-engines").json()["engines"][0]["refusal"]
+    assert text in client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]["refusal"]
     assert background_jobs.get_status(JOB) is None
 
 
@@ -258,7 +265,7 @@ def test_remove_deletes_only_the_engine_folder(client, env, clean_remove_job):
     assert r.status_code == 200 and r.json() == {"job_id": REMOVE_JOB, "started": True}
     assert wait_for_job(REMOVE_JOB, timeout=15)["status"] == "done"
     assert not os.path.lexists(voice_venv.venv_dir("qwen3_tts")) and os.path.exists(keep)
-    row = client.get("/api/diagnostics/voice-engines").json()["engines"][0]
+    row = client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]
     assert row["installed"] is False and row["folder_present"] is False
     assert row["last_result"]["message"] == "Qwen3-TTS removed."
 
@@ -272,7 +279,7 @@ def test_remove_needs_confirm_and_a_folder(client, env, clean_remove_job):
 
 def test_a_damaged_folder_shows_and_can_be_removed(client, env, clean_remove_job):
     os.makedirs(voice_venv.venv_dir("qwen3_tts"))
-    row = client.get("/api/diagnostics/voice-engines").json()["engines"][0]
+    row = client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]
     assert row["installed"] is False and row["folder_present"] is True
     _remove(client)
     assert wait_for_job(REMOVE_JOB, timeout=15)["status"] == "done"

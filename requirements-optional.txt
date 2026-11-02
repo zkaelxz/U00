@@ -39,11 +39,8 @@ nagisa>=0.3.0
 soynlp>=0.0.493
 
 # --- local voices ---
-# Dubbing and novel narration voice (optional, local; GPU strongly
-# recommended). Downloads its model on first use. Left commented out
-# because it needs transformers>=5.3.
-# omnivoice>=0.2        # Apache-2.0: cloning from a 3-10s clip, and voice
-                         # design from a description (no clip needed)
+# OmniVoice, Qwen3-TTS and Chatterbox install from Diagnostics into folders of their own;
+# none of them belongs in this file.
 
 # --- vocal separation before transcription (audio_preprocess.py) ---
 # Strips background music from a music-bed source (audio dramas,

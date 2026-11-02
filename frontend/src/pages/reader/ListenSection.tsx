@@ -7,7 +7,7 @@ import { Section } from '../../components/Section'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useReattachJob } from '../../hooks/useReattachJob'
 import { useSession } from '../../hooks/useSession'
-import type { ListenConfig } from '../../types/listen'
+import { chooseEngine, type ListenConfig } from '../../types/listen'
 import type { CharacterEntry } from '../../types/translateStage'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import { holds } from '../diagnostics/adminUsers'
@@ -114,8 +114,7 @@ function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
   const busy = jobId !== null && !done && !pollError
   // This run just made the track: the player in Watch / listen takes over.
   if (!busy && done && jobSucceeded(job)) return null
-  const fallbackEngine = cfg.tts_engines.some((t) => t.key === cfg.default_engine) ? cfg.default_engine : (cfg.tts_engines[0]?.key ?? '')
-  const engine = cfg.tts_engines.some((t) => t.key === pickedEngine) ? pickedEngine : fallbackEngine
+  const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, pickedEngine)
   const blocker = listenBlocker(cfg, engine)
   const failedText = done && job && jobFailed(job) ? job.message : null
   const start = () =>

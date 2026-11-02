@@ -376,13 +376,15 @@ def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
     assert vram_service.free_vram_mb() == 1024.0
 
 
-def test_dub_loader_checks_vram_before_loading(monkeypatch):
+def test_venv_voice_engine_checks_vram_before_loading(monkeypatch, tmp_path):
     import dub
+    import voice_venv
     monkeypatch.setattr(dub, "_cuda_available", lambda: True)
     monkeypatch.setattr(vram_service, "free_vram_mb", lambda: 100.0)
-    monkeypatch.setattr(dub, "_omnivoice_model", None)
-    with pytest.raises(vram_service.InsufficientVramError):
-        dub._get_omnivoice_model()
+    monkeypatch.setattr(voice_venv, "run_batch", lambda *a, **k: pytest.fail("the model loaded"))
+    out = list(dub.speak_in_venv("omnivoice", [{"text": "a", "out": "o", "language": "en"}],
+                                 str(tmp_path)))
+    assert len(out) == 1 and out[0][0] == 0 and out[0][1]
 
 
 def test_provenance_is_ignored_once_the_translation_changes(isolated_db):

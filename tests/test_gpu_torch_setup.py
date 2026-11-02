@@ -180,7 +180,7 @@ def test_other_installs_carry_a_torch_pins_file_that_is_removed(monkeypatch):
     _fake_pip(monkeypatch, seen, read_pins=pins)
     upgrade = lambda n, confirm: packages_svc.upgrade_dependency(n, packages_svc.upgrade_specs(n))
     for fn in (packages_svc.install_dependency, upgrade):
-        assert fn("omnivoice", confirm=True)["ok"] is True
+        assert fn("pyannote.audio", confirm=True)["ok"] is True
     assert len(seen) == 2 and len(pins) == 2
     for path, text in pins:
         assert text.split() == ["torch==2.11.0+cu128", "torchvision==0.26.0+cu128"]
@@ -205,13 +205,13 @@ def test_a_package_needing_another_torch_is_refused_with_a_plain_hint(monkeypatc
     _versions(monkeypatch, torch="2.11.0+cu128")
     seen = []
     _fake_pip(monkeypatch, seen, returncode=1, lines=[
-        "ERROR: Cannot install omnivoice==0.2 because these package versions have "
+        "ERROR: Cannot install pyannote-audio==4.0 because these package versions have "
         "conflicting dependencies.",
         "The conflict is caused by:",
-        "    omnivoice 0.2 depends on torch==2.6.0",
+        "    pyannote-audio 4.0 depends on torch==2.6.0",
         "    The user requested (constraint) torch==2.11.0+cu128",
         "ERROR: ResolutionImpossible"])
-    out = packages_svc.install_dependency("omnivoice", confirm=True)
+    out = packages_svc.install_dependency("pyannote.audio", confirm=True)
     assert out["ok"] is False
     assert "nothing was changed" in out["hint"] and "torch 2.11.0+cu128" in out["hint"]
 
