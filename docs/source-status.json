@@ -191,6 +191,18 @@
       "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
       "pace_verified": "2026-11-01"
     },
+    "nihonkuni": {
+      "status": "caveat",
+      "last_verified": "2026-11-02",
+      "reason": "Search, series, chapter list and a chapter's image URLs were read live against nihonkuni.com 2026-11-02 with plain GETs, and one image downloaded; no import has been run through the app. No terms page was found, so terms are unreviewed; robots.txt asks for a 1 second crawl delay and its content signals reserve AI training.",
+      "notes": "",
+      "hosts": [
+        "nihonkuni.com",
+        "s4.ihlv1.xyz"
+      ],
+      "pace": "Fast off: no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-02"
+    },
     "newxtoon": {
       "status": "caveat",
       "last_verified": "2026-11-01",

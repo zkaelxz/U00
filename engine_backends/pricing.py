@@ -1,5 +1,6 @@
 """Model lists, per-million-token prices and cost estimation."""
 
+import datetime
 import json
 import re
 
@@ -103,6 +104,9 @@ PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-5-5": {"input": 2.0, "output": 10.0},
     "claude-opus-5-5": {"input": 4.0, "output": 20.0},
     "claude-fable-5-1": {"input": 10.0, "output": 50.0},
+    # Haiku 5.5 bills prompts over HAIKU_5_5_LONG_PROMPT_TOKENS at a higher
+    # rate; see _long_prompt_rates.
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50},
     # Corrected against api-docs.deepseek.com/quick_start/pricing's
     # raw page source (checked directly, not a summarized fetch) -- these
     # previous flat figures didn't match DeepSeek's real pricing structure
@@ -132,8 +136,8 @@ PRICING_PER_MILLION_TOKENS = {
     "gemini-flash-latest": {"input": 0.75, "output": 3.75},
     "gemini-pro-latest": {"input": 2.0, "output": 12.0},
     "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
-    # OpenAI list prices as recalled from platform.openai.com/docs/pricing
-    # (not re-verified here); re-check before budgeting a large batch.
+    # OpenAI list prices, checked against developers.openai.com/api/docs/pricing
+    # on PRICES_VERIFIED_ON.
     "gpt-5-mini": {"input": 0.25, "output": 2.0},
     "gpt-5-nano": {"input": 0.05, "output": 0.40},
     "gpt-5": {"input": 1.25, "output": 10.0},
@@ -145,8 +149,43 @@ PRICING_PER_MILLION_TOKENS = {
 # of them -- a spending cap should never be undercut by an estimate that
 # came out cheaper than the real bill.
 CACHE_READ_PRICE_FACTOR = 0.1
+# Models whose cache reads are billed below that 10%, so a cap is not tripped
+# by an estimate twice the real bill.
+CACHE_READ_PRICE_FACTOR_BY_MODEL = {
+    "claude-sonnet-5-5": 0.05,
+    "claude-opus-5-5": 0.05,
+    "claude-fable-5-1": 0.025,
+}
 # Claude charges 25% extra on the tokens it writes to the cache.
 CACHE_WRITE_PRICE_FACTOR = 1.25
+
+
+# Providers announce price changes ahead of time; a rate listed here replaces
+# the one in PRICING_PER_MILLION_TOKENS from its date on, so the estimate
+# changes on the day the bill does without a release.
+SCHEDULED_PRICE_CHANGES = {
+    # Google's pricing page, checked on PRICES_VERIFIED_ON.
+    "gemini-flash-latest": [(datetime.date(2027, 1, 1), {"input": 1.50, "output": 7.50})],
+}
+
+# Date the tables above were last compared with the providers' pricing pages;
+# tests/test_translate_engines.py fails once it is old, as the reminder to
+# re-check them (there is no automatic refresh).
+PRICES_VERIFIED_ON = datetime.date(2026, 11, 2)
+
+HAIKU_5_5_LONG_PROMPT_TOKENS = 100_000
+HAIKU_5_5_LONG_PROMPT_RATES = {"input": 0.50, "output": 2.50}
+
+
+def _current_rates(model: str, input_tokens: int):
+    rates = PRICING_PER_MILLION_TOKENS.get(model)
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    for effective, new_rates in sorted(SCHEDULED_PRICE_CHANGES.get(model, ())):
+        if today >= effective:
+            rates = new_rates
+    if model == "claude-haiku-5-5" and input_tokens > HAIKU_5_5_LONG_PROMPT_TOKENS:
+        rates = HAIKU_5_5_LONG_PROMPT_RATES
+    return rates
 
 
 # Provider families whose unpriced models fall back to that family's highest
@@ -188,7 +227,7 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int,
                   cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> float:
     """input_tokens is the whole prompt; cache_read_tokens/cache_write_tokens
     are the parts of it that were served from / written to a prompt cache."""
-    rates = PRICING_PER_MILLION_TOKENS.get(model)
+    rates = _current_rates(model, input_tokens)
     if not rates and isinstance(model, str):
         # A Claude/Gemini/DeepSeek model the app has no price for (one offered
         # from the provider's list): price it at that provider's highest known
@@ -197,7 +236,8 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int,
     if not rates:
         return 0.0
     uncached = max(0, input_tokens - cache_read_tokens - cache_write_tokens)
-    effective_input = (uncached + cache_read_tokens * CACHE_READ_PRICE_FACTOR
+    read_factor = CACHE_READ_PRICE_FACTOR_BY_MODEL.get(model, CACHE_READ_PRICE_FACTOR)
+    effective_input = (uncached + cache_read_tokens * read_factor
                        + cache_write_tokens * CACHE_WRITE_PRICE_FACTOR)
     return (effective_input / 1_000_000 * rates["input"]) + (output_tokens / 1_000_000 * rates["output"])
 

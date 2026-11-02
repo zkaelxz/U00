@@ -311,6 +311,19 @@ work".
 | Terms | robots.txt (2026-11-01): `Disallow: /wp-admin/` with `Allow: /wp-admin/admin-ajax.php`, no Crawl-delay. No terms page found, so `automation_permission` stays `UNKNOWN`. |
 | Tests | `tests/test_sources_rawkuma.py` (small invented fixtures; no network). |
 
+## NihonKuni — `sources/adapters/nihonkuni.py`
+
+| | |
+|---|---|
+| URL patterns | `nihonkuni.com/manga-<slug>.html` or `/manga/<slug>-<id>.html` (series), `nihonkuni.com/read-<slug>-chapter-<n>.html` (chapter) |
+| Content type / language | manga; ja (Japanese raws) |
+| Status | **Read against the live site 2026-11-02** (plain GETs, no login): search, a 372-chapter series, its chapter links, one chapter's 20 image URLs and one image download. No import has been run through the app. |
+| Access tier | `STATIC_HTTP`. A server-rendered PHP site behind Cloudflare that answered plainly; nothing needs JavaScript. Images are plain JPEG/WebP files, not scrambled. |
+| Extraction | **Search:** GET `manga-list.html?name=<q>&page=<n>` (cards with `a.manga-title`). **Series:** `og:title` / `og:image`, the cover's `title` attribute (the Japanese title), author, genre and status blocks. **Chapters:** the `read-<slug>-chapter-<n>.html` links, sorted by number. **Pages:** the `img.chapter-img` tags on the chapter page. The title also appears base64-encoded in a `data-enc` attribute; the plain `og:title` is used instead. |
+| Failures | A missing title, chapter links or page images -> `LayoutChanged`. A slug or chapter id that isn't plain is refused before it reaches a URL. |
+| Terms | robots.txt (2026-11-02): `Disallow` for /admin/, /account/, /download/, `/search?`; `Crawl-delay: 1`, which is the host interval. Content signals: `search=yes, ai-train=no, use=reference`; the site reserves AI training. No terms page found, so `automation_permission` stays `UNKNOWN`. |
+| Tests | `tests/test_sources_nihonkuni.py` (small invented fixtures; no network). |
+
 ## Marumaru (마루마루) — `sources/adapters/marumaru.py`
 
 | | |
