@@ -24,7 +24,7 @@ export function SourceSuspectPanel({ dramaId, items, onGoTo, onChanged, onClose 
 
   const merge = useCallback(
     async (item: SourceSuspectItem) => {
-      if (item.next_line_id === null) return
+      if (item.next_line_id == null) return
       setBusy(true)
       try {
         const ids = (await listAllLines(dramaId)).map((l) => l.id)
