@@ -23,6 +23,7 @@ import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
 import { isPopOutWindow } from '../../nav/popOut'
 import { JobPill } from './JobPill'
 import { NovelTitlePage } from './NovelTitlePage'
+import { SimpleStagePage } from './SimpleStagePage'
 import { SimpleTitlePage } from './SimpleTitlePage'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { TITLE_VIEW_PREF, asTitleView, defaultTitleView, hasSimpleView, opensSimpleStage, titleViewPref, trimsStages, type TitleView } from './titleView'
@@ -85,6 +86,9 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const view = asTitleView(stored, kind ? defaultTitleView(kind) : 'full')
   // A link that names a stage always opens the stage; Simple there keeps the stage and leaves out its advanced controls.
   const simple = twoViews && !!kind && trimsStages(kind) && view === 'simple'
+  // A Simple page's buttons open these stages; the stage tab strip would drop a Simple reader into the full workspace.
+  // Kept out of the branch condition: inline, it makes React Compiler skip the ctx memo below.
+  const slimStage = !!kind && opensSimpleStage(kind, active)
   const chooseView = (v: TitleView) => store(v)
   const linked = parseRoute(window.location.hash)
   const comicNotice = comic && isLineStageForComic(active) && !(linked.name === 'drama' && linked.id === id && isCastTab(linked.tab))
@@ -149,25 +153,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   if (stage === null && drama && twoViews && view === 'simple') {
     return kind === 'novel' ? <NovelTitlePage id={id} drama={drama} onView={chooseView} /> : <SimpleTitlePage id={id} drama={drama} comic={kind === 'comic'} onView={chooseView} />
   }
-  // The novel page's buttons open these stages; the stage tab strip would drop a Simple reader into the full workspace.
-  if (stage !== null && drama && twoViews && !!kind && view === 'simple' && opensSimpleStage(kind, active) && Stage && ctx) {
-    return (
-      <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
-        <header className="workspace-header">
-          <ButtonLink href={routeHref({ name: 'drama', id, stage: null })} variant="ghost" size="sm" className="ws-back" aria-label="Back to title page">
-            <span aria-hidden="true">‹</span>
-            <span className="ws-back-text" aria-hidden="true">{title}</span>
-          </ButtonLink>
-          <h1 data-testid="drama-title" title={title}>{title}</h1>
-          <JobPill dramaId={id} onFinished={refetch} />
-          <TitleViewSwitch view={view} onChange={chooseView} />
-        </header>
-        <ErrorBanner error={error} />
-        <StageContext.Provider value={ctx}>
-          <Stage />
-        </StageContext.Provider>
-      </section>
-    )
+  if (stage !== null && drama && twoViews && view === 'simple' && slimStage) {
+    return <SimpleStagePage id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} onView={chooseView} />
   }
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
