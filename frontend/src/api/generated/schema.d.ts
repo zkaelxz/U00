@@ -25153,6 +25153,11 @@ export interface components {
              */
             tesseract_cmd_configured: boolean;
             /**
+             * Translate Alignment Check
+             * @default false
+             */
+            translate_alignment_check: boolean;
+            /**
              * Translate Reply Guard
              * @default auto
              */
@@ -25366,6 +25371,8 @@ export interface components {
             stock_phrase_isolation_seconds?: number | null;
             /** Tesseract Cmd */
             tesseract_cmd?: string | null;
+            /** Translate Alignment Check */
+            translate_alignment_check?: boolean | null;
             /** Translate Reply Guard */
             translate_reply_guard?: string | null;
             /** Unload Ollama Before Transcribe */
