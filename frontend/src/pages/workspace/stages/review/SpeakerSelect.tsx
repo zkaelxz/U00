@@ -10,12 +10,16 @@ type SpeakerEntry = components['schemas']['CharactersEntry']
 const NEW_SPEAKER = '\u0000new'
 
 interface Props {
+  // Field hands its label, description and error wiring to the control it wraps through these.
+  id?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
   dramaId: number
   value: string
   onChange: (speaker: string) => void
 }
 
-export function SpeakerSelect({ dramaId, value, onChange }: Props) {
+export function SpeakerSelect({ dramaId, value, onChange, ...fieldProps }: Props) {
   // null while loading or after a failed load: the plain text box below keeps the field usable either way.
   const [known, setKnown] = useState<string[] | null>(null)
   const [adding, setAdding] = useState(false)
@@ -32,13 +36,13 @@ export function SpeakerSelect({ dramaId, value, onChange }: Props) {
   }, [dramaId])
 
   if (known === null || adding) {
-    return <input value={value} autoFocus={adding} onChange={(e) => onChange(e.target.value)} />
+    return <input {...fieldProps} value={value} autoFocus={adding} onChange={(e) => onChange(e.target.value)} />
   }
 
   const options = speakerOptions(known, value)
   return (
     <select
-     
+      {...fieldProps}
       value={value}
       onChange={(e) => (e.target.value === NEW_SPEAKER ? (setAdding(true), onChange('')) : onChange(e.target.value))}
     >
