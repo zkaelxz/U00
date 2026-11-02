@@ -113,6 +113,17 @@ class TestChapters:
                          f"{BZ}/comic/{SLUG}": html(_fx("series_short.html"))})
         assert a.get_chapters(SLUG)[0].url == f"{BZ}/comic/chapter/{SLUG}/0_0.html"
 
+    def test_chapter_links_that_name_the_comic_with_a_suffix_are_listed(self):
+        body = _fx("series_short.html").replace(f"comic_id={SLUG}&amp;", f"comic_id={SLUG}_tchz0d&amp;")
+        a, _ = _adapter({f"{TW}/comic/{SLUG}": html(body)})
+        assert [c.chapter_id for c in a.get_chapters(SLUG)] == ["0_0", "0_1"]
+
+    def test_a_longer_slug_that_merely_starts_the_same_is_another_series(self):
+        body = _fx("series_short.html").replace(f"comic_id={SLUG}&amp;", f"comic_id={SLUG}x&amp;")
+        a, _ = _adapter({f"{TW}/comic/{SLUG}": html(body)})
+        with pytest.raises(SourceError):
+            a.get_chapters(SLUG)
+
     def test_links_to_another_series_are_ignored(self):
         body = _fx("series_short.html").replace(f"comic_id={SLUG}&amp;section_slot=0&amp;chapter_slot=1",
                                                 "comic_id=someone-else&amp;section_slot=0&amp;chapter_slot=1")
