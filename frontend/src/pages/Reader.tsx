@@ -8,8 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 
 import { api, ApiError, keepaliveFetch } from '../api/client'
-import { mediaStreamUrl } from '../api/media'
-import { captionUrl, pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
+import { pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
 import { patchLine } from '../api/review'
 import { translateApi } from '../api/translate'
 import { getGlossaryTerms } from '../api/translateStage'
@@ -37,8 +36,7 @@ import type { TranslateEngine } from '../types/translate'
 import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
-import { ListenSection } from './reader/ListenSection'
-import { ReadAlong } from './reader/ReadAlong'
+import { ListenWatch } from './reader/ListenWatch'
 import { lineEditPatch } from './reader/readerLineEdit'
 import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
 import { useSession } from '../hooks/useSession'
@@ -123,29 +121,6 @@ function GoTo({ count, onGo, withLabel = false }: { count: number; onGo: (n: num
   )
 }
 
-function WatchSection({ dramaId, media, sourceLanguage, trackVersion }: { dramaId: number; media: ReaderMediaAvailability; sourceLanguage: string; trackVersion: number }) {
-  const [failed, setFailed] = useState(false)
-  const kinds = [media.original === 'video' ? 'video' : media.original === 'audio' ? 'audio' : null, media.narration ? 'narration' : null]
-  const summary = kinds.filter(Boolean).join(' · ')
-  const lang = (t: string) => (t === 'English' ? 'en' : t === 'Source' ? sourceLanguage : 'und')
-  return (
-    <Section title="Watch / listen" storageKey="reader.media" summary={summary}>
-      {media.original === 'video' && (
-        <video className="reader-video" controls preload="metadata" src={mediaStreamUrl(dramaId, 'video')} onError={() => setFailed(true)}>
-          {media.caption_tracks.map((t, i) => (
-            <track key={t} kind="subtitles" label={t} srcLang={lang(t)} src={captionUrl(dramaId, t)} default={i === 0} />
-          ))}
-        </video>
-      )}
-      {media.original === 'audio' && (
-        <audio controls preload="metadata" src={mediaStreamUrl(dramaId, 'audio')} onError={() => setFailed(true)} />
-      )}
-      {media.narration && <ReadAlong dramaId={dramaId} version={trackVersion} onError={() => setFailed(true)} />}
-      {failed && <p className="muted">Can't play this here. It needs media playback permission, or the file is missing.</p>}
-    </Section>
-  )
-}
-
 function NotesSection({ dramaId }: { dramaId: number }) {
   const [saved, setSaved] = useState<string | null>(null)
   const [text, setText] = useState('')
@@ -217,8 +192,6 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [resumed, setResumed] = useState<number | null>(null)
   const [lastIdx, setLastIdx] = useState<{ page: number; size: number; idx: number } | null>(null)
   const [media, setMedia] = useState<ReaderMediaAvailability | null>(null)
-  // Bumped when Listen replaces the narration, so the player drops the old file it has cached.
-  const [trackVersion, setTrackVersion] = useState(0)
   const [vocab, setVocab] = useState<ReaderVocabList | null>(null)
   const [terms, setTerms] = useState<GlossaryTerm[]>([])
   const [engines, setEngines] = useState<TranslateEngine[]>([])
@@ -434,7 +407,6 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     goToPage(id, clampPage(n, count))
   }
   const workspaceHref = routeHref({ name: 'drama', id, stage: 'source' })
-  const hasMedia = !!media && (media.original !== null || media.narration)
   const metrics = overview && !empty ? metricsLine(overview) : null
   const aa = (
     <ReaderPrefsControl prefs={prefs} onChange={setPrefs} phone={phone}>
@@ -500,11 +472,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         </section>
       ) : (
         <>
-          <ListenSection dramaId={id} onReady={() => {
-            void readerApi.media(id).then(setMedia, () => setMedia(null))
-            setTrackVersion((v) => v + 1)
-          }} />
-          {hasMedia && media && <WatchSection dramaId={id} media={media} sourceLanguage={sourceLanguage} trackVersion={trackVersion} />}
+          <ListenWatch dramaId={id} media={media} setMedia={setMedia} sourceLanguage={sourceLanguage} />
           {!phone && page !== null && (
             <div className="reader-bar">
               <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo />
