@@ -56,6 +56,7 @@ import {
   sanitizePrefs,
   saveComicPrefs,
   savedComicPrefs,
+  spreadDisplayOrder,
   textPages,
   ZOOM,
   type ComicPrefs,
@@ -63,6 +64,7 @@ import {
 } from './comic/comicLogic'
 import { useJumpRequest, usePageJump } from './comic/usePageJump'
 import { readerClasses, usePagedReader } from './comic/usePagedReader'
+import { useSpreads } from './comic/useSpreads'
 import { useReadAhead } from './comic/useReadAhead'
 import './reader/reader.css'
 import './comic/comic.css'
@@ -268,7 +270,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version),
     [id, prefs.typeset, original.originals],
   )
-  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor })
+  const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current)
+  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
 
   usePageJump({
     activeJump,
@@ -312,7 +315,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
   // Text boxes for the page(s) in view, fetched once each.
   const wantText = prefs.text || linesOpen
-  const textKey = current === null || !wantText ? '' : textPages(current, count, prefs.mode).join(',')
+  const textKey = current === null || !wantText ? '' : (spread ?? textPages(current, count, prefs.mode)).join(',')
   const [textTick, setTextTick] = useState(0)
   // A failed request is forgotten, so asking again fetches it again.
   const retryText = (pageId: number) => {
@@ -434,14 +437,16 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const visibleSet = new Set(visible)
   const shownPages: [ComicPageInfo, number][] =
     paged
-      ? currentPage && current !== null
-        ? [[currentPage, current]]
-        : []
+      ? spread
+        ? spreadDisplayOrder(spread, rtl).flatMap((n): [ComicPageInfo, number][] => (pages[n - 1] ? [[pages[n - 1], n]] : []))
+        : currentPage && current !== null
+          ? [[currentPage, current]]
+          : []
       : pages.map((p, i): [ComicPageInfo, number] => [p, i + 1]).filter(([, n]) => visibleSet.has(n))
   const stage = current !== null && pages.length > 0 && (
     <div
       ref={stageRef}
-      className={`comic-stage comic-stage-${prefs.mode}${zoomed ? ' comic-zoomed' : ''}`}
+      className={`comic-stage comic-stage-${prefs.mode}${zoomed ? ' comic-zoomed' : ''}${spread && spread.length > 1 ? ' comic-stage-spread' : ''}`}
       data-testid="comic-stage"
       {...zoom.handlers}
     >
@@ -503,7 +508,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       />
     ) : null
 
-  const label = current !== null && count ? `${position} / ${visible.length || count}` : data === null ? '- / -' : ''
+  const label = current !== null && count ? spreadCounter(visible.length || count) : data === null ? '- / -' : ''
 
   return (
     <div className={readerClasses(phone, chrome, prefs.mode)}>
@@ -525,7 +530,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
           <SourceLink href={sourceUrl} dramaId={id} className={buttonClass('secondary', 'sm')} />
           {current !== null && count > 0 ? (
-            <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} />
+            <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} label={pagerLabel(visible.length || count)} />
           ) : (
             data === null && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
           )}

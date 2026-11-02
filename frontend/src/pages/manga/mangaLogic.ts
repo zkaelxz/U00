@@ -17,7 +17,7 @@ export interface LastRead {
 
 // Saved chapters have no typeset pages or text boxes; vertical scroll suits
 // both long-strip manhwa and manga, and "Aa" switches to one page at a time.
-export const MANGA_DEFAULTS: ComicPrefs = { mode: 'vertical', rtl: false, fit: 'width', typeset: false, text: false }
+export const MANGA_DEFAULTS: ComicPrefs = { mode: 'vertical', rtl: false, fit: 'width', typeset: false, text: false, spread: 'single', coverAlone: true }
 
 /** A saved series folder is "Title [id]": show only the title. */
 export const seriesTitle = (folder: string) => folder.replace(/ \[[^\]]+\]$/, '') || folder
@@ -26,7 +26,7 @@ const seriesKey = (source: string, series: string) => `${source}/${series}`
 
 export function loadMangaPrefs(storage: StorageLike | null, source: string, series: string): ComicPrefs {
   const raw = readPref<Record<string, unknown>>(storage, `manga.view.${seriesKey(source, series)}`, {})
-  return { ...sanitizePrefs(raw, MANGA_DEFAULTS), typeset: false, text: false }
+  return { ...sanitizePrefs(raw, MANGA_DEFAULTS), typeset: false, text: false, spread: 'single', coverAlone: true }
 }
 
 export function saveMangaPrefs(storage: StorageLike | null, source: string, series: string, prefs: ComicPrefs): boolean {

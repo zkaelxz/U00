@@ -14667,6 +14667,11 @@ export interface components {
          */
         ComicViewPrefs: {
             /**
+             * Coveralone
+             * @default true
+             */
+            coverAlone: boolean;
+            /**
              * Fit
              * @enum {string}
              */
@@ -14678,6 +14683,12 @@ export interface components {
             mode: "vertical" | "paged";
             /** Rtl */
             rtl: boolean;
+            /**
+             * Spread
+             * @default auto
+             * @enum {string}
+             */
+            spread: "auto" | "single" | "double";
             /** Text */
             text: boolean;
             /** Typeset */
