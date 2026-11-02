@@ -2,6 +2,10 @@
 // pasted listing (DI07). Mirrors api/sources_tools_schemas.py and the job
 // results in services/sources_tools_service.py. URLs are scheme+host+path;
 // server text is scrubbed.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
+
 import type { UrlContentType, UrlPreview } from './sourcesImport'
 
 // SO02 result (job sources_url_preflight).
@@ -60,24 +64,4 @@ export interface MediaResourceUrl {
 }
 
 // SO16 row.
-export interface SourceExtraction {
-  url: string
-  created_at: number | null
-  content_type: string
-  headline: string
-  tier: string | null
-  extraction_tier: string | null
-  llm_calls: number
-  cache_hit: boolean
-  profile: string
-  confidence: string | null
-  access: {
-    authentication: string | null
-    entitlement: string | null
-    technical_protection: string | null
-    protection_detail: string[]
-  } | null
-  resource_types: string[]
-  reason: string
-  lines: string[]
-}
+export type SourceExtraction = Schemas['SourceExtraction']

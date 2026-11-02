@@ -2,6 +2,9 @@
 // services/sources_import_service.py (Sources parity SO09, SO06, SO10): the
 // pasted-URL AI fallback, the comic import and Review extraction. Names only; no key ever
 // reaches the browser. URLs are scheme+host+path.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 // GET /api/sources/url/ai-engines
 export interface AiEngines {
@@ -76,24 +79,9 @@ export interface ExtractionNovel {
   number_from: 'title' | 'url'
 }
 
-export interface ExtractionImage {
-  id: number
-  display_url: string | null
-  attr: string
-  width: number
-  height: number
-  role: string
-  // Reading order from 1; 0 = not a page.
-  page: number
-  reason: string
-  has_image: boolean
-}
+export type ExtractionImage = Schemas['ExtractionImage']
 
-export interface ExtractionComic {
-  images: ExtractionImage[]
-  roles: string[]
-  page_count: number
-}
+export type ExtractionComic = Schemas['ExtractionComic']
 
 // Why following next-chapter links stopped.
 type FollowStop =

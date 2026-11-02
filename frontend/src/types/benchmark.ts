@@ -1,4 +1,7 @@
 // Benchmark Lab shapes (api/benchmark_schemas.py); the calls that use them are in api/benchmark.ts.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export type BenchmarkStage = 'translation' | 'transcription' | 'ocr'
 export type BenchmarkTier = 'public' | 'application' | 'regression'
@@ -36,17 +39,7 @@ export interface BenchmarkTranscribeOptions {
 
 /** A translation arm's options: the cases of a title run together, in order, the way a title is translated. A
  * field left out takes what a title's Translate starts with (BenchmarkOptions.translate_choices). */
-export interface BenchmarkTranslateOptions {
-  batch_size?: number
-  context_window?: number
-  context_window_ahead?: number
-  reflect?: boolean
-  style_preset?: string
-  /** A series whose glossary, learned style and character hints the arm translates with. */
-  series_id?: number
-  memory_examples?: boolean
-  temperature?: number
-}
+export type BenchmarkTranslateOptions = Schemas['BenchmarkTranslateOptions']
 
 export interface BenchmarkTranslateChoices {
   style_presets: { key: string; label: string }[]
@@ -60,17 +53,7 @@ export interface BenchmarkTranslateChoices {
 }
 
 /** A run's line timing over the cases that have reference times; only `cases` (0) when none do. */
-export interface BenchmarkTimingSummary {
-  cases: number
-  start_median_ms?: number | null
-  end_median_ms?: number | null
-  /** Share of timed cases whose start and end are both within 0.3 s of the reference. */
-  within?: number | null
-  merged?: number | null
-  split?: number | null
-  missed?: number | null
-  silence?: number | null
-}
+export type BenchmarkTimingSummary = Schemas['BenchmarkTimingSummary']
 
 export interface BenchmarkCaseTiming {
   lines: number
@@ -194,60 +177,13 @@ export interface BenchmarkRunRequest {
 }
 
 /** One output's judge scores, each 0-1. */
-export interface BenchmarkJudgeScore {
-  accuracy: number
-  tone: number
-  naturalness: number
-  overall: number
-}
+export type BenchmarkJudgeScore = Schemas['BenchmarkJudgeScore']
 
-export interface BenchmarkJudgeSummary {
-  engine: string | null
-  model: string | null
-  status: string | null
-  same_as_tested: boolean
-  cost_usd: number
-  scored: number
-  average: Partial<Record<keyof BenchmarkJudgeScore, number | null>>
-  note: string | null
-}
+export type BenchmarkJudgeSummary = Schemas['BenchmarkJudgeSummary']
 
-interface BenchmarkJudgeEstimate {
-  engine: string
-  model: string | null
-  estimated_cost_usd: number
-  cap_applies: boolean
-  same_as_tested: string[]
-  warning: string | null
-}
+export type BenchmarkEstimate = Schemas['BenchmarkEstimate']
 
-interface BenchmarkConfigEstimate {
-  engine: string
-  model: string | null
-  estimated_cost_usd: number
-  cap_applies: boolean
-}
-
-export interface BenchmarkEstimate {
-  stage: string
-  case_count: number
-  configs: BenchmarkConfigEstimate[]
-  estimated_cost_usd: number
-  monthly_cap_usd: number
-  month_spend_usd: number
-  remaining_usd: number | null
-  monthly_refusal: string | null
-  estimate_above_cap: boolean
-  /** Present when the request asked for a judge; estimated_cost_usd already includes it. */
-  judge?: BenchmarkJudgeEstimate | null
-}
-
-export interface BenchmarkRunStarted {
-  job_id: string
-  session_ids: number[]
-  arena_group: string | null
-  estimated_cost_usd: number
-}
+export type BenchmarkRunStarted = Schemas['BenchmarkRunStarted']
 
 /** Traditional vs Simplified in a Chinese transcript; null for other languages and stages. */
 export interface ScriptCounts {
@@ -293,11 +229,7 @@ export interface BenchmarkRun {
 }
 
 /** How often the owner picked this output over another run's (blind A/B). */
-export interface BenchmarkPickTotals {
-  won: number
-  lost: number
-  tie: number
-}
+export type BenchmarkPickTotals = Schemas['BenchmarkPickTotals']
 
 export interface BenchmarkResult {
   case_id: number | null
@@ -332,13 +264,7 @@ interface BenchmarkArenaRow {
 }
 
 /** Cases an Arena comparison skipped, and why. */
-export interface BenchmarkLeftOut {
-  total: number
-  removed: number
-  excluded: number
-  edited: number
-  not_in_every_run: number
-}
+export type BenchmarkLeftOut = Schemas['BenchmarkLeftOut']
 
 export interface BenchmarkArena {
   runs: BenchmarkRun[]
@@ -398,33 +324,11 @@ export interface AddCorrectionsResult {
 }
 
 /** Two outputs for one case in random order; nothing here names the run behind either. */
-export interface BenchmarkPairNext {
-  total: number
-  remaining: number
-  done: boolean
-  case_id?: number | null
-  label?: string | null
-  source_text?: string | null
-  reference_text?: string | null
-  left_text?: string | null
-  right_text?: string | null
-  ticket?: string | null
-}
+export type BenchmarkPairNext = Schemas['BenchmarkPairNext']
 
 export type BenchmarkPickChoice = 'left' | 'right' | 'tie'
 
-export interface BenchmarkPickSummary {
-  run_a: number
-  run_b: number
-  total: number
-  picked: number
-  a_wins: number
-  b_wins: number
-  ties: number
-  judge_agrees: number
-  judge_disagrees: number
-  judge_undecided: number
-}
+export type BenchmarkPickSummary = Schemas['BenchmarkPickSummary']
 
 export interface ClipRowPayload {
   filename: string
