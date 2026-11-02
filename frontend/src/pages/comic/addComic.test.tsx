@@ -33,6 +33,15 @@ describe('cbzPages', () => {
     })
     expect(cbzPages(bytes).map((f) => f.name)).toEqual(['page2.webp', 'page9.png', 'page10.jpg'])
   })
+  it('refuses an archive whose images unpack to more than the limit, before unpacking any', () => {
+    const bytes = zipSync({ 'a.png': new Uint8Array(600), 'b.png': new Uint8Array(600) })
+    expect(() => cbzPages(bytes, 1000)).toThrow(/more than \d+ GB/)
+    expect(cbzPages(bytes, 1200)).toHaveLength(2)
+  })
+  it('counts only the images toward the limit', () => {
+    const bytes = zipSync({ 'a.png': new Uint8Array(600), 'notes.txt': new Uint8Array(5000) })
+    expect(cbzPages(bytes, 1000)).toHaveLength(1)
+  })
   it('is empty for an archive with no images', () => {
     expect(cbzPages(zipSync({ 'a.txt': new Uint8Array([1]) }))).toEqual([])
   })
