@@ -3,6 +3,8 @@ package app.baihe.shell;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.webkit.CookieManager;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.webkit.WebResourceRequest;
@@ -14,6 +16,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
 
+import java.io.File;
 import java.security.SecureRandom;
 
 /** Shows Baihe in a full-screen WebView and routes shared links to its Sources page. */
@@ -24,6 +27,7 @@ public class MainActivity extends Activity {
     private static final String SIGN_IN_STARTED = "sign_in_started";
 
     private WebView web;
+    private boolean updateChecked;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -36,6 +40,12 @@ public class MainActivity extends Activity {
         // credentials must not be typed into a view this app controls, so every other
         // address (shared links, sign-in redirects) opens in the system browser.
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                String address = savedAddress();
+                if (address != null && ServerAddress.sameOrigin(address, url)) checkForUpdate(address);
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
@@ -158,6 +168,48 @@ public class MainActivity extends Activity {
             return;
         }
         web.postUrl(AppSignIn.redeemUrl(address), AppSignIn.redeemBody(code, verifier));
+    }
+
+    /**
+     * Once per launch, after Baihe has loaded (so the session cookie exists): asks the server
+     * whether it holds a newer build. A server that offers none, or a signed-out one, is silent.
+     */
+    private void checkForUpdate(String address) {
+        if (updateChecked) return;
+        updateChecked = true;
+        String cookie = CookieManager.getInstance().getCookie(address);
+        new Thread(() -> {
+            long offered = AppUpdate.check(address, cookie);
+            if (offered > 0 && AppUpdate.isNewer(installedVersion(), offered)) {
+                runOnUiThread(() -> offerUpdate(address, cookie));
+            }
+        }).start();
+    }
+
+    // getLongVersionCode needs API 28 and this app supports 26; versionCode is an int below 2^31 here.
+    @SuppressWarnings("deprecation")
+    private long installedVersion() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return info.versionCode;
+        } catch (Exception e) {
+            // Unknown installed build: report the newest so no update is offered by mistake.
+            return Long.MAX_VALUE;
+        }
+    }
+
+    private void offerUpdate(String address, String cookie) {
+        if (isFinishing() || isDestroyed()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Update Available")
+                .setPositiveButton("Install update", (d, w) -> new Thread(() -> {
+                    File dir = new File(getCacheDir(), "updates");
+                    dir.mkdirs();
+                    File apk = new File(dir, "baihe-shell.apk");
+                    if (AppUpdate.download(address, cookie, apk)) AppUpdate.install(getApplicationContext(), apk);
+                }).start())
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     private SharedPreferences prefs() {
