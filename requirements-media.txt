@@ -4,4 +4,4 @@
 faster-whisper>=1.2.1
 pydub>=0.25.1
 opencv-contrib-python>=4.8.1.78,<5
-pillow>=12.3
+pillow>=13.0
