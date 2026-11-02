@@ -10,7 +10,8 @@ android {
         applicationId = "app.baihe.shell"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
+        // Each build offered as an update must be higher than the one it replaces.
+        versionCode = (project.findProperty("baiheVersionCode") as String?)?.toInt() ?: 1
         versionName = "0.1"
     }
 
