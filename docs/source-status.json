@@ -173,14 +173,6 @@
       "pace": "Fast off: robots.txt and terms could not be retrieved.",
       "pace_verified": "2026-10-09"
     },
-    "ranobes": {
-      "status": "unvetted",
-      "last_verified": "",
-      "reason": "Content status not recorded here; only the pace note is.",
-      "notes": "",
-      "pace": "Fast off: robots.txt disallows /chapters/*/page/* which the adapter fetches for pages 2+; rules.html is silent on automated access.",
-      "pace_verified": "2026-10-09"
-    },
     "rawkuma": {
       "status": "caveat",
       "last_verified": "2026-11-01",
