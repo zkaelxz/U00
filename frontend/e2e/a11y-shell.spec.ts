@@ -70,7 +70,7 @@ test.describe('Line history', () => {
 test('the Sources "search in" switches stay in columns on a wide screen', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/#/sources')
-  const grid = page.locator('.sources-search-in')
+  const grid = page.locator('.sources-search-in').first()
   await expect(grid.locator('.toggle').first()).toBeVisible()
   const columns = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)
   expect(columns).toBeGreaterThan(1)
