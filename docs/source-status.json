@@ -188,7 +188,8 @@
       "notes": "",
       "hosts": [
         "rawkuma.net",
-        "cdn.rawkuma.com"
+        "cdn.rawkuma.com",
+        "raw.senmanga.com"
       ],
       "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
       "pace_verified": "2026-11-01"
