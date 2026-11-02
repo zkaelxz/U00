@@ -35,7 +35,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, HouseholdGate,
                       public_api_paths)
 from api.device_token_paths import device_token_paths
 from api.error_handlers import install_error_handlers
-from api.json_body_cap import JsonBodyCapGate, json_body_matchers
+from api.json_body_cap import JsonBodyCapGate, multipart_matchers
 from api.remote_uploads import RemoteUploadGate, upload_matchers
 from api.routers import (
     admin_users_routes,
@@ -265,7 +265,7 @@ def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
     """Each add_middleware wraps the ones added before it, so the last one
     added runs first on a request."""
     # Innermost, so a sign-in or cross-site refusal comes before a size one.
-    app.add_middleware(JsonBodyCapGate, json_routes_fn=lambda: json_body_matchers(app))
+    app.add_middleware(JsonBodyCapGate, multipart_routes_fn=lambda: multipart_matchers(app))
     if settings.auth_enabled:
         # Innermost: gives each request a holder for "who started this job"
         # (api.auth.ActingPrincipalMiddleware).

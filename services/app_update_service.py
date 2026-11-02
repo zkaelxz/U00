@@ -357,7 +357,7 @@ def apply() -> dict:
     if us.setup_busy():
         with _lock:
             _applying = False
-        raise ConflictError("An app update is already starting.")
+        raise ConflictError(us.SETUP_OPEN)
     try:
         return _apply()
     finally:
