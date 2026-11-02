@@ -197,3 +197,77 @@ def test_text_and_paths_stay_off_the_command_line(fake_venv, monkeypatch):
     assert seen["cmd"][:4] == [sys.executable, "-I", "-X", "utf8"]
     assert not any("你好" in part or "a.wav" in part for part in seen["cmd"])
     assert json.dumps(seen["cmd"]).count("voice_spec_") == 1
+
+
+class _FakeQwenModel:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def create_voice_clone_prompt(self, ref_audio, ref_text, x_vector_only_mode):
+        self.calls.append(("prompt", ref_audio, ref_text, x_vector_only_mode))
+        return [f"prompt:{ref_audio}"]
+
+    def generate_voice_clone(self, text, language, voice_clone_prompt):
+        self.calls.append(("speak", text, language, voice_clone_prompt))
+        return [[0.0, 0.1]], 24000
+
+
+def _fake_qwen_stack(monkeypatch, major):
+    import types
+    calls, written = [], []
+    torch = types.SimpleNamespace(
+        bfloat16="bf16", float16="fp16", float32="fp32",
+        cuda=types.SimpleNamespace(is_available=lambda: True,
+                                   # True on Volta too: it counts emulated bfloat16.
+                                   is_bf16_supported=lambda: True,
+                                   get_device_capability=lambda: (major, 0)))
+    qwen_tts = types.SimpleNamespace(Qwen3TTSModel=types.SimpleNamespace(
+        from_pretrained=lambda name, **kw: (calls.append(("load", name, kw)),
+                                            _FakeQwenModel(calls))[1]))
+    soundfile = types.SimpleNamespace(write=lambda path, wav, rate: written.append((path, rate)))
+    for name, module in (("torch", torch), ("qwen_tts", qwen_tts), ("soundfile", soundfile)):
+        monkeypatch.setitem(sys.modules, name, module)
+    return calls, written
+
+
+def test_qwen3_tts_adapter_builds_each_voice_once_and_maps_languages(monkeypatch):
+    calls, written = _fake_qwen_stack(monkeypatch, major=8)
+    items = [{"id": "0", "text": "你好", "language": "zh", "ref_audio": "a.wav", "ref_text": "嗯",
+              "out": "0.wav"},
+             {"id": "1", "text": "Hi", "language": "en", "ref_audio": "a.wav", "ref_text": "嗯",
+              "out": "1.wav"},
+             {"id": "2", "text": "안녕", "language": "xx", "ref_audio": "b.wav", "ref_text": "",
+              "out": "2.wav"}]
+    events = []
+    voice_worker.run({"engine": "qwen3_tts", "options": {}, "items": items}, events.append)
+    assert events == [{"loaded": True}, {"done": "0"}, {"done": "1"}, {"done": "2"}]
+    assert calls[0] == ("load", voice_worker.QWEN3_TTS_MODEL,
+                        {"device_map": "cuda:0", "dtype": "bf16"})
+    prompts = [c for c in calls if c[0] == "prompt"]
+    # One prompt per voice; a clip with no transcript uses only the speaker embedding.
+    assert prompts == [("prompt", "a.wav", "嗯", False), ("prompt", "b.wav", None, True)]
+    assert [c[2] for c in calls if c[0] == "speak"] == ["Chinese", "English", "Auto"]
+    assert written == [("0.wav", 24000), ("1.wav", 24000), ("2.wav", 24000)]
+
+
+def test_qwen3_tts_uses_half_precision_where_bfloat16_is_missing(monkeypatch):
+    calls, _ = _fake_qwen_stack(monkeypatch, major=7)    # a Volta card such as a V100
+    voice_worker.run({"engine": "qwen3_tts", "items": []}, lambda e: None)
+    assert calls[0][2]["dtype"] == "fp16"
+
+
+def test_the_worker_exits_once_nobody_reads_its_output(monkeypatch):
+    monkeypatch.setattr(voice_worker, "PARENT_CHECK_SECONDS", 0)
+    writes = []
+
+    def write(text):
+        writes.append(text)
+        if len(writes) == 3:
+            raise BrokenPipeError
+
+    def exit_(code):
+        raise SystemExit(code)
+    monkeypatch.setattr(voice_worker.os, "_exit", exit_)
+    with pytest.raises(SystemExit):
+        voice_worker._exit_when_orphaned(write)
+    assert writes == ["\n"] * 3

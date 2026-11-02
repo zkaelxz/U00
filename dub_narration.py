@@ -4,13 +4,14 @@ assembly and M4B audiobook export. Split out of dub.py; depends on dub's
 voice and clip helpers, never the other way round.
 """
 
+import contextlib
 import os
 import re
 from memory_headroom import HeadroomError
 from novel_text import NOVEL_SOURCE_FILENAME, is_chapter_heading, narration_paragraph_ends  # noqa: F401 (re-exported)
 
-from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, clip_signature,
-                 _synthesize_cloned, _voice_for_signature)
+from dub import (NO_VOICE_ERROR, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
+                 clip_signature, speak_in_venv, _synthesize_cloned, _voice_for_signature)
 
 
 # Novel narration generates a text unit of up to this many characters in
@@ -48,6 +49,54 @@ def _narration_steps(lines, character_clone_map, paragraph_ends, narrate_origina
         if heading or (paragraph_ends is not None and ln.idx in paragraph_ends):
             current = None
     return steps
+
+
+def _partial_path(unit) -> str:
+    return unit["clip_path"][:-len(".wav")] + ".partial.wav"
+
+
+def _generate_units(units, generate, record, language: str, clips_dir: str) -> None:
+    """Calls record(unit, error) for every unit: a stored error, a clip kept from an
+    earlier run, or a new clip. VENV_ENGINES units are spoken first, one batch per engine
+    so its model loads once, before OmniVoice loads its own model into this process and
+    takes GPU memory the venv's model needs."""
+    in_venv, local = {}, []
+    for unit in units:
+        if unit["error"]:
+            record(unit, unit["error"])
+        elif os.path.exists(unit["clip_path"]):
+            record(unit, None)
+        elif unit["clone"].get("engine") in VENV_ENGINES:
+            in_venv.setdefault(unit["clone"]["engine"], []).append(unit)
+        else:
+            local.append(unit)
+    if in_venv:
+        # A cancel kills the batch before it can remove its spec, which holds the text.
+        for name in os.listdir(clips_dir):
+            if name.startswith("voice_spec_") and name.endswith(".json"):
+                os.remove(os.path.join(clips_dir, name))
+    for engine, batch in in_venv.items():
+        requests = [{"text": u["text"], "out": _partial_path(u), "language": language,
+                     "ref_audio": u["clone"]["ref_audio"], "ref_text": u["clone"].get("ref_text")}
+                    for u in batch]
+        with contextlib.closing(speak_in_venv(engine, requests, clips_dir)) as spoken:
+            for i, error in spoken:
+                record(batch[i], error if error else _keep_partial(requests[i]["out"],
+                                                                   batch[i]["clip_path"]))
+                if error and os.path.exists(requests[i]["out"]):
+                    os.remove(requests[i]["out"])
+    for unit in local:
+        record(unit, generate(unit))
+
+
+def _keep_partial(partial: str, clip_path: str):
+    """None once the finished clip is in place, else the line's fixed error (a locked file
+    on Windows; OSError text names both paths)."""
+    try:
+        os.replace(partial, clip_path)
+        return None
+    except OSError:
+        return VENV_LINE_FAILED
 
 
 def build_narration_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
@@ -112,7 +161,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
         # Cancel (which kills the process, possibly mid-write) never leaves
         # a partial clip behind for the next run's "already exists" check
         # to reuse.
-        partial = unit["clip_path"][:-len(".wav")] + ".partial.wav"
+        partial = _partial_path(unit)
         try:
             call_with_backoff(lambda: _synthesize_cloned(unit["clone"], unit["text"], partial))
             os.replace(partial, unit["clip_path"])
@@ -133,13 +182,8 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
         if progress_cb:
             progress_cb(finished / len(units))
 
-    for unit in units:
-        if unit["error"]:
-            record(unit, unit["error"])
-        elif os.path.exists(unit["clip_path"]):
-            record(unit, None)
-        else:
-            record(unit, generate(unit))
+    _generate_units(units, generate, record, source_language if narrate_original else "en",
+                    clips_dir)
 
     track = AudioSegment.silent(duration=0)
     cursor_ms = 0

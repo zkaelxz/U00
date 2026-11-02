@@ -25,6 +25,7 @@ import memory_headroom
 # where the loader uses it. Low on purpose: see the module docstring.
 MODEL_VRAM_MB = {
     "OmniVoice": 2000,
+    "Qwen3-TTS": 4000,      # the 1.7B Base model: about 3.4 GB of weights in half precision
     "PaddleOCR-VL-For-Manga": 3000,
 }
 
