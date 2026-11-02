@@ -4,8 +4,9 @@ fetches of a user- or site-supplied URL.
 
 `resolve_public(url)` accepts http(s) URLs only (no userinfo) whose host
 resolves, and whose EVERY resolved address is global: private, loopback,
-link-local, reserved, multicast and v4-mapped non-global addresses are
-refused before any connection. It returns the first validated address so
+link-local, reserved, multicast and v4-mapped non-global addresses, and the
+home's own public addresses (`set_home_addresses`), are refused before any
+connection. It returns the first validated address so
 the caller can pin its connection to it.
 
 Callers: `lib.http` (and through it `services.safe_fetch`,
@@ -31,6 +32,31 @@ RESOLVE_FAILED = "The address could not be resolved."
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 _SIXTOFOUR = ipaddress.ip_network("2002::/16")
 _SITE_LOCAL = ipaddress.ip_network("fec0::/10")
+
+
+# This home's own public addresses (set_home_addresses). A router that serves
+# its admin page to hairpin traffic would hand that page to a fetch of the
+# home's WAN address, so these are refused like private ones.
+_home_networks: tuple = ()
+
+
+def set_home_addresses(addresses) -> None:
+    """Replaces the home's own public addresses. An IPv6 address stands for
+    its /64, which is the home network, so other devices there are refused
+    too. Non-global addresses are ignored: they are refused anyway."""
+    global _home_networks
+    networks = set()
+    for addr in addresses:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if ip.is_global:
+            networks.add(ipaddress.ip_network(f"{ip}/{64 if ip.version == 6 else 32}",
+                                              strict=False))
+    _home_networks = tuple(networks)
 
 
 class UnsafeURLError(ValueError):
@@ -75,7 +101,8 @@ def resolve_public(url: str) -> str:
         # ::/96 (inside reserved ::/8, so ::7f00:1 names 127.0.0.1 on a stack
         # that still maps it) and deprecated site-local fec0::/10 as global.
         if (not ip.is_global or ip.is_multicast or ip.is_reserved or ip in _NAT64
-                or ip in _SIXTOFOUR or ip in _SITE_LOCAL):
+                or ip in _SIXTOFOUR or ip in _SITE_LOCAL
+                or any(ip in net for net in _home_networks)):
             raise UnsafeURLError(NOT_PUBLIC)
         if pinned is None:
             pinned = raw_ip
