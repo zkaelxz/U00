@@ -65,6 +65,7 @@ export interface SettingsPreferences extends TimingPreferences {
   default_style_note: string
   scene_aware_batches: boolean // translate batches start at scene breaks
   translate_reply_guard: string // auto | on | off
+  translate_alignment_check: boolean // flag lines whose English doesn't match the source (bge-m3 via Ollama)
   episode_summary_engine: string
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies
   max_upload_mb: number // media/backup upload cap; BAIHE_MAX_UPLOAD_MB wins when set

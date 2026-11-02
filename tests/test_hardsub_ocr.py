@@ -659,3 +659,27 @@ class TestQwen3VlHardsub:
         monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", region)
         with pytest.raises(RuntimeError):
             self._run(tmp_path, "rapidocr")
+
+    def test_cancel_stops_a_slow_vision_frame_and_the_job_ends_cancelled_not_on_rapidocr(self, frames, monkeypatch, tmp_path):
+        import background_jobs
+        cancelled = {"on": False}
+        calls = []
+
+        def region(path, region, lang, backend, should_stop=None, **k):
+            calls.append(backend)
+            cancelled["on"] = True          # Cancel arrives while the model is generating
+            assert should_stop() is True    # generate() would see this and stop early
+            return "partial"
+
+        def cancel():
+            if cancelled["on"]:
+                raise background_jobs.JobCancelled("j")
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", region)
+        with pytest.raises(background_jobs.JobCancelled):
+            hardsub_ocr.extract_hardsub_subtitles(
+                "/fake.mp4", language="zh", ocr_backend="qwen3_vl_4b", tmp_dir=str(tmp_path),
+                cancel_check=cancel, job_id="j")
+        assert calls == ["qwen3_vl_4b"]     # no RapidOCR retry of the cancelled frame
+
+    def test_without_a_cancel_check_there_is_no_stop_probe(self):
+        assert hardsub_ocr._cancel_probe(None) is None
