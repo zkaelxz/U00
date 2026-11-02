@@ -1,4 +1,7 @@
 // Hand-written mirrors of api/schemas/translate.py and common.py (Translate-standalone models).
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export interface TranslateEngine {
   name: string
@@ -21,22 +24,9 @@ export interface EngineList {
   default_engine: string | null
 }
 
-export interface TranslateHistoryEntry {
-  source_language: string
-  target_language: string
-  engine: string
-  source_text: string
-  translated_text: string
-  created_at: string | null
-}
+export type TranslateHistoryEntry = Schemas['TranslateHistoryEntry']
 
-export interface TranslateRequest {
-  text: string
-  engine: string
-  source_language: string
-  target_language: string
-  model?: string | null
-}
+export type TranslateRequest = Schemas['TranslateRequest']
 
 export interface TranslateResult {
   translated_text: string
