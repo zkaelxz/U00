@@ -610,7 +610,11 @@ jobs:
           fi
           flags=""
           case "$version" in *-*) flags="--prerelease" ;; esac
+          # Fixed short notes: generated notes list every commit since the previous
+          # release, and GitHub refuses a body over 125000 characters (the first
+          # release has no previous one, so it lists the whole history).
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --generate-notes $flags \
+            --verify-tag $flags \
             --title "Baihe Studio $version" \
+            --notes "Baihe Studio $version. Check the installer against its .sha256 file before you run it." \
             "${assets[@]}"
