@@ -1,6 +1,10 @@
 // Hand-written mirrors of api/schemas/review.py (Restructure*, Resegment*,
 // RestoreVersion*). Every write sends `expected_line_ids`: the drama's line
 // ids, in order, as the client last saw them; any difference is a 409.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
+
 import type { ReviewLine } from './review'
 
 export interface RestructureAddLine {
@@ -14,16 +18,7 @@ export interface RestructureAddLine {
   speaker?: string | null
 }
 
-export interface RestructureSplit {
-  expected_line_ids: number[]
-  // Offsets count Unicode code points (Python str indices), not UTF-16 units.
-  at_char: number
-  expected_zh: string
-  at_time?: number | null
-  en_at_char?: number | null
-  // The translation en_at_char counts in (409 when it changed since).
-  expected_en?: string
-}
+export type RestructureSplit = Schemas['RestructureSplit']
 
 export interface RestructureResult {
   // The drama's line ids after the change, in order.
@@ -65,10 +60,7 @@ export interface ResegmentStart {
 
 // Parity R47: an LLM re-segmentation worked out as a preview (writes no lines).
 // Blank fields are left out: the drama's engine and the engine's model apply.
-export interface ResegmentLlmPreviewStart {
-  engine?: string
-  model?: string
-}
+export type ResegmentLlmPreviewStart = Schemas['ResegmentLlmPreviewStart']
 
 // The rules preview's shape plus the engine that made it. There is no cost
 // figure: the LLM usage is logged server-side with the drama's usage.
@@ -76,46 +68,17 @@ export interface ResegmentLlmPreview extends ResegmentPreview {
   engine: string
 }
 
-export interface ResegmentStarted {
-  job_id: string
-  drama_id: number
-}
+export type ResegmentStarted = Schemas['ResegmentStarted']
 
-export interface RestoreVersionResult {
-  history_id: number
-  line_ids: number[]
-}
+export type RestoreVersionResult = Schemas['RestoreVersionResult']
 
 // POST /api/restructure/dramas/{id}/resplit: the finished summary (estimated
 // timing) or, with align_to_audio, the started job.
-export interface ResplitStart {
-  expected_line_ids: number[]
-  align_to_audio: boolean
-  confirm: boolean
-  // Omitted: only the fresh-transcription limits (and max_seconds, if set).
-  sensitivity?: ResplitSensitivity
-  max_seconds?: number | null
-  dry_run?: boolean
-}
+export type ResplitStart = Schemas['ResplitStart']
 
 export type ResplitSensitivity = 'more' | 'sentence'
 
-export interface ResplitResult {
-  job_id?: string | null
-  drama_id?: number | null
-  split_lines?: number | null
-  lines_before?: number | null
-  line_count?: number | null
-  timing?: string | null
-  aligned_lines?: number | null
-  cleared_translations?: number | null
-  speakers_reassigned?: boolean | null
-  note?: string | null
-  dry_run?: boolean | null
-  pieces?: number | null
-  history_id?: number | null
-  lines_fingerprint?: string | null
-}
+export type ResplitResult = Schemas['ResplitResult']
 
 export interface ReassignResult {
   changed: number
