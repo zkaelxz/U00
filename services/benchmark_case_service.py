@@ -154,6 +154,10 @@ def run_translation(engine, case: dict, key: str | None = None) -> dict:
     started = time.monotonic()
     usage = None
     stop_reason = ""
+    if isinstance(getattr(engine, "last_usage", None), dict):
+        # A failure before the engine reports anything must not inherit the previous case's tokens.
+        engine.last_usage = {"input_tokens": 0, "output_tokens": 0,
+                             "cache_read_tokens": 0, "cache_write_tokens": 0}
     try:
         # Same retry as a normal translation: a transient 429/5xx shouldn't
         # score 0 and skew the Arena.
@@ -172,6 +176,9 @@ def run_translation(engine, case: dict, key: str | None = None) -> dict:
         usage = getattr(engine, "last_usage", None)
     except Exception as exc:
         output_text, error = "", redact(exc, key)
+        # A reply that was billed and then rejected (truncated, unparseable) still cost tokens.
+        reported = getattr(engine, "last_usage", None)
+        usage = reported if reported and any(reported.values()) else None
         stop_reason = paid_calls.stop_reason_for(exc)
     cost = 0.0
     if usage:

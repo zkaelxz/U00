@@ -106,6 +106,22 @@ class TestChapters:
         assert [c.chapter_id for c in chapters] == ["5", "10", "20", "30", "999"]
         assert chapters[2].title == "Ep 20"
 
+    def test_a_277_chapter_series_is_listed_whole_in_reading_order(self):
+        # 20 on the series page plus 13 JSON pages (the last holds 17); newest first, as the site lists them.
+        ids = list(range(277, 0, -1))
+        marker = '<div data-chapters-url="/comics/12/chapters" data-chapter-next-page="2"></div>'
+        routes = {f"{BASE}/comics/12": html(_series_page(ids[:20], marker).replace(
+            '<a href="/comics/12/chapters/999">elsewhere?</a>', ""))}
+        rest = ids[20:]
+        pages = [rest[i:i + 20] for i in range(0, len(rest), 20)]
+        for n, chunk in enumerate(pages, start=2):
+            routes[f"{BASE}/comics/12/chapters?page={n}"] = html(
+                _chapters_json([(c, f"Ep {c}") for c in chunk], n < len(pages) + 1))
+        a, t = _adapter(routes)
+        chapters = a.get_chapters("12")
+        assert [c.chapter_id for c in chapters] == [str(i) for i in range(1, 278)]
+        assert len(t.calls) == 1 + len(pages)
+
     def test_a_list_that_never_ends_is_a_layout_change_not_a_silent_cut(self, monkeypatch):
         monkeypatch.setattr(newxtoon, "MAX_LIST_PAGES", 3)
         marker = '<div data-chapters-url="/comics/12/chapters"></div>'
