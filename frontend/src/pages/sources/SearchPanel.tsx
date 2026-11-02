@@ -126,7 +126,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
             </p>
             {groupSourcesByLanguageAndKind(searchable).map((lang) => (
               <div key={lang.language} className="sources-search-lang">
-                <h4>{lang.label}</h4>
+                <h2>{lang.label}</h2>
                 {lang.kinds.map((kind) => (
                   <div key={kind.kind} className="sources-search-kind">
                     <p className="muted">{kind.label}</p>

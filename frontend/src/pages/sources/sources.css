@@ -21,7 +21,7 @@
 }
 
 .sources-search-lang { display: grid; gap: var(--space-1); margin-top: var(--space-3); }
-.sources-search-lang h4, .sources-search-kind p { margin: 0; }
+.sources-search-lang h2, .sources-search-kind p { margin: 0; }
 
 /* Search */
 .sources-search { display: grid; gap: var(--space-2); }
