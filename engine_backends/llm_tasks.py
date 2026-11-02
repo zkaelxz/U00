@@ -178,6 +178,16 @@ def _deadline_for(scope: _BoundedScope, engine) -> float:
     return max(LLM_TASK_DEADLINE_SECONDS, request_deadline_for(engine))
 
 
+def abandoned_request_alive(job_id: str) -> bool:
+    """True while a request this job gave up on (Cancel, or its deadline) is still running at the provider."""
+    with _abandoned_lock:
+        old = _abandoned.get(job_id)
+        return old is not None and old.is_alive()
+
+
+PREVIOUS_REQUEST_MESSAGE = "The previous AI request is still finishing. Wait a minute and try again."
+
+
 def _engine_key(engine) -> str:
     return getattr(engine, "name", None) or type(engine).__name__
 
@@ -243,8 +253,7 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
             if not busy:
                 _abandoned.pop(scope.job_id, None)
         if busy:
-            raise LLMTaskTimeout(
-                "The previous AI request is still finishing. Wait a minute and try again.")
+            raise LLMTaskTimeout(PREVIOUS_REQUEST_MESSAGE)
         if scope.job_id is None:
             slots.append(worker)
         worker.start()

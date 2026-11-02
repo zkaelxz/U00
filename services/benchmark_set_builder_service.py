@@ -170,6 +170,7 @@ def build_set(principal, drama_id: int, set_name: str, include: str = "reviewed"
             f"{title[:80]} · lines {first['idx'] + 1}-{last['idx'] + 1}", "translation", lang,
             source, reference, "application", set_name,
             content_type=drama.get("content_mode") or "audio_drama",
-            origin_drama_id=drama_id, origin_line_id=first["id"])
+            origin_drama_id=drama_id, origin_line_id=first["id"],
+            title=title[:60], scene_order=first["idx"] + 1)
         result["added"] += 1
     return result

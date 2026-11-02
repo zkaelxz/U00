@@ -83,7 +83,7 @@ export function keyWritesRefused(): string {
   if (s.status === 'ready' && !holdsSettings && !atPc) return ASK_PC_OWNER
   const base = 'Change this on the Baihe PC with key writes on.'
   return atPc || holdsSettings
-    ? `${base} Details: start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1.`
+    ? `${base} Details: start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1. For an installed copy, add that line to the .env in the Baihe data folder and run Setup again.`
     : base
 }
 

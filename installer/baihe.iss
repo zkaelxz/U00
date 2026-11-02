@@ -93,6 +93,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 Name: "service"; Description: "Run Baihe Studio in the &background from startup (a Windows service; Setup asks for administrator permission)"; GroupDescription: "Startup:"
+; Off by default: other Windows accounts on this PC can reach the service's
+; port, so saving keys through it is the owner's choice (it writes
+; BAIHE_API_ALLOW_KEY_WRITES=1 to the data folder's .env).
+Name: "service\keywrites"; Description: "Allow saving API keys in Settings (other accounts on this PC could change them too)"; Flags: unchecked dontinheritcheck
 
 [InstallDelete]
 ; An upgrade replaces the code wholesale (so a deleted module can't linger).
@@ -153,6 +157,9 @@ var
   DeleteLibrary, DeleteSettings, DeleteModels, CleanAll: Boolean;
   LibraryBox, SettingsBox, ModelsBox, CleanBox: TNewCheckBox;
   PrevLibrary, PrevSettings, PrevModels: Boolean;
+  // True once any earlier Setup run had the key-writes task ticked, read
+  // before this run's RegisterPreviousData overwrites it.
+  SetupOwnsKeyWrites: Boolean;
 
 const
   CreatedFlagLine = '# created-by-setup';
@@ -424,11 +431,34 @@ begin
   if Initial = '' then
     Initial := GetPreviousData('DataDir', DefaultDataDir());
   DataDirPage.Values[0] := Initial;
+  SetupOwnsKeyWrites := GetPreviousData('KeyWrites', '') <> '';
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
+var
+  KeyWrites: String;
 begin
   SetPreviousData(PreviousDataKey, 'DataDir', DataDir());
+  // Stored before the install step runs, so '0' (not '') keeps a failed
+  // removal pending: the next run sends off again.
+  KeyWrites := '';
+  if WizardIsTaskSelected('service\keywrites') then
+    KeyWrites := '1'
+  else if SetupOwnsKeyWrites then
+    KeyWrites := '0';
+  SetPreviousData(PreviousDataKey, 'KeyWrites', KeyWrites);
+end;
+
+// Ticked: the .env turns key writes on. Unticked once the box has ever been
+// ticked: the line goes, on every run. Otherwise the .env is left alone, so a
+// line the owner added by hand before this box existed survives an upgrade.
+function KeyWritesArg(): String;
+begin
+  Result := '';
+  if WizardIsTaskSelected('service\keywrites') then
+    Result := ' --key-writes on'
+  else if SetupOwnsKeyWrites then
+    Result := ' --key-writes off';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -684,7 +714,7 @@ begin
   WizardForm.FilenameLabel.Caption := '';
   Params := '-s "' + ExpandConstant('{app}\app\installer\postinstall.py') + '"' +
     ' --wheels "' + ExpandConstant('{app}\wheels') + '"' +
-    ' --data-dir "' + DataDir() + '"';
+    ' --data-dir "' + DataDir() + '"' + KeyWritesArg();
   if DataDirCreatedBySetup then
     Params := Params + ' --data-dir-created';
   // Only a folder made just now is limited to this account; an update

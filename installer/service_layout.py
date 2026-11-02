@@ -41,6 +41,17 @@ APP_STATE_ENTRIES = frozenset({"pending_install", "playwright_browsers", "saved_
                                "vtuber_names.json"})
 
 
+# Copies a restore or Reset library keeps beside library\ (deleted from
+# Library tools > Storage on request), and the restore's lock file, which a
+# restore that crashed leaves behind: Baihe's own, so they must not make
+# Setup refuse the data folder on every later upgrade. Only the names Baihe
+# gives them (a time stamp; tempfile.mkdtemp's suffix), so a folder someone
+# else called library.pre_restore_... still counts as foreign.
+KEPT_LIBRARY_NAME = re.compile(
+    r"library\.pre_(?:restore|reset)_[0-9]+|\.restore_staging_[a-z0-9_]+|library\.restore-lock",
+    re.ASCII)
+
+
 class ServiceError(Exception):
     """A plain-words reason a step failed (exit code 1)."""
 
@@ -158,7 +169,8 @@ def data_folder_contents_problem(data) -> str:
     except OSError as e:
         return f"The data folder can't be read ({e.strerror})."
     others = sorted(n for n in names
-                    if n.lower() not in DATA_FOLDER_ENTRIES and n.lower() not in APP_STATE_ENTRIES)
+                    if n.lower() not in DATA_FOLDER_ENTRIES and n.lower() not in APP_STATE_ENTRIES
+                    and not KEPT_LIBRARY_NAME.fullmatch(n.lower()))
     if others:
         shown = ", ".join(others[:5]) + (", ..." if len(others) > 5 else "")
         return ("The data folder has files Baihe Studio didn't put there (" + shown + "). "

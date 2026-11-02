@@ -18,7 +18,7 @@ const FRESH: SetupReadiness = {
   key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false,
   ollama_reachable: false, ollama_model_pulled: false,
   whisper_cached_tiny: false, whisper_cached_base: false, whisper_cached_small: false, whisper_cached_medium: false,
-  whisper_cached_large_v3_turbo: false,
+  whisper_cached_large_v3_turbo: false, whisper_cached_large_v3: false,
 }
 const READY: SetupReadiness = Object.fromEntries(Object.keys(FRESH).map((k) => [k, true])) as unknown as SetupReadiness
 

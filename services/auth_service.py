@@ -549,9 +549,11 @@ def _is_live(sess: dict, now: float) -> bool:
     return now < _expires_at(sess) and now - sess["last_seen_at"] < IDLE_TIMEOUT_SECONDS
 
 
-def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float | None = None) -> dict:
+def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float | None = None,
+                   label: str | None = None) -> dict:
     """Returns the raw session token and CSRF token exactly once. Of the
-    device, only a coarse label (device_label) and IP prefix are stored."""
+    device, only a coarse label (device_label, or the fixed `label` a
+    caller names) and IP prefix are stored."""
     row = _require_user(user_id)
     if not row["is_active"]:
         raise NotFoundError("User not found.")
@@ -559,7 +561,7 @@ def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float 
     token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     sid = db.auth_insert_session(
         _hash(token), user_id, now, now + ABSOLUTE_TIMEOUT_SECONDS,
-        device_label(user_agent), ip_prefix(ip), _hash(csrf))
+        label or device_label(user_agent), ip_prefix(ip), _hash(csrf))
     write_audit(user_id, "session.create", f"session {sid}")
     return {"session_token": token, "csrf_token": csrf, "session_id": sid,
             "expires_at": now + ABSOLUTE_TIMEOUT_SECONDS}
@@ -666,6 +668,30 @@ def sweep_stale_sessions(now: float | None = None) -> int:
     if n:
         write_audit(None, "session.sweep", f"{n} stale")
     return n
+
+
+# Rows older than this are deleted at startup. Newer rows are never touched,
+# whatever their action, so recent security events stay reviewable.
+AUDIT_RETENTION_DAYS = 30
+_AUDIT_PRUNE_BATCH = 500
+
+
+def prune_audit_log(now: float | None = None) -> int:
+    """Startup clean-up: deletes activity-log rows older than
+    AUDIT_RETENTION_DAYS in small batches so no single write transaction runs
+    long. Returns how many rows were removed."""
+    now = time.time() if now is None else now
+    cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                           time.gmtime(now - AUDIT_RETENTION_DAYS * 86400))
+    total = 0
+    while True:
+        n = db.auth_delete_audit_before(cutoff, _AUDIT_PRUNE_BATCH)
+        total += n
+        if n < _AUDIT_PRUNE_BATCH:
+            break
+    if total:
+        write_audit(None, "audit.prune", f"{total} older than {AUDIT_RETENTION_DAYS} days")
+    return total
 
 
 # --- the signed-in user's own devices ------------------------------------------

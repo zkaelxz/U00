@@ -25,6 +25,8 @@ from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
 from tests.saved_settings import patch_setting
 from tests.job_helpers import wait_for_job
 
+pytestmark = pytest.mark.usefixtures("whisper_present")
+
 
 class EchoEngine:
     """Paid-looking engine: returns the reference-ish text from a table."""
@@ -875,3 +877,11 @@ class TestLabBugHunt:
         runs._check_same_metric([{"score": 1.0, "metric": "cer"}, {"score": 0.4, "metric": "chrf"}])
         with pytest.raises(InvalidInputError):
             runs._check_same_metric([{"score": 1.0, "metric": "similarity"}, {"score": 0.4, "metric": "chrf"}])
+
+
+def test_a_whisper_arm_is_refused_when_faster_whisper_is_not_installed(isolated_db, monkeypatch):
+    import diagnostics
+    from lib.errors import DependencyUnavailableError
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name, *a, **k: False)
+    with pytest.raises(DependencyUnavailableError, match="Diagnostics"):
+        svc.check_config("transcription", {"engine": "whisper", "model": "large-v3"})

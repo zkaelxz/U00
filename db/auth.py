@@ -552,6 +552,19 @@ def auth_insert_audit(user_id, action: str, detail_redacted: str):
         conn.commit()
 
 
+def auth_delete_audit_before(cutoff_ts: str, batch: int) -> int:
+    """Deletes at most `batch` of the oldest rows stamped before `cutoff_ts`
+    (same `%Y-%m-%dT%H:%M:%SZ` form as `ts`, which sorts as text). Ids only
+    grow, so oldest-first by id never touches a row newer than the cutoff."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(
+            "DELETE FROM audit_log WHERE id IN "
+            "(SELECT id FROM audit_log WHERE ts < ? ORDER BY id LIMIT ?)",
+            (cutoff_ts, int(batch)))
+        conn.commit()
+        return cur.rowcount
+
+
 def auth_list_audit(limit: int = 100, before_id: int | None = None, action: str | None = None,
                     user_id: int | None = None):
     """Newest first. `before_id` pages back (rows with a smaller id);

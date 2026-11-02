@@ -47,17 +47,6 @@
       "pace": "Fast off: robots.txt returns 404 and the agreement pages are unreadable SPA shells; bilibili agreement 4.3.15 likely applies.",
       "pace_verified": "2026-10-09"
     },
-    "toonkor": {
-      "status": "confirmed_live",
-      "last_verified": "",
-      "reason": "",
-      "notes": "`toonkor0.org` confirmed correct/live domain.",
-      "hosts": [
-        "toonkor0.org"
-      ],
-      "pace": "Fast allowed (1.0/2.5/2): robots.txt is User-agent * Allow /, no Crawl-delay; no terms page found on the home page.",
-      "pace_verified": "2026-10-09"
-    },
     "guazimanhua": {
       "status": "confirmed_live",
       "last_verified": "",
@@ -191,6 +180,31 @@
       "notes": "",
       "pace": "Fast off: robots.txt disallows /chapters/*/page/* which the adapter fetches for pages 2+; rules.html is silent on automated access.",
       "pace_verified": "2026-10-09"
+    },
+    "rawkuma": {
+      "status": "caveat",
+      "last_verified": "2026-11-01",
+      "reason": "Search, series, chapter list and chapter page-image URLs were read live against rawkuma.net 2026-11-01 with plain GETs; no image download or import has been run through the app. No terms page was found, so terms are unreviewed.",
+      "notes": "",
+      "hosts": [
+        "rawkuma.net",
+        "cdn.rawkuma.com"
+      ],
+      "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-01"
+    },
+    "marumaru": {
+      "status": "caveat",
+      "last_verified": "2026-11-01",
+      "reason": "Search, series, chapter list and a chapter's image list were read live (and the viewer loaded in a real browser) against marumaru108.com 2026-11-01; no image download or import has been run through the app. No terms page was found, so terms are unreviewed. The site moves between domains: the landing page is read only when every listed domain fails, and a new address waits for the owner's confirmation.",
+      "notes": "",
+      "hosts": [
+        "marumaru108.com",
+        "api.storagewebtoon.store",
+        "peer.storagewebtoon.store"
+      ],
+      "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-01"
     }
   },
   "generic": {

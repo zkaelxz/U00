@@ -133,6 +133,14 @@ class TestJobResults:
         assert d("error", "boom", None) == ("failed", "boom")
         assert d("running", None, None) == (None, None)
 
+    def test_a_translate_run_that_wrote_nothing_after_errors_is_failed_not_done(self):
+        d = jobs_service.derive_outcome
+        projected = jobs_service.project_result({"errors": ["batch 1: rate limited"], "translated_count": 0})
+        assert d("done", None, projected) == ("failed", "Nothing was translated. First problem: batch 1: rate limited")
+        some = jobs_service.project_result({"errors": ["batch 2: rate limited"], "translated_count": 7})
+        assert d("done", None, some)[0] == "partial"
+        assert d("done", None, jobs_service.project_result({"errors": [], "translated_count": 0}))[0] == "ok"
+
     def test_transcribe_warnings_are_partial(self):
         for key in ("gpu_fallback", "word_align_error", "forced_align_error",
                     "coverage_warning"):
@@ -523,7 +531,7 @@ class TestListJobsReadsTheRecordsOnce:
     def _count_scans(monkeypatch):
         scans = []
         real = db.list_job_records
-        monkeypatch.setattr(db, "list_job_records", lambda: (scans.append(1), real())[1])
+        monkeypatch.setattr(db, "list_job_records", lambda *a: (scans.append(1), real(*a))[1])
         return scans
 
     def test_finished_jobs_cost_one_scan_and_no_sweep(self, isolated_db, monkeypatch):
@@ -550,7 +558,7 @@ class TestListJobsReadsTheRecordsOnce:
             scanned, swept = [], []
             real_scan, real_sweep = db.list_job_records, job_store.sweep_dead_owners
             monkeypatch.setattr(db, "list_job_records",
-                                lambda: scanned.append(real_scan()) or scanned[-1])
+                                lambda *a: scanned.append(real_scan(*a)) or scanned[-1])
             monkeypatch.setattr(job_store, "sweep_dead_owners", lambda stale, records=None: (
                 swept.append(records), real_sweep(stale, records=records))[1])
             listed = {j["job_id"]: j["status"] for j in jobs_service.list_jobs()}
@@ -596,8 +604,8 @@ class TestListJobsReadsTheRecordsOnce:
         real_scan = db.list_job_records
         scans = []
 
-        def scan_then_other_poll_sweeps():
-            rows = real_scan()
+        def scan_then_other_poll_sweeps(*a):
+            rows = real_scan(*a)
             scans.append(1)
             if len(scans) == 1:
                 assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS) == 1
@@ -620,8 +628,8 @@ class TestListJobsReadsTheRecordsOnce:
             real_scan = db.list_job_records
             scans = []
 
-            def scan_then_other_poll_reconciles():
-                rows = real_scan()
+            def scan_then_other_poll_reconciles(*a):
+                rows = real_scan(*a)
                 if not scans:
                     with job_table._lock:
                         job_table._workers["lost_two"] = (job_table._jobs["lost_two"], dead)
@@ -684,3 +692,14 @@ def test_an_unchanged_job_list_is_not_swept_again_at_once(isolated_db, monkeypat
     monkeypatch.setattr(jobs_service, "_SWEEP_REPEAT_SECONDS", 0.0)
     jobs_service.list_jobs()
     assert len(sweeps) == 3
+
+
+def test_polled_job_list_caps_finished_rows_but_keeps_active_ones(isolated_db, monkeypatch):
+    monkeypatch.setattr(jobs_service, "_LISTED_FINISHED_JOBS", 2)
+    isolated_db.save_job_record("recent-old-active", "running", started_at=1.0,
+                                owner_pid=os.getpid())
+    for n in range(4):
+        isolated_db.save_job_record(f"done-{n}", "done", started_at=10.0 + n, finished_at=20.0 + n)
+    listed = {j["job_id"] for j in jobs_service.list_jobs()}
+    assert {"done-3", "done-2"} <= listed and not {"done-0", "done-1"} & listed
+    assert len(isolated_db.list_job_records()) == 5

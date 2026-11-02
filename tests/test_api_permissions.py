@@ -1065,3 +1065,12 @@ def test_cli_grant_admin_and_list_users(isolated_db, capsys):
     assert "owner@example.com" in out and "admin" in out
     assert s["session_token"] not in out and "hash" not in out.lower()
     assert main(["grant-admin", "not-an-email"]) == 2
+
+
+def test_paid_engine_refusal_says_why_and_how_to_proceed():
+    from types import SimpleNamespace
+    from api.auth import require_engines_allowed
+    from lib.errors import ForbiddenError
+    request = SimpleNamespace(state=SimpleNamespace(principal={"permissions": ()}))
+    with pytest.raises(ForbiddenError, match="Paid engines"):
+        require_engines_allowed(request, "claude")

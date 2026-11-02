@@ -141,6 +141,7 @@ class DramaSummary(BaseModel):
         default=None, description="The signed-in viewer created it. Only set in the Library list.")
     line_count: int = Field(default=0, description="Lines the title has. Only counted in the Library list.")
     translated_count: int = Field(default=0, description="Lines with English text. Only counted in the Library list.")
+    new_chapters: int = Field(default=0, description="New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.")
 
 
 class DramaDetail(DramaSummary):

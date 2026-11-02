@@ -244,7 +244,7 @@ class TestJapaneseOnly:
         with pytest.raises(InvalidInputError):
             compare_transcription_service._validate_candidate(zh, KEY, "whisper")
 
-    def test_lab_refuses_it_for_non_japanese_cases(self, monkeypatch):
+    def test_lab_refuses_it_for_non_japanese_cases(self, monkeypatch, whisper_present):
         assert KEY in lab.get_options()["whisper_sizes"]
         cfg = [{"engine": "whisper", "model": KEY}]
         cases = {"ja": [{"id": 1, "source_language": "ja"}],

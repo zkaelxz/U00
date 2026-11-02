@@ -214,7 +214,7 @@ def test_pace_default_is_normal_and_fast_is_refused_when_unvetted(local_client):
 def test_fast_allowed_flag_is_true_for_exactly_the_vetted_sites(local_client):
     rows = local_client.get("/api/sources").json()
     assert {s["name"] for s in rows if s["fast_allowed"]} == {
-        "52shuku", "xbanxia", "piaotian", "zerosumonline", "toonkor"}
+        "52shuku", "xbanxia", "piaotian", "zerosumonline"}
 
 
 def test_pace_fast_is_accepted_only_for_a_vetted_adapter(local_client, monkeypatch):

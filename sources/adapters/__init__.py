@@ -7,9 +7,9 @@ BUILTIN below so the app loads it.
 import importlib
 
 BUILTIN = ["manhuagui", "bilibili", "52shuku", "xbanxia", "bilibili_manga",
-          "toonkor", "guazimanhua", "miaoqumh", "baozimh", "kuaikan", "manhuaku",
+          "guazimanhua", "miaoqumh", "baozimh", "kuaikan", "manhuaku",
           "zerosumonline", "ranobes", "missevan", "fanjiao",
-          "lightnovel_fun", "syosetu", "piaotian", "mangak", "twmanga"]
+          "lightnovel_fun", "syosetu", "piaotian", "mangak", "twmanga", "rawkuma", "marumaru"]
 
 
 def load_all():
