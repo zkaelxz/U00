@@ -181,6 +181,53 @@ def untrack_series(source: str, series_id: str):
                      (source, series_id))
 
 
+def known_chapters(source: str, series_id: str) -> list:
+    """A tracked series' known chapters as {chapter_id, title}, in the order they were first seen."""
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT chapter_id, title FROM known_chapters WHERE source=? AND series_id=? "
+            "ORDER BY first_seen, rowid", (source, series_id))]
+
+
+def move_tracked_series(source: str, series_id: str, new_source: str, new_series_id: str,
+                        title: str, url: str, known, imported_ids) -> str | None:
+    """Re-points one tracked series at a series on another source in a single
+    transaction, so a failure leaves the old link exactly as it was. The drama
+    link, its owner and the CBZ setting carry over. The old series' import
+    records stay (they are the history); only its tracking rows go. Chapters
+    the new series shares with the old are recorded as known, `known` being
+    (chapter_id, title) pairs (and as imported
+    into the drama when the old one was), so the next check announces only the
+    rest. Returns None when moved, else why not: "missing" or "taken"."""
+    now = time.time()
+    with connect() as conn:
+        old = conn.execute("SELECT * FROM tracked_series WHERE source=? AND series_id=?",
+                           (source, series_id)).fetchone()
+        if old is None:
+            return "missing"
+        if conn.execute("SELECT 1 FROM tracked_series WHERE source=? AND series_id=?",
+                        (new_source, new_series_id)).fetchone() is not None:
+            return "taken"
+        conn.execute("INSERT INTO tracked_series(source, series_id, title, url, drama_id, "
+                     "last_checked, linked_by_user_id, save_cbz, save_cbz_by_user_id) "
+                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (new_source, new_series_id, title, url, old["drama_id"], now,
+                      old["linked_by_user_id"], old["save_cbz"], old["save_cbz_by_user_id"]))
+        conn.executemany("INSERT OR IGNORE INTO known_chapters(source, series_id, chapter_id, "
+                         "title, first_seen) VALUES(?, ?, ?, ?, ?)",
+                         [(new_source, new_series_id, str(cid), t, now) for cid, t in known])
+        if old["drama_id"] is not None:
+            conn.executemany("INSERT OR IGNORE INTO imported_chapters(source, series_id, "
+                             "chapter_id, drama_id, imported_at) VALUES(?, ?, ?, ?, ?)",
+                             [(new_source, new_series_id, str(c), old["drama_id"], now)
+                              for c in imported_ids])
+        conn.execute("UPDATE chapter_notifications SET dismissed=1 WHERE source=? AND series_id=?",
+                     (source, series_id))
+        for table in ("tracked_series", "known_chapters", "chapter_poll_validators"):
+            conn.execute(f"DELETE FROM {table} WHERE source=? AND series_id=?", (source, series_id))
+    return None
+
+
 def poll_validators(source: str, series_id: str, max_age: float | None = None) -> dict:
     """The ETag / Last-Modified the last chapter-list poll of this series
     got for its one URL, as conditional_poll() kwargs; {} if

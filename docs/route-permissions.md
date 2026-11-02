@@ -611,6 +611,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/sources/tracked` | library.read |
 | `POST /api/sources/tracked` | sources.import |
 | `POST /api/sources/tracked/drama` | sources.import |
+| `POST /api/sources/tracked/move` | sources.import |
+| `POST /api/sources/tracked/move/preview` | sources.import |
 | `POST /api/sources/tracked/save-cbz` | sources.import |
 | `GET /api/sources/url/ai-engines` | sources.import |
 | `GET /api/sources/url/extractions` | admin.settings |

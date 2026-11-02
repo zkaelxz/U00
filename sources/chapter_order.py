@@ -150,3 +150,37 @@ def sort_chapters_grouped(chapters):
     for items in groups.values():
         out.extend(sort_chapters(items))
     return out
+
+
+def match_key(title: str):
+    """What two sources' listings of the same chapter share: its section, volume and number
+    when it has a number, else its normalized title. None for an empty title. A chapter that
+    can't be told apart is left unmatched rather than guessed, because a false match would
+    mark a chapter as already saved when it is not."""
+    t = unicodedata.normalize("NFKC", title or "").strip()
+    if not t:
+        return None
+    key = sort_key(t)
+    if key[2] != float("inf"):
+        return key[:3]
+    return ("title", t.casefold())
+
+
+def match_chapters(old_titles, new_titles):
+    """Pairs two chapter lists by match_key. Takes titles in listing order and returns
+    (pairs, old_only, new_only) as index lists into them. Chapters sharing a key (a
+    re-numbered extra) pair up in listing order."""
+    waiting = {}
+    for i, t in enumerate(old_titles):
+        k = match_key(t)
+        if k is not None:
+            waiting.setdefault(k, []).append(i)
+    pairs, new_only = [], []
+    for j, t in enumerate(new_titles):
+        k = match_key(t)
+        if k is not None and waiting.get(k):
+            pairs.append((waiting[k].pop(0), j))
+        else:
+            new_only.append(j)
+    paired = {i for i, _ in pairs}
+    return pairs, [i for i in range(len(old_titles)) if i not in paired], new_only

@@ -11,6 +11,7 @@ import { browserTierNeed } from '../readiness/needs'
 import { NeedsInstall } from '../readiness/NeedsInstall'
 import type { OpenSeries, SeriesResult, SourceSummary, TrackedSeries } from '../../types/sources'
 import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
+import { MoveHere } from './MoveHere'
 import { ChapterSave } from './ChapterSave'
 import { useChapterImport } from './useChapterImport'
 import { SourceErrorLine } from './SearchPanel'
@@ -47,6 +48,8 @@ type Props = {
   preselect?: string | null
   phone?: boolean
   onTracked?: (list: TrackedSeries[]) => void
+  // Tracked series that could move to this series (empty: no Move section).
+  moveCandidates?: { tracked: TrackedSeries; label: string }[]
 }
 
 // A long description is clamped to 3 lines with More/Less.
@@ -54,7 +57,7 @@ const LONG_DESCRIPTION = 180
 
 export function SeriesPanel({
   open, display, job, view, tracked, remote, cleared, busyEnded, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
-  sourceInfo, preselect, phone = false, onTracked,
+  sourceInfo, preselect, phone = false, onTracked, moveCandidates = [],
 }: Props) {
   const headRef = useRef<HTMLHeadingElement>(null)
   const [more, setMore] = useState(false)
@@ -246,6 +249,15 @@ export function SeriesPanel({
       )}
       {!importing && canTrack && (
         <TrackRow source={open.source} seriesId={open.series_id} dramaId={null} onTracked={(list) => onTracked?.(list)} />
+      )}
+      {canTrack && chapters.length > 0 && (
+        <MoveHere
+          source={open.source}
+          seriesId={open.series_id}
+          title={title}
+          candidates={moveCandidates}
+          onMoved={(list) => onTracked?.(list)}
+        />
       )}
       {result && chapters.length > 0 && browserNeed && sourceInfo?.import_supported && <NeedsInstall need={browserNeed} />}
       {result && chapters.length > 0 && !canImport && sourceInfo?.import_supported && remote && (
