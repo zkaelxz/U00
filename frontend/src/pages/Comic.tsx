@@ -271,7 +271,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     [id, prefs.typeset, original.originals],
   )
   const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current)
-  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
+  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
 
   usePageJump({
     activeJump,
@@ -530,7 +530,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <Breadcrumbs crumbs={routeCrumbs({ name: 'comic', id, page: null }, { title })} />
           <SourceLink href={sourceUrl} dramaId={id} className={buttonClass('secondary', 'sm')} />
           {current !== null && count > 0 ? (
-            <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} label={pagerLabel(visible.length || count)} />
+            <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} onStep={spreads ? step : undefined} label={pagerLabel(visible.length || count)} />
           ) : (
             data === null && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
           )}
@@ -590,7 +590,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
       {phone && current !== null && count > 0 && (
         <div className="reader-bottom comic-bottom">
-          <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} compact />
+          <ComicPager page={position} count={visible.length || count} rtl={rtl} onGo={goListed} onStep={spreads ? step : undefined} compact />
           <button
             type="button"
             className="comic-text-btn"

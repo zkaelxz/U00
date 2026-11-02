@@ -87,7 +87,7 @@ export function usePagedReader({ stageRef, pages, prefs, current, count, go, src
     return true
   })
 
-  return { paged, rtl, chrome, forbidden, figures, figureRef, onProblem, zoom, act }
+  return { paged, rtl, chrome, forbidden, figures, figureRef, onProblem, zoom, act, step }
 }
 
 export function readerClasses(phone: boolean, chrome: boolean, mode: ComicPrefs['mode']): string {

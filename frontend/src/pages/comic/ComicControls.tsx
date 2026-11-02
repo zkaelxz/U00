@@ -78,8 +78,10 @@ export function ComicViewControl({ children, ...props }: PrefsProps & { children
   )
 }
 
-export function ComicPager({ page, count, rtl, onGo, compact = false, loading = false, label }: {
+export function ComicPager({ page, count, rtl, onGo, onStep, compact = false, loading = false, label }: {
   page: number
+  // Previous/next turn this (a whole spread) instead of moving to the neighbouring page number.
+  onStep?: (dir: 1 | -1) => void
   // Replaces "Page n of N" (a spread shows both numbers).
   label?: string
   count: number
@@ -92,12 +94,12 @@ export function ComicPager({ page, count, rtl, onGo, compact = false, loading = 
   compact?: boolean
 }) {
   const prev = (
-    <button key="prev" type="button" aria-label="Previous page" disabled={loading || page <= 1} onClick={() => onGo(page - 1)}>
+    <button key="prev" type="button" aria-label="Previous page" disabled={loading || page <= 1} onClick={() => (onStep ? onStep(-1) : onGo(page - 1))}>
       {rtl ? '›' : '‹'}
     </button>
   )
   const next = (
-    <button key="next" type="button" aria-label="Next page" disabled={loading || page >= count} onClick={() => onGo(page + 1)}>
+    <button key="next" type="button" aria-label="Next page" disabled={loading || page >= count} onClick={() => (onStep ? onStep(1) : onGo(page + 1))}>
       {rtl ? '‹' : '›'}
     </button>
   )
