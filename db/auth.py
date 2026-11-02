@@ -440,15 +440,16 @@ def auth_revoke_permission(user_id: int, permission: str):
 
 
 def auth_insert_session(id_hash: str, user_id: int, created_at: float, expires_at: float,
-                        device_label: str, ip_prefix: str, csrf_hash: str) -> int:
+                        device_label: str, ip_prefix: str, csrf_hash: str,
+                        signed_in_at: float | None = None) -> int:
     """The raw user agent is not stored: only the coarse `device_label`."""
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(
             "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, last_seen_at, "
-            "user_agent_short, device_label, ip_prefix, csrf_hash) "
-            "VALUES (?, ?, ?, ?, ?, '', ?, ?, ?)",
+            "user_agent_short, device_label, ip_prefix, csrf_hash, signed_in_at) "
+            "VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?)",
             (id_hash, user_id, created_at, expires_at, created_at, device_label,
-             ip_prefix, csrf_hash))
+             ip_prefix, csrf_hash, signed_in_at))
         conn.commit()
         return db.inserted_id(cur)
 
@@ -462,17 +463,17 @@ def auth_rotate_session(session_id: int, user_id: int, id_hash: str, csrf_hash: 
     with contextlib.closing(db.get_conn()) as conn:
         with conn:
             old = conn.execute(
-                "SELECT created_at, expires_at, device_label FROM auth_sessions "
+                "SELECT created_at, expires_at, device_label, signed_in_at FROM auth_sessions "
                 "WHERE id = ? AND user_id = ?", (session_id, user_id)).fetchone()
             if old is None:
                 return None
             conn.execute("DELETE FROM auth_sessions WHERE id = ?", (session_id,))
             cur = conn.execute(
                 "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, "
-                "last_seen_at, user_agent_short, device_label, ip_prefix, csrf_hash) "
-                "VALUES (?, ?, ?, ?, ?, '', ?, ?, ?)",
+                "last_seen_at, user_agent_short, device_label, ip_prefix, csrf_hash, "
+                "signed_in_at) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?)",
                 (id_hash, user_id, old["created_at"], old["expires_at"], now,
-                 old["device_label"] or "", ip_prefix, csrf_hash))
+                 old["device_label"] or "", ip_prefix, csrf_hash, old["signed_in_at"]))
             return cur.lastrowid
 
 
@@ -539,7 +540,8 @@ def auth_list_sessions(user_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         return [dict(r) for r in conn.execute(
             "SELECT id, user_id, created_at, expires_at, last_seen_at, user_agent_short, "
-            "device_label, ip_prefix FROM auth_sessions WHERE user_id = ? ORDER BY id",
+            "device_label, ip_prefix, signed_in_at FROM auth_sessions WHERE user_id = ? "
+            "ORDER BY id",
             (user_id,)).fetchall()]
 
 
