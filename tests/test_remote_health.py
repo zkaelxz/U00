@@ -30,6 +30,15 @@ DAY = 86400
 CHECK_URL = "https://ip.example.net/?token=SECRET-DDNS-TOKEN"
 
 
+_REAL_OWN_ADDRESSES = rhs._own_addresses
+
+
+@pytest.fixture(autouse=True)
+def _no_own_addresses(monkeypatch):
+    """This machine's own host-name lookup stays out of the home addresses."""
+    monkeypatch.setattr(rhs, "_own_addresses", lambda stop=None: set())
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch, isolated_db):
     path = tmp_path / ".env"
@@ -236,6 +245,59 @@ def test_monitor_learns_the_home_addresses_before_the_first_check_is_due(env, mo
         background.stop_remote_health_monitor()
 
 
+def test_the_first_lookup_reads_the_ip_check_for_a_tunnelled_name(env, monkeypatch):
+    """Behind a tunnel the public name resolves to the tunnel, never the home:
+    only the IP check knows the home's address, so the first lookup reads it."""
+    from lib import url_guard
+    env.write_text(f"{rhs.IP_CHECK_ENV}={CHECK_URL}\n")
+    monkeypatch.setattr(rhs, "_current_public_ip", lambda url: ipaddress.ip_address("93.184.216.34"))
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: {ipaddress.ip_address(
+        "1.1.1.1" if host == "baihe.example.com" else "127.0.0.1")})
+    url_guard.expect_home_addresses()
+    rhs.learn_home_addresses("https://baihe.example.com")
+    assert {str(n) for n in url_guard._home_networks} == {"93.184.216.34/32"}
+    assert url_guard._home_known.is_set()
+
+
+def test_the_first_lookup_releases_fetches_even_when_it_fails(env, monkeypatch):
+    from lib import url_guard
+    monkeypatch.setattr(rhs, "refresh_home_addresses",
+                        lambda url, stop=None: (_ for _ in ()).throw(RuntimeError("x")))
+    url_guard.expect_home_addresses()
+    with pytest.raises(RuntimeError):
+        rhs.learn_home_addresses("https://baihe.example.com")
+    assert url_guard._home_known.is_set()
+
+
+def test_this_pcs_own_addresses_count_as_home_on_any_network_block(env, monkeypatch):
+    """The PC's IPv6 address may sit on another /64 than the public name's."""
+    from lib import url_guard
+    monkeypatch.setattr(rhs, "_own_addresses", _REAL_OWN_ADDRESSES)
+    monkeypatch.setattr(socket, "gethostname", lambda: "this-pc")
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: {ipaddress.ip_address(a) for a in (
+        ("2606:4700:10::5",) if host == "baihe.example.com"
+        else ("2606:4700:99::7", "192.168.1.20"))})
+    rhs.refresh_home_addresses("https://baihe.example.com")
+    assert {str(n) for n in url_guard._home_networks} == {"2606:4700:10::5/128",
+                                                          "2606:4700:99::/64"}
+
+
+def test_monitor_holds_link_imports_until_its_first_lookup_and_stop_releases(env, monkeypatch):
+    from lib import url_guard
+    gate = threading.Event()
+    monkeypatch.setattr(rhs, "learn_home_addresses", lambda url, stop=None: gate.wait(10))
+    monkeypatch.setattr(rhs, "run_check", lambda *a, **k: None)
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
+                           google_client_id="cid", google_client_secret="s")
+    try:
+        assert background.start_remote_health_monitor(settings, interval=3600, first=3600)
+        assert not url_guard._home_known.is_set()
+    finally:
+        background.stop_remote_health_monitor(timeout=0.1)
+        gate.set()
+    assert url_guard._home_known.is_set()
+
+
 # --- DDNS ---------------------------------------------------------------------
 
 def test_ddns_not_configured_resolves_nothing(env, monkeypatch):
@@ -266,11 +328,21 @@ def test_the_checked_and_resolved_addresses_are_refused_to_link_imports(env, mon
     monkeypatch.setattr(rhs, "_current_public_ip", lambda url: ipaddress.ip_address("93.184.216.34"))
     monkeypatch.setattr(rhs, "_resolve", lambda host: {ipaddress.ip_address("1.1.1.1")})
     rhs.check_ddns("baihe.example.com")
-    assert {str(n) for n in url_guard._home_networks} == {"93.184.216.34/32", "1.1.1.1/32"}
+    # With an IP check, the name's answer (maybe a CDN's, shared with other
+    # sites) is left out.
+    assert {str(n) for n in url_guard._home_networks} == {"93.184.216.34/32"}
     # The refresh at startup and each cycle keeps the last checked address.
     monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: {ipaddress.ip_address("1.0.0.1")})
     rhs.refresh_home_addresses("https://baihe.example.com")
-    assert {str(n) for n in url_guard._home_networks} == {"93.184.216.34/32", "1.0.0.1/32"}
+    assert {str(n) for n in url_guard._home_networks} == {"93.184.216.34/32"}
+
+
+def test_without_an_ip_check_the_names_answer_counts_address_by_address(env, monkeypatch):
+    from lib import url_guard
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: {
+        ipaddress.ip_address("1.1.1.1"), ipaddress.ip_address("2606:4700:10::5")})
+    rhs.refresh_home_addresses("https://baihe.example.com")
+    assert {str(n) for n in url_guard._home_networks} == {"1.1.1.1/32", "2606:4700:10::5/128"}
 
 
 def test_refreshing_home_addresses_does_nothing_with_remote_access_off(env, monkeypatch):
@@ -342,7 +414,7 @@ def test_public_ip_read_is_pinned_capped_and_timed(env, monkeypatch):
         def close(self):
             seen["closed"] = True
 
-    monkeypatch.setattr(url_guard, "resolve_public", lambda url: "8.8.8.8")
+    monkeypatch.setattr(url_guard, "resolve_public", lambda url, **k: "8.8.8.8")
     monkeypatch.setattr(http, "pinned_get",
                         lambda url, ip, headers: seen.update(ip=ip) or Resp())
     assert rhs._current_public_ip(CHECK_URL) == ipaddress.ip_address("93.184.216.34")
@@ -474,7 +546,7 @@ def test_ip_check_host_lookup_is_bounded(env, monkeypatch):
     from lib import url_guard
     release = threading.Event()
     monkeypatch.setattr(rhs, "RESOLVE_TIMEOUT", 0.2)
-    monkeypatch.setattr(url_guard, "resolve_public", lambda url: release.wait(10) and "8.8.8.8")
+    monkeypatch.setattr(url_guard, "resolve_public", lambda url, **k: release.wait(10) and "8.8.8.8")
     env.write_text(f"{rhs.IP_CHECK_ENV}={CHECK_URL}\n")
     started = time.monotonic()
     try:
@@ -614,7 +686,7 @@ def test_a_failing_save_does_not_realert_every_cycle(env, monkeypatch, listener_
 def public_dns(monkeypatch):
     from lib import url_guard
 
-    def fake(url):
+    def fake(url, **k):
         host = url.split("/")[2].split(":")[0]
         if host in ("ip.example.net", "api.ipify.org"):
             return "8.8.8.8"
@@ -785,3 +857,28 @@ def test_stop_set_just_before_the_save_skips_it(env, monkeypatch, listener_up, s
     monkeypatch.setattr(rhs, "_now", now_then_stop)
     assert rhs.run_check(PUBLIC_URL, PORT, stop=stop) is None
     assert spies == {"saved": [], "sent": []}
+
+
+def test_saving_an_ip_check_right_after_start_does_not_wait_for_the_lookup(env, monkeypatch):
+    from lib import url_guard
+    monkeypatch.setattr(socket, "getaddrinfo",
+                        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))])
+    monkeypatch.setattr(url_guard, "HOME_WAIT_SECONDS", 30)
+    url_guard.expect_home_addresses()
+    started = time.monotonic()
+    assert rhs.validate_ip_check_url("https://ip.example.net/") == "https://ip.example.net/"
+    assert time.monotonic() - started < 3
+
+
+def test_a_monitor_that_fails_to_start_releases_link_imports(env, monkeypatch):
+    from lib import url_guard
+
+    class _NoThread(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(background.threading, "Thread", _NoThread)
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
+                           google_client_id="cid", google_client_secret="s")
+    with pytest.raises(RuntimeError):
+        background.start_remote_health_monitor(settings)
+    assert url_guard._home_known.is_set() and background._remote_health_poller is None
