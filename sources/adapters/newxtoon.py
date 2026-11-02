@@ -10,6 +10,8 @@ invented fixtures, not against a live fetch.
   series      GET /comics/<id>                      og:title / h1, og:image,
                                                     chapter links
   chapters    <a href="/comics/<id>/chapters/<chapter id>"> on the series page
+              (the first 20 only); the rest come from the JSON endpoint
+              GET /comics/<id>/chapters?page=N, 20 a page, until has_more is false
   pages       GET /comics/<id>/chapters/<chapter id>
                                                     <img class="reader-page">,
                                                     hosted on a rotating file host
@@ -21,6 +23,7 @@ are never fetched or followed. Series and chapter ids are numeric ids the
 site hands us; anything else is refused before it reaches a URL.
 """
 
+import json
 import re
 from urllib.parse import quote, urljoin, urlsplit
 
@@ -39,6 +42,8 @@ _SERIES_PATH = re.compile(r"^/comics/([0-9]{1,12})/?$")
 _CHAPTER_PATH = re.compile(r"^/comics/([0-9]{1,12})/chapters/([0-9]{1,12})/?$")
 
 LayoutChanged = layout_changed_class("NewXToon")
+
+_SITE_SUFFIX = re.compile(r"\s*[—–-]\s*뉴엑스툰\s*$")
 
 
 def _https(url) -> str:
@@ -108,16 +113,15 @@ class NewXToonSource(SourceAdapter):
             raise LayoutChanged("a usable series id")
         return sid
 
-    def _series_soup(self, series_id: str, page: int = 1):
-        suffix = f"?page={page}" if page > 1 else ""
-        return _soup(self._page(f"/comics/{series_id}{suffix}", f"Loading series {series_id}"))
+    def _series_soup(self, series_id: str):
+        return _soup(self._page(f"/comics/{series_id}", f"Loading series {series_id}"))
 
     def get_series(self, series_id: str):
         sid = self._series_id(series_id)
         soup = self._series_soup(sid)
         og = soup.find("meta", attrs={"property": "og:title"})
         h1 = soup.find("h1")
-        title = _clean((og.get("content") if og else "") or (h1.get_text() if h1 else ""))
+        title = _SITE_SUFFIX.sub("", _clean((og.get("content") if og else "") or (h1.get_text() if h1 else "")))
         if not title:
             raise LayoutChanged("this series's title")
         cover = soup.find("meta", attrs={"property": "og:image"})
@@ -129,21 +133,41 @@ class NewXToonSource(SourceAdapter):
                           description=_clean(desc.get("content")) if desc else "",
                           content_type=ContentType.MANHWA.value, language="ko")
 
+    def _more_chapters(self, sid: str, page: int):
+        """One page of the JSON chapter list as ([(id, title)], has_more).
+        The series page ignores `?page=N`, so this endpoint is the only way past the first 20."""
+        text = self._page(f"/comics/{sid}/chapters?page={page}", f"Loading chapter list page {page} of series {sid}")
+        try:
+            data = json.loads(text)
+            rows = [(str(c["id"]), _clean(c.get("title"))) for c in data["chapters"]]
+            return rows, bool(data.get("has_more"))
+        except (ValueError, KeyError, TypeError):
+            raise LayoutChanged("the chapter list") from None
+
     def get_chapters(self, series_id: str):
         sid = self._series_id(series_id)
+        soup = self._series_soup(sid)
         rows, seen = [], set()
-        for page in range(1, MAX_LIST_PAGES + 1):
-            soup = self._series_soup(sid, page)
-            fresh = 0
-            for a in soup.find_all("a", href=True):
-                m = _CHAPTER_PATH.match(urlsplit(str(a["href"])).path)
-                if not m or m.group(1) != sid or m.group(2) in seen:
-                    continue
-                seen.add(m.group(2))
-                fresh += 1
-                rows.append((int(m.group(2)), m.group(2), _clean(a.get_text()) or f"Chapter {m.group(2)}"))
-            if not fresh:
-                break
+
+        def add(cid: str, title: str):
+            if _ID.fullmatch(cid) and cid not in seen:
+                seen.add(cid)
+                rows.append((int(cid), cid, title or f"Chapter {cid}"))
+
+        for a in soup.find_all("a", href=True):
+            m = _CHAPTER_PATH.match(urlsplit(str(a["href"])).path)
+            if m and m.group(1) == sid:
+                add(m.group(2), _clean(a.get_text()))
+        # Only a series with more than one page of chapters names the endpoint.
+        if soup.find(attrs={"data-chapters-url": True}):
+            for page in range(2, MAX_LIST_PAGES + 1):
+                more, has_more = self._more_chapters(sid, page)
+                for cid, title in more:
+                    add(cid, title)
+                if not has_more:
+                    break
+            else:
+                raise LayoutChanged("the end of the chapter list")
         if not rows:
             raise LayoutChanged("any chapters in this series")
         # Chapter ids grow with upload order, which is reading order on this site.
