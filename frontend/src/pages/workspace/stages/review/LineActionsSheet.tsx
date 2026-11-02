@@ -192,6 +192,7 @@ export function LineActionsSheet(p: Props) {
           {(!line || view === 'add') && (
             <AddLineForm
               key={line?.id ?? 'first'}
+              dramaId={p.dramaId}
               after={line}
               next={next}
               busy={p.busy}
