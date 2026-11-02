@@ -446,7 +446,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           respond(await setAutoTitle(message));
           break;
         case "getSettings":
-          respond({ ok: true, data: await settings() });
+          // Anyone who can message the worker gets this answer, so the credential stays out of it.
+          { const { token, ...safe } = await settings(); respond({ ok: true, data: safe }); }
           break;
         case "rememberDrama": {
           const { dramaBySite } = await settings();
