@@ -68,9 +68,11 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
     items = queue.Queue()
 
     def kill():
-        # Without a group of its own the child is killed alone: killpg on its pid
-        # would name no group, and the caller's group kill is what reaches it.
-        kill_tree(proc, warn) if own_group else proc.kill()
+        # Without a group of its own the child is killed alone on POSIX: killpg on its
+        # pid would name no group, and the caller's group kill is what reaches it.
+        # Windows' kill_tree walks the tree by parent pid, needing no group, and a
+        # venv's python.exe is a launcher that runs the real interpreter as its child.
+        kill_tree(proc, warn) if own_group or os.name == "nt" else proc.kill()
 
     def reader(stream, tag):
         try:
@@ -129,15 +131,18 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
 
 
 def stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS,
-                cwd: str | None = None, env: dict | None = None, cancel=None, warn=None, on_start=None):
+                cwd: str | None = None, env: dict | None = None, cancel=None, warn=None, on_start=None,
+                own_group: bool = True):
     """Yields {"line"} per line of combined stdout/stderr, then
     {"returncode", "timed_out", "cancelled"}. The tree is killed when
     `timeout` passes, when `cancel()` turns true, or when the caller stops
     iterating. `warn(what, exc)` reports a swallowed kill failure (see
     lib.proc_kill.kill_tree). `on_start(pid)` runs once the child has
-    started, and must not raise."""
+    started, and must not raise. `own_group=False` is for a caller that is
+    itself a kill_whole_tree job worker, as for run_captured; on POSIX only the
+    child itself is then killed."""
     events = _events(cmd, timeout, drain_seconds, cancel, True, cwd, env, warn,
-                     on_start=on_start)
+                     on_start=on_start, own_group=own_group)
     try:
         for tag, payload in events:
             if isinstance(payload, dict):
@@ -167,8 +172,8 @@ def run_captured(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SE
     `utf8_env=False` leaves the child's Python I/O encoding alone.
     `own_group=False` keeps the child in the caller's process group, for a caller that is
     itself a kill_whole_tree job worker: the worker's group is what every kill path signals
-    (a child in a group of its own would survive a cancel), and it must start no
-    grandchildren, since only the child is killed on a timeout.
+    (a child in a group of its own would survive a cancel), and on POSIX it must start
+    no grandchildren, since only the child is killed on a timeout there.
     `on_start(pid)` runs once the child has started, and must not raise.
     `poll_seconds` is how often `cancel` is polled while the child is silent."""
     chunks = {"out": [], "err": []}

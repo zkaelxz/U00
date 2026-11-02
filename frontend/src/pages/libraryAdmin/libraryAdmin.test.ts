@@ -209,7 +209,7 @@ describe('describeQueueAdd', () => {
 describe('BackupTab', () => {
   it('on the PC: Back up, then Restore, then Automatic copies, and no export', () => {
     const out = renderToStaticMarkup(createElement(JobsContext.Provider, { value: { jobs: [], error: null, polling: false, reload: () => {} } }, createElement(BackupTab)))
-    const at = ['>Back up</span>', '>Restore</span>', '>Saved automatic copies</span>'].map((t) => out.indexOf(t))
+    const at = ['>Back up</h2>', '>Restore</h2>', '>Saved automatic copies</h2>'].map((t) => out.indexOf(t))
     expect(at.every((i) => i >= 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(out).not.toContain('Export all translated')

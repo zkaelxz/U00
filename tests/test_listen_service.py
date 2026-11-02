@@ -48,7 +48,7 @@ class TestConfig:
         cfg = listen_service.get_listen_config(_drama(isolated_db))
         assert cfg["narration_language"] == "translation"
         assert cfg["narration_language_options"] == ["translation", "original"]
-        assert [e["key"] for e in cfg["tts_engines"]] == ["omnivoice"]
+        assert [e["key"] for e in cfg["tts_engines"]] == ["omnivoice", "qwen3_tts"]
         assert cfg["default_engine"] == "omnivoice"
         assert cfg["gpu_required"] is False
         assert cfg["track_available"] is False
@@ -136,15 +136,15 @@ class TestRemovedEnginesAndBlockers:
         did = _drama(isolated_db, [_line(0, "A")])
         cfg = listen_service.get_listen_config(did)
         assert cfg["blocker"] is None
-        assert [e["unavailable_reason"] for e in cfg["tts_engines"]] == [None]
+        assert [e["unavailable_reason"] for e in cfg["tts_engines"]] == [None, None]
 
-    def test_original_language_narration_works_with_omnivoice_for_zh_ja_ko(self, isolated_db):
+    def test_original_language_narration_works_with_both_engines_for_zh_ja_ko(self, isolated_db):
         for lang in ("zh", "ja", "ko"):
             did = _drama(isolated_db, [_line(0, "A", zh="你好", en="")], narration_language="original",
                          source_language=lang)
             reasons = {e["key"]: e["unavailable_reason"]
                        for e in listen_service.get_listen_config(did)["tts_engines"]}
-            assert reasons == {"omnivoice": None}, lang
+            assert reasons == {"omnivoice": None, "qwen3_tts": None}, lang
 
     def test_original_language_narration_is_refused_for_a_language_it_cannot_speak(self, isolated_db):
         did = _drama(isolated_db, [_line(0, "A", zh="hello", en="")], narration_language="original",
@@ -220,6 +220,17 @@ class TestEngineInstallChecks:
             assert (problem is None) is ok, installed
             if not ok:
                 assert problem == "OmniVoice needs a newer transformers than is installed. Check Diagnostics."
+
+    def test_qwen3_tts_counts_as_installed_only_when_its_venv_is_ready(self, monkeypatch,
+                                                                        tmp_path):
+        import voice_venv
+        monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path))
+        # Its package is never importable in the app's own environment.
+        self._without(monkeypatch, "qwen_tts")
+        assert listen_service._missing_engine_dependency("qwen3_tts") == (
+            "Qwen3-TTS is not installed. Install it in Diagnostics.")
+        monkeypatch.setattr(voice_venv, "is_ready", lambda engine: engine == "qwen3_tts")
+        assert listen_service._missing_engine_dependency("qwen3_tts") is None
 
     def test_no_message_names_a_path_or_the_server_address(self, monkeypatch):
         monkeypatch.setenv("BAIHE_GPT_SOVITS_URL", FAKE_URL)
