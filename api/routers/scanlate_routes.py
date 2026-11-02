@@ -138,6 +138,8 @@ def get_run_notes(drama_id: int = Path(ge=1, le=2**31 - 1)):
     return scanlate_pages_service.list_run_notes(drama_id)
 
 
+# Up to MAX_FILES_PER_IMPORT parts, each with its own boundary and headers, so
+# far more than the 64 KiB the single-file uploads need.
 _MULTIPART_OVERHEAD = 1024 * 1024
 _TOO_LARGE = "The upload is too large."
 _UPLOAD_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
