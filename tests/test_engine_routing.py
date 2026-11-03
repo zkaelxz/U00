@@ -192,6 +192,11 @@ class TestEngineTest:
             release.set()
         assert out["status"] == "failed" and "No answer" in out["last_test"]["error"]
 
+    def test_ollama_gets_the_cold_load_allowance_other_engines_do_not(self):
+        from engine_backends import local
+        assert routing._test_timeout("gemini", None) == routing.TEST_TIMEOUT_S
+        assert routing._test_timeout("ollama", None) >= local.OLLAMA_COLD_LOAD_SECONDS
+
     def test_a_timed_out_engine_stays_busy_until_its_call_ends(self, isolated_db, monkeypatch):
         import threading
         from lib.errors import ConflictError
