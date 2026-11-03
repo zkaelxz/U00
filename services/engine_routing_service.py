@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 
 import db
 import diagnostics_report
-from engine_backends import engine_registry
+from engine_backends import engine_registry, local
 from lib import settings_schema
 from services import settings_service, translate_service
 from lib.errors import (ConflictError, DependencyUnavailableError,
@@ -92,6 +92,14 @@ _MAX_TEST_ERROR = 300
 # failure (its call finishes in the background and is ignored). SDK clients
 # can otherwise wait minutes.
 TEST_TIMEOUT_S = 45
+
+
+def _test_timeout(engine: str, model: str | None) -> float:
+    # A first Ollama request loads the model into memory, which takes minutes on a
+    # large model; real jobs allow for that, so the Test must too.
+    if engine == "ollama":
+        return max(TEST_TIMEOUT_S, local.ollama_max_request_seconds(model or local.OLLAMA_DEFAULT_MODEL))
+    return TEST_TIMEOUT_S
 _testing = set()
 _testing_lock = threading.Lock()
 # Engine id -> why its Test isn't offered (e.g. a large first-use download).
@@ -275,10 +283,11 @@ def test_engine(engine: str, model: str | None = None) -> dict:
     # after a timeout can't stack a second real call on a hung one.
     future.add_done_callback(_release)
     pool.shutdown(wait=False)
+    timeout = _test_timeout(engine, model)
     try:
-        result = future.result(timeout=TEST_TIMEOUT_S)
+        result = future.result(timeout=timeout)
     except FutureTimeout:
-        result = {"ok": False, "error": f"No answer within {TEST_TIMEOUT_S} seconds."}
+        result = {"ok": False, "error": f"No answer within {timeout:g} seconds."}
     error = None
     if not result.get("ok"):
         # Keys, then paths and URLs-with-paths (a local server's address)
