@@ -321,6 +321,9 @@ FAILED_REASON_MESSAGES = {
     "anime_whisper": "Anime-whisper failed on this audio.",
     "groq": "The Groq transcription request failed.",
     "vocal_separation": "Separating the vocals failed.",
+    "media_unreadable": (
+        "Windows refused Baihe permission to read the audio file. If Baihe runs as a background "
+        "service, run Setup again to re-apply its folder permissions, or download the audio again."),
 }
 
 
