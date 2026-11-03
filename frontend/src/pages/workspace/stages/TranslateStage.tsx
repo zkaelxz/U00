@@ -280,7 +280,8 @@ function RunPanel({
   // by itself; otherwise the banner offers it.
   const scans = useGlossaryScans(dramaId)
   const banner = scans.loaded ? scanBanner(scans.scans) : null
-  const [reviewOnMount] = useState(reviewFirst && canReview)
+  // A novel's link chain ends with a finished scan waiting here, so it opens without another click.
+  const [reviewOnMount] = useState(canReview && (reviewFirst || titleKind(drama.media_type, drama.content_mode) === 'novel'))
   const [resumeSource, setResumeSource] = useState<GlossarySource | undefined>(undefined)
   const [resumeOpen, setResumeOpen] = useState(false)
   const openResume = (source: GlossarySource) => {
@@ -291,6 +292,8 @@ function RunPanel({
   const autoResumed = useRef(false)
   useEffect(() => {
     if (!banner || !reviewOnMount || autoResumed.current) return
+    // Only a finished scan opens by itself on a novel; a failed one keeps its banner.
+    if (banner.kind === 'failed' && !reviewFirst) return
     autoResumed.current = true
     openResume(banner.source)
   }, [banner, reviewOnMount])
