@@ -41,19 +41,9 @@ interface LibrarySeries {
   dramas: LibraryDramaRef[]
 }
 
-export interface LibrarySearchHit {
-  drama_id: number
-  idx: number
-  zh: string | null
-  en: string | null
-  title_en: string | null
-  title_zh: string | null
-}
+export type LibrarySearchHit = Schemas['LibrarySearchHit']
 
-export interface LibrarySearchResponse {
-  count: number
-  items: LibrarySearchHit[]
-}
+export type LibrarySearchResponse = Schemas['LibrarySearchResponse']
 
 interface LibraryHistoryEntry {
   drama_id: number

@@ -169,7 +169,7 @@ def start_remote_health_monitor(settings, interval: float | None = None,
             # Before any wait: link imports must know the home's own address
             # from the start, not only after the first check.
             try:
-                rhs.refresh_home_addresses(settings.public_url, stop=stop)
+                rhs.learn_home_addresses(settings.public_url, stop=stop)
             except Exception as exc:
                 log_warning("home address lookup failed: %s", type(exc).__name__)
             wait = min(interval, first)
@@ -184,9 +184,15 @@ def start_remote_health_monitor(settings, interval: float | None = None,
                 except Exception as exc:
                     log_warning("remote access health check failed: %s", type(exc).__name__)
 
+        from lib import url_guard
+        url_guard.expect_home_addresses()
         thread = threading.Thread(target=loop, daemon=True, name="api-remote-health")
+        try:
+            thread.start()
+        except BaseException:
+            url_guard.home_lookup_done()
+            raise
         _remote_health_poller = (thread, stop)
-        thread.start()
         return True
 
 
@@ -197,6 +203,8 @@ def stop_remote_health_monitor(timeout: float = 5.0) -> None:
     if poller is not None:
         poller[1].set()
         poller[0].join(timeout)
+    from lib import url_guard
+    url_guard.home_lookup_done()   # a lookup stopped before it finished
 
 
 def start_background_services(features_off=frozenset()) -> dict:

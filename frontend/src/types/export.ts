@@ -30,19 +30,7 @@ export interface SubtitleOptions {
   tidyTiming?: boolean
 }
 
-export interface AssStyleOverrides {
-  font?: string
-  size?: number
-  bold?: boolean
-  italic?: boolean
-  primary?: string
-  outline?: string
-  outline_width?: number
-  shadow?: number
-  alignment?: string
-  sfx_alignment?: string
-  notes_alignment?: string
-}
+export type AssStyleOverrides = Schemas['AssStyleOverrides']
 
 export interface AssExportRequest {
   field: SubtitleField
@@ -56,16 +44,7 @@ export interface AssExportRequest {
   wrap_chars_source?: number
 }
 
-export interface AssStyleOptions {
-  presets: Record<string, Record<string, unknown>>
-  default_preset: string
-  fonts: string[]
-  custom_font_allowed: boolean
-  alignments: Record<string, number>
-  size_range: number[]
-  outline_width_range: number[]
-  shadow_range: number[]
-}
+export type AssStyleOptions = Schemas['AssStyleOptions']
 
 export type MediaExportStarted = Schemas['MediaExportStarted']
 
@@ -82,9 +61,7 @@ export interface SoftsubVideoRequest {
 }
 
 // Parity E19: keep_original mixes the original audio in quietly underneath.
-export interface DubbedVideoRequest {
-  keep_original: boolean
-}
+export type DubbedVideoRequest = Schemas['DubbedVideoRequest']
 
 // Parity E22.
 export type MarkExportedResult = Schemas['MarkExportedResult']

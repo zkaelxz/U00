@@ -13,12 +13,7 @@ export type ResearchBudget = Omit<Schemas['ResearchBudget'], 'per_model'> & Part
 
 export type ResearchResult = Schemas['ResearchResult']
 
-export interface ResearchRequest {
-  mode: ResearchMode
-  model?: string
-  allow_paid?: boolean
-  refresh?: boolean
-}
+export type ResearchRequest = Schemas['ResearchRequest']
 
 // One stored per-field evidence row. The API also returns source URLs; the
 // note shows source titles only.

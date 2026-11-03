@@ -47,12 +47,6 @@ export interface DiagnosticsDependencyInstallResult {
   verify: DiagnosticsTorchVerify | null
 }
 
-export interface DiagnosticsDependencyInstallState {
-  kind: 'package' | 'upgrade' | 'upgrade_outdated' | 'gpu_torch' | 'cuda_runtime' | null
-  package: string | null
-  result: DiagnosticsDependencyInstallResult | null
-  job_id: string
-  job: DiagnosticsJobState | null
-}
+export type DiagnosticsDependencyInstallState = Schemas['DiagnosticsDependencyInstallState']
 
 export type DiagnosticsCudaRuntimeStatus = Schemas['DiagnosticsCudaRuntimeStatus']
