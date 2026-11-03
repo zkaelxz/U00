@@ -22,6 +22,7 @@ from jobs import job_runner
 from services import voice_engine_install_service as svc
 from tests.job_helpers import wait_for_job
 
+_REAL_COMMANDS = svc._commands      # the fixture below swaps the module's own for fake steps
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
 JOB = svc.job_id("qwen3_tts")
 
@@ -58,6 +59,10 @@ def env(isolated_db, monkeypatch, tmp_path):
     python = voice_venv.venv_python("qwen3_tts")
     monkeypatch.setattr(svc, "_free_mb", lambda: state["free"])
     monkeypatch.setattr(svc.portable, "is_installed", lambda: state.get("installed", False))
+    # No real Python is probed: the test names the one an installed copy would find.
+    monkeypatch.setattr(svc.shutil, "which", lambda name: name if name in state.get("found", ()) else None)
+    monkeypatch.setattr(svc, "_probe_python", lambda command: state.get("probe", {}).get(tuple(command)))
+    svc._FULL_PYTHON.update(at=None, path=None)
     monkeypatch.setattr(svc.diagnostics_torch, "nvidia_driver_info", lambda: state.get("nvidia"))
     monkeypatch.setattr(svc.diagnostics_torch, "compute_capabilities", lambda: state.get("caps", []))
     monkeypatch.setattr(svc, "_commands", lambda engine: [
@@ -161,7 +166,7 @@ def test_refusals_start_nothing(client, env, engine, confirm, free, status, text
 
 
 @pytest.mark.parametrize("setup, text", [
-    ({"installed": True}, "runs from start.bat"),
+    ({"installed": True}, "needs Python 3.12 or 3.13 installed for all users"),
     ({"nvidia": {"gpu_name": "GTX", "driver_version": "450.80"}}, "too old for CUDA 12"),
 ])
 def test_copies_it_cannot_work_on_are_refused(client, env, setup, text):
@@ -170,6 +175,34 @@ def test_copies_it_cannot_work_on_are_refused(client, env, setup, text):
     assert r.status_code == 422 and text in r.json()["error"]["message"]
     assert text in client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]["refusal"]
     assert background_jobs.get_status(JOB) is None
+
+
+def test_an_installed_copy_builds_the_folder_from_a_full_python(client, env):
+    full = "C:/Program Files/Python313/python.exe"
+    env.update(installed=True, found=("py",), probe={("py", "-3.13"): full})
+    row = client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]
+    assert row["refusal"] is None
+    assert _REAL_COMMANDS("qwen3_tts")[0][2][:3] == [full, "-m", "venv"]
+
+
+def test_a_python_that_is_too_new_or_in_the_users_profile_does_not_count(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    inside = home / "AppData" / "python.exe"
+    outside = tmp_path / "pf" / "python.exe"
+    for exe in (inside, outside):
+        exe.parent.mkdir(parents=True)
+        exe.write_text("")
+    answer = {"stdout": ""}
+    fake = type("R", (), {"timed_out": False, "returncode": 0,
+                          "stdout": property(lambda self: answer["stdout"])})()
+    monkeypatch.setattr(svc, "run_captured", lambda *a, **k: fake)
+    monkeypatch.setattr(svc.os.path, "expanduser", lambda p: str(home))
+    answer["stdout"] = f"3 13\n{inside}\n"
+    assert svc._probe_python(["py", "-3.13"]) is None
+    answer["stdout"] = f"3 13\n{outside}\n"
+    assert svc._probe_python(["py", "-3.13"]) == str(outside)
+    answer["stdout"] = f"3 14\n{outside}\n"
+    assert svc._probe_python(["py", "-3.13"]) is None
 
 
 def test_installed_is_409(client, env):
