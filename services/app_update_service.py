@@ -47,6 +47,7 @@ import background_jobs
 import db
 import process_guard
 from installer import app_swap
+from services import shutdown_service
 from services import update_service as us
 from lib.errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
@@ -56,7 +57,9 @@ MAX_MANIFEST_BYTES = app_swap.MAX_MANIFEST_BYTES
 BACKUP_MAX_AGE_SECONDS = 24 * 3600
 ZIP_TEMP_PREFIX = "baihe_appzip_"
 # Only the Start-menu launcher gives the server this (installer/launcher.py
-# start_server); the boot service never does.
+# start_server); the boot service never does. The server removes it from its
+# environment at startup (shutdown_service.take_token_from_environment), so
+# whether it was given one is read from the shutdown service, not os.environ.
 LAUNCHER_TOKEN_ENV = "BAIHE_SHUTDOWN_TOKEN"
 
 RESULT_MESSAGES = {
@@ -137,7 +140,7 @@ def refresh_offer(release) -> None:
 
 
 def launcher_started() -> bool:
-    return bool(os.environ.get(LAUNCHER_TOKEN_ENV))
+    return shutdown_service.enabled()
 
 
 def last_result():
