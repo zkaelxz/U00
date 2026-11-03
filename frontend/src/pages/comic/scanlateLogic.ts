@@ -1,5 +1,6 @@
 // Pure helpers for the Comic page's Translate panel (ScanlatePanel.tsx).
 
+import { isTerminalStatus, type JobRecord } from '../../types/jobs'
 import type { ScanlateConfig, ScanlateEngine, ScanlateUploadLimits } from '../../types/scanlate'
 
 const MB = 1024 * 1024
@@ -69,4 +70,10 @@ export function uploadResultText(r: { added: number; pdf_pages_skipped: number; 
   if (r.strips_sliced) s += ` ${r.strips_sliced} tall strip${r.strips_sliced === 1 ? ' was' : 's were'} sliced.`
   if (r.pdf_pages_skipped) s += ` ${r.pdf_pages_skipped} PDF page${r.pdf_pages_skipped === 1 ? '' : 's'} had no image and ${r.pdf_pages_skipped === 1 ? 'was' : 'were'} skipped.`
   return s
+}
+
+// Page 1 also loads the OCR and detector models, so it can sit for minutes with no other sign of life.
+export function firstPageNote(kind: 'run' | 'export' | null, job: JobRecord | null): string | undefined {
+  if (kind !== 'run' || !job || isTerminalStatus(job.status) || !/^Page 1 of /.test(job.message)) return undefined
+  return 'The first page also loads the OCR and detector models, which can take a few minutes.'
 }

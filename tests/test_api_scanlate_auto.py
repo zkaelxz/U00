@@ -9,6 +9,7 @@ tiny synthetic images (OpenCV + Pillow, no models, no network)."""
 import importlib.util
 import io
 import json
+import re
 import os
 import threading
 import time
@@ -504,6 +505,8 @@ def test_translate_all_skips_pages_with_regions(client, fake_detect):
         assert os.path.isfile(os.path.join(db.drama_dir(did), page["rendered_filename"]))
     notes = json.loads(db.get_page(p2)["run_notes"])
     assert any("Detector" in n["message"] for n in notes)
+    assert any(re.fullmatch(r"Time: detect and OCR wait [\d.]+s, AI call [\d.]+s, typeset [\d.]+s\.",
+                            n["message"]) for n in notes)
     # the reader can now serve the typeset image
     img = client.get(f"/api/scanlate/dramas/{did}/pages/{p2}/image?variant=rendered")
     assert img.status_code == 200 and img.headers["content-type"] == "image/png"
@@ -1466,3 +1469,23 @@ def test_read_ahead_only_runs_missing_mode(client, monkeypatch):
     ids = [_page(did, i) for i in range(2)]
     with pytest.raises(InvalidInputError):
         run_svc.start_run(did, mode="all", confirm=True, read_ahead_from=ids[0], engine="claude")
+
+
+def test_waiting_for_the_pipeline_lock_is_said_in_the_job_message(isolated_db, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    jid = f"scanlate_{did}"
+    messages = []
+    monkeypatch.setattr(run_svc.background_jobs, "update_progress",
+                        lambda job_id, frac, message="": messages.append((frac, message)))
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
+    drama = db.get_drama(did)
+    lock = run_svc.pages_svc.pipeline_lock()
+    with lock:
+        t = threading.Thread(target=lambda: run_svc._detect_stage(
+            did, drama, pid, "all", {"detect_backend": "auto", "ocr_backend": None}, jid))
+        t.start()
+        time.sleep(0.5)
+        assert [m for _, m in messages] == [run_svc._WAITING_NOTE]
+    t.join(5)
+    assert not t.is_alive()
