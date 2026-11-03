@@ -337,11 +337,15 @@ def _server_port():
 
 def apply_busy() -> bool:
     """Whether an apply is under way or handed over and not yet finished (its
-    journal is still there): the full Setup must not start meanwhile."""
+    journal is still there): the full Setup must not start meanwhile. A
+    queued switch is the exception: its helper has already exited and
+    Setup deletes the journal, so a locked file must not leave the full
+    installer refused."""
     with _lock:
         if _applying:
             return True
-    return app_swap.read_journal(install_root()) is not None
+    journal = app_swap.read_journal(install_root())
+    return journal is not None and journal["state"] != app_swap.QUEUED
 
 
 def apply() -> dict:
