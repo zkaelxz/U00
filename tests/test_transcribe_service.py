@@ -2538,6 +2538,22 @@ class TestMissingPackageOutcome:
         # The job ends Failed with the sentence alone, no "HeadroomError:" in front.
         assert job_runner._failed_outcome_error(outcome, "transcribe_1") == sentence
 
+    def test_a_permission_refusal_on_the_audio_tells_the_user_what_to_do(self, monkeypatch, tmp_path):
+        import queue
+
+        def refuse(*a, **k):
+            raise PermissionError(13, "Permission denied", "audio.wav")
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", refuse)
+        q = queue.Queue()
+        transcribe_pipeline._transcribe_worker(
+            "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
+            False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
+            False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
+        kind, outcome = q.get_nowait()
+        assert (kind, outcome) == ("ok", {"failed_reason": "media_unreadable"})
+        message = job_runner._failed_outcome_error(outcome, "transcribe_1")
+        assert "run Setup again" in message and "audio.wav" not in message
+
     def test_the_hardsub_thread_job_shows_a_headroom_sentence_alone(self, isolated_db, monkeypatch):
         import memory_headroom
         sentence = "Not loading the OCR model: it needs about 2 GB of RAM, 1 GB is free."
