@@ -54,11 +54,7 @@ export type ArtifactInfo = Schemas['ArtifactInfo']
 export type ExportMediaKind = 'audio' | 'video' | 'softsub_video' | 'dubbed_video'
 
 // Parity E17: which subtitles go into the muxed track.
-export interface SoftsubVideoRequest {
-  field: 'en' | 'zh' | 'bilingual'
-  include_notes?: boolean
-  subtitle_format?: 'srt' | 'ass'
-}
+export type SoftsubVideoRequest = Schemas['SoftsubVideoRequest']
 
 // Parity E19: keep_original mixes the original audio in quietly underneath.
 export type DubbedVideoRequest = Schemas['DubbedVideoRequest']

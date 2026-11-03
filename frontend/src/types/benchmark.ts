@@ -125,23 +125,7 @@ export interface BenchmarkRequestConfig {
   options?: BenchmarkTranscribeOptions | BenchmarkTranslateOptions
 }
 
-/** The engine that scores a translation run's outputs. allow_same_model must be true to judge with a tested model. */
-interface BenchmarkJudgeConfig {
-  engine: string
-  model?: string
-  allow_same_model?: boolean
-}
-
-export interface BenchmarkRunRequest {
-  stage: BenchmarkStage
-  configs: BenchmarkRequestConfig[]
-  tier?: BenchmarkTier
-  set_name?: string
-  case_ids?: number[]
-  label?: string
-  prompt_version?: string
-  judge?: BenchmarkJudgeConfig
-}
+export type BenchmarkRunRequest = Schemas['BenchmarkRunRequest']
 
 /** One output's judge scores, each 0-1. */
 export type BenchmarkJudgeScore = Schemas['BenchmarkJudgeScore']

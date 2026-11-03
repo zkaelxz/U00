@@ -7,16 +7,7 @@ type Schemas = components['schemas']
 
 import type { ReviewLine } from './review'
 
-export interface RestructureAddLine {
-  expected_line_ids: number[]
-  // null = insert at the start.
-  after_line_id: number | null
-  start: number
-  end: number
-  zh?: string
-  en?: string
-  speaker?: string | null
-}
+export type RestructureAddLine = Schemas['RestructureAddLine']
 
 export type RestructureSplit = Schemas['RestructureSplit']
 
@@ -53,10 +44,7 @@ export interface ResegmentPreview {
 }
 
 // The rules path; the AI path is ResegmentLlmPreviewStart then apply.
-export interface ResegmentStart {
-  expected_line_ids: number[]
-  confirm: boolean
-}
+export type ResegmentStart = Schemas['ResegmentStart']
 
 // Parity R47: an LLM re-segmentation worked out as a preview (writes no lines).
 // Blank fields are left out: the drama's engine and the engine's model apply.

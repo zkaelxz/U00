@@ -16,19 +16,7 @@ export type ScanlateUploadResult = Schemas['ScanlateUploadResult']
 
 export type ScanlateRunMode = 'missing' | 'page' | 'all'
 
-export interface ScanlateRunRequest {
-  mode: ScanlateRunMode
-  page_id?: number
-  // Limits 'missing' / 'all' to one chapter (hidden pages are always skipped).
-  chapter_id?: string
-  confirm?: boolean
-  engine?: string
-  detect_backend?: ScanlateDetectBackend
-  // Also translate large lettering drawn on the artwork (off unless set).
-  art_captions?: boolean
-  // The page the reader is on: translates the next few untranslated pages (mode 'missing' only).
-  read_ahead_from?: number
-}
+export type ScanlateRunRequest = Schemas['ScanlateRunRequest']
 
 export type ScanlateExportFormat = 'zip' | 'pdf'
 

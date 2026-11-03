@@ -38,19 +38,7 @@ export type TranscribeConfigUpdate = Partial<
   >
 >
 
-export interface TranscribeRunRequest {
-  source_language?: string | null
-  chinese_script?: string | null
-  transcript_text?: string | null
-  run_diarize?: boolean
-  expected_speakers?: number | null
-  // A speaker-count range for "Detect speakers after transcribing".
-  min_speakers?: number | null
-  max_speakers?: number | null
-  initial_prompt?: string
-  extra_names?: string
-  tesseract_cmd?: string | null
-}
+export type TranscribeRunRequest = Schemas['TranscribeRunRequest']
 
 // GET /api/diarization/dramas/{id}/config (api/schemas/transcribe.py DiarizationConfig).
 export type DiarizationConfig = Schemas['DiarizationConfig']
@@ -126,10 +114,7 @@ export type SourceConfigUpdate = Partial<
 >
 
 // api/schemas/transcribe.py RetranscribeLineRequest / RetranscribeLineResult.
-export interface RetranscribeLineRequest {
-  initial_prompt?: string
-  extra_names?: string
-}
+export type RetranscribeLineRequest = Schemas['RetranscribeLineRequest']
 
 export type RetranscribeLineResult = Schemas['RetranscribeLineResult']
 
@@ -143,11 +128,7 @@ export type RetranscribeApplyRequest = Schemas['RetranscribeApplyRequest']
 export type RetranscribeApplyResult = Schemas['RetranscribeApplyResult']
 
 // api/schemas/retranscribe_lines.py: Review's "Re-transcribe selected" (several lines, one job).
-export interface RetranscribeManyRequest {
-  line_ids: number[]
-  initial_prompt?: string
-  extra_names?: string
-}
+export type RetranscribeManyRequest = Schemas['RetranscribeManyRequest']
 
 export type RetranscribeManyStarted = Schemas['RetranscribeManyStarted']
 
@@ -176,27 +157,7 @@ export type GapAddLinesResult = Schemas['GapAddLinesResult']
 
 export type TalkOverAddResult = Schemas['TalkOverAddResult']
 
-// GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).
-type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
-
-interface WorkflowStageState {
-  key: string
-  state: WorkflowStageStateName
-}
-
-export interface WorkflowProgress {
-  drama_id: number
-  stage_index: number
-  stage: string
-  line_count: number
-  untranslated_count: number
-  flagged_count: number
-  has_audio: boolean
-  has_dub_track: boolean
-  has_narration_track?: boolean
-  exported: boolean
-  stages: WorkflowStageState[]
-}
+export type WorkflowProgress = Schemas['WorkflowProgress']
 
 // api/schemas/transcribe.py Compare* (Review: Compare transcription).
 export type CompareSelection =
