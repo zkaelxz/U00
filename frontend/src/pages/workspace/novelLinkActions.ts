@@ -1,12 +1,16 @@
-import { getNovelGlossary } from '../../api/autotuneGlossary'
+import { applyNovelGlossary, getNovelGlossary } from '../../api/autotuneGlossary'
 import { narrationApi } from '../../api/dub'
 import { probeJob } from '../../api/jobs'
 import { getRawChapters } from '../../api/novelChapters'
 import { sourceImportJobId } from '../../api/sourcesImport'
 import { startNovelUrlImport } from '../../api/sourcesExtraction'
+import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
 import { attachNovelFromSources, getNovelStatus, getWorkflowProgress } from '../../api/workspace'
 import { isActiveStatus, isTerminalStatus } from '../../types/jobs'
+import { defaultTermSelection } from './stages/autotuneGlossary'
+import { applyRequest } from './stages/glossaryExtract'
 import { startExtraction } from './stages/useGlossaryRun'
+import { applyStartToForm, buildRunBody, initialForm, loadPresetStart } from './translateForm'
 import type { ChainActions } from './novelLinkChain'
 
 const POLL_MS = 2000
@@ -79,4 +83,23 @@ export function novelLinkActions(id: number, url: string): ChainActions {
     },
     waitExtract: () => waitForExtraction(id),
   }
+}
+
+/**
+ * The opt-in shortcut past the glossary review: adds the proposed terms that are not in the glossary yet
+ * (those with a suggested translation; the series glossary is where they go, so a title without a series
+ * adds none) and starts the translation with the form's own defaults, the same body the Translate button sends.
+ */
+export async function translateWithoutReview(id: number, hasSeries: boolean): Promise<string> {
+  if (hasSeries) {
+    const status = await getNovelGlossary(id)
+    const proposals = status.proposals ?? []
+    const chosen = proposals
+      .filter((p) => defaultTermSelection(proposals).has(p.term) && p.suggested_translation.trim())
+      .map((p) => p.term)
+    if (chosen.length) await applyNovelGlossary(id, applyRequest(chosen, status.run_id, undefined))
+  }
+  const config = await getTranslateConfig(id)
+  const form = applyStartToForm(initialForm(config, loadPresetStart(id)), config.translate_start, config)
+  return (await startTranslateRun(id, buildRunBody(form))).job_id
 }

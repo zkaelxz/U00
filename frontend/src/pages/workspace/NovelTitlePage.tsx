@@ -99,6 +99,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
           chapters={list.total}
           translating={lineCount > 0 && untranslated < lineCount}
           defaultUrl={drama.source_url ?? ''}
+          hasSeries={!!drama.series_id}
           onProgress={refresh}
         />
       )}
