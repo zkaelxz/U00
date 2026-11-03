@@ -29,6 +29,16 @@ updates:
       npm-dependencies:
         patterns: ["*"]
 
+  # The pinned generator for frontend/src/api/generated/schema.d.ts.
+  - package-ecosystem: npm
+    directory: /frontend/openapi-gen
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      openapi-gen-dependencies:
+        patterns: ["*"]
+
   # The Caddy build for the installer's remote-access service.
   - package-ecosystem: gomod
     directory: /installer/caddy
