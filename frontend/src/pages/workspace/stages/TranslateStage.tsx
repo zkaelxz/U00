@@ -280,7 +280,8 @@ function RunPanel({
   // by itself; otherwise the banner offers it.
   const scans = useGlossaryScans(dramaId)
   const banner = scans.loaded ? scanBanner(scans.scans) : null
-  // A novel's link chain ends with a finished scan waiting here, so it opens without another click.
+  // On a novel any waiting scan opens on arrival, not only after the link chain: the chain ends with a finished
+  // scan waiting here, and a later visit with one still unapplied should not hide it behind a banner.
   const [reviewOnMount] = useState(canReview && (reviewFirst || titleKind(drama.media_type, drama.content_mode) === 'novel'))
   const [resumeSource, setResumeSource] = useState<GlossarySource | undefined>(undefined)
   const [resumeOpen, setResumeOpen] = useState(false)
