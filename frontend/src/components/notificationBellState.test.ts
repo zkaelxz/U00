@@ -21,6 +21,9 @@ const item = (id: number, at: number, kind: NotificationItem['kind'] = 'job_done
   at,
   kind,
   text: `event ${id}`,
+  action: null,
+  follow_id: null,
+  starts_at: null,
 })
 
 function memoryStorage(): Storage {

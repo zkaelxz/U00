@@ -102,22 +102,9 @@ export type SourcesSettingsUpdate = Partial<
   >
 >
 
-export interface SourceProfileVersion {
-  version: number | null
-  kind: string | null
-  status: string | null
-  origin: string | null
-  created_at: number | null
-  approved: boolean
-  failures: number
-  last_failure_reason: string | null
-  last_used: number | null
-}
+export type SourceProfileVersion = Schemas['SourceProfileVersion']
 
-export interface SourceProfileDomain {
-  domain: string
-  versions: SourceProfileVersion[]
-}
+export type SourceProfileDomain = Schemas['SourceProfileDomain']
 
 export interface TrackedSeries {
   source: string
