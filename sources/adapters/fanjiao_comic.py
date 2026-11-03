@@ -231,9 +231,13 @@ class FanjiaoComicSource(PlainImageDownload, SourceAdapter):
         if series is not None and _digits(series.get("comic_id")):
             return ("series", _digits(series["comic_id"]))
         chapter = _link_payload(url, "cartoonRead")
-        cid = _digits(chapter.get("chapter_id")) if chapter else ""
+        if chapter is None:
+            return None
+        cid = _digits(chapter.get("chapter_id"))
+        if not cid:
+            return None
         # A chapter link carries no comic id, so the series stays empty; the link itself is the page to read.
-        return ("chapter", ChapterInfo(self.name, "", cid, str(chapter.get("comic_name") or cid), url)) if cid else None
+        return ("chapter", ChapterInfo(self.name, "", cid, str(chapter.get("comic_name") or cid), url))
 
     def capabilities(self):
         caps = super().capabilities()
