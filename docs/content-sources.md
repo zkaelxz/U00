@@ -337,6 +337,19 @@ work".
 | Terms | robots.txt (2026-11-02): `Allow: /`, no Crawl-delay; AI crawlers (ClaudeBot, anthropic-ai, GPTBot and others) are disallowed by name. Content signals: `search=yes, ai-train=no, use=reference`; the site reserves AI training. No terms page found, so `automation_permission` stays `UNKNOWN`. |
 | Tests | `tests/test_sources_weloma.py` (small invented fixtures; no network). |
 
+## mh03 — `sources/adapters/mh03.py`
+
+| | |
+|---|---|
+| URL patterns | `mh03.com/comic_<slug>.html` (series); chapter links `chapter_<n>_<m>.html` carry no series slug, so a pasted chapter URL is not recognised |
+| Content type / language | manhua; zh |
+| Status | **Read against the live site 2026-11-03** (plain GETs, no login): one series page, its chapter list and a free chapter's image URLs. No image was downloaded and no import has been run through the app. |
+| Access tier | `STATIC_HTTP`. A server-rendered Mccms "zizhi001" template; nothing needs JavaScript. |
+| Extraction | **Series:** `h1`, cover, the `作者：` stat, status tag and description. **Chapters:** the `div.chapter-item` links in page order (oldest first), minus the 预告 and 更新提示 notice rows. **Pages:** the `img.comic-image` tags in `div.comic-content`; the real URL is `data-src` (`src` is a placeholder). No search: the site's search box is script-driven. |
+| Failures | A missing title, chapter list or reader -> `LayoutChanged`. A reader with no images -> `ContentHidden` (`PURCHASE_REQUIRED`): the template ships hidden buy and VIP boxes on every chapter, so a chapter is treated as withheld only when it shows no images, and is never worked around. |
+| Terms | robots.txt (2026-11-03): `User-agent: *` with `Allow: /`, no Crawl-delay; some crawlers are disallowed by name. Content signals: `search=yes, ai-train=no, use=reference`; the site reserves AI training. Terms were not read, so `automation_permission` stays `UNKNOWN`. |
+| Tests | `tests/test_sources_mh03.py` (small invented fixtures; no network). |
+
 ## Marumaru (마루마루) — `sources/adapters/marumaru.py`
 
 | | |
