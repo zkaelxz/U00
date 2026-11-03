@@ -10,7 +10,7 @@ import { activeIndex, alongLines, type AlongLine } from './readAlongLogic'
 const PAGE_SIZE = 200 // the server's page-size cap
 
 // Every line of the title, in order, paged because the server caps a page.
-async function loadRows(dramaId: number): Promise<ReviewLine[]> {
+export async function loadRows(dramaId: number): Promise<ReviewLine[]> {
   const rows: ReviewLine[] = []
   for (let page = 1; ; page++) {
     const r = await listLines(dramaId, page, PAGE_SIZE, 'all')
