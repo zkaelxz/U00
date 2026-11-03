@@ -121,6 +121,10 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
         # failed, since a broken install (a DLL that won't load) reads the same.
         result_queue.put(("ok", {**missing_package_outcome(),
                                  "import_error": whisper_models.short_reason(exc)}))
+    except PermissionError:
+        # A file made before the background service was switched on can lack
+        # the service account's access; the raw traceback names only a path.
+        result_queue.put(("ok", {"failed_reason": "media_unreadable"}))
     except Exception as exc:
         result_queue.put(process_worker.error_item(exc))
 
