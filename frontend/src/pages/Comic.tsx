@@ -158,7 +158,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     comicApi.viewPrefs(id).then(
       ({ view_prefs }) => {
         if (view_prefs) {
-          const server = sanitizePrefs(view_prefs, view_prefs)
+          const server = sanitizePrefs(view_prefs, { ...view_prefs, spread: view_prefs.spread ?? 'auto', coverAlone: view_prefs.coverAlone ?? true })
           setStored((now) => now ?? server)
           saveComicPrefs(browserStorage(), id, server)
         } else {

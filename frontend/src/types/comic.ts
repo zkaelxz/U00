@@ -79,13 +79,7 @@ export type ComicViewPrefsView = Schemas['ComicViewPrefsView']
 export type ComicViewPrefs = Schemas['ComicViewPrefs']
 
 // POST /pages/visibility: page ids, or the first/last `count` pages of a chapter.
-export interface ComicVisibilityRequest {
-  hidden: boolean
-  page_ids?: number[]
-  chapter_id?: string
-  edge?: 'first' | 'last' | 'all'
-  count?: number
-}
+export type ComicVisibilityRequest = Schemas['ComicVisibilityRequest']
 
 export type ComicVisibilityResult = Schemas['ComicVisibilityResult']
 
