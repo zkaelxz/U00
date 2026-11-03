@@ -609,6 +609,11 @@ def finish_app_update(headless: bool, stop=None) -> bool:
     if outcome == "broken":
         raise LaunchError(app_swap.BROKEN_MESSAGE)
     if outcome == "queued" and not defer and not headless:
+        # The helper renames app\, which an open Setup is replacing; the switch
+        # stays queued and the next start after Setup finds the journal gone.
+        from installer.setup_lock import setup_is_open
+        if setup_is_open():
+            return False
         spawn_app_update(root)
         return True
     return False

@@ -367,11 +367,29 @@ def test_full_setup_is_refused_while_an_app_update_is_under_way(env, monkeypatch
         us.install()
     assert str(exc.value) == applying
     monkeypatch.setattr(aus, "_applying", False)
-    app_swap.write_journal(env["root"], app_swap.QUEUED, "0.1.0", "0.2.0", "0.1.0")
+    app_swap.write_journal(env["root"], app_swap.SWITCHING, "0.1.0", "0.2.0", "0.1.0")
     with pytest.raises(ConflictError) as exc:
         us.install()
     assert str(exc.value) == applying
     assert started == [] and us._installing is False
+
+
+def test_full_setup_replaces_a_queued_app_update(env, monkeypatch):
+    """A locked file leaves the switch queued with no helper running; Setup deletes
+    the journal, so the in-app Install must not stay refused behind it."""
+    verified = {"version": "0.2.0", "name": "x.exe", "path": "x", "sha256": "0" * 64,
+                "signature": ""}
+    monkeypatch.setattr(us, "_setup", None)
+    monkeypatch.setattr(us, "_verified", verified)
+    started = []
+    monkeypatch.setattr(us, "_install", lambda v: started.append(v) or {"launched": True})
+    app_swap.write_journal(env["root"], app_swap.QUEUED, "0.1.0", "0.2.0", "0.1.0")
+    assert us.install() == {"launched": True}
+    assert started == [verified]
+    # A journal that can't be read is not "queued": it still refuses.
+    (env["root"] / "app-update" / "swap.json").write_text("{", encoding="utf-8")
+    with pytest.raises(ConflictError):
+        us.install()
 
 
 def test_a_failed_apply_lets_the_next_one_start(env, monkeypatch):

@@ -1033,6 +1033,14 @@ class TestFinishAppUpdate:
         assert launcher.finish_app_update(headless=False) is True
         assert spawned == [root]
 
+    def test_a_queued_switch_waits_while_setup_is_open(self, root, monkeypatch):
+        root, sw, spawned = root
+        sw.write_journal(root, sw.QUEUED, "0.1.0", "0.2.0", "0.1.0")
+        from installer import setup_lock
+        monkeypatch.setattr(setup_lock, "setup_is_open", lambda mutexes=None: True)
+        assert launcher.finish_app_update(headless=False) is False
+        assert spawned == [] and sw.read_journal(root)["state"] == sw.QUEUED
+
     def test_a_lost_helper_copy_is_replaced_from_the_app(self, tmp_path, monkeypatch):
         from installer import app_swap as sw
         root = tmp_path / "Baihe Studio"
