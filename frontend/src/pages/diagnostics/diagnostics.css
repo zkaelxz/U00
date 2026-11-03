@@ -190,6 +190,7 @@
 /* Setup > models: an engine row with its downloads indented under it. */
 .diag-rows.model-engines > li { display: block; }
 .diag-rows.model-engines .diag-cache { padding-left: var(--space-3) !important; }
+.model-download { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
 .diag-page :is(h3, h2:where(.subhead)) + .muted, .diag-page .section-body > :is(h3, h2:where(.subhead)) { margin-top: 0; }
 .section-body > :is(h3, h2:where(.subhead)) { margin-top: var(--space-2); }
 

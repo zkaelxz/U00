@@ -6,7 +6,7 @@ import {
   LOST_CONTACT_INSTALL, adminErrorText, busyLine, copyFallbackText,
   extensionEngineNote, extensionSummary, extensionToggleNote,
   headerBadges, installBlockedReason, installConfirmLabel, installResultText,
-  isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, reconcileModels, resetBlockedReason,
+  isInstallable, libraryStatsLine, logEmptyText, MODEL_DOWNLOAD_IDS, modelCacheSummary, modelDownloadProblem, pyannoteSummary, reconcileModels, resetBlockedReason,
   setupRows, setupSummary,
 } from './diagnosticsAdmin'
 
@@ -280,5 +280,25 @@ describe('browser extension', () => {
     expect(extensionToggleNote({ enabled: true, running: true, restart_needed: false })).toBeNull()
     expect(extensionToggleNote({ enabled: false, running: false, restart_needed: false }))
       .toBe("Off. The extension can't reach Baihe now.")
+  })
+})
+
+describe('model downloads', () => {
+  it('names the server id for each engine that can be downloaded', () => {
+    expect(MODEL_DOWNLOAD_IDS['Qwen3-ASR']).toBe('qwen3_asr')
+    expect(MODEL_DOWNLOAD_IDS['SenseVoice (FunASR)']).toBe('sensevoice')
+    expect(MODEL_DOWNLOAD_IDS['manga-ocr']).toBe('manga_ocr')
+    expect(MODEL_DOWNLOAD_IDS['Whisper (faster-whisper)']).toBeUndefined()
+  })
+
+  it('says why a download stopped, and nothing for a job that is fine or never started', () => {
+    expect(modelDownloadProblem(null, 'manga-ocr')).toBeNull()
+    expect(modelDownloadProblem({ status: 'running' }, 'manga-ocr')).toBeNull()
+    expect(modelDownloadProblem({ status: 'done' }, 'manga-ocr')).toBeNull()
+    expect(modelDownloadProblem({ status: 'cancelled' }, 'manga-ocr')).toBe('The manga-ocr download was cancelled.')
+    expect(modelDownloadProblem({ status: 'error', result: { detail: "Couldn't download manga-ocr: HTTP 500" } }, 'manga-ocr'))
+      .toBe("Couldn't download manga-ocr: HTTP 500")
+    expect(modelDownloadProblem({ status: 'error', error: 'boom' }, 'manga-ocr')).toBe('boom')
+    expect(modelDownloadProblem({ status: 'error' }, 'manga-ocr')).toBe('The manga-ocr download failed.')
   })
 })

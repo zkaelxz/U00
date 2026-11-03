@@ -2435,6 +2435,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/model-downloads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The models that can be downloaded here, and whether each is on disk */
+        get: operations["get_model_downloads_api_diagnostics_model_downloads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/model-downloads/{model_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: download one listed model as a background job (409 when it is already downloaded or another download runs) */
+        post: operations["post_model_download_api_diagnostics_model_downloads__model_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/package-updates/check": {
         parameters: {
             query?: never;
@@ -15564,6 +15598,25 @@ export interface components {
             model_files: components["schemas"]["DiagnosticsModelFile"][];
             /** Model Files Total Bytes */
             model_files_total_bytes: number;
+        };
+        /** DiagnosticsModelDownload */
+        DiagnosticsModelDownload: {
+            /** Downloaded */
+            downloaded: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Job Id
+             * @description Follow the download with GET /api/jobs/{job_id}.
+             */
+            job_id: string;
+            /** Label */
+            label: string;
+        };
+        /** DiagnosticsModelDownloads */
+        DiagnosticsModelDownloads: {
+            /** Models */
+            models: components["schemas"]["DiagnosticsModelDownload"][];
         };
         /**
          * DiagnosticsModelFile
@@ -35869,6 +35922,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiagnosticsCacheDeleteResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_model_downloads_api_diagnostics_model_downloads_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsModelDownloads"];
+                };
+            };
+        };
+    };
+    post_model_download_api_diagnostics_model_downloads__model_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsJobStarted"];
                 };
             };
             /** @description Not Found */

@@ -9,6 +9,9 @@ export type GpuStatus = Schemas['GpuStatus']
 
 export type ModelEngineVersion = Schemas['ModelEngineVersion']
 
+export type DiagnosticsModelDownloads = Schemas['DiagnosticsModelDownloads']
+export type DiagnosticsModelDownload = Schemas['DiagnosticsModelDownload']
+
 export type DiagnosticsOverview = Schemas['DiagnosticsOverview']
 
 // Mirrors api/schemas/diagnostics_setup.py Diagnostics* (/api/diagnostics/...).
