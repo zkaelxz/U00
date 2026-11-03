@@ -60,6 +60,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "report_id": "bug report (admin.diagnostics / PC-only)",
     "channel": "notification channel (PC-only)",
     "revision": "a Hugging Face model-cache revision, not an item (PC-only delete)",
+    "model_id": "a key in the fixed list of downloadable models, not an item (PC-only start)",
     "backlog_id": "maintenance-assistant backlog item: app-wide, PC-only (Step 42)",
     "case_id": "benchmark case: household-wide admin tool (admin.diagnostics / PC-only)",
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",

@@ -203,12 +203,10 @@ def custom_source() -> bool:
 
 
 def include_prereleases() -> bool:
-    """Developer Mode's "include pre-releases". Ignored while Developer Mode
-    is off, so switching it off also stops betas being offered."""
-    from services import assistant_settings_service, settings_service
+    """Whether the App updates card's "Include pre-releases" switch is on."""
+    from services import settings_service
     try:
-        return (settings_service.get(INCLUDE_PRERELEASES_KEY) is True
-                and assistant_settings_service.developer_mode_enabled())
+        return settings_service.get(INCLUDE_PRERELEASES_KEY) is True
     except Exception:
         return False
 
@@ -222,6 +220,11 @@ def get_auto_check() -> bool:
 
 def set_auto_check(enabled: bool) -> dict:
     db.set_app_setting(AUTO_CHECK_KEY, bool(enabled))
+    return status()
+
+
+def set_include_prereleases(enabled: bool) -> dict:
+    db.set_app_setting(INCLUDE_PRERELEASES_KEY, bool(enabled))
     return status()
 
 
@@ -464,7 +467,8 @@ def status() -> dict:
                             and s["download"] != "downloading"),
             "signature_check": signature_check_on(),
             "signature_verified": verified_signed,
-            "auto_check": get_auto_check(), "custom_source": custom_source(),
+            "auto_check": get_auto_check(),
+            "include_prereleases": include_prereleases(), "custom_source": custom_source(),
             **_app_status()}
 
 

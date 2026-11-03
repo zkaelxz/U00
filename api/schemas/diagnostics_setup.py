@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, String
 from api.schemas.common import ConfirmRequest, UpgradeRequest
 
 __all__ = [
+    "DiagnosticsModelDownload",
+    "DiagnosticsModelDownloads",
     "DiagnosticsSetupPython",
     "DiagnosticsSetupFfmpeg",
     "DiagnosticsSetupJsRuntime",
@@ -316,3 +318,17 @@ class DiagnosticsResetResult(BaseModel):
 class DiagnosticsCacheDeleteResult(BaseModel):
     deleted: bool
     name: str
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics: model downloads.
+# ---------------------------------------------------------------------------
+class DiagnosticsModelDownload(BaseModel):
+    id: str
+    label: str
+    downloaded: bool
+    job_id: str = Field(description="Follow the download with GET /api/jobs/{job_id}.")
+
+
+class DiagnosticsModelDownloads(BaseModel):
+    models: List[DiagnosticsModelDownload]
