@@ -8,6 +8,7 @@ files under tmp_path.
 import datetime
 import hashlib
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -18,6 +19,7 @@ pytest.importorskip("cryptography")
 from installer import app_swap  # noqa: E402
 from lib import release_signature as rs  # noqa: E402
 from services import app_update_service as aus  # noqa: E402
+from services import shutdown_service  # noqa: E402
 from services import update_service as us  # noqa: E402
 from lib.errors import ConflictError, UnsupportedOperationError  # noqa: E402
 from tests.test_update_service import FakeHttp, _release_obj  # noqa: E402
@@ -87,7 +89,7 @@ def env(isolated_db, monkeypatch, tmp_path, keys):
                                             download_error=None))
     monkeypatch.setattr(aus, "_release", None)
     monkeypatch.setattr(aus, "_verified", None)
-    monkeypatch.setenv(aus.LAUNCHER_TOKEN_ENV, "t")
+    monkeypatch.setattr(shutdown_service, "_token", "t" * shutdown_service.MIN_TOKEN_LENGTH)
     monkeypatch.delenv(us.REPO_ENV, raising=False)
     from services import settings_service
     monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
@@ -159,9 +161,20 @@ def test_an_unreadable_manifest_copy_means_no_offer(env):
     assert us.check()["app_update"] == "none"
 
 
+def test_the_launcher_check_survives_the_servers_startup(monkeypatch):
+    # python -m api removes the token from os.environ at startup; the update
+    # card must still know the launcher started it.
+    monkeypatch.setattr(shutdown_service, "_token", "")
+    monkeypatch.setenv(aus.LAUNCHER_TOKEN_ENV, "t" * shutdown_service.MIN_TOKEN_LENGTH)
+    shutdown_service.take_token_from_environment()
+    assert aus.LAUNCHER_TOKEN_ENV not in os.environ
+    assert aus.launcher_started() is True
+
+
 def test_no_offer_under_the_boot_service(env, monkeypatch):
     _serve(env)
-    monkeypatch.delenv(aus.LAUNCHER_TOKEN_ENV)
+    monkeypatch.setattr(shutdown_service, "_token", "")
+    monkeypatch.delenv(aus.LAUNCHER_TOKEN_ENV, raising=False)
     us.check()
     _download(env)
     s = us.status()
