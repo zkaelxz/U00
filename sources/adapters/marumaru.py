@@ -84,6 +84,9 @@ class MarumaruSource(SourceAdapter):
     base_urls = [BASE_URL]
     # Fast stays off: no terms page to vet, and Fast is limited to vetted sites.
     host_min_interval = {"marumaru108.com": 2.5, "api.storagewebtoon.store": 2.5}
+    # A chapter is dozens of images a reader loads together; only the picture server gets this
+    # shorter gap, the site and API hosts keep their 2.5 s floor above.
+    image_pace = (1.0, 2.5)
     default_headers = {"Referer": BASE_URL + "/"}
 
     def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
@@ -201,7 +204,7 @@ class MarumaruSource(SourceAdapter):
 
     def download_page(self, page):
         resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
+                               action=f"Downloading page {page.index + 1}", image_pace=self.image_pace)
         ctype = header(resp.headers, "content-type").split(";")[0].strip().lower()
         if ctype and not ctype.startswith("image/"):
             raise SourceError(f"Page {page.index + 1} didn't come back as an image.",

@@ -12,7 +12,7 @@ from sources.adapters import marumaru
 from sources.http_transport import Response
 from sources.models import ChapterInfo, PageRef, SourceError, SourceUnavailable
 
-from .sources_helpers import FakeClock, ScriptedTransport, html, make_client
+from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, make_client
 
 pytestmark = pytest.mark.usefixtures("isolated_db")
 
@@ -121,6 +121,19 @@ class TestPages:
         url = "https://peer.example.invalid/1.webp"
         a, _ = _adapter({url: Response(200, {"content-type": "image/webp"}, b"IMG", "")})
         assert a.download_page(PageRef("marumaru", "1", 0, url)) == (b"IMG", ".webp")
+
+    def test_images_come_faster_than_the_persons_pace_while_the_api_keeps_its_floor(self):
+        urls = [f"https://peer.example.invalid/{i}.webp" for i in range(3)]
+        clock = FakeClock()
+        t = ScriptedTransport({u: Response(200, {"content-type": "image/webp"}, b"IMG", "") for u in urls}, clock)
+        client = make_client("marumaru", t, clock, rng=FixedRng(0.0), min_delay=3.0, max_delay=8.0,
+                             max_retries=0)
+        a = marumaru.MarumaruSource(client=client)
+        for i, u in enumerate(urls):
+            a.download_page(PageRef("marumaru", "1", i, u))
+        gaps = [b["t"] - c["t"] for c, b in zip(t.calls, t.calls[1:])]
+        assert gaps == pytest.approx([1.0, 1.0])
+        assert marumaru.MarumaruSource.host_min_interval["api.storagewebtoon.store"] == 2.5
 
 
 class TestParseUrl:
