@@ -4,6 +4,7 @@ import type { ScanlateConfig } from '../../types/scanlate'
 import {
   checkFiles,
   defaultEngine,
+  firstPageNote,
   pagesText,
   progressSummary,
   runBlockedReason,
@@ -101,5 +102,20 @@ describe('PDF import without pypdf', () => {
   it('refuses a PDF with the reason when the server cannot read PDFs', () => {
     expect(checkFiles([{ name: 'a.pdf', size: 1024 }], { ...limits, pdf: false })).toMatch(/pypdf/)
     expect(checkFiles([{ name: 'a.png', size: 1024 }], { ...limits, pdf: false })).toBeNull()
+  })
+})
+
+describe('firstPageNote', () => {
+  const job = (status: string, message: string) => ({ status, message }) as never
+
+  it('explains a slow first page while a run is on page 1', () => {
+    expect(firstPageNote('run', job('running', 'Page 1 of 181'))).toMatch(/load.*models/)
+  })
+
+  it('says nothing later, after the run, or for an export', () => {
+    expect(firstPageNote('run', job('running', 'Page 2 of 181'))).toBeUndefined()
+    expect(firstPageNote('run', job('done', 'Page 1 of 1'))).toBeUndefined()
+    expect(firstPageNote('export', job('running', 'Page 1 of 181'))).toBeUndefined()
+    expect(firstPageNote('run', null)).toBeUndefined()
   })
 })

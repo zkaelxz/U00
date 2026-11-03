@@ -36,6 +36,7 @@ No FastAPI import.
 """
 import contextvars
 import importlib.util
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import background_jobs
@@ -203,6 +204,8 @@ def _predecessor_context(drama_id: int, page_id: int) -> str:
 
 _STAMP_LOOKBACK_PAGES = 4
 
+_WAITING_NOTE = "Waiting for another comic job to finish with the OCR and detector models"
+
 
 def _detector_note(detect_backend: str, notes: list) -> tuple:
     import scanlate_detect
@@ -329,7 +332,18 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
     render_svc.check_cancel(jid)                # a read-ahead may start after a cancel
     src = render_svc.original_path(drama_id, page)
     lang = drama.get("source_language") or "zh"
-    with cancellable_lock.hold(pages_svc.pipeline_lock(), lambda: render_svc.check_cancel(jid)):
+    waiting = []
+
+    def check_while_waiting():
+        render_svc.check_cancel(jid)
+        # Detection holds the pipeline lock behind another comic job's model run; without a
+        # note the job reads "Page N of M" and looks hung. The next page's message replaces it.
+        if not waiting:
+            waiting.append(True)
+            progress = (background_jobs.get_status(jid) or {}).get("progress")
+            background_jobs.update_progress(jid, progress or 0.0, _WAITING_NOTE)
+
+    with cancellable_lock.hold(pages_svc.pipeline_lock(), check_while_waiting):
         bubbles, detect_notes = scanlate.detect_and_ocr_page(src, lang, page_id=page_id,
                                                              **detect_kwargs)
     if bubbles and not any((b.get("source_text") or "").strip() for b in bubbles):
@@ -411,8 +425,10 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     _detect_stage result when the run already started it (a Future), else it
     runs here. `previous_id` is the page just before it in the run, when this
     run translated that page: a caption cut between the two is then joined."""
+    started = time.monotonic()
     result = (detected.result() if detected is not None
               else _detect_stage(drama_id, drama, page_id, mode, detect_kwargs, jid))
+    detect_wait = time.monotonic() - started
     if isinstance(result, str):
         return result
     existing, expected_ids, expected_rev, bubbles, detect_notes = result
@@ -421,10 +437,12 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     notes += detect_notes
     new_context, translated_ok = None, True
     # A result that will be thrown away is not worth a paid translation call.
+    ai_started = time.monotonic()
     if bubbles and not _ocr_lost_text(existing, detect_notes):
         translated_ok, new_context = _translate(
             bubbles, engine, engine_name, drama, guide[0],
             _predecessor_context(drama_id, page_id), drama_id, notes, guide[1])
+    ai_seconds = time.monotonic() - ai_started
     if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
         notes.append(("warning", "Redo did not produce a complete result for this page (no "
                                  "regions, OCR or translation incomplete), so its existing "
@@ -440,6 +458,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         return "stale"
     # The old typeset image shows the replaced text: if the render below fails,
     # the reader and the export must fall back to the original, not to it.
+    render_started = time.monotonic()
     fields = {"run_notes": pages_svc.notes_to_json(notes), "rendered_filename": None}
     if new_context is not None:
         fields["context_summary"] = new_context
@@ -453,6 +472,9 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     except Exception as exc:
         render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
                              f"{engine_shared.redact_secrets(str(exc))}"))
+    # Says which step makes a slow run slow. Detection runs ahead, so its figure is the wait for it.
+    render_notes.append(("info", f"Time: detect and OCR wait {detect_wait:.1f}s, AI call "
+                                 f"{ai_seconds:.1f}s, typeset {time.monotonic() - render_started:.1f}s."))
     render_svc.append_notes(page_id, render_notes)
     # After this page is typeset, so a refusal or timeout in the extra call
     # cannot leave the page's new text without its image.
