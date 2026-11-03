@@ -23,7 +23,8 @@ test('a novel opens on its chapter list with Translate, Add chapters, Glossary, 
   const list = page.getByRole('list', { name: 'Saved chapters' })
   await expect(list.getByRole('listitem')).toHaveCount(2)
   await expect(list.getByRole('listitem').first()).toContainText('In translation text')
-  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('href', '#/drama/2/translate')
+  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('href', '#/drama/2/translate?tab=translate')
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Add chapters' })).toHaveAttribute('href', '#/drama/2/source')
   await expect(page.getByRole('link', { name: 'Glossary' })).toHaveAttribute('href', '#/drama/2/translate?tab=glossary')
   await expect(page.getByRole('link', { name: 'Export' })).toHaveAttribute('href', '#/drama/2/export')
@@ -62,4 +63,11 @@ test('Show more chapters loads the next page of a long novel, not one bigger pag
   await page.getByRole('button', { name: 'Show more chapters' }).click()
   await expect(list.getByRole('listitem')).toHaveCount(250)
   expect(offsets).toEqual([0, 100, 200])
+})
+
+test('Review leads once every line has English', async ({ page }) => {
+  await mockChapters(page, listBody([row(1)]))
+  await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: { ...progress(12), untranslated_count: 0 } }))
+  await page.goto('/#/drama/2')
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('href', '#/drama/2/review')
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ChainStall, nextStep, runChain, type ChainActions, type ChainState, type ChainStep } from './novelLinkChain'
+import { ChainStall, mainButton, nextStep, runChain, type ChainActions, type ChainState, type ChainStep } from './novelLinkChain'
 
 const EMPTY: ChainState = { chapters: 0, hasNovelText: false, lines: 0, glossary: 'idle' }
 
@@ -67,5 +67,14 @@ describe('runChain', () => {
     const { actions, calls } = fake(EMPTY, undefined, 'import')
     await expect(runChain(actions, () => {})).rejects.toBeInstanceOf(ChainStall)
     expect(calls).toEqual(['import'])
+  })
+})
+
+describe('mainButton', () => {
+  it('leads with Translate while lines lack English, Review once all have it, neither with no lines', () => {
+    expect(mainButton(null, 0)).toBeNull()
+    expect(mainButton(0, 0)).toBeNull()
+    expect(mainButton(10, 4)).toBe('translate')
+    expect(mainButton(10, 0)).toBe('review')
   })
 })
