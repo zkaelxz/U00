@@ -34,13 +34,7 @@ export interface TranslateResult {
   message?: string | null
 }
 
-export interface TranslateEstimate {
-  estimated_usd: number
-  cap_applies: boolean
-  monthly_cap_usd: number | null
-  cap_left_usd: number | null
-  fits_cap: boolean
-}
+export type TranslateEstimate = Schemas['TranslateEstimate']
 
 export type TranslateDirection = 'to_english' | 'from_english'
 
@@ -51,12 +45,4 @@ export interface ReadImageResult {
   message?: string | null
 }
 
-export interface ReadImageEstimate {
-  engine: string
-  model: string | null
-  estimated_usd: number
-  cap_applies: boolean
-  monthly_cap_usd: number | null
-  cap_left_usd: number | null
-  fits_cap: boolean
-}
+export type ReadImageEstimate = Schemas['ReadImageEstimate']

@@ -24,14 +24,7 @@ export interface ReaderPageParams {
   edit?: boolean
 }
 
-export interface ReaderOverview {
-  drama_id: number
-  length_display: string
-  line_count: number
-  percent_complete: number
-  last_page: number
-  last_line_idx: number | null
-}
+export type ReaderOverview = Schemas['ReaderOverview']
 
 export type ReaderProgress = Schemas['ReaderProgress']
 
@@ -68,12 +61,7 @@ export type ReaderRelationshipMap = Schemas['ReaderRelationshipMap']
 
 export type ReaderWikiList = Schemas['ReaderWikiList']
 
-export interface ReaderWikiUpdateResult {
-  drama_id: number
-  updated: number
-  remaining: number
-  next_line_idx: number | null
-}
+export type ReaderWikiUpdateResult = Schemas['ReaderWikiUpdateResult']
 
 export type ReaderWikiClearResult = Schemas['ReaderWikiClearResult']
 

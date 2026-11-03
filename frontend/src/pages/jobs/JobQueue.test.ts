@@ -16,7 +16,7 @@ const row = (p: Partial<QueueItem>, first = false, last = false) => renderToStat
 
 describe('QueueRow', () => {
   it('says what a queued transcribe step changes from the title', () => {
-    const html = row({ changed_settings: [{ label: 'Beam size', value: '8' }, { label: 'Groq (paid)', value: 'On' }] })
+    const html = row({ changed_settings: [{ label: 'Beam size', value: '8', engine: null }, { label: 'Groq (paid)', value: 'On', engine: null }] })
     expect(html).toContain('Changed for this step: Beam size 8, Groq (paid) On')
   })
 

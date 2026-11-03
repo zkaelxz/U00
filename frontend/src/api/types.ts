@@ -1,5 +1,5 @@
 // Hand-maintained mirrors of the API contract (api/schemas/ and the
-// api/*_schemas.py modules). There is no codegen: change both sides together.
+// api/*_schemas.py modules). Newer shapes are generated into api/generated/schema.d.ts; change both sides together here.
 
 export interface ErrorInfo {
   code:

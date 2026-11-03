@@ -91,11 +91,4 @@ export type ComicVisibilityResult = Schemas['ComicVisibilityResult']
 
 export type ComicSourceChapter = Schemas['ComicSourceChapter']
 
-export interface ComicSourceChapters {
-  mode: 'adapter' | 'links' | 'none'
-  source: string
-  series_id: string
-  // Adapter sites: chapter ids already imported; the list itself comes from the series job.
-  imported_ids: string[]
-  chapters: ComicSourceChapter[]
-}
+export type ComicSourceChapters = Schemas['ComicSourceChapters']

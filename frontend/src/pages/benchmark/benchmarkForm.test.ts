@@ -56,7 +56,7 @@ const sel = (over: Partial<RunSelection> = {}): RunSelection => ({
 
 const estimate = (over: Partial<BenchmarkEstimate> = {}): BenchmarkEstimate => ({
   stage: 'translation', case_count: 3, configs: [], estimated_cost_usd: 0, monthly_cap_usd: 0, month_spend_usd: 0,
-  remaining_usd: null, monthly_refusal: null, estimate_above_cap: false, ...over,
+  remaining_usd: null, monthly_refusal: null, estimate_above_cap: false, judge: null, ...over,
 })
 
 const run = (id: number, over: Partial<BenchmarkRun> = {}): BenchmarkRun => ({
@@ -529,7 +529,7 @@ describe('transcription arms at real settings', () => {
 describe('timingLine', () => {
   it('is empty without timed cases', () => {
     expect(timingLine(undefined)).toBe('')
-    expect(timingLine({ cases: 0 })).toBe('')
+    expect(timingLine({ cases: 0, start_median_ms: null, end_median_ms: null, within: null, merged: null, split: null, missed: null, silence: null })).toBe('')
   })
 
   it('names the medians, the share within 0.3 s and the counts', () => {

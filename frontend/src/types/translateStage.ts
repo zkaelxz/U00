@@ -216,17 +216,7 @@ export interface GlossaryAffectedRunStarted extends TranslateRunStarted {
   skipped_hand_edited_count: number
 }
 
-export interface GlossaryTerm {
-  id: number
-  term_original: string
-  term_translation: string
-  notes: string
-  category: string | null
-  policy: string | null
-  enforce_exact: boolean
-  aliases: string[]
-  banned_translations: string[]
-}
+export type GlossaryTerm = Schemas['GlossaryTerm']
 
 export type GlossaryTermUpsert = Partial<Omit<GlossaryTerm, 'id'>> & { id?: number }
 
@@ -394,15 +384,7 @@ export interface GlossaryNameCluster {
   examples: GlossaryVariantExample[]
 }
 
-export interface GlossaryNameClusters {
-  available: boolean
-  reason: string
-  lines_scanned: number
-  truncated: boolean
-  clusters: GlossaryNameCluster[]
-  /** Downloaded VTuber names found in the lines; empty unless the title opted in. */
-  known_vtuber_names: GlossaryNameCluster[]
-}
+export type GlossaryNameClusters = Schemas['GlossaryNameClusters']
 
 interface SpellingProposal {
   text: string
@@ -489,26 +471,6 @@ export interface NameReportGroup {
   mark: NameMark | null
 }
 
-export interface NameReport {
-  titles_total: number
-  titles_scanned: number
-  titles_unavailable: number
-  titles_failed: number
-  reasons: string[]
-  /** A cap stopped the scan or trimmed the groups. */
-  truncated: boolean
-  /** The time budget ended the scan or the grouping early; the report is partial. */
-  stopped_early: boolean
-  singletons_omitted: number
-  groups_omitted: number
-  groups: NameReportGroup[]
-  counts: { unresolved: number; right: number; wrong: number; skip: number }
-}
+export type NameReport = Schemas['NameReport']
 
-export interface NameReportStatus {
-  job_id: string
-  status: string
-  progress: number | null
-  message: string
-  result: NameReport | null
-}
+export type NameReportStatus = Schemas['NameReportStatus']

@@ -124,9 +124,9 @@ Choices that belong to a browser (last engine and model, which `Section`s are op
 
 ## 7. How types stay in step with the API
 
-There is **no code generation.** `api/types.ts` and `types/<area>.ts` are hand-written mirrors of `api/schemas/` (one module per domain; the header comment of `api/types.ts` says to change both sides together). So:
+Response shapes are **generated**; request bodies and UI-only shapes are still hand-written. `npm run gen:api` (after `npm ci` in `frontend/openapi-gen`) writes `api/generated/schema.d.ts` from the FastAPI app, and CI fails when the committed file is stale. A `types/<area>.ts` file takes a server shape as `export type X = Schemas['X']`; the rest stay hand-written where the shape differs (request bodies, UI-only state, a field the screen adds). `tools/export_openapi.py` marks every property of a response model required, because FastAPI always sends defaulted fields; routes that drop `None` or unset fields keep theirs optional. So:
 
-1. Change the Pydantic model in `api/schemas/<domain>.py` and the TypeScript interface in the matching `types/<area>.ts` in the same change. Most types files open with a comment naming the schema module they mirror; keep that line true.
+1. Change the Pydantic model in `api/schemas/<domain>.py`, rerun `npm run gen:api`, and update any hand-written interface in the matching `types/<area>.ts` in the same change. Most types files open with a comment naming the schema module they mirror; keep that line true.
 2. Mocked specs hide drift, because they return whatever the spec writes. The e2e suite runs the real FastAPI app on a seeded library (section 9), so unmocked specs catch a renamed field.
 3. A few numbers that mirror server limits are pinned by `tests/test_frontend_limit_parity.py` (translate text cap, novel EPUB cap). If you add a client-side limit that mirrors a server cap, add a case there.
 4. Run `cd frontend && npx tsc -b` after any type change.

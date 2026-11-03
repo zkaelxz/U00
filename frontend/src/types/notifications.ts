@@ -17,9 +17,7 @@ export type NotificationCategories = Schemas['NotificationCategoriesRequest']
 export type NotificationChannelResult = Schemas['NotificationChannelResult']
 
 // Keyed by channel, which the generated type leaves as any string.
-export interface NotificationTestResult {
-  results: Record<NotificationChannel, NotificationOutcome>
-}
+export type NotificationTestResult = Schemas['NotificationTestResult']
 
 // GET /api/notifications: the header bell's list (in memory on the server,
 // lost on restart). Newest first, at most 50. No job id, link or path.

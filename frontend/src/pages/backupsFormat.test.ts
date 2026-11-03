@@ -10,15 +10,20 @@ import {
 
 const UTC = { locale: 'en-GB', timeZone: 'UTC' }
 
+const snap = (o: Partial<SnapshotInfo>): SnapshotInfo => ({
+  exists: false, readable: null, created_at: null, kind: null, size: null, app_version: null, drama_count: null,
+  sources_left_out: null, choose_copy: null, default_copy: null, copies: [], ...o,
+})
+
 const SETTINGS: AutoBackupSettings = {
-  enabled: false, frequency: 'weekly', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
+  copies: [], last_note: null, enabled: false, frequency: 'weekly', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
   last_run_at: null, last_attempt_at: null, last_error: null, next_run_at: null, running: false,
 }
 
-const SNAP: SnapshotInfo = {
+const SNAP: SnapshotInfo = snap({
   exists: true, readable: true, created_at: '2026-09-28T09:30:00+00:00', kind: 'db-only', size: 12_345_678,
   app_version: '1.0', drama_count: 3,
-}
+})
 
 const DRAMA: SnapshotDrama = { id: 4, title: 'Signal', media_type: 'audio_drama', line_count: 120, exists_now: false }
 
@@ -37,10 +42,10 @@ describe('dates and snapshot lines', () => {
 
   it('describes the snapshot: none, unreadable, and the full line', () => {
     expect(describeSnapshot(null)).toBe('Checking for a snapshot…')
-    expect(describeSnapshot({ exists: false })).toBe('No snapshot yet.')
-    expect(describeSnapshot({ exists: true, readable: false })).toMatch(/can't be read/)
+    expect(describeSnapshot(snap({ exists: false }))).toBe('No snapshot yet.')
+    expect(describeSnapshot(snap({ exists: true, readable: false }))).toMatch(/can't be read/)
     expect(describeSnapshot(SNAP, UTC)).toBe('28 Sept 2026, 09:30 · Database only · 12.3 MB · 3 titles')
-    expect(snapshotFacts({ exists: true, kind: 'full', size: 900, drama_count: 1 })).toBe('Database + media · 900 B · 1 title')
+    expect(snapshotFacts(snap({ exists: true, kind: 'full', size: 900, drama_count: 1 }))).toBe('Database + media · 900 B · 1 title')
   })
 
   it('summarises the settings for the Card header', () => {
@@ -62,7 +67,8 @@ describe('dates and snapshot lines', () => {
 describe('the copies list', () => {
   const COPY: SnapshotCopy = {
     name: 'baihe_snapshot-20260930-080000.zip', created_at: '2026-09-30T08:00:00+00:00', size: 12_345_678,
-    kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily',
+    kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily', managed: true, sequence: null,
+    sources_left_out: false,
   }
 
   it('one line per copy: date, kind, size and its rotation slot', () => {
@@ -99,8 +105,8 @@ describe('the copies list', () => {
 
 describe('choosing the copy to restore from', () => {
   const readable: SnapshotCopy[] = [
-    { name: 'a.zip', created_at: null, size: 1, kind: 'db-only', drama_count: 1, readable: true, kept_as: 'daily' },
-    { name: 'b.zip', created_at: null, size: 1, kind: 'db-only', drama_count: 1, readable: true, kept_as: 'daily' },
+    { name: 'a.zip', created_at: null, size: 1, kind: 'db-only', drama_count: 1, readable: true, kept_as: 'daily', managed: true, sequence: null, sources_left_out: false },
+    { name: 'b.zip', created_at: null, size: 1, kind: 'db-only', drama_count: 1, readable: true, kept_as: 'daily', managed: true, sequence: null, sources_left_out: false },
   ]
 
   it("starts on the server's default copy, never the list's first entry", () => {

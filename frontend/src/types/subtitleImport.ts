@@ -1,4 +1,7 @@
 // Mirrors api/schemas/subtitle_import.py.
+import type { components } from '../api/generated/schema'
+
+type Schemas = components['schemas']
 
 export type SubtitleImportMode = 'source' | 'translation'
 
@@ -36,17 +39,7 @@ export interface SubtitleImportPreview {
   blocked_reason: string | null
 }
 
-export interface SubtitleImportResult {
-  mode: SubtitleImportMode
-  format: string
-  encoding: string
-  lines_written: number
-  line_ids: number[]
-  replaced_lines: number
-  matched_lines: number
-  unmatched_cues: number
-  undo: { history_id: number; lines_fingerprint: string } | null
-}
+export type SubtitleImportResult = Schemas['SubtitleImportResult']
 
 export interface SubtitleImportOptions {
   mode: SubtitleImportMode

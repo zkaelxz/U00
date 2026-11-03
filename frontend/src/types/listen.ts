@@ -6,10 +6,7 @@ type Schemas = components['schemas']
 export type ListenTtsEngine = Schemas['DubTtsEngine']
 export type ListenConfig = Schemas['ListenConfig']
 
-export interface ListenRunRequest {
-  tts_engine: string
-  narration_language?: string
-}
+export type ListenRunRequest = Schemas['ListenRunRequest']
 
 // The engine Listen starts with: the one picked here or the server's default while it can run,
 // else the first engine that can, so the button never opens on "not installed" when another works.

@@ -135,13 +135,7 @@ export interface LiveFollow {
   created_at: number
 }
 
-export interface LiveFollowList {
-  items: LiveFollow[]
-  /** The PC owner only: may turn on "Start Live automatically" for their own channels. */
-  can_auto_start: boolean
-  max_per_member: number
-  max_total: number
-}
+export type LiveFollowList = Schemas['LiveFollowList']
 
 export interface LiveFollowAdd {
   channel: string

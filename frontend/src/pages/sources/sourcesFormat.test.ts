@@ -184,11 +184,11 @@ describe('header, health and detail', () => {
     const now = 10_000 * 1000
     expect(healthLine({
       light: 'yellow', consecutive_failures: 1, last_success: 10_000 - 7200, last_failure: 10_000 - 120,
-      last_error_type: 'timeout', last_error: null, last_latency: 1.24, unavailable_until: null, retry_after: null,
+      last_error_type: 'timeout', last_error: null, last_error_category: null, last_latency: 1.24, unavailable_until: null, retry_after: null,
     }, now)).toBe('Last success 2 h ago · last failure 2 min ago (timeout) · 1.2 s')
     expect(healthLine({
       light: 'green', consecutive_failures: 0, last_success: null, last_failure: null, last_error_type: null,
-      last_error: null, last_latency: null, unavailable_until: null, retry_after: null,
+      last_error: null, last_error_category: null, last_latency: null, unavailable_until: null, retry_after: null,
     })).toBe('No requests yet.')
     const failed = {
       light: 'yellow', consecutive_failures: 1, last_success: null, last_failure: 10_000 - 60,

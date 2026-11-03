@@ -30,6 +30,7 @@ const cap = (over: Partial<CapabilityRoute> = {}): CapabilityRoute => ({
   default_engine: 'gemini',
   is_default: true,
   engine_supported: true,
+  unset_label: null,
   choices: ['claude', 'deepseek', 'gemini', 'ollama'],
   ...over,
 })
@@ -41,6 +42,7 @@ const eng = (over: Partial<EngineRouteStatus> = {}): EngineRouteStatus => ({
   key_configured: true,
   status: 'untested',
   last_test: null,
+  test_blocked: null,
   ...over,
 })
 

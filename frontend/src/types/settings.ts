@@ -129,11 +129,7 @@ export type SettingsUpdate = Partial<Record<SettingsToggleKey, boolean>> &
 // Result of a write-only key set/clear: never carries the key itself.
 export type EngineKeyResult = Schemas['EngineKeyResult']
 
-export interface EndpointUrlResult {
-  name: EndpointName
-  url: string | null
-  configured: boolean
-}
+export type EndpointUrlResult = Schemas['EndpointUrlResult']
 
 export type MonthCounterResetResult = Schemas['MonthCounterResetResult']
 

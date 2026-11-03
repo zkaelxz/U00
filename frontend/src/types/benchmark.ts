@@ -55,15 +55,7 @@ export interface BenchmarkTranslateChoices {
 /** A run's line timing over the cases that have reference times; only `cases` (0) when none do. */
 export type BenchmarkTimingSummary = Schemas['BenchmarkTimingSummary']
 
-export interface BenchmarkCaseTiming {
-  lines: number
-  missed: boolean
-  split: boolean
-  merged: boolean
-  start_error_s: number | null
-  end_error_s: number | null
-  silence: number | null
-}
+export type BenchmarkCaseTiming = Schemas['BenchmarkCaseTiming']
 
 /** Arena only: whether a run's timing beat the first run's by more than the measured noise without a worse text score. */
 interface BenchmarkTimingVerdict {
@@ -104,32 +96,7 @@ export interface BenchmarkOptions {
   max_configs: number
 }
 
-export interface BenchmarkCase {
-  id: number
-  label: string
-  stage: string | null
-  tier: string
-  set_name: string
-  source_language: string
-  source_text: string | null
-  reference_text: string | null
-  has_reference: boolean
-  has_input_file: boolean
-  /** Made from a title's video: pictures of the subtitle band, read by a vision arm. */
-  hard_sub?: boolean
-  origin_drama_id: number | null
-  origin_line_id: number | null
-  title: string
-  tags: string[]
-  scene_order: number | null
-  /** An excluded case is not run and drops out of comparisons; its results are kept. */
-  excluded: boolean
-  /** Goes up by one each time the reference is edited. */
-  ref_version: number
-  /** The case has a reference start and end, so a run scores its line timing. */
-  has_ref_times?: boolean
-  created_at: string | null
-}
+export type BenchmarkCase = Schemas['BenchmarkCase']
 
 export interface BenchmarkSet {
   stage: string | null
@@ -231,28 +198,7 @@ export interface BenchmarkRun {
 /** How often the owner picked this output over another run's (blind A/B). */
 export type BenchmarkPickTotals = Schemas['BenchmarkPickTotals']
 
-export interface BenchmarkResult {
-  case_id: number | null
-  case_label: string
-  output_text: string
-  score: number | null
-  metric: string | null
-  /** 'jiwer' or 'builtin' for CER/WER, 'sacrebleu' or 'builtin' for translation; null on older results (built-in). */
-  scorer?: string | null
-  passed: boolean | null
-  duration_seconds: number | null
-  cost_usd: number
-  error: string | null
-  judge?: BenchmarkJudgeScore | null
-  picks?: BenchmarkPickTotals | null
-  script_counts?: ScriptCounts | null
-  ref_version?: number
-  timing?: BenchmarkCaseTiming | null
-  /** What the recogniser or vision arm read, on an end-to-end or read-then-translate result. */
-  recognised_text?: string | null
-  /** A read-then-translate result: how well the picture was read, beside the translation's own score. */
-  read_score?: number | null
-}
+export type BenchmarkResult = Schemas['BenchmarkResult']
 
 interface BenchmarkArenaRow {
   case_id: number | null

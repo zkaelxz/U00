@@ -38,7 +38,7 @@ const engine = (name: string, key = true): BenchmarkEngineOption => ({ name, lab
 
 const estimate = (o: Partial<BenchmarkEstimate> = {}): BenchmarkEstimate => ({
   stage: 'translation', case_count: 3, configs: [], estimated_cost_usd: 0.02, monthly_cap_usd: 5, month_spend_usd: 1,
-  remaining_usd: 4, monthly_refusal: null, estimate_above_cap: false, ...o,
+  remaining_usd: 4, monthly_refusal: null, estimate_above_cap: false, judge: null, ...o,
 })
 
 describe('delta formatting', () => {

@@ -7,7 +7,8 @@ import { provenanceNotes } from '../researchForm'
 import { ProvenanceNote, ProvenanceNotes } from './ProvenanceNote'
 
 const row = (over: Partial<ProvenanceRow>): ProvenanceRow => ({
-  id: 1, field: 'title_en', value: 'v', sources: [], status: 'applied', ...over,
+  id: 1, field: 'title_en', value: 'v', sources: [], status: 'applied',
+  confidence: null, last_verified: null, retrieved_at: null, source: null, source_url: null, ...over,
 })
 
 describe('provenanceNotes', () => {
