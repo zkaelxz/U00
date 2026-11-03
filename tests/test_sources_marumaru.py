@@ -155,3 +155,13 @@ class TestLandingPage:
         with pytest.raises(SourceUnavailable):
             a.search("x")
         assert store.domain_proposals("marumaru") == []
+
+
+def test_fast_is_offered_and_never_slower_than_normal():
+    from sources import pacing
+    from sources.http import PacingPolicy
+
+    base = PacingPolicy(min_delay=3.0, max_delay=8.0, max_concurrent=1)
+    fast = pacing.apply_level(base, marumaru.MarumaruSource.pacing_profile, "fast")
+    assert (fast.min_delay, fast.max_delay, fast.max_concurrent) == (1.0, 2.5, 2)
+    assert fast.session_break_min_requests == base.session_break_min_requests
