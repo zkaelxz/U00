@@ -24,6 +24,10 @@ services/diagnostics_installs_service.py):
   `admin.diagnostics`; the install is `local_only()` + confirm=true, 409
   while any job, restore, cleanup or install runs. The download URL comes
   only from the service's static table (never the request).
+- Model downloads: `GET /model-downloads` (`admin.diagnostics`) says which
+  of the downloadable models (a fixed list in the service) are on disk;
+  `POST /model-downloads/{model_id}/start` (`local_only()`) fetches one at
+  its pinned revision as a background job, one download at a time.
 - "Test first" for an update: `local_only()` + confirm=true + the
   target the last update check offered (409 otherwise); runs this app's
   tests against that version in a throwaway environment. The latest
@@ -43,11 +47,12 @@ from api.diagnostics_install_schemas import (DiagnosticsCudaRuntimeStatus,
                                              DiagnosticsJobStarted,
                                              DiagnosticsUpgradeCheckRequest,
                                              DiagnosticsUpgradeCheckState)
-from api.schemas import (DiagnosticsDependencyInstallRequest,
+from api.schemas import (DiagnosticsDependencyInstallRequest, DiagnosticsModelDownloads,
                          DiagnosticsGpuTorchSetupRequest, DiagnosticsUpgradePlanRequest,
                          DiagnosticsUpgradeRequest, PendingInstallPlan, error_responses)
 from services import cuda_runtime_service
 from services import diagnostics_installs_service as svc
+from services import model_download_service as model_download_svc
 from services import diagnostics_upgrade_check_service as upgrade_svc
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
@@ -172,3 +177,20 @@ def post_test_upgrade(body: DiagnosticsUpgradeCheckRequest,
                       package: str = Path(min_length=1, max_length=80,
                                           pattern=_PACKAGE_PATTERN)):
     return upgrade_svc.start_upgrade_check(package, target=body.target, confirm=body.confirm)
+
+
+@router.get("/model-downloads", dependencies=[require_permission("admin.diagnostics")],
+            response_model=DiagnosticsModelDownloads,
+            summary="The models that can be downloaded here, and whether each is on disk")
+def get_model_downloads():
+    return model_download_svc.get_downloads()
+
+
+@router.post("/model-downloads/{model_id}/start", dependencies=[local_only()],
+             response_model=DiagnosticsJobStarted,
+             summary="PC only: download one listed model as a background job "
+                     "(409 when it is already downloaded or another download runs)",
+             responses=_ERRS)
+def post_model_download(model_id: str = Path(min_length=1, max_length=40,
+                                             pattern=r"^[a-z0-9_]+$")):
+    return model_download_svc.start_download(model_id)

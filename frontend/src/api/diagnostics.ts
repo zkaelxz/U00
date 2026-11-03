@@ -7,6 +7,7 @@ import type {
   DiagnosticsInstallPresets,
   DiagnosticsLogTail,
   DiagnosticsModelCache,
+  DiagnosticsModelDownloads,
   DiagnosticsModelFolder,
   DiagnosticsPackageUpdates,
   DiagnosticsOverview,
@@ -43,6 +44,14 @@ export const getInstallPresets = (f?: Fetch) => getJson<DiagnosticsInstallPreset
 export const getPorts = (f?: Fetch) => getJson<PortsOverview>(`${BASE}/ports`, f)
 
 export const getModelCache = (f?: Fetch) => getJson<DiagnosticsModelCache>(`${BASE}/model-cache`, f)
+
+// Which models the Download button can fetch, and whether each is on disk.
+export const getModelDownloads = (f?: Fetch) => getJson<DiagnosticsModelDownloads>(`${BASE}/model-downloads`, f)
+
+// PC only. Starts the download as a background job (answers at once; 409 if the model is already
+// on disk or another download runs); follow it with probeJob(job_id).
+export const startModelDownload = (id: string, f?: Fetch) =>
+  postJson<DiagnosticsJobStarted>(`${BASE}/model-downloads/${encodeURIComponent(id)}/start`, undefined, pcOnlyFetch(f))
 
 // checkAccess: the server asks Hugging Face with its saved token (booleans back only).
 export const getPyannote = (checkAccess = false, f?: Fetch) =>
