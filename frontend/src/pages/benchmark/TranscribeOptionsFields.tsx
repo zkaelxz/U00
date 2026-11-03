@@ -97,7 +97,7 @@ export function TranscribeOptionsFields({ options, config, onChange }: Props) {
         {number('vad_threshold', 'VAD threshold', 0.05, `${rangeHint(RANGES.vad_threshold.min, RANGES.vad_threshold.max, { default: defaults.vad_threshold })} Higher ignores more quiet sound.`)}
         <Field
           label="Sensitivity"
-          help={[unused('sensitivity_preset'), 'Catches quieter or faster speech, but may add false text on music or breathing.'].filter(Boolean).join(' ')}
+          help={[unused('sensitivity_preset'), 'Try this first if quiet or short lines are missing. May add false text on music or breathing.'].filter(Boolean).join(' ')}
         >
           <select
             value={optionValue(config, defaults, 'sensitivity_preset')}

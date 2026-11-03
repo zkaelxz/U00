@@ -211,7 +211,7 @@ export function TranscribeAdvanced(p: Props) {
       ),
     }),
     sensitivity_preset: () =>
-      select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'], 'Catches quieter or faster speech, but may add false text on music or breathing.'),
+      select('Sensitivity', 'sensitivity_preset', ['normal', 'sensitive'], 'Try this first if quiet or short lines are missing. May add false text on music or breathing.'),
     min_silence_ms: () =>
       num('Min silence', 'min_silence_ms', 50, `${rangeHint(RANGES.min_silence_ms.min, RANGES.min_silence_ms.max, { unit: 'ms', default: MIN_SILENCE_MS_DEFAULT })} Silence that splits lines; longer gives fewer, longer lines. Lower values split at shorter pauses and can cut mid-sentence. Auto-tune below can pick it.`, 'ms', 'min_silence'),
     min_pause_sec: () =>
@@ -253,7 +253,7 @@ export function TranscribeAdvanced(p: Props) {
       toggle(
         'Difficult audio',
         'difficult_audio',
-        'Use when speakers scream, whisper or talk over each other; slower and may add a few false lines.',
+        'For screaming, whispering or very uneven volume, or if Sensitivity is not enough. Slower; may add a few false lines.',
       ),
     vocabulary_hint: () =>
       toggle(
