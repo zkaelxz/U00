@@ -45,6 +45,19 @@ const lines = (id: number) => `/api/lines/dramas/${id}`
 export const listLines = (id: number, page: number, pageSize: number, only: LineFilter, f?: Fetch) =>
   getJson<ReviewLinesPage>(`${review(id)}/lines?page=${page}&page_size=${pageSize}&only=${only}`, f)
 
+const LINES_PAGE_SIZE = 200 // the server's page-size cap
+
+// Every line of the title, in order, paged because the server caps a page.
+export async function listAllLines(id: number): Promise<ReviewLine[]> {
+  const rows: ReviewLine[] = []
+  for (let page = 1; ; page++) {
+    const r = await listLines(id, page, LINES_PAGE_SIZE, 'all')
+    rows.push(...r.lines)
+    if (rows.length >= r.total || r.lines.length === 0) break
+  }
+  return rows
+}
+
 export const searchLines = (id: number, term: string, f?: Fetch) =>
   getJson<ReviewLine[]>(`${review(id)}/search?term=${encodeURIComponent(term)}&limit=200`, f)
 

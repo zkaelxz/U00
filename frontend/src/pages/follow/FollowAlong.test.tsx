@@ -7,7 +7,7 @@ vi.mock('../../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/client')>()),
   api: { getDrama: vi.fn(async () => ({ id: 3, title_en: 'Demo', title_zh: '' })) },
 }))
-vi.mock('../reader/ReadAlong', () => ({ loadRows: vi.fn(async () => []) }))
+vi.mock('../../api/review', () => ({ listAllLines: vi.fn(async () => []) }))
 
 describe('FollowAlongPage', () => {
   it('opens paused with the clock controls and a way back to the title', () => {

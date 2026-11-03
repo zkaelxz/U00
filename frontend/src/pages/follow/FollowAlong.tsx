@@ -7,7 +7,7 @@ import { PageShell } from '../../components/PageShell'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { routeHref } from '../../router'
 import { activeIndex, alongLines } from '../reader/readAlongLogic'
-import { loadRows } from '../reader/ReadAlong'
+import { listAllLines } from '../../api/review'
 import type { ReviewLine } from '../../types/review'
 import '../reader/reader.css'
 import {
@@ -47,7 +47,7 @@ export default function FollowAlongPage({ id }: { id: number }) {
       (d) => !cancelled && setTitle(d.title_en || d.title_zh || `Title #${d.id}`),
       () => {},
     )
-    loadRows(id).then(
+    listAllLines(id).then(
       (r) => !cancelled && setRows(r),
       () => !cancelled && setError('The lines could not be loaded.'),
     )
