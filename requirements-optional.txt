@@ -2,7 +2,7 @@
 # Install:  pip install -r requirements-optional.txt
 
 # --- alternative translation engines ---
-openai>=3.41            # DeepSeek (OpenAI-compatible API)
+openai>=3.42.0            # DeepSeek (OpenAI-compatible API)
 transformers>=5.15      # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
                          # transformers' own classes; 5.13/5.14 lack `prompt=` and the
                          # language prefill, so 5.15 is the floor), Scanlate's ML
