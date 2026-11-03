@@ -10209,7 +10209,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Turn the once-a-day check on or off */
+        /** Turn the once-a-day check or pre-release updates on or off */
         post: operations["update_settings_api_system_update_settings_post"];
         delete?: never;
         options?: never;
@@ -28648,7 +28648,9 @@ export interface components {
         /** UpdateSettingsRequest */
         UpdateSettingsRequest: {
             /** Auto Check */
-            auto_check: boolean;
+            auto_check?: boolean | null;
+            /** Include Prereleases */
+            include_prereleases?: boolean | null;
         };
         /** UpdateStatus */
         UpdateStatus: {
@@ -28726,6 +28728,12 @@ export interface components {
             download_error: string | null;
             /** Downloaded Bytes */
             downloaded_bytes: number;
+            /**
+             * Include Prereleases
+             * @description Betas are offered as updates (only a newer one).
+             * @default false
+             */
+            include_prereleases: boolean;
             /** Installed */
             installed: boolean;
             /** Installer Name */
