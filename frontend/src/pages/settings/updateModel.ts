@@ -11,6 +11,7 @@ export const HASH_NOTE =
   'The download is checked against the release’s SHA-256. That catches a broken download; it is not a signature.'
 export const INSTALL_NOTE =
   'Opens Setup. Baihe keeps running until you click Install there. Then Setup stops Baihe (running jobs are cancelled), updates it and can restart it. Cancelling Setup changes nothing.'
+export const PRERELEASES_HELP = 'Also offers beta versions. Only a version newer than this one is ever offered.'
 export const AUTO_CHECK_HELP = 'Looks for a newer version once a day. It never downloads or installs on its own.'
 export const NO_INSTALLER_RELEASE_LINE = 'No installer release has been published yet.'
 export const NO_RELEASE_LINE =

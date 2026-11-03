@@ -245,8 +245,7 @@ def get_settings_overview(env_path: str | None = None) -> dict:
 # Writable, non-secret switches whose value lives in app_settings under the
 # schema's store_key. Keys are never here (D2); preferences are the schema's
 # pref.* rows, endpoint URLs go through set_endpoint_url.
-_DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models",
-                "update.include_prereleases")
+_DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models")
 
 # A stolen admin cookie could fill the disk with uploads, so the switch that
 # lets an admin upload from away lapses on its own and needs Developer Mode.

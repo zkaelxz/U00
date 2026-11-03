@@ -215,12 +215,10 @@ def test_check_ignores_prereleases_and_drafts(http, kw):
     assert s["latest"] is None and s["update_available"] is False
 
 
-def _beta_mode(monkeypatch, on=True, developer=True):
+def _beta_mode(monkeypatch, on=True):
     monkeypatch.setattr(us, "current_version", lambda: "0.1.0-beta.1")
     if on:
         db.set_app_setting("update.include_prereleases", True)
-    if developer:
-        db.set_app_setting("assistant.developer_mode", True)
 
 
 def _beta_list(*releases):
@@ -242,10 +240,11 @@ def test_prerelease_is_offered_when_the_option_is_on(http, monkeypatch):
     assert "http" not in json.dumps(s)
 
 
-def test_the_option_does_nothing_without_developer_mode(http, monkeypatch):
-    _beta_mode(monkeypatch, developer=False)
+def test_the_option_works_without_developer_mode(http, monkeypatch):
+    _beta_mode(monkeypatch)
+    assert db.get_app_setting("assistant.developer_mode", False) is not True
     http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True))
-    assert us.check()["latest"] is None
+    assert us.check()["latest"] == "0.1.0-beta.2"
 
 
 def test_prerelease_not_newer_than_installed_is_never_an_update(http, monkeypatch):
@@ -306,7 +305,6 @@ def test_install_refuses_a_verified_beta_once_the_option_is_off(verified, http, 
     monkeypatch.setattr(us.sys, "platform", "win32")
     monkeypatch.setattr(us, "current_version", lambda: "0.1.0-beta.1")
     db.set_app_setting("update.include_prereleases", True)
-    db.set_app_setting("assistant.developer_mode", True)
     name = "BaiheStudio-Setup-0.1.0-beta.2.exe"
     http.add(API_URL, body=_release(tag="v0.1.0-beta.2", prerelease=True))
     http.add(HASH_URL, body=_hash_file(name=name))
