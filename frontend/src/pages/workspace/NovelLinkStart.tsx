@@ -19,7 +19,7 @@ const STEP_TEXT: Record<ChainStep, string> = {
 
 /**
  * One box for a novel title: the link runs import, lines and glossary extraction in turn and stops at
- * the glossary review, because names and genders are cheaper to fix before translating than after.
+ * the glossary review (the Translate tab offers it with a start button), because names and genders are cheaper to fix before translating than after.
  * With chapters already saved but no lines, the same button continues from where the title is.
  */
 export function NovelLinkStart({ id, chapters, translating, defaultUrl, onProgress }: {
@@ -71,8 +71,8 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, onProgre
       )}
       <div className="actions">
         {finished ? (
-          <ButtonLink variant="primary" href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>
-            Review the glossary
+          <ButtonLink variant="primary" href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'translate' })}>
+            Review glossary and translate
           </ButtonLink>
         ) : (
           <button type="submit" className={buttonClass('primary')} disabled={running || (!resuming && !url.trim())}>
