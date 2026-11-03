@@ -4,7 +4,9 @@ import os
 import shutil
 import sys
 import threading
+import time
 from collections import deque
+from typing import Any
 
 import background_jobs
 import diagnostics
@@ -16,7 +18,7 @@ import voice_venv
 from engine_backends import shared
 from jobs import job_launch
 from lib.errors import ConflictError, InvalidInputError
-from lib.proc import secretless_env, stream_tree
+from lib.proc import run_captured, secretless_env, stream_tree
 from services import diagnostics_admin_service as admin_svc
 
 # Only these engines, with these exact packages, ever reach pip: nothing in a request
@@ -54,6 +56,15 @@ PIP_TIMEOUT_SECONDS = 3600
 VERIFY_TIMEOUT_SECONDS = 300    # a cold `import torch` from a fresh venv can be slow
 OUTPUT_TAIL_LINES = 12
 OUTPUT_LINE_CHARS = 200
+
+# An installed copy's own Python is the embeddable kind, which has no `venv` module, so
+# the engine's folder is built from a full Python on the PC instead. It must be one every
+# account can run: the boot service's account can't read a Python kept in a user's profile.
+FULL_PYTHON_RANGE = ((3, 12), (3, 13))
+FULL_PYTHON_SECONDS = 30       # status polls ask for it once per engine, every few seconds
+PROBE_TIMEOUT_SECONDS = 20
+_PROBE = "import sys, venv; print(sys.version_info[0], sys.version_info[1]); print(sys.executable)"
+_FULL_PYTHON: dict[str, Any] = {"at": None, "found": None, "probing": False}
 
 _STATE_LOCK = threading.Lock()
 # admin_svc.guard() and start_job() are separate steps, so two requests could both pass the
@@ -124,11 +135,99 @@ def _gpu():
             "caps": diagnostics_torch.compute_capabilities()}
 
 
+def _probe_python(command: list):
+    """(path, (major, minor)) of the Python that `command` starts when it is a full 3.12 or
+    3.13 with `venv` that every account can run, else None."""
+    try:
+        result = run_captured([*command, "-I", "-c", _PROBE], PROBE_TIMEOUT_SECONDS,
+                              env=secretless_env())
+    except OSError:
+        return None
+    if result.timed_out or result.returncode != 0:
+        return None
+    lines = (result.stdout or "").splitlines()
+    if len(lines) < 2:
+        return None
+    try:
+        major, minor = (int(part) for part in lines[0].split())
+    except ValueError:
+        return None
+    path = lines[1].strip()
+    lo, hi = FULL_PYTHON_RANGE
+    if not (lo <= (major, minor) <= hi) or not os.path.isfile(path):
+        return None
+    home = os.path.normcase(os.path.expanduser("~")).rstrip("\\/") + os.sep
+    if os.path.normcase(path).startswith(home):
+        return None
+    return path, (major, minor)
+
+
+def _find_full_python():
+    launcher = shutil.which("py")
+    candidates = [[launcher, "-3.13"], [launcher, "-3.12"]] if launcher else []
+    for name in ("python", "python3"):
+        exe = shutil.which(name)
+        if exe:
+            candidates.append([exe])
+    for command in candidates:
+        found = _probe_python(command)
+        if found:
+            return found
+    return None
+
+
+def _refresh_full_python():
+    found = None
+    try:
+        found = _find_full_python()
+    finally:
+        # A crashed probe must not leave `probing` set, or no later poll would retry.
+        with _STATE_LOCK:
+            _FULL_PYTHON.update(at=time.monotonic(), found=found, probing=False)
+    return found
+
+
+def _spawn(fn) -> None:
+    threading.Thread(target=fn, name="voice-python-probe", daemon=True).start()
+
+
+def _full_python(fresh: bool = False):
+    """(found, checking): found is (path, (major, minor)) of the Python an installed copy
+    builds a voice engine's folder from, or None. The app's own interpreter when this copy
+    is not an installed one.
+
+    Probes can take 20 s each, so a status poll never runs them: it gets the last answer
+    and starts a refresh in the background. A missing Python is re-probed on every poll,
+    so the page notices an install within one poll. `fresh` probes now, for acts that
+    must not rely on an old answer (starting an install)."""
+    if not portable.is_installed():
+        return (sys.executable, sys.version_info[:2]), False
+    if fresh:
+        return _refresh_full_python(), False
+    with _STATE_LOCK:
+        probed = _FULL_PYTHON["at"] is not None
+        stale = probed and time.monotonic() - _FULL_PYTHON["at"] >= FULL_PYTHON_SECONDS
+        found = _FULL_PYTHON["found"]
+        start = not _FULL_PYTHON["probing"] and (not probed or stale or found is None)
+        if start:
+            _FULL_PYTHON["probing"] = True
+    if start:
+        _spawn(_refresh_full_python)
+    return found, not probed
+
+
+def _engine_python_version() -> tuple:
+    """The version of the Python the engine's folder is built from. PyTorch wheels are
+    chosen by the folder's Python, not the app's own."""
+    found, _checking = _full_python()
+    return found[1] if found else sys.version_info[:2]
+
+
 def _own_torch(engine: str):
     """The engine's own torch pins ({variant: version}) when its package needs another
     torch on this Python, else None."""
     spec = ENGINES[engine]
-    if "torch" in spec and sys.version_info[:2] <= spec["torch_max_python"]:
+    if "torch" in spec and _engine_python_version() <= spec["torch_max_python"]:
         return spec["torch"]
     return None
 
@@ -138,13 +237,15 @@ def _refusal(engine: str, gpu: dict | None):
     spec = _spec(engine)
     if voice_venv.is_ready(engine):
         return f"{spec['label']} is already installed."
-    if portable.is_installed():
-        # The installed app's embeddable Python has no venv launcher, and its ._pth would
-        # put the app's own packages ahead of the venv's: the clash this folder avoids.
-        return (f"{spec['label']} can't be installed in this copy yet: it needs a copy of "
-                "Baihe that runs from start.bat.")
+    found, checking = _full_python()
+    if checking:
+        return "Looking for Python 3.12 or 3.13 on this PC…"
+    if found is None:
+        return (f"{spec['label']} needs Python 3.12 or 3.13 installed for all users on this PC "
+                "(from python.org, with \"Install for all users\" ticked). Install it, then "
+                "try again.")
     lo, hi = diagnostics_torch.TORCH_SUPPORTED_PYTHON
-    if not lo <= sys.version_info[:2] <= hi:
+    if not lo <= found[1] <= hi:
         return f"PyTorch has wheels for Python {lo[0]}.{lo[1]} to {hi[0]}.{hi[1]} only."
     if gpu:
         # Any card too new counts: the worker may run on whichever is device 0.
@@ -185,6 +286,7 @@ def start_install(engine: str, confirm: bool = False) -> dict:
     reason = None
     with _LAUNCH_LOCK:
         admin_svc.guard(confirm)
+        _full_python(fresh=True)
         reason = _refusal(engine, _gpu())
         if not reason and not job_launch.start_job(
                 job_id(engine), lambda: _install_job(engine),
@@ -224,12 +326,14 @@ def _commands(engine: str) -> list:
     the card, so the engine's own dependencies find it already satisfied."""
     venv_dir = voice_venv.venv_dir(engine)
     python = voice_venv.venv_python(engine)
+    full = _full_python(fresh=True)[0]
     pip = [sys.executable, "-m", "pip", "--python", python, "install",
            *diagnostics.PIP_INSTALL_FLAGS]
     label = ENGINES[engine]["label"]
     return [
         (0.02, f"Creating {label}'s folder…",
-         [sys.executable, "-m", "venv", "--without-pip", venv_dir], VENV_TIMEOUT_SECONDS),
+         [full[0] if full else sys.executable, "-m", "venv", "--without-pip", venv_dir],
+         VENV_TIMEOUT_SECONDS),
         (0.05, "Installing PyTorch…",
          [*pip, *_torch_step(engine)], PIP_TIMEOUT_SECONDS),
         (0.6, f"Installing {label}…", [*pip, *ENGINES[engine]["packages"]], PIP_TIMEOUT_SECONDS),
