@@ -56,6 +56,20 @@ def _https(url) -> str:
     return url if urlsplit(url).scheme == "https" else ""
 
 
+_JPEG_MAGIC = bytes.fromhex("ffd8ff")
+_PNG_MAGIC = bytes.fromhex("89504e470d0a1a0a")
+
+
+def _extension_from_bytes(content: bytes) -> str:
+    if content.startswith(_JPEG_MAGIC):
+        return ".jpg"
+    if content.startswith(_PNG_MAGIC):
+        return ".png"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return ".webp"
+    return ""
+
+
 @register
 class Mh03Source(PlainImageDownload, SourceAdapter):
     name = "mh03"
@@ -130,6 +144,12 @@ class Mh03Source(PlainImageDownload, SourceAdapter):
                                 FailureReason.PURCHASE_REQUIRED)
         return [PageRef(self.name, chapter.chapter_id, i, u, headers={"Referer": BASE_URL + "/"})
                 for i, u in enumerate(urls)]
+
+    def download_page(self, page):
+        content, ext = super().download_page(page)
+        # The site serves JPEG bytes under .webp names; the importer stores a
+        # non-native extension by re-encoding to PNG, so name the file by its bytes.
+        return content, _extension_from_bytes(content) or ext
 
     def parse_url(self, url: str):
         if not self.matches_url(url):

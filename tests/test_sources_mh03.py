@@ -13,6 +13,7 @@ from .sources_helpers import FakeClock, ScriptedTransport, html, make_client
 
 pytestmark = pytest.mark.usefixtures("isolated_db")
 
+JPEG_BYTES = bytes.fromhex("ffd8ffe0") + b"jpeg"
 BASE = mh03.BASE_URL
 SERIES_URL = f"{BASE}/comic_demo.html"
 CHAPTER_URL = f"{BASE}/chapter_12_345.html"
@@ -109,6 +110,16 @@ class TestPages:
         url = "https://img.example/a/1.webp"
         a, _ = _adapter({url: Response(200, {"content-type": "image/webp"}, b"WEBP", "")})
         assert a.download_page(PageRef("mh03", "c", 0, url)) == (b"WEBP", ".webp")
+
+    def test_download_names_the_file_by_its_bytes_not_the_url(self):
+        url = "https://img.example/a/1.webp"
+        a, _ = _adapter({url: Response(200, {"content-type": "image/webp"}, JPEG_BYTES, "")})
+        assert a.download_page(PageRef("mh03", "c", 0, url)) == (JPEG_BYTES, ".jpg")
+
+    def test_download_keeps_the_url_extension_for_unrecognised_bytes(self):
+        url = "https://img.example/a/1.webp"
+        a, _ = _adapter({url: Response(200, {}, b"????", "")})
+        assert a.download_page(PageRef("mh03", "c", 0, url))[1] == ".webp"
 
 
 class TestParseUrl:
