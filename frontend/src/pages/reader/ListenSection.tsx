@@ -82,7 +82,7 @@ export function ListenPicker({ dramaId, engines, engine, voices, disabled, onCha
 }
 
 // Starts the narration job through the Listen routes (the engine picked here, the title's language).
-// Only a narrated title with no track yet shows it: the config route is 404 for any other.
+// Only a narrated title shows it (the config route is 404 for any other); once a track exists it is offered again, folded, to replace it.
 export function ListenSection({ dramaId, onReady }: Props) {
   // The server refuses a start without jobs.start; this only hides a button that would lead to that.
   const canStart = holds(useSession(), 'jobs.start')
@@ -99,12 +99,13 @@ export function ListenSection({ dramaId, onReady }: Props) {
     }
   }, [dramaId])
 
-  if (!cfg || !canStart || cfg.track_available) return null
-  return <ListenRun dramaId={dramaId} cfg={cfg} onReady={onReady} />
+  if (!cfg || !canStart) return null
+  return <ListenRun dramaId={dramaId} cfg={cfg} onReady={onReady} remake={cfg.track_available} />
 }
 
 // Split from ListenSection so a title that cannot narrate never looks up narration jobs.
-function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
+// remake: the title already has a track; the pickers stay folded and a run replaces it.
+function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfig; remake: boolean }) {
   const [error, setError] = useState<unknown>(null)
   const [pickedEngine, setPickedEngine] = useState('')
   const [pickedLanguage, setPickedLanguage] = useState('')
@@ -129,7 +130,7 @@ function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
 
   const busy = jobId !== null && !done && !pollError
   // This run just made the track: the player in Watch / listen takes over.
-  if (!busy && done && jobSucceeded(job)) return null
+  if (!busy && done && jobSucceeded(job)) return remake ? <p className="muted" role="status">The new narration is in the player below.</p> : null
   const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, pickedEngine)
   const narrationLanguage = cfg.narration_language_options.includes(pickedLanguage) ? pickedLanguage : cfg.narration_language
   const blocker = listenBlocker(cfg, engine)
@@ -141,12 +142,12 @@ function ListenRun({ dramaId, cfg, onReady }: Props & { cfg: ListenConfig }) {
     }, setError)
 
   return (
-    <Section title="Listen" storageKey="reader.listen" defaultOpen summary={busy ? (job?.message ?? '') : undefined}>
+    <Section title={remake ? 'Make the narration again' : 'Listen'} storageKey={remake ? 'reader.listenAgain' : 'reader.listen'} defaultOpen={!remake} summary={busy ? (job?.message ?? '') : undefined}>
       <ListenPicker dramaId={dramaId} engines={cfg.tts_engines} engine={engine} voices={voices} disabled={busy} onChange={setPickedEngine}
         languages={cfg.narration_language_options} language={narrationLanguage} onLanguage={setPickedLanguage} />
       <div className="actions">
         <button type="button" className="primary" disabled={busy || blocker !== null} onClick={start}>
-          Listen
+          {remake ? 'Make again' : 'Listen'}
         </button>
         {(blocker || busy || failedText) && (
           <span className="muted" role="status">{blocker ?? (busy ? (job?.message ?? '') : failedText)}</span>
