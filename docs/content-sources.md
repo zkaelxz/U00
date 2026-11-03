@@ -351,6 +351,19 @@ work".
 | Terms | robots.txt (2026-11-03): `User-agent: *` with `Allow: /`, no Crawl-delay; some crawlers are disallowed by name. Content signals: `search=yes, ai-train=no, use=reference`; the site reserves AI training. Terms were not read, so `automation_permission` stays `UNKNOWN`. |
 | Tests | `tests/test_sources_mh03.py` (small invented fixtures; no network). |
 
+## 饭角漫画 Fanjiao Comics — `sources/adapters/fanjiao_comic.py`
+
+| | |
+|---|---|
+| URL patterns | `www.fanjiao.co/cartoonDetail?data=` (series) and `/cartoonRead?data=` (chapter); `data` is base64 of url-encoded JSON (`comic_id`, or `chapter_id` and `comic_name`). A chapter link carries no comic id, so a pasted chapter imports on its own and the series stays empty |
+| Content type / language | manhua; zh |
+| Status | **Read live 2026-11-03** through the guarded browser (no sign-in, no purchase): a comic's details and chapter list, a free chapter's 39 images and one image download. No import has been run through the app. |
+| Access tier | `RENDERED_BROWSER`, on this PC only (a request from elsewhere gets `JAVASCRIPT_REQUIRED`). The API is signed and the image addresses arrive encrypted; the page's own script does both, and this adapter only reads what it produced. |
+| Extraction | **Series:** the page's `comic/home_page` response (`comic_info`, `chapter_list`). **Chapters:** `chapter_list` in list order (oldest first), minus 预告 rows; `is_buy` 0 puts a chapter in the paid group. **Pages:** `div.read-content img` `src` after the script has run, https only, in order; `chapter/details` supplies `is_buy` and the image count. Files are named by their bytes (the site serves JPEG data under `.webp` names). |
+| Failures | A chapter in the paid group, `is_buy` 0, or a reader with no images -> `ContentHidden` (`PURCHASE_REQUIRED`); the paid group is refused before any request. Fewer images than the page lists, or a missing reader or details -> `LayoutChanged`. The comic-level `is_payment` is not trusted (0 for a comic priced at 126). |
+| Terms | The user agreement is only viewable inside the app, so `automation_permission` stays `UNKNOWN`; same posture as the Fanjiao audio adapter. |
+| Tests | `tests/test_sources_fanjiao_comic.py` (invented fixtures; no network or browser). |
+
 ## Marumaru (마루마루) — `sources/adapters/marumaru.py`
 
 | | |
