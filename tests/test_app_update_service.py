@@ -386,6 +386,10 @@ def test_full_setup_replaces_a_queued_app_update(env, monkeypatch):
     app_swap.write_journal(env["root"], app_swap.QUEUED, "0.1.0", "0.2.0", "0.1.0")
     assert us.install() == {"launched": True}
     assert started == [verified]
+    # A journal that can't be read is not "queued": it still refuses.
+    (env["root"] / "app-update" / "swap.json").write_text("{", encoding="utf-8")
+    with pytest.raises(ConflictError):
+        us.install()
 
 
 def test_a_failed_apply_lets_the_next_one_start(env, monkeypatch):
