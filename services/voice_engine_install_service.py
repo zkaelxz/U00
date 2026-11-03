@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 from collections import deque
+from typing import Any
 
 import background_jobs
 import diagnostics
@@ -63,7 +64,7 @@ FULL_PYTHON_RANGE = ((3, 12), (3, 13))
 FULL_PYTHON_SECONDS = 30       # status polls ask for it once per engine, every few seconds
 PROBE_TIMEOUT_SECONDS = 20
 _PROBE = "import sys, venv; print(sys.version_info[0], sys.version_info[1]); print(sys.executable)"
-_FULL_PYTHON = {"at": None, "path": None}
+_FULL_PYTHON: dict[str, Any] = {"at": None, "path": None}
 
 _STATE_LOCK = threading.Lock()
 # admin_svc.guard() and start_job() are separate steps, so two requests could both pass the
