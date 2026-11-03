@@ -231,9 +231,10 @@ SETTINGS = (
     _pref("ocr_backend", "choice", "auto", choices="ocr_backends", label="Default backend",
           help="Auto uses manga_ocr for Japanese, RapidOCR for Chinese and Korean, else Tesseract.",
           tab="system", section="Advanced"),
-    _pref("speaker_model", "choice", "pyannote", choices="speaker_models", label="Speaker detection model",
-          help="Pyannote is the default. Nemotron-3 is NVIDIA's newer model and mixed up fewer lines on the titles we scored; "
+    _pref("speaker_model", "choice", "nemotron", choices="speaker_models", label="Speaker detection model",
+          help="Nemotron-3 is NVIDIA's newer model and mixed up fewer lines than pyannote on the titles we scored; "
                "it needs the transformers and librosa packages and downloads about 380 MB the first time. "
+               "Pyannote (community-1) is the older choice: pick it to go back. "
                "A typed speaker count always uses pyannote, and a failed Nemotron run falls back to pyannote.",
           tab="system", section="Advanced"),
     _pref("ocr_prefer_paddle_vl_manga", "bool", False, label="Japanese: prefer PaddleOCR-VL",

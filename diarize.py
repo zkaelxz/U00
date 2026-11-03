@@ -433,7 +433,7 @@ def _try_nemotron(audio_path, num_speakers, options, result_queue, run_info):
     from jobs import process_worker
     try:
         import diarize_nemotron
-        turns = diarize_nemotron.diarize(
+        turns, prints = diarize_nemotron.diarize(
             audio_path, use_gpu=bool(options.get("use_gpu")),
             on_progress=lambda frac, message: process_worker.report_progress(result_queue, frac, message))
     except Exception as exc:
@@ -442,8 +442,7 @@ def _try_nemotron(audio_path, num_speakers, options, result_queue, run_info):
     if not turns:
         run_info["backend_fallback_reason"] = "Nemotron found no speech"
         return None
-    # No pyannote embeddings exist for a Nemotron run, so voice-match suggestions are empty.
-    return {"segments": turns, "model": diarize_nemotron.MODEL_LABEL, "embeddings": {},
+    return {"segments": turns, "model": diarize_nemotron.MODEL_LABEL, "embeddings": prints,
             "device": "cuda" if options.get("use_gpu") else "cpu"}
 
 
