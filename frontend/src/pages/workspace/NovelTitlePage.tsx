@@ -13,6 +13,7 @@ import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 import { NovelInstructionsTab } from './NovelInstructionsTab'
 import { NovelLinkStart } from './NovelLinkStart'
+import { mainButton } from './novelLinkChain'
 import { chaptersHeadline, rowMeta, rowTitle } from './stages/novelChapters'
 import './stages/novelChapters.css'
 
@@ -74,7 +75,10 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
   const marks = !!list && list.translation_chars > 0
   // The Media stage is where saved chapters become lines, so a title without lines sends Translate there.
   const hasLines = lineCount !== null && lineCount > 0
-  const stage = (s: string, tab?: 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
+  // Everything has English: the next move is Review, so it takes the primary styling.
+  const main = mainButton(lineCount, untranslated)
+  const allTranslated = main === 'review'
+  const stage = (s: string, tab?: 'glossary' | 'translate') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
   return (
     <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
@@ -99,7 +103,8 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
         />
       )}
       <div className="actions">
-        <ButtonLink href={stage(hasLines ? 'translate' : 'source')} variant={hasLines ? 'primary' : 'secondary'}>Translate</ButtonLink>
+        {allTranslated && <ButtonLink href={stage('review')} variant="primary">Review</ButtonLink>}
+        <ButtonLink href={hasLines ? stage('translate', 'translate') : stage('source')} variant={hasLines && !allTranslated ? 'primary' : 'secondary'}>Translate</ButtonLink>
         <ButtonLink href={stage('source')}>Add chapters</ButtonLink>
         <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
         <ButtonLink href={stage('export')}>Export</ButtonLink>
