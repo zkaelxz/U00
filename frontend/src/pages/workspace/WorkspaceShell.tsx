@@ -143,6 +143,11 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           {comic ? 'Open in Scanlate' : 'Read'}
         </ButtonLink>
       )}
+      {drama && !comic && (
+        <ButtonLink href={routeHref({ name: 'follow', id })} variant="secondary" size="sm" className="ws-follow">
+          Follow along
+        </ButtonLink>
+      )}
       {drama && <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />}
       {drama && !isPopOutWindow() && <OpenInWindowButton />}
     </div>

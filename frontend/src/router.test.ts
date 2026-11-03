@@ -164,3 +164,12 @@ describe('parseRoute', () => {
     }
   })
 })
+
+describe('follow route', () => {
+  it('round-trips a title id and rejects a bad one', () => {
+    expect(parseRoute('#/follow/7')).toEqual({ name: 'follow', id: 7 })
+    expect(routeHref({ name: 'follow', id: 7 })).toBe('#/follow/7')
+    expect(parseRoute('#/follow/0')).toEqual({ name: 'library' })
+    expect(parseRoute('#/follow/x')).toEqual({ name: 'library' })
+  })
+})
