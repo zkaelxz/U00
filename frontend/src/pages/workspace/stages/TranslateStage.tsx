@@ -292,8 +292,6 @@ function RunPanel({
   const autoResumed = useRef(false)
   useEffect(() => {
     if (!banner || !reviewOnMount || autoResumed.current) return
-    // Only a finished scan opens by itself on a novel; a failed one keeps its banner.
-    if (banner.kind === 'failed' && !reviewFirst) return
     autoResumed.current = true
     openResume(banner.source)
   }, [banner, reviewOnMount])
