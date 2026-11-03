@@ -17,6 +17,11 @@ export const defaultTitleView = (kind: TitleKind): TitleView => (kind === 'novel
 // Stages leave out their advanced controls in Simple only where the stage is the same for every title of the kind (audio and video).
 export const trimsStages = (kind: TitleKind): boolean => kind === 'audio' || kind === 'video'
 
+// The stages a Simple page's buttons open; they get a slim page so Simple does not end in the full workspace's tab strip.
+// Review is only linked from the audio and video page.
+export const opensSimpleStage = (kind: TitleKind, stage: string | null): boolean =>
+  hasSimpleView(kind) && (stage === 'source' || stage === 'translate' || stage === 'export' || (stage === 'review' && trimsStages(kind)))
+
 export const asTitleView = (v: unknown, fallback: TitleView = 'full'): TitleView => (v === 'simple' || v === 'full' ? v : fallback)
 
 export interface EpisodeInput {
