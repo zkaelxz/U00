@@ -26,10 +26,7 @@ export type EnCleanupResult = Schemas['EnCleanupResult']
 
 export type StyleState = Schemas['StyleState']
 
-export interface StyleLearnRequest {
-  engine?: string | null
-  model?: string | null
-}
+export type StyleLearnRequest = Schemas['StyleLearnRequest']
 
 export type SenseVoiceStarted = Schemas['SenseVoiceStarted']
 

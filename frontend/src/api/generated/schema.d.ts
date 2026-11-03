@@ -11487,27 +11487,27 @@ export interface components {
              * Field
              * @default en
              */
-            field: string;
+            field?: string;
             /**
              * Include Notes
              * @default false
              */
-            include_notes: boolean;
+            include_notes?: boolean;
             /**
              * Notes As Separate Line
              * @default false
              */
-            notes_as_separate_line: boolean;
+            notes_as_separate_line?: boolean;
             /**
              * Per Speaker Colors
              * @default true
              */
-            per_speaker_colors: boolean;
+            per_speaker_colors?: boolean;
             /**
              * Preset
              * @default Clean
              */
-            preset: string;
+            preset?: string;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -11616,19 +11616,19 @@ export interface components {
              * Consent
              * @default false
              */
-            consent: boolean;
+            consent?: boolean;
             /** Engine */
             engine?: string | null;
             /**
              * Escalate
              * @default false
              */
-            escalate: boolean;
+            escalate?: boolean;
             /**
              * Evidence
              * @default
              */
-            evidence: string;
+            evidence?: string;
             /** Model */
             model?: string | null;
             /** Question */
@@ -11711,7 +11711,7 @@ export interface components {
              * To Ref
              * @default HEAD
              */
-            to_ref: string;
+            to_ref?: string;
         };
         /** AssistantChatTurn */
         AssistantChatTurn: {
@@ -11729,7 +11729,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** AssistantPatch */
         AssistantPatch: {
@@ -11753,12 +11753,12 @@ export interface components {
              * Evidence
              * @default
              */
-            evidence: string;
+            evidence?: string;
             /**
              * Question
              * @default
              */
-            question: string;
+            question?: string;
         };
         /**
          * AssistantReview
@@ -12050,12 +12050,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
         };
         /** AutotuneRunResult */
         AutotuneRunResult: {
@@ -12155,7 +12155,7 @@ export interface components {
              * Replace
              * @default false
              */
-            replace: boolean;
+            replace?: boolean;
         };
         /** BenchmarkArena */
         BenchmarkArena: {
@@ -12262,13 +12262,13 @@ export interface components {
              * Set Name
              * @default
              */
-            set_name: string;
+            set_name?: string;
             /**
              * Source Language
              * @default zh
              * @enum {string}
              */
-            source_language: "zh" | "ja" | "ko";
+            source_language?: "zh" | "ja" | "ko";
             /** Source Text */
             source_text: string;
             /**
@@ -12276,7 +12276,7 @@ export interface components {
              * @default application
              * @enum {string}
              */
-            tier: "public" | "application" | "regression";
+            tier?: "public" | "application" | "regression";
         };
         /** BenchmarkCaseDelete */
         BenchmarkCaseDelete: {
@@ -12284,7 +12284,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** BenchmarkCaseEdit */
         BenchmarkCaseEdit: {
@@ -12390,7 +12390,7 @@ export interface components {
              * Title
              * @default
              */
-            title: string;
+            title?: string;
             /** Transcript */
             transcript: string;
             /** Translation */
@@ -12424,12 +12424,12 @@ export interface components {
              * Dry Run
              * @default false
              */
-            dry_run: boolean;
+            dry_run?: boolean;
             /**
              * Include All
              * @default false
              */
-            include_all: boolean;
+            include_all?: boolean;
             /** Set Name */
             set_name: string;
         };
@@ -12527,7 +12527,7 @@ export interface components {
              * Set Name
              * @default hard-sub
              */
-            set_name: string;
+            set_name?: string;
         };
         /** BenchmarkHardSubAddResult */
         BenchmarkHardSubAddResult: {
@@ -12651,7 +12651,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Engine */
             engine: string;
             /** Max Cost Usd */
@@ -12687,7 +12687,7 @@ export interface components {
              * @default jsonl
              * @enum {string}
              */
-            format: "jsonl" | "tsv";
+            format?: "jsonl" | "tsv";
             /** Set Name */
             set_name: string;
             /**
@@ -12695,7 +12695,7 @@ export interface components {
              * @default zh
              * @enum {string}
              */
-            source_language: "zh" | "ja" | "ko";
+            source_language?: "zh" | "ja" | "ko";
             /** Text */
             text: string;
             /**
@@ -12703,7 +12703,7 @@ export interface components {
              * @default public
              * @enum {string}
              */
-            tier: "public" | "application" | "regression";
+            tier?: "public" | "application" | "regression";
         };
         /** BenchmarkImportResult */
         BenchmarkImportResult: {
@@ -12726,7 +12726,7 @@ export interface components {
              * Allow Same Model
              * @default false
              */
-            allow_same_model: boolean;
+            allow_same_model?: boolean;
             /** Engine */
             engine: string;
             /** Model */
@@ -13051,7 +13051,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** BenchmarkRunDetail */
         BenchmarkRunDetail: {
@@ -13074,18 +13074,18 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             judge?: components["schemas"]["BenchmarkJudgeConfig"] | null;
             /**
              * Label
              * @default
              */
-            label: string;
+            label?: string;
             /**
              * Prompt Version
              * @default
              */
-            prompt_version: string;
+            prompt_version?: string;
             /** Set Name */
             set_name?: string | null;
             /**
@@ -13093,7 +13093,7 @@ export interface components {
              * @default translation
              * @enum {string}
              */
-            stage: "translation" | "transcription" | "ocr";
+            stage?: "translation" | "transcription" | "ocr";
             /** Tier */
             tier?: ("public" | "application" | "regression") | null;
         };
@@ -13179,13 +13179,13 @@ export interface components {
              * Dry Run
              * @default false
              */
-            dry_run: boolean;
+            dry_run?: boolean;
             /**
              * Include
              * @default reviewed
              * @enum {string}
              */
-            include: "reviewed" | "all";
+            include?: "reviewed" | "all";
             /** Line End */
             line_end?: number | null;
             /** Line Start */
@@ -13194,7 +13194,7 @@ export interface components {
              * Lines Per Case
              * @default 4
              */
-            lines_per_case: number;
+            lines_per_case?: number;
             /** Scene Count */
             scene_count?: number | null;
             /** Set Name */
@@ -13306,7 +13306,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Decision
              * @enum {string}
@@ -13474,7 +13474,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Language
              * @enum {string}
@@ -13828,7 +13828,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Engine */
             engine: string;
             /**
@@ -13864,7 +13864,7 @@ export interface components {
              * Engine
              * @default ollama
              */
-            engine: string;
+            engine?: string;
         };
         /** BlockedRetryResult */
         BlockedRetryResult: {
@@ -13902,7 +13902,7 @@ export interface components {
              * Mode
              * @default replace
              */
-            mode: string;
+            mode?: string;
         };
         /** Body_post_ocr_chapter_api_novel_dramas__drama_id__ocr_chapter_post */
         Body_post_ocr_chapter_api_novel_dramas__drama_id__ocr_chapter_post: {
@@ -13910,14 +13910,14 @@ export interface components {
              * Backend
              * @default tesseract
              */
-            backend: string;
+            backend?: string;
             /** Files */
             files: string[];
             /**
              * Mode
              * @default append
              */
-            mode: string;
+            mode?: string;
             /** Tesseract Cmd */
             tesseract_cmd?: string | null;
         };
@@ -13948,21 +13948,21 @@ export interface components {
              * Confirm Replace Audio
              * @default false
              */
-            confirm_replace_audio: boolean;
+            confirm_replace_audio?: boolean;
             /** Expected Speakers */
             expected_speakers?: number | null;
             /**
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /** File */
             file: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Max Speakers */
             max_speakers?: number | null;
             /** Min Speakers */
@@ -13971,7 +13971,7 @@ export interface components {
              * Run Diarize
              * @default false
              */
-            run_diarize: boolean;
+            run_diarize?: boolean;
             /** Source Language */
             source_language?: string | null;
             /** Tesseract Cmd */
@@ -13985,7 +13985,7 @@ export interface components {
              * Confirm Replace Audio
              * @default false
              */
-            confirm_replace_audio: boolean;
+            confirm_replace_audio?: boolean;
             /** File */
             file: string;
         };
@@ -14012,7 +14012,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** BrowserInstallResult */
         BrowserInstallResult: {
@@ -14068,7 +14068,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Stamp */
             stamp: string;
         };
@@ -14175,7 +14175,7 @@ export interface components {
              * Per Speaker Colors
              * @default false
              */
-            per_speaker_colors: boolean;
+            per_speaker_colors?: boolean;
             /** Preset */
             preset?: string | null;
             /** Speaker Colors */
@@ -14211,7 +14211,7 @@ export interface components {
              * Note
              * @default
              */
-            note: string;
+            note?: string;
         };
         /** CandidateAddResult */
         CandidateAddResult: {
@@ -14331,7 +14331,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Source Label */
             source_label: string;
             /** Target Label */
@@ -14807,7 +14807,7 @@ export interface components {
              * Coveralone
              * @default true
              */
-            coverAlone: boolean;
+            coverAlone?: boolean;
             /**
              * Fit
              * @enum {string}
@@ -14825,7 +14825,7 @@ export interface components {
              * @default auto
              * @enum {string}
              */
-            spread: "auto" | "single" | "double";
+            spread?: "auto" | "single" | "double";
             /** Text */
             text: boolean;
             /** Typeset */
@@ -14847,7 +14847,7 @@ export interface components {
              * Count
              * @default 1
              */
-            count: number;
+            count?: number;
             /** Edge */
             edge?: ("first" | "last" | "all") | null;
             /** Hidden */
@@ -14870,7 +14870,7 @@ export interface components {
              * Expected Candidate En
              * @default
              */
-            expected_candidate_en: string;
+            expected_candidate_en?: string;
             /** Expected Candidate Zh */
             expected_candidate_zh: string;
             /** Line Id */
@@ -14879,7 +14879,7 @@ export interface components {
              * Use English
              * @default false
              */
-            use_english: boolean;
+            use_english?: boolean;
         };
         /** CompareApplyRequest */
         CompareApplyRequest: {
@@ -14941,13 +14941,13 @@ export interface components {
              * Retranslate Current
              * @default false
              */
-            retranslate_current: boolean;
+            retranslate_current?: boolean;
             selection: components["schemas"]["CompareSelection"];
             /**
              * Translate
              * @default false
              */
-            translate: boolean;
+            translate?: boolean;
         };
         /** CompareOptions */
         CompareOptions: {
@@ -15042,14 +15042,14 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /** Gemini Free Tier */
             gemini_free_tier?: boolean | null;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Job Cost Cap Usd */
             job_cost_cap_usd?: number | null;
             /** Model */
@@ -15058,13 +15058,13 @@ export interface components {
              * Retranslate Current
              * @default false
              */
-            retranslate_current: boolean;
+            retranslate_current?: boolean;
             selection: components["schemas"]["CompareSelection"];
             /**
              * Translate
              * @default false
              */
-            translate: boolean;
+            translate?: boolean;
             /** Whisper Size */
             whisper_size?: string | null;
         };
@@ -15123,7 +15123,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** DeleteSnapshotDone */
         DeleteSnapshotDone: {
@@ -15153,23 +15153,23 @@ export interface components {
              * @description true = delete every managed copy (no snapshot).
              * @default false
              */
-            all: boolean;
+            all?: boolean;
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
             /**
              * Include Unmanaged
              * @description true = also copies this library doesn't manage.
              * @default false
              */
-            include_unmanaged: boolean;
+            include_unmanaged?: boolean;
             /**
              * Snapshot
              * @description A copy's name from the copies list.
@@ -15247,7 +15247,7 @@ export interface components {
              * Expires In Days
              * @default 90
              */
-            expires_in_days: number | null;
+            expires_in_days?: number | null;
             /** Label */
             label: string;
         };
@@ -15278,7 +15278,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** DiagnosticsCacheDeleteResult */
         DiagnosticsCacheDeleteResult: {
@@ -15308,7 +15308,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** DiagnosticsDenoResult */
         DiagnosticsDenoResult: {
@@ -15357,14 +15357,14 @@ export interface components {
              * Accept Risk
              * @default false
              */
-            accept_risk: boolean;
+            accept_risk?: boolean;
             /** Accepted Risks */
             accepted_risks?: string[];
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /**
          * DiagnosticsDependencyInstallResult
@@ -15432,7 +15432,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Variant */
             variant?: ("cu128" | "cu126" | "cpu") | null;
         };
@@ -15694,12 +15694,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
         };
         /** DiagnosticsResetResult */
         DiagnosticsResetResult: {
@@ -15836,7 +15836,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Target */
             target?: string | null;
         };
@@ -15894,14 +15894,14 @@ export interface components {
              * Accept Risk
              * @default false
              */
-            accept_risk: boolean;
+            accept_risk?: boolean;
             /** Accepted Risks */
             accepted_risks?: string[];
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Target */
             target?: string | null;
         };
@@ -15968,7 +15968,7 @@ export interface components {
              * Source Label
              * @default
              */
-            source_label: string;
+            source_label?: string;
         };
         /** DiscoverBulkCommitResult */
         DiscoverBulkCommitResult: {
@@ -15985,29 +15985,29 @@ export interface components {
              * Author
              * @default
              */
-            author: string;
+            author?: string;
             /** Entry Id */
             entry_id?: string | null;
             /**
              * Has Audio Drama
              * @default false
              */
-            has_audio_drama: boolean;
+            has_audio_drama?: boolean;
             /**
              * Language
              * @default zh
              */
-            language: string;
+            language?: string;
             /**
              * Source Url
              * @default
              */
-            source_url: string;
+            source_url?: string;
             /**
              * Tags
              * @default
              */
-            tags: string;
+            tags?: string;
             /** Title */
             title: string;
         };
@@ -16019,7 +16019,7 @@ export interface components {
              * Source Label
              * @default
              */
-            source_label: string;
+            source_label?: string;
             /** Urls */
             urls: string[];
         };
@@ -16084,7 +16084,7 @@ export interface components {
              * Target Language
              * @default English
              */
-            target_language: string;
+            target_language?: string;
             /** Url */
             url: string;
         };
@@ -16146,12 +16146,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Irreplaceable
              * @default false
              */
-            confirm_irreplaceable: boolean;
+            confirm_irreplaceable?: boolean;
             /** Expected File Count */
             expected_file_count: number;
             /**
@@ -16260,7 +16260,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Destination
              * @description An existing folder, full path (PC only).
@@ -16472,7 +16472,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Id */
             id: string;
         };
@@ -16499,17 +16499,17 @@ export interface components {
              * Author
              * @default
              */
-            author: string;
+            author?: string;
             /**
              * Director
              * @default
              */
-            director: string;
+            director?: string;
             /**
              * Media Type
              * @default audio_drama
              */
-            media_type: string;
+            media_type?: string;
             /** New Series Name */
             new_series_name?: string | null;
             /** Preset Id */
@@ -16518,7 +16518,7 @@ export interface components {
              * Release Date
              * @default
              */
-            release_date: string;
+            release_date?: string;
             /** Series Id */
             series_id?: number | null;
             /** Source Language */
@@ -16527,32 +16527,32 @@ export interface components {
              * Source Url
              * @default
              */
-            source_url: string;
+            source_url?: string;
             /**
              * Studio
              * @default
              */
-            studio: string;
+            studio?: string;
             /**
              * Summary
              * @default
              */
-            summary: string;
+            summary?: string;
             /**
              * Title En
              * @default
              */
-            title_en: string;
+            title_en?: string;
             /**
              * Title Zh
              * @default
              */
-            title_zh: string;
+            title_zh?: string;
             /**
              * Voice Actors
              * @default
              */
-            voice_actors: string;
+            voice_actors?: string;
         };
         /** DramaCreateResult */
         DramaCreateResult: {
@@ -17045,7 +17045,7 @@ export interface components {
              * Keep Original
              * @default false
              */
-            keep_original: boolean;
+            keep_original?: boolean;
         };
         /** EmotionJobStart */
         EmotionJobStart: {
@@ -17053,7 +17053,7 @@ export interface components {
              * Bulk
              * @default false
              */
-            bulk: boolean;
+            bulk?: boolean;
             /** Engine */
             engine?: string | null;
             /** Gemini Free Tier */
@@ -17327,7 +17327,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** ExtractionComic */
         ExtractionComic: {
@@ -17445,7 +17445,7 @@ export interface components {
              * Page
              * @default 0
              */
-            page: number;
+            page?: number;
             /** Role */
             role: string;
         };
@@ -17515,7 +17515,7 @@ export interface components {
              * @default title
              * @enum {string}
              */
-            number_from: "title" | "url";
+            number_from?: "title" | "url";
             /** Previous Link */
             previous_link?: string | null;
             /** Revision */
@@ -17617,7 +17617,7 @@ export interface components {
              * @default false
              * @constant
              */
-            bulk: false;
+            bulk?: false;
             /** Default Female Pronouns */
             default_female_pronouns?: boolean | null;
             /** Engine */
@@ -17753,7 +17753,7 @@ export interface components {
              * Include Hand Edited
              * @default false
              */
-            include_hand_edited: boolean;
+            include_hand_edited?: boolean;
             /** Job Cost Cap Usd */
             job_cost_cap_usd?: number | null;
             /** Line Ids */
@@ -17762,7 +17762,7 @@ export interface components {
              * Locale
              * @default en-US
              */
-            locale: string;
+            locale?: string;
             /** Model */
             model?: string | null;
             /** Preview Hash */
@@ -17771,12 +17771,12 @@ export interface components {
              * Reflect
              * @default false
              */
-            reflect: boolean;
+            reflect?: boolean;
             /**
              * Style Note
              * @default
              */
-            style_note: string;
+            style_note?: string;
             /** Style Preset */
             style_preset?: string | null;
             /** Term Ids */
@@ -17839,7 +17839,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Term Ids */
             term_ids: number[];
         };
@@ -17944,17 +17944,17 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Filename
              * @default
              */
-            filename: string;
+            filename?: string;
             /**
              * Overwrite Existing
              * @default false
              */
-            overwrite_existing: boolean;
+            overwrite_existing?: boolean;
             /** Text */
             text: string;
         };
@@ -18056,7 +18056,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Overrides */
             overrides?: {
                 [key: string]: components["schemas"]["GlossaryProposalEdit"];
@@ -18065,7 +18065,7 @@ export interface components {
              * Overwrite Existing
              * @default false
              */
-            overwrite_existing: boolean;
+            overwrite_existing?: boolean;
             /** Run Id */
             run_id?: string | null;
             /** Terms */
@@ -18320,7 +18320,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Enabled */
             enabled?: boolean | null;
             /** Library Dir */
@@ -18370,7 +18370,7 @@ export interface components {
              * @default en
              * @enum {string}
              */
-            language: "en" | "zh" | "ja" | "ko";
+            language?: "en" | "zh" | "ja" | "ko";
         };
         /** JellyfinSendRequest */
         JellyfinSendRequest: {
@@ -18380,13 +18380,13 @@ export interface components {
              * @default en
              * @enum {string}
              */
-            field: "en" | "zh" | "bilingual";
+            field?: "en" | "zh" | "bilingual";
             /**
              * Format
              * @default srt
              * @enum {string}
              */
-            format: "srt" | "ass";
+            format?: "srt" | "ass";
             /** Item Id */
             item_id?: string | null;
             /** Language */
@@ -18396,17 +18396,17 @@ export interface components {
              * @default none
              * @enum {string}
              */
-            media: "none" | "source" | "dubbed";
+            media?: "none" | "source" | "dubbed";
             /**
              * Overwrite
              * @default false
              */
-            overwrite: boolean;
+            overwrite?: boolean;
             /**
              * Refresh
              * @default true
              */
-            refresh: boolean;
+            refresh?: boolean;
         };
         /** JellyfinSendResult */
         JellyfinSendResult: {
@@ -18649,7 +18649,7 @@ export interface components {
              * Author
              * @default
              */
-            author: string;
+            author?: string;
             /** Language */
             language: string;
             /** Media Type */
@@ -18658,32 +18658,32 @@ export interface components {
              * Source Name
              * @default
              */
-            source_name: string;
+            source_name?: string;
             /**
              * Source Url
              * @default
              */
-            source_url: string;
+            source_url?: string;
             /**
              * Summary En
              * @default
              */
-            summary_en: string;
+            summary_en?: string;
             /**
              * Summary Original
              * @default
              */
-            summary_original: string;
+            summary_original?: string;
             /**
              * Tags
              * @default
              */
-            tags: string;
+            tags?: string;
             /**
              * Title En
              * @default
              */
-            title_en: string;
+            title_en?: string;
             /** Title Original */
             title_original: string;
         };
@@ -18693,7 +18693,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** KnownTitleDeleted */
         KnownTitleDeleted: {
@@ -18813,7 +18813,7 @@ export interface components {
              * Database Only
              * @default false
              */
-            database_only: boolean;
+            database_only?: boolean;
         };
         /**
          * LibraryBulkDeleteRequest
@@ -18824,12 +18824,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
             /** Drama Ids */
             drama_ids: number[];
         };
@@ -19011,7 +19011,7 @@ export interface components {
              * @description Also zip every title's original audio, video, novel text and page scans, not only those of titles pinned with "Keep original files".
              * @default false
              */
-            include_originals: boolean;
+            include_originals?: boolean;
         };
         /** LibraryExportStarted */
         LibraryExportStarted: {
@@ -19210,12 +19210,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
             /**
              * Preset
              * @enum {string}
@@ -19385,7 +19385,7 @@ export interface components {
              * Issue
              * @default
              */
-            issue: string;
+            issue?: string;
             /** Model */
             model?: string | null;
         };
@@ -19439,7 +19439,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Overrides */
             overrides?: {
                 [key: string]: components["schemas"]["GlossaryProposalEdit"];
@@ -19448,7 +19448,7 @@ export interface components {
              * Overwrite Existing
              * @default false
              */
-            overwrite_existing: boolean;
+            overwrite_existing?: boolean;
             /** Run Id */
             run_id: string;
             /** Terms */
@@ -19604,7 +19604,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Engine */
             engine?: string | null;
             /** Gemini Free Tier */
@@ -19767,7 +19767,7 @@ export interface components {
              * Tts Engine
              * @default omnivoice
              */
-            tts_engine: string;
+            tts_engine?: string;
         };
         /** LiveChatMessage */
         LiveChatMessage: {
@@ -19867,7 +19867,7 @@ export interface components {
              * Auto Check
              * @default false
              */
-            auto_check: boolean;
+            auto_check?: boolean;
             /** Channel */
             channel: string;
             /**
@@ -19875,7 +19875,7 @@ export interface components {
              * @default notify
              * @enum {string}
              */
-            mode: "notify" | "auto";
+            mode?: "notify" | "auto";
             options?: components["schemas"]["LiveFollowOptions"] | null;
         };
         /** LiveFollowCheckAll */
@@ -19920,7 +19920,7 @@ export interface components {
              * Max Minutes
              * @default 60
              */
-            max_minutes: number;
+            max_minutes?: number;
             /** Model */
             model?: string | null;
             /** Series Id */
@@ -19929,17 +19929,17 @@ export interface components {
              * Source Language
              * @default zh
              */
-            source_language: string;
+            source_language?: string;
             /**
              * Use Gpu
              * @default false
              */
-            use_gpu: boolean;
+            use_gpu?: boolean;
             /**
              * Whisper Size
              * @default small
              */
-            whisper_size: string;
+            whisper_size?: string;
         };
         /** LiveFollowRemoved */
         LiveFollowRemoved: {
@@ -20029,7 +20029,7 @@ export interface components {
              * @description Also record a rolling copy of the picture and sound for the page's own player, so the picture can be held back on a stream the embed cannot rewind.
              * @default false
              */
-            delayed_player: boolean;
+            delayed_player?: boolean;
             /**
              * Engine
              * @description None = Ollama on this PC, never the Settings default engine.
@@ -20044,38 +20044,38 @@ export interface components {
              * Max Minutes
              * @default 60
              */
-            max_minutes: number;
+            max_minutes?: number;
             /** Model */
             model?: string | null;
             /**
              * Overlap Seconds
              * @default 3
              */
-            overlap_seconds: number;
+            overlap_seconds?: number;
             /**
              * Player Height
              * @description With delayed_player: the tallest picture to record, in pixels.
              * @default 480
              * @enum {integer}
              */
-            player_height: 360 | 480 | 720 | 1080;
+            player_height?: 360 | 480 | 720 | 1080;
             /**
              * Read Chat
              * @description YouTube links only: also read the stream's live chat and translate it.
              * @default false
              */
-            read_chat: boolean;
+            read_chat?: boolean;
             /**
              * Reply Without Thinking
              * @description Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.
              * @default true
              */
-            reply_without_thinking: boolean;
+            reply_without_thinking?: boolean;
             /**
              * Segment Seconds
              * @default 20
              */
-            segment_seconds: number;
+            segment_seconds?: number;
             /**
              * Series Id
              * @description Instead of a title: a series whose glossary, and the packs of its newest title with a pack choice, the translation may use (read-only). Not with glossary_drama_id.
@@ -20085,19 +20085,19 @@ export interface components {
              * Source Language
              * @default zh
              */
-            source_language: string;
+            source_language?: string;
             /** Url */
             url: string;
             /**
              * Use Gpu
              * @default false
              */
-            use_gpu: boolean;
+            use_gpu?: boolean;
             /**
              * Whisper Size
              * @default small
              */
-            whisper_size: string;
+            whisper_size?: string;
         };
         /** LiveSessionStarted */
         LiveSessionStarted: {
@@ -20209,7 +20209,7 @@ export interface components {
              * @default all
              * @enum {string}
              */
-            chapters: "all" | "first" | "last";
+            chapters?: "all" | "first" | "last";
             /** Count */
             count?: number | null;
             /**
@@ -20217,7 +20217,7 @@ export interface components {
              * @default replace
              * @enum {string}
              */
-            mode: "append" | "replace";
+            mode?: "append" | "replace";
             /** Url */
             url: string;
         };
@@ -20491,19 +20491,19 @@ export interface components {
              * Allow Long
              * @default false
              */
-            allow_long: boolean;
+            allow_long?: boolean;
             /** Audio Only */
             audio_only: boolean;
             /**
              * Confirm Replace Audio
              * @default false
              */
-            confirm_replace_audio: boolean;
+            confirm_replace_audio?: boolean;
             /**
              * Exact Cuts
              * @default false
              */
-            exact_cuts: boolean;
+            exact_cuts?: boolean;
             /** Part End */
             part_end?: string | null;
             /** Part Start */
@@ -20710,7 +20710,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Key */
             key: string;
             /**
@@ -20725,7 +20725,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** From Model */
             from_model: string;
             /** Key */
@@ -21128,7 +21128,7 @@ export interface components {
              * Mode
              * @default replace
              */
-            mode: string;
+            mode?: string;
         };
         /** NovelAttachResult */
         NovelAttachResult: {
@@ -21149,7 +21149,7 @@ export interface components {
              * Mode
              * @default replace
              */
-            mode: string;
+            mode?: string;
             /** Text */
             text: string;
         };
@@ -21460,12 +21460,12 @@ export interface components {
              * Accept Risk
              * @default false
              */
-            accept_risk: boolean;
+            accept_risk?: boolean;
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Packages */
             packages: string[];
         };
@@ -21536,7 +21536,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** From Model */
             from_model: string;
             /** To Model */
@@ -21626,12 +21626,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Reason
              * @default
              */
-            reason: string;
+            reason?: string;
         };
         /** PromoteResult */
         PromoteResult: {
@@ -21928,7 +21928,7 @@ export interface components {
              * Watch Once
              * @default false
              */
-            watch_once: boolean;
+            watch_once?: boolean;
         };
         /** QuickVideoStarted */
         QuickVideoStarted: {
@@ -22038,7 +22038,7 @@ export interface components {
              * Chapter Size
              * @default 40
              */
-            chapter_size: number;
+            chapter_size?: number;
             /** Engine */
             engine?: string | null;
             /** Model */
@@ -22049,7 +22049,7 @@ export interface components {
              * Use Llm
              * @default false
              */
-            use_llm: boolean;
+            use_llm?: boolean;
         };
         /** ReaderLookupResult */
         ReaderLookupResult: {
@@ -22144,7 +22144,7 @@ export interface components {
              * Chapter Size
              * @default 40
              */
-            chapter_size: number;
+            chapter_size?: number;
             /** Page */
             page: number;
         };
@@ -22166,7 +22166,7 @@ export interface components {
              * Chapter Size
              * @default 40
              */
-            chapter_size: number;
+            chapter_size?: number;
             /** Engine */
             engine?: string | null;
             /** Model */
@@ -22195,7 +22195,7 @@ export interface components {
              * Queued
              * @default true
              */
-            queued: boolean;
+            queued?: boolean;
             /** Words */
             words: string[];
         };
@@ -22266,7 +22266,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** ReaderWikiClearResult */
         ReaderWikiClearResult: {
@@ -22319,7 +22319,7 @@ export interface components {
              * From Line Idx
              * @default 0
              */
-            from_line_idx: number;
+            from_line_idx?: number;
             /** Model */
             model?: string | null;
             /** Up To Line Idx */
@@ -22406,7 +22406,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** RealModelCheckStarted */
         RealModelCheckStarted: {
@@ -22509,7 +22509,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** ReevalRunStarted */
         ReevalRunStarted: {
@@ -22573,7 +22573,7 @@ export interface components {
              * Reason
              * @default
              */
-            reason: string;
+            reason?: string;
         };
         /** RemoteCertificateCheck */
         RemoteCertificateCheck: {
@@ -22782,20 +22782,20 @@ export interface components {
              * Allow Paid
              * @default false
              */
-            allow_paid: boolean;
+            allow_paid?: boolean;
             /**
              * Mode
              * @default quick
              * @enum {string}
              */
-            mode: "quick" | "deep" | "verify";
+            mode?: "quick" | "deep" | "verify";
             /** Model */
             model?: string | null;
             /**
              * Refresh
              * @default false
              */
-            refresh: boolean;
+            refresh?: boolean;
         };
         /** ResearchResult */
         ResearchResult: {
@@ -22914,7 +22914,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Engine */
             engine?: string | null;
             /**
@@ -22928,12 +22928,12 @@ export interface components {
              * Use Llm
              * @default false
              */
-            use_llm: boolean;
+            use_llm?: boolean;
             /**
              * Use Preview
              * @default false
              */
-            use_preview: boolean;
+            use_preview?: boolean;
         };
         /** ResegmentStarted */
         ResegmentStarted: {
@@ -22983,17 +22983,17 @@ export interface components {
              * Align To Audio
              * @default false
              */
-            align_to_audio: boolean;
+            align_to_audio?: boolean;
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Dry Run
              * @default false
              */
-            dry_run: boolean;
+            dry_run?: boolean;
             /**
              * Expected Line Ids
              * @description The drama's line ids, in order, as last loaded; 409 if they differ now.
@@ -23059,12 +23059,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
             /** Drama Id */
             drama_id: number;
             /**
@@ -23103,7 +23103,7 @@ export interface components {
              * En
              * @default
              */
-            en: string;
+            en?: string;
             /** End */
             end: number;
             /**
@@ -23119,7 +23119,7 @@ export interface components {
              * Zh
              * @default
              */
-            zh: string;
+            zh?: string;
         };
         /** RestructureDeleteLine */
         RestructureDeleteLine: {
@@ -23127,7 +23127,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Expected Line Ids
              * @description The drama's line ids, in order, as last loaded; 409 if they differ now.
@@ -23277,12 +23277,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
         };
         /** RetranscribeLineResult */
         RetranscribeLineResult: {
@@ -23357,12 +23357,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Line Ids */
             line_ids: number[];
         };
@@ -23437,14 +23437,14 @@ export interface components {
              * Locale
              * @default en-US
              */
-            locale: string;
+            locale?: string;
             /** Model */
             model?: string | null;
             /**
              * Style Note
              * @default
              */
-            style_note: string;
+            style_note?: string;
             /** Style Preset */
             style_preset?: string | null;
             /** Thinking */
@@ -23494,7 +23494,7 @@ export interface components {
              * Bulk
              * @default false
              */
-            bulk: boolean;
+            bulk?: boolean;
             /** Engine */
             engine?: string | null;
             /** Gemini Free Tier */
@@ -23594,19 +23594,19 @@ export interface components {
              * Case Sensitive
              * @default false
              */
-            case_sensitive: boolean;
+            case_sensitive?: boolean;
             /** Find */
             find: string;
             /**
              * Replace
              * @default
              */
-            replace: string;
+            replace?: string;
             /**
              * Use Regex
              * @default false
              */
-            use_regex: boolean;
+            use_regex?: boolean;
         };
         /** ReviewLinesLine */
         ReviewLinesLine: {
@@ -24201,7 +24201,7 @@ export interface components {
              * Typeset
              * @default true
              */
-            typeset: boolean;
+            typeset?: boolean;
         };
         /** ScanlateJobStarted */
         ScanlateJobStarted: {
@@ -24300,7 +24300,7 @@ export interface components {
              * @default both
              * @enum {string}
              */
-            mode: "both" | "translate";
+            mode?: "both" | "translate";
         };
         /** ScanlateRenderRequest */
         ScanlateRenderRequest: {
@@ -24320,20 +24320,20 @@ export interface components {
              * Art Captions
              * @default false
              */
-            art_captions: boolean;
+            art_captions?: boolean;
             /** Chapter Id */
             chapter_id?: string | null;
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Detect Backend
              * @default auto
              * @enum {string}
              */
-            detect_backend: "auto" | "cv" | "ml";
+            detect_backend?: "auto" | "cv" | "ml";
             /** Engine */
             engine?: string | null;
             /**
@@ -24341,7 +24341,7 @@ export interface components {
              * @default missing
              * @enum {string}
              */
-            mode: "missing" | "page" | "all";
+            mode?: "missing" | "page" | "all";
             /** Page Id */
             page_id?: number | null;
             /** Read Ahead From */
@@ -24486,7 +24486,7 @@ export interface components {
              * @default fill
              * @enum {string}
              */
-            mode: "fill" | "overwrite";
+            mode?: "fill" | "overwrite";
         };
         /** SeriesDefaultsApplyResult */
         SeriesDefaultsApplyResult: {
@@ -24611,12 +24611,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
         };
         /** SeriesDeleteResult */
         SeriesDeleteResult: {
@@ -24684,19 +24684,19 @@ export interface components {
              * Aliases
              * @default
              */
-            aliases: string;
+            aliases?: string;
             /** Character Name */
             character_name: string;
             /**
              * Notes
              * @default
              */
-            notes: string;
+            notes?: string;
             /**
              * Pronouns
              * @default
              */
-            pronouns: string;
+            pronouns?: string;
         };
         /**
          * SeriesPersonUpdate
@@ -25655,17 +25655,17 @@ export interface components {
              * Field
              * @default en
              */
-            field: string;
+            field?: string;
             /**
              * Include Notes
              * @default false
              */
-            include_notes: boolean;
+            include_notes?: boolean;
             /**
              * Subtitle Format
              * @default srt
              */
-            subtitle_format: string;
+            subtitle_format?: string;
         };
         /** SourceAttempt */
         SourceAttempt: {
@@ -25710,7 +25710,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** SourceCacheStats */
         SourceCacheStats: {
@@ -25749,19 +25749,19 @@ export interface components {
              * Locale
              * @default en-US
              */
-            locale: string;
+            locale?: string;
             /** Model */
             model?: string | null;
             /**
              * Reflect
              * @default false
              */
-            reflect: boolean;
+            reflect?: boolean;
             /**
              * Style Note
              * @default
              */
-            style_note: string;
+            style_note?: string;
             /** Style Preset */
             style_preset?: string | null;
             /** Thinking */
@@ -26209,7 +26209,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** SourceSigninForgetResult */
         SourceSigninForgetResult: {
@@ -26229,7 +26229,7 @@ export interface components {
              * Url
              * @default
              */
-            url: string;
+            url?: string;
         };
         /** SourceSummary */
         SourceSummary: {
@@ -26380,17 +26380,17 @@ export interface components {
              * Title
              * @default
              */
-            title: string;
+            title?: string;
             /**
              * Tracked
              * @default true
              */
-            tracked: boolean;
+            tracked?: boolean;
             /**
              * Url
              * @default
              */
-            url: string;
+            url?: string;
         };
         /**
          * SourceTrackedDramaRequest
@@ -26436,7 +26436,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** SourceUpdateApplyResponse */
         SourceUpdateApplyResponse: {
@@ -26558,14 +26558,14 @@ export interface components {
              * Review
              * @default false
              */
-            review: boolean;
+            review?: boolean;
             /** Url */
             url: string;
             /**
              * Use Ai
              * @default false
              */
-            use_ai: boolean;
+            use_ai?: boolean;
         };
         /** SourcesImportRetryRow */
         SourcesImportRetryRow: {
@@ -26701,7 +26701,7 @@ export interface components {
              * Url
              * @default
              */
-            url: string;
+            url?: string;
         };
         /**
          * SourcesSearchRequest
@@ -26813,19 +26813,19 @@ export interface components {
              * Follow Pages
              * @default 1
              */
-            follow_pages: number;
+            follow_pages?: number;
             /**
              * Review
              * @default false
              */
-            review: boolean;
+            review?: boolean;
             /** Url */
             url: string;
             /**
              * Use Ai
              * @default false
              */
-            use_ai: boolean;
+            use_ai?: boolean;
         };
         /** SourcesUrlPreviewRequest */
         SourcesUrlPreviewRequest: {
@@ -26922,7 +26922,7 @@ export interface components {
              * Min Gap Seconds
              * @default 2
              */
-            min_gap_seconds: number;
+            min_gap_seconds?: number;
         };
         /** SpeechCoverageRunResult */
         SpeechCoverageRunResult: {
@@ -27148,7 +27148,7 @@ export interface components {
              * Bulk
              * @default false
              */
-            bulk: boolean;
+            bulk?: boolean;
             /** Engine */
             engine?: string | null;
             /** Gemini Free Tier */
@@ -27177,7 +27177,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** StyleRestoreRequest */
         StyleRestoreRequest: {
@@ -27185,7 +27185,7 @@ export interface components {
              * Index
              * @default 0
              */
-            index: number;
+            index?: number;
         };
         /** StyleState */
         StyleState: {
@@ -27446,12 +27446,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Fingerprint
              * @default
              */
-            fingerprint: string;
+            fingerprint?: string;
             /**
              * Kind
              * @enum {string}
@@ -27461,7 +27461,7 @@ export interface components {
              * Move Duplicates
              * @default false
              */
-            move_duplicates: boolean;
+            move_duplicates?: boolean;
             /** Target Id */
             target_id: number;
         };
@@ -27548,7 +27548,7 @@ export interface components {
              * Move Duplicates
              * @default false
              */
-            move_duplicates: boolean;
+            move_duplicates?: boolean;
             /** Target Id */
             target_id: number;
         };
@@ -27870,12 +27870,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Max Speakers */
             max_speakers?: number | null;
             /** Min Speakers */
@@ -27884,7 +27884,7 @@ export interface components {
              * Run Diarize
              * @default false
              */
-            run_diarize: boolean;
+            run_diarize?: boolean;
             /** Source Language */
             source_language?: string | null;
             /** Tesseract Cmd */
@@ -27909,12 +27909,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Max Speakers */
             max_speakers?: number | null;
             /** Min Speakers */
@@ -27923,7 +27923,7 @@ export interface components {
              * Run Diarize
              * @default false
              */
-            run_diarize: boolean;
+            run_diarize?: boolean;
         };
         /** TranslateBulkCancelResult */
         TranslateBulkCancelResult: {
@@ -28144,14 +28144,14 @@ export interface components {
              * Default Female Pronouns
              * @default false
              */
-            default_female_pronouns: boolean;
+            default_female_pronouns?: boolean;
             /** Engine Model */
             engine_model?: string | null;
             /**
              * Include Genre Notes
              * @default true
              */
-            include_genre_notes: boolean;
+            include_genre_notes?: boolean;
             /** Locale */
             locale?: string | null;
             /** Name */
@@ -28164,7 +28164,7 @@ export interface components {
              * Overwrite
              * @default false
              */
-            overwrite: boolean;
+            overwrite?: boolean;
             /** Style Preset */
             style_preset?: string | null;
             /** Translation Engine */
@@ -28185,14 +28185,14 @@ export interface components {
              * Default Female Pronouns
              * @default false
              */
-            default_female_pronouns: boolean;
+            default_female_pronouns?: boolean;
             /** Engine Model */
             engine_model?: string | null;
             /**
              * Include Genre Notes
              * @default true
              */
-            include_genre_notes: boolean;
+            include_genre_notes?: boolean;
             /** Locale */
             locale?: string | null;
             /** Name */
@@ -28401,7 +28401,7 @@ export interface components {
              * Bulk
              * @default false
              */
-            bulk: boolean;
+            bulk?: boolean;
             /** Context Window */
             context_window?: number | null;
             /** Context Window Ahead */
@@ -28416,7 +28416,7 @@ export interface components {
              * Force Retranslate
              * @default false
              */
-            force_retranslate: boolean;
+            force_retranslate?: boolean;
             /** Gemini Free Tier */
             gemini_free_tier?: boolean | null;
             /** Include Genre Notes */
@@ -28429,19 +28429,19 @@ export interface components {
              * Locale
              * @default en-US
              */
-            locale: string;
+            locale?: string;
             /** Model */
             model?: string | null;
             /**
              * Reflect
              * @default false
              */
-            reflect: boolean;
+            reflect?: boolean;
             /**
              * Style Note
              * @default
              */
-            style_note: string;
+            style_note?: string;
             /** Style Preset */
             style_preset?: string | null;
             /** Thinking */
@@ -28516,7 +28516,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** TranslationVersionActivateResult */
         TranslationVersionActivateResult: {
@@ -28629,7 +28629,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** UpdateInstallRequest */
         UpdateInstallRequest: {
@@ -28783,7 +28783,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Fingerprint */
             fingerprint: string;
             /** Previewed */
@@ -28882,7 +28882,7 @@ export interface components {
              * Notes
              * @default
              */
-            notes: string;
+            notes?: string;
             /** Speaker Label */
             speaker_label: string;
         };
@@ -28916,7 +28916,7 @@ export interface components {
              * Max Candidates
              * @default 3
              */
-            max_candidates: number;
+            max_candidates?: number;
             /** Speaker Label */
             speaker_label: string;
         };
@@ -28931,7 +28931,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Speaker Label */
             speaker_label: string;
         };
@@ -28983,7 +28983,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** VoiceEngineInstallResult */
         VoiceEngineInstallResult: {
@@ -29042,7 +29042,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** VoiceEngineRemoveStarted */
         VoiceEngineRemoveStarted: {
@@ -29069,7 +29069,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Enabled */
             enabled?: boolean | null;
         };

@@ -5,11 +5,7 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-export interface AutotuneRunRequest {
-  candidates?: number[]
-  initial_prompt?: string
-  extra_names?: string
-}
+export type AutotuneRunRequest = Schemas['AutotuneRunRequest']
 
 export type AutotuneRunResult = Schemas['AutotuneRunResult']
 
