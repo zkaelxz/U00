@@ -3,22 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { listenApi, listenTrackUrl } from '../../api/listen'
 import { usePersistedState } from '../../hooks/usePersistedState'
-import { listLines } from '../../api/review'
+import { listAllLines } from '../../api/review'
 import type { ReviewLine } from '../../types/review'
 import { activeIndex, alongLines, type AlongLine } from './readAlongLogic'
-
-const PAGE_SIZE = 200 // the server's page-size cap
-
-// Every line of the title, in order, paged because the server caps a page.
-async function loadRows(dramaId: number): Promise<ReviewLine[]> {
-  const rows: ReviewLine[] = []
-  for (let page = 1; ; page++) {
-    const r = await listLines(dramaId, page, PAGE_SIZE, 'all')
-    rows.push(...r.lines)
-    if (rows.length >= r.total || r.lines.length === 0) break
-  }
-  return rows
-}
 
 // version: counts the times the narration was replaced while this page was open.
 export function ReadAlong({ dramaId, version, onError }: { dramaId: number; version: number; onError: () => void }) {
@@ -32,7 +19,7 @@ export function ReadAlong({ dramaId, version, onError }: { dramaId: number; vers
   useEffect(() => {
     let cancelled = false
     // The lines are only a read-along, so a failure leaves the plain player.
-    Promise.all([listenApi.config(dramaId), loadRows(dramaId)]).then(
+    Promise.all([listenApi.config(dramaId), listAllLines(dramaId)]).then(
       ([cfg, rows]) => !cancelled && setLoaded({ rows, spoken: cfg.narration_language }),
       () => !cancelled && setLoaded({ rows: [], spoken: '' }),
     )
