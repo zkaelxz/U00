@@ -338,8 +338,8 @@ def _server_port():
 def apply_busy() -> bool:
     """Whether an apply is under way or handed over and not yet finished (its
     journal is still there): the full Setup must not start meanwhile. A
-    queued switch is the exception: its helper has already exited and
-    Setup deletes the journal, so a locked file must not leave the full
+    queued switch is the exception: the helper that queued it has exited,
+    the launcher won't start another while Setup is open, and Setup deletes the journal, so a locked file must not leave the full
     installer refused."""
     with _lock:
         if _applying:

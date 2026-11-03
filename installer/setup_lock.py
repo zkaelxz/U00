@@ -112,3 +112,13 @@ def setup_lock(mutexes):
     finally:
         for handle in reversed(handles):
             mutexes.close(handle)
+
+
+def setup_is_open(mutexes=None) -> bool:
+    """Whether Setup (or a locked service command) is running right now. Holds
+    the names only for the instant of the check."""
+    try:
+        with setup_lock(default_mutexes() if mutexes is None else mutexes):
+            return False
+    except SetupRunning:
+        return True
