@@ -1,8 +1,6 @@
 """Per-source pace levels and the automatic slowdown (sources/pacing.py).
 Offline: a scripted transport and a fake clock, no real sleeping."""
 
-import re
-
 import pytest
 
 from sources import http, pacing, store
@@ -246,7 +244,13 @@ class TestHardening:
         assert all(store.source_pace(n) == "careful" for n in names)
 
 
-FAST_VETTED = {"52shuku", "xbanxia", "piaotian", "zerosumonline", "marumaru"}
+# Each Fast site and the date its vetting evidence must carry.
+FAST_EVIDENCE_DATE = {"52shuku": "2026-10-09", "xbanxia": "2026-10-09", "piaotian": "2026-10-09",
+                      "zerosumonline": "2026-10-09", "marumaru": "2026-11-03"}
+FAST_VETTED = set(FAST_EVIDENCE_DATE)
+# Marumaru's API hosts keep their floor in the client while its image host (no floor) runs at the
+# Fast delay; test_marumaru_fast_keeps_the_api_floor_and_speeds_up_the_image_host pins that.
+FAST_BELOW_FLOOR = {"marumaru"}
 
 
 class TestVettedAdapters:
@@ -263,7 +267,7 @@ class TestVettedAdapters:
     def test_every_fast_adapter_records_dated_evidence(self):
         for name, cls in self._adapters().items():
             if cls.pacing_profile.fast_allowed:
-                assert re.search(r"20\d\d-\d\d-\d\d", cls.pacing_profile.evidence), name
+                assert FAST_EVIDENCE_DATE[name] in cls.pacing_profile.evidence, name
 
     def test_fast_is_no_slower_than_normal_and_keeps_the_host_floor(self, isolated_db):
         for name, cls in self._adapters().items():
@@ -274,8 +278,10 @@ class TestVettedAdapters:
             fast = pacing.apply_level(base, cls.pacing_profile, "fast")
             assert fast.min_delay <= normal.min_delay and fast.max_delay <= normal.max_delay, name
             assert fast.host_min_interval == cls.host_min_interval, name
-            # A floor above Fast's delay is fine: the client waits max(delay, floor) per host
-            # (test_marumaru_fast_keeps_the_api_floor_and_speeds_up_the_image_host).
+            if name in FAST_BELOW_FLOOR:
+                continue
+            for floor in cls.host_min_interval.values():
+                assert cls.pacing_profile.fast.min_delay >= floor, name
 
     def test_xbanxia_fast_is_serial_and_takes_no_session_breaks(self, isolated_db):
         from sources.adapters.xbanxia import XbanxiaSource
