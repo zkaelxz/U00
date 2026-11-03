@@ -7,6 +7,7 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { useReadiness } from '../../hooks/useReadiness'
+import { ExternalLink } from '../discover/ExternalLink'
 import { browserTierNeed } from '../readiness/needs'
 import { NeedsInstall } from '../readiness/NeedsInstall'
 import type { OpenSeries, SeriesResult, SourceSummary, TrackedSeries } from '../../types/sources'
@@ -169,6 +170,9 @@ export function SeriesPanel({
       {!cleared && view.status === 'error' && !!view.error && (
         <SourceErrorLine copy={{ ...describeSourceError(view.error, display, remote), retry: true }} onRetry={onReload} />
       )}
+
+      {open.source === 'fanjiao' && <FanjiaoSubtitleHint />}
+      {open.source === 'missevan' && <MissevanTrackingHint />}
 
       {result && (
         <>
@@ -360,5 +364,26 @@ function MarkTag({ mark }: { mark: ChapterMark }) {
       <Badge tone={mark.tone}>{mark.label}</Badge>
       {mark.note && <span className="sources-mark-note">{mark.note}</span>}
     </>
+  )
+}
+
+/** Fanjiao's public page has no episode list, so subtitles come from a site the person opens themselves. */
+export function FanjiaoSubtitleHint() {
+  return (
+    <p className="muted">
+      Fanjiao subtitles: get the SRT yourself at{' '}
+      <ExternalLink href="https://fun.zhufree.fun/sub-download">fun.zhufree.fun/sub-download</ExternalLink>, then add it in
+      Workspace → Source → Import subtitle file. Baihe sends nothing to that site.
+    </p>
+  )
+}
+
+/** MissEvan audio is a protected stream Baihe doesn't download, so the series can be tracked but not imported. */
+export function MissevanTrackingHint() {
+  return (
+    <p className="muted">
+      MissEvan is tracking only: Baihe lists the series and new chapters but can't import its audio. To translate one,
+      add your own audio file or a subtitle file in Workspace → Source.
+    </p>
   )
 }

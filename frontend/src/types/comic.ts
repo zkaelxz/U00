@@ -79,23 +79,10 @@ export type ComicViewPrefsView = Schemas['ComicViewPrefsView']
 export type ComicViewPrefs = Schemas['ComicViewPrefs']
 
 // POST /pages/visibility: page ids, or the first/last `count` pages of a chapter.
-export interface ComicVisibilityRequest {
-  hidden: boolean
-  page_ids?: number[]
-  chapter_id?: string
-  edge?: 'first' | 'last' | 'all'
-  count?: number
-}
+export type ComicVisibilityRequest = Schemas['ComicVisibilityRequest']
 
 export type ComicVisibilityResult = Schemas['ComicVisibilityResult']
 
 export type ComicSourceChapter = Schemas['ComicSourceChapter']
 
-export interface ComicSourceChapters {
-  mode: 'adapter' | 'links' | 'none'
-  source: string
-  series_id: string
-  // Adapter sites: chapter ids already imported; the list itself comes from the series job.
-  imported_ids: string[]
-  chapters: ComicSourceChapter[]
-}
+export type ComicSourceChapters = Schemas['ComicSourceChapters']

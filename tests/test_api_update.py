@@ -116,3 +116,13 @@ def test_settings_toggle_and_strict_body(client, http):
     assert client.post("/api/system/update/settings",
                        json={"auto_check": False, "repo": "x/y"}).status_code == 422
     assert json.loads(client.get("/api/system/update").text)["auto_check"] is True
+
+
+def test_prerelease_switch_saves_without_developer_mode(client):
+    from services import settings_service
+    assert settings_service.get("update.include_prereleases") is False
+    r = client.post("/api/system/update/settings", json={"include_prereleases": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["include_prereleases"] is True
+    assert r.json()["auto_check"] is False
+    assert client.post("/api/system/update/settings", json={}).status_code == 422

@@ -9,6 +9,9 @@ export type GpuStatus = Schemas['GpuStatus']
 
 export type ModelEngineVersion = Schemas['ModelEngineVersion']
 
+export type DiagnosticsModelDownloads = Schemas['DiagnosticsModelDownloads']
+export type DiagnosticsModelDownload = Schemas['DiagnosticsModelDownload']
+
 export type DiagnosticsOverview = Schemas['DiagnosticsOverview']
 
 // Mirrors api/schemas/diagnostics_setup.py Diagnostics* (/api/diagnostics/...).
@@ -85,24 +88,9 @@ export interface DiagnosticsInstallPresets {
   outdated?: string[]
 }
 
-// POST /api/diagnostics/package-updates/check (PyPI, explicit click only).
-type PackageUpdateStatus = 'update' | 'up_to_date' | 'held_back' | 'managed' | 'unknown'
+export type DiagnosticsPackageUpdate = Schemas['DiagnosticsPackageUpdate']
 
-export interface DiagnosticsPackageUpdate {
-  name: string
-  dist: string
-  installed_version: string | null
-  status: PackageUpdateStatus
-  latest: string | null
-  // The exact version Update installs (status "update").
-  target: string | null
-  reason: string | null
-}
-
-export interface DiagnosticsPackageUpdates {
-  checked_at: number
-  packages: Record<string, DiagnosticsPackageUpdate>
-}
+export type DiagnosticsPackageUpdates = Schemas['DiagnosticsPackageUpdates']
 
 // GET /api/diagnostics/gpu-torch and POST /api/diagnostics/gpu-torch/setup.
 export type DiagnosticsGpuTorchNvidia = Schemas['DiagnosticsGpuTorchNvidia']
@@ -143,8 +131,6 @@ export type DiagnosticsCacheDeleteResult = Schemas['DiagnosticsCacheDeleteResult
 // (services/remote_health_service.py). States, whole days, Unix times and
 // fixed messages only: never the public name, an address or a URL.
 export type RemoteHealthState = 'off' | 'unknown' | 'ok' | 'warn' | 'critical'
-type RemoteCheckState = RemoteHealthState | 'not_configured'
-
 /** GET /api/diagnostics/ports (PC only): numbers, flags and fixed text. */
 export type PortEntry = Schemas['PortEntry']
 
@@ -157,8 +143,4 @@ export type RemoteHealth = Schemas['RemoteHealth']
 // fixed message, never the address.
 export type RemoteIpCheckStatus = Schemas['RemoteIpCheckStatus']
 
-export interface RemoteIpCheckTestResult {
-  configured: boolean
-  state: RemoteCheckState
-  message: string
-}
+export type RemoteIpCheckTestResult = Schemas['RemoteIpCheckTestResult']

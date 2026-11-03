@@ -51,12 +51,12 @@ describe('EPUB range', () => {
   })
 
   it('says what was attached', () => {
-    expect(attachNotice({ char_count: 1200 })).toBe('Attached 1,200 characters.')
-    expect(attachNotice({ char_count: 5, epub_chapters: 40, chapter_from: 2, chapter_to: 5 }))
+    expect(attachNotice({ char_count: 1200, epub_chapters: null, chapter_from: null, chapter_to: null, warning: null })).toBe('Attached 1,200 characters.')
+    expect(attachNotice({ char_count: 5, epub_chapters: 40, chapter_from: 2, chapter_to: 5, warning: null }))
       .toBe('Attached 5 characters (chapters 2–5 of 40).')
-    expect(attachNotice({ char_count: 5, epub_chapters: 40, chapter_from: 7, chapter_to: 7 }))
+    expect(attachNotice({ char_count: 5, epub_chapters: 40, chapter_from: 7, chapter_to: 7, warning: null }))
       .toBe('Attached 5 characters (chapter 7 of 40).')
-    expect(attachNotice({ char_count: 5, epub_chapters: 3, chapter_from: 1, chapter_to: 3 }))
+    expect(attachNotice({ char_count: 5, epub_chapters: 3, chapter_from: 1, chapter_to: 3, warning: null }))
       .toBe('Attached 5 characters (all 3 chapters).')
   })
 })

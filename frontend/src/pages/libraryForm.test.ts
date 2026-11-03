@@ -108,7 +108,7 @@ describe('MEDIA_TYPES', () => {
 
 describe('deleteNotice', () => {
   it('shows the server warning only when one was sent', () => {
-    expect(deleteNotice({ deleted: true, drama_id: 1 })).toBeNull()
+    expect(deleteNotice({ deleted: true, drama_id: 1, warning: null })).toBeNull()
     expect(deleteNotice({ deleted: true, drama_id: 1, warning: null })).toBeNull()
     expect(deleteNotice({ deleted: true, drama_id: 1, warning: '  ' })).toBeNull()
     expect(deleteNotice({ deleted: true, drama_id: 1, warning: 'Files left behind.' })).toBe('Files left behind.')

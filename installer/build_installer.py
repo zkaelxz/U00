@@ -87,8 +87,9 @@ INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
 # updater checks signatures against the key it was installed with; app_swap
 # so it can take app-only updates. The wheel lock ships so a restore checks
 # the kept wheels against the app's own copy (pending_install.kept_wheels).
+# setup_lock so the launcher can tell an open Setup before finishing a queued switch.
 RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py", "release_public_key.txt", "app_swap.py",
-                           "wheels.lock.txt")
+                           "wheels.lock.txt", "setup_lock.py")
 
 # The Python files of the elevated service script, which imports its siblings
 # as installer.<name> from helper/lib; one missing here breaks it only on
@@ -279,7 +280,7 @@ def check_payload(app_dest) -> None:
                      "requirements-core.txt", "constraints.txt", "check_setup.py",
                      "installer/launcher.py", "installer/postinstall.py",
                      "installer/release_public_key.txt", "installer/app_swap.py",
-                     "installer/wheels.lock.txt"):
+                     "installer/wheels.lock.txt", "installer/setup_lock.py"):
         if not (app_dest / required).is_file():
             problems.append(f"missing: {required}")
     key_file = app_dest / "installer" / "release_public_key.txt"

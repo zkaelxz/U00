@@ -231,6 +231,26 @@ export function reconcileModels(engines: ModelEngineVersion[], hf: DiagnosticsHf
   return { rows, other: left }
 }
 
+/** The engines whose weights the server can download from the Models card, by the id it uses. */
+export const MODEL_DOWNLOAD_IDS: Record<string, string> = {
+  'Qwen3-ASR': 'qwen3_asr',
+  'SenseVoice (FunASR)': 'sensevoice',
+  'manga-ocr': 'manga_ocr',
+}
+
+/** Why the last download of a model did not finish, or null (nothing started, running, or done). */
+export function modelDownloadProblem(
+  job: { status?: string | null; error?: string | null; result?: unknown } | null | undefined,
+  label: string,
+): string | null {
+  if (!job) return null
+  if (job.status === 'cancelled') return `The ${label} download was cancelled.`
+  if (job.status !== 'error') return null
+  const result = job.result as { detail?: unknown } | null | undefined
+  const detail = result && typeof result.detail === 'string' ? result.detail : null
+  return detail ?? job.error ?? `The ${label} download failed.`
+}
+
 /** "12.4 GB · 7 models · 3 model files". */
 export function modelCacheSummary(c: DiagnosticsModelCache): string {
   const parts = [formatDecimalBytes(c.hf_total_bytes + c.model_files_total_bytes)]

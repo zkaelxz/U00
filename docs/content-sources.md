@@ -209,6 +209,7 @@ work".
 | Auth | `login()` (inherited, generic) opens `sources/auth_browser.py`'s persistent profile for a real sign-in. `get_audio_url()` retries a locked episode by reading the same `getsound` URL through that profile (`page_fetch_profile.fetch_with_profile`), on the assumption its rendered `page.content()` still carries the raw JSON body. **Unverified** -- no real purchased/VIP MissEvan account was available this pass, matching `bilibili_manga.py`'s own hedge on its authenticated tier. |
 | Anti-bot | A real, confirmed wall, but Referer-gated rather than blanket: one `getsound` request sent with no `Referer` header came back HTTP 200 with an Aliyun WAF slide-verification page instead of JSON; this adapter always sends a `Referer`, and `sources/detect.py`'s existing bot-challenge detection (matches "滑动验证") already raises `ChallengeDetected` if it recurs -- no special-casing added. |
 | Terms, recorded separately | The real ToS (猫耳FM用户使用协议, `link.missevan.com/rule/duty`, genuinely server-rendered, read in full) **explicitly restricts automated access**: §4.2.11 bans using any automated program/script/bot/spider/crawler to obtain the platform's services, content, or data, for any reason, without prior written permission -- the same class of clause that marks Naver and Novelpia `EXPLICITLY_RESTRICTED` in `site_terms.py`. Recorded in `capabilities()` (`terms.tos_prohibited = True`); per Step 90, `ladder.check_terms()`'s enforcement is currently a deliberate app-wide no-op, so this is recorded for the record rather than enforced -- the same "state facts, the person decides" convention every adapter follows. |
+| In the app | The series panel says up front that MissEvan is tracking only: no audio is downloaded, so you add your own audio or a subtitle file in Workspace > Source. |
 | Known limits | `music`-catalog entries (soundtrack-only) are excluded from `get_chapters()`. HLS manifests are returned as-is, not downloaded/muxed to a file. The authenticated-fallback extraction shape (raw JSON inside a rendered `<pre>`) is a reasonable guess, not confirmed against a real session. |
 | Tests | `tests/test_sources_missevan.py`. All fetches are mocked fixtures trimmed from real captured responses; no live network call. |
 
@@ -337,6 +338,19 @@ work".
 | Terms | robots.txt (2026-11-02): `Allow: /`, no Crawl-delay; AI crawlers (ClaudeBot, anthropic-ai, GPTBot and others) are disallowed by name. Content signals: `search=yes, ai-train=no, use=reference`; the site reserves AI training. No terms page found, so `automation_permission` stays `UNKNOWN`. |
 | Tests | `tests/test_sources_weloma.py` (small invented fixtures; no network). |
 
+## mh03 — `sources/adapters/mh03.py`
+
+| | |
+|---|---|
+| URL patterns | `mh03.com/comic_<slug>.html` (series); chapter links `chapter_<n>_<m>.html` carry no series slug, so a pasted chapter URL is not recognised |
+| Content type / language | manhua; zh |
+| Status | **Read against the live site 2026-11-03** (plain GETs, no login): one series page, its chapter list and a free chapter's image URLs. No image was downloaded and no import has been run through the app. |
+| Access tier | `STATIC_HTTP`. A server-rendered Mccms "zizhi001" template; nothing needs JavaScript. |
+| Extraction | **Series:** `h1`, cover, the `作者：` stat, status tag and description. **Chapters:** the `div.chapter-item` links in page order (oldest first), minus the 预告 and 更新提示 notice rows. **Pages:** the `img.comic-image` tags in `div.comic-content`; the real URL is `data-src` (`src` is a placeholder). No search: the site's search box is script-driven. |
+| Failures | A missing title, chapter list or reader -> `LayoutChanged`. A reader with no images -> `ContentHidden` (`PURCHASE_REQUIRED`): the template ships hidden buy and VIP boxes on every chapter, so a chapter is treated as withheld only when it shows no images, and is never worked around. |
+| Terms | robots.txt (2026-11-03): `User-agent: *` with `Allow: /`, no Crawl-delay; some crawlers are disallowed by name. Content signals: `search=yes, ai-train=no, use=reference`; the site reserves AI training. Terms were not read, so `automation_permission` stays `UNKNOWN`. |
+| Tests | `tests/test_sources_mh03.py` (small invented fixtures; no network). |
+
 ## Marumaru (마루마루) — `sources/adapters/marumaru.py`
 
 | | |
@@ -349,6 +363,7 @@ work".
 | Domains | The site moves. The list (`sources/domains.py`) holds the current address. If every listed domain fails, the landing page (마루마루주소.com) is read and each https address on it whose home page passes `verify_site` (마루마루 in the title) becomes a pending proposal. Only the owner's confirmation on the PC adds it. |
 | Failures | Missing keys, an empty chapter list or a chapter with no images -> `LayoutChanged`. An id that isn't numeric is refused before it reaches a URL. |
 | Terms | robots.txt (2026-11-01): disallows `/search`, `/account`, `/bookmarks`, `/favorites`, `/recent`; no Crawl-delay. The adapter uses `/api/search`, which is not listed. No terms page found, so `automation_permission` stays `UNKNOWN`. Only chapters served without a login are read; nothing paid or protected is touched. |
+| Pace | Fast is offered (owner's choice 2026-11-03): about 1-2.5 s between requests, 2 at a time, session breaks kept. The 2.5 s floor on the site and API hosts still holds, so only image downloads (no floor) run at the Fast delay. The automatic slowdown on 429s and blocks applies as at every level. |
 | Tests | `tests/test_sources_marumaru.py` (small invented fixtures; no network). |
 
 ## NewXToon — `sources/adapters/newxtoon.py`

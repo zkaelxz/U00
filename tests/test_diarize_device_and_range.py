@@ -229,10 +229,10 @@ class TestServiceAndApi:
         calls = self._capture_start(monkeypatch)
         diarization_service.start_diarization_run(did, min_speakers=2, max_speakers=4)
         assert calls[0]["args"] == (os.path.join(ddir, "audio.wav"), "hf", None,
-                                    {"use_gpu": True, "backend": "pyannote", "min_speakers": 2, "max_speakers": 4})
+                                    {"use_gpu": True, "backend": "nemotron", "min_speakers": 2, "max_speakers": 4})
         assert calls[0]["launch"]["cpu_retry_args"] == (
             os.path.join(ddir, "audio.wav"), "hf", None,
-            {"use_gpu": False, "backend": "pyannote", "min_speakers": 2, "max_speakers": 4})
+            {"use_gpu": False, "backend": "nemotron", "min_speakers": 2, "max_speakers": 4})
 
     def test_diarization_runs_spawned_and_is_killed_as_a_tree(self, isolated_db, monkeypatch):
         """Spawn keeps a forked child from inheriting CUDA state; the whole

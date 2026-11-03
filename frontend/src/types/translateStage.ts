@@ -216,17 +216,7 @@ export interface GlossaryAffectedRunStarted extends TranslateRunStarted {
   skipped_hand_edited_count: number
 }
 
-export interface GlossaryTerm {
-  id: number
-  term_original: string
-  term_translation: string
-  notes: string
-  category: string | null
-  policy: string | null
-  enforce_exact: boolean
-  aliases: string[]
-  banned_translations: string[]
-}
+export type GlossaryTerm = Schemas['GlossaryTerm']
 
 export type GlossaryTermUpsert = Partial<Omit<GlossaryTerm, 'id'>> & { id?: number }
 
@@ -357,158 +347,21 @@ export interface TranslatePresetSaved {
 // GET /api/glossary/dramas/{id}/variants and /name-clusters: read-only, offline.
 export type GlossaryVariantExample = Schemas['GlossaryVariantExample']
 
-interface GlossaryVariantCandidate {
-  text: string
-  count: number
-  /** 0..1, 1 = the same sound. */
-  score: number
-  is_alias: boolean
-  is_term: boolean
-  examples: GlossaryVariantExample[]
-}
+export type GlossaryVariants = Schemas['GlossaryVariants']
 
-export interface GlossaryVariants {
-  term: string
-  /** False when a reading library for the title's language is missing; `reason` says which. */
-  available: boolean
-  reason: string
-  lines_scanned: number
-  truncated: boolean
-  candidates: GlossaryVariantCandidate[]
-}
+export type GlossaryNameCluster = Schemas['GlossaryNameCluster']
 
-interface GlossaryNameSpelling {
-  text: string
-  count: number
-  sources: string[]
-  is_alias: boolean
-  is_term: boolean
-}
+export type GlossaryNameClusters = Schemas['GlossaryNameClusters']
 
-export interface GlossaryNameCluster {
-  suggested_original: string
-  /** Set when one of the spellings is already a term or alias. */
-  existing_term: string | null
-  total: number
-  spellings: GlossaryNameSpelling[]
-  examples: GlossaryVariantExample[]
-}
+export type SpellingSuggestStatus = Schemas['SpellingSuggestStatus']
 
-export interface GlossaryNameClusters {
-  available: boolean
-  reason: string
-  lines_scanned: number
-  truncated: boolean
-  clusters: GlossaryNameCluster[]
-  /** Downloaded VTuber names found in the lines; empty unless the title opted in. */
-  known_vtuber_names: GlossaryNameCluster[]
-}
-
-interface SpellingProposal {
-  text: string
-  count: number
-  is_alias: boolean
-  is_term: boolean
-  examples: GlossaryVariantExample[]
-}
-
-interface SpellingSuggestResult {
-  term: string | null
-  english: string | null
-  proposals: SpellingProposal[]
-  /** True when the model's answer could not be read; nothing was proposed or changed. */
-  unusable: boolean
-  lines_scanned: number
-  truncated: boolean
-}
-
-export interface SpellingSuggestStatus {
-  job_id: string
-  status: string
-  progress: number | null
-  message: string
-  run_id: string | null
-  result: SpellingSuggestResult | null
-}
-
-interface NameConsistencyRow {
-  line_idx: number
-  source: string
-  english: string
-}
-
-export interface NameConsistency {
-  term: string
-  english: string
-  available: boolean
-  reason: string
-  lines_with_name: number
-  untranslated: number
-  consistent: number
-  differing: NameConsistencyRow[]
-  other_words: string[]
-  lines_scanned: number
-  /** The scan stopped at its budget; the counts cover only `lines_scanned` lines. */
-  truncated: boolean
-  /** More differing lines exist than are listed. */
-  more_rows: boolean
-}
+export type NameConsistency = Schemas['NameConsistency']
 
 // GET /api/glossary/name-report: the name check across every title the caller may see.
 export type NameMark = 'right' | 'wrong' | 'skip'
 
-interface NameReportVariant {
-  text: string
-  count: number
-}
+export type NameReportGroup = Schemas['NameReportGroup']
 
-interface NameReportTitle {
-  drama_id: number
-  title: string
-  count: number
-  in_glossary: boolean
-  glossary_term: string | null
-  glossary_english: string | null
-}
+export type NameReport = Schemas['NameReport']
 
-interface NameReportExample {
-  drama_id: number
-  line_idx: number
-  snippet: string
-}
-
-export interface NameReportGroup {
-  key: string
-  canonical: string
-  total: number
-  variants: NameReportVariant[]
-  /** The real number of titles; `titles` lists the first few. */
-  titles_total: number
-  titles: NameReportTitle[]
-  examples: NameReportExample[]
-  mark: NameMark | null
-}
-
-export interface NameReport {
-  titles_total: number
-  titles_scanned: number
-  titles_unavailable: number
-  titles_failed: number
-  reasons: string[]
-  /** A cap stopped the scan or trimmed the groups. */
-  truncated: boolean
-  /** The time budget ended the scan or the grouping early; the report is partial. */
-  stopped_early: boolean
-  singletons_omitted: number
-  groups_omitted: number
-  groups: NameReportGroup[]
-  counts: { unresolved: number; right: number; wrong: number; skip: number }
-}
-
-export interface NameReportStatus {
-  job_id: string
-  status: string
-  progress: number | null
-  message: string
-  result: NameReport | null
-}
+export type NameReportStatus = Schemas['NameReportStatus']

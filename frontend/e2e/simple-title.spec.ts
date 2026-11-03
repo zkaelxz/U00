@@ -41,6 +41,10 @@ test('the choice is remembered, and a link that names a stage still opens that s
   await page.reload()
   await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toBeVisible()
   await page.goto('/#/drama/3/review')
+  // The stage opens on a slim page: no stage tabs, a way back to the title page, and Full brings the tabs back.
+  await expect(page.getByRole('link', { name: 'Back to title page' })).toHaveAttribute('href', '#/drama/3')
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  await page.getByRole('radio', { name: 'Full' }).check({ force: true })
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
 })
 

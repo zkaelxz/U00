@@ -89,6 +89,16 @@ class TestApi:
         assert resp.status_code == 422
         assert "sk-secret-value" not in resp.text
 
+    def test_speaker_model_saves_through_the_api_and_rejects_unknown_values(self, client):
+        assert client.get("/api/settings").json()["preferences"]["speaker_model"] == "nemotron"
+        resp = client.post("/api/settings", json={"speaker_model": "pyannote"})
+        assert resp.status_code == 200 and resp.json()["preferences"]["speaker_model"] == "pyannote"
+        assert client.get("/api/settings").json()["preferences"]["speaker_model"] == "pyannote"
+        assert client.post("/api/settings", json={"speaker_model": "whisper"}).status_code == 422
+        assert client.get("/api/settings").json()["preferences"]["speaker_model"] == "pyannote"
+        client.post("/api/settings", json={"speaker_model": "nemotron"})
+        assert client.get("/api/settings").json()["preferences"]["speaker_model"] == "nemotron"
+
     @pytest.mark.parametrize("bad", ["yes", 1, None])
     def test_non_bool_422(self, client, bad):
         assert client.post("/api/settings", json={"use_gpu": bad}).status_code == 422

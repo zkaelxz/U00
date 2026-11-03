@@ -54,18 +54,7 @@ export type LiveOllamaCheck = Schemas['LiveOllamaCheck']
 
 export type LiveSessionStarted = Schemas['LiveSessionStarted']
 
-/** pending until the engine answers; failed, cancelled and skipped (the translation queue was full) keep the transcript. */
-type LiveTranslation = 'pending' | 'done' | 'failed' | 'cancelled' | 'skipped'
-
-export interface LiveCue {
-  /** Stable for the session: the cue's place in the list, which only grows. */
-  id: number
-  start: number
-  end: number
-  text: string
-  translated: string
-  translation: LiveTranslation
-}
+export type LiveCue = Schemas['LiveCue']
 
 export interface LiveSessionStatus {
   session_id: string
@@ -106,64 +95,17 @@ export type LiveSessionStopped = Schemas['LiveSessionStopped']
 // Followed channels (api/routers/live_follow_routes.py). Never a URL:
 // `channel` is the short label ("@name", "channel/UC...").
 export type LiveFollowMode = 'notify' | 'auto'
-type LiveFollowState = '' | 'live' | 'upcoming' | 'not_live' | 'error'
-
 export type LiveFollowOptions = Schemas['LiveFollowOptions']
 
-export interface LiveFollow {
-  id: number
-  channel: string
-  channel_name: string
-  mode: LiveFollowMode
-  /** Checked automatically every hour; off (the default) means manual checks only. */
-  auto_check: boolean
-  options: LiveFollowOptions
-  poll_minutes: number
-  /** Unix seconds. */
-  last_checked_at: number | null
-  state: LiveFollowState
-  /** Fixed plain words from the server. */
-  last_status: string
-  /** Unix seconds (UTC) of a scheduled stream's start. */
-  starts_at: number | null
-  live_now: boolean
-  /** The live or scheduled stream's title, as the site gives it. */
-  stream_title: string
-  /** A check of this channel is queued or running. */
-  checking: boolean
-  mine: boolean
-  created_at: number
-}
+export type LiveFollow = Schemas['LiveFollow']
 
-export interface LiveFollowList {
-  items: LiveFollow[]
-  /** The PC owner only: may turn on "Start Live automatically" for their own channels. */
-  can_auto_start: boolean
-  max_per_member: number
-  max_total: number
-}
+export type LiveFollowList = Schemas['LiveFollowList']
 
-export interface LiveFollowAdd {
-  channel: string
-  mode?: LiveFollowMode
-  auto_check?: boolean
-  options?: LiveFollowOptions
-}
+export type LiveFollowAdd = Schemas['LiveFollowAdd']
 
 export type LiveFollowUpdate = Schemas['LiveFollowUpdate']
 
-/** skipped = shown as written: nothing in it to translate, or the translator was behind. */
-type LiveChatState = 'pending' | 'done' | 'failed' | 'skipped'
-
-export interface LiveChatMessage {
-  id: number
-  author: string
-  text: string
-  /** A Super Chat's amount as YouTube wrote it; empty for an ordinary message. */
-  paid: string
-  translation: string
-  state: LiveChatState | string
-}
+export type LiveChatMessage = Schemas['LiveChatMessage']
 
 /** GET /api/live/sessions/{id}/chat?after=: messages with an id above `after`. */
 export type LiveChatPage = Schemas['LiveChatPage']
