@@ -196,6 +196,9 @@ SETTINGS = (
     _own("update.auto_check", "bool", False, label="Check for updates automatically",
          tab="preferences", section="App updates"),
     _own("update.last_check_at", "float", 0.0, min=0),
+    # Shown by the App updates card, which saves it through /api/system/update/settings.
+    _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
+         tab="preferences", section="App updates"),
     _own("household.share_by_default", "bool", False, label="Share new items with the household",
          tab="preferences", section="Sharing"),
     _own("web_search", "json", {}, custom=True, tab="preferences", section="Web search",
@@ -441,9 +444,6 @@ SETTINGS = (
     _own("remote_uploads", "bool", False, label="Allow uploads from away", **_ASSISTANT),
     # When the switch above was last turned on; it lapses REMOTE_UPLOADS_DAYS later.
     _own("remote_uploads.on_at", "float", 0.0, min=0),
-    _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
-         help="Offer beta releases when checking for updates. Only a newer version than this one is ever offered.",
-         **_ASSISTANT),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

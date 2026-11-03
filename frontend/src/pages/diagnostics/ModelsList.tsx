@@ -1,15 +1,16 @@
-import { useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
-import { deleteHfRevision, deleteModelFile } from '../../api/diagnostics'
+import { deleteHfRevision, deleteModelFile, getModelDownloads } from '../../api/diagnostics'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { CardLink } from './CardLink'
 import type { DiagnosticsCard } from './diagnosticsTabs'
 import type { PcMode } from '../../hooks/usePcOnly'
-import type { DiagnosticsHfCacheEntry, DiagnosticsModelCache, ModelEngineVersion } from '../../types/diagnostics'
+import type { DiagnosticsHfCacheEntry, DiagnosticsModelCache, DiagnosticsModelDownload, ModelEngineVersion } from '../../types/diagnostics'
 import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
-import { MODEL_FOLDER_LABELS, engineRow, hasModelCache, modelCacheSummary, reconcileModels } from './diagnosticsAdmin'
+import { ModelDownload } from './ModelDownload'
+import { MODEL_DOWNLOAD_IDS, MODEL_FOLDER_LABELS, engineRow, hasModelCache, modelCacheSummary, reconcileModels } from './diagnosticsAdmin'
 
 /**
  * "Models": each model engine with its status and the Hugging Face downloads
@@ -18,7 +19,8 @@ import { MODEL_FOLDER_LABELS, engineRow, hasModelCache, modelCacheSummary, recon
  * an engine's package happens on the Packages and installs tab, not here: a
  * not-installed row says what it is for and links there. Deleting is PC only
  * (two-step confirm); a deleted model downloads again the next time a feature
- * needs it.
+ * needs it. An installed engine whose model is not on disk gets a Download
+ * button (PC only) so the first run does not have to fetch it.
  */
 export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }: {
   engines: ModelEngineVersion[]
@@ -31,6 +33,16 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [downloads, setDownloads] = useState<DiagnosticsModelDownload[]>([])
+  const refreshDownloads = useCallback(() => {
+    // An extra: a failed read just leaves the buttons out.
+    getModelDownloads().then((d) => setDownloads(d.models), () => undefined)
+  }, [])
+  useEffect(refreshDownloads, [refreshDownloads, cache])
+  const downloadFinished = useCallback(() => {
+    refreshDownloads()
+    onChanged()
+  }, [refreshDownloads, onChanged])
   const hasCache = hasModelCache(cache)
   if (engines.length === 0 && !hasCache) return null
 
@@ -91,6 +103,10 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
                     {engine.package && <> · <CardLink card="packages" onGoTo={onGoTo}>Install it in Packages and installs</CardLink></>}
                   </span>
                 )}
+                {pc !== 'remote' && engine.installed && (() => {
+                  const missing = downloads.find((d) => d.id === MODEL_DOWNLOAD_IDS[engine.name] && !d.downloaded)
+                  return missing ? <ModelDownload key={missing.id} model={missing} onFinished={downloadFinished} /> : null
+                })()}
                 {cached.length > 0 && (
                   <ul className="diag-rows diag-cache" aria-label={`${engine.name} downloads`}>{cached.map(hfRow)}</ul>
                 )}

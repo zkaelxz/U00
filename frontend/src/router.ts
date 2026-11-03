@@ -50,6 +50,8 @@ export type Route =
   // tab: "#/series/3?tab=glossary" opens that tab of a series' page.
   | { name: 'series'; id: number; tab?: SeriesTab }
   | { name: 'read'; id: number; page: number | null }
+  // "#/follow/3": a title's lines on their own clock, for audio played in another app.
+  | { name: 'follow'; id: number }
   | { name: 'comic'; id: number; page: number | null }
   // "#/comic/3/edit?page=2": the text-box editor for one page.
   | { name: 'comic-edit'; id: number; page: number | null }
@@ -125,6 +127,7 @@ export function parseRoute(hash: string): Route {
     const tab = new URLSearchParams(qs).get('tab')
     return isSeriesTab(tab) ? { name: 'series', id: Number(a), tab } : { name: 'series', id: Number(a) }
   }
+  if (head === 'follow' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) return { name: 'follow', id: Number(a) }
   if ((head === 'read' || head === 'comic') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     // "#/read/3?page=2", "#/comic/3?page=2"; a missing or bad page means "resume where I left off".
     const p = new URLSearchParams(qs).get('page')
@@ -188,6 +191,7 @@ export function routeHref(r: Route): string {
   }
   if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`
   if (r.name === 'comic-edit') return `#/comic/${r.id}/edit${r.page ? `?page=${r.page}` : ''}`
+  if (r.name === 'follow') return `#/follow/${r.id}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
   if (r.name === 'manga-read') {

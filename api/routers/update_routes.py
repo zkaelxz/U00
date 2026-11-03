@@ -32,9 +32,13 @@ def update_check():
 
 
 @router.post("/settings", dependencies=[local_only()], response_model=UpdateStatus,
-             summary="Turn the once-a-day check on or off")
+             summary="Turn the once-a-day check or pre-release updates on or off")
 def update_settings(body: UpdateSettingsRequest):
-    return UpdateStatus(**update_service.set_auto_check(body.auto_check))
+    if body.auto_check is not None:
+        update_service.set_auto_check(body.auto_check)
+    if body.include_prereleases is not None:
+        update_service.set_include_prereleases(body.include_prereleases)
+    return UpdateStatus(**update_service.status())
 
 
 @router.post("/download", dependencies=[local_only()], response_model=UpdateStatus,

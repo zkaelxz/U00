@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import {
   applyAppUpdate, checkForUpdates, downloadAppUpdate, downloadUpdate, getUpdateStatus, installUpdate, setUpdateAutoCheck,
+  setUpdatePrereleases,
 } from '../../api/update'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -23,7 +24,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
-  APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
+  APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, PRERELEASES_HELP, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
   appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
   downloadLine, installTarget, isDownloading, signatureLine, versionLine,
 } from './updateModel'
@@ -178,6 +179,10 @@ function AppUpdatesControls() {
             <Field label="Check once a day" help={AUTO_CHECK_HELP}>
               <Toggle checked={status.auto_check} disabled={busy}
                 onChange={(next) => run(() => setUpdateAutoCheck(next))} />
+            </Field>
+            <Field label="Include pre-releases" help={PRERELEASES_HELP}>
+              <Toggle checked={status.include_prereleases} disabled={busy}
+                onChange={(next) => run(() => setUpdatePrereleases(next))} />
             </Field>
           </div>
         </div>

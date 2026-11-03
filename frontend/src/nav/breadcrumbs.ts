@@ -33,6 +33,12 @@ export function routeCrumbs(route: Route, opts: CrumbOptions = {}): Crumb[] {
         { label: opts.title || `Title #${route.id}`, href: routeHref({ name: 'drama', id: route.id, stage: null }) },
         { label: route.name === 'read' ? 'Reader' : 'Comic' },
       ]
+    case 'follow':
+      return [
+        library,
+        { label: opts.title || `Title #${route.id}`, href: routeHref({ name: 'drama', id: route.id, stage: null }) },
+        { label: 'Follow along' },
+      ]
     case 'settings':
       return route.section ? [{ label: labelOf('settings'), href: routeHref({ name: 'settings' }) }, { label: route.section === 'uploads' ? 'Uploads' : 'Developer mode' }] : []
     case 'benchmark':
