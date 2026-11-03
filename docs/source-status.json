@@ -226,6 +226,18 @@
       ],
       "pace": "Fast off: no terms page was found, so the site is not vetted for Fast.",
       "pace_verified": "2026-11-02"
+    },
+    "mh03": {
+      "status": "caveat",
+      "last_verified": "2026-11-03",
+      "reason": "A series page, its chapter list and a free chapter's image URLs were read live against www.mh03.com 2026-11-03 with plain GETs; no image was downloaded and no import has been run through the app. No search (the site's search box is script-driven). Terms were not read; robots.txt allows `User-agent: *` and disallows some crawlers by name, and the content signals reserve AI training. Chapters with no page images are reported as withheld, never worked around.",
+      "notes": "",
+      "hosts": [
+        "www.mh03.com",
+        "manhua.5um.net"
+      ],
+      "pace": "Fast off: terms were not read, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-03"
     }
   },
   "generic": {
@@ -284,15 +296,6 @@
       "status": "declined",
       "last_verified": "",
       "reason": "A mirror redistributing translated content from Novelpia, a real paid Korean platform, without anything establishing that's authorized. Not vetted further."
-    },
-    "mh03.com": {
-      "label": "`mh03.com`",
-      "hosts": [
-        "mh03.com"
-      ],
-      "status": "refused",
-      "last_verified": "",
-      "reason": "`robots.txt` names `ClaudeBot` and `Claude-SearchBot` with `Disallow: /` (alongside GPTBot, Bytespider, etc.) — refused outright, not investigated past reading that one file."
     },
     "novgo": {
       "label": "Novgo",
