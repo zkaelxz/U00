@@ -238,6 +238,19 @@
       ],
       "pace": "Fast off: terms were not read, so the site is not vetted for Fast.",
       "pace_verified": "2026-11-03"
+    },
+    "fanjiao_comic": {
+      "status": "caveat",
+      "last_verified": "2026-11-03",
+      "reason": "A comic's series info and chapter list, a free chapter's 39 page images and one image download were read live through the guarded browser 2026-11-03; no import has been run through the app. Chapters not bought (is_buy 0) are listed under the paid group and never opened. Browser only, on this PC; the site's API is signed and its image addresses arrive encrypted, both done by the page's own script and never reproduced. Terms are only in the app, so automation permission is unknown.",
+      "notes": "",
+      "hosts": [
+        "www.fanjiao.co",
+        "api.fanjiao.co",
+        "static.rela.me"
+      ],
+      "pace": "Fast off: robots.txt and terms could not be retrieved.",
+      "pace_verified": "2026-11-03"
     }
   },
   "generic": {
