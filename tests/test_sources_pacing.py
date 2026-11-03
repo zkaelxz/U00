@@ -244,7 +244,13 @@ class TestHardening:
         assert all(store.source_pace(n) == "careful" for n in names)
 
 
-FAST_VETTED = {"52shuku", "xbanxia", "piaotian", "zerosumonline"}
+# Each Fast site and the date its vetting evidence must carry.
+FAST_EVIDENCE_DATE = {"52shuku": "2026-10-09", "xbanxia": "2026-10-09", "piaotian": "2026-10-09",
+                      "zerosumonline": "2026-10-09", "marumaru": "2026-11-03"}
+FAST_VETTED = set(FAST_EVIDENCE_DATE)
+# Marumaru's API hosts keep their floor in the client while its image host (no floor) runs at the
+# Fast delay; test_marumaru_fast_keeps_the_api_floor_and_speeds_up_the_image_host pins that.
+FAST_BELOW_FLOOR = {"marumaru"}
 
 
 class TestVettedAdapters:
@@ -261,7 +267,7 @@ class TestVettedAdapters:
     def test_every_fast_adapter_records_dated_evidence(self):
         for name, cls in self._adapters().items():
             if cls.pacing_profile.fast_allowed:
-                assert "2026-10-09" in cls.pacing_profile.evidence, name
+                assert FAST_EVIDENCE_DATE[name] in cls.pacing_profile.evidence, name
 
     def test_fast_is_no_slower_than_normal_and_keeps_the_host_floor(self, isolated_db):
         for name, cls in self._adapters().items():
@@ -272,6 +278,8 @@ class TestVettedAdapters:
             fast = pacing.apply_level(base, cls.pacing_profile, "fast")
             assert fast.min_delay <= normal.min_delay and fast.max_delay <= normal.max_delay, name
             assert fast.host_min_interval == cls.host_min_interval, name
+            if name in FAST_BELOW_FLOOR:
+                continue
             for floor in cls.host_min_interval.values():
                 assert cls.pacing_profile.fast.min_delay >= floor, name
 
@@ -288,3 +296,21 @@ class TestVettedAdapters:
         for name, cls in self._adapters().items():
             if name not in FAST_VETTED:
                 assert pacing.effective_level(cls.pacing_profile, "fast") == "normal", name
+
+
+def test_marumaru_fast_keeps_the_api_floor_and_speeds_up_the_image_host(isolated_db):
+    from sources.adapters.marumaru import MarumaruSource
+    clock = FakeClock()
+    api, img = "https://api.storagewebtoon.store/", "https://peer.storagewebtoon.store/"
+    t = ScriptedTransport({api: html("ok"), img: html("ok")}, clock)
+    base = PacingPolicy.from_settings(MarumaruSource.host_min_interval)
+    fast = pacing.apply_level(base, MarumaruSource.pacing_profile, "fast")
+    reset_pacing_state()
+    c = SourceClient("marumaru", policy=fast, transport=t, sleep=clock.sleep, clock=clock.clock, rng=FixedRng(0.0))
+    for _ in range(3):
+        c.get(api)
+    for _ in range(3):
+        c.get(img)
+    gaps = _gaps(t)
+    assert all(g >= 2.5 for g in gaps[:2])
+    assert all(1.0 <= g < 2.5 for g in gaps[3:])

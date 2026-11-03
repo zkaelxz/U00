@@ -363,6 +363,7 @@ work".
 | Domains | The site moves. The list (`sources/domains.py`) holds the current address. If every listed domain fails, the landing page (마루마루주소.com) is read and each https address on it whose home page passes `verify_site` (마루마루 in the title) becomes a pending proposal. Only the owner's confirmation on the PC adds it. |
 | Failures | Missing keys, an empty chapter list or a chapter with no images -> `LayoutChanged`. An id that isn't numeric is refused before it reaches a URL. |
 | Terms | robots.txt (2026-11-01): disallows `/search`, `/account`, `/bookmarks`, `/favorites`, `/recent`; no Crawl-delay. The adapter uses `/api/search`, which is not listed. No terms page found, so `automation_permission` stays `UNKNOWN`. Only chapters served without a login are read; nothing paid or protected is touched. |
+| Pace | Fast is offered (owner's choice 2026-11-03): about 1-2.5 s between requests, 2 at a time, session breaks kept. The 2.5 s floor on the site and API hosts still holds, so only image downloads (no floor) run at the Fast delay. The automatic slowdown on 429s and blocks applies as at every level. |
 | Tests | `tests/test_sources_marumaru.py` (small invented fixtures; no network). |
 
 ## NewXToon — `sources/adapters/newxtoon.py`

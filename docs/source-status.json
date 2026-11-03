@@ -188,8 +188,8 @@
         "api.storagewebtoon.store",
         "peer.storagewebtoon.store"
       ],
-      "pace": "Fast off: robots.txt has no Crawl-delay but no terms page was found, so the site is not vetted for Fast.",
-      "pace_verified": "2026-11-01"
+      "pace": "Fast on (owner's choice 2026-11-03): about 1-2.5 s between requests, 2 at a time, session breaks kept, the 2.5 s floor on the two API hosts kept (so only image downloads run at the Fast delay). robots.txt has no Crawl-delay but no terms page was found.",
+      "pace_verified": "2026-11-03"
     },
     "nihonkuni": {
       "status": "caveat",
