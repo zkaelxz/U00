@@ -1391,6 +1391,7 @@ _LAYOUT_CHANGED_MESSAGES = {
     "52shuku": "52shuku's page layout has changed",
     "baozimh": "baozimh's page layout has changed",
     "fanjiao": "Fanjiao's share page has changed",
+    "fanjiao_comic": "Fanjiao's comic page layout has changed",
     "guazimanhua": "guazimanhua's page layout has changed",
     "kuaikan": "Kuaikan's page layout has changed",
     "lightnovel_fun": "轻之国度's page layout has changed",
