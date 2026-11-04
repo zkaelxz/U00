@@ -428,6 +428,22 @@ export interface HardSubReadingEstimate {
   fits_cap: boolean
 }
 
+export interface HardSubCaptionSuggestion {
+  line_id: number
+  start: number
+  end: number
+  current: string
+  caption: string
+  group: string
+  person: string | null
+  similarity: number
+}
+
+export interface HardSubCaptionAcceptResult {
+  changed: number
+  skipped: number
+}
+
 export interface HardSubApplyResult {
   labelled: number
   kept_manual: number
