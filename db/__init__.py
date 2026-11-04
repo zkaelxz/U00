@@ -561,6 +561,13 @@ from db.glossary import (  # noqa: E402,F401
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
     delete_glossary_term)
 
+from db.shared_glossary import (  # noqa: E402,F401
+    create_group as create_shared_glossary_group, delete_group as delete_shared_glossary_group,
+    delete_group_term as delete_shared_glossary_term, get_group as get_shared_glossary_group,
+    get_series_group_id as get_series_shared_group_id, list_effective_glossary_terms,
+    list_group_terms as list_shared_glossary_terms, list_groups as list_shared_glossary_groups,
+    save_group_term as save_shared_glossary_term, set_series_group as set_series_shared_group)
+
 
 # ---------------------------------------------------------------------------
 # Translation notes (idioms, wordplay, meaningful names, allusions)

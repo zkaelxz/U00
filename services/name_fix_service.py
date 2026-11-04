@@ -84,7 +84,7 @@ def _rewrite(drama_id: int, mapping: Dict[str, str]) -> dict:
 
 def apply_known_aliases(drama_id: int) -> dict:
     """Rewrite spellings the owner already confirmed as aliases. Offline and free."""
-    terms = glossary_service.list_glossary_terms(drama_id)
+    terms = glossary_service.effective_glossary_terms(drama_id)
     return _rewrite(drama_id, _replacement_map(terms))
 
 

@@ -389,7 +389,7 @@ def _series_term_hints(principal, series_id, source_language):
 
 def _hint_function(series_id, pack_title, source_language):
     """`pack_title`: the title whose packs apply, or None for glossary only."""
-    glossary = [t for t in (db.list_glossary_terms(series_id) if series_id else [])
+    glossary = [t for t in (db.list_effective_glossary_terms(series_id) if series_id else [])
                 if t.get("term_original") and t.get("term_translation")]
     # A pack is written for its own source language; a stream in another one
     # would match nothing meaningful.

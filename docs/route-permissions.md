@@ -556,6 +556,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/series/{series_id}/delete` | local_only() |
 | `GET /api/series/{series_id}/delete-preview` | library.read |
 | `POST /api/series/{series_id}/rename` | lines.edit |
+| `GET /api/series/{series_id}/shared-glossary` | library.read |
+| `POST /api/series/{series_id}/shared-glossary` | lines.edit |
 | `POST /api/series/{series_id}/speaker-mode` | lines.edit |
 | `GET /api/series/{series_id}/translation-memory.tmx` | library.read |
 | `POST /api/series/{series_id}/translation-memory/import` | lines.edit |
@@ -587,6 +589,12 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/settings/usage-recost/apply` | local_only() |
 | `POST /api/settings/usage-recost/undo` | local_only() |
 | `GET /api/setup/readiness` | library.read |
+| `GET /api/shared-glossaries` | library.read |
+| `POST /api/shared-glossaries` | lines.edit |
+| `POST /api/shared-glossaries/{group_id}/delete` | local_only() |
+| `GET /api/shared-glossaries/{group_id}/terms` | library.read |
+| `POST /api/shared-glossaries/{group_id}/terms` | lines.edit |
+| `POST /api/shared-glossaries/{group_id}/terms/{term_id}/delete` | lines.edit |
 | `POST /api/sharing/dramas/{drama_id}/private` | lines.edit |
 | `GET /api/sharing/items` | admin.library |
 | `POST /api/sharing/series/{series_id}/private` | lines.edit |

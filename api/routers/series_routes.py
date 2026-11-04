@@ -10,6 +10,8 @@ services/series_service.py.
     POST /api/series/{series_id}/delete                 PC only       owner or admin
     GET  /api/series/{series_id}/copy-terms-preview     library.read  editable series
     POST /api/series/{series_id}/copy-terms             lines.edit    editable series
+    GET  /api/series/{series_id}/shared-glossary        library.read  group and effective glossary
+    POST /api/series/{series_id}/shared-glossary        lines.edit    editable series; join or leave
     GET  /api/series/{series_id}/defaults               library.read  default title settings
     POST /api/series/{series_id}/defaults               lines.edit    editable series
     GET  /api/series/{series_id}/defaults/apply-preview library.read  editable series
@@ -35,12 +37,14 @@ from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
                          SeriesDefaultsApplyResult, SeriesDefaultsPreview, SeriesDefaultsUpdate,
                          SeriesDeletePreview, SeriesDeleteRequest, SeriesDeleteResult,
                          SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult,
+                         SeriesSharedGlossary, SeriesSharedGlossaryRequest,
                          SeriesSpeakerModeRequest, SeriesSpeakerModeResult,
                          SeriesTmxImportRequest, SeriesTmxImportResult, error_responses)
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
 from services import series_defaults_service as defaults_svc
 from services import series_service as svc
+from services import shared_glossary_service
 from services import tm_service
 
 router = APIRouter(prefix="/api/series", tags=["series"])
@@ -112,6 +116,20 @@ def copy_terms_preview(request: Request, series_id: int = _id(),
              summary="Copy another series' glossary terms in; terms already there are skipped")
 def copy_terms(body: SeriesCopyTermsRequest, request: Request, series_id: int = _id()):
     return svc.copy_terms(request.state.principal, series_id, body.source_series_id)
+
+
+@router.get("/{series_id}/shared-glossary", dependencies=[require_permission("library.read")],
+            response_model=SeriesSharedGlossary, responses=_ERRS,
+            summary="The series' shared glossary group and its effective glossary, each term with its origin")
+def get_shared_glossary(request: Request, series_id: int = _id()):
+    return shared_glossary_service.series_view(request.state.principal, series_id)
+
+
+@router.post("/{series_id}/shared-glossary", dependencies=[require_permission("lines.edit")],
+             response_model=SeriesSharedGlossary, responses=_ERRS,
+             summary="Join a shared glossary group (group_id), or leave it (null); own terms are kept")
+def set_shared_glossary(body: SeriesSharedGlossaryRequest, request: Request, series_id: int = _id()):
+    return shared_glossary_service.set_series_group(request.state.principal, series_id, body.group_id)
 
 
 @router.get("/{series_id}/defaults", dependencies=[require_permission("library.read")],

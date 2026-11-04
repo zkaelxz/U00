@@ -299,7 +299,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
-        en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid) if sid else [],
+        en_text, drama.get("source_language") or "zh", db.list_effective_glossary_terms(sid) if sid else [],
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh),
         conventions=split_term_conventions(drama.get("project_instructions"))[1])
@@ -564,7 +564,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
-        drama.get("source_language") or "zh", db.list_glossary_terms(sid) if sid else [],
+        drama.get("source_language") or "zh", db.list_effective_glossary_terms(sid) if sid else [],
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from lines (title #{drama_id})")
     if not started:

@@ -64,6 +64,9 @@ USER_BACKUP_TABLES = {
     "bubbles": ("page", ""),
     "glossary_terms": ("series", ""), "series_characters": ("series", ""),
     "translation_memory": ("series", ""), "glossary_dismissals": ("series", ""),
+    "shared_glossary_groups": ("empty", "household-wide groups; a copy would link series to ids "
+                                        "of another library"),
+    "shared_glossary_terms": ("empty", "belongs to shared_glossary_groups"),
     "translate_history": ("user", "the owner's standalone translations"),
     "profiles": ("profiles", "reader data is per library, on the default profile"),
     "style_profile": ("style_scope", "the global profile is learned from everyone's edits"),
@@ -207,7 +210,10 @@ def _filter_by_kept_rows(conn, rules: dict, default_profile):
 
 
 def _unlink_other_series(conn):
-    """A kept drama in someone else's series stays without that series and its characters."""
+    """A kept drama in someone else's series stays without that series and its characters.
+    The groups are not copied, so a kept series' link to one is cleared too."""
+    if "shared_group_id" in _cols(conn, "series"):
+        conn.execute("UPDATE series SET shared_group_id = NULL")
     if "series_id" in _cols(conn, "dramas"):
         conn.execute(f"UPDATE dramas SET series_id = NULL WHERE series_id IS NOT NULL "
                      f"AND NOT {_IN_SERIES}")
