@@ -46,31 +46,9 @@ export type DiagnosticsSupportReport = Schemas['DiagnosticsSupportReport']
 
 export type DiagnosticsPackageInfo = Schemas['DiagnosticsPackageInfo']
 
-export type TaskRole = 'required' | 'recommended' | 'optional'
+export type DiagnosticsInstallTask = Schemas['DiagnosticsInstallTask']
 
-export interface DiagnosticsInstallTask {
-  id: string
-  group: string
-  label: string
-  help: string
-  packages: string[]
-  // Per package: required (the task needs it), recommended, optional.
-  roles?: Record<string, TaskRole>
-  installed_count: number
-  required_missing?: string[]
-  // Missing required + recommended: what "Install for this task" installs.
-  to_install: string[]
-  // Missing optional extras, installed one by one from its task row.
-  optional_missing?: string[]
-  approx_mb: number
-}
-
-export interface DiagnosticsInstallPresets {
-  tasks: DiagnosticsInstallTask[]
-  packages: Record<string, DiagnosticsPackageInfo>
-  // Installed packages below the app's minimum that "Update these" upgrades.
-  outdated?: string[]
-}
+export type DiagnosticsInstallPresets = Schemas['DiagnosticsInstallPresets']
 
 export type DiagnosticsPackageUpdate = Schemas['DiagnosticsPackageUpdate']
 

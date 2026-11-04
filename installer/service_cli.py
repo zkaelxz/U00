@@ -88,7 +88,7 @@ commands:
   enable-remote [--household-port N]
                             household access through Caddy (sign-in settings in .env first)
   disable-remote            household access off: Caddy stopped and disabled
-  stop                      stop both services
+  stop [--for-update]       stop both services (Setup's --for-update also unlocks the install folder)
   install [--port N]        (Setup) create or refresh the service and start it; --port
                             only on a fresh install (an update keeps the stored port)
   uninstall                 (the uninstaller) remove all services and the admin folder
@@ -113,7 +113,9 @@ def main(argv=None, services=None, admin=None, mutexes=None) -> int:
     # Checked by set_port (refused with exit code 2, nothing changed), like --port.
     set_port.add_argument("port", help="the new port, 1024 to 65535")
     sub.add_parser("uninstall", help="stop and remove both services and the admin folder")
-    sub.add_parser("stop", help="stop both services")
+    stop = sub.add_parser("stop", help="stop both services")
+    stop.add_argument("--for-update", action="store_true",
+                      help="(Setup) also unlock the install folder so Setup can replace its files")
     enable = sub.add_parser("enable-remote", help="turn household access through Caddy on")
     enable.add_argument("--household-port", type=int, default=DEFAULT_HOUSEHOLD_PORT)
     sub.add_parser("disable-remote", help="turn household access off")
@@ -164,6 +166,8 @@ def _run_command(args, services) -> int:
             message = services.install(args.port)
         elif args.command == "set-port":
             message = services.set_port(args.port)
+        elif args.command == "stop":
+            message = services.stop(args.for_update)
         elif args.command == "uninstall":
             message = services.uninstall(args.install_root)
         else:
