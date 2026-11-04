@@ -12,6 +12,7 @@ ever adds a firewall rule: the owner does, by hand.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -146,8 +147,10 @@ def source(tmp_path):
 def _services(layout, win, source=None, health=True, **kw):
     """`health` is True/False, or a function of the port probed."""
     probe = health if callable(health) else (lambda port: health)
-    return service.Services(layout, win, health=probe, sleep=lambda s: None,
-                            source=source, **kw)
+    svc = service.Services(layout, win, health=probe, sleep=lambda s: None,
+                           source=source, **kw)
+    svc.tree_check = lambda root: None      # file owners can't be read off Windows
+    return svc
 
 
 def _xml_env(path):
@@ -509,9 +512,24 @@ class TestStopAndUninstall:
         calls = [c[1:] for c in win.commands("icacls.exe") if c[1] == str(layout.root)]
         assert [str(layout.root), "/setowner", "*S-1-5-32-544", "/T", "/L"] in calls
         final = next(c for c in calls if "/inheritance:r" in c)
+        # The user's write goes before any owner changes, and the reset never names the root
+        # itself (that would turn its inheritance back on).
+        order = [c for c in win.commands("icacls.exe")
+                 if "/inheritance:r" in c or "/setowner" in c or "/reset" in c][-3:]
+        assert ["/inheritance:r" in order[0], "/setowner" in order[1], "/reset" in order[2]] == [True] * 3
+        assert order[2][1] == str(layout.root / "*")
         assert "*S-1-5-32-545:(OI)(CI)RX" in final     # users read and run, never write
         assert all("(OI)(CI)RX" in a or "(OI)(CI)F" in a for a in final if "(OI)" in a)
         assert layout.lock_marker.is_file()
+
+    def test_a_lock_that_leaves_a_user_owned_file_fails_the_install(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.tree_check = lambda root: "x.dll is still owned by a user after locking"
+        with pytest.raises(service_layout.ServiceError, match="still owned by a user"):
+            svc.install()
+        assert not layout.lock_marker.exists()
+        assert win.services == {}
 
     def test_a_failed_lock_unlocks_again_and_rolls_the_install_back(self, layout, source):
         win = FakeWindows()
@@ -1841,3 +1859,26 @@ class TestNothingBeyondLoopback:
 
     def test_every_command_has_a_time_limit(self):
         assert "timeout=timeout" in self.SOURCE and "timeout=2)" in self.SOURCE
+
+
+class TestTreeProblem:
+    def test_owned_by_administrators_is_fine(self, tmp_path):
+        from installer import service_lock
+        (tmp_path / "a" / "b").mkdir(parents=True)
+        (tmp_path / "a" / "b" / "f").write_text("x")
+        assert service_lock.tree_problem(tmp_path, owner=lambda p: "S-1-5-32-544") is None
+
+    def test_a_user_owned_entry_is_named(self, tmp_path):
+        from installer import service_lock
+        (tmp_path / "a").mkdir()
+        (tmp_path / "a" / "f").write_text("x")
+        got = service_lock.tree_problem(
+            tmp_path, owner=lambda p: "S-1-5-21-1-2-3-1001" if str(p).endswith("f") else "S-1-5-18")
+        assert got and "still owned by a user" in got
+
+    def test_a_link_is_refused(self, tmp_path, monkeypatch):
+        from installer import service_lock
+        (tmp_path / "junction").mkdir()
+        monkeypatch.setattr(os, "lstat", lambda p: type(
+            "S", (), {"st_file_attributes": 0x400 if str(p).endswith("junction") else 0})())
+        assert "is a link" in service_lock.tree_problem(tmp_path, owner=lambda p: "S-1-5-18")

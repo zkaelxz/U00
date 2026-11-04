@@ -506,16 +506,20 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   checks the open handle (single hard link, size), and settles an update cut
   short earlier (the launcher that normally does it never runs under the
   service). **The install folder is administrator-owned.** SYSTEM writes inside it, so
-  with the service task Setup's `install` (`installer/service_lock.py`) sets
-  the owner of everything under it to Administrators (an owner can always
-  rewrite permissions), resets the entries below the root and gives SYSTEM and
-  Administrators full control, and Users and `NT SERVICE\BaiheStudio` read and
-  run, with no inheritance from the parent. It then writes
+  with the service task Setup's `install` (`installer/service_lock.py`) first
+  stops the root inheriting and gives SYSTEM and Administrators full control
+  and Users and `NT SERVICE\BaiheStudio` read and run (the user's write is gone
+  from the whole tree before anything else, so nothing it does afterwards
+  creates entries it owns), then sets the owner of everything under it to
+  Administrators (an owner can always rewrite permissions) and resets the
+  children's own entries (never the root, which would re-enable inheritance).
+  It then walks the tree and fails the install on any entry still owned by a
+  user or any link. It then writes
   `install-folder-locked.txt` (the folder's path) in the admin folder.
   `apply-app-update` refuses unless that marker names this install folder and
   the root, `app\` and `manifest.json` are still owned by Administrators or
   SYSTEM (read with `GetNamedSecurityInfoW`; unreadable counts as not owned),
-  so an install from before this change, or one the user took back, updates
+  and holds the root open without delete sharing for the whole update (the default install folder sits under a folder the user owns, who could otherwise rename the locked folder away and plant a look-alike), so an install from before this change, or one the user took back, updates
   only after a full installer run. Setup, which runs as the user, would
   otherwise be unable to replace files: it runs `stop --for-update` first
   (only when the marker exists, because an older helper doesn't know the

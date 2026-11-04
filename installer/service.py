@@ -116,7 +116,8 @@ from installer.service_control import (
     start_service,
     stop_service,
 )
-from installer.service_lock import lock_commands, remove_marker, unlock_commands, write_marker
+from installer.service_lock import (lock_commands, remove_marker, tree_problem, unlock_commands,
+                                    write_marker)
 from installer.service_layout import (
     ADMIN_FOLDER_NAME,
     APP_DISPLAY_NAME,
@@ -145,6 +146,8 @@ HEALTH_WAIT_SECONDS = 180      # a first start compiles every .pyc
 class Services:
     """The commands, against a layout, a command runner and checks that
     tests replace."""
+
+    tree_check = staticmethod(tree_problem)
 
     def __init__(self, layout: Layout, run, health=health_ok, port_check=port_answers,
                  is_baihe=household_is_baihe, sleep=time.sleep, source=None):
@@ -308,6 +311,9 @@ class Services:
         self.run.log("Locking the install folder to administrators (this can take a while).")
         for cmd, timeout in lock_commands(lay):
             _check(self.run(cmd, timeout=timeout), "Locking the install folder")
+        problem = self.tree_check(lay.root)
+        if problem:
+            raise ServiceError(problem)
         write_marker(lay)
 
     def _unlock_install_folder(self) -> None:

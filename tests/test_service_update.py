@@ -164,6 +164,22 @@ def _admin_owner(path):
     return "S-1-5-32-544"
 
 
+class _Held:
+    """Records that the install folder was held open for the whole update."""
+    def __init__(self):
+        self.events = []
+
+    def __call__(self, path):
+        import contextlib
+
+        @contextlib.contextmanager
+        def held():
+            self.events.append(("open", path))
+            yield
+            self.events.append(("close", path))
+        return held()
+
+
 def _apply(layout, svc, owner=_admin_owner):
     return su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
                            owner=owner)
@@ -401,3 +417,26 @@ def test_a_marker_for_another_folder_does_not_count(env, key):
     layout.lock_marker.write_text("c:\\somewhere else")
     with pytest.raises(service_layout.ServiceError, match="isn't locked"):
         _apply(layout, svc)
+
+
+def test_the_install_folder_is_held_open_for_the_whole_update(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+    held = _Held()
+    su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
+                    owner=_admin_owner, hold=held)
+    assert held.events == [("open", layout.root), ("close", layout.root)]
+    assert _app_text(layout) == "new"
+
+
+def test_an_install_folder_that_cannot_be_held_stops_the_update(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+
+    def cannot(path):
+        raise service_layout.ServiceError("can't be held open")
+
+    with pytest.raises(service_layout.ServiceError, match="held open"):
+        su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
+                        owner=_admin_owner, hold=cannot)
+    assert _app_text(layout) == "old"

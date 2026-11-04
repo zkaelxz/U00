@@ -4,33 +4,84 @@ LocalSystem updater never writes into a folder an unelevated process could swap 
 Standard library only: this runs elevated from the admin folder.
 """
 
+import contextlib
 import os
 from pathlib import Path
 
 from installer.service_control import (ADMINISTRATORS_SID, COMMAND_TIMEOUT, DATA_GRANT_TIMEOUT,
                                        SYSTEM_SID, _icacls, service_sid)
-from installer.service_layout import APP_SERVICE, Layout, _norm
+from installer.service_layout import (APP_SERVICE, FILE_ATTRIBUTE_REPARSE_POINT, Layout,
+                                      ServiceError, _norm)
 
 USERS_SID = "S-1-5-32-545"
 OWNER_SIDS = frozenset({ADMINISTRATORS_SID, SYSTEM_SID})
 
 
 def lock_commands(layout: Layout) -> list:
-    """(command, timeout) pairs. The owner of every file must change too: an
-    owner can always rewrite the permissions of what it owns. The reset before
-    the final grant drops explicit entries on children, so everything below
-    inherits exactly the root's entries."""
+    """(command, timeout) pairs, in an order that never leaves a window: the
+    root stops inheriting and loses the user's write first, which also strips
+    it from everything that inherits (the change propagates before icacls
+    returns), so nothing the user does afterwards creates entries it owns.
+    Only then are owners changed (an owner can always rewrite permissions) and
+    explicit entries on children dropped. The reset names `root\\*`, never the
+    root itself, which would turn inheritance back on."""
     root = layout.root
     app_sid = "*" + service_sid(APP_SERVICE)
     return [
-        (_icacls(root, "/setowner", f"*{ADMINISTRATORS_SID}", "/T"), DATA_GRANT_TIMEOUT),
-        (_icacls(root, "/reset", "/T"), DATA_GRANT_TIMEOUT),
         (_icacls(root, "/inheritance:r",
                  "/grant:r", f"*{SYSTEM_SID}:(OI)(CI)F",
                  "/grant:r", f"*{ADMINISTRATORS_SID}:(OI)(CI)F",
                  "/grant:r", f"*{USERS_SID}:(OI)(CI)RX",
                  "/grant:r", f"{app_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
+        (_icacls(root, "/setowner", f"*{ADMINISTRATORS_SID}", "/T"), DATA_GRANT_TIMEOUT),
+        (_icacls(os.path.join(str(root), "*"), "/reset", "/T"), DATA_GRANT_TIMEOUT),
     ]
+
+
+def tree_problem(root, owner=None):
+    """None when everything under `root` (the root too) is owned by
+    administrators or SYSTEM and nothing is a link; else the first offender.
+    Run after the lock commands, so a file the user kept ownership of, or a
+    junction planted while they ran, fails the install instead of staying
+    as a way back in."""
+    owner = owner_sid if owner is None else owner
+    for folder, dirs, files in os.walk(root):
+        for name in [""] + dirs + files:
+            path = os.path.join(folder, name) if name else folder
+            try:
+                attributes = os.lstat(path).st_file_attributes
+            except (OSError, AttributeError):
+                attributes = 0
+            if attributes & FILE_ATTRIBUTE_REPARSE_POINT:
+                return f"{path} is a link, which the locked install folder can't contain."
+            if owner(path) not in OWNER_SIDS:
+                return f"{path} is still owned by a user after locking the install folder."
+    return None
+
+
+@contextlib.contextmanager
+def hold_directory(path):
+    """Keeps `path` open without FILE_SHARE_DELETE while the updater works, so
+    a user who owns the parent folder (the default install folder is under
+    their profile) can't rename the locked folder away and plant a look-alike
+    full of links between the updater's checks and its writes. Raises
+    ServiceError when it can't be opened; does nothing off Windows."""
+    if os.name != "nt":
+        yield
+        return
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    # GENERIC_READ; FILE_SHARE_READ | FILE_SHARE_WRITE; OPEN_EXISTING;
+    # FILE_FLAG_BACKUP_SEMANTICS (a directory) | FILE_FLAG_OPEN_REPARSE_POINT
+    handle = kernel32.CreateFileW(str(path), 0x80000000, 3, None, 3, 0x02000000 | 0x00200000, None)
+    if handle in (None, ctypes.c_void_p(-1).value):
+        raise ServiceError(f"The install folder {path} can't be held open, so it can't be "
+                           "trusted during an update.")
+    try:
+        yield
+    finally:
+        kernel32.CloseHandle(ctypes.c_void_p(handle))
 
 
 def unlock_commands(layout: Layout) -> list:
