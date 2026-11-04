@@ -289,7 +289,7 @@ def test_apkg_with_genanki(client, isolated_db):
     r = client.get(f"{BASE}/{did}/vocab/export.apkg")
     assert r.status_code == 200 and r.content[:2] == b"PK"
     assert r.headers["content-disposition"] == (
-        'attachment; filename="_ - Anki deck.apkg"; '
+        'attachment; filename="Anki deck.apkg"; '
         f"filename*=UTF-8''{quote('白鹤 - Anki deck.apkg')}")
     assert client.get(f"{BASE}/{did}/vocab/export.apkg",
                       params={"rich": True}).status_code == 404   # nothing queued yet
@@ -297,7 +297,7 @@ def test_apkg_with_genanki(client, isolated_db):
     r = client.get(f"{BASE}/{did}/vocab/export.apkg", params={"rich": True})
     assert r.status_code == 200
     assert r.headers["content-disposition"] == \
-        ('attachment; filename="_ - Anki deck with sentences.apkg"; '
+        ('attachment; filename="Anki deck with sentences.apkg"; '
          f"filename*=UTF-8''{quote('白鹤 - Anki deck with sentences.apkg')}")
 
 
