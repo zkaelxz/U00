@@ -32,8 +32,9 @@ DEFAULT_PAYLOAD = REPO_ROOT / "build" / "installer" / "payload"
 DEFAULT_OUT = REPO_ROOT / "build" / "installer" / "output"
 # The oldest full install whose launcher and swap helper can take an app
 # layer. Raise it when an app layer needs something only a newer installer
-# puts in place.
-MIN_BASE_VERSION = "0.1.0"
+# puts in place. A pre-release sorts below its own release, so "0.1.0" would
+# turn away every 0.1.0-beta install; beta.2 is the first tag with app_swap.py.
+MIN_BASE_VERSION = "0.1.0-beta.2"
 
 
 class BuildError(Exception):
