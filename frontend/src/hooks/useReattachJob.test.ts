@@ -2,10 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../api/client'
 import type { JobRecord } from '../types/jobs'
+import { testJob } from '../types/jobFixture'
 import { adoptRun } from './useJob'
 import { reattachActiveJob } from './useReattachJob'
 
-const job = (job_id: string, status: string, stale = false): JobRecord => ({
+const job = (job_id: string, status: string, stale = false): JobRecord => testJob({
   job_id, status, progress: null, message: '', error: null, description: null,
   gpu_touching: false, started_at: null, finished_at: null, updated_at: 1, stale,
 })

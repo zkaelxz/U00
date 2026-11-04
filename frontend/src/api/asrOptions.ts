@@ -2,7 +2,7 @@
 // and the Diarize-stage config read (its device note).
 // Types mirror api/asr_options_schemas.py and api/schemas/transcribe.py's DiarizationConfig.
 import { getJson, postJson, type Fetch } from './client'
-import type { JobRecord } from '../types/jobs'
+import type { JobLike } from '../types/jobs'
 import { pcOnlyFetch } from './pcOnly'
 
 export interface AsrOptions {
@@ -103,7 +103,7 @@ export const startVoiceDetectorDownload = (f?: Fetch) =>
   postJson<{ job_id: string; started: boolean }>(`${BASE}/voice-detector/download`, {}, pcOnlyFetch(f))
 
 // A finished download job that did not leave the model behind, in words; null while it runs or when it worked.
-export function downloadProblem(job: Pick<JobRecord, 'status' | 'error' | 'outcome_message' | 'result'>): string | null {
+export function downloadProblem(job: JobLike<'status' | 'error' | 'outcome_message' | 'result'>): string | null {
   if (job.status === 'cancelled') return 'The ASMR detector download was cancelled.'
   if (job.status !== 'error') return null
   const detail = job.result && typeof job.result.detail === 'string' ? job.result.detail : null
