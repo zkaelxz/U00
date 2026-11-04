@@ -91,7 +91,7 @@ def save_term(principal, group_id, term_fields: dict) -> dict:
         existing = next((t for t in terms if t["term_original"] == term_fields["term_original"].strip()), None)
     fields = glossary_service.clean_term_fields(
         term_fields, glossary_service._serialize(existing) if existing else {})
-    if term_fields.get("id") is not None and any(
+    if existing is not None and term_fields.get("id") is not None and any(
             t["term_original"] == fields[0] and t["id"] != existing["id"] for t in terms):
         raise ConflictError("Another term already uses that original text.")
     if existing is None and len(terms) >= MAX_GROUP_TERMS:
