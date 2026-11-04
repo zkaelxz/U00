@@ -48,6 +48,65 @@ _LOOP_RES = (
 )
 
 
+# On hard audio (music, noise, overlapping voices) with the skip rule relaxed, Whisper
+# can write a run of short invented items ("凤凰、約翰、酷光、…") that scores confident
+# on every segment, so neither its own thresholds nor the loop checks above see it.
+LIST_MIN_ITEMS = 6
+LIST_MAX_ITEM_LETTERS = 6
+# A list this dense in a short time is not something a person said: real speech tops out
+# around 8-10 letters a second, and a list of names read that fast is invented text.
+LIST_DROP_MIN_CHARS_PER_SEC = 8.0
+# Alone, a rate above this is flagged for review, not dropped: fast real speech and
+# a wrong time range both reach it.
+IMPLAUSIBLE_CHARS_PER_SEC = 15.0
+IMPLAUSIBLE_FLAG = "text_uncertain"
+IMPLAUSIBLE_LIST_NOTE = "Looks like a list of invented words; check against the audio"
+IMPLAUSIBLE_RATE_NOTE = "More text than this stretch of audio can hold; check against the audio"
+_LIST_SPLIT_RE = re.compile(r"[、,，;；]")
+# Letters a second is only meaningful for scripts that write one character per syllable;
+# a Latin line of the same duration holds several times as many letters.
+_CJK_CHAR_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
+# Shorter than this the rate is dominated by the timing's rounding.
+_MIN_RATE_SEC = 0.5
+
+
+def _is_item_list(text):
+    items = [i for i in (_stock_key(p) for p in _LIST_SPLIT_RE.split(text or "")) if i]
+    return (len(items) >= LIST_MIN_ITEMS
+            and all(len(i) <= LIST_MAX_ITEM_LETTERS for i in items))
+
+
+def _chars_per_sec(seg):
+    try:
+        length = seg["end"] - seg["start"]
+    except KeyError:
+        return 0.0
+    if length < _MIN_RATE_SEC:
+        return 0.0
+    return len(_CJK_CHAR_RE.findall(seg["text"])) / length
+
+
+def screen_implausible_text(segments):
+    """`segments` without the dense item lists no one could have said (a list of short
+    items at LIST_DROP_MIN_CHARS_PER_SEC or more), and the other lists and over-fast
+    segments flagged IMPLAUSIBLE_FLAG, unless they carry a flag already."""
+    out = []
+    for seg in segments:
+        rate = _chars_per_sec(seg)
+        is_list = _is_item_list(seg["text"])
+        if is_list and rate >= LIST_DROP_MIN_CHARS_PER_SEC:
+            import applog
+            applog.get_logger().info(
+                f"invented list dropped: segment {seg['start']:.1f}-{seg['end']:.1f}s "
+                f"({rate:.1f} characters/s)")
+            continue
+        if (is_list or rate >= IMPLAUSIBLE_CHARS_PER_SEC) and not seg.get("flag"):
+            seg = {**seg, "flag": IMPLAUSIBLE_FLAG,
+                   "flag_note": IMPLAUSIBLE_LIST_NOTE if is_list else IMPLAUSIBLE_RATE_NOTE}
+        out.append(seg)
+    return out
+
+
 def _stock_key(text):
     return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
 
@@ -174,5 +233,5 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4,
         else:
             out.extend(segments[i:j])
         i = j
-    return [seg for k, seg in enumerate(out)
-            if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)]
+    return screen_implausible_text([seg for k, seg in enumerate(out)
+                                    if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)])

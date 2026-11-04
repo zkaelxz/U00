@@ -337,3 +337,32 @@ class TestSensevoiceCancelAndTimeout:
         import audio_extract
         assert inspect.signature(audio_extract.extract_audio_slice).parameters["timeout"].default \
             == audio_extract.SLICE_TIMEOUT_SECONDS
+
+
+class TestImplausibleText:
+    LIST = "凤凰、約翰、酷光、阿龍、小美、大雄、靜香"
+
+    def _seg(self, text, start=0.0, end=3.0, **extra):
+        return {"start": start, "end": end, "text": text, **extra}
+
+    def test_fast_list_of_short_items_is_dropped(self):
+        segs = [self._seg("你好吗"), self._seg(self.LIST, 10.0, 11.5)]
+        out = whisper_hallucination.filter_hallucinated_segments(segs)
+        assert [s["text"] for s in out] == ["你好吗"]
+
+    def test_slow_list_is_kept_and_flagged(self):
+        out = whisper_hallucination.filter_hallucinated_segments([self._seg(self.LIST, 0.0, 12.0)])
+        assert out[0]["flag"] == whisper_hallucination.IMPLAUSIBLE_FLAG
+
+    def test_over_fast_plain_text_is_flagged_not_dropped(self):
+        text = "这是一句没有逗号的很长很长很长很长很长的话"
+        out = whisper_hallucination.filter_hallucinated_segments([self._seg(text, 0.0, 1.0)])
+        assert out[0]["text"] == text
+        assert out[0]["flag"] == whisper_hallucination.IMPLAUSIBLE_FLAG
+
+    def test_normal_speech_and_existing_flags_are_untouched(self):
+        flagged = self._seg(self.LIST, 0.0, 12.0, flag="timing_uncertain", flag_note="x")
+        out = whisper_hallucination.filter_hallucinated_segments(
+            [self._seg("今天天气很好，我们去公园吧"), flagged])
+        assert "flag" not in out[0]
+        assert out[1]["flag"] == "timing_uncertain"
