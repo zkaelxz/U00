@@ -31,7 +31,8 @@ from api.schemas import (GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
-                         GlossaryNameClusters, GlossaryVariants,
+                         GlossaryNameClusters, GlossaryVariants, NameFixPreview, NameFixRequest,
+                         NameFixResult,
                          NameConsistency, NameReportMarkRequest, NameReportMarkResult,
                          NameReportCancelRequest, NameReportRunResult, NameReportStatus,
                          SpellingSuggestRequest, SpellingSuggestRunResult,
@@ -40,7 +41,7 @@ from api.schemas import (GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
                          LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
                          NovelGlossaryStatus, error_responses)
-from services import (export_service, glossary_name_report_service, glossary_service,
+from services import (export_service, glossary_name_report_service, glossary_service, name_fix_service,
                       glossary_spelling_service, glossary_variants_service)
 from lib.errors import ForbiddenError, InvalidInputError
 
@@ -113,6 +114,22 @@ def get_term_variants(drama_id: int = Path(ge=1),
                           "The term, or any name being worked out; its aliases are included "
                           "when it is a glossary term"))):
     return glossary_variants_service.find_variants(drama_id, term)
+
+
+@router.get("/dramas/{drama_id}/name-fixes", dependencies=[require_permission("lines.read")],
+            response_model=NameFixPreview,
+            summary="Sound-alike spellings of glossary names that could be fixed (read-only, offline)",
+            responses=error_responses(404))
+def get_name_fixes(drama_id: int = Path(ge=1)):
+    return name_fix_service.preview(drama_id)
+
+
+@router.post("/dramas/{drama_id}/name-fixes", dependencies=[require_permission("lines.edit")],
+             response_model=NameFixResult,
+             summary="Confirm spellings: save them as aliases and rewrite the title's source lines",
+             responses=error_responses(404, 422))
+def apply_name_fixes(body: NameFixRequest, drama_id: int = Path(ge=1)):
+    return name_fix_service.apply_fixes(drama_id, [f.model_dump() for f in body.fixes])
 
 
 @router.get("/dramas/{drama_id}/name-clusters", dependencies=[require_permission("lines.read")],
