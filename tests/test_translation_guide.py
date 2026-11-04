@@ -599,3 +599,27 @@ def test_character_voice_notes_limited_to_the_titles_named_characters():
     assert "Mo" in tg.build_character_voice_notes(series, [{"character_name": ""}])
     assert tg.build_character_voice_notes([{"character_name": "A", "notes": ""}]) == ""
     assert tg.build_character_voice_notes(None) == ""
+
+
+ALIAS_TERMS = [
+    {"term_original": "ヤソ", "term_translation": "Yaso", "aliases": "Yasoch|ヤソー|ヤ"},
+    {"term_original": "ミナ", "term_translation": "Mina", "aliases": "ヤソー|ミナちゃん"},
+]
+
+
+def test_confirmed_aliases_skip_shared_one_char_and_other_term_spellings():
+    terms = ALIAS_TERMS + [{"term_original": "Yasoch", "term_translation": "x", "aliases": ""}]
+    assert glossary_io.confirmed_aliases(terms) == {"ミナ": ["ミナちゃん"]}
+    assert glossary_io.confirmed_aliases(ALIAS_TERMS) == {"ヤソ": ["Yasoch"], "ミナ": ["ミナちゃん"]}
+
+
+def test_confirmed_aliases_reach_both_prompt_builders():
+    from engine_backends.prompts import build_llm_instructions
+    terms = [ALIAS_TERMS[0], {"term_original": "ミナ", "term_translation": "Mina", "aliases": "ミナちゃん"}]
+    for text in (tg.build_glossary_block(terms), build_llm_instructions("", {}, glossary_terms=terms)):
+        assert "ヤソ [also written in the source as: Yasoch, ヤソー" in text
+        assert "ミナ [also written in the source as: ミナちゃん" in text
+
+
+def test_terms_without_aliases_add_nothing_to_the_prompt():
+    assert "also written" not in tg.build_glossary_block(SAMPLE_GLOSSARY)
