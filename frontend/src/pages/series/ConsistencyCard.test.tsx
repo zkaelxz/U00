@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { SeriesPageData } from '../../api/series'
-import { ConsistencyCard, consistencySummaryText } from './ConsistencyCard'
+import { ConsistencyCard } from './ConsistencyCard'
+import { consistencySummaryText } from './seriesModel'
 
 const page: SeriesPageData = {
   id: 3, name: 'Saga', is_private: false, owned_by_me: true, can_edit: true, has_instructions: false,

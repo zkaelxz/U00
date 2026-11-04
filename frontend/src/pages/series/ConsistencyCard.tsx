@@ -8,17 +8,9 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { dramaName } from '../../components/libraryView'
 import { buttonClass } from '../../components/uiClasses'
+import { plural } from '../../labels'
+import { consistencySummaryText } from './seriesModel'
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
-
-export function consistencySummaryText(s: SeriesConsistencyReport['summary']): string {
-  return [
-    `${plural(s.names_with_several_renderings, 'name has', 'names have')} more than one rendering`,
-    `${plural(s.flagged_lines, 'line', 'lines')} off-glossary`,
-    `${plural(s.glossary_missing_lines, 'line', 'lines')} still flagged for a missing glossary name`,
-    `${plural(s.lines_scanned, 'line', 'lines')} checked in ${plural(s.titles_scanned, 'title', 'titles')}`,
-  ].join(' · ')
-}
 
 function FlagRedo({ rendering, onDone, onError }: {
   rendering: ConsistencyRendering
