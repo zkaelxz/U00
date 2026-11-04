@@ -594,6 +594,26 @@ def test_context_from_predecessor_and_usage_logged(client, fake_detect, monkeypa
     assert [tuple(r) for r in rows] == [("scanlate_translate", 100)]
 
 
+@needs_cv2
+def test_prompt_carries_previous_page_last_lines(client, fake_detect, monkeypatch):
+    did = _drama()
+    p1, p2 = _page(did, 0), _page(did, 1)
+    db.save_bubbles(p1, [_region(1, text="첫째", translated_text="Because of the art room"),
+                         _region(50, text="둘째", translated_text="if I was going to die")])
+    prompts = []
+
+    def fake(engine, prompt, usage_cb=None, **kw):
+        prompts.append(prompt)
+        usage_cb(1, 1)
+        return json.dumps({"translations": {"0": "Hello", "1": "Bye"}, "context_summary": "S"})
+    monkeypatch.setattr(engine_llm_tasks, "call_llm_json", fake)
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    assert _run(client, did, mode="page", page_id=p2, engine="claude").status_code == 200
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
+    assert "둘째 => if I was going to die" in prompts[0]
+    assert run_svc._predecessor_tail(did, p1) == ""
+
+
 def test_context_skips_a_hidden_page(client, isolated_db):
     did = _drama()
     p1, p2, p3 = _page(did, 0), _page(did, 1), _page(did, 2)
