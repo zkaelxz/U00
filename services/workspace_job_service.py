@@ -23,6 +23,7 @@ from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
 from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
+import translation_memory
 from engine_backends.run_limits import FailureStreak
 import translation_finish
 import emotion
@@ -50,7 +51,7 @@ def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronou
 
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
                             include_genre_notes=None, default_female_pronouns=None,
-                            principal=None):
+                            principal=None, memory_examples=False):
     """(glossary_terms, style_guidelines, character_names) for one drama,
     shared by the app's runs: series glossary, style
     profile, emotion guidance, gender hints, speaker labels and
@@ -60,7 +61,9 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     principal: whom the run is for; the learned style is left out unless
     they may see it (ownership_service.sees_learned_style). A job thread
     has no acting principal, so its starter passes the one captured at
-    start (ownership_service.acting_principal)."""
+    start (ownership_service.acting_principal).
+    memory_examples: add the series' approved translation-memory pairs closest
+    to these lines to the prompt (off unless the Translate form asks)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
@@ -76,12 +79,13 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     learned = ""
     if prof and ownership_service.sees_learned_style(principal, prof.get("profile")):
         learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {}))
+    examples = _memory_examples(series_id, lines) if memory_examples else None
     emap = db.load_emotions(drama_id) if with_emotions else None
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
     style_guidelines = tguide.build_style_guidelines(
         style_preset, glossary_terms=glossary_terms,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns,
+        default_female_pronouns=default_female_pronouns, examples=examples,
         custom_notes="\n\n".join(b for b in (
             learned, emotion_block,
             tguide.build_character_guidance(
@@ -90,6 +94,16 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     style_guidelines += language_pack_service.block_for(drama, lines, glossary_terms)
     style_guidelines += vdb_names_service.block_for(drama, lines, glossary_terms)
     return glossary_terms, style_guidelines, character_names
+
+
+def _memory_examples(series_id, lines) -> list:
+    """Approved pairs for the run's lines. The run's own lines are excluded
+    (as are their translations) so a line is never shown its own answer."""
+    if not series_id:
+        return []
+    return translation_memory.example_matches(
+        [ln.zh or "" for ln in lines], db.list_translation_memory(series_id),
+        [ln.zh or "" for ln in lines], exclude_translations=[ln.en or "" for ln in lines])
 
 
 def _fallback_result(engine) -> dict:

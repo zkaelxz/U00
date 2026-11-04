@@ -9,6 +9,7 @@ services/series_service.py.
     GET  /api/series/{series_id}/delete-preview         library.read  owner or admin
     POST /api/series/{series_id}/delete                 PC only       owner or admin
     GET  /api/series/{series_id}/copy-terms-preview     library.read  editable series
+    GET  /api/series/{series_id}/consistency-report     lines.read    read-only, titles you may see
     POST /api/series/{series_id}/copy-terms             lines.edit    editable series
     GET  /api/series/{series_id}/shared-glossary        library.read  group and effective glossary
     POST /api/series/{series_id}/shared-glossary        lines.edit    editable series; join or leave
@@ -33,7 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.auth import local_only, require_permission
 from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
-                         SeriesCopyTermsResult, SeriesDefaults, SeriesDefaultsApplyRequest,
+                         SeriesConsistencyReport, SeriesCopyTermsResult, SeriesDefaults, SeriesDefaultsApplyRequest,
                          SeriesDefaultsApplyResult, SeriesDefaultsPreview, SeriesDefaultsUpdate,
                          SeriesDeletePreview, SeriesDeleteRequest, SeriesDeleteResult,
                          SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult,
@@ -42,6 +43,7 @@ from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
                          SeriesTmxImportRequest, SeriesTmxImportResult, error_responses)
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
+from services import series_consistency_service
 from services import series_defaults_service as defaults_svc
 from services import series_service as svc
 from services import shared_glossary_service
@@ -71,6 +73,13 @@ def list_series(request: Request):
             summary="A series' titles (media type, line count) and glossary/people counts")
 def get_series(request: Request, series_id: int = _id()):
     return svc.get_series_page(request.state.principal, series_id)
+
+
+@router.get("/{series_id}/consistency-report", dependencies=[require_permission("lines.read")],
+            response_model=SeriesConsistencyReport, responses=_ERRS,
+            summary="Every English rendering of each glossary term across the series' titles (read-only)")
+def get_consistency_report(request: Request, series_id: int = _id()):
+    return series_consistency_service.build_report(request.state.principal, series_id)
 
 
 @router.post("/{series_id}/rename", dependencies=[require_permission("lines.edit")],

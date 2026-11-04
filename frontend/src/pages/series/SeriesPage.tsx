@@ -26,6 +26,7 @@ import {
   MAX_SERIES_NAME, SERIES_TABS, copyPreviewText, copyResultText, copySources, deleteBlocked, deleteLines, renameProblem,
   type SeriesTab,
 } from './seriesModel'
+import { ConsistencyCard } from './ConsistencyCard'
 import { DefaultsTab } from './DefaultsTab'
 import { SharedGlossaryCard } from './SharedGlossaryCard'
 import { TmxCard } from './TmxCard'
@@ -185,6 +186,7 @@ function GlossaryTab({ data, onCopied }: { data: SeriesPageData; onCopied: () =>
       </Card>
       <SharedGlossaryCard data={data} onChanged={onCopied} />
       <CopyTermsCard data={data} onCopied={onCopied} />
+      {data.can_edit && <ConsistencyCard data={data} />}
       <TmxCard seriesId={data.id} canEdit={data.can_edit} onImported={onCopied} />
       <p className="muted" data-testid="series-no-series-hint">
         A title with no series gets one of its own when its first glossary term is saved. To share terms with it, open

@@ -173,3 +173,39 @@ export const getDefaultsPreview = (id: number, mode: ApplyMode, f?: Fetch) =>
 
 export const applySeriesDefaults = (id: number, mode: ApplyMode, f?: Fetch) =>
   postJson<SeriesDefaultsApplyResult>(`/api/series/${id}/defaults/apply`, { mode }, f)
+
+// Cross-episode consistency report (series_consistency_service): read-only; a flagged rendering's line ids feed the glossary-flagged redo.
+export interface ConsistencyRendering {
+  text: string
+  kind: 'glossary' | 'other' | 'unnamed'
+  count: number
+  flagged: boolean
+  titles: { drama_id: number; line_count: number; line_ids: number[] }[]
+  examples: { drama_id: number; line_id: number; idx: number; en: string }[]
+}
+
+export interface ConsistencyTerm {
+  term_id: number
+  term_original: string
+  term_translation: string
+  renderings: ConsistencyRendering[]
+  flagged_lines: number
+}
+
+export interface SeriesConsistencyReport {
+  series_id: number
+  truncated: boolean
+  summary: {
+    titles_scanned: number
+    lines_scanned: number
+    terms_checked: number
+    terms_found: number
+    names_with_several_renderings: number
+    flagged_lines: number
+    glossary_missing_lines: number
+  }
+  terms: ConsistencyTerm[]
+}
+
+export const getConsistencyReport = (id: number, f?: Fetch) =>
+  getJson<SeriesConsistencyReport>(`/api/series/${id}/consistency-report`, f)
