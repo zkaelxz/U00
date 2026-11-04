@@ -10,6 +10,7 @@ import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { dramaName } from '../../components/libraryView'
 import { useLoad } from '../../hooks/useLoad'
+import { SpeakerModeCard } from './SpeakerModeCard'
 import { defaultsForm, defaultsPreviewText, settingsFromForm, shownValue, type DefaultsForm } from './seriesModel'
 
 const GROUPS: { id: string; title: string }[] = [
@@ -212,6 +213,7 @@ export function DefaultsTab({ data }: { data: SeriesPageData }) {
       {!defaults.data && !defaults.error && <p className="muted">Loading…</p>}
       {defaults.data && (
         <>
+          <SpeakerModeCard data={data} />
           <SettingsCard data={data} defaults={defaults.data} onSaved={() => setReloadKey((k) => k + 1)} />
           <ApplyCard key={`apply-${reloadKey}`} data={data} defaults={defaults.data} />
         </>

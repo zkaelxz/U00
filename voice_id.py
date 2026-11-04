@@ -86,3 +86,43 @@ def suggest_speaker_matches(embeddings_by_speaker: dict, series_characters: list
 
     suggestions.sort(key=lambda s: -s["similarity"])
     return suggestions
+
+
+def solo_turns(turns: list, embeddings_by_speaker: dict, series_characters: list,
+               threshold: float = DEFAULT_THRESHOLD):
+    """(turns, main_character) for a series whose speaker mode is solo: one
+    creator talking, so every cluster pyannote split off is the same person.
+
+    With an enrolled series character that clusters match at or above
+    threshold, the character matching the most speech is the main voice: those
+    clusters merge into one label (the biggest matched cluster's) and the
+    turns of every other cluster are dropped, so those lines stay blank
+    rather than gain a wrong speaker. Without one (nobody enrolled, or no
+    embeddings stored) every cluster merges into the biggest one's label and
+    main_character is None. main_character is the series_characters row to
+    link to the kept label."""
+    spoken: dict = {}
+    for t in turns:
+        spoken[t["speaker"]] = spoken.get(t["speaker"], 0.0) + max(0.0, t["end"] - t["start"])
+    if not spoken:
+        return [], None
+
+    def merged(keep: set):
+        label = max(keep, key=lambda s: spoken[s])
+        return [{**t, "speaker": label} for t in turns if t["speaker"] in keep]
+
+    enrolled = [sc for sc in series_characters if sc.get("voice_fingerprint")]
+    if not enrolled or not embeddings_by_speaker:
+        return merged(set(spoken)), None
+    matches = suggest_speaker_matches(
+        {k: v for k, v in embeddings_by_speaker.items() if k in spoken}, enrolled,
+        threshold=threshold)
+    if not matches:
+        return [], None
+    speech_by_character: dict = {}
+    for m in matches:
+        cid = m["series_character_id"]
+        speech_by_character[cid] = speech_by_character.get(cid, 0.0) + spoken[m["speaker_label"]]
+    main_id = max(speech_by_character, key=lambda c: speech_by_character[c])
+    keep = {m["speaker_label"] for m in matches if m["series_character_id"] == main_id}
+    return merged(keep), next(sc for sc in enrolled if sc["id"] == main_id)

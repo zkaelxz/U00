@@ -290,6 +290,22 @@ def set_series_defaults(series_id: int, settings_json) -> bool:
         return cur.rowcount > 0
 
 
+def set_series_speaker_mode(series_id: int, mode: str | None) -> bool:
+    """Stores a series' speaker mode (series_service validates it; None means
+    auto). False for an unknown series."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("UPDATE series SET speaker_mode = ? WHERE id = ?", (mode, series_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_series_speaker_mode(series_id: int) -> str:
+    """The series' stored speaker mode, "auto" when unset or unknown."""
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute("SELECT speaker_mode FROM series WHERE id = ?", (series_id,)).fetchone()
+    return (row[0] if row else None) or "auto"
+
+
 def get_series_speaker_colours(series_id: int) -> dict:
     """{hard-sub colour group: person} stored for a series; {} for none or an unknown series."""
     with contextlib.closing(db.get_conn()) as conn:

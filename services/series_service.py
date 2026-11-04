@@ -118,7 +118,24 @@ def get_series_page(principal, series_id) -> dict:
             "has_instructions": counts["has_instructions"],
             "glossary_term_count": counts["glossary_terms"],
             "character_count": counts["characters"],
+            "speaker_mode": row.get("speaker_mode") or "auto",
             "titles": titles}
+
+
+SPEAKER_MODES = ("auto", "solo")
+
+
+def set_speaker_mode(principal, series_id, mode) -> dict:
+    """Stores how speaker detection treats this series' titles: "auto" keeps
+    every cluster, "solo" collapses them to the one creator (see
+    voice_id.solo_turns). Takes effect on the next detection or re-assign;
+    lines already labelled are not touched."""
+    ownership_service.require_editable(principal, "series", series_id)
+    if mode not in SPEAKER_MODES:
+        raise InvalidInputError("Speaker mode must be auto or solo.")
+    if not db.set_series_speaker_mode(series_id, None if mode == "auto" else mode):
+        raise NotFoundError("Series not found.")
+    return {"series_id": series_id, "speaker_mode": mode}
 
 
 _NAME_UNUSABLE = "That name can't be used. Pick another name for the series."

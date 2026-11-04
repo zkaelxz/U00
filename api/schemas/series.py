@@ -12,7 +12,8 @@ __all__ = ["SeriesListItem", "SeriesListResponse", "SeriesTitle", "SeriesPage",
            "SeriesCopyTermsPreview", "SeriesCopyTermsResult", "SeriesDefaultsField",
            "SeriesDefaults", "SeriesDefaultsUpdate", "SeriesDefaultsTitle",
            "SeriesDefaultsPreview", "SeriesDefaultsApplyRequest", "SeriesDefaultsApplyResult",
-           "SeriesTmxImportRequest", "SeriesTmxImportResult"]
+           "SeriesTmxImportRequest", "SeriesTmxImportResult", "SeriesSpeakerModeRequest",
+           "SeriesSpeakerModeResult"]
 
 _ID: dict[str, Any] = dict(ge=1, le=2**31 - 1)
 
@@ -51,6 +52,8 @@ class SeriesPage(BaseModel):
     has_instructions: bool
     glossary_term_count: int
     character_count: int
+    speaker_mode: Literal["auto", "solo"] = Field(
+        description="solo: one creator, so speaker detection keeps one speaker.")
     titles: List[SeriesTitle]
 
 
@@ -176,3 +179,13 @@ class SeriesTmxImportResult(BaseModel):
     series_id: int
     added: int
     skipped: int = Field(description="Sources the series already had; their stored translation is kept.")
+
+
+class SeriesSpeakerModeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["auto", "solo"]
+
+
+class SeriesSpeakerModeResult(BaseModel):
+    series_id: int
+    speaker_mode: Literal["auto", "solo"]
