@@ -23,7 +23,7 @@ const exportUrl = (target: ArenaTarget, format: 'csv' | 'json') =>
 function singleRunArena(run: BenchmarkRun, results: BenchmarkResult[]): BenchmarkArena {
   return {
     runs: [run],
-    rows: results.map((r) => ({ case_id: r.case_id, label: r.case_label, source_text: null, reference_text: null, tier: null, results: [r] })),
+    rows: results.map((r) => ({ case_id: r.case_id, label: r.case_label, source_text: null, reference_text: null, tier: null, ref_version: 1, results: [r] })),
   }
 }
 
