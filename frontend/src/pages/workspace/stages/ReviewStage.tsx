@@ -16,6 +16,7 @@ import { LinesPanel } from './review/LinesPanel'
 import { LineSelectionProvider } from './review/LineSelectionContext'
 import { RecordsPanel } from './review/RecordsPanel'
 import { ReviewChecks } from './review/ReviewChecks'
+import { MarkEpisodeReviewed } from './review/MarkEpisodeReviewed'
 import { ReviewFlags } from './review/ReviewFlags'
 import { ReviewJobsPanel } from './review/ReviewJobsPanel'
 import { ReviewTools } from './review/ReviewTools'
@@ -145,6 +146,7 @@ export default function ReviewStage() {
                     <>
                       {jobs.fix}
                       {!!lineCount && <ReviewFlags onDone={changed} />}
+                      {!!lineCount && <MarkEpisodeReviewed dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
                     </>
                   ),
                   coverage: parts.coverage,

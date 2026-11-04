@@ -199,6 +199,61 @@ class TestPatch:
         assert _row(did, ids[0])["en"] == "Hello"
 
 
+class TestMarkEpisodeReviewed:
+    def test_marks_unflagged_lines_and_remembers_them(self, isolated_db):
+        did, ids = _seed(series=True)
+        out = svc.mark_episode_reviewed(did)
+        assert out == {"reviewed": 2, "remembered": 2, "kept_existing": 0,
+                       "skipped_flagged": 1, "already_reviewed": 0}
+        assert [bool(_row(did, i)["reviewed"]) for i in ids] == [True, False, True]
+        series_id = db.get_drama(did)["series_id"]
+        assert {(e["source_text"], e["translation"]) for e in db.list_translation_memory(series_id)} == {
+            ("你好", "Hello"), ("谢谢", "Thanks")}
+
+    def test_repeat_changes_nothing(self, isolated_db):
+        did, _ = _seed(series=True)
+        svc.mark_episode_reviewed(did)
+        series_id = db.get_drama(did)["series_id"]
+        before = db.list_translation_memory(series_id)
+        again = svc.mark_episode_reviewed(did)
+        assert again["reviewed"] == 0 and again["remembered"] == 0 and again["already_reviewed"] == 2
+        assert db.list_translation_memory(series_id) == before
+
+    def test_hand_approved_entry_is_not_replaced(self, isolated_db):
+        did, _ = _seed(series=True)
+        series_id = db.get_drama(did)["series_id"]
+        db.record_translation_memory(series_id, "你好", "Hi")
+        out = svc.mark_episode_reviewed(did)
+        assert out["kept_existing"] == 1 and out["remembered"] == 1
+        stored = {e["source_text"]: e for e in db.list_translation_memory(series_id)}
+        assert stored["你好"]["translation"] == "Hi" and stored["你好"]["use_count"] == 1
+
+    def test_title_without_series_is_marked_only(self, isolated_db):
+        did, ids = _seed()
+        out = svc.mark_episode_reviewed(did)
+        assert out["reviewed"] == 2 and out["remembered"] == 0
+        assert bool(_row(did, ids[0])["reviewed"])
+
+    def test_line_changed_meanwhile_is_not_marked(self, isolated_db, monkeypatch):
+        did, ids = _seed(series=True)
+        real = db.update_lines_fields_if_many
+
+        def racing(drama_id, items):
+            db.save_lines(drama_id, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Edited", id=ids[0])],
+                          fields=("en",))
+            return real(drama_id, items)
+
+        monkeypatch.setattr(db, "update_lines_fields_if_many", racing)
+        out = svc.mark_episode_reviewed(did)
+        assert out["reviewed"] == 1 and not _row(did, ids[0])["reviewed"]
+        sources = {e["source_text"] for e in db.list_translation_memory(db.get_drama(did)["series_id"])}
+        assert sources == {"谢谢"}
+
+    def test_unknown_title_is_not_found(self, isolated_db):
+        with pytest.raises(NotFoundError):
+            svc.mark_episode_reviewed(999)
+
+
 class TestDismiss:
     def test_scope(self, save_spy):
         did, ids = _seed()

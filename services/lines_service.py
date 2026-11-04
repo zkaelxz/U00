@@ -242,6 +242,47 @@ def set_reviewed(drama_id: int, line_id: int, reviewed: bool, expected_en=None) 
     return _reload_dict(drama_id, line_id)
 
 
+def mark_episode_reviewed(drama_id: int) -> dict:
+    """Marks every translated, unflagged, not-yet-checked line of the episode
+    reviewed, and remembers each pair in the series' translation memory. This
+    is the bulk counterpart of `set_reviewed`: the caller vouches for lines it
+    did not edit, so it is one explicit action per episode and never implied
+    by anything else. Idempotent: checked lines are left alone, so a repeat
+    adds nothing.
+
+    Flagged lines are skipped because the flag is an open question about that
+    line. A source already in memory keeps its entry, because that one was
+    approved by hand and an unread bulk approval must not replace it. Each
+    line is marked by compare-and-set on the text read here, so English that
+    changed since (a translate job, another tab) is skipped, not marked.
+    Returns {reviewed, remembered, kept_existing, skipped_flagged, already_reviewed}."""
+    drama = ownership_service.require_drama(drama_id)
+    lines = db.load_line_objects(drama_id)
+    candidates = [ln for ln in lines if (ln.en or "").strip() and (ln.zh or "").strip()]
+    already = sum(1 for ln in candidates if ln.reviewed)
+    flagged = sum(1 for ln in candidates if not ln.reviewed and ln.flag)
+    todo = [ln for ln in candidates if not ln.reviewed and not ln.flag]
+    stale = set(db.update_lines_fields_if_many(
+        drama_id, [(ln.id, {"reviewed": 1}, {"en": ln.en, "zh": ln.zh, "flag": ""}) for ln in todo]))
+    marked = [ln for ln in todo if ln.id not in stale]
+
+    remembered = kept_existing = 0
+    series_id = drama.get("series_id")
+    if series_id and marked:
+        known = {e["source_text"] for e in db.list_translation_memory_for_sources(
+            series_id, [ln.zh.strip() for ln in marked])}
+        for ln in marked:
+            source = ln.zh.strip()
+            if source in known:
+                kept_existing += 1
+                continue
+            db.record_translation_memory(series_id, source, ln.en)
+            known.add(source)
+            remembered += 1
+    return {"reviewed": len(marked), "remembered": remembered, "kept_existing": kept_existing,
+            "skipped_flagged": flagged, "already_reviewed": already}
+
+
 def dismiss_flag(drama_id: int, line_id: int) -> dict:
     """Clears a line's flag and flag note (only those two columns).
     Idempotent: an unflagged line is returned unchanged."""

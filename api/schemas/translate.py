@@ -250,6 +250,8 @@ class TranslateRunStart(BaseModel):
     include_genre_notes: Optional[bool] = None
     # Let DeepSeek/Ollama reason first; None = the title's remembered choice.
     thinking: Optional[bool] = None
+    # Add approved translation-memory pairs of the title's series to the prompt as examples.
+    memory_examples: bool = False
 
 
 class TranslateRunStarted(BaseModel):

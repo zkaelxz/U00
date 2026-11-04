@@ -36,6 +36,7 @@ import type {
   ShortenResult,
   SourceChanged,
   KeepEnglishResult,
+  EpisodeReviewedResult,
 } from '../types/review'
 import { apiUrl, deleteJson, getJson, postJson, type Fetch } from './client'
 
@@ -79,6 +80,10 @@ export const setLinesLanguage = (id: number, req: SetLanguageRequest, f?: Fetch)
 
 export const setReviewed = (id: number, lineId: number, reviewed: boolean, expectedEn?: string, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/reviewed`, { reviewed, expected_en: expectedEn }, f)
+
+// Records every translated, unflagged, unchecked line of the title as approved.
+export const markEpisodeReviewed = (id: number, f?: Fetch) =>
+  postJson<EpisodeReviewedResult>(`${lines(id)}/mark-reviewed`, undefined, f)
 
 export const dismissFlag = (id: number, lineId: number, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/dismiss-flag`, undefined, f)

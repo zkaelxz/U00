@@ -16,6 +16,8 @@ export interface SourceChanged {
   line_ids: number[]
 }
 
+export type EpisodeReviewedResult = Schemas['LinesEpisodeReviewedResult']
+
 export interface KeepEnglishResult {
   cleared: number
   line_ids: number[]

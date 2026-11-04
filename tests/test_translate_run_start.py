@@ -195,6 +195,24 @@ def test_prompt_toggles_override_reach_the_guidelines(isolated_db, monkeypatch):
     assert seen[-1]["default_female_pronouns"] is True
 
 
+def test_memory_examples_reach_the_prompt_only_when_asked(isolated_db, monkeypatch):
+    seen = _spy_guidelines(monkeypatch)
+    client = TestClient(create_app())
+    did = _seed([("你放心吧我一定会照顾好她的呢", "")])
+    db.update_drama(did, series_id=db.get_or_create_series("S"))
+    db.record_translation_memory(db.get_drama(did)["series_id"], "你放心吧我一定会好好照顾她的", "Leave her to me.")
+    r = client.post(f"/api/translate-run/dramas/{did}/run", json={"engine": "fake"})
+    wait_for_job(r.json()["job_id"])
+    assert not seen[-1].get("examples")
+    r = client.post(f"/api/translate-run/dramas/{did}/run",
+                    json={"engine": "fake", "memory_examples": True, "force_retranslate": True})
+    assert r.status_code == 200, r.text
+    wait_for_job(r.json()["job_id"])
+    assert [e["translation"] for e in seen[-1]["examples"]] == ["Leave her to me."]
+    assert client.post(f"/api/translate-run/dramas/{did}/run",
+                       json={"engine": "fake", "memory_examples": "maybe"}).status_code == 422
+
+
 def test_api_passes_prompt_toggles_and_validates_them(isolated_db, monkeypatch):
     seen = _spy_guidelines(monkeypatch)
     client = TestClient(create_app())

@@ -298,6 +298,30 @@ def test_run_style_context_carries_character_voice_notes(monkeypatch):
     assert "CHARACTER VOICE NOTES" not in guidelines
 
 
+def test_run_style_context_memory_examples_are_opt_in_and_never_the_runs_own_answers(monkeypatch):
+    from core import Line
+    _stub_style_sources(monkeypatch)
+    monkeypatch.setattr(wjs.db, "list_characters_with_series_names", lambda did: [])
+    monkeypatch.setattr(wjs.db, "list_series_characters", lambda sid: [])
+    monkeypatch.setattr(wjs.db, "list_translation_memory", lambda sid: [
+        {"id": 1, "source_text": "你放心吧我一定会好好照顾她的", "translation": "Leave her to me.", "use_count": 3},
+        {"id": 2, "source_text": "今天天气很好", "translation": "Nice weather today.", "use_count": 1}])
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="你放心吧我一定会好好照顾她的！", en=""),
+             Line(idx=1, start=1.0, end=2.0, zh="今天天气很好", en="Nice weather today.")]
+    _, off, _ = wjs.build_run_style_context(1, {"series_id": 3}, lines, "audio_drama")
+    assert "APPROVED EXAMPLES" not in off
+    _, on, _ = wjs.build_run_style_context(1, {"series_id": 3}, lines, "audio_drama", memory_examples=True)
+    # Both entries are a line of the run (or one punctuation mark off it): never shown back to it.
+    assert "APPROVED EXAMPLES" not in on
+    _, other, _ = wjs.build_run_style_context(
+        1, {"series_id": 3}, [Line(idx=0, start=0.0, end=1.0, zh="你放心吧我一定会照顾好她的呢", en="")],
+        "audio_drama", memory_examples=True)
+    assert "你放心吧我一定会好好照顾她的 → Leave her to me." in other and "今天天气很好" not in other
+    _, noseries, _ = wjs.build_run_style_context(
+        1, {}, [Line(idx=0, start=0.0, end=1.0, zh="你放心吧我一定会照顾好她的呢", en="")], "audio_drama", memory_examples=True)
+    assert "APPROVED EXAMPLES" not in noseries
+
+
 def test_bulk_title_cancelled_on_its_own_is_not_counted_translated(isolated_db):
     """Cancelling one title's translate job (Jobs page, Workspace) while the
     batch goes on leaves it untranslated; the batch must not count it."""

@@ -49,6 +49,7 @@ export interface RunForm {
   thinking: boolean // "Think harder on tricky text"; only DeepSeek and Ollama can follow it
   female_pronouns: boolean // she/her default for ambiguous pronouns
   genre_notes: boolean // baihe/GL genre guidance in the prompt
+  memory_examples: boolean // this run only: approved translation-memory pairs of the series as prompt examples
 }
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
@@ -171,7 +172,7 @@ export function translateButtonLabel(scanFirst: boolean, lineCount: number): str
 // left out so a reload can't arm a destructive run.
 export const TRANSLATE_DRAFT_STAGE = 'translate'
 
-type SavedForm = Omit<RunForm, 'force' | 'forceConfirmed' | 'female_pronouns' | 'genre_notes'>
+type SavedForm = Omit<RunForm, 'force' | 'forceConfirmed' | 'female_pronouns' | 'genre_notes' | 'memory_examples'>
 
 interface RunOptions {
   v: number
@@ -191,7 +192,7 @@ export function runOptionsDraft(
   o: { form: RunForm; baseEngine: string; reviewFirst: boolean },
   engineDefaultBatch?: number,
 ): RunOptions {
-  const { force: _force, forceConfirmed: _confirmed, female_pronouns: _fp, genre_notes: _gn, ...form } = o.form
+  const { force: _force, forceConfirmed: _confirmed, female_pronouns: _fp, genre_notes: _gn, memory_examples: _me, ...form } = o.form
   if (engineDefaultBatch !== undefined && form.batch_size.trim() === String(engineDefaultBatch)) form.batch_size = ''
   return { v: RUN_OPTIONS_VERSION, form, baseEngine: o.baseEngine, reviewFirst: o.reviewFirst }
 }
@@ -313,6 +314,7 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     // uses), then a preset's value, then the API defaults.
     female_pronouns: c.default_female_pronouns ?? preset.default_female_pronouns ?? false,
     genre_notes: c.include_genre_notes ?? preset.include_genre_notes ?? true,
+    memory_examples: false,
   }
 }
 
@@ -379,6 +381,7 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     thinking: f.thinking,
     default_female_pronouns: f.female_pronouns,
     include_genre_notes: f.genre_notes,
+    ...(f.memory_examples ? { memory_examples: true } : {}),
   }
 }
 

@@ -329,7 +329,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
                         bulk: bool = False, default_female_pronouns: bool | None = None,
                         include_genre_notes: bool | None = None, allow_paid_summary: bool = True,
                         own_lines_only: bool = False, expected_en: dict | None = None, thinking: bool | None = None,
-                        record_run: bool = True) -> dict:
+                        record_run: bool = True, memory_examples: bool = False) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -402,7 +402,8 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
 
     resp, run_settings, novel_reference, glossary_terms, style_guidelines = _prepare_run(
         job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,
-        force_retranslate, own_lines_only, thinking, include_genre_notes, default_female_pronouns)
+        force_retranslate, own_lines_only, thinking, include_genre_notes, default_female_pronouns,
+        memory_examples)
 
     if bulk:
         _launch_bulk(job_id, drama_id, drama, engines[0], opts, reflect, novel_reference,
@@ -422,7 +423,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
 
 def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,
                  force_retranslate, own_lines_only, thinking, include_genre_notes,
-                 default_female_pronouns):
+                 default_female_pronouns, memory_examples=False):
     """(response, run settings, novel reference, glossary terms, style guidelines)."""
     if not bulk:
         translate_run_options.require_no_pending_bulk_overlap(drama_id, eligible)
@@ -430,7 +431,7 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
         drama_id, drama, lines, opts.style_preset,
         include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns,
-        principal=ownership_service.acting_principal())
+        principal=ownership_service.acting_principal(), memory_examples=memory_examples)
     novel_reference = load_novel_reference(drama_id, drama)
     resp = {"job_id": job_id, "drama_id": drama_id, "engine": opts.engine_name,
             "model": getattr(engines[0], "model", opts.model), "target_line_count": len(eligible),

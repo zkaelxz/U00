@@ -72,6 +72,7 @@ export interface TranslateRunStartBody {
   thinking?: boolean // omitted: the title's remembered choice
   default_female_pronouns?: boolean // omitted: false
   include_genre_notes?: boolean // omitted: true
+  memory_examples?: boolean // omitted: false
 }
 
 export interface BulkResumeResult {

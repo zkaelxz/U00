@@ -95,6 +95,15 @@ class TestOthers:
         for body in ({}, {"reviewed": "yes"}, {"reviewed": True, "x": 1}):
             assert local_client.post(f"{B}/{did}/lines/{ids[0]}/reviewed", json=body).status_code == 422, body
 
+    def test_mark_episode_reviewed(self, local_client):
+        did, ids = _seed()
+        r = local_client.post(f"{B}/{did}/mark-reviewed")
+        assert r.status_code == 200, r.text
+        assert r.json() == {"reviewed": 1, "remembered": 1, "kept_existing": 0,
+                            "skipped_flagged": 1, "already_reviewed": 0}
+        assert [row["reviewed"] for row in db.load_lines(did)] == [1, 0]
+        assert local_client.post(f"{B}/99999/mark-reviewed").status_code == 404
+
     def test_mark_checked_refuses_english_that_changed_since_it_was_read(self, local_client):
         did, ids = _seed()
         url = f"{B}/{did}/lines/{ids[0]}/reviewed"

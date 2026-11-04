@@ -138,6 +138,7 @@ function advancedSummary(f: RunForm, base: RunForm, reviewFirst: boolean): strin
   if (f.cost_cap.trim()) parts.push(`cap $${f.cost_cap.trim()}`)
   if (f.genre_notes !== base.genre_notes) parts.push(f.genre_notes ? 'genre notes on' : 'genre notes off')
   if (f.female_pronouns !== base.female_pronouns) parts.push(f.female_pronouns ? 'she/her default' : 'no she/her default')
+  if (f.memory_examples) parts.push('approved examples')
   if (f.fallbacks.length) parts.push(`${f.fallbacks.length} fallback${f.fallbacks.length === 1 ? '' : 's'}`)
   if (f.reflect) parts.push('reflect')
   if (f.bulk) parts.push('bulk')
@@ -638,6 +639,12 @@ function RunPanel({
               help={`Adds the baihe notes to the prompt: both leads are women, keep 姐姐/妹妹-style address, do not soften romance. It does not by itself turn he into she; use the she/her default for that.${savedNote}`}
             >
               <Toggle checked={f.genre_notes} onChange={(v) => saveToggle('genre_notes', v)} />
+            </Field>
+            <Field
+              label="Use approved translations as examples"
+              help="Adds lines of this series you already approved (edited by hand, accepted from memory, or marked reviewed) that closely match these lines to the prompt, so repeated phrases keep one wording. Needs a title in a series; this run only. Whether it improves quality has not been measured."
+            >
+              <Toggle checked={f.memory_examples} onChange={(v) => set('memory_examples', v)} />
             </Field>
             <Field
               label="Default ambiguous pronouns to she/her"
