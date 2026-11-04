@@ -6,7 +6,7 @@ import { MoveHere } from './MoveHere'
 
 const t: TrackedSeries = {
   source: 'old', series_id: 'o1', title: 'Old title', url: '', drama_id: 3, last_checked: null,
-  last_check_error: null, save_cbz: false,
+  last_check_error: null, save_cbz: false, extension_only: false,
 }
 const show = (candidates: { tracked: TrackedSeries; label: string }[]) =>
   renderToStaticMarkup(

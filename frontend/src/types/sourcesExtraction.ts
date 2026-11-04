@@ -63,11 +63,6 @@ export type ExtractionImage = Schemas['ExtractionImage']
 
 export type ExtractionComic = Schemas['ExtractionComic']
 
-// Why following next-chapter links stopped.
-type FollowStop =
-  | 'cap' | 'no_next' | 'cycle' | 'other_host' | 'downgrade' | 'gate' | 'not_public' | 'handoff' | 'unreachable' | 'invalid'
-  | 'chars'
-
 // One page a followed import read; id 0 is the reviewed first page.
 export interface FollowedPage {
   id: number
@@ -77,10 +72,7 @@ export interface FollowedPage {
   host: string
 }
 
-export interface ExtractionFollow {
-  pages: FollowedPage[]
-  stop: FollowStop | string
-}
+export type ExtractionFollow = Schemas['ExtractionFollow']
 
 // GET /api/sources/dramas/{id}/extraction
 export interface ExtractionReview {

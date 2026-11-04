@@ -25,19 +25,7 @@ export interface ComicPageInfo {
   hidden?: boolean
 }
 
-export interface ComicChapter {
-  id: string
-  // As given by the source; '' when it gave none.
-  title: string
-  // False for the one group of pages with no chapter data (older imports).
-  known: boolean
-  // 1-based ordinal of the chapter's first page.
-  first_page: number
-  page_count: number
-  hidden_count: number
-  // The chapter's page on its source (scheme, host and path only); '' or absent when not known.
-  url?: string
-}
+export type ComicChapter = Schemas['ComicChapter']
 
 // C1: GET /pages
 export interface ComicPagesResponse {

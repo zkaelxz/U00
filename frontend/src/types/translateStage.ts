@@ -80,20 +80,7 @@ interface TranslateBatchError {
 
 export type TranslateErrorsDismissed = Schemas['TranslateErrorsDismissed']
 
-export interface TranslateRunEstimate {
-  engine: string
-  model: string | null
-  estimated_usd: number | null
-  target_line_count: number
-  free: boolean
-  cap_applies: boolean
-  effective_cap_usd: number | null
-  monthly_refusal: boolean
-  estimate_above_cap: boolean
-  thinking?: boolean
-  // True when thinking is on: hidden reasoning is billed but cannot be predicted.
-  estimate_is_lower_bound?: boolean
-}
+export type TranslateRunEstimate = Schemas['TranslateRunEstimate']
 
 export interface EstimateParams {
   engine?: string
@@ -174,17 +161,7 @@ export type TranslateRunStarted = Schemas['TranslateRunStarted']
 
 export type GlossaryAffectedLine = Schemas['GlossaryAffectedLine']
 
-export interface GlossaryAffectedPreview {
-  drama_id: number
-  has_glossary: boolean
-  terms: { id: number; term_original: string; term_translation: string }[]
-  selected_term_ids: number[]
-  lines: GlossaryAffectedLine[]
-  hand_edited_count: number
-  preview_hash: string
-  estimate: TranslateRunEstimate
-  estimate_with_hand_edited: TranslateRunEstimate
-}
+export type GlossaryAffectedPreview = Schemas['GlossaryAffectedPreview']
 
 export interface GlossaryAffectedParams {
   term_ids?: number[]
