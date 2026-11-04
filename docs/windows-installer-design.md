@@ -505,12 +505,35 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   anything it writes under the install folder, opens request files once and
   checks the open handle (single hard link, size), and settles an update cut
   short earlier (the launcher that normally does it never runs under the
-  service). **Open decision for the owner:** SYSTEM now writes inside the
-  user-owned install folder, so a process running as that user could point a
-  link there between the helper's checks and its writes. The robust fix is for
-  Setup to make the install folder administrator-owned (user read/run only)
-  once the service is installed; not done here because it changes who may
-  update or repair the install without a prompt.
+  service). **The install folder is administrator-owned.** SYSTEM writes inside it, so
+  with the service task Setup's `install` (`installer/service_lock.py`) first
+  replaces the root's whole permission list in one step (`SetNamedSecurityInfoW`
+  with a protected DACL: SYSTEM and Administrators full control, Users and
+  `NT SERVICE\BaiheStudio` read and run, and an OWNER RIGHTS entry that cuts
+  the owner's implicit right to rewrite permissions to reading, so an entry the
+  user already had on the folder cannot survive and the user, still owner for a
+  moment, cannot re-grant itself), then sets the owner of everything under it to
+  Administrators and resets the children's own entries (never the root, which
+  would re-enable inheritance). It then walks the tree and fails the install on
+  an unlistable folder, a link, a hard-linked file, an owner that isn't
+  Administrators or SYSTEM, or any entry whose DACL lets another account do more
+  than read and run (read as SDDL). It then writes
+  `install-folder-locked.txt` (the folder's path) in the admin folder.
+  `apply-app-update` refuses unless that marker names this install folder and
+  the root, `app\` and `manifest.json` are still owned by Administrators or
+  SYSTEM (read with `GetNamedSecurityInfoW`; unreadable counts as not owned),
+  and holds the root and every folder above it open without delete sharing for the whole update, refusing if any is a link (the default install folder sits under folders the user owns, who could otherwise swap one for a junction or rename the locked folder away between the checks and the path-based writes), so the owner check is joined by a DACL check (the same rule as the install's walk) on the root, `app\` and `manifest.json`; an install from before this change, or one the user took back, updates
+  only after a full installer run. Setup, which runs as the user, would
+  otherwise be unable to replace files: it runs `stop --for-update` first
+  (only when the marker exists, because an older helper doesn't know the
+  option), which stops the services, deletes the marker and resets the
+  folder's permissions to what its parent gives; `install` locks it again at
+  the end. `uninstall` unlocks it before the uninstaller deletes the folder,
+  and a failed `install` unlocks it on rollback. Consequences: the user can no
+  longer change files in that folder without an administrator prompt, and
+  the in-app update that runs as the user is already refused under the
+  service. Not done: a hard link from outside the folder into it would have its
+  owner changed by the lock (nothing in Baihe creates one).
   Not covered: the library-database backup rule is checked by the server only
   (a compromised server could skip it; the cost is an unreliable rollback, not
   code execution); a crash in the milliseconds between the two renames leaves
