@@ -307,3 +307,82 @@ def test_a_stamp_repeated_in_place_from_the_pages_before_is_not_translated(harne
     # The first page has nothing before it to repeat, so its copy is still read.
     assert "水印站" in engine.calls and engine.calls.count("水印站") == 1
     assert _texts(p2)["水印站"] == ""
+
+
+class _LLM:
+    """Reference-capable engine double: every request goes through the patched
+    call_llm_json, which answers a brief request or a page-translation request."""
+    supports_reference = True
+    client = object()
+    name = "llm"
+    model = "llm-test"
+    last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+
+def _llm_calls(monkeypatch, brief_reply='{"brief": "Ming is the hero."}'):
+    from engine_backends import llm_tasks
+    prompts = []
+
+    def fake(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None, **kw):
+        prompts.append(prompt)
+        if "comic chapter" in prompt:
+            return brief_reply
+        sent = json.loads(prompt[prompt.index("(JSON):\n") + 8:prompt.index("\n\nReturn ONLY")])
+        return json.dumps({"translations": {i["id"]: f"EN {i['text']}" for i in sent}})
+    monkeypatch.setattr(llm_tasks, "call_llm_json", fake)
+    return prompts
+
+
+def _two_pages(monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    p1, p2 = _page(did, 0), _page(did, 1)
+    detected = []
+
+    def detect(path, lang, page_id=None, **kw):
+        detected.append(page_id)
+        return [_region("你好" if page_id == p1 else "世界")], []
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    return did, p1, p2, detected
+
+
+def test_every_page_is_detected_once_when_the_chapter_is_read_first(harness, monkeypatch):
+    did, p1, p2, detected = _two_pages(monkeypatch)
+    run_svc._run_job("j", did, "all", [p1, p2], "mt", _MT(), "auto")
+    assert sorted(detected) == [p1, p2]
+
+
+def test_the_chapter_brief_reaches_each_pages_translation_and_is_cached(harness, monkeypatch):
+    did, p1, p2, _ = _two_pages(monkeypatch)
+    prompts = _llm_calls(monkeypatch)
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
+    page_prompts = [p for p in prompts if "comic chapter" not in p]
+    assert len(prompts) - len(page_prompts) == 1
+    assert page_prompts and all("Ming is the hero." in p for p in page_prompts)
+    assert "Page 1: 你好" in next(p for p in prompts if "comic chapter" in p)
+    # Running the same chapter again reads the brief from disk, not from the engine.
+    prompts.clear()
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
+    assert not any("comic chapter" in p for p in prompts)
+
+
+def test_the_chapter_brief_can_be_turned_off(harness, monkeypatch):
+    did, p1, p2, _ = _two_pages(monkeypatch)
+    patch_setting(monkeypatch, "scanlate_chapter_brief", False)
+    prompts = _llm_calls(monkeypatch)
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
+    assert prompts and not any("comic chapter" in p or "Ming is the hero." in p for p in prompts)
+
+
+def test_a_brief_that_is_not_json_does_not_stop_the_run(harness, monkeypatch):
+    did, p1, p2, _ = _two_pages(monkeypatch)
+    _llm_calls(monkeypatch, brief_reply="sorry, no")
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
+    assert _texts(p1) == {"你好": "EN 你好"}
+    assert _texts(p2) == {"世界": "EN 世界"}
+
+
+def test_a_single_page_run_reads_no_brief(harness, monkeypatch):
+    did, p1, _, _ = _two_pages(monkeypatch)
+    prompts = _llm_calls(monkeypatch)
+    run_svc._run_job("j", did, "all", [p1], "llm", _LLM(), "auto")
+    assert not any("comic chapter" in p for p in prompts)
