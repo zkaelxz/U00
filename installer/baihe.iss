@@ -606,9 +606,19 @@ end;
 // through the admin copy of the install being replaced. '' when done or
 // when there's nothing to stop.
 function StopBackgroundService(): String;
+var
+  StopArgs, Locked: String;
 begin
   Result := '';
-  if not ServiceInstalled() then
+  // --for-update unlocks the admin-owned install folder, which only a locked
+  // install has (an older helper doesn't know the option).
+  Locked := AdminDir() + '\install-folder-locked.txt';
+  StopArgs := 'stop';
+  if FileExists(Locked) then
+    StopArgs := StopArgs + ' --for-update';
+  // The service can be gone (removed by hand) while its folder stays locked:
+  // Setup, running as the user, couldn't replace or delete anything then.
+  if not ServiceInstalled() and not FileExists(Locked) then
     Exit;
   // Without its helper no prompt is ever shown, and the service stays
   // installed whatever the owner stops, so every rerun would fail the same way.
@@ -616,8 +626,9 @@ begin
     Result := 'Setup couldn''t stop Baihe Studio''s background service, so its files can''t be ' +
       'replaced: ' + AdminDir() + ' was damaged. An administrator can remove the service ' +
       'with: sc stop ' + AppServiceName + ', then sc delete ' + AppServiceName +
-      ', then run Setup again.'
-  else if not RunServiceHelper(AdminDir(), 'stop') then
+      ', then, in the same administrator prompt, unlock the install folder with: icacls "' +
+      ExpandConstant('{app}') + '" /reset /T /L, then run Setup again.'
+  else if not RunServiceHelper(AdminDir(), StopArgs) then
     Result := 'Setup couldn''t stop Baihe Studio''s background service, so its files can''t be ' +
       'replaced. Allow the administrator prompt, or stop the "Baihe Studio" service in ' +
       'Services, then run Setup again.';

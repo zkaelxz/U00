@@ -107,7 +107,8 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   const wait = (jobRunning || running) ? JOB_RUNNING_MESSAGE : null
 
   function jobDone(j: JobRecord) {
-    const r = (j.result ?? {}) as ResplitResult & { failed_reason?: string; detail?: string }
+    // A job's result is untyped JSON, and a stopped run may carry only some of the summary's fields.
+    const r = (j.result ?? {}) as Partial<ResplitResult> & { failed_reason?: string; detail?: string }
     if (jobSucceeded(j) && !r.failed_reason) {
       setSummary(resplitSummary(r))
       const handle = startedHere.current ? undoHandleOf(r) : null

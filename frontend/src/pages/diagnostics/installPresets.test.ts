@@ -7,10 +7,12 @@ import {
   type TaskRunResult,
 } from './installPresets'
 
-const task = (o: Partial<DiagnosticsInstallTask> = {}): DiagnosticsInstallTask => ({
+// roles and the missing lists are left out unless a test passes them: that is a server older than the
+// roles, which the helpers still read as "installed count only".
+const task = (o: Partial<DiagnosticsInstallTask> = {}) => ({
   id: 't', group: 'Audio', label: 'Transcribe', help: '', packages: ['a', 'b', 'c'],
   installed_count: 1, to_install: ['a', 'b'], approx_mb: 82, ...o,
-})
+}) as DiagnosticsInstallTask
 
 const pkg = (o: Partial<DiagnosticsPackageInfo> = {}): DiagnosticsPackageInfo => ({
   name: 'a', dist: 'a', installed: false, installable: true, powers: '', approx_mb: 5, pulls_torch: false,
