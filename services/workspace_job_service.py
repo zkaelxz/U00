@@ -17,13 +17,15 @@ import adaptive_style
 import db
 import background_jobs
 from jobs import job_launch
-from engine_backends import translate_pipeline, fallback, pricing, engine_registry
+from engine_backends import translate_pipeline, fallback, pricing, engine_registry, llm_tasks, paid_calls
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
 from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
 from engine_backends.run_limits import FailureStreak
+from engine_backends.shared import LLMTaskTimeout
+from memory_headroom import HeadroomError
 import translation_finish
 import emotion
 import core as core_module
@@ -176,10 +178,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
     # A run takes minutes, and the user may type English meanwhile.
     _save, _notes, kept_edits = translation_finish.own_lines_callbacks(drama_id, lines, provenance)
-
     job_timing_service.mark_stage(job_id, "Translate")
     _, errors = translate_pipeline.translate_lines_with_engine(
-        lines, engine, drama_meta=drama_meta, style_note=style_note,
+        lines, engine, drama_meta=_with_episode_context(
+            job_id, drama_id, lines, engine, engine_choice, drama_meta, character_names, target_ids), style_note=style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         context_window=context_window, context_window_ahead=context_window_ahead,
@@ -234,6 +236,44 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         # lines already translated; returning here would end the job done at
         # 100% ("Finished."), so it ends cancelled with its real progress.
         raise background_jobs.JobCancelled(job_id)
+
+
+def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_meta,
+                          character_names, target_ids) -> dict:
+    """drama_meta plus what the batches carry beyond the previous episode's summary:
+    the series note (earlier episodes only) and the episode's brief. The brief is
+    read from the title when one is saved (so a person's edit is used as written)
+    and otherwise written now by one extra call over the whole episode and saved
+    for editing; clear it in Details to have it written again. Only a run over the
+    whole title writes one: a run over a few lines would read the whole episode
+    to translate three. Never stops the run: an answer that is missing or not
+    usable gives no brief; a cancel, a memory refusal or a timeout still ends it."""
+    meta = dict(drama_meta)
+    earlier = db.earlier_episode_summaries(drama_id)
+    if earlier:
+        meta["series_note"] = "\n".join(f"Episode {n}: {s}" for n, s in earlier)
+    if (meta.get("episode_brief") or "").strip() or target_ids is not None or len(lines) < 2:
+        return meta
+    if not settings_service.get("episode_brief"):
+        return meta
+    background_jobs.update_progress(job_id, 0.0, "Reading the whole episode first")
+    try:
+        with llm_tasks.bounded_job_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id)):
+            brief = llm_tasks.generate_episode_brief(
+                lines, engine, meta, character_names,
+                usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"))
+    except (HeadroomError, LLMTaskTimeout, background_jobs.JobCancelled):
+        raise
+    except Exception as exc:
+        from applog import get_logger
+        get_logger().warning("Episode brief failed: %s", engine_shared.redact_secrets(str(exc)))
+        return meta
+    if brief:
+        meta["episode_brief"] = brief
+        # A brief typed while the call ran is the person's; keep it.
+        if not ((db.get_drama(drama_id) or {}).get("episode_brief") or "").strip():
+            db.update_drama(drama_id, episode_brief=brief)
+    return meta
 
 
 def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, engine, lines,

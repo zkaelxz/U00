@@ -53,6 +53,30 @@ def build_previous_episode_summary_block(drama_meta: dict) -> str:
             "in your translation:\n" + text + "\n")
 
 
+# The series note keeps the most recent episodes when it has to be cut: they are
+# the ones the current episode is most likely to call back to.
+_SERIES_NOTE_MAX_CHARS = 2000
+
+
+def build_episode_brief_block(drama_meta: dict) -> str:
+    """The whole-episode brief written (and editable) before translating, plus the
+    series note: the summaries of the episodes before the previous one, oldest
+    first, from services.workspace_job_service. Both are empty when unset."""
+    parts = []
+    note = (drama_meta.get("series_note") or "").strip()
+    if note:
+        parts.append("- Earlier in this series (summaries of earlier episodes, oldest "
+                     "first; background only, do not mention it directly in your "
+                     "translation):\n" + note[-_SERIES_NOTE_MAX_CHARS:] + "\n")
+    brief = (drama_meta.get("episode_brief") or "").strip()
+    if brief:
+        parts.append("- Brief of this whole episode, written before translating (who is "
+                     "who, register, recurring terms, ambiguous lines) -- use it to keep "
+                     "names and register consistent; the lines still win if they "
+                     "disagree with it:\n" + brief + "\n")
+    return "".join(parts)
+
+
 # Markers in a drama's own (freeform) genre field that mean "yes,
 # this really is baihe/yuri content" -- matched as whole words so a genre
 # like "tangled romance" doesn't false-positive on "gl". An unset/blank
@@ -142,6 +166,7 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
         + (f"- Additional style notes: {style_note}\n" if style_note else "")
         + build_project_instructions_block(drama_meta)
         + build_previous_episode_summary_block(drama_meta)
+        + build_episode_brief_block(drama_meta)
         + "- Return ONLY a JSON object mapping each line's number (as a string) to its "
         "translation, e.g. {\"1\": \"...\", \"2\": \"...\"} -- include EVERY number you "
         "were given, and no numbers you weren't. No preamble, no markdown fences, no "
