@@ -15,6 +15,8 @@ const src = (name: string, over: Partial<SourceSummary> = {}): SourceSummary => 
     search: true, get_series: true, get_chapters: true, get_pages: false, download_page: false,
     get_chapter_text: false, get_audio_url: false, login: false,
   },
+  extension_only: false,
+  needs_browser: false,
   import_supported: false,
   auth_supported: false,
   supports_adult_toggle: false,

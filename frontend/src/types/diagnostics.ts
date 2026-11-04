@@ -44,23 +44,7 @@ export type DiagnosticsLogTail = Schemas['DiagnosticsLogTail']
 
 export type DiagnosticsSupportReport = Schemas['DiagnosticsSupportReport']
 
-export interface DiagnosticsPackageInfo {
-  name: string
-  dist: string
-  installed: boolean
-  // From installed metadata; null when not installed or unreadable.
-  installed_version?: string | null
-  // The app's minimum (requirements files' >=) and whether the installed one is older.
-  min_version?: string | null
-  below_min?: boolean
-  installable: boolean
-  powers: string
-  approx_mb: number | null
-  pulls_torch: boolean
-  source_url: string | null
-  not_offered_reason: string | null
-  warning: string | null
-}
+export type DiagnosticsPackageInfo = Schemas['DiagnosticsPackageInfo']
 
 export type TaskRole = 'required' | 'recommended' | 'optional'
 

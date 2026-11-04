@@ -21,33 +21,9 @@ export type ScanlateRunRequest = Schemas['ScanlateRunRequest']
 export type ScanlateExportFormat = 'zip' | 'pdf'
 
 export type ScanlateJobStarted = Schemas['ScanlateJobStarted']
-export interface ScanlateRegion {
-  id: number
-  idx: number
-  x: number
-  y: number
-  w: number
-  h: number
-  source_text: string
-  translated_text: string
-  font_size: number
-  font_category: string
-  kind: string
-  // "#rrggbb" set in the editor; null lets the render choose.
-  text_color: string | null
-}
+export type ScanlateRegion = Schemas['ScanlateRegion']
 
-export interface ScanlatePageDetail {
-  id: number
-  drama_id: number
-  ordinal: number
-  width: number
-  height: number
-  rev: number
-  undo_depth: number
-  has_rendered: boolean
-  regions: ScanlateRegion[]
-}
+export type ScanlatePageDetail = Schemas['ScanlatePageDetail']
 
 // The fields a box edit may change; only the ones present count.
 export type ScanlateRegionFields = Partial<

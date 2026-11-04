@@ -13,7 +13,7 @@ const src = (name: string, over: Partial<SourceSummary> = {}): SourceSummary => 
   name, display_name: name.toUpperCase(), content_types: [], languages: [],
   supports: { search: true, get_series: true, get_chapters: true, get_pages: false, download_page: false, get_chapter_text: false, get_audio_url: false, login: false },
   import_supported: true, auth_supported: false, supports_adult_toggle: false, enabled: true, adult_enabled: false,
-  health: 'green', has_saved_signin: false, pace: 'normal', fast_allowed: false, slowed_down: false, ...over,
+  health: 'green', has_saved_signin: false, pace: 'normal', fast_allowed: false, slowed_down: false, extension_only: false, needs_browser: false, ...over,
 })
 
 const job = { status: 'idle', result: null, error: null, progress: null, startError: null, start: vi.fn(), cancel: vi.fn(), reset: vi.fn(), clearStartError: vi.fn() } as never
