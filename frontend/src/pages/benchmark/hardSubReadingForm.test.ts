@@ -31,3 +31,13 @@ describe('hard-sub reading result', () => {
     expect(clock(125.4)).toBe('2:05')
   })
 })
+
+describe('hard-sub speaker and caption wording', () => {
+  it('trims names and describes the outcomes', async () => {
+    const { namesToSend, describeApply, describeAccept } = await import('./hardSubReadingForm')
+    expect(namesToSend({ 'white-left': '  Mei ' })).toEqual({ 'white-left': 'Mei' })
+    expect(describeApply({ labelled: 3, kept_manual: 1, unplaced: 2 })).toBe('3 lines labelled, 1 kept (set by hand), 2 not placed.')
+    expect(describeAccept({ changed: 2, skipped: 0 })).toBe('2 lines changed.')
+    expect(describeAccept({ changed: 1, skipped: 1 })).toBe('1 lines changed, 1 skipped (edited since).')
+  })
+})

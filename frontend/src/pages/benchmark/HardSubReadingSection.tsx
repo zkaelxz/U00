@@ -9,6 +9,7 @@ import { usePersistedState } from '../../hooks/usePersistedState'
 import type { HardSubReadingResult } from '../../types/benchmark'
 import { plainError } from './benchmarkForm'
 import { clock, describeOverall, describeReading, groupRows } from './hardSubReadingForm'
+import { HardSubSpeakerActions } from './HardSubSpeakerActions'
 
 type Title = { id: number; name: string }
 
@@ -104,6 +105,7 @@ export function HardSubReadingSection({ pc }: { pc: PcMode }) {
           ))}
         </div>
       )}
+      {outcome && chosen != null && <HardSubSpeakerActions dramaId={chosen} groupKeys={outcome.groups.map((g) => g.key)} />}
       {error && (
         <p className="error" role="alert">
           {error}

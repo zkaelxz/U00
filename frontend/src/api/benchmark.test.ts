@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   arenaExportUrl, checkBenchmarkClips, deleteBenchmarkRun, editCaseReference, getCaseEdits, importBenchmarkClips, runExportUrl, setCaseExcluded,
-  addHardSubCases, addRegressionCase, buildBenchmarkSet, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
+  acceptHardSubCaptions, applyHardSubReading, getHardSubCaptions, addHardSubCases, addRegressionCase, buildBenchmarkSet, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
   getBenchmarkOptions, getBenchmarkRun, getBenchmarkSets, importGoldenSet, listBenchmarkRuns, startBenchmarkRun,
 } from './benchmark'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
@@ -119,6 +119,30 @@ describe('benchmark api', () => {
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toEqual({ line_ids: [42] })
     expect(localHeader(init)).toBe('1')
+  })
+})
+
+describe('benchmark api: hard-sub speakers and captions', () => {
+  it('applies with colour names only when some were typed', async () => {
+    const { mock, f } = reply(200, { labelled: 1, kept_manual: 0, unplaced: 0, speakers: ['Mei'] })
+    await applyHardSubReading(3, { 'yellow-right': 'Mei' }, f)
+    await applyHardSubReading(3, {}, f)
+    const [url, init] = mock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/benchmark/dramas/3/hard-sub-reading/apply')
+    expect(JSON.parse(init.body as string)).toEqual({ names: { 'yellow-right': 'Mei' } })
+    expect(localHeader(init)).toBe('1')
+    expect(JSON.parse((mock.mock.calls[1] as [string, RequestInit])[1].body as string)).toEqual({})
+  })
+
+  it('lists caption differences and accepts chosen lines by id', async () => {
+    const { mock, f } = reply(200, { suggestions: [] })
+    await getHardSubCaptions(3, f)
+    expect(mock.mock.calls[0][0]).toBe('/api/benchmark/dramas/3/hard-sub-reading/captions')
+    const second = reply(200, { changed: 1, skipped: 0 })
+    await acceptHardSubCaptions(3, [7], second.f)
+    const [url, init] = second.mock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/benchmark/dramas/3/hard-sub-reading/captions/accept')
+    expect(JSON.parse(init.body as string)).toEqual({ line_ids: [7] })
   })
 })
 
