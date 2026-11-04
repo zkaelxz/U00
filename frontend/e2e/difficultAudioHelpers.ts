@@ -1,7 +1,7 @@
 import { expect, type Page } from '@playwright/test'
 import { openAdvanced } from './sourceHelpers'
 
-export const DIFFICULT_HINT = 'Use when speakers scream, whisper or talk over each other; slower and may add a few false lines.'
+export const DIFFICULT_HINT = 'For screaming, whispering or very uneven volume, or if Sensitivity is not enough. Slower; may add a few false lines.'
 
 // Turns "Difficult audio" on in Transcribe > Advanced and saves; the config route is mocked so the
 // shared seeded library is not changed. Returns the body the server received.

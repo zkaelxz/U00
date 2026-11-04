@@ -19,7 +19,7 @@ const page = (n: number, chapter: string, over: Partial<ComicPageInfo> = {}): Co
   chapter_id: chapter, ...over,
 })
 const ch = (id: string, title: string, first: number, count: number, hidden = 0, known = true): ComicChapter => ({
-  id, title, known, first_page: first, page_count: count, hidden_count: hidden,
+  id, title, known, first_page: first, page_count: count, hidden_count: hidden, url: '',
 })
 
 // Chapter a: pages 1-3 (page 1 hidden), chapter b: pages 4-5.
@@ -88,7 +88,7 @@ describe('chapter prefs', () => {
 
 describe('chapterRows', () => {
   const chap = (id: string, first: number, count: number, over: Partial<ComicChapter> = {}): ComicChapter => ({
-    id, title: '', known: true, first_page: first, page_count: count, hidden_count: 0, ...over,
+    id, title: '', known: true, first_page: first, page_count: count, hidden_count: 0, url: '', ...over,
   })
   const page = (ordinal: number, chapter_id: string, over: Partial<ComicPageInfo> = {}): ComicPageInfo => ({
     id: ordinal, ordinal, width: 1, height: 1, has_rendered: false, has_regions: false, image_version: null, chapter_id, ...over,

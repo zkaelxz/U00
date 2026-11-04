@@ -41,19 +41,9 @@ interface LibrarySeries {
   dramas: LibraryDramaRef[]
 }
 
-export interface LibrarySearchHit {
-  drama_id: number
-  idx: number
-  zh: string | null
-  en: string | null
-  title_en: string | null
-  title_zh: string | null
-}
+export type LibrarySearchHit = Schemas['LibrarySearchHit']
 
-export interface LibrarySearchResponse {
-  count: number
-  items: LibrarySearchHit[]
-}
+export type LibrarySearchResponse = Schemas['LibrarySearchResponse']
 
 interface LibraryHistoryEntry {
   drama_id: number
@@ -80,20 +70,8 @@ export type LibraryFilterOptions = Schemas['LibraryFilterOptions']
 
 export type ReadingHistoryClearResult = Schemas['ReadingHistoryClearResult']
 
-export interface LibraryPreset {
-  id: number
-  name: string
-  translation_engine: string | null
-  engine_model: string | null
-  style_preset: string | null
-  locale: string | null
-  // Prompt toggles (0/1), as stored.
-  default_female_pronouns?: number | null
-  include_genre_notes?: number | null
-  // The profile's other settings (see ProfileOptions) and whether New title preselects it.
-  options?: ProfileOptions
-  is_default?: boolean
-}
+// The server types a profile's options as a free dict; the editor reads them as ProfileOptions.
+export type LibraryPreset = Omit<Schemas['LibraryPreset'], 'options'> & { options: ProfileOptions }
 
 // api/schemas/translate.py ProfileEditorFields: what the profile editor offers.
 export interface ProfileField {
@@ -130,24 +108,7 @@ export interface ProfileOptions {
 
 export type LibraryVoice = Schemas['LibraryVoice']
 
-export interface DramaCreateRequest {
-  source_language: string
-  title_en?: string
-  title_zh?: string
-  author?: string
-  studio?: string
-  director?: string
-  voice_actors?: string
-  summary?: string
-  media_type?: string
-  release_date?: string
-  // "Link (optional)": with no name typed, the server names the title from it.
-  source_url?: string
-  // series_id and new_series_name are mutually exclusive.
-  series_id?: number
-  new_series_name?: string
-  preset_id?: number
-}
+export type DramaCreateRequest = Schemas['DramaCreateRequest']
 
 // api/schemas/library.py DramaMetadataUpdate: partial, only sent keys are written.
 export type DramaMetadataUpdate = Schemas['DramaMetadataUpdate']

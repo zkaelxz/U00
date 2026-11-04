@@ -46,8 +46,8 @@ test('the link runs every step and stops at the glossary review', async ({ page 
   await page.goto('/#/drama/2')
   await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
   await page.getByRole('button', { name: 'Import from link' }).click()
-  const review = page.getByRole('link', { name: 'Review the glossary' })
-  await expect(review).toHaveAttribute('href', '#/drama/2/translate?tab=glossary')
+  const review = page.getByRole('link', { name: 'Review glossary and translate' })
+  await expect(review).toHaveAttribute('href', '#/drama/2/translate?tab=translate')
   expect(s.calls).toEqual(['import', 'attach', 'tag', 'extract'])
 })
 
@@ -60,7 +60,7 @@ for (const failing of ['import', 'attach', 'tag', 'extract']) {
     await expect(page.getByRole('alert')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled()
     expect(s.calls.at(-1)).toBe(failing)
-    await expect(page.getByRole('link', { name: 'Review the glossary' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toHaveCount(0)
   })
 }
 
@@ -69,7 +69,16 @@ test('a reload mid-chain continues from the chapters the server already holds', 
   await page.goto('/#/drama/2')
   await expect(page.getByLabel('Link to the novel')).toHaveCount(0)
   await page.getByRole('button', { name: 'Continue' }).click()
-  await expect(page.getByRole('link', { name: 'Review the glossary' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
+  expect(s.calls).toEqual(['tag', 'extract'])
+})
+
+test('Translate on a novel with chapters and no lines runs the chain to the glossary review', async ({ page }) => {
+  const s = await mockServer(page, { chapters: 3, text: true })
+  await page.goto('/#/drama/2')
+  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
   expect(s.calls).toEqual(['tag', 'extract'])
 })
 
@@ -78,7 +87,7 @@ test('Enter in the link box starts the chain', async ({ page }) => {
   await page.goto('/#/drama/2')
   await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
   await page.getByLabel('Link to the novel').press('Enter')
-  await expect(page.getByRole('link', { name: 'Review the glossary' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
   expect(s.calls[0]).toBe('import')
 })
 

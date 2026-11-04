@@ -22,6 +22,7 @@ from jobs import job_runner
 from services import voice_engine_install_service as svc
 from tests.job_helpers import wait_for_job
 
+_REAL_COMMANDS = svc._commands      # the fixture below swaps the module's own for fake steps
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
 JOB = svc.job_id("qwen3_tts")
 
@@ -58,6 +59,12 @@ def env(isolated_db, monkeypatch, tmp_path):
     python = voice_venv.venv_python("qwen3_tts")
     monkeypatch.setattr(svc, "_free_mb", lambda: state["free"])
     monkeypatch.setattr(svc.portable, "is_installed", lambda: state.get("installed", False))
+    # No real Python is probed: the test names the one an installed copy would find.
+    monkeypatch.setattr(svc.shutil, "which", lambda name: name if name in state.get("found", ()) else None)
+    monkeypatch.setattr(svc, "_probe_python", lambda command: state.get("probe", {}).get(tuple(command)))
+    svc._FULL_PYTHON.update(at=None, found=None, probing=False)
+    # Runs the refresh inline; a test that wants to see the request not probing replaces it.
+    monkeypatch.setattr(svc, "_spawn", lambda fn: fn())
     monkeypatch.setattr(svc.diagnostics_torch, "nvidia_driver_info", lambda: state.get("nvidia"))
     monkeypatch.setattr(svc.diagnostics_torch, "compute_capabilities", lambda: state.get("caps", []))
     monkeypatch.setattr(svc, "_commands", lambda engine: [
@@ -161,7 +168,7 @@ def test_refusals_start_nothing(client, env, engine, confirm, free, status, text
 
 
 @pytest.mark.parametrize("setup, text", [
-    ({"installed": True}, "runs from start.bat"),
+    ({"installed": True}, "needs Python 3.12 or 3.13 installed for all users"),
     ({"nvidia": {"gpu_name": "GTX", "driver_version": "450.80"}}, "too old for CUDA 12"),
 ])
 def test_copies_it_cannot_work_on_are_refused(client, env, setup, text):
@@ -170,6 +177,74 @@ def test_copies_it_cannot_work_on_are_refused(client, env, setup, text):
     assert r.status_code == 422 and text in r.json()["error"]["message"]
     assert text in client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]["refusal"]
     assert background_jobs.get_status(JOB) is None
+
+
+def test_an_installed_copy_builds_the_folder_from_a_full_python(client, env):
+    full = "C:/Program Files/Python313/python.exe"
+    env.update(installed=True, found=("py",), probe={("py", "-3.13"): (full, (3, 13))})
+    row = client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]
+    assert row["refusal"] is None
+    assert _REAL_COMMANDS("qwen3_tts")[0][2][:3] == [full, "-m", "venv"]
+
+
+def test_a_status_poll_never_runs_the_probe(client, env, monkeypatch):
+    env.update(installed=True, found=("py",), probe={("py", "-3.13"): ("C:/Py/python.exe", (3, 13))})
+    probes, queued = [], []
+    monkeypatch.setattr(svc, "_probe_python", lambda command: probes.append(command))
+    monkeypatch.setattr(svc, "_spawn", queued.append)
+    row = client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]
+    assert probes == [] and len(queued) == 1
+    assert row["refusal"] == "Looking for Python 3.12 or 3.13 on this PC…"
+    # A second poll while the first probe runs does not start another.
+    client.get("/api/diagnostics/voice-engines")
+    assert len(queued) == 1
+
+
+def test_python_installed_after_a_miss_is_seen_on_the_next_poll(client, env):
+    env.update(installed=True, found=("py",))
+    first = client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]
+    assert "needs Python 3.12 or 3.13" in first["refusal"]
+    env["probe"] = {("py", "-3.13"): ("C:/Py/python.exe", (3, 13))}
+    assert client.get("/api/diagnostics/voice-engines").json()["engines"][_QWEN]["refusal"] is None
+
+
+def test_starting_an_install_probes_afresh_instead_of_trusting_the_cache(client, env):
+    env.update(installed=True, found=("py",))
+    client.get("/api/diagnostics/voice-engines")
+    svc._FULL_PYTHON.update(at=time.monotonic(), found=None)
+    env["probe"] = {("py", "-3.13"): ("C:/Py/python.exe", (3, 13))}
+    assert _install(client).status_code == 200
+
+
+def test_torch_is_chosen_for_the_engine_python_not_the_apps(env, monkeypatch):
+    env.update(installed=True, found=("py",))
+    monkeypatch.setattr(svc, "sys", type("S", (), {"version_info": (3, 14, 0),
+                                                   "executable": sys.executable}))
+    svc._FULL_PYTHON.update(at=time.monotonic(), found=("C:/Py/python.exe", (3, 13)))
+    # The folder is built from 3.13, so chatterbox still needs its own pinned torch.
+    assert svc._own_torch("chatterbox") is not None
+    svc._FULL_PYTHON.update(found=("C:/Py/python.exe", (3, 12)))
+    assert svc._own_torch("chatterbox") is not None
+
+
+def test_a_python_that_is_too_new_or_in_the_users_profile_does_not_count(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    inside = home / "AppData" / "python.exe"
+    outside = tmp_path / "pf" / "python.exe"
+    for exe in (inside, outside):
+        exe.parent.mkdir(parents=True)
+        exe.write_text("")
+    answer = {"stdout": ""}
+    fake = type("R", (), {"timed_out": False, "returncode": 0,
+                          "stdout": property(lambda self: answer["stdout"])})()
+    monkeypatch.setattr(svc, "run_captured", lambda *a, **k: fake)
+    monkeypatch.setattr(svc.os.path, "expanduser", lambda p: str(home))
+    answer["stdout"] = f"3 13\n{inside}\n"
+    assert svc._probe_python(["py", "-3.13"]) is None
+    answer["stdout"] = f"3 13\n{outside}\n"
+    assert svc._probe_python(["py", "-3.13"]) == (str(outside), (3, 13))
+    answer["stdout"] = f"3 14\n{outside}\n"
+    assert svc._probe_python(["py", "-3.13"]) is None
 
 
 def test_installed_is_409(client, env):

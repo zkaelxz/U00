@@ -168,7 +168,7 @@ export function checkLiveUrl(url: string, maxLen = MAX_URL_LEN): string | null {
   return null
 }
 
-const clamp = (v: number, [lo, hi]: [number, number], fallback: number) =>
+const clamp = (v: number, [lo, hi]: readonly number[], fallback: number) =>
   Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
 
 /** The engine to show: the remembered one if it can run, else Ollama, else the first that can. */
@@ -190,6 +190,11 @@ export function resolveModel(
   return { model: ok ? saved : fallback, fellBack: !ok }
 }
 
+// The schema types the height as the server's four literals; the form holds a plain number that is checked
+// against the options the server sent, so the narrowing is a cast.
+const pickPlayerHeight = (height: number, opts: LiveFormOptions) =>
+  (opts.player_heights.includes(height) ? height : opts.defaults.player_height) as LiveSessionStart['player_height']
+
 /** The POST body: numbers clamped as the service would, overlap at most half the chunk. */
 export function buildStartBody(form: LiveForm, opts: LiveFormOptions = LIVE_FORM_FALLBACK): LiveSessionStart {
   const d = opts.defaults
@@ -208,7 +213,7 @@ export function buildStartBody(form: LiveForm, opts: LiveFormOptions = LIVE_FORM
     reply_without_thinking: form.reply_without_thinking !== false,
     ...(form.read_chat === true ? { read_chat: true } : {}),
     ...(form.delayed_player === true
-      ? { delayed_player: true, player_height: opts.player_heights.includes(form.player_height) ? form.player_height : d.player_height } : {}),
+      ? { delayed_player: true, player_height: pickPlayerHeight(form.player_height, opts) } : {}),
     ...(isId(form.series_id) ? { series_id: form.series_id }
       : isId(form.glossary_drama_id) ? { glossary_drama_id: form.glossary_drama_id } : {}),
   }
@@ -302,7 +307,7 @@ export function pickSession(list: LiveSessionSummary[]): string | null {
 
 /** One status line for the session. */
 export function statusLine(
-  s: Pick<LiveSessionStatus, 'status' | 'message' | 'stop_reason'> & { model?: string | null },
+  s: Pick<LiveSessionStatus, 'status' | 'message'> & Partial<Pick<LiveSessionStatus, 'stop_reason' | 'model'>>,
   lines: number,
 ): string {
   const n = `${lines} line${lines === 1 ? '' : 's'}${s.model ? ` · ${s.model}` : ''}`

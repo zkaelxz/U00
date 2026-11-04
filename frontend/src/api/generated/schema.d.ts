@@ -2435,6 +2435,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/model-downloads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The models that can be downloaded here, and whether each is on disk */
+        get: operations["get_model_downloads_api_diagnostics_model_downloads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/model-downloads/{model_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: download one listed model as a background job (409 when it is already downloaded or another download runs) */
+        post: operations["post_model_download_api_diagnostics_model_downloads__model_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/package-updates/check": {
         parameters: {
             query?: never;
@@ -10098,6 +10132,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/android-app/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fetch the newest Android app build from GitHub and offer it */
+        post: operations["fetch_api_system_android_app_fetch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/shutdown": {
         parameters: {
             query?: never;
@@ -10226,7 +10277,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Turn the once-a-day check on or off */
+        /** Turn the once-a-day check, pre-release updates or automatic service updates on or off */
         post: operations["update_settings_api_system_update_settings_post"];
         delete?: never;
         options?: never;
@@ -10365,6 +10416,23 @@ export interface paths {
         put?: never;
         /** Compare transcription: line count and advisory translation cost */
         post: operations["post_compare_estimate_api_transcribe_dramas__drama_id__compare_transcription_estimate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transcribe/dramas/{drama_id}/compare-transcription/flag-disagreements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Flag lines the finished comparison heard differently from the saved text */
+        post: operations["post_compare_flag_disagreements_api_transcribe_dramas__drama_id__compare_transcription_flag_disagreements_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11289,17 +11357,17 @@ export interface components {
             /** Created At */
             created_at: number;
             /** Expires At */
-            expires_at?: number | null;
+            expires_at: number | null;
             /** Id */
             id: number;
             /** Label */
             label: string;
             /** Last Used At */
-            last_used_at?: number | null;
+            last_used_at: number | null;
             /** Last Used Ip Prefix */
             last_used_ip_prefix: string;
             /** Revoked At */
-            revoked_at?: number | null;
+            revoked_at: number | null;
             /**
              * Status
              * @enum {string}
@@ -11327,7 +11395,7 @@ export interface components {
             /** Active Sessions */
             active_sessions: number;
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /**
              * Display Name
              * @default
@@ -11363,13 +11431,26 @@ export interface components {
             /** Users */
             users: components["schemas"]["AdminUser"][];
         };
+        /** AndroidAppFetchResult */
+        AndroidAppFetchResult: {
+            /**
+             * Changed
+             * @description False when the server already held this build or a newer one.
+             */
+            changed: boolean;
+            /**
+             * Version Code
+             * @description versionCode of the build the server offers after the fetch.
+             */
+            version_code: number;
+        };
         /** AndroidAppVersion */
         AndroidAppVersion: {
             /**
              * Version Code
              * @description versionCode of the app build this server offers; null when it holds none.
              */
-            version_code?: number | null;
+            version_code: number | null;
         };
         /** AppLoaded */
         AppLoaded: {
@@ -11420,7 +11501,7 @@ export interface components {
         /** AsrAdviceNote */
         AsrAdviceNote: {
             /** Fix */
-            fix?: {
+            fix: {
                 [key: string]: string | boolean;
             } | null;
             /** Id */
@@ -11467,7 +11548,7 @@ export interface components {
              */
             qwen_asr_batching_available: boolean;
             /** Qwen Asr Version */
-            qwen_asr_version?: string | null;
+            qwen_asr_version: string | null;
             /**
              * Qwen Vad Refine Timing
              * @default false
@@ -11504,27 +11585,27 @@ export interface components {
              * Field
              * @default en
              */
-            field: string;
+            field?: string;
             /**
              * Include Notes
              * @default false
              */
-            include_notes: boolean;
+            include_notes?: boolean;
             /**
              * Notes As Separate Line
              * @default false
              */
-            notes_as_separate_line: boolean;
+            notes_as_separate_line?: boolean;
             /**
              * Per Speaker Colors
              * @default true
              */
-            per_speaker_colors: boolean;
+            per_speaker_colors?: boolean;
             /**
              * Preset
              * @default Clean
              */
-            preset: string;
+            preset?: string;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -11607,12 +11688,12 @@ export interface components {
              */
             local: boolean;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Next Engine */
-            next_engine?: string | null;
+            next_engine: string | null;
             /** Proposed Patches */
             proposed_patches: components["schemas"]["AssistantPatch"][];
-            review?: components["schemas"]["AssistantReview"] | null;
+            review: components["schemas"]["AssistantReview"] | null;
             /**
              * Review Skipped
              * @default
@@ -11621,7 +11702,7 @@ export interface components {
             /** Suggested Backlog */
             suggested_backlog: components["schemas"]["AssistantBacklogSuggestion"][];
             /** Tier */
-            tier?: number | null;
+            tier: number | null;
             /** Tool Calls */
             tool_calls: components["schemas"]["AssistantToolCall"][];
         };
@@ -11633,19 +11714,19 @@ export interface components {
              * Consent
              * @default false
              */
-            consent: boolean;
+            consent?: boolean;
             /** Engine */
             engine?: string | null;
             /**
              * Escalate
              * @default false
              */
-            escalate: boolean;
+            escalate?: boolean;
             /**
              * Evidence
              * @default
              */
-            evidence: string;
+            evidence?: string;
             /** Model */
             model?: string | null;
             /** Question */
@@ -11728,7 +11809,7 @@ export interface components {
              * To Ref
              * @default HEAD
              */
-            to_ref: string;
+            to_ref?: string;
         };
         /** AssistantChatTurn */
         AssistantChatTurn: {
@@ -11746,7 +11827,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** AssistantPatch */
         AssistantPatch: {
@@ -11770,12 +11851,12 @@ export interface components {
              * Evidence
              * @default
              */
-            evidence: string;
+            evidence?: string;
             /**
              * Question
              * @default
              */
-            question: string;
+            question?: string;
         };
         /**
          * AssistantReview
@@ -11783,9 +11864,9 @@ export interface components {
          */
         AssistantReview: {
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Notes */
             notes: string;
             /** Tool Calls */
@@ -11799,7 +11880,7 @@ export interface components {
         /** AssistantSettings */
         AssistantSettings: {
             /** Cloud Consent */
-            cloud_consent?: {
+            cloud_consent: {
                 [key: string]: boolean;
             };
             /**
@@ -11810,30 +11891,30 @@ export interface components {
             /** Developer Mode */
             developer_mode: boolean;
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Engine Choices */
             engine_choices: string[];
             /** Engine Keys */
-            engine_keys?: {
+            engine_keys: {
                 [key: string]: boolean;
             };
             /** Local Engines */
-            local_engines?: string[];
+            local_engines: string[];
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Review Engine */
-            review_engine?: string | null;
+            review_engine: string | null;
             /** Review Model */
-            review_model?: string | null;
+            review_model: string | null;
             /**
              * Roles Enabled
              * @default false
              */
             roles_enabled: boolean;
             /** Tier Order */
-            tier_order?: string[] | null;
+            tier_order: string[] | null;
             /** Tiers */
-            tiers?: components["schemas"]["AssistantTier"][];
+            tiers: components["schemas"]["AssistantTier"][];
         };
         /** AssistantSettingsUpdate */
         AssistantSettingsUpdate: {
@@ -11915,7 +11996,7 @@ export interface components {
             /** Ts */
             ts: string;
             /** User Id */
-            user_id?: number | null;
+            user_id: number | null;
         };
         /** AuditPage */
         AuditPage: {
@@ -11924,7 +12005,7 @@ export interface components {
             /** Events */
             events: components["schemas"]["AuditEvent"][];
             /** Next Before Id */
-            next_before_id?: number | null;
+            next_before_id: number | null;
         };
         /** AutoBackupSettings */
         AutoBackupSettings: {
@@ -11932,7 +12013,7 @@ export interface components {
              * Copies
              * @description Newest first.
              */
-            copies?: components["schemas"]["SnapshotCopy"][];
+            copies: components["schemas"]["SnapshotCopy"][];
             /** Enabled */
             enabled: boolean;
             /**
@@ -11950,18 +12031,18 @@ export interface components {
             /** Include Media */
             include_media: boolean;
             /** Last Attempt At */
-            last_attempt_at?: string | null;
+            last_attempt_at: string | null;
             /** Last Error */
-            last_error?: string | null;
+            last_error: string | null;
             /**
              * Last Note
              * @description A note on the last successful run (a damaged sources.db left out).
              */
-            last_note?: string | null;
+            last_note: string | null;
             /** Last Run At */
-            last_run_at?: string | null;
+            last_run_at: string | null;
             /** Next Run At */
-            next_run_at?: string | null;
+            next_run_at: string | null;
             /** Running */
             running: boolean;
         };
@@ -12049,7 +12130,7 @@ export interface components {
             /** Candidate Ms */
             candidate_ms: number;
             /** Cer */
-            cer?: number | null;
+            cer: number | null;
             /** Long Lines */
             long_lines: number;
             /** Total Lines */
@@ -12067,12 +12148,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
         };
         /** AutotuneRunResult */
         AutotuneRunResult: {
@@ -12088,9 +12169,9 @@ export interface components {
          */
         AutotuneStatus: {
             /** Best Candidate Ms */
-            best_candidate_ms?: number | null;
+            best_candidate_ms: number | null;
             /** Device Notice */
-            device_notice?: string | null;
+            device_notice: string | null;
             /** Job Id */
             job_id: string;
             /**
@@ -12099,7 +12180,7 @@ export interface components {
              */
             message: string;
             /** Progress */
-            progress?: number | null;
+            progress: number | null;
             /**
              * Reference Lines
              * @default 0
@@ -12111,7 +12192,7 @@ export interface components {
              */
             reference_minimum: number;
             /** Results */
-            results?: components["schemas"]["AutotuneCandidateScore"][] | null;
+            results: components["schemas"]["AutotuneCandidateScore"][] | null;
             /**
              * Scored By
              * @default long_lines
@@ -12172,7 +12253,7 @@ export interface components {
              * Replace
              * @default false
              */
-            replace: boolean;
+            replace?: boolean;
         };
         /** BenchmarkArena */
         BenchmarkArena: {
@@ -12185,7 +12266,7 @@ export interface components {
         /** BenchmarkArenaRow */
         BenchmarkArenaRow: {
             /** Case Id */
-            case_id?: number | null;
+            case_id: number | null;
             /** Label */
             label: string;
             /**
@@ -12194,13 +12275,13 @@ export interface components {
              */
             ref_version: number;
             /** Reference Text */
-            reference_text?: string | null;
+            reference_text: string | null;
             /** Results */
             results: (components["schemas"]["BenchmarkResult"] | null)[];
             /** Source Text */
-            source_text?: string | null;
+            source_text: string | null;
             /** Tier */
-            tier?: string | null;
+            tier: string | null;
         };
         /** BenchmarkBackendOption */
         BenchmarkBackendOption: {
@@ -12209,12 +12290,12 @@ export interface components {
             /** Name */
             name: string;
             /** Problem */
-            problem?: string | null;
+            problem: string | null;
         };
         /** BenchmarkCase */
         BenchmarkCase: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /**
              * Excluded
              * @default false
@@ -12239,28 +12320,28 @@ export interface components {
             /** Label */
             label: string;
             /** Origin Drama Id */
-            origin_drama_id?: number | null;
+            origin_drama_id: number | null;
             /** Origin Line Id */
-            origin_line_id?: number | null;
+            origin_line_id: number | null;
             /**
              * Ref Version
              * @default 1
              */
             ref_version: number;
             /** Reference Text */
-            reference_text?: string | null;
+            reference_text: string | null;
             /** Scene Order */
-            scene_order?: number | null;
+            scene_order: number | null;
             /** Set Name */
             set_name: string;
             /** Source Language */
             source_language: string;
             /** Source Text */
-            source_text?: string | null;
+            source_text: string | null;
             /** Stage */
-            stage?: string | null;
+            stage: string | null;
             /** Tags */
-            tags?: string[];
+            tags: string[];
             /** Tier */
             tier: string;
             /**
@@ -12279,13 +12360,13 @@ export interface components {
              * Set Name
              * @default
              */
-            set_name: string;
+            set_name?: string;
             /**
              * Source Language
              * @default zh
              * @enum {string}
              */
-            source_language: "zh" | "ja" | "ko";
+            source_language?: "zh" | "ja" | "ko";
             /** Source Text */
             source_text: string;
             /**
@@ -12293,7 +12374,7 @@ export interface components {
              * @default application
              * @enum {string}
              */
-            tier: "public" | "application" | "regression";
+            tier?: "public" | "application" | "regression";
         };
         /** BenchmarkCaseDelete */
         BenchmarkCaseDelete: {
@@ -12301,18 +12382,18 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** BenchmarkCaseEdit */
         BenchmarkCaseEdit: {
             /** Edited At */
-            edited_at?: string | null;
+            edited_at: string | null;
             /** Field */
             field: string;
             /** New Text */
-            new_text?: string | null;
+            new_text: string | null;
             /** Old Text */
-            old_text?: string | null;
+            old_text: string | null;
             /** Version */
             version: number;
         };
@@ -12339,7 +12420,7 @@ export interface components {
         /** BenchmarkCaseTiming */
         BenchmarkCaseTiming: {
             /** End Error S */
-            end_error_s?: number | null;
+            end_error_s: number | null;
             /** Lines */
             lines: number;
             /** Merged */
@@ -12347,11 +12428,11 @@ export interface components {
             /** Missed */
             missed: boolean;
             /** Silence */
-            silence?: number | null;
+            silence: number | null;
             /** Split */
             split: boolean;
             /** Start Error S */
-            start_error_s?: number | null;
+            start_error_s: number | null;
         };
         /** BenchmarkClipCheck */
         BenchmarkClipCheck: {
@@ -12407,7 +12488,7 @@ export interface components {
              * Title
              * @default
              */
-            title: string;
+            title?: string;
             /** Transcript */
             transcript: string;
             /** Translation */
@@ -12433,7 +12514,7 @@ export interface components {
             /** Estimated Cost Usd */
             estimated_cost_usd: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
         };
         /** BenchmarkCorrectionsAddRequest */
         BenchmarkCorrectionsAddRequest: {
@@ -12441,12 +12522,12 @@ export interface components {
              * Dry Run
              * @default false
              */
-            dry_run: boolean;
+            dry_run?: boolean;
             /**
              * Include All
              * @default false
              */
-            include_all: boolean;
+            include_all?: boolean;
             /** Set Name */
             set_name: string;
         };
@@ -12497,11 +12578,11 @@ export interface components {
             /** Label */
             label: string;
             /** Model Labels */
-            model_labels?: {
+            model_labels: {
                 [key: string]: string;
             };
             /** Models */
-            models?: string[] | null;
+            models: string[] | null;
             /** Name */
             name: string;
             /**
@@ -12520,15 +12601,15 @@ export interface components {
             estimate_above_cap: boolean;
             /** Estimated Cost Usd */
             estimated_cost_usd: number;
-            judge?: components["schemas"]["BenchmarkJudgeEstimate"] | null;
+            judge: components["schemas"]["BenchmarkJudgeEstimate"] | null;
             /** Month Spend Usd */
             month_spend_usd: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number;
             /** Monthly Refusal */
-            monthly_refusal?: string | null;
+            monthly_refusal: string | null;
             /** Remaining Usd */
-            remaining_usd?: number | null;
+            remaining_usd: number | null;
             /** Stage */
             stage: string;
         };
@@ -12544,7 +12625,7 @@ export interface components {
              * Set Name
              * @default hard-sub
              */
-            set_name: string;
+            set_name?: string;
         };
         /** BenchmarkHardSubAddResult */
         BenchmarkHardSubAddResult: {
@@ -12573,7 +12654,7 @@ export interface components {
             /** Groups */
             groups: components["schemas"]["BenchmarkHardSubGroupScore"][];
             /** Label Match */
-            label_match?: number | null;
+            label_match: number | null;
             /** Label Overlap */
             label_overlap: {
                 [key: string]: {
@@ -12581,9 +12662,9 @@ export interface components {
                 };
             };
             /** Precision */
-            precision?: number | null;
+            precision: number | null;
             /** Recall */
-            recall?: number | null;
+            recall: number | null;
         };
         /** BenchmarkHardSubGroup */
         BenchmarkHardSubGroup: {
@@ -12599,7 +12680,7 @@ export interface components {
             /** Key */
             key: string;
             /** Recall */
-            recall?: number | null;
+            recall: number | null;
         };
         /** BenchmarkHardSubLine */
         BenchmarkHardSubLine: {
@@ -12615,7 +12696,7 @@ export interface components {
             /** Cap Applies */
             cap_applies: boolean;
             /** Cap Left Usd */
-            cap_left_usd?: number | null;
+            cap_left_usd: number | null;
             /** Engine */
             engine: string;
             /** Estimated Usd */
@@ -12623,9 +12704,9 @@ export interface components {
             /** Fits Cap */
             fits_cap: boolean;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Monthly Cap Usd */
-            monthly_cap_usd?: number | null;
+            monthly_cap_usd: number | null;
             /** Reads At Most */
             reads_at_most: number;
             /** Speaker Groups */
@@ -12643,9 +12724,9 @@ export interface components {
             /** Groups */
             groups: components["schemas"]["BenchmarkHardSubGroup"][];
             /** Note */
-            note?: string | null;
+            note: string | null;
             /** Stopped */
-            stopped?: string | null;
+            stopped: string | null;
             /** Unclear Pictures */
             unclear_pictures: number;
             /** Unreadable */
@@ -12668,7 +12749,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Engine */
             engine: string;
             /** Max Cost Usd */
@@ -12681,10 +12762,10 @@ export interface components {
         /** BenchmarkHardSubReadResult */
         BenchmarkHardSubReadResult: {
             /** Message */
-            message?: string | null;
+            message: string | null;
             /** Progress */
-            progress?: number | null;
-            result?: components["schemas"]["BenchmarkHardSubReadOutcome"] | null;
+            progress: number | null;
+            result: components["schemas"]["BenchmarkHardSubReadOutcome"] | null;
             /** Status */
             status: string;
         };
@@ -12704,7 +12785,7 @@ export interface components {
              * @default jsonl
              * @enum {string}
              */
-            format: "jsonl" | "tsv";
+            format?: "jsonl" | "tsv";
             /** Set Name */
             set_name: string;
             /**
@@ -12712,7 +12793,7 @@ export interface components {
              * @default zh
              * @enum {string}
              */
-            source_language: "zh" | "ja" | "ko";
+            source_language?: "zh" | "ja" | "ko";
             /** Text */
             text: string;
             /**
@@ -12720,7 +12801,7 @@ export interface components {
              * @default public
              * @enum {string}
              */
-            tier: "public" | "application" | "regression";
+            tier?: "public" | "application" | "regression";
         };
         /** BenchmarkImportResult */
         BenchmarkImportResult: {
@@ -12743,7 +12824,7 @@ export interface components {
              * Allow Same Model
              * @default false
              */
-            allow_same_model: boolean;
+            allow_same_model?: boolean;
             /** Engine */
             engine: string;
             /** Model */
@@ -12758,11 +12839,11 @@ export interface components {
             /** Estimated Cost Usd */
             estimated_cost_usd: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Same As Tested */
-            same_as_tested?: string[];
+            same_as_tested: string[];
             /** Warning */
-            warning?: string | null;
+            warning: string | null;
         };
         /** BenchmarkJudgeScore */
         BenchmarkJudgeScore: {
@@ -12778,7 +12859,7 @@ export interface components {
         /** BenchmarkJudgeSummary */
         BenchmarkJudgeSummary: {
             /** Average */
-            average?: {
+            average: {
                 [key: string]: number | null;
             };
             /**
@@ -12787,11 +12868,11 @@ export interface components {
              */
             cost_usd: number;
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Note */
-            note?: string | null;
+            note: string | null;
             /**
              * Same As Tested
              * @default false
@@ -12803,7 +12884,7 @@ export interface components {
              */
             scored: number;
             /** Status */
-            status?: string | null;
+            status: string | null;
         };
         /**
          * BenchmarkLeftOut
@@ -12832,12 +12913,12 @@ export interface components {
             /** Pass Threshold */
             pass_threshold: number;
             /** Source Languages */
-            source_languages: string[];
+            source_languages: ("zh" | "ja" | "ko")[];
             /** Stages */
-            stages: string[];
+            stages: ("translation" | "transcription" | "ocr")[];
             /** Tiers */
-            tiers: string[];
-            transcribe_defaults: components["schemas"]["BenchmarkTranscribeOptions"];
+            tiers: ("public" | "application" | "regression")[];
+            transcribe_defaults: components["schemas"]["BenchmarkTranscribeDefaults"];
             /** Transcribe Options Ignored */
             transcribe_options_ignored: {
                 [key: string]: string[];
@@ -12867,23 +12948,23 @@ export interface components {
          */
         BenchmarkPairNext: {
             /** Case Id */
-            case_id?: number | null;
+            case_id: number | null;
             /** Done */
             done: boolean;
             /** Label */
-            label?: string | null;
+            label: string | null;
             /** Left Text */
-            left_text?: string | null;
+            left_text: string | null;
             /** Reference Text */
-            reference_text?: string | null;
+            reference_text: string | null;
             /** Remaining */
             remaining: number;
             /** Right Text */
-            right_text?: string | null;
+            right_text: string | null;
             /** Source Text */
-            source_text?: string | null;
+            source_text: string | null;
             /** Ticket */
-            ticket?: string | null;
+            ticket: string | null;
             /** Total */
             total: number;
         };
@@ -12947,7 +13028,7 @@ export interface components {
         /** BenchmarkResult */
         BenchmarkResult: {
             /** Case Id */
-            case_id?: number | null;
+            case_id: number | null;
             /** Case Label */
             case_label: string;
             /**
@@ -12956,87 +13037,87 @@ export interface components {
              */
             cost_usd: number;
             /** Duration Seconds */
-            duration_seconds?: number | null;
+            duration_seconds: number | null;
             /** Error */
-            error?: string | null;
-            judge?: components["schemas"]["BenchmarkJudgeScore"] | null;
+            error: string | null;
+            judge: components["schemas"]["BenchmarkJudgeScore"] | null;
             /** Metric */
-            metric?: string | null;
+            metric: string | null;
             /** Output Text */
             output_text: string;
             /** Passed */
-            passed?: boolean | null;
-            picks?: components["schemas"]["BenchmarkPickTotals"] | null;
+            passed: boolean | null;
+            picks: components["schemas"]["BenchmarkPickTotals"] | null;
             /** Read Score */
-            read_score?: number | null;
+            read_score: number | null;
             /** Recognised Text */
-            recognised_text?: string | null;
+            recognised_text: string | null;
             /**
              * Ref Version
              * @default 1
              */
             ref_version: number;
             /** Score */
-            score?: number | null;
+            score: number | null;
             /** Scorer */
-            scorer?: string | null;
-            script_counts?: components["schemas"]["BenchmarkScriptCounts"] | null;
-            timing?: components["schemas"]["BenchmarkCaseTiming"] | null;
+            scorer: string | null;
+            script_counts: components["schemas"]["BenchmarkScriptCounts"] | null;
+            timing: components["schemas"]["BenchmarkCaseTiming"] | null;
         };
         /** BenchmarkRun */
         BenchmarkRun: {
             /** Aggregate Score */
-            aggregate_score?: number | null;
+            aggregate_score: number | null;
             /** Arena Group */
-            arena_group?: string | null;
+            arena_group: string | null;
             /** Avg Latency Seconds */
-            avg_latency_seconds?: number | null;
+            avg_latency_seconds: number | null;
             /**
              * Case Count
              * @default 0
              */
             case_count: number;
             /** Case Filter */
-            case_filter?: {
+            case_filter: {
                 [key: string]: unknown;
             };
             /** Context Settings */
-            context_settings?: {
+            context_settings: {
                 [key: string]: unknown;
             };
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Delta Vs First */
-            delta_vs_first?: number | null;
+            delta_vs_first: number | null;
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /**
              * Error Count
              * @default 0
              */
             error_count: number;
             /** Finished At */
-            finished_at?: string | null;
+            finished_at: string | null;
             /** Id */
             id: number;
-            judge?: components["schemas"]["BenchmarkJudgeSummary"] | null;
+            judge: components["schemas"]["BenchmarkJudgeSummary"] | null;
             /**
              * Label
              * @default
              */
             label: string | null;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Note */
-            note?: string | null;
+            note: string | null;
             /**
              * Passed Count
              * @default 0
              */
             passed_count: number;
             /** Peak Vram Mb */
-            peak_vram_mb?: number | null;
-            picks?: components["schemas"]["BenchmarkPickTotals"] | null;
+            peak_vram_mb: number | null;
+            picks: components["schemas"]["BenchmarkPickTotals"] | null;
             /**
              * Prompt Version
              * @default
@@ -13047,15 +13128,15 @@ export interface components {
              * @default 0
              */
             scored_count: number;
-            script_counts?: components["schemas"]["BenchmarkScriptCounts"] | null;
+            script_counts: components["schemas"]["BenchmarkScriptCounts"] | null;
             /** Stage */
-            stage?: string | null;
+            stage: string | null;
             /** Status */
-            status?: string | null;
+            status: string | null;
             /** Stored Aggregate Score */
-            stored_aggregate_score?: number | null;
-            timing?: components["schemas"]["BenchmarkTimingSummary"];
-            timing_verdict?: components["schemas"]["BenchmarkTimingVerdict"] | null;
+            stored_aggregate_score: number | null;
+            timing: components["schemas"]["BenchmarkTimingSummary"];
+            timing_verdict: components["schemas"]["BenchmarkTimingVerdict"] | null;
             /**
              * Total Cost Usd
              * @default 0
@@ -13068,7 +13149,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** BenchmarkRunDetail */
         BenchmarkRunDetail: {
@@ -13091,18 +13172,18 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             judge?: components["schemas"]["BenchmarkJudgeConfig"] | null;
             /**
              * Label
              * @default
              */
-            label: string;
+            label?: string;
             /**
              * Prompt Version
              * @default
              */
-            prompt_version: string;
+            prompt_version?: string;
             /** Set Name */
             set_name?: string | null;
             /**
@@ -13110,14 +13191,14 @@ export interface components {
              * @default translation
              * @enum {string}
              */
-            stage: "translation" | "transcription" | "ocr";
+            stage?: "translation" | "transcription" | "ocr";
             /** Tier */
             tier?: ("public" | "application" | "regression") | null;
         };
         /** BenchmarkRunStarted */
         BenchmarkRunStarted: {
             /** Arena Group */
-            arena_group?: string | null;
+            arena_group: string | null;
             /** Estimated Cost Usd */
             estimated_cost_usd: number;
             /** Job Id */
@@ -13166,6 +13247,13 @@ export interface components {
              */
             traditional_lines: number;
         };
+        /** BenchmarkSeriesChoice */
+        BenchmarkSeriesChoice: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
         /** BenchmarkSet */
         BenchmarkSet: {
             /** Case Count */
@@ -13178,7 +13266,7 @@ export interface components {
             /** Set Name */
             set_name: string;
             /** Stage */
-            stage?: string | null;
+            stage: string | null;
             /** Tier */
             tier: string;
             /** With Reference */
@@ -13196,13 +13284,13 @@ export interface components {
              * Dry Run
              * @default false
              */
-            dry_run: boolean;
+            dry_run?: boolean;
             /**
              * Include
              * @default reviewed
              * @enum {string}
              */
-            include: "reviewed" | "all";
+            include?: "reviewed" | "all";
             /** Line End */
             line_end?: number | null;
             /** Line Start */
@@ -13211,7 +13299,7 @@ export interface components {
              * Lines Per Case
              * @default 4
              */
-            lines_per_case: number;
+            lines_per_case?: number;
             /** Scene Count */
             scene_count?: number | null;
             /** Set Name */
@@ -13245,23 +13333,30 @@ export interface components {
             /** Sets */
             sets: components["schemas"]["BenchmarkSet"][];
         };
+        /** BenchmarkStylePreset */
+        BenchmarkStylePreset: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+        };
         /** BenchmarkSweep */
         BenchmarkSweep: {
             /** Applies */
-            applies?: components["schemas"]["BenchmarkSweepApplies"][] | null;
-            decision?: components["schemas"]["BenchmarkSweepDecision"] | null;
+            applies: components["schemas"]["BenchmarkSweepApplies"][] | null;
+            decision: components["schemas"]["BenchmarkSweepDecision"] | null;
             /** Estimate */
-            estimate?: {
+            estimate: {
                 [key: string]: number;
             } | null;
             /** Finished At */
-            finished_at?: string | null;
+            finished_at: string | null;
             /** Id */
-            id?: string | null;
+            id: string | null;
             /** Language */
             language: string;
             /** Note */
-            note?: string | null;
+            note: string | null;
             /**
              * Passes Reused
              * @default 0
@@ -13272,18 +13367,18 @@ export interface components {
              * @default 0
              */
             passes_run: number;
-            recommendation?: components["schemas"]["BenchmarkSweepRecommendation"] | null;
+            recommendation: components["schemas"]["BenchmarkSweepRecommendation"] | null;
             /** Set Name */
             set_name: string;
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
              */
             status: "queued" | "running" | "done" | "cancelled" | "failed" | "interrupted";
             /** Use Gpu */
-            use_gpu?: boolean | null;
+            use_gpu: boolean | null;
         };
         /**
          * BenchmarkSweepApplies
@@ -13300,17 +13395,17 @@ export interface components {
         /** BenchmarkSweepDecision */
         BenchmarkSweepDecision: {
             /** Applies */
-            applies?: components["schemas"]["BenchmarkSweepApplies"][] | null;
+            applies: components["schemas"]["BenchmarkSweepApplies"][] | null;
             /** Decided At */
-            decided_at?: string | null;
+            decided_at: string | null;
             /** Decided By */
-            decided_by?: string | null;
+            decided_by: string | null;
             /**
              * Decision
              * @enum {string}
              */
             decision: "promoted" | "rejected";
-            profile?: components["schemas"]["BenchmarkSweepProfile"] | null;
+            profile: components["schemas"]["BenchmarkSweepProfile"] | null;
             /**
              * Reason
              * @default
@@ -13323,7 +13418,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Decision
              * @enum {string}
@@ -13335,11 +13430,11 @@ export interface components {
         /** BenchmarkSweepDecisionRow */
         BenchmarkSweepDecisionRow: {
             /** Decided At */
-            decided_at?: string | null;
+            decided_at: string | null;
             /** Decision */
             decision: string;
             /** Language */
-            language?: string | null;
+            language: string | null;
             /**
              * Reason
              * @default
@@ -13381,7 +13476,7 @@ export interface components {
              */
             monthly_cap_usd: number;
             /** Monthly Refusal */
-            monthly_refusal?: string | null;
+            monthly_refusal: string | null;
             /** Not Swept */
             not_swept: string[];
             /** Passes Done */
@@ -13406,15 +13501,15 @@ export interface components {
             /** Default Run Id */
             default_run_id: number;
             /** Default Score */
-            default_score?: number | null;
+            default_score: number | null;
             /** Delta */
-            delta?: number | null;
+            delta: number | null;
             /** Winner Errors */
             winner_errors: number;
             /** Winner Run Id */
             winner_run_id: number;
             /** Winner Score */
-            winner_score?: number | null;
+            winner_score: number | null;
         };
         /** BenchmarkSweepKnob */
         BenchmarkSweepKnob: {
@@ -13425,7 +13520,7 @@ export interface components {
             /** Label */
             label: string;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /** Values */
             values: (boolean | number)[];
         };
@@ -13438,9 +13533,9 @@ export interface components {
             /** Label */
             label: string;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
         };
         /** BenchmarkSweepProfile */
         BenchmarkSweepProfile: {
@@ -13456,13 +13551,13 @@ export interface components {
                 [key: string]: number;
             };
             default: components["schemas"]["BenchmarkSweepSetup"];
-            holdout?: components["schemas"]["BenchmarkSweepHoldout"] | null;
+            holdout: components["schemas"]["BenchmarkSweepHoldout"] | null;
             /** Margin */
             margin: number;
             /** Margin Rule */
             margin_rule: string;
             /** Noise */
-            noise?: number | null;
+            noise: number | null;
             /** Small Set */
             small_set: boolean;
             /**
@@ -13491,7 +13586,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Language
              * @enum {string}
@@ -13516,7 +13611,7 @@ export interface components {
             /** Label */
             label: string;
             /** Model */
-            model?: string | null;
+            model: string | null;
         };
         /** BenchmarkSweepStarted */
         BenchmarkSweepStarted: {
@@ -13526,44 +13621,44 @@ export interface components {
         };
         /** BenchmarkSweepState */
         BenchmarkSweepState: {
-            sweep?: components["schemas"]["BenchmarkSweep"] | null;
+            sweep: components["schemas"]["BenchmarkSweep"] | null;
         };
         /** BenchmarkSweepStep */
         BenchmarkSweepStep: {
             /** Errors */
-            errors?: number | null;
+            errors: number | null;
             /**
              * Half
              * @enum {string}
              */
             half: "tuning" | "holdout";
             /** Kept */
-            kept?: boolean | null;
+            kept: boolean | null;
             /** Run Id */
-            run_id?: number | null;
+            run_id: number | null;
             /** Score */
-            score?: number | null;
+            score: number | null;
             /** Setup */
             setup: string;
             /** Step */
             step: string;
             /** Value */
-            value?: boolean | number | string | null;
+            value: boolean | number | string | null;
         };
         /** BenchmarkSweepTag */
         BenchmarkSweepTag: {
             /** Cases */
             cases: number;
             /** Default Score */
-            default_score?: number | null;
+            default_score: number | null;
             /** Delta */
-            delta?: number | null;
+            delta: number | null;
             /** Tag */
             tag: string;
             /** Too Small */
             too_small: boolean;
             /** Winner Score */
-            winner_score?: number | null;
+            winner_score: number | null;
         };
         /**
          * BenchmarkTimingSummary
@@ -13576,19 +13671,19 @@ export interface components {
              */
             cases: number;
             /** End Median Ms */
-            end_median_ms?: number | null;
+            end_median_ms: number | null;
             /** Merged */
-            merged?: number | null;
+            merged: number | null;
             /** Missed */
-            missed?: number | null;
+            missed: number | null;
             /** Silence */
-            silence?: number | null;
+            silence: number | null;
             /** Split */
-            split?: number | null;
+            split: number | null;
             /** Start Median Ms */
-            start_median_ms?: number | null;
+            start_median_ms: number | null;
             /** Within */
-            within?: number | null;
+            within: number | null;
         };
         /**
          * BenchmarkTimingVerdict
@@ -13597,13 +13692,13 @@ export interface components {
          */
         BenchmarkTimingVerdict: {
             /** Gain */
-            gain?: number | null;
+            gain: number | null;
             /** Margin Score */
-            margin_score?: number | null;
+            margin_score: number | null;
             /** Margin Within */
-            margin_within?: number | null;
+            margin_within: number | null;
             /** Score Change */
-            score_change?: number | null;
+            score_change: number | null;
             /** State */
             state: string;
             /** Text */
@@ -13624,7 +13719,7 @@ export interface components {
             /** Raw Available */
             raw_available: boolean;
             /** Raw To Edited Cer */
-            raw_to_edited_cer?: number | null;
+            raw_to_edited_cer: number | null;
         };
         /** BenchmarkTranscribeArm */
         BenchmarkTranscribeArm: {
@@ -13633,6 +13728,40 @@ export interface components {
             /** Model */
             model?: string | null;
             options?: components["schemas"]["BenchmarkTranscribeOptions"] | null;
+        };
+        /**
+         * BenchmarkTranscribeDefaults
+         * @description What a title with no saved options transcribes with: every field of
+         *     BenchmarkTranscribeOptions, always present (the options model is all-optional because
+         *     it is a request body).
+         */
+        BenchmarkTranscribeDefaults: {
+            /** Beam Size */
+            beam_size: number;
+            /** Difficult Audio */
+            difficult_audio: boolean;
+            /** Hallucination Silence Sec */
+            hallucination_silence_sec: number;
+            /** Initial Prompt */
+            initial_prompt: string;
+            /** Min Silence Ms */
+            min_silence_ms: number;
+            /** Refine Timing */
+            refine_timing: boolean;
+            /** Sensitivity Preset */
+            sensitivity_preset: string;
+            /** Separate Vocals First */
+            separate_vocals_first: boolean;
+            /** Speech Pad Ms */
+            speech_pad_ms: number;
+            /** Split Max Chars */
+            split_max_chars: number;
+            /** Split Max Seconds */
+            split_max_seconds: number;
+            /** Vad Threshold */
+            vad_threshold: number;
+            /** Whisper Repeat Guard */
+            whisper_repeat_guard: boolean;
         };
         /**
          * BenchmarkTranscribeOptions
@@ -13682,20 +13811,28 @@ export interface components {
                     [key: string]: number;
                 };
             };
-            /** Defaults */
-            defaults: {
-                [key: string]: boolean | number | string;
-            };
+            defaults: components["schemas"]["BenchmarkTranslateDefaults"];
             /** Series */
-            series: {
-                [key: string]: number | string;
-            }[];
+            series: components["schemas"]["BenchmarkSeriesChoice"][];
             /** Style Presets */
-            style_presets: {
-                [key: string]: string;
-            }[];
+            style_presets: components["schemas"]["BenchmarkStylePreset"][];
             /** Temperature Engines */
             temperature_engines: string[];
+        };
+        /** BenchmarkTranslateDefaults */
+        BenchmarkTranslateDefaults: {
+            /** Batch Size */
+            batch_size: number;
+            /** Context Window */
+            context_window: number;
+            /** Context Window Ahead */
+            context_window_ahead: number;
+            /** Memory Examples */
+            memory_examples: boolean;
+            /** Reflect */
+            reflect: boolean;
+            /** Style Preset */
+            style_preset: string;
         };
         /**
          * BenchmarkTranslateOptions
@@ -13724,24 +13861,24 @@ export interface components {
         /** BenchmarkTranslateSweep */
         BenchmarkTranslateSweep: {
             /** Applies */
-            applies?: components["schemas"]["BenchmarkSweepApplies"][] | null;
-            decision?: components["schemas"]["BenchmarkSweepDecision"] | null;
+            applies: components["schemas"]["BenchmarkSweepApplies"][] | null;
+            decision: components["schemas"]["BenchmarkSweepDecision"] | null;
             /** Engine */
             engine: string;
             /** Estimate */
-            estimate?: {
+            estimate: {
                 [key: string]: number;
             } | null;
             /** Finished At */
-            finished_at?: string | null;
+            finished_at: string | null;
             /** Id */
-            id?: string | null;
+            id: string | null;
             /** Language */
             language: string;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Note */
-            note?: string | null;
+            note: string | null;
             /**
              * Passes Reused
              * @default 0
@@ -13752,20 +13889,20 @@ export interface components {
              * @default 0
              */
             passes_run: number;
-            recommendation?: components["schemas"]["_TranslateSweepRecommendation"] | null;
+            recommendation: components["schemas"]["_TranslateSweepRecommendation"] | null;
             /** Series Id */
-            series_id?: number | null;
+            series_id: number | null;
             /** Set Name */
             set_name: string;
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
              */
             status: "queued" | "running" | "done" | "cancelled" | "failed" | "interrupted";
             /** Use Gpu */
-            use_gpu?: boolean | null;
+            use_gpu: boolean | null;
         };
         /** BenchmarkTranslateSweepEstimate */
         BenchmarkTranslateSweepEstimate: {
@@ -13788,7 +13925,7 @@ export interface components {
             /** Min Set Cases */
             min_set_cases: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Models */
             models: components["schemas"]["BenchmarkSweepModel"][];
             /**
@@ -13802,7 +13939,7 @@ export interface components {
              */
             monthly_cap_usd: number;
             /** Monthly Refusal */
-            monthly_refusal?: string | null;
+            monthly_refusal: string | null;
             /** Not Swept */
             not_swept: string[];
             /** Passes Done */
@@ -13810,9 +13947,9 @@ export interface components {
             /** Passes To Run */
             passes_to_run: number;
             /** Remaining Usd */
-            remaining_usd?: number | null;
+            remaining_usd: number | null;
             /** Series Id */
-            series_id?: number | null;
+            series_id: number | null;
             /** Set Name */
             set_name: string;
             /** Small Set */
@@ -13831,7 +13968,7 @@ export interface components {
             /** Label */
             label: string;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /** Values */
             values: (boolean | number | string | null)[];
         };
@@ -13845,7 +13982,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Engine */
             engine: string;
             /**
@@ -13868,7 +14005,7 @@ export interface components {
         };
         /** BenchmarkTranslateSweepState */
         BenchmarkTranslateSweepState: {
-            sweep?: components["schemas"]["BenchmarkTranslateSweep"] | null;
+            sweep: components["schemas"]["BenchmarkTranslateSweep"] | null;
         };
         /**
          * BlockedRetryRequest
@@ -13881,7 +14018,7 @@ export interface components {
              * Engine
              * @default ollama
              */
-            engine: string;
+            engine?: string;
         };
         /** BlockedRetryResult */
         BlockedRetryResult: {
@@ -13898,9 +14035,9 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /**
              * Retried
              * @description True: translated, flag cleared.
@@ -13919,7 +14056,7 @@ export interface components {
              * Mode
              * @default replace
              */
-            mode: string;
+            mode?: string;
         };
         /** Body_post_ocr_chapter_api_novel_dramas__drama_id__ocr_chapter_post */
         Body_post_ocr_chapter_api_novel_dramas__drama_id__ocr_chapter_post: {
@@ -13927,14 +14064,14 @@ export interface components {
              * Backend
              * @default tesseract
              */
-            backend: string;
+            backend?: string;
             /** Files */
             files: string[];
             /**
              * Mode
              * @default append
              */
-            mode: string;
+            mode?: string;
             /** Tesseract Cmd */
             tesseract_cmd?: string | null;
         };
@@ -13965,21 +14102,21 @@ export interface components {
              * Confirm Replace Audio
              * @default false
              */
-            confirm_replace_audio: boolean;
+            confirm_replace_audio?: boolean;
             /** Expected Speakers */
             expected_speakers?: number | null;
             /**
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /** File */
             file: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Max Speakers */
             max_speakers?: number | null;
             /** Min Speakers */
@@ -13988,7 +14125,7 @@ export interface components {
              * Run Diarize
              * @default false
              */
-            run_diarize: boolean;
+            run_diarize?: boolean;
             /** Source Language */
             source_language?: string | null;
             /** Tesseract Cmd */
@@ -14002,14 +14139,14 @@ export interface components {
              * Confirm Replace Audio
              * @default false
              */
-            confirm_replace_audio: boolean;
+            confirm_replace_audio?: boolean;
             /** File */
             file: string;
         };
         /** BrowserInstallJob */
         BrowserInstallJob: {
             /** Error */
-            error?: string | null;
+            error: string | null;
             /**
              * Message
              * @default
@@ -14021,7 +14158,7 @@ export interface components {
              */
             progress: number;
             /** Status */
-            status?: string | null;
+            status: string | null;
         };
         /** BrowserInstallRequest */
         BrowserInstallRequest: {
@@ -14029,7 +14166,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** BrowserInstallResult */
         BrowserInstallResult: {
@@ -14056,17 +14193,17 @@ export interface components {
             app_browser_installed: boolean;
             /** Free Mb */
             free_mb: number;
-            job?: components["schemas"]["BrowserInstallJob"] | null;
+            job: components["schemas"]["BrowserInstallJob"] | null;
             /** Job Id */
             job_id: string;
-            last_result?: components["schemas"]["BrowserInstallResult"] | null;
+            last_result: components["schemas"]["BrowserInstallResult"] | null;
             /** Playwright Installed */
             playwright_installed: boolean;
             /**
              * Refusal
              * @description Why the install can't start now, or null.
              */
-            refusal?: string | null;
+            refusal: string | null;
             /** Required Mb */
             required_mb: number;
             /**
@@ -14085,7 +14222,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Stamp */
             stamp: string;
         };
@@ -14099,7 +14236,7 @@ export interface components {
         /** BugReportListItem */
         BugReportListItem: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Has Screenshot */
             has_screenshot: boolean;
             /** Has Server Log */
@@ -14107,9 +14244,9 @@ export interface components {
             /** Id */
             id: number;
             /** Mode */
-            mode?: string | null;
+            mode: string | null;
             /** Route */
-            route?: string | null;
+            route: string | null;
             /** Stamp */
             stamp: string;
             /** Summary */
@@ -14154,21 +14291,21 @@ export interface components {
         /** BurnPreviewClip */
         BurnPreviewClip: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** End */
-            end?: number | null;
+            end: number | null;
             /** Idx */
-            idx?: number | null;
+            idx: number | null;
             /** Line Id */
-            line_id?: number | null;
+            line_id: number | null;
             /** Preset */
-            preset?: string | null;
+            preset: string | null;
             /** Start */
-            start?: number | null;
+            start: number | null;
         };
         /** BurnPreviewInfo */
         BurnPreviewInfo: {
-            clip?: components["schemas"]["BurnPreviewClip"] | null;
+            clip: components["schemas"]["BurnPreviewClip"] | null;
             /** Drama Id */
             drama_id: number;
             /** Ffmpeg Available */
@@ -14192,7 +14329,7 @@ export interface components {
              * Per Speaker Colors
              * @default false
              */
-            per_speaker_colors: boolean;
+            per_speaker_colors?: boolean;
             /** Preset */
             preset?: string | null;
             /** Speaker Colors */
@@ -14228,7 +14365,7 @@ export interface components {
              * Note
              * @default
              */
-            note: string;
+            note?: string;
         };
         /** CandidateAddResult */
         CandidateAddResult: {
@@ -14269,7 +14406,7 @@ export interface components {
             /** Requires */
             requires: string;
             /** Unset Label */
-            unset_label?: string | null;
+            unset_label: string | null;
         };
         /** CharactersCloneEngineItem */
         CharactersCloneEngineItem: {
@@ -14322,9 +14459,9 @@ export interface components {
             /** Ref Text Present */
             ref_text_present: boolean;
             /** Sample Lines */
-            sample_lines?: string[];
+            sample_lines: string[];
             /** Series Character Id */
-            series_character_id?: number | null;
+            series_character_id: number | null;
             /** Series Character Name */
             series_character_name: string;
             /**
@@ -14348,7 +14485,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Source Label */
             source_label: string;
             /** Target Label */
@@ -14360,7 +14497,7 @@ export interface components {
             characters: components["schemas"]["CharactersEntry"][];
             /** Moved */
             moved: number;
-            undo?: components["schemas"]["CharactersMergeUndo"] | null;
+            undo: components["schemas"]["CharactersMergeUndo"] | null;
         };
         /**
          * CharactersMergeUndo
@@ -14402,7 +14539,7 @@ export interface components {
             characters: components["schemas"]["CharactersEntry"][];
             /** Renamed */
             renamed: number;
-            undo?: components["schemas"]["CharactersRenameUndo"] | null;
+            undo: components["schemas"]["CharactersRenameUndo"] | null;
         };
         /**
          * CharactersRenameUndo
@@ -14567,7 +14704,7 @@ export interface components {
          *     reject); suggestions: what is still offered.
          */
         CharactersVoiceSuggestionResult: {
-            character?: components["schemas"]["CharactersEntry"] | null;
+            character: components["schemas"]["CharactersEntry"] | null;
             /** Suggestions */
             suggestions: components["schemas"]["CharactersVoiceSuggestion"][];
         };
@@ -14587,7 +14724,7 @@ export interface components {
             /** Flagged Count */
             flagged_count: number;
             /** History Id */
-            history_id?: number | null;
+            history_id: number | null;
         };
         /** ComicChapter */
         ComicChapter: {
@@ -14612,7 +14749,7 @@ export interface components {
         /** ComicPage */
         ComicPage: {
             /** Chapter Id */
-            chapter_id?: string | null;
+            chapter_id: string | null;
             /**
              * Chapter Page
              * @default 0
@@ -14641,7 +14778,7 @@ export interface components {
         /** ComicPageList */
         ComicPageList: {
             /** Chapters */
-            chapters?: components["schemas"]["ComicChapter"][];
+            chapters: components["schemas"]["ComicChapter"][];
             /** Drama Id */
             drama_id: number;
             /**
@@ -14796,9 +14933,9 @@ export interface components {
         /** ComicSourceChapters */
         ComicSourceChapters: {
             /** Chapters */
-            chapters?: components["schemas"]["ComicSourceChapter"][];
+            chapters: components["schemas"]["ComicSourceChapter"][];
             /** Imported Ids */
-            imported_ids?: string[];
+            imported_ids: string[];
             /**
              * Mode
              * @enum {string}
@@ -14824,7 +14961,7 @@ export interface components {
              * Coveralone
              * @default true
              */
-            coverAlone: boolean;
+            coverAlone?: boolean;
             /**
              * Fit
              * @enum {string}
@@ -14842,7 +14979,7 @@ export interface components {
              * @default auto
              * @enum {string}
              */
-            spread: "auto" | "single" | "double";
+            spread?: "auto" | "single" | "double";
             /** Text */
             text: boolean;
             /** Typeset */
@@ -14850,7 +14987,7 @@ export interface components {
         };
         /** ComicViewPrefsView */
         ComicViewPrefsView: {
-            view_prefs?: components["schemas"]["ComicViewPrefs"] | null;
+            view_prefs: components["schemas"]["ComicViewPrefs"] | null;
         };
         /**
          * ComicVisibilityRequest
@@ -14864,7 +15001,7 @@ export interface components {
              * Count
              * @default 1
              */
-            count: number;
+            count?: number;
             /** Edge */
             edge?: ("first" | "last" | "all") | null;
             /** Hidden */
@@ -14887,7 +15024,7 @@ export interface components {
              * Expected Candidate En
              * @default
              */
-            expected_candidate_en: string;
+            expected_candidate_en?: string;
             /** Expected Candidate Zh */
             expected_candidate_zh: string;
             /** Line Id */
@@ -14896,7 +15033,7 @@ export interface components {
              * Use English
              * @default false
              */
-            use_english: boolean;
+            use_english?: boolean;
         };
         /** CompareApplyRequest */
         CompareApplyRequest: {
@@ -14921,18 +15058,18 @@ export interface components {
             /** Label */
             label: string;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
         };
         /** CompareEstimate */
         CompareEstimate: {
             /** Cap Applies */
             cap_applies: boolean;
             /** Effective Cap Usd */
-            effective_cap_usd?: number | null;
+            effective_cap_usd: number | null;
             /** Estimate Above Cap */
             estimate_above_cap: boolean;
             /** Estimated Usd */
-            estimated_usd?: number | null;
+            estimated_usd: number | null;
             /** Free */
             free: boolean;
             /** Line Count */
@@ -14958,18 +15095,32 @@ export interface components {
              * Retranslate Current
              * @default false
              */
-            retranslate_current: boolean;
+            retranslate_current?: boolean;
             selection: components["schemas"]["CompareSelection"];
             /**
              * Translate
              * @default false
              */
-            translate: boolean;
+            translate?: boolean;
+        };
+        /** CompareFlagRequest */
+        CompareFlagRequest: {
+            /** Job Id */
+            job_id: string;
+        };
+        /** CompareFlagResult */
+        CompareFlagResult: {
+            /** Cleared Count */
+            cleared_count: number;
+            /** Compared Count */
+            compared_count: number;
+            /** Flagged Count */
+            flagged_count: number;
         };
         /** CompareOptions */
         CompareOptions: {
             /** Aligner Reason */
-            aligner_reason?: string | null;
+            aligner_reason: string | null;
             /** Backends */
             backends: components["schemas"]["CompareBackendOption"][];
             /** Has Audio */
@@ -14977,7 +15128,7 @@ export interface components {
             /** Max Lines */
             max_lines: number;
             /** No Audio Reason */
-            no_audio_reason?: string | null;
+            no_audio_reason: string | null;
             /** Saved Alignment Method */
             saved_alignment_method: string;
             /** Saved Asr Backend */
@@ -15028,7 +15179,7 @@ export interface components {
         /** CompareResult */
         CompareResult: {
             /** Asr Backend */
-            asr_backend?: string | null;
+            asr_backend: string | null;
             /** Cap Reached */
             cap_reached: boolean;
             /** Errors */
@@ -15044,7 +15195,7 @@ export interface components {
             /** Translated */
             translated: boolean;
             /** Whisper Size */
-            whisper_size?: string | null;
+            whisper_size: string | null;
         };
         /**
          * CompareRunRequest
@@ -15059,14 +15210,14 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /** Gemini Free Tier */
             gemini_free_tier?: boolean | null;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Job Cost Cap Usd */
             job_cost_cap_usd?: number | null;
             /** Model */
@@ -15075,13 +15226,13 @@ export interface components {
              * Retranslate Current
              * @default false
              */
-            retranslate_current: boolean;
+            retranslate_current?: boolean;
             selection: components["schemas"]["CompareSelection"];
             /**
              * Translate
              * @default false
              */
-            translate: boolean;
+            translate?: boolean;
             /** Whisper Size */
             whisper_size?: string | null;
         };
@@ -15140,7 +15291,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** DeleteSnapshotDone */
         DeleteSnapshotDone: {
@@ -15170,23 +15321,23 @@ export interface components {
              * @description true = delete every managed copy (no snapshot).
              * @default false
              */
-            all: boolean;
+            all?: boolean;
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
             /**
              * Include Unmanaged
              * @description true = also copies this library doesn't manage.
              * @default false
              */
-            include_unmanaged: boolean;
+            include_unmanaged?: boolean;
             /**
              * Snapshot
              * @description A copy's name from the copies list.
@@ -15241,17 +15392,17 @@ export interface components {
             /** Created At */
             created_at: number;
             /** Expires At */
-            expires_at?: number | null;
+            expires_at: number | null;
             /** Id */
             id: number;
             /** Label */
             label: string;
             /** Last Used At */
-            last_used_at?: number | null;
+            last_used_at: number | null;
             /** Last Used Ip Prefix */
             last_used_ip_prefix: string;
             /** Revoked At */
-            revoked_at?: number | null;
+            revoked_at: number | null;
             /**
              * Status
              * @enum {string}
@@ -15264,7 +15415,7 @@ export interface components {
              * Expires In Days
              * @default 90
              */
-            expires_in_days: number | null;
+            expires_in_days?: number | null;
             /** Label */
             label: string;
         };
@@ -15295,7 +15446,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** DiagnosticsCacheDeleteResult */
         DiagnosticsCacheDeleteResult: {
@@ -15306,8 +15457,8 @@ export interface components {
         };
         /** DiagnosticsCudaRuntimeStatus */
         DiagnosticsCudaRuntimeStatus: {
-            install?: components["schemas"]["DiagnosticsDependencyInstallState"] | null;
-            job?: components["schemas"]["DiagnosticsJobState"] | null;
+            install: components["schemas"]["DiagnosticsDependencyInstallState"] | null;
+            job: components["schemas"]["DiagnosticsJobState"] | null;
             /**
              * Missing
              * @description An NVIDIA GPU is present but no cuBLAS 12 / cuDNN 9 is where Whisper can load it.
@@ -15325,7 +15476,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** DiagnosticsDenoResult */
         DiagnosticsDenoResult: {
@@ -15353,14 +15504,14 @@ export interface components {
              * @description `winget` (Windows) or `download` (official release zip).
              */
             install_method: string;
-            job?: components["schemas"]["DiagnosticsJobState"] | null;
+            job: components["schemas"]["DiagnosticsJobState"] | null;
             /** Job Id */
             job_id: string;
-            last_result?: components["schemas"]["DiagnosticsDenoResult"] | null;
+            last_result: components["schemas"]["DiagnosticsDenoResult"] | null;
             /** Runtime Found */
             runtime_found: boolean;
             /** Runtime Name */
-            runtime_name?: string | null;
+            runtime_name: string | null;
         };
         /**
          * DiagnosticsDependencyInstallRequest
@@ -15374,14 +15525,14 @@ export interface components {
              * Accept Risk
              * @default false
              */
-            accept_risk: boolean;
+            accept_risk?: boolean;
             /** Accepted Risks */
             accepted_risks?: string[];
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /**
          * DiagnosticsDependencyInstallResult
@@ -15395,7 +15546,7 @@ export interface components {
              */
             cancelled: boolean;
             /** Hint */
-            hint?: string | null;
+            hint: string | null;
             /** Ok */
             ok: boolean;
             /** Output Tail */
@@ -15403,8 +15554,8 @@ export interface components {
             /** Package */
             package: string;
             /** Variant */
-            variant?: string | null;
-            verify?: components["schemas"]["DiagnosticsTorchVerify"] | null;
+            variant: string | null;
+            verify: components["schemas"]["DiagnosticsTorchVerify"] | null;
         };
         /**
          * DiagnosticsDependencyInstallState
@@ -15412,29 +15563,29 @@ export interface components {
          *     redacted; no paths or keys.
          */
         DiagnosticsDependencyInstallState: {
-            job?: components["schemas"]["DiagnosticsJobState"] | null;
+            job: components["schemas"]["DiagnosticsJobState"] | null;
             /** Job Id */
             job_id: string;
             /** Kind */
-            kind?: ("package" | "upgrade" | "upgrade_outdated" | "gpu_torch" | "cuda_runtime") | null;
+            kind: ("package" | "upgrade" | "upgrade_outdated" | "gpu_torch" | "cuda_runtime") | null;
             /** Package */
-            package?: string | null;
-            result?: components["schemas"]["DiagnosticsDependencyInstallResult"] | null;
+            package: string | null;
+            result: components["schemas"]["DiagnosticsDependencyInstallResult"] | null;
         };
         /** DiagnosticsGpuTorchNvidia */
         DiagnosticsGpuTorchNvidia: {
             /** Cuda */
-            cuda?: string | null;
+            cuda: string | null;
             /** Driver Version */
-            driver_version?: string | null;
+            driver_version: string | null;
             /** Found */
             found: boolean;
             /** Gpu Name */
-            gpu_name?: string | null;
+            gpu_name: string | null;
             /** Minimum */
-            minimum?: string | null;
+            minimum: string | null;
             /** Recommended */
-            recommended?: string | null;
+            recommended: string | null;
             /** Status */
             status: string;
         };
@@ -15449,7 +15600,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Variant */
             variant?: ("cu128" | "cu126" | "cpu") | null;
         };
@@ -15464,14 +15615,14 @@ export interface components {
             /** Installed */
             installed: components["schemas"]["DiagnosticsTorchPackage"][];
             nvidia: components["schemas"]["DiagnosticsGpuTorchNvidia"];
-            probe?: components["schemas"]["DiagnosticsTorchVerify"] | null;
+            probe: components["schemas"]["DiagnosticsTorchVerify"] | null;
             /** Problems */
             problems: string[];
             /** Python Supported */
             python_supported: boolean;
             recommended: components["schemas"]["DiagnosticsTorchVariant"];
             /** Recommended Reason */
-            recommended_reason?: string | null;
+            recommended_reason: string | null;
             /** State */
             state: string;
             /** Variants */
@@ -15552,7 +15703,7 @@ export interface components {
         /** DiagnosticsJobState */
         DiagnosticsJobState: {
             /** Error */
-            error?: string | null;
+            error: string | null;
             /**
              * Message
              * @default
@@ -15564,7 +15715,7 @@ export interface components {
              */
             progress: number;
             /** Status */
-            status?: string | null;
+            status: string | null;
         };
         /** DiagnosticsLogTail */
         DiagnosticsLogTail: {
@@ -15581,6 +15732,25 @@ export interface components {
             model_files: components["schemas"]["DiagnosticsModelFile"][];
             /** Model Files Total Bytes */
             model_files_total_bytes: number;
+        };
+        /** DiagnosticsModelDownload */
+        DiagnosticsModelDownload: {
+            /** Downloaded */
+            downloaded: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Job Id
+             * @description Follow the download with GET /api/jobs/{job_id}.
+             */
+            job_id: string;
+            /** Label */
+            label: string;
+        };
+        /** DiagnosticsModelDownloads */
+        DiagnosticsModelDownloads: {
+            /** Models */
+            models: components["schemas"]["DiagnosticsModelDownload"][];
         };
         /**
          * DiagnosticsModelFile
@@ -15622,7 +15792,7 @@ export interface components {
         /** DiagnosticsPackageInfo */
         DiagnosticsPackageInfo: {
             /** Approx Mb */
-            approx_mb?: number | null;
+            approx_mb: number | null;
             /**
              * Below Min
              * @default false
@@ -15635,38 +15805,38 @@ export interface components {
             /** Installed */
             installed: boolean;
             /** Installed Version */
-            installed_version?: string | null;
+            installed_version: string | null;
             /** Min Version */
-            min_version?: string | null;
+            min_version: string | null;
             /** Name */
             name: string;
             /** Not Offered Reason */
-            not_offered_reason?: string | null;
+            not_offered_reason: string | null;
             /** Powers */
             powers: string;
             /** Pulls Torch */
             pulls_torch: boolean;
             /** Source Url */
-            source_url?: string | null;
+            source_url: string | null;
             /** Warning */
-            warning?: string | null;
+            warning: string | null;
         };
         /** DiagnosticsPackageUpdate */
         DiagnosticsPackageUpdate: {
             /** Dist */
             dist: string;
             /** Installed Version */
-            installed_version?: string | null;
+            installed_version: string | null;
             /** Latest */
-            latest?: string | null;
+            latest: string | null;
             /** Name */
             name: string;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /** Status */
             status: string;
             /** Target */
-            target?: string | null;
+            target: string | null;
         };
         /**
          * DiagnosticsPackageUpdates
@@ -15696,7 +15866,7 @@ export interface components {
             /** Hf Token Configured */
             hf_token_configured: boolean;
             /** Models */
-            models?: components["schemas"]["DiagnosticsPyannoteModel"][] | null;
+            models: components["schemas"]["DiagnosticsPyannoteModel"][] | null;
             /** Pyannote Installed */
             pyannote_installed: boolean;
             /** Ready */
@@ -15711,12 +15881,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
         };
         /** DiagnosticsResetResult */
         DiagnosticsResetResult: {
@@ -15730,14 +15900,14 @@ export interface components {
             /** Found */
             found: boolean;
             /** Name */
-            name?: string | null;
+            name: string | null;
             /**
              * Needed
              * @description A saved source works only through a browser tier; false means no source needs one yet, so a missing browser tool is not a setup problem.
              */
-            needed?: boolean | null;
+            needed: boolean | null;
             /** Package */
-            package?: boolean | null;
+            package: boolean | null;
         };
         /**
          * DiagnosticsSetupChecks
@@ -15761,7 +15931,7 @@ export interface components {
         /** DiagnosticsSetupCuda */
         DiagnosticsSetupCuda: {
             /** Cuda Available */
-            cuda_available?: boolean | null;
+            cuda_available: boolean | null;
             /** Torch Installed */
             torch_installed: boolean;
         };
@@ -15773,9 +15943,9 @@ export interface components {
              * Libass
              * @description Built with libass (burned-in subtitles); null when ffmpeg is missing or unknown.
              */
-            libass?: boolean | null;
+            libass: boolean | null;
             /** Version */
-            version?: string | null;
+            version: string | null;
         };
         /** DiagnosticsSetupFiles */
         DiagnosticsSetupFiles: {
@@ -15789,14 +15959,14 @@ export interface components {
             /** Found */
             found: boolean;
             /** Name */
-            name?: string | null;
+            name: string | null;
         };
         /** DiagnosticsSetupPython */
         DiagnosticsSetupPython: {
             /** Ok */
             ok: boolean;
             /** Version */
-            version?: string | null;
+            version: string | null;
         };
         /** DiagnosticsSupportReport */
         DiagnosticsSupportReport: {
@@ -15806,11 +15976,11 @@ export interface components {
         /** DiagnosticsTorchPackage */
         DiagnosticsTorchPackage: {
             /** Build */
-            build?: string | null;
+            build: string | null;
             /** Name */
             name: string;
             /** Version */
-            version?: string | null;
+            version: string | null;
         };
         /** DiagnosticsTorchVariant */
         DiagnosticsTorchVariant: {
@@ -15830,19 +16000,19 @@ export interface components {
         /** DiagnosticsTorchVerify */
         DiagnosticsTorchVerify: {
             /** Cuda Available */
-            cuda_available?: boolean | null;
+            cuda_available: boolean | null;
             /** Cuda Build */
-            cuda_build?: string | null;
+            cuda_build: string | null;
             /** Device */
-            device?: string | null;
+            device: string | null;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Torch */
-            torch?: string | null;
+            torch: string | null;
             /** Torchaudio */
-            torchaudio?: string | null;
+            torchaudio: string | null;
             /** Torchvision */
-            torchvision?: string | null;
+            torchvision: string | null;
         };
         /**
          * DiagnosticsUpgradeCheckRequest
@@ -15853,44 +16023,44 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Target */
             target?: string | null;
         };
         /** DiagnosticsUpgradeCheckResult */
         DiagnosticsUpgradeCheckResult: {
             /** Conflicts */
-            conflicts?: string[] | null;
+            conflicts: string[] | null;
             /** New Failures */
-            new_failures?: string[] | null;
+            new_failures: string[] | null;
             /** Ok */
             ok: boolean;
             /** Preexisting Failures */
-            preexisting_failures?: string[] | null;
+            preexisting_failures: string[] | null;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /** Verdict */
-            verdict?: string | null;
+            verdict: string | null;
             /** Version */
-            version?: string | null;
+            version: string | null;
         };
         /** DiagnosticsUpgradeCheckState */
         DiagnosticsUpgradeCheckState: {
-            job?: components["schemas"]["DiagnosticsJobState"] | null;
+            job: components["schemas"]["DiagnosticsJobState"] | null;
             /** Job Id */
             job_id: string;
             /** Output Tail */
             output_tail: string[];
             /** Package */
-            package?: string | null;
-            result?: components["schemas"]["DiagnosticsUpgradeCheckResult"] | null;
+            package: string | null;
+            result: components["schemas"]["DiagnosticsUpgradeCheckResult"] | null;
             /** Target */
-            target?: string | null;
+            target: string | null;
             /**
              * Unavailable Reason
              * @description Set when this copy has no test suite to run; hide Test first.
              */
-            unavailable_reason?: string | null;
+            unavailable_reason: string | null;
         };
         /**
          * DiagnosticsUpgradePlanRequest
@@ -15911,14 +16081,14 @@ export interface components {
              * Accept Risk
              * @default false
              */
-            accept_risk: boolean;
+            accept_risk?: boolean;
             /** Accepted Risks */
             accepted_risks?: string[];
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Target */
             target?: string | null;
         };
@@ -15933,23 +16103,23 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Expected Speakers */
-            expected_speakers?: number | null;
+            expected_speakers: number | null;
             /** Hf Token Configured */
             hf_token_configured: boolean;
             /** Last Device */
-            last_device?: string | null;
+            last_device: string | null;
             /**
              * Manual Speaker Count
              * @default 0
              */
             manual_speaker_count: number;
             /** Max Speakers */
-            max_speakers?: number | null;
+            max_speakers: number | null;
             /** Min Speakers */
-            min_speakers?: number | null;
+            min_speakers: number | null;
             /** Speaker Notice */
-            speaker_notice?: string | null;
-            speaker_summary?: components["schemas"]["SpeakerTimeSummary"] | null;
+            speaker_notice: string | null;
+            speaker_summary: components["schemas"]["SpeakerTimeSummary"] | null;
         };
         /** DiarizationRunResult */
         DiarizationRunResult: {
@@ -15985,7 +16155,7 @@ export interface components {
              * Source Label
              * @default
              */
-            source_label: string;
+            source_label?: string;
         };
         /** DiscoverBulkCommitResult */
         DiscoverBulkCommitResult: {
@@ -16002,29 +16172,29 @@ export interface components {
              * Author
              * @default
              */
-            author: string;
+            author?: string;
             /** Entry Id */
             entry_id?: string | null;
             /**
              * Has Audio Drama
              * @default false
              */
-            has_audio_drama: boolean;
+            has_audio_drama?: boolean;
             /**
              * Language
              * @default zh
              */
-            language: string;
+            language?: string;
             /**
              * Source Url
              * @default
              */
-            source_url: string;
+            source_url?: string;
             /**
              * Tags
              * @default
              */
-            tags: string;
+            tags?: string;
             /** Title */
             title: string;
         };
@@ -16036,7 +16206,7 @@ export interface components {
              * Source Label
              * @default
              */
-            source_label: string;
+            source_label?: string;
             /** Urls */
             urls: string[];
         };
@@ -16078,11 +16248,11 @@ export interface components {
             /** Progress */
             progress: number;
             /** Result */
-            result?: {
+            result: {
                 [key: string]: unknown;
             } | null;
             /** Status */
-            status?: string | null;
+            status: string | null;
         };
         /** DiscoverJobStarted */
         DiscoverJobStarted: {
@@ -16101,7 +16271,7 @@ export interface components {
              * Target Language
              * @default English
              */
-            target_language: string;
+            target_language?: string;
             /** Url */
             url: string;
         };
@@ -16163,12 +16333,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Irreplaceable
              * @default false
              */
-            confirm_irreplaceable: boolean;
+            confirm_irreplaceable?: boolean;
             /** Expected File Count */
             expected_file_count: number;
             /**
@@ -16202,7 +16372,7 @@ export interface components {
              */
             irreplaceable: boolean;
             /** Irreplaceable Note */
-            irreplaceable_note?: string | null;
+            irreplaceable_note: string | null;
             /**
              * Is Link
              * @default false
@@ -16217,16 +16387,16 @@ export interface components {
              * Linked Bytes
              * @description Size of the linked folder(s) stored elsewhere that this item is or holds, kept out of size_bytes. Null when none was measured; never names where they are.
              */
-            linked_bytes?: number | null;
+            linked_bytes: number | null;
             /**
              * Linked Complete
              * @description False when a limit cut the linked size short (a lower bound).
              */
-            linked_complete?: boolean | null;
+            linked_complete: boolean | null;
             /** Linked Files */
-            linked_files?: number | null;
+            linked_files: number | null;
             /** Modified At */
-            modified_at?: string | null;
+            modified_at: string | null;
             movable: components["schemas"]["DiskUsageMovable"];
             /** Name */
             name: string;
@@ -16240,13 +16410,13 @@ export interface components {
             /** Protected */
             protected: boolean;
             /** Protected Reason */
-            protected_reason?: string | null;
+            protected_reason: string | null;
             /** @description The app can rebuild this (storage.py's categories). */
-            regenerable?: components["schemas"]["DiskUsageRegenerable"] | null;
+            regenerable: components["schemas"]["DiskUsageRegenerable"] | null;
             /** Size Bytes */
             size_bytes: number;
             /** @description Set on each title folder when library/dramas is listed. */
-            title_sizes?: components["schemas"]["DiskUsageTitleSizes"] | null;
+            title_sizes: components["schemas"]["DiskUsageTitleSizes"] | null;
         };
         /** DiskUsageMovable */
         DiskUsageMovable: {
@@ -16254,11 +16424,11 @@ export interface components {
              * Reason
              * @description Why it can't be moved (when not supported).
              */
-            reason?: string | null;
+            reason: string | null;
             /** Supported */
             supported: boolean;
             /** What */
-            what?: "backups" | null;
+            what: "backups" | null;
         };
         /** DiskUsageMoveDone */
         DiskUsageMoveDone: {
@@ -16269,7 +16439,7 @@ export interface components {
             /** Remaining Bytes */
             remaining_bytes: number;
             /** What */
-            what?: string | null;
+            what: string | null;
         };
         /** DiskUsageMoveRequest */
         DiskUsageMoveRequest: {
@@ -16277,7 +16447,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Destination
              * @description An existing folder, full path (PC only).
@@ -16299,11 +16469,11 @@ export interface components {
              * Busy Reason
              * @description Set while a job or library task blocks clear and move.
              */
-            busy_reason?: string | null;
+            busy_reason: string | null;
             /** Disk Free Bytes */
-            disk_free_bytes?: number | null;
+            disk_free_bytes: number | null;
             /** Disk Total Bytes */
-            disk_total_bytes?: number | null;
+            disk_total_bytes: number | null;
             /** File Count */
             file_count: number;
             /** Items */
@@ -16331,14 +16501,14 @@ export interface components {
              */
             not_shown: number;
             /** Parent */
-            parent?: string | null;
+            parent: string | null;
             /**
              * Partial
              * @description A walk limit (entries or time) was hit: sizes are lower bounds.
              */
             partial: boolean;
             /** Partial Reason */
-            partial_reason?: ("entries" | "time" | "items") | null;
+            partial_reason: ("entries" | "time" | "items") | null;
             /** Path */
             path: string;
             /** Scanned Entries */
@@ -16408,7 +16578,7 @@ export interface components {
         /** DiskUsageTrashItem */
         DiskUsageTrashItem: {
             /** File Count */
-            file_count?: number | null;
+            file_count: number | null;
             /**
              * From Kept Title
              * @description It came from the folder of a title with "Keep original files" on; the delete confirmation names that.
@@ -16418,26 +16588,26 @@ export interface components {
             /** Id */
             id: string;
             /** Kind */
-            kind?: ("file" | "folder") | null;
+            kind: ("file" | "folder") | null;
             /**
              * Original Path Relative
              * @description Where it came from, relative to the data folder; null when its record is missing or damaged.
              */
-            original_path_relative?: string | null;
+            original_path_relative: string | null;
             /** Restorable */
             restorable: boolean;
             /**
              * Size Bytes
              * @description Null when the walk limit was reached before this item was measured.
              */
-            size_bytes?: number | null;
+            size_bytes: number | null;
             /** Trashed At */
-            trashed_at?: string | null;
+            trashed_at: string | null;
         };
         /** DiskUsageTrashList */
         DiskUsageTrashList: {
             /** Busy Reason */
-            busy_reason?: string | null;
+            busy_reason: string | null;
             /** Item Count */
             item_count: number;
             /** Items */
@@ -16489,7 +16659,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Id */
             id: string;
         };
@@ -16516,17 +16686,17 @@ export interface components {
              * Author
              * @default
              */
-            author: string;
+            author?: string;
             /**
              * Director
              * @default
              */
-            director: string;
+            director?: string;
             /**
              * Media Type
              * @default audio_drama
              */
-            media_type: string;
+            media_type?: string;
             /** New Series Name */
             new_series_name?: string | null;
             /** Preset Id */
@@ -16535,7 +16705,7 @@ export interface components {
              * Release Date
              * @default
              */
-            release_date: string;
+            release_date?: string;
             /** Series Id */
             series_id?: number | null;
             /** Source Language */
@@ -16544,57 +16714,57 @@ export interface components {
              * Source Url
              * @default
              */
-            source_url: string;
+            source_url?: string;
             /**
              * Studio
              * @default
              */
-            studio: string;
+            studio?: string;
             /**
              * Summary
              * @default
              */
-            summary: string;
+            summary?: string;
             /**
              * Title En
              * @default
              */
-            title_en: string;
+            title_en?: string;
             /**
              * Title Zh
              * @default
              */
-            title_zh: string;
+            title_zh?: string;
             /**
              * Voice Actors
              * @default
              */
-            voice_actors: string;
+            voice_actors?: string;
         };
         /** DramaCreateResult */
         DramaCreateResult: {
             /** Author */
-            author?: string | null;
+            author: string | null;
             /** Author Romanized */
-            author_romanized?: string | null;
+            author_romanized: string | null;
             /** Chapter Count */
-            chapter_count?: number | null;
+            chapter_count: number | null;
             /** Content Mode */
-            content_mode?: string | null;
+            content_mode: string | null;
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Custom Tags */
-            custom_tags?: string[];
+            custom_tags: string[];
             /** Director */
-            director?: string | null;
+            director: string | null;
             /** Director Romanized */
-            director_romanized?: string | null;
+            director_romanized: string | null;
             /** Episode Number */
-            episode_number?: number | null;
+            episode_number: number | null;
             /** Episode Summary */
-            episode_summary?: string | null;
+            episode_summary: string | null;
             /** Genre */
-            genre?: string | null;
+            genre: string | null;
             /**
              * Has Audio
              * @description A source audio/video file is attached.
@@ -16610,7 +16780,7 @@ export interface components {
              * Is Private
              * @description Hidden from the household (a drama in a series follows its series). Only set in the Library list.
              */
-            is_private?: boolean | null;
+            is_private: boolean | null;
             /**
              * Keep Original
              * @description "Keep original files": storage cleanup never removes this title's originals and an export always includes them.
@@ -16624,9 +16794,9 @@ export interface components {
              */
             line_count: number;
             /** Media Type */
-            media_type?: string | null;
+            media_type: string | null;
             /** Narration Language */
-            narration_language?: string | null;
+            narration_language: string | null;
             /**
              * New Chapters
              * @description New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.
@@ -16637,7 +16807,7 @@ export interface components {
              * Owned By Me
              * @description The signed-in viewer created it. Only set in the Library list.
              */
-            owned_by_me?: boolean | null;
+            owned_by_me: boolean | null;
             /**
              * Page Count
              * @description Pages a comic has. Only counted in the Library list.
@@ -16650,44 +16820,44 @@ export interface components {
              * @default 0
              */
             pages_translated: number;
-            preset_defaults?: components["schemas"]["DramaPresetDefaults"] | null;
+            preset_defaults: components["schemas"]["DramaPresetDefaults"] | null;
             /** Profile Skipped */
-            profile_skipped?: string[];
+            profile_skipped: string[];
             /** Publication Status */
-            publication_status?: string | null;
+            publication_status: string | null;
             /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
-            release_date?: string | null;
+            release_date: string | null;
             /** Series Id */
-            series_id?: number | null;
+            series_id: number | null;
             /** Series Instructions */
-            series_instructions?: string | null;
+            series_instructions: string | null;
             /**
              * Source Language
              * @description `zh`, `ja` or `ko`.
              */
-            source_language?: string | null;
+            source_language: string | null;
             /** Source Url */
-            source_url?: string | null;
+            source_url: string | null;
             /**
              * Status
              * @description Pipeline status: not started / aligned / translated / dubbed / exported.
              */
-            status?: string | null;
+            status: string | null;
             /** Studio */
-            studio?: string | null;
+            studio: string | null;
             /** Studio Romanized */
-            studio_romanized?: string | null;
+            studio_romanized: string | null;
             /** Summary */
-            summary?: string | null;
+            summary: string | null;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title From Link */
-            title_from_link?: ("link" | "placeholder") | null;
+            title_from_link: ("link" | "placeholder") | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
             /**
              * Translated Count
              * @description Lines with English text. Only counted in the Library list.
@@ -16695,16 +16865,16 @@ export interface components {
              */
             translated_count: number;
             /** Translation Engine */
-            translation_engine?: string | null;
+            translation_engine: string | null;
             /** Updated At */
-            updated_at?: string | null;
+            updated_at: string | null;
             /**
              * Voice Actors
              * @description Comma-separated, as entered.
              */
-            voice_actors?: string | null;
+            voice_actors: string | null;
             /** Voice Actors Romanized */
-            voice_actors_romanized?: string | null;
+            voice_actors_romanized: string | null;
         };
         /** DramaDeleteResult */
         DramaDeleteResult: {
@@ -16713,7 +16883,7 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Warning */
-            warning?: string | null;
+            warning: string | null;
         };
         /**
          * DramaDetail
@@ -16721,27 +16891,27 @@ export interface components {
          */
         DramaDetail: {
             /** Author */
-            author?: string | null;
+            author: string | null;
             /** Author Romanized */
-            author_romanized?: string | null;
+            author_romanized: string | null;
             /** Chapter Count */
-            chapter_count?: number | null;
+            chapter_count: number | null;
             /** Content Mode */
-            content_mode?: string | null;
+            content_mode: string | null;
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Custom Tags */
-            custom_tags?: string[];
+            custom_tags: string[];
             /** Director */
-            director?: string | null;
+            director: string | null;
             /** Director Romanized */
-            director_romanized?: string | null;
+            director_romanized: string | null;
             /** Episode Number */
-            episode_number?: number | null;
+            episode_number: number | null;
             /** Episode Summary */
-            episode_summary?: string | null;
+            episode_summary: string | null;
             /** Genre */
-            genre?: string | null;
+            genre: string | null;
             /**
              * Has Audio
              * @description A source audio/video file is attached.
@@ -16757,7 +16927,7 @@ export interface components {
              * Is Private
              * @description Hidden from the household (a drama in a series follows its series). Only set in the Library list.
              */
-            is_private?: boolean | null;
+            is_private: boolean | null;
             /**
              * Keep Original
              * @description "Keep original files": storage cleanup never removes this title's originals and an export always includes them.
@@ -16771,9 +16941,9 @@ export interface components {
              */
             line_count: number;
             /** Media Type */
-            media_type?: string | null;
+            media_type: string | null;
             /** Narration Language */
-            narration_language?: string | null;
+            narration_language: string | null;
             /**
              * New Chapters
              * @description New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.
@@ -16784,7 +16954,7 @@ export interface components {
              * Owned By Me
              * @description The signed-in viewer created it. Only set in the Library list.
              */
-            owned_by_me?: boolean | null;
+            owned_by_me: boolean | null;
             /**
              * Page Count
              * @description Pages a comic has. Only counted in the Library list.
@@ -16798,38 +16968,38 @@ export interface components {
              */
             pages_translated: number;
             /** Publication Status */
-            publication_status?: string | null;
+            publication_status: string | null;
             /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
-            release_date?: string | null;
+            release_date: string | null;
             /** Series Id */
-            series_id?: number | null;
+            series_id: number | null;
             /** Series Instructions */
-            series_instructions?: string | null;
+            series_instructions: string | null;
             /**
              * Source Language
              * @description `zh`, `ja` or `ko`.
              */
-            source_language?: string | null;
+            source_language: string | null;
             /** Source Url */
-            source_url?: string | null;
+            source_url: string | null;
             /**
              * Status
              * @description Pipeline status: not started / aligned / translated / dubbed / exported.
              */
-            status?: string | null;
+            status: string | null;
             /** Studio */
-            studio?: string | null;
+            studio: string | null;
             /** Studio Romanized */
-            studio_romanized?: string | null;
+            studio_romanized: string | null;
             /** Summary */
-            summary?: string | null;
+            summary: string | null;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
             /**
              * Translated Count
              * @description Lines with English text. Only counted in the Library list.
@@ -16837,16 +17007,16 @@ export interface components {
              */
             translated_count: number;
             /** Translation Engine */
-            translation_engine?: string | null;
+            translation_engine: string | null;
             /** Updated At */
-            updated_at?: string | null;
+            updated_at: string | null;
             /**
              * Voice Actors
              * @description Comma-separated, as entered.
              */
-            voice_actors?: string | null;
+            voice_actors: string | null;
             /** Voice Actors Romanized */
-            voice_actors_romanized?: string | null;
+            voice_actors_romanized: string | null;
         };
         /** DramaFolderOpened */
         DramaFolderOpened: {
@@ -16926,13 +17096,13 @@ export interface components {
             /** Default Female Pronouns */
             default_female_pronouns: boolean;
             /** Engine Model */
-            engine_model?: string | null;
+            engine_model: string | null;
             /** Include Genre Notes */
             include_genre_notes: boolean;
             /** Locale */
-            locale?: string | null;
+            locale: string | null;
             /** Style Preset */
-            style_preset?: string | null;
+            style_preset: string | null;
         };
         /**
          * DramaSourceLink
@@ -16949,22 +17119,22 @@ export interface components {
          */
         DramaSummary: {
             /** Author */
-            author?: string | null;
+            author: string | null;
             /** Content Mode */
-            content_mode?: string | null;
+            content_mode: string | null;
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Custom Tags */
-            custom_tags?: string[];
+            custom_tags: string[];
             /** Director */
-            director?: string | null;
+            director: string | null;
             /** Id */
             id: number;
             /**
              * Is Private
              * @description Hidden from the household (a drama in a series follows its series). Only set in the Library list.
              */
-            is_private?: boolean | null;
+            is_private: boolean | null;
             /**
              * Line Count
              * @description Lines the title has. Only counted in the Library list.
@@ -16972,7 +17142,7 @@ export interface components {
              */
             line_count: number;
             /** Media Type */
-            media_type?: string | null;
+            media_type: string | null;
             /**
              * New Chapters
              * @description New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.
@@ -16983,7 +17153,7 @@ export interface components {
              * Owned By Me
              * @description The signed-in viewer created it. Only set in the Library list.
              */
-            owned_by_me?: boolean | null;
+            owned_by_me: boolean | null;
             /**
              * Page Count
              * @description Pages a comic has. Only counted in the Library list.
@@ -17000,25 +17170,25 @@ export interface components {
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
-            release_date?: string | null;
+            release_date: string | null;
             /** Series Id */
-            series_id?: number | null;
+            series_id: number | null;
             /**
              * Source Language
              * @description `zh`, `ja` or `ko`.
              */
-            source_language?: string | null;
+            source_language: string | null;
             /**
              * Status
              * @description Pipeline status: not started / aligned / translated / dubbed / exported.
              */
-            status?: string | null;
+            status: string | null;
             /** Studio */
-            studio?: string | null;
+            studio: string | null;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
             /**
              * Translated Count
              * @description Lines with English text. Only counted in the Library list.
@@ -17026,14 +17196,14 @@ export interface components {
              */
             translated_count: number;
             /** Translation Engine */
-            translation_engine?: string | null;
+            translation_engine: string | null;
             /** Updated At */
-            updated_at?: string | null;
+            updated_at: string | null;
             /**
              * Voice Actors
              * @description Comma-separated, as entered.
              */
-            voice_actors?: string | null;
+            voice_actors: string | null;
         };
         /** DubRunStarted */
         DubRunStarted: {
@@ -17050,7 +17220,7 @@ export interface components {
             /** Label */
             label: string;
             /** Unavailable Reason */
-            unavailable_reason?: string | null;
+            unavailable_reason: string | null;
         };
         /**
          * DubbedVideoRequest
@@ -17062,7 +17232,7 @@ export interface components {
              * Keep Original
              * @default false
              */
-            keep_original: boolean;
+            keep_original?: boolean;
         };
         /** EmotionJobStart */
         EmotionJobStart: {
@@ -17070,7 +17240,7 @@ export interface components {
              * Bulk
              * @default false
              */
-            bulk: boolean;
+            bulk?: boolean;
             /** Engine */
             engine?: string | null;
             /** Gemini Free Tier */
@@ -17152,12 +17322,12 @@ export interface components {
             /** Name */
             name: string;
             /** Url */
-            url?: string | null;
+            url: string | null;
         };
         /** EngineCheck */
         EngineCheck: {
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Model Count */
             model_count: number;
             /** Ok */
@@ -17176,7 +17346,7 @@ export interface components {
             engine: string;
             /** Key Configured */
             key_configured: boolean;
-            last_test?: components["schemas"]["EngineTestOutcome"] | null;
+            last_test: components["schemas"]["EngineTestOutcome"] | null;
             /** Needs Key */
             needs_key: boolean;
             /** Status */
@@ -17184,7 +17354,7 @@ export interface components {
             /** Tags */
             tags: string[];
             /** Test Blocked */
-            test_blocked?: string | null;
+            test_blocked: string | null;
         };
         /** EngineRouting */
         EngineRouting: {
@@ -17196,7 +17366,7 @@ export interface components {
         /** EngineTestOutcome */
         EngineTestOutcome: {
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Ok */
             ok: boolean;
             /** Tested At */
@@ -17246,7 +17416,7 @@ export interface components {
              * Details
              * @description Optional structured extra.
              */
-            details?: unknown | null;
+            details: unknown | null;
             /**
              * Message
              * @description Human-readable explanation, safe to display.
@@ -17315,11 +17485,11 @@ export interface components {
          */
         ExtensionEngineSettings: {
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Engines */
             engines: components["schemas"]["TranslateEngine"][];
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Ready */
             ready: boolean;
         };
@@ -17344,7 +17514,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** ExtractionComic */
         ExtractionComic: {
@@ -17388,7 +17558,7 @@ export interface components {
         /** ExtractionFieldConfidence */
         ExtractionFieldConfidence: {
             /** Bucket */
-            bucket?: string | null;
+            bucket: string | null;
             /** Checks */
             checks: string[];
             /** Field */
@@ -17396,7 +17566,7 @@ export interface components {
             /** Score */
             score: number;
             /** Value */
-            value?: string | null;
+            value: string | null;
         };
         /**
          * ExtractionFollow
@@ -17438,7 +17608,7 @@ export interface components {
             /** Attr */
             attr: string;
             /** Display Url */
-            display_url?: string | null;
+            display_url: string | null;
             /** Has Image */
             has_image: boolean;
             /** Height */
@@ -17462,7 +17632,7 @@ export interface components {
              * Page
              * @default 0
              */
-            page: number;
+            page?: number;
             /** Role */
             role: string;
         };
@@ -17484,7 +17654,7 @@ export interface components {
             /** Text */
             text: string;
             /** Url */
-            url?: string | null;
+            url: string | null;
         };
         /** ExtractionNovel */
         ExtractionNovel: {
@@ -17495,7 +17665,7 @@ export interface components {
             /** Containers */
             containers: components["schemas"]["ExtractionContainer"][];
             /** Content Selector */
-            content_selector?: string | null;
+            content_selector: string | null;
             /** Exclude Selectors */
             exclude_selectors: string[];
             /** Headings */
@@ -17503,18 +17673,18 @@ export interface components {
             /** Links */
             links: components["schemas"]["ExtractionLink"][];
             /** Next Link */
-            next_link?: string | null;
+            next_link: string | null;
             /**
              * Number From
              * @enum {string}
              */
             number_from: "title" | "url";
             /** Previous Link */
-            previous_link?: string | null;
+            previous_link: string | null;
             /** Text Preview */
             text_preview: string;
             /** Title Block */
-            title_block?: string | null;
+            title_block: string | null;
         };
         /**
          * ExtractionNovelRerunRequest
@@ -17532,7 +17702,7 @@ export interface components {
              * @default title
              * @enum {string}
              */
-            number_from: "title" | "url";
+            number_from?: "title" | "url";
             /** Previous Link */
             previous_link?: string | null;
             /** Revision */
@@ -17550,14 +17720,14 @@ export interface components {
         /** ExtractionOverall */
         ExtractionOverall: {
             /** Bucket */
-            bucket?: string | null;
+            bucket: string | null;
             /** Score */
             score: number;
         };
         /** ExtractionPendingProfile */
         ExtractionPendingProfile: {
             /** Bucket */
-            bucket?: string | null;
+            bucket: string | null;
         };
         /** ExtractionProfileSaved */
         ExtractionProfileSaved: {
@@ -17566,7 +17736,7 @@ export interface components {
             /** Kind */
             kind: string;
             /** Replaces */
-            replaces?: number | null;
+            replaces: number | null;
             /** Version */
             version: number;
         };
@@ -17580,7 +17750,7 @@ export interface components {
             lines: string[];
             /** Llm Calls */
             llm_calls: number;
-            pending_profile?: components["schemas"]["ExtractionPendingProfile"] | null;
+            pending_profile: components["schemas"]["ExtractionPendingProfile"] | null;
             /** Profile */
             profile: string;
         };
@@ -17588,7 +17758,7 @@ export interface components {
         ExtractionReview: {
             /** Can Save Profile */
             can_save_profile: boolean;
-            comic?: components["schemas"]["ExtractionComic"] | null;
+            comic: components["schemas"]["ExtractionComic"] | null;
             confidence: components["schemas"]["ExtractionConfidence"];
             /**
              * Content Type
@@ -17596,16 +17766,16 @@ export interface components {
              */
             content_type: "novel" | "comic";
             /** Display Url */
-            display_url?: string | null;
+            display_url: string | null;
             /** Drama Id */
             drama_id: number;
-            follow?: components["schemas"]["ExtractionFollow"] | null;
+            follow: components["schemas"]["ExtractionFollow"] | null;
             /**
              * Kind
              * @constant
              */
             kind: "extraction_review";
-            novel?: components["schemas"]["ExtractionNovel"] | null;
+            novel: components["schemas"]["ExtractionNovel"] | null;
             report: components["schemas"]["ExtractionReport"];
             /** Revision */
             revision: string;
@@ -17634,7 +17804,7 @@ export interface components {
              * @default false
              * @constant
              */
-            bulk: false;
+            bulk?: false;
             /** Default Female Pronouns */
             default_female_pronouns?: boolean | null;
             /** Engine */
@@ -17678,11 +17848,11 @@ export interface components {
         /** GapAddLinesResult */
         GapAddLinesResult: {
             /** History Id */
-            history_id?: number | null;
+            history_id: number | null;
             /** Line Ids */
             line_ids: number[];
             /** Lines Fingerprint */
-            lines_fingerprint?: string | null;
+            lines_fingerprint: string | null;
             /** New Line Ids */
             new_line_ids: number[];
             /** Split */
@@ -17693,7 +17863,7 @@ export interface components {
             /** En */
             en: string;
             /** End */
-            end?: number | null;
+            end: number | null;
             /** Hand Edited */
             hand_edited: boolean;
             /** Id */
@@ -17703,7 +17873,7 @@ export interface components {
             /** Matched Terms */
             matched_terms: components["schemas"]["GlossaryAffectedMatch"][];
             /** Start */
-            start?: number | null;
+            start: number | null;
             /** Zh */
             zh: string;
         };
@@ -17770,7 +17940,7 @@ export interface components {
              * Include Hand Edited
              * @default false
              */
-            include_hand_edited: boolean;
+            include_hand_edited?: boolean;
             /** Job Cost Cap Usd */
             job_cost_cap_usd?: number | null;
             /** Line Ids */
@@ -17779,7 +17949,7 @@ export interface components {
              * Locale
              * @default en-US
              */
-            locale: string;
+            locale?: string;
             /** Model */
             model?: string | null;
             /** Preview Hash */
@@ -17788,12 +17958,12 @@ export interface components {
              * Reflect
              * @default false
              */
-            reflect: boolean;
+            reflect?: boolean;
             /**
              * Style Note
              * @default
              */
-            style_note: string;
+            style_note?: string;
             /** Style Preset */
             style_preset?: string | null;
             /** Term Ids */
@@ -17822,7 +17992,7 @@ export interface components {
             /** Line Ids */
             line_ids: number[];
             /** Model */
-            model?: string | null;
+            model: string | null;
             /**
              * Reflect
              * @default false
@@ -17856,7 +18026,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Term Ids */
             term_ids: number[];
         };
@@ -17901,7 +18071,7 @@ export interface components {
         /** GlossaryDismissal */
         GlossaryDismissal: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Term */
             term: string;
         };
@@ -17936,7 +18106,7 @@ export interface components {
             /** Line Ids */
             line_ids: number[];
             /** Model */
-            model?: string | null;
+            model: string | null;
             /**
              * Reflect
              * @default false
@@ -17961,17 +18131,17 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Filename
              * @default
              */
-            filename: string;
+            filename?: string;
             /**
              * Overwrite Existing
              * @default false
              */
-            overwrite_existing: boolean;
+            overwrite_existing?: boolean;
             /** Text */
             text: string;
         };
@@ -18007,9 +18177,9 @@ export interface components {
          */
         GlossaryNameCluster: {
             /** Examples */
-            examples?: components["schemas"]["GlossaryVariantExample"][];
+            examples: components["schemas"]["GlossaryVariantExample"][];
             /** Existing Term */
-            existing_term?: string | null;
+            existing_term: string | null;
             /** Spellings */
             spellings: components["schemas"]["GlossaryNameSpelling"][];
             /** Suggested Original */
@@ -18022,9 +18192,9 @@ export interface components {
             /** Available */
             available: boolean;
             /** Clusters */
-            clusters?: components["schemas"]["GlossaryNameCluster"][];
+            clusters: components["schemas"]["GlossaryNameCluster"][];
             /** Known Vtuber Names */
-            known_vtuber_names?: components["schemas"]["GlossaryNameCluster"][];
+            known_vtuber_names: components["schemas"]["GlossaryNameCluster"][];
             /** Lines Scanned */
             lines_scanned: number;
             /**
@@ -18044,7 +18214,7 @@ export interface components {
             /** Is Term */
             is_term: boolean;
             /** Sources */
-            sources?: string[];
+            sources: string[];
             /** Text */
             text: string;
         };
@@ -18073,7 +18243,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Overrides */
             overrides?: {
                 [key: string]: components["schemas"]["GlossaryProposalEdit"];
@@ -18082,7 +18252,7 @@ export interface components {
              * Overwrite Existing
              * @default false
              */
-            overwrite_existing: boolean;
+            overwrite_existing?: boolean;
             /** Run Id */
             run_id?: string | null;
             /** Terms */
@@ -18099,11 +18269,11 @@ export interface components {
         /** GlossaryTerm */
         GlossaryTerm: {
             /** Aliases */
-            aliases?: string[];
+            aliases: string[];
             /** Banned Translations */
-            banned_translations?: string[];
+            banned_translations: string[];
             /** Category */
-            category?: string | null;
+            category: string | null;
             /**
              * Enforce Exact
              * @default false
@@ -18117,7 +18287,7 @@ export interface components {
              */
             notes: string;
             /** Policy */
-            policy?: string | null;
+            policy: string | null;
             /** Term Original */
             term_original: string;
             /** Term Translation */
@@ -18171,7 +18341,7 @@ export interface components {
             /** Count */
             count: number;
             /** Examples */
-            examples?: components["schemas"]["GlossaryVariantExample"][];
+            examples: components["schemas"]["GlossaryVariantExample"][];
             /** Is Alias */
             is_alias: boolean;
             /** Is Term */
@@ -18197,7 +18367,7 @@ export interface components {
             /** Available */
             available: boolean;
             /** Candidates */
-            candidates?: components["schemas"]["GlossaryVariantCandidate"][];
+            candidates: components["schemas"]["GlossaryVariantCandidate"][];
             /** Lines Scanned */
             lines_scanned: number;
             /**
@@ -18215,7 +18385,7 @@ export interface components {
             /** Auto Qc */
             auto_qc: boolean;
             /** Engine Model */
-            engine_model?: string | null;
+            engine_model: string | null;
             /** Key */
             key: string;
             /** Label */
@@ -18228,34 +18398,34 @@ export interface components {
         /** GpuMemory */
         GpuMemory: {
             /** Free Bytes */
-            free_bytes?: number | null;
+            free_bytes: number | null;
             /** Name */
-            name?: string | null;
+            name: string | null;
             /**
              * State
              * @enum {string}
              */
             state: "ok" | "unknown";
             /** Total Bytes */
-            total_bytes?: number | null;
+            total_bytes: number | null;
             /** Used Bytes */
-            used_bytes?: number | null;
+            used_bytes: number | null;
         };
         /** GpuReading */
         GpuReading: {
             /** Found */
             found: boolean;
             /** Name */
-            name?: string | null;
+            name: string | null;
             /** Vram Total Gb */
-            vram_total_gb?: number | null;
+            vram_total_gb: number | null;
             /** Vram Used Gb */
-            vram_used_gb?: number | null;
+            vram_used_gb: number | null;
         };
         /** GpuRuntimeStatus */
         GpuRuntimeStatus: {
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /**
              * Status
              * @enum {string}
@@ -18267,20 +18437,20 @@ export interface components {
             /** Available */
             available: boolean;
             /** Message */
-            message?: string | null;
+            message: string | null;
             /** Name */
-            name?: string | null;
+            name: string | null;
             /** Torch Cuda Version */
-            torch_cuda_version?: string | null;
+            torch_cuda_version: string | null;
             /** Vram Total Gb */
-            vram_total_gb?: number | null;
+            vram_total_gb: number | null;
             /** Vram Used Gb */
-            vram_used_gb?: number | null;
+            vram_used_gb: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
+            detail: components["schemas"]["ValidationError"][];
         };
         /** HealthResponse */
         HealthResponse: {
@@ -18324,9 +18494,9 @@ export interface components {
             /** Key Configured */
             key_configured: boolean;
             /** Library Dir */
-            library_dir?: string | null;
+            library_dir: string | null;
             /** Server Url */
-            server_url?: string | null;
+            server_url: string | null;
         };
         /**
          * JellyfinConfigUpdate
@@ -18337,7 +18507,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Enabled */
             enabled?: boolean | null;
             /** Library Dir */
@@ -18348,15 +18518,15 @@ export interface components {
         /** JellyfinScanItem */
         JellyfinScanItem: {
             /** Episode */
-            episode?: number | null;
+            episode: number | null;
             /** Id */
             id: string;
             /** Name */
             name: string;
             /** Season */
-            season?: number | null;
+            season: number | null;
             /** Series */
-            series?: string | null;
+            series: string | null;
             /**
              * Type
              * @enum {string}
@@ -18387,7 +18557,7 @@ export interface components {
              * @default en
              * @enum {string}
              */
-            language: "en" | "zh" | "ja" | "ko";
+            language?: "en" | "zh" | "ja" | "ko";
         };
         /** JellyfinSendRequest */
         JellyfinSendRequest: {
@@ -18397,13 +18567,13 @@ export interface components {
              * @default en
              * @enum {string}
              */
-            field: "en" | "zh" | "bilingual";
+            field?: "en" | "zh" | "bilingual";
             /**
              * Format
              * @default srt
              * @enum {string}
              */
-            format: "srt" | "ass";
+            format?: "srt" | "ass";
             /** Item Id */
             item_id?: string | null;
             /** Language */
@@ -18413,17 +18583,17 @@ export interface components {
              * @default none
              * @enum {string}
              */
-            media: "none" | "source" | "dubbed";
+            media?: "none" | "source" | "dubbed";
             /**
              * Overwrite
              * @default false
              */
-            overwrite: boolean;
+            overwrite?: boolean;
             /**
              * Refresh
              * @default true
              */
-            refresh: boolean;
+            refresh?: boolean;
         };
         /** JellyfinSendResult */
         JellyfinSendResult: {
@@ -18515,13 +18685,13 @@ export interface components {
              */
             can_force_stop: boolean;
             /** Description */
-            description?: string | null;
+            description: string | null;
             /** Drama Id */
-            drama_id?: number | null;
+            drama_id: number | null;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Finished At */
-            finished_at?: number | null;
+            finished_at: number | null;
             /**
              * Gpu Touching
              * @default false
@@ -18541,20 +18711,20 @@ export interface components {
              */
             message: string;
             /** Outcome */
-            outcome?: string | null;
+            outcome: string | null;
             /** Outcome Message */
-            outcome_message?: string | null;
+            outcome_message: string | null;
             /**
              * Owned By Me
              * @default false
              */
             owned_by_me: boolean;
             /** Page */
-            page?: ("title" | "sources" | "discover" | "live" | "settings" | "diagnostics") | null;
+            page: ("title" | "sources" | "discover" | "live" | "settings" | "diagnostics") | null;
             /** Progress */
-            progress?: number | null;
+            progress: number | null;
             /** Result */
-            result?: {
+            result: {
                 [key: string]: unknown;
             } | null;
             /**
@@ -18568,7 +18738,7 @@ export interface components {
              */
             stalled: boolean;
             /** Started At */
-            started_at?: number | null;
+            started_at: number | null;
             /** Status */
             status: string;
             /** Updated At */
@@ -18616,7 +18786,7 @@ export interface components {
          */
         KeepFreeMemory: {
             /** Free Bytes */
-            free_bytes?: number | null;
+            free_bytes: number | null;
             /**
              * Reserved Bytes
              * @default 0
@@ -18628,34 +18798,34 @@ export interface components {
              */
             state: "ok" | "unknown";
             /** Total Bytes */
-            total_bytes?: number | null;
+            total_bytes: number | null;
         };
         /** KnownTitle */
         KnownTitle: {
             /** Author */
-            author?: string | null;
+            author: string | null;
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Id */
             id: number;
             /** Language */
-            language?: string | null;
+            language: string | null;
             /** Media Type */
-            media_type?: string | null;
+            media_type: string | null;
             /** Source Name */
-            source_name?: string | null;
+            source_name: string | null;
             /** Source Url */
-            source_url?: string | null;
+            source_url: string | null;
             /** Summary En */
-            summary_en?: string | null;
+            summary_en: string | null;
             /** Summary Original */
-            summary_original?: string | null;
+            summary_original: string | null;
             /** Tags */
-            tags?: string | null;
+            tags: string | null;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Original */
-            title_original?: string | null;
+            title_original: string | null;
         };
         /**
          * KnownTitleCreate
@@ -18666,7 +18836,7 @@ export interface components {
              * Author
              * @default
              */
-            author: string;
+            author?: string;
             /** Language */
             language: string;
             /** Media Type */
@@ -18675,32 +18845,32 @@ export interface components {
              * Source Name
              * @default
              */
-            source_name: string;
+            source_name?: string;
             /**
              * Source Url
              * @default
              */
-            source_url: string;
+            source_url?: string;
             /**
              * Summary En
              * @default
              */
-            summary_en: string;
+            summary_en?: string;
             /**
              * Summary Original
              * @default
              */
-            summary_original: string;
+            summary_original?: string;
             /**
              * Tags
              * @default
              */
-            tags: string;
+            tags?: string;
             /**
              * Title En
              * @default
              */
-            title_en: string;
+            title_en?: string;
             /** Title Original */
             title_original: string;
         };
@@ -18710,7 +18880,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** KnownTitleDeleted */
         KnownTitleDeleted: {
@@ -18830,7 +19000,7 @@ export interface components {
              * Database Only
              * @default false
              */
-            database_only: boolean;
+            database_only?: boolean;
         };
         /**
          * LibraryBulkDeleteRequest
@@ -18841,12 +19011,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
             /** Drama Ids */
             drama_ids: number[];
         };
@@ -18866,15 +19036,15 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Freed Bytes */
-            freed_bytes?: number | null;
+            freed_bytes: number | null;
             /** Message */
-            message?: string | null;
+            message: string | null;
             /** Ok */
             ok: boolean;
             /** Warning */
-            warning?: string | null;
+            warning: string | null;
         };
         /** LibraryBulkResult */
         LibraryBulkResult: {
@@ -18942,15 +19112,15 @@ export interface components {
             /** Has Cover Art */
             has_cover_art: boolean;
             /** Last Accessed At */
-            last_accessed_at?: string | null;
+            last_accessed_at: string | null;
             /** Last Page */
-            last_page?: number | null;
+            last_page: number | null;
             /** Percent Complete */
-            percent_complete?: number | null;
+            percent_complete: number | null;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
         };
         /** LibraryContinueResponse */
         LibraryContinueResponse: {
@@ -18977,11 +19147,11 @@ export interface components {
             /** Output Tokens */
             output_tokens: number;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
             /** Translation Engine */
-            translation_engine?: string | null;
+            translation_engine: string | null;
         };
         /** LibraryDashboard */
         LibraryDashboard: {
@@ -19006,15 +19176,15 @@ export interface components {
             /** Id */
             id: number;
             /** Media Type */
-            media_type?: string | null;
+            media_type: string | null;
             /** Status */
-            status?: string | null;
+            status: string | null;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
             /** Updated At */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         /**
          * LibraryExportRequest
@@ -19028,7 +19198,7 @@ export interface components {
              * @description Also zip every title's original audio, video, novel text and page scans, not only those of titles pinned with "Keep original files".
              * @default false
              */
-            include_originals: boolean;
+            include_originals?: boolean;
         };
         /** LibraryExportStarted */
         LibraryExportStarted: {
@@ -19037,7 +19207,7 @@ export interface components {
             /** Job Id */
             job_id: string;
             /** Results */
-            results?: components["schemas"]["LibraryBulkItem"][] | null;
+            results: components["schemas"]["LibraryBulkItem"][] | null;
         };
         /** LibraryFilterOptions */
         LibraryFilterOptions: {
@@ -19053,17 +19223,17 @@ export interface components {
         /** LibraryHistoryEntry */
         LibraryHistoryEntry: {
             /** Accessed At */
-            accessed_at?: string | null;
+            accessed_at: string | null;
             /** Drama Id */
             drama_id: number;
             /** Line Idx */
-            line_idx?: number | null;
+            line_idx: number | null;
             /** Percent Complete */
-            percent_complete?: number | null;
+            percent_complete: number | null;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
         };
         /** LibraryHistoryResponse */
         LibraryHistoryResponse: {
@@ -19078,30 +19248,30 @@ export interface components {
         /** LibraryPreset */
         LibraryPreset: {
             /** Default Female Pronouns */
-            default_female_pronouns?: number | null;
+            default_female_pronouns: number | null;
             /** Engine Model */
-            engine_model?: string | null;
+            engine_model: string | null;
             /** Id */
             id: number;
             /** Include Genre Notes */
-            include_genre_notes?: number | null;
+            include_genre_notes: number | null;
             /**
              * Is Default
              * @default false
              */
             is_default: boolean;
             /** Locale */
-            locale?: string | null;
+            locale: string | null;
             /** Name */
             name: string;
             /** Options */
-            options?: {
+            options: {
                 [key: string]: unknown;
             };
             /** Style Preset */
-            style_preset?: string | null;
+            style_preset: string | null;
             /** Translation Engine */
-            translation_engine?: string | null;
+            translation_engine: string | null;
         };
         /** LibraryPresetsResponse */
         LibraryPresetsResponse: {
@@ -19163,15 +19333,15 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** En */
-            en?: string | null;
+            en: string | null;
             /** Idx */
             idx: number;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
             /** Zh */
-            zh?: string | null;
+            zh: string | null;
         };
         /** LibrarySearchResponse */
         LibrarySearchResponse: {
@@ -19227,12 +19397,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
             /**
              * Preset
              * @enum {string}
@@ -19306,17 +19476,17 @@ export interface components {
             /** Clip Available */
             clip_available: boolean;
             /** Clone Engine */
-            clone_engine?: string | null;
+            clone_engine: string | null;
             /** Id */
             id: number;
             /** Language */
-            language?: string | null;
+            language: string | null;
             /** Name */
             name: string;
             /** Source Drama */
-            source_drama?: string | null;
+            source_drama: string | null;
             /** Source Speaker */
-            source_speaker?: string | null;
+            source_speaker: string | null;
         };
         /** LibraryVoiceBankResponse */
         LibraryVoiceBankResponse: {
@@ -19343,7 +19513,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
         };
         /**
          * LineExplainRequest
@@ -19366,7 +19536,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
         };
         /** LineGrammar */
         LineGrammar: {
@@ -19375,7 +19545,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Parts */
             parts: components["schemas"]["LineGrammarPart"][];
             /** Zh */
@@ -19402,7 +19572,7 @@ export interface components {
              * Issue
              * @default
              */
-            issue: string;
+            issue?: string;
             /** Model */
             model?: string | null;
         };
@@ -19417,7 +19587,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Suggestion */
             suggestion: string;
         };
@@ -19456,7 +19626,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Overrides */
             overrides?: {
                 [key: string]: components["schemas"]["GlossaryProposalEdit"];
@@ -19465,7 +19635,7 @@ export interface components {
              * Overwrite Existing
              * @default false
              */
-            overwrite_existing: boolean;
+            overwrite_existing?: boolean;
             /** Run Id */
             run_id: string;
             /** Terms */
@@ -19519,7 +19689,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Line Idx */
-            line_idx?: number | null;
+            line_idx: number | null;
             /** Note */
             note: string;
             /** Note Type */
@@ -19621,7 +19791,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Engine */
             engine?: string | null;
             /** Gemini Free Tier */
@@ -19725,7 +19895,7 @@ export interface components {
              * @default []
              */
             blank: string[];
-            current?: components["schemas"]["LinkDetailFields"] | null;
+            current: components["schemas"]["LinkDetailFields"] | null;
             /**
              * Display Url
              * @default
@@ -19743,7 +19913,7 @@ export interface components {
              * @default
              */
             note: string;
-            suggested?: components["schemas"]["LinkDetailFields"] | null;
+            suggested: components["schemas"]["LinkDetailFields"] | null;
         };
         /** LinkScanStarted */
         LinkScanStarted: {
@@ -19758,7 +19928,7 @@ export interface components {
          */
         ListenConfig: {
             /** Blocker */
-            blocker?: string | null;
+            blocker: string | null;
             /** Default Engine */
             default_engine: string;
             /** Drama Id */
@@ -19784,7 +19954,7 @@ export interface components {
              * Tts Engine
              * @default omnivoice
              */
-            tts_engine: string;
+            tts_engine?: string;
         };
         /** LiveChatMessage */
         LiveChatMessage: {
@@ -19848,7 +20018,7 @@ export interface components {
             /** Id */
             id: number;
             /** Last Checked At */
-            last_checked_at?: number | null;
+            last_checked_at: number | null;
             /** Last Status */
             last_status: string;
             /** Live Now */
@@ -19864,7 +20034,7 @@ export interface components {
             /** Poll Minutes */
             poll_minutes: number;
             /** Starts At */
-            starts_at?: number | null;
+            starts_at: number | null;
             /**
              * State
              * @enum {string}
@@ -19884,7 +20054,7 @@ export interface components {
              * Auto Check
              * @default false
              */
-            auto_check: boolean;
+            auto_check?: boolean;
             /** Channel */
             channel: string;
             /**
@@ -19892,7 +20062,7 @@ export interface components {
              * @default notify
              * @enum {string}
              */
-            mode: "notify" | "auto";
+            mode?: "notify" | "auto";
             options?: components["schemas"]["LiveFollowOptions"] | null;
         };
         /** LiveFollowCheckAll */
@@ -19937,7 +20107,7 @@ export interface components {
              * Max Minutes
              * @default 60
              */
-            max_minutes: number;
+            max_minutes?: number;
             /** Model */
             model?: string | null;
             /** Series Id */
@@ -19946,17 +20116,17 @@ export interface components {
              * Source Language
              * @default zh
              */
-            source_language: string;
+            source_language?: string;
             /**
              * Use Gpu
              * @default false
              */
-            use_gpu: boolean;
+            use_gpu?: boolean;
             /**
              * Whisper Size
              * @default small
              */
-            whisper_size: string;
+            whisper_size?: string;
         };
         /** LiveFollowRemoved */
         LiveFollowRemoved: {
@@ -19999,7 +20169,7 @@ export interface components {
             /** Default Engine */
             default_engine: string;
             /** Default Model */
-            default_model?: string | null;
+            default_model: string | null;
             defaults: components["schemas"]["LiveFormDefaults"];
             /** Languages */
             languages: components["schemas"]["LiveLanguage"][];
@@ -20028,7 +20198,7 @@ export interface components {
         /** LiveOllamaCheck */
         LiveOllamaCheck: {
             /** Message */
-            message?: string | null;
+            message: string | null;
             /** Model */
             model: string;
             /** Ok */
@@ -20046,7 +20216,7 @@ export interface components {
              * @description Also record a rolling copy of the picture and sound for the page's own player, so the picture can be held back on a stream the embed cannot rewind.
              * @default false
              */
-            delayed_player: boolean;
+            delayed_player?: boolean;
             /**
              * Engine
              * @description None = Ollama on this PC, never the Settings default engine.
@@ -20061,38 +20231,38 @@ export interface components {
              * Max Minutes
              * @default 60
              */
-            max_minutes: number;
+            max_minutes?: number;
             /** Model */
             model?: string | null;
             /**
              * Overlap Seconds
              * @default 3
              */
-            overlap_seconds: number;
+            overlap_seconds?: number;
             /**
              * Player Height
              * @description With delayed_player: the tallest picture to record, in pixels.
              * @default 480
              * @enum {integer}
              */
-            player_height: 360 | 480 | 720 | 1080;
+            player_height?: 360 | 480 | 720 | 1080;
             /**
              * Read Chat
              * @description YouTube links only: also read the stream's live chat and translate it.
              * @default false
              */
-            read_chat: boolean;
+            read_chat?: boolean;
             /**
              * Reply Without Thinking
              * @description Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.
              * @default true
              */
-            reply_without_thinking: boolean;
+            reply_without_thinking?: boolean;
             /**
              * Segment Seconds
              * @default 20
              */
-            segment_seconds: number;
+            segment_seconds?: number;
             /**
              * Series Id
              * @description Instead of a title: a series whose glossary, and the packs of its newest title with a pack choice, the translation may use (read-only). Not with glossary_drama_id.
@@ -20102,19 +20272,19 @@ export interface components {
              * Source Language
              * @default zh
              */
-            source_language: string;
+            source_language?: string;
             /** Url */
             url: string;
             /**
              * Use Gpu
              * @default false
              */
-            use_gpu: boolean;
+            use_gpu?: boolean;
             /**
              * Whisper Size
              * @default small
              */
-            whisper_size: string;
+            whisper_size?: string;
         };
         /** LiveSessionStarted */
         LiveSessionStarted: {
@@ -20141,7 +20311,7 @@ export interface components {
              */
             delayed_player: boolean;
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /**
              * Lag Seconds
              * @default 0
@@ -20150,7 +20320,7 @@ export interface components {
             /** Message */
             message: string;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Next Index */
             next_index: number;
             /**
@@ -20178,11 +20348,11 @@ export interface components {
             /** Session Id */
             session_id: string;
             /** Source Language */
-            source_language?: string | null;
+            source_language: string | null;
             /** Status */
             status: string;
             /** Stop Reason */
-            stop_reason?: string | null;
+            stop_reason: string | null;
             /**
              * Translate Queue
              * @default 0
@@ -20211,9 +20381,9 @@ export interface components {
             /** Cue Count */
             cue_count: number;
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Session Id */
             session_id: string;
             /** Status */
@@ -20226,7 +20396,7 @@ export interface components {
              * @default all
              * @enum {string}
              */
-            chapters: "all" | "first" | "last";
+            chapters?: "all" | "first" | "last";
             /** Count */
             count?: number | null;
             /**
@@ -20234,7 +20404,7 @@ export interface components {
              * @default replace
              * @enum {string}
              */
-            mode: "append" | "replace";
+            mode?: "append" | "replace";
             /** Url */
             url: string;
         };
@@ -20291,7 +20461,7 @@ export interface components {
             sign_in_configured: boolean;
             /** Signed In */
             signed_in: boolean;
-            user?: components["schemas"]["MeUser"] | null;
+            user: components["schemas"]["MeUser"] | null;
             /** Zone */
             zone: string;
         };
@@ -20303,9 +20473,9 @@ export interface components {
              */
             display_name: string;
             /** Email */
-            email?: string | null;
+            email: string | null;
             /** Id */
-            id?: number | null;
+            id: number | null;
             /** Is Admin */
             is_admin: boolean;
             /** Is Local Owner */
@@ -20319,29 +20489,29 @@ export interface components {
             /** Audio Track Count */
             audio_track_count: number;
             /** Content Type Guess */
-            content_type_guess?: string | null;
+            content_type_guess: string | null;
             /** Content Type Reason */
-            content_type_reason?: string | null;
+            content_type_reason: string | null;
             /** Drama Id */
             drama_id: number;
             /** Duration Seconds */
             duration_seconds: number;
             /** Fps */
-            fps?: number | null;
+            fps: number | null;
             /** Has Audio */
             has_audio: boolean;
             /** Has Video */
             has_video: boolean;
             /** Height */
-            height?: number | null;
+            height: number | null;
             /** Sample Rate */
-            sample_rate?: number | null;
+            sample_rate: number | null;
             /** Subtitle Tracks */
-            subtitle_tracks?: components["schemas"]["MediaSubtitleTrack"][];
+            subtitle_tracks: components["schemas"]["MediaSubtitleTrack"][];
             /** Suggested Pipeline */
-            suggested_pipeline?: string[];
+            suggested_pipeline: string[];
             /** Width */
-            width?: number | null;
+            width: number | null;
         };
         /**
          * MediaExportStarted
@@ -20487,18 +20657,18 @@ export interface components {
             /** Codec */
             codec: string;
             /** Index */
-            index?: number | null;
+            index: number | null;
             /** Language */
-            language?: string | null;
+            language: string | null;
         };
         /** MediaUploadResult */
         MediaUploadResult: {
             /** Job Id */
-            job_id?: string | null;
+            job_id: string | null;
             /** Kind */
             kind: string;
             /** Name */
-            name?: string | null;
+            name: string | null;
             /** Size */
             size: number;
         };
@@ -20508,19 +20678,19 @@ export interface components {
              * Allow Long
              * @default false
              */
-            allow_long: boolean;
+            allow_long?: boolean;
             /** Audio Only */
             audio_only: boolean;
             /**
              * Confirm Replace Audio
              * @default false
              */
-            confirm_replace_audio: boolean;
+            confirm_replace_audio?: boolean;
             /**
              * Exact Cuts
              * @default false
              */
-            exact_cuts: boolean;
+            exact_cuts?: boolean;
             /** Part End */
             part_end?: string | null;
             /** Part Start */
@@ -20552,11 +20722,11 @@ export interface components {
          */
         MemberKeyStatus: {
             /** Added At */
-            added_at?: number | null;
+            added_at: number | null;
             /** Has Key */
             has_key: boolean;
             /** Last4 */
-            last4?: string | null;
+            last4: string | null;
             /** Unreadable */
             unreadable: boolean;
         };
@@ -20629,13 +20799,13 @@ export interface components {
         /** MergeShortResult */
         MergeShortResult: {
             /** History Id */
-            history_id?: number | null;
+            history_id: number | null;
             /** Line Ids */
             line_ids: number[];
             /** Lines */
             lines: components["schemas"]["ReviewLinesLine"][];
             /** Lines Fingerprint */
-            lines_fingerprint?: string | null;
+            lines_fingerprint: string | null;
             /** Merged Groups */
             merged_groups: number;
         };
@@ -20654,7 +20824,7 @@ export interface components {
              * Features
              * @description Feature switches (`jellyfin`, `sources`, `extension`): false when the area is switched off, so the UI hides it.
              */
-            features?: {
+            features: {
                 [key: string]: boolean;
             };
             /**
@@ -20668,14 +20838,14 @@ export interface components {
             /** Capability */
             capability: string;
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Engine */
             engine: string;
             /** Id */
             id: number;
-            last_decision?: components["schemas"]["ModelDecision"] | null;
+            last_decision: components["schemas"]["ModelDecision"] | null;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /**
              * Note
              * @default
@@ -20689,7 +20859,7 @@ export interface components {
             /** Candidate Id */
             candidate_id: number;
             /** Decided At */
-            decided_at?: string | null;
+            decided_at: string | null;
             /** Decision */
             decision: string;
             /** Id */
@@ -20700,7 +20870,7 @@ export interface components {
              */
             reason: string;
             /** Scores */
-            scores?: {
+            scores: {
                 [key: string]: unknown;
             };
             /** Summary */
@@ -20709,17 +20879,17 @@ export interface components {
         /** ModelEngineVersion */
         ModelEngineVersion: {
             /** Help */
-            help?: string | null;
+            help: string | null;
             /** Installed */
             installed: boolean;
             /** Name */
             name: string;
             /** Package */
-            package?: string | null;
+            package: string | null;
             /** Url */
-            url?: string | null;
+            url: string | null;
             /** Version */
-            version?: string | null;
+            version: string | null;
         };
         /** ModelOverrideClearRequest */
         ModelOverrideClearRequest: {
@@ -20727,7 +20897,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Key */
             key: string;
             /**
@@ -20742,7 +20912,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** From Model */
             from_model: string;
             /** Key */
@@ -20758,30 +20928,30 @@ export interface components {
         /** ModelOverrideResult */
         ModelOverrideResult: {
             /** Builtin Model */
-            builtin_model?: string | null;
+            builtin_model: string | null;
             /** Engine */
             engine: string;
             /** From Model */
-            from_model?: string | null;
+            from_model: string | null;
             /** Key */
             key: string;
             /** Kind */
             kind: string;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** To Model */
-            to_model?: string | null;
+            to_model: string | null;
         };
         /** ModelStatus */
         ModelStatus: {
             /** Checked At */
-            checked_at?: string | null;
+            checked_at: string | null;
             /** Engines Checked */
-            engines_checked?: {
+            engines_checked: {
                 [key: string]: components["schemas"]["EngineCheck"];
             };
             /** Extra Models */
-            extra_models?: {
+            extra_models: {
                 [key: string]: string[];
             };
             /** Items */
@@ -20792,18 +20962,18 @@ export interface components {
              */
             offer_provider_models: boolean;
             /** Registry Updated */
-            registry_updated?: string | null;
+            registry_updated: string | null;
             /** Warnings */
             warnings: number;
         };
         /** ModelStatusItem */
         ModelStatusItem: {
             /** Builtin Model */
-            builtin_model?: string | null;
+            builtin_model: string | null;
             /** Can Switch */
             can_switch: boolean;
             /** Candidates */
-            candidates?: string[];
+            candidates: string[];
             /** Engine */
             engine: string;
             /**
@@ -20812,21 +20982,21 @@ export interface components {
              */
             is_override: boolean;
             /** Key */
-            key?: string | null;
+            key: string | null;
             /** Kind */
             kind: string;
             /** Listed By Provider */
-            listed_by_provider?: boolean | null;
+            listed_by_provider: boolean | null;
             /** Message */
             message: string;
             /** Model */
             model: string;
             /** Note */
-            note?: string | null;
+            note: string | null;
             /** Preset Id */
-            preset_id?: number | null;
+            preset_id: number | null;
             /** Replacement */
-            replacement?: string | null;
+            replacement: string | null;
             /** Severity */
             severity: number;
             /** Status */
@@ -20848,7 +21018,7 @@ export interface components {
             /** Month Spend Counted Usd */
             month_spend_counted_usd: number;
             /** Month Spend Reset At */
-            month_spend_reset_at?: string | null;
+            month_spend_reset_at: string | null;
             /** Month Spend Usd */
             month_spend_usd: number;
         };
@@ -20859,7 +21029,7 @@ export interface components {
             /** Consistent */
             consistent: number;
             /** Differing */
-            differing?: components["schemas"]["NameConsistencyRow"][];
+            differing: components["schemas"]["NameConsistencyRow"][];
             /** English */
             english: string;
             /**
@@ -20875,7 +21045,7 @@ export interface components {
              */
             more_rows: boolean;
             /** Other Words */
-            other_words?: string[];
+            other_words: string[];
             /**
              * Reason
              * @default
@@ -20905,7 +21075,7 @@ export interface components {
             /** Groups Omitted */
             groups_omitted: number;
             /** Reasons */
-            reasons?: string[];
+            reasons: string[];
             /** Singletons Omitted */
             singletons_omitted: number;
             /**
@@ -20954,11 +21124,11 @@ export interface components {
             /** Canonical */
             canonical: string;
             /** Examples */
-            examples?: components["schemas"]["NameReportExample"][];
+            examples: components["schemas"]["NameReportExample"][];
             /** Key */
             key: string;
             /** Mark */
-            mark?: ("right" | "wrong" | "skip") | null;
+            mark: ("right" | "wrong" | "skip") | null;
             /** Titles */
             titles: components["schemas"]["NameReportTitle"][];
             /** Titles Total */
@@ -20983,7 +21153,7 @@ export interface components {
             /** Key */
             key: string;
             /** Mark */
-            mark?: ("right" | "wrong" | "skip") | null;
+            mark: ("right" | "wrong" | "skip") | null;
         };
         /** NameReportRunResult */
         NameReportRunResult: {
@@ -21000,8 +21170,8 @@ export interface components {
              */
             message: string;
             /** Progress */
-            progress?: number | null;
-            result?: components["schemas"]["NameReport"] | null;
+            progress: number | null;
+            result: components["schemas"]["NameReport"] | null;
             /** Status */
             status: string;
         };
@@ -21012,9 +21182,9 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Glossary English */
-            glossary_english?: string | null;
+            glossary_english: string | null;
             /** Glossary Term */
-            glossary_term?: string | null;
+            glossary_term: string | null;
             /** In Glossary */
             in_glossary: boolean;
             /** Title */
@@ -21092,11 +21262,11 @@ export interface components {
         /** NotificationEvent */
         NotificationEvent: {
             /** Action */
-            action?: "start_live" | null;
+            action: "start_live" | null;
             /** At */
             at: number;
             /** Follow Id */
-            follow_id?: number | null;
+            follow_id: number | null;
             /** Id */
             id: number;
             /**
@@ -21105,7 +21275,7 @@ export interface components {
              */
             kind: "job_done" | "job_failed" | "chapters" | "remote" | "live";
             /** Starts At */
-            starts_at?: number | null;
+            starts_at: number | null;
             /** Text */
             text: string;
         };
@@ -21145,20 +21315,20 @@ export interface components {
              * Mode
              * @default replace
              */
-            mode: string;
+            mode?: string;
         };
         /** NovelAttachResult */
         NovelAttachResult: {
             /** Chapter From */
-            chapter_from?: number | null;
+            chapter_from: number | null;
             /** Chapter To */
-            chapter_to?: number | null;
+            chapter_to: number | null;
             /** Char Count */
             char_count: number;
             /** Epub Chapters */
-            epub_chapters?: number | null;
+            epub_chapters: number | null;
             /** Warning */
-            warning?: string | null;
+            warning: string | null;
         };
         /** NovelAttachTextRequest */
         NovelAttachTextRequest: {
@@ -21166,7 +21336,7 @@ export interface components {
              * Mode
              * @default replace
              */
-            mode: string;
+            mode?: string;
             /** Text */
             text: string;
         };
@@ -21271,7 +21441,7 @@ export interface components {
             /** Size Bytes */
             size_bytes: number;
             /** Warning */
-            warning?: string | null;
+            warning: string | null;
         };
         /** NovelGlossaryApplyResult */
         NovelGlossaryApplyResult: {
@@ -21289,9 +21459,9 @@ export interface components {
             /** Already In Glossary */
             already_in_glossary: boolean;
             /** Alternatives */
-            alternatives?: string[];
+            alternatives: string[];
             /** Category */
-            category?: string | null;
+            category: string | null;
             /**
              * Confidence
              * @default low
@@ -21304,7 +21474,7 @@ export interface components {
              */
             occurrences: number;
             /** Policy */
-            policy?: string | null;
+            policy: string | null;
             /**
              * Reason
              * @default
@@ -21339,11 +21509,11 @@ export interface components {
              */
             message: string;
             /** Progress */
-            progress?: number | null;
+            progress: number | null;
             /** Proposals */
-            proposals?: components["schemas"]["NovelGlossaryProposal"][] | null;
+            proposals: components["schemas"]["NovelGlossaryProposal"][] | null;
             /** Run Id */
-            run_id?: string | null;
+            run_id: string | null;
             /** Status */
             status: string;
         };
@@ -21379,9 +21549,9 @@ export interface components {
             /** Installed */
             installed: boolean;
             /** Package */
-            package?: string | null;
+            package: string | null;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
         };
         /** OllamaLoaded */
         OllamaLoaded: {
@@ -21405,7 +21575,7 @@ export interface components {
         /** PendingInstallChange */
         PendingInstallChange: {
             /** From Version */
-            from_version?: string | null;
+            from_version: string | null;
             /**
              * Kind
              * @description install, upgrade, downgrade or change (a version pip can't order)
@@ -21419,7 +21589,7 @@ export interface components {
         /** PendingInstallOutcome */
         PendingInstallOutcome: {
             /** Finished */
-            finished?: number | null;
+            finished: number | null;
             /** Message */
             message: string;
             /** Packages */
@@ -21457,7 +21627,7 @@ export interface components {
             /** Needs Confirm */
             needs_confirm: string[];
             /** Note */
-            note?: string | null;
+            note: string | null;
             /** Packages */
             packages: string[];
             /** Summary */
@@ -21477,12 +21647,12 @@ export interface components {
              * Accept Risk
              * @default false
              */
-            accept_risk: boolean;
+            accept_risk?: boolean;
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Packages */
             packages: string[];
         };
@@ -21503,15 +21673,15 @@ export interface components {
                 [key: string]: string;
             };
             /** Created */
-            created?: number | null;
+            created: number | null;
             /** Packages */
             packages: string[];
             /**
              * Problem
              * @description Plain words when the queued file was refused.
              */
-            problem?: string | null;
-            result?: components["schemas"]["PendingInstallOutcome"] | null;
+            problem: string | null;
+            result: components["schemas"]["PendingInstallOutcome"] | null;
         };
         /**
          * PortEntry
@@ -21530,7 +21700,7 @@ export interface components {
             /** Label */
             label: string;
             /** Port */
-            port?: number | null;
+            port: number | null;
         };
         /**
          * PortsOverview
@@ -21553,7 +21723,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** From Model */
             from_model: string;
             /** To Model */
@@ -21562,7 +21732,7 @@ export interface components {
         /** PresetModelSwitchResult */
         PresetModelSwitchResult: {
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** From Model */
             from_model: string;
             /** Preset Id */
@@ -21616,9 +21786,9 @@ export interface components {
             /** Engine */
             engine: string;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Promoted At */
-            promoted_at?: string | null;
+            promoted_at: string | null;
             /** Source */
             source: string;
         };
@@ -21643,12 +21813,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Reason
              * @default
              */
-            reason: string;
+            reason?: string;
         };
         /** PromoteResult */
         PromoteResult: {
@@ -21668,19 +21838,19 @@ export interface components {
         /** ProvenanceRow */
         ProvenanceRow: {
             /** Confidence */
-            confidence?: number | null;
+            confidence: number | null;
             /** Field */
             field: string;
             /** Id */
             id: number;
             /** Last Verified */
-            last_verified?: string | null;
+            last_verified: string | null;
             /** Retrieved At */
-            retrieved_at?: string | null;
+            retrieved_at: string | null;
             /** Source */
-            source?: string | null;
+            source: string | null;
             /** Source Url */
-            source_url?: string | null;
+            source_url: string | null;
             /** Sources */
             sources: components["schemas"]["ResearchSource"][];
             /** Status */
@@ -21735,7 +21905,7 @@ export interface components {
         /** QueueItem */
         QueueItem: {
             /** Added At */
-            added_at?: number | null;
+            added_at: number | null;
             /**
              * Changed Settings
              * @default []
@@ -21744,13 +21914,13 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Finished At */
-            finished_at?: number | null;
+            finished_at: number | null;
             /** Id */
             id: number;
             /** Job Id */
-            job_id?: string | null;
+            job_id: string | null;
             /** Mine */
             mine: boolean;
             /**
@@ -21759,9 +21929,9 @@ export interface components {
              */
             paid: boolean;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /** Started At */
-            started_at?: number | null;
+            started_at: number | null;
             /**
              * Status
              * @enum {string}
@@ -21817,11 +21987,11 @@ export interface components {
             /** Label */
             label: string;
             /** Locked */
-            locked?: string | null;
+            locked: string | null;
             /** Max */
-            max?: number | null;
+            max: number | null;
             /** Min */
-            min?: number | null;
+            min: number | null;
             /**
              * Options
              * @default []
@@ -21840,7 +22010,7 @@ export interface components {
         /** QueueSettingRow */
         QueueSettingRow: {
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Label */
             label: string;
             /** Value */
@@ -21857,8 +22027,8 @@ export interface components {
             /** Monthly Cap Usd */
             monthly_cap_usd: number;
             /** Notice */
-            notice?: string | null;
-            schedule?: components["schemas"]["QueueSchedule"] | null;
+            notice: string | null;
+            schedule: components["schemas"]["QueueSchedule"] | null;
             /**
              * State
              * @enum {string}
@@ -21902,7 +22072,7 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /**
              * State
              * @enum {string}
@@ -21926,7 +22096,7 @@ export interface components {
         /** QuickVideoSettings */
         QuickVideoSettings: {
             /** Profile Id */
-            profile_id?: number | null;
+            profile_id: number | null;
             /** Profiles */
             profiles: components["schemas"]["QuickVideoProfile"][];
         };
@@ -21945,7 +22115,7 @@ export interface components {
              * Watch Once
              * @default false
              */
-            watch_once: boolean;
+            watch_once?: boolean;
         };
         /** QuickVideoStarted */
         QuickVideoStarted: {
@@ -21968,7 +22138,7 @@ export interface components {
             /** Cap Applies */
             cap_applies: boolean;
             /** Cap Left Usd */
-            cap_left_usd?: number | null;
+            cap_left_usd: number | null;
             /** Engine */
             engine: string;
             /** Estimated Usd */
@@ -21976,9 +22146,9 @@ export interface components {
             /** Fits Cap */
             fits_cap: boolean;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Monthly Cap Usd */
-            monthly_cap_usd?: number | null;
+            monthly_cap_usd: number | null;
         };
         /**
          * ReadImageEstimateRequest
@@ -21999,14 +22169,14 @@ export interface components {
         /** ReadImageResponse */
         ReadImageResponse: {
             /** Message */
-            message?: string | null;
+            message: string | null;
             /** Text */
             text: string;
         };
         /** ReaderAnswer */
         ReaderAnswer: {
             /** Answer */
-            answer?: string | null;
+            answer: string | null;
             /** Drama Id */
             drama_id: number;
         };
@@ -22036,7 +22206,7 @@ export interface components {
              */
             definitions: string[];
             /** Reading */
-            reading?: string | null;
+            reading: string | null;
         };
         /** ReaderExplainRequest */
         ReaderExplainRequest: {
@@ -22055,7 +22225,7 @@ export interface components {
              * Chapter Size
              * @default 40
              */
-            chapter_size: number;
+            chapter_size?: number;
             /** Engine */
             engine?: string | null;
             /** Model */
@@ -22066,7 +22236,7 @@ export interface components {
              * Use Llm
              * @default false
              */
-            use_llm: boolean;
+            use_llm?: boolean;
         };
         /** ReaderLookupResult */
         ReaderLookupResult: {
@@ -22096,7 +22266,7 @@ export interface components {
             /** Narration */
             narration: boolean;
             /** Original */
-            original?: string | null;
+            original: string | null;
         };
         /** ReaderNotes */
         ReaderNotes: {
@@ -22115,7 +22285,7 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Last Line Idx */
-            last_line_idx?: number | null;
+            last_line_idx: number | null;
             /** Last Page */
             last_page: number;
             /** Length Display */
@@ -22161,7 +22331,7 @@ export interface components {
              * Chapter Size
              * @default 40
              */
-            chapter_size: number;
+            chapter_size?: number;
             /** Page */
             page: number;
         };
@@ -22170,7 +22340,7 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Summary */
-            summary?: string | null;
+            summary: string | null;
             /**
              * Truncated
              * @default false
@@ -22183,7 +22353,7 @@ export interface components {
              * Chapter Size
              * @default 40
              */
-            chapter_size: number;
+            chapter_size?: number;
             /** Engine */
             engine?: string | null;
             /** Model */
@@ -22212,7 +22382,7 @@ export interface components {
              * Queued
              * @default true
              */
-            queued: boolean;
+            queued?: boolean;
             /** Words */
             words: string[];
         };
@@ -22258,11 +22428,11 @@ export interface components {
             /** Export Rich */
             export_rich: boolean;
             /** First Seen Line Idx */
-            first_seen_line_idx?: number | null;
+            first_seen_line_idx: number | null;
             /** Language */
-            language?: string | null;
+            language: string | null;
             /** Reading */
-            reading?: string | null;
+            reading: string | null;
             /** Word */
             word: string;
         };
@@ -22283,7 +22453,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** ReaderWikiClearResult */
         ReaderWikiClearResult: {
@@ -22295,7 +22465,7 @@ export interface components {
         /** ReaderWikiEntry */
         ReaderWikiEntry: {
             /** Aliases */
-            aliases?: unknown | null;
+            aliases: unknown | null;
             /**
              * Attributes
              * @default {}
@@ -22304,17 +22474,17 @@ export interface components {
                 [key: string]: unknown;
             };
             /** Description */
-            description?: string | null;
+            description: string | null;
             /** Entry Type */
-            entry_type?: string | null;
+            entry_type: string | null;
             /** First Seen Line Idx */
-            first_seen_line_idx?: number | null;
+            first_seen_line_idx: number | null;
             /** Id */
-            id?: number | null;
+            id: number | null;
             /** Known Through Line Idx */
-            known_through_line_idx?: number | null;
+            known_through_line_idx: number | null;
             /** Name */
-            name?: string | null;
+            name: string | null;
         };
         /** ReaderWikiList */
         ReaderWikiList: {
@@ -22336,7 +22506,7 @@ export interface components {
              * From Line Idx
              * @default 0
              */
-            from_line_idx: number;
+            from_line_idx?: number;
             /** Model */
             model?: string | null;
             /** Up To Line Idx */
@@ -22351,7 +22521,7 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Next Line Idx */
-            next_line_idx?: number | null;
+            next_line_idx: number | null;
             /**
              * Remaining
              * @default 0
@@ -22386,7 +22556,7 @@ export interface components {
         /** RealModelCheckJob */
         RealModelCheckJob: {
             /** Error */
-            error?: string | null;
+            error: string | null;
             /**
              * Message
              * @default
@@ -22398,7 +22568,7 @@ export interface components {
              */
             progress: number;
             /** Status */
-            status?: string | null;
+            status: string | null;
         };
         /** RealModelCheckResult */
         RealModelCheckResult: {
@@ -22423,7 +22593,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** RealModelCheckStarted */
         RealModelCheckStarted: {
@@ -22438,7 +22608,7 @@ export interface components {
             checks: components["schemas"]["RealModelCheckResult"][];
             /** Finished */
             finished: boolean;
-            job?: components["schemas"]["RealModelCheckJob"] | null;
+            job: components["schemas"]["RealModelCheckJob"] | null;
             /** Job Id */
             job_id: string;
         };
@@ -22454,7 +22624,7 @@ export interface components {
             /** Capability */
             capability: string;
             /** Next Due At */
-            next_due_at?: string | null;
+            next_due_at: string | null;
             production: components["schemas"]["ProductionModel"];
             report: components["schemas"]["ReevalReport"];
             settings: components["schemas"]["ReevalSettings"];
@@ -22462,63 +22632,63 @@ export interface components {
         /** ReevalProductionRun */
         ReevalProductionRun: {
             /** Aggregate Score */
-            aggregate_score?: number | null;
+            aggregate_score: number | null;
             /** Avg Latency Seconds */
-            avg_latency_seconds?: number | null;
+            avg_latency_seconds: number | null;
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Id */
             id: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Peak Vram Mb */
-            peak_vram_mb?: number | null;
+            peak_vram_mb: number | null;
             /** Status */
-            status?: string | null;
+            status: string | null;
             /** Total Cost Usd */
-            total_cost_usd?: number | null;
+            total_cost_usd: number | null;
         };
         /** ReevalReport */
         ReevalReport: {
             /** Arena Group */
-            arena_group?: string | null;
+            arena_group: string | null;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Error At */
-            error_at?: string | null;
+            error_at: string | null;
             production: components["schemas"]["ProductionModel"];
-            production_run?: components["schemas"]["ReevalProductionRun"] | null;
+            production_run: components["schemas"]["ReevalProductionRun"] | null;
             /** Rows */
-            rows?: components["schemas"]["ReevalRow"][];
+            rows: components["schemas"]["ReevalRow"][];
             /**
              * Scheduled
              * @default false
              */
             scheduled: boolean;
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
         };
         /** ReevalRow */
         ReevalRow: {
             /** Aggregate Score */
-            aggregate_score?: number | null;
+            aggregate_score: number | null;
             /** Avg Latency Seconds */
-            avg_latency_seconds?: number | null;
+            avg_latency_seconds: number | null;
             candidate: components["schemas"]["ModelCandidate"];
             /** Cost Delta Usd */
-            cost_delta_usd?: number | null;
+            cost_delta_usd: number | null;
             /** Latency Delta Seconds */
-            latency_delta_seconds?: number | null;
+            latency_delta_seconds: number | null;
             /** Quality Delta */
-            quality_delta?: number | null;
+            quality_delta: number | null;
             /** Run Id */
             run_id: number;
             /** Status */
-            status?: string | null;
+            status: string | null;
             /** Total Cost Usd */
-            total_cost_usd?: number | null;
+            total_cost_usd: number | null;
             /** Vram Delta Mb */
-            vram_delta_mb?: number | null;
+            vram_delta_mb: number | null;
         };
         /** ReevalRunRequest */
         ReevalRunRequest: {
@@ -22526,12 +22696,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** ReevalRunStarted */
         ReevalRunStarted: {
             /** Arena Group */
-            arena_group?: string | null;
+            arena_group: string | null;
             /** Candidate Ids */
             candidate_ids: number[];
             /** Estimated Cost Usd */
@@ -22544,17 +22714,17 @@ export interface components {
         /** ReevalSettings */
         ReevalSettings: {
             /** Enabled At */
-            enabled_at?: string | null;
+            enabled_at: string | null;
             /** Interval Days */
             interval_days: number;
             /** Max Cost Usd */
-            max_cost_usd?: number | null;
+            max_cost_usd: number | null;
             /** Schedule Enabled */
             schedule_enabled: boolean;
             /** Set Name */
-            set_name?: string | null;
+            set_name: string | null;
             /** Tier */
-            tier?: string | null;
+            tier: string | null;
         };
         /** ReevalSettingsRequest */
         ReevalSettingsRequest: {
@@ -22576,12 +22746,12 @@ export interface components {
             /** Capability */
             capability: string;
             /** Next Due At */
-            next_due_at?: string | null;
+            next_due_at: string | null;
             production: components["schemas"]["ProductionModel"];
             report: components["schemas"]["ReevalReport"];
-            schedule_estimate?: components["schemas"]["BenchmarkEstimate"] | null;
+            schedule_estimate: components["schemas"]["BenchmarkEstimate"] | null;
             /** Schedule Estimate Error */
-            schedule_estimate_error?: string | null;
+            schedule_estimate_error: string | null;
             settings: components["schemas"]["ReevalSettings"];
         };
         /** RejectRequest */
@@ -22590,12 +22760,12 @@ export interface components {
              * Reason
              * @default
              */
-            reason: string;
+            reason?: string;
         };
         /** RemoteCertificateCheck */
         RemoteCertificateCheck: {
             /** Days Left */
-            days_left?: number | null;
+            days_left: number | null;
             /** Message */
             message: string;
             /**
@@ -22625,13 +22795,13 @@ export interface components {
         RemoteHealth: {
             certificate: components["schemas"]["RemoteCertificateCheck"];
             /** Checked At */
-            checked_at?: number | null;
+            checked_at: number | null;
             ddns: components["schemas"]["RemoteDdnsCheck"];
             listener: components["schemas"]["RemoteHealthCheck"];
             /** Message */
             message: string;
             /** Since */
-            since?: number | null;
+            since: number | null;
             /**
              * State
              * @enum {string}
@@ -22752,9 +22922,9 @@ export interface components {
         /** ResearchField */
         ResearchField: {
             /** Confidence */
-            confidence?: number | null;
+            confidence: number | null;
             /** Current */
-            current?: string | null;
+            current: string | null;
             /** Field */
             field: string;
             /** Sources */
@@ -22799,20 +22969,20 @@ export interface components {
              * Allow Paid
              * @default false
              */
-            allow_paid: boolean;
+            allow_paid?: boolean;
             /**
              * Mode
              * @default quick
              * @enum {string}
              */
-            mode: "quick" | "deep" | "verify";
+            mode?: "quick" | "deep" | "verify";
             /** Model */
             model?: string | null;
             /**
              * Refresh
              * @default false
              */
-            refresh: boolean;
+            refresh?: boolean;
         };
         /** ResearchResult */
         ResearchResult: {
@@ -22832,7 +23002,7 @@ export interface components {
             /** Related */
             related: components["schemas"]["ResearchRelated"][];
             /** Research Id */
-            research_id?: string | null;
+            research_id: string | null;
             /** Retrieved At */
             retrieved_at: string;
             /**
@@ -22846,7 +23016,7 @@ export interface components {
         /** ResearchSource */
         ResearchSource: {
             /** Title */
-            title?: string | null;
+            title: string | null;
             /** Url */
             url: string;
         };
@@ -22855,7 +23025,7 @@ export interface components {
             /** Idx */
             idx: number;
             /** Line Id */
-            line_id?: number | null;
+            line_id: number | null;
             /** Pieces */
             pieces: string[];
             /** Zh */
@@ -22931,7 +23101,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Engine */
             engine?: string | null;
             /**
@@ -22945,12 +23115,12 @@ export interface components {
              * Use Llm
              * @default false
              */
-            use_llm: boolean;
+            use_llm?: boolean;
             /**
              * Use Preview
              * @default false
              */
-            use_preview: boolean;
+            use_preview?: boolean;
         };
         /** ResegmentStarted */
         ResegmentStarted: {
@@ -22966,33 +23136,33 @@ export interface components {
          */
         ResplitResult: {
             /** Aligned Lines */
-            aligned_lines?: number | null;
+            aligned_lines: number | null;
             /** Cleared Translations */
-            cleared_translations?: number | null;
+            cleared_translations: number | null;
             /** Drama Id */
-            drama_id?: number | null;
+            drama_id: number | null;
             /** Dry Run */
-            dry_run?: boolean | null;
+            dry_run: boolean | null;
             /** History Id */
-            history_id?: number | null;
+            history_id: number | null;
             /** Job Id */
-            job_id?: string | null;
+            job_id: string | null;
             /** Line Count */
-            line_count?: number | null;
+            line_count: number | null;
             /** Lines Before */
-            lines_before?: number | null;
+            lines_before: number | null;
             /** Lines Fingerprint */
-            lines_fingerprint?: string | null;
+            lines_fingerprint: string | null;
             /** Note */
-            note?: string | null;
+            note: string | null;
             /** Pieces */
-            pieces?: number | null;
+            pieces: number | null;
             /** Speakers Reassigned */
-            speakers_reassigned?: boolean | null;
+            speakers_reassigned: boolean | null;
             /** Split Lines */
-            split_lines?: number | null;
+            split_lines: number | null;
             /** Timing */
-            timing?: string | null;
+            timing: string | null;
         };
         /** ResplitStart */
         ResplitStart: {
@@ -23000,17 +23170,17 @@ export interface components {
              * Align To Audio
              * @default false
              */
-            align_to_audio: boolean;
+            align_to_audio?: boolean;
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Dry Run
              * @default false
              */
-            dry_run: boolean;
+            dry_run?: boolean;
             /**
              * Expected Line Ids
              * @description The drama's line ids, in order, as last loaded; 409 if they differ now.
@@ -23076,12 +23246,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
             /** Drama Id */
             drama_id: number;
             /**
@@ -23120,7 +23290,7 @@ export interface components {
              * En
              * @default
              */
-            en: string;
+            en?: string;
             /** End */
             end: number;
             /**
@@ -23136,7 +23306,7 @@ export interface components {
              * Zh
              * @default
              */
-            zh: string;
+            zh?: string;
         };
         /** RestructureDeleteLine */
         RestructureDeleteLine: {
@@ -23144,7 +23314,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Expected Line Ids
              * @description The drama's line ids, in order, as last loaded; 409 if they differ now.
@@ -23164,13 +23334,13 @@ export interface components {
         /** RestructureResult */
         RestructureResult: {
             /** History Id */
-            history_id?: number | null;
+            history_id: number | null;
             /** Line Ids */
             line_ids: number[];
             /** Lines */
             lines: components["schemas"]["ReviewLinesLine"][];
             /** Lines Fingerprint */
-            lines_fingerprint?: string | null;
+            lines_fingerprint: string | null;
         };
         /** RestructureSplit */
         RestructureSplit: {
@@ -23240,9 +23410,9 @@ export interface components {
         /** RetimeResult */
         RetimeResult: {
             /** Device */
-            device?: string | null;
+            device: string | null;
             /** Device Notice */
-            device_notice?: string | null;
+            device_notice: string | null;
             /** Errors */
             errors: string[];
             /** Job Id */
@@ -23294,12 +23464,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
         };
         /** RetranscribeLineResult */
         RetranscribeLineResult: {
@@ -23374,19 +23544,19 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Line Ids */
             line_ids: number[];
         };
         /** RetranscribeManyResult */
         RetranscribeManyResult: {
             /** Device Notice */
-            device_notice?: string | null;
+            device_notice: string | null;
             /** Failures */
             failures: components["schemas"]["RetranscribeManyFailure"][];
             /** Job Id */
@@ -23454,14 +23624,14 @@ export interface components {
              * Locale
              * @default en-US
              */
-            locale: string;
+            locale?: string;
             /** Model */
             model?: string | null;
             /**
              * Style Note
              * @default
              */
-            style_note: string;
+            style_note?: string;
             /** Style Preset */
             style_preset?: string | null;
             /** Thinking */
@@ -23488,7 +23658,7 @@ export interface components {
             /** Line Ids */
             line_ids: number[];
             /** Model */
-            model?: string | null;
+            model: string | null;
             /**
              * Reflect
              * @default false
@@ -23511,7 +23681,7 @@ export interface components {
              * Bulk
              * @default false
              */
-            bulk: boolean;
+            bulk?: boolean;
             /** Engine */
             engine?: string | null;
             /** Gemini Free Tier */
@@ -23537,7 +23707,7 @@ export interface components {
             /** Line Count */
             line_count: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
         };
         /**
          * ReviewLinePosition
@@ -23546,13 +23716,13 @@ export interface components {
          */
         ReviewLinePosition: {
             /** Idx */
-            idx?: number | null;
+            idx: number | null;
             /** Line Id */
-            line_id?: number | null;
+            line_id: number | null;
             /** Page */
-            page?: number | null;
+            page: number | null;
             /** Page All */
-            page_all?: number | null;
+            page_all: number | null;
         };
         /** ReviewLinesCoverage */
         ReviewLinesCoverage: {
@@ -23572,35 +23742,35 @@ export interface components {
          */
         ReviewLinesCoverageEntry: {
             /** After Id */
-            after_id?: number | null;
+            after_id: number | null;
             /** After Idx */
-            after_idx?: number | null;
+            after_idx: number | null;
             /** Before Id */
-            before_id?: number | null;
+            before_id: number | null;
             /** Before Idx */
-            before_idx?: number | null;
+            before_idx: number | null;
             /** Char Count */
-            char_count?: number | null;
+            char_count: number | null;
             /** Duration */
-            duration?: number | null;
+            duration: number | null;
             /** End */
-            end?: number | null;
+            end: number | null;
             /** Gap End */
-            gap_end?: number | null;
+            gap_end: number | null;
             /** Gap Seconds */
-            gap_seconds?: number | null;
+            gap_seconds: number | null;
             /** Gap Start */
-            gap_start?: number | null;
+            gap_start: number | null;
             /** Id */
-            id?: number | null;
+            id: number | null;
             /** Idx */
-            idx?: number | null;
+            idx: number | null;
             /** Note */
-            note?: string | null;
+            note: string | null;
             /** Start */
-            start?: number | null;
+            start: number | null;
             /** Zh */
-            zh?: string | null;
+            zh: string | null;
         };
         /**
          * ReviewLinesFindReplaceRequest
@@ -23611,32 +23781,32 @@ export interface components {
              * Case Sensitive
              * @default false
              */
-            case_sensitive: boolean;
+            case_sensitive?: boolean;
             /** Find */
             find: string;
             /**
              * Replace
              * @default
              */
-            replace: string;
+            replace?: string;
             /**
              * Use Regex
              * @default false
              */
-            use_regex: boolean;
+            use_regex?: boolean;
         };
         /** ReviewLinesLine */
         ReviewLinesLine: {
             /** Dub Filename */
-            dub_filename?: string | null;
+            dub_filename: string | null;
             /** En */
             en: string;
             /** End */
             end: number;
             /** Flag */
-            flag?: string | null;
+            flag: string | null;
             /** Flag Note */
-            flag_note?: string | null;
+            flag_note: string | null;
             /** Id */
             id: number;
             /** Idx */
@@ -23645,7 +23815,7 @@ export interface components {
              * Lang
              * @description This line's spoken language (zh/ja/ko/en); null means the drama's source_language.
              */
-            lang?: string | null;
+            lang: string | null;
             /**
              * Reviewed
              * @description True once a reviewer marked the translation checked; editing `en` clears it.
@@ -23655,7 +23825,7 @@ export interface components {
             /** Sfx */
             sfx: boolean;
             /** Speaker */
-            speaker?: string | null;
+            speaker: string | null;
             /** Speaker Manual */
             speaker_manual: boolean;
             /** Start */
@@ -23687,7 +23857,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Original Text */
-            original_text?: string | null;
+            original_text: string | null;
         };
         /** ReviewLinesPacing */
         ReviewLinesPacing: {
@@ -23699,15 +23869,15 @@ export interface components {
         /** ReviewLinesPacingFlag */
         ReviewLinesPacingFlag: {
             /** Detail */
-            detail?: string | null;
+            detail: string | null;
             /** Id */
-            id?: number | null;
+            id: number | null;
             /** Idx */
             idx: number;
             /** Issue */
             issue: string;
             /** Severity */
-            severity?: number | null;
+            severity: number | null;
         };
         /** ReviewLinesPage */
         ReviewLinesPage: {
@@ -23751,9 +23921,9 @@ export interface components {
              */
             consistency_issues: unknown[];
             /** Context Window Note */
-            context_window_note?: string | null;
+            context_window_note: string | null;
             /** Context Window Used */
-            context_window_used?: unknown | null;
+            context_window_used: unknown | null;
             /**
              * Current Neighbors After
              * @default []
@@ -23770,36 +23940,36 @@ export interface components {
              */
             edit_samples: unknown[];
             /** Emotion */
-            emotion?: unknown | null;
+            emotion: unknown | null;
             /** En */
             en: string;
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Engine Source */
-            engine_source?: string | null;
+            engine_source: string | null;
             /** Flag */
-            flag?: string | null;
+            flag: string | null;
             /** Flag Note */
-            flag_note?: string | null;
+            flag_note: string | null;
             /** Flag Reason */
-            flag_reason?: string | null;
+            flag_reason: string | null;
             /**
              * Glossary Matches
              * @default []
              */
             glossary_matches: unknown[];
             /** Glossary Matches Note */
-            glossary_matches_note?: string | null;
+            glossary_matches_note: string | null;
             /** Line Id */
             line_id: number;
             /** Line Idx */
             line_idx: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Prompt Version Note */
-            prompt_version_note?: string | null;
+            prompt_version_note: string | null;
             /** Speaker */
-            speaker?: string | null;
+            speaker: string | null;
             /** Speaker Manual */
             speaker_manual: boolean;
             /**
@@ -23826,7 +23996,7 @@ export interface components {
         /** ReviewRecordsConsistencyIssue */
         ReviewRecordsConsistencyIssue: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Id */
             id: number;
             /** Note */
@@ -23867,7 +24037,7 @@ export interface components {
             /** Emotion */
             emotion: string;
             /** Intensity */
-            intensity?: number | null;
+            intensity: number | null;
             /** Line Idx */
             line_idx: number;
             /** Note */
@@ -23876,43 +24046,43 @@ export interface components {
         /** ReviewRecordsHistoryItem */
         ReviewRecordsHistoryItem: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Drama Id */
             drama_id: number;
             /** Id */
             id: number;
             /** Label */
-            label?: string | null;
+            label: string | null;
         };
         /** ReviewRecordsNote */
         ReviewRecordsNote: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Drama Id */
             drama_id: number;
             /** Id */
             id: number;
             /** Line Id */
-            line_id?: number | null;
+            line_id: number | null;
             /** Line Idx */
-            line_idx?: number | null;
+            line_idx: number | null;
             /** Note */
-            note?: string | null;
+            note: string | null;
             /** Note Type */
-            note_type?: string | null;
+            note_type: string | null;
             /** Term */
-            term?: string | null;
+            term: string | null;
         };
         /** ReviewRecordsSnapshot */
         ReviewRecordsSnapshot: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Drama Id */
             drama_id: number;
             /** Id */
             id: number;
             /** Label */
-            label?: string | null;
+            label: string | null;
             /** Lines */
             lines: components["schemas"]["ReviewRecordsSnapshotLine"][];
             /**
@@ -23932,28 +24102,28 @@ export interface components {
              * Dub Filename
              * @description Bare filename, never a path.
              */
-            dub_filename?: string | null;
+            dub_filename: string | null;
             /** En */
             en: string;
             /** End */
-            end?: number | null;
+            end: number | null;
             /** Id */
-            id?: number | null;
+            id: number | null;
             /** Idx */
-            idx?: number | null;
+            idx: number | null;
             /** Speaker */
-            speaker?: string | null;
+            speaker: string | null;
             /** Speaker Manual */
             speaker_manual: boolean;
             /** Start */
-            start?: number | null;
+            start: number | null;
             /** Zh */
             zh: string;
         };
         /** ReviewRecordsStyleProfile */
         ReviewRecordsStyleProfile: {
             /** Confidence */
-            confidence?: unknown | null;
+            confidence: unknown | null;
             /** Preferences */
             preferences: string[];
             /** Sample Count */
@@ -23961,13 +24131,13 @@ export interface components {
             /** Summary */
             summary: string;
             /** Updated At */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         /** ReviewRecordsTendencies */
         ReviewRecordsTendencies: {
             /** Drama Id */
             drama_id: number;
-            profile?: components["schemas"]["ReviewRecordsStyleProfile"] | null;
+            profile: components["schemas"]["ReviewRecordsStyleProfile"] | null;
             /** Scope */
             scope: string;
             tendencies: components["schemas"]["ReviewRecordsTendencyStats"];
@@ -23994,7 +24164,7 @@ export interface components {
             /** Exact */
             exact: boolean;
             /** Line Id */
-            line_id?: number | null;
+            line_id: number | null;
             /** Line Idx */
             line_idx: number;
             /** Similarity */
@@ -24007,7 +24177,7 @@ export interface components {
         /** ReviewRecordsVersionItem */
         ReviewRecordsVersionItem: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Drama Id */
             drama_id: number;
             /** Engine */
@@ -24017,7 +24187,7 @@ export interface components {
             /** Is Active */
             is_active: boolean;
             /** Label */
-            label?: string | null;
+            label: string | null;
             /** Model */
             model: string;
         };
@@ -24026,7 +24196,7 @@ export interface components {
             /** Id */
             id: number;
             /** Label */
-            label?: string | null;
+            label: string | null;
         };
         /**
          * ReviewSourceChanged
@@ -24060,11 +24230,11 @@ export interface components {
         /** RunningJob */
         RunningJob: {
             /** Description */
-            description?: string | null;
+            description: string | null;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Finished At */
-            finished_at?: number | null;
+            finished_at: number | null;
             /**
              * Gpu Touching
              * @default false
@@ -24078,18 +24248,18 @@ export interface components {
              */
             message: string;
             /** Progress */
-            progress?: number | null;
+            progress: number | null;
             /** Started At */
-            started_at?: number | null;
+            started_at: number | null;
             /** Status */
-            status?: string | null;
+            status: string | null;
         };
         /** SavedChapter */
         SavedChapter: {
             /** Chapter */
             chapter: string;
             /** Number */
-            number?: number | null;
+            number: number | null;
             /** Title */
             title: string;
         };
@@ -24107,13 +24277,13 @@ export interface components {
             /** Chapter */
             chapter: string;
             /** Next Chapter */
-            next_chapter?: string | null;
+            next_chapter: string | null;
             /** Number */
-            number?: number | null;
+            number: number | null;
             /** Pages */
             pages: components["schemas"]["SavedPage"][];
             /** Prev Chapter */
-            prev_chapter?: string | null;
+            prev_chapter: string | null;
             /** Series */
             series: string;
             /** Source */
@@ -24150,11 +24320,11 @@ export interface components {
         /** SavedPage */
         SavedPage: {
             /** Height */
-            height?: number | null;
+            height: number | null;
             /** Page */
             page: number;
             /** Width */
-            width?: number | null;
+            width: number | null;
         };
         /** SavedSeries */
         SavedSeries: {
@@ -24165,7 +24335,7 @@ export interface components {
             /** Source */
             source: string;
             /** Updated At */
-            updated_at?: number | null;
+            updated_at: number | null;
         };
         /** ScanlateConfig */
         ScanlateConfig: {
@@ -24218,16 +24388,16 @@ export interface components {
              * Typeset
              * @default true
              */
-            typeset: boolean;
+            typeset?: boolean;
         };
         /** ScanlateJobStarted */
         ScanlateJobStarted: {
             /** Engine */
-            engine?: string | null;
+            engine: string | null;
             /** Job Id */
             job_id: string;
             /** Mode */
-            mode?: string | null;
+            mode: string | null;
         };
         /** ScanlateNote */
         ScanlateNote: {
@@ -24288,15 +24458,15 @@ export interface components {
             /** Kind */
             kind: string;
             /** Language */
-            language?: string | null;
+            language: string | null;
             /** Orientation */
-            orientation?: string | null;
+            orientation: string | null;
             /** Skip */
             skip: boolean;
             /** Source Text */
             source_text: string;
             /** Text Color */
-            text_color?: string | null;
+            text_color: string | null;
             /** Translated Text */
             translated_text: string;
             /** W */
@@ -24317,7 +24487,7 @@ export interface components {
              * @default both
              * @enum {string}
              */
-            mode: "both" | "translate";
+            mode?: "both" | "translate";
         };
         /** ScanlateRenderRequest */
         ScanlateRenderRequest: {
@@ -24337,20 +24507,20 @@ export interface components {
              * Art Captions
              * @default false
              */
-            art_captions: boolean;
+            art_captions?: boolean;
             /** Chapter Id */
             chapter_id?: string | null;
             /**
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Detect Backend
              * @default auto
              * @enum {string}
              */
-            detect_backend: "auto" | "cv" | "ml";
+            detect_backend?: "auto" | "cv" | "ml";
             /** Engine */
             engine?: string | null;
             /**
@@ -24358,7 +24528,7 @@ export interface components {
              * @default missing
              * @enum {string}
              */
-            mode: "missing" | "page" | "all";
+            mode?: "missing" | "page" | "all";
             /** Page Id */
             page_id?: number | null;
             /** Read Ahead From */
@@ -24409,7 +24579,7 @@ export interface components {
             /** Idx */
             idx: number;
             /** Line Id */
-            line_id?: number | null;
+            line_id: number | null;
             /** Text */
             text: string;
             /** Text Emotion */
@@ -24503,7 +24673,7 @@ export interface components {
              * @default fill
              * @enum {string}
              */
-            mode: "fill" | "overwrite";
+            mode?: "fill" | "overwrite";
         };
         /** SeriesDefaultsApplyResult */
         SeriesDefaultsApplyResult: {
@@ -24521,7 +24691,7 @@ export interface components {
         /** SeriesDefaultsField */
         SeriesDefaultsField: {
             /** Choices */
-            choices?: string[] | null;
+            choices: string[] | null;
             /**
              * Group
              * @description translate or transcribe
@@ -24532,9 +24702,9 @@ export interface components {
             /** Label */
             label: string;
             /** Max */
-            max?: number | null;
+            max: number | null;
             /** Min */
-            min?: number | null;
+            min: number | null;
             /**
              * Type
              * @description bool, int, number or choice
@@ -24572,9 +24742,9 @@ export interface components {
             /** Id */
             id: number;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
             /**
              * Unsuited
              * @description Defaults skipped: not for this title's language.
@@ -24628,12 +24798,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Confirm Text
              * @default
              */
-            confirm_text: string;
+            confirm_text?: string;
         };
         /** SeriesDeleteResult */
         SeriesDeleteResult: {
@@ -24707,19 +24877,19 @@ export interface components {
              * Aliases
              * @default
              */
-            aliases: string;
+            aliases?: string;
             /** Character Name */
             character_name: string;
             /**
              * Notes
              * @default
              */
-            notes: string;
+            notes?: string;
             /**
              * Pronouns
              * @default
              */
-            pronouns: string;
+            pronouns?: string;
         };
         /**
          * SeriesPersonUpdate
@@ -24769,21 +24939,21 @@ export interface components {
         /** SeriesTitle */
         SeriesTitle: {
             /** Episode Number */
-            episode_number?: number | null;
+            episode_number: number | null;
             /** Id */
             id: number;
             /** Line Count */
             line_count: number;
             /** Media Type */
-            media_type?: string | null;
+            media_type: string | null;
             /** Release Date */
-            release_date?: string | null;
+            release_date: string | null;
             /** Status */
-            status?: string | null;
+            status: string | null;
             /** Title En */
-            title_en?: string | null;
+            title_en: string | null;
             /** Title Zh */
-            title_zh?: string | null;
+            title_zh: string | null;
             /**
              * Translated Count
              * @default 0
@@ -24890,7 +25060,7 @@ export interface components {
              */
             month_spend_counted_usd: number;
             /** Month Spend Reset At */
-            month_spend_reset_at?: string | null;
+            month_spend_reset_at: string | null;
             /**
              * Month Spend Usd
              * @default 0
@@ -24948,7 +25118,7 @@ export interface components {
              */
             asmr_stop_threshold: number;
             /** Cookies Browser */
-            cookies_browser?: string | null;
+            cookies_browser: string | null;
             /** Cookies File */
             cookies_file: string;
             /**
@@ -25005,7 +25175,7 @@ export interface components {
              */
             max_upload_mb: number;
             /** Monthly Cap Usd */
-            monthly_cap_usd?: number | null;
+            monthly_cap_usd: number | null;
             /** Ocr Backend */
             ocr_backend: string;
             /** Ocr Prefer Paddle Vl Manga */
@@ -25112,6 +25282,11 @@ export interface components {
              * @default 3
              */
             retime_window_pad_seconds: number;
+            /**
+             * Scanlate Chapter Brief
+             * @default true
+             */
+            scanlate_chapter_brief: boolean;
             /** Scene Aware Batches */
             scene_aware_batches: boolean;
             /**
@@ -25149,6 +25324,8 @@ export interface components {
              * @default 2000
              */
             sentence_split_min_silence_ms: number;
+            /** Speaker Model */
+            speaker_model: string;
             /**
              * Speech Coverage Vad Threshold
              * @default 0.3
@@ -25224,14 +25401,14 @@ export interface components {
         /** SettingsSchemaRow */
         SettingsSchemaRow: {
             /** Choices */
-            choices?: components["schemas"]["SettingsSchemaChoice"][] | null;
+            choices: components["schemas"]["SettingsSchemaChoice"][] | null;
             /**
              * Custom
              * @default false
              */
             custom: boolean;
             /** Default */
-            default?: unknown;
+            default: unknown;
             /**
              * Dev Only
              * @default false
@@ -25247,11 +25424,11 @@ export interface components {
             /** Label */
             label: string;
             /** Max */
-            max?: number | null;
+            max: number | null;
             /** Max Len */
-            max_len?: number | null;
+            max_len: number | null;
             /** Min */
-            min?: number | null;
+            min: number | null;
             /**
              * Multiline
              * @default false
@@ -25376,6 +25553,8 @@ export interface components {
             repeat_loop_min_repeats?: number | null;
             /** Retime Window Pad Seconds */
             retime_window_pad_seconds?: number | null;
+            /** Scanlate Chapter Brief */
+            scanlate_chapter_brief?: boolean | null;
             /** Scene Aware Batches */
             scene_aware_batches?: boolean | null;
             /** Scene Break Gap Seconds */
@@ -25392,6 +25571,8 @@ export interface components {
             sentence_group_max_seconds?: number | null;
             /** Sentence Split Min Silence Ms */
             sentence_split_min_silence_ms?: number | null;
+            /** Speaker Model */
+            speaker_model?: string | null;
             /** Speech Coverage Vad Threshold */
             speech_coverage_vad_threshold?: number | null;
             /** Split Max Cjk Chars */
@@ -25547,11 +25728,11 @@ export interface components {
             /** Owner Name */
             owner_name: string;
             /** Series Id */
-            series_id?: number | null;
+            series_id: number | null;
             /** Series Is Private */
-            series_is_private?: boolean | null;
+            series_is_private: boolean | null;
             /** Series Name */
-            series_name?: string | null;
+            series_name: string | null;
             /** Title */
             title: string;
         };
@@ -25582,16 +25763,16 @@ export interface components {
         /** SnapshotCopy */
         SnapshotCopy: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Drama Count */
-            drama_count?: number | null;
+            drama_count: number | null;
             /**
              * Kept As
              * @description Which rotation slot keeps this copy (the 2 newest are daily, then the first copy of each of the 2 most recent older weeks); "sources": kept because later copies left a damaged sources.db out, until the owner deletes it.
              */
-            kept_as?: ("daily" | "weekly" | "sources") | null;
+            kept_as: ("daily" | "weekly" | "sources") | null;
             /** Kind */
-            kind?: ("db-only" | "full") | null;
+            kind: ("db-only" | "full") | null;
             /**
              * Managed
              * @description Made by this library (or, in its own default folder, before copies were tagged). Only managed copies are rotated or deleted by 'delete all'.
@@ -25606,7 +25787,7 @@ export interface components {
              * Sequence
              * @description This library's copy number; the highest is the newest.
              */
-            sequence?: number | null;
+            sequence: number | null;
             /** Size */
             size: number;
             /**
@@ -25635,7 +25816,7 @@ export interface components {
         /** SnapshotDramaList */
         SnapshotDramaList: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Dramas */
             dramas: components["schemas"]["SnapshotDrama"][];
             /**
@@ -25649,39 +25830,39 @@ export interface components {
         /** SnapshotInfo */
         SnapshotInfo: {
             /** App Version */
-            app_version?: string | null;
+            app_version: string | null;
             /**
              * Choose Copy
              * @description true = the newest copy can't be told for sure; a restore must name one.
              */
-            choose_copy?: boolean | null;
+            choose_copy: boolean | null;
             /**
              * Copies
              * @description Newest first.
              */
-            copies?: components["schemas"]["SnapshotCopy"][];
+            copies: components["schemas"]["SnapshotCopy"][];
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /**
              * Default Copy
              * @description The copy a restore uses when none is named.
              */
-            default_copy?: string | null;
+            default_copy: string | null;
             /** Drama Count */
-            drama_count?: number | null;
+            drama_count: number | null;
             /** Exists */
             exists: boolean;
             /** Kind */
-            kind?: ("db-only" | "full") | null;
+            kind: ("db-only" | "full") | null;
             /** Readable */
-            readable?: boolean | null;
+            readable: boolean | null;
             /** Size */
-            size?: number | null;
+            size: number | null;
             /**
              * Sources Left Out
              * @description The default copy has no sources.db (it was damaged). A title restore doesn't need it.
              */
-            sources_left_out?: boolean | null;
+            sources_left_out: boolean | null;
         };
         /**
          * SoftsubVideoRequest
@@ -25692,26 +25873,26 @@ export interface components {
              * Field
              * @default en
              */
-            field: string;
+            field?: string;
             /**
              * Include Notes
              * @default false
              */
-            include_notes: boolean;
+            include_notes?: boolean;
             /**
              * Subtitle Format
              * @default srt
              */
-            subtitle_format: string;
+            subtitle_format?: string;
         };
         /** SourceAttempt */
         SourceAttempt: {
             /** Capability Status */
-            capability_status?: string | null;
+            capability_status: string | null;
             /** Created At */
-            created_at?: number | null;
+            created_at: number | null;
             /** Handoff */
-            handoff?: {
+            handoff: {
                 [key: string]: unknown;
             } | null;
             /**
@@ -25720,21 +25901,21 @@ export interface components {
              */
             lines: string[];
             /** Ok */
-            ok?: boolean | null;
+            ok: boolean | null;
             /**
              * Reasons
              * @default []
              */
             reasons: string[];
             /** Technical Status */
-            technical_status?: string | null;
+            technical_status: string | null;
             /**
              * Test Now
              * @default false
              */
             test_now: boolean;
             /** Tier */
-            tier?: string | null;
+            tier: string | null;
             /**
              * Url
              * @description scheme+host+path only.
@@ -25747,7 +25928,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** SourceCacheStats */
         SourceCacheStats: {
@@ -25786,19 +25967,19 @@ export interface components {
              * Locale
              * @default en-US
              */
-            locale: string;
+            locale?: string;
             /** Model */
             model?: string | null;
             /**
              * Reflect
              * @default false
              */
-            reflect: boolean;
+            reflect?: boolean;
             /**
              * Style Note
              * @default
              */
-            style_note: string;
+            style_note?: string;
             /** Style Preset */
             style_preset?: string | null;
             /** Thinking */
@@ -25825,7 +26006,7 @@ export interface components {
             /** Line Ids */
             line_ids: number[];
             /** Model */
-            model?: string | null;
+            model: string | null;
             /**
              * Reflect
              * @default false
@@ -25887,7 +26068,7 @@ export interface components {
         /** SourceDetail */
         SourceDetail: {
             /** Access Method */
-            access_method?: string | null;
+            access_method: string | null;
             /** Adult Enabled */
             adult_enabled: boolean;
             /** Ai Ml Use */
@@ -25907,7 +26088,7 @@ export interface components {
             /** Enabled */
             enabled: boolean;
             /** Extension Marked At */
-            extension_marked_at?: number | null;
+            extension_marked_at: number | null;
             /**
              * Extension Note
              * @default
@@ -26011,7 +26192,7 @@ export interface components {
              * Last Good
              * @description The host that last answered (tried first); null if none.
              */
-            last_good?: string | null;
+            last_good: string | null;
             /** Pending Proposals */
             pending_proposals: number;
             /** Source */
@@ -26051,7 +26232,7 @@ export interface components {
         /** SourceExtensionOnly */
         SourceExtensionOnly: {
             /** Extension Marked At */
-            extension_marked_at?: number | null;
+            extension_marked_at: number | null;
             /**
              * Extension Note
              * @default
@@ -26077,17 +26258,17 @@ export interface components {
          * @description One pasted-URL attempt. `url` is scheme+host+path only.
          */
         SourceExtraction: {
-            access?: components["schemas"]["SourceExtractionAccess"] | null;
+            access: components["schemas"]["SourceExtractionAccess"] | null;
             /** Cache Hit */
             cache_hit: boolean;
             /** Confidence */
-            confidence?: string | null;
+            confidence: string | null;
             /** Content Type */
             content_type: string;
             /** Created At */
-            created_at?: number | null;
+            created_at: number | null;
             /** Extraction Tier */
-            extraction_tier?: string | null;
+            extraction_tier: string | null;
             /** Headline */
             headline: string;
             /** Lines */
@@ -26101,46 +26282,46 @@ export interface components {
             /** Resource Types */
             resource_types: string[];
             /** Tier */
-            tier?: string | null;
+            tier: string | null;
             /** Url */
             url: string;
         };
         /** SourceExtractionAccess */
         SourceExtractionAccess: {
             /** Authentication */
-            authentication?: string | null;
+            authentication: string | null;
             /** Entitlement */
-            entitlement?: string | null;
+            entitlement: string | null;
             /** Protection Detail */
             protection_detail: string[];
             /** Technical Protection */
-            technical_protection?: string | null;
+            technical_protection: string | null;
         };
         /** SourceHealth */
         SourceHealth: {
             /** Consecutive Failures */
             consecutive_failures: number;
             /** Last Error */
-            last_error?: string | null;
+            last_error: string | null;
             /**
              * Last Error Category
              * @description blocked, site_down, page_missing, layout_changed, slow, needs_sign_in or other; null when there is no error.
              */
-            last_error_category?: string | null;
+            last_error_category: string | null;
             /** Last Error Type */
-            last_error_type?: string | null;
+            last_error_type: string | null;
             /** Last Failure */
-            last_failure?: number | null;
+            last_failure: number | null;
             /** Last Latency */
-            last_latency?: number | null;
+            last_latency: number | null;
             /** Last Success */
-            last_success?: number | null;
+            last_success: number | null;
             /** Light */
             light: string;
             /** Retry After */
-            retry_after?: number | null;
+            retry_after: number | null;
             /** Unavailable Until */
-            unavailable_until?: number | null;
+            unavailable_until: number | null;
         };
         /** SourceMoveChapter */
         SourceMoveChapter: {
@@ -26148,14 +26329,14 @@ export interface components {
              * Saved
              * @description Already saved in the title (absent for chapters only the new source lists).
              */
-            saved?: boolean | null;
+            saved: boolean | null;
             /** Title */
             title: string;
         };
         /** SourceMovePreview */
         SourceMovePreview: {
             /** Drama Id */
-            drama_id?: number | null;
+            drama_id: number | null;
             /**
              * Matched
              * @description On both sources: kept as they are.
@@ -26191,7 +26372,7 @@ export interface components {
             /** Source */
             source: string;
             /** Title */
-            title?: string | null;
+            title: string | null;
         };
         /** SourcePaceRequest */
         SourcePaceRequest: {
@@ -26221,24 +26402,24 @@ export interface components {
              */
             approved: boolean;
             /** Created At */
-            created_at?: number | null;
+            created_at: number | null;
             /**
              * Failures
              * @default 0
              */
             failures: number;
             /** Kind */
-            kind?: string | null;
+            kind: string | null;
             /** Last Failure Reason */
-            last_failure_reason?: string | null;
+            last_failure_reason: string | null;
             /** Last Used */
-            last_used?: number | null;
+            last_used: number | null;
             /** Origin */
-            origin?: string | null;
+            origin: string | null;
             /** Status */
-            status?: string | null;
+            status: string | null;
             /** Version */
-            version?: number | null;
+            version: number | null;
         };
         /** SourceSigninForgetRequest */
         SourceSigninForgetRequest: {
@@ -26246,7 +26427,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** SourceSigninForgetResult */
         SourceSigninForgetResult: {
@@ -26266,7 +26447,7 @@ export interface components {
              * Url
              * @default
              */
-            url: string;
+            url?: string;
         };
         /** SourceSummary */
         SourceSummary: {
@@ -26356,7 +26537,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Next Line Id */
-            next_line_id?: number | null;
+            next_line_id: number | null;
             /**
              * Next Zh
              * @default
@@ -26377,13 +26558,13 @@ export interface components {
         /** SourceTierResult */
         SourceTierResult: {
             /** At */
-            at?: number | null;
+            at: number | null;
             /** Detail */
-            detail?: string | null;
+            detail: string | null;
             /** Ok */
             ok: boolean;
             /** Reason */
-            reason?: string | null;
+            reason: string | null;
             /** Tested */
             tested: boolean;
         };
@@ -26417,17 +26598,17 @@ export interface components {
              * Title
              * @default
              */
-            title: string;
+            title?: string;
             /**
              * Tracked
              * @default true
              */
-            tracked: boolean;
+            tracked?: boolean;
             /**
              * Url
              * @default
              */
-            url: string;
+            url?: string;
         };
         /**
          * SourceTrackedDramaRequest
@@ -26473,7 +26654,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** SourceUpdateApplyResponse */
         SourceUpdateApplyResponse: {
@@ -26495,35 +26676,35 @@ export interface components {
              * Behind
              * @description Commits waiting; null until checked.
              */
-            behind?: number | null;
+            behind: number | null;
             /** Can Apply */
             can_apply: boolean;
             /**
              * Changes
              * @description Subjects of the newest waiting commits.
              */
-            changes?: string[];
+            changes: string[];
             /** Checked */
             checked: boolean;
             /**
              * Current
              * @description Short commit id this copy is on.
              */
-            current?: string | null;
+            current: string | null;
             /**
              * Last Result
              * @description The last update's outcome, in plain words.
              */
-            last_result?: string | null;
+            last_result: string | null;
             /** Last Result At */
-            last_result_at?: number | null;
+            last_result_at: number | null;
             /** Latest */
-            latest?: string | null;
+            latest: string | null;
             /**
              * Reason
              * @description Why an update can't run, in plain words.
              */
-            reason?: string | null;
+            reason: string | null;
         };
         /**
          * SourcesAiEngines
@@ -26532,7 +26713,7 @@ export interface components {
          */
         SourcesAiEngines: {
             /** Default */
-            default?: string | null;
+            default: string | null;
             /** Engines */
             engines: string[];
             /**
@@ -26595,14 +26776,14 @@ export interface components {
              * Review
              * @default false
              */
-            review: boolean;
+            review?: boolean;
             /** Url */
             url: string;
             /**
              * Use Ai
              * @default false
              */
-            use_ai: boolean;
+            use_ai?: boolean;
         };
         /** SourcesImportRetryRow */
         SourcesImportRetryRow: {
@@ -26653,19 +26834,19 @@ export interface components {
             /** Job Id */
             job_id: string;
             /** Message */
-            message?: string | null;
+            message: string | null;
             /** Progress */
-            progress?: number | null;
+            progress: number | null;
             /** Result */
-            result?: {
+            result: {
                 [key: string]: unknown;
             } | null;
             /** Series Id */
-            series_id?: string | null;
+            series_id: string | null;
             /** Source */
-            source?: string | null;
+            source: string | null;
             /** Status */
-            status?: string | null;
+            status: string | null;
         };
         /** SourcesJobStarted */
         SourcesJobStarted: {
@@ -26692,19 +26873,19 @@ export interface components {
          */
         SourcesPastedPreview: {
             /** Adapter */
-            adapter?: string | null;
+            adapter: string | null;
             /** Chapter */
             chapter: string;
             /** Chapter Count */
-            chapter_count?: number | null;
+            chapter_count: number | null;
             /** Chapter Id */
-            chapter_id?: string | null;
+            chapter_id: string | null;
             /** Content Type */
             content_type: string;
             /** Display Url */
             display_url: string;
             /** Image Count */
-            image_count?: number | null;
+            image_count: number | null;
             /** Kind */
             kind: string;
             /** Language */
@@ -26718,9 +26899,9 @@ export interface components {
             /** Route */
             route: string;
             /** Series Id */
-            series_id?: string | null;
+            series_id: string | null;
             /** Text Length */
-            text_length?: number | null;
+            text_length: number | null;
             /** Title */
             title: string;
         };
@@ -26738,7 +26919,7 @@ export interface components {
              * Url
              * @default
              */
-            url: string;
+            url?: string;
         };
         /**
          * SourcesSearchRequest
@@ -26850,19 +27031,19 @@ export interface components {
              * Follow Pages
              * @default 1
              */
-            follow_pages: number;
+            follow_pages?: number;
             /**
              * Review
              * @default false
              */
-            review: boolean;
+            review?: boolean;
             /** Url */
             url: string;
             /**
              * Use Ai
              * @default false
              */
-            use_ai: boolean;
+            use_ai?: boolean;
         };
         /** SourcesUrlPreviewRequest */
         SourcesUrlPreviewRequest: {
@@ -26890,7 +27071,7 @@ export interface components {
             /** Total Speech Seconds */
             total_speech_seconds: number;
             /** Uncovered Seconds */
-            uncovered_seconds?: number | null;
+            uncovered_seconds: number | null;
         };
         /**
          * SpeechCoverageGap
@@ -26900,9 +27081,9 @@ export interface components {
          */
         SpeechCoverageGap: {
             /** After Line Id */
-            after_line_id?: number | null;
+            after_line_id: number | null;
             /** Before Line Id */
-            before_line_id?: number | null;
+            before_line_id: number | null;
             /** End */
             end: number;
             /** Raw Status */
@@ -26922,15 +27103,15 @@ export interface components {
         /** SpeechCoverageReport */
         SpeechCoverageReport: {
             /** Audio Seconds */
-            audio_seconds?: number | null;
+            audio_seconds: number | null;
             /** Covered Percent */
-            covered_percent?: number | null;
+            covered_percent: number | null;
             /** Covered Seconds */
-            covered_seconds?: number | null;
+            covered_seconds: number | null;
             /** Detail */
-            detail?: string | null;
+            detail: string | null;
             /** Failed Reason */
-            failed_reason?: string | null;
+            failed_reason: string | null;
             /**
              * Gaps
              * @default []
@@ -26942,16 +27123,16 @@ export interface components {
              */
             gaps_total: number;
             /** Min Gap Seconds */
-            min_gap_seconds?: number | null;
+            min_gap_seconds: number | null;
             /**
              * Raw Available
              * @default false
              */
             raw_available: boolean;
             /** Speech Seconds */
-            speech_seconds?: number | null;
+            speech_seconds: number | null;
             /** Vad Threshold */
-            vad_threshold?: number | null;
+            vad_threshold: number | null;
         };
         /** SpeechCoverageRunRequest */
         SpeechCoverageRunRequest: {
@@ -26959,7 +27140,7 @@ export interface components {
              * Min Gap Seconds
              * @default 2
              */
-            min_gap_seconds: number;
+            min_gap_seconds?: number;
         };
         /** SpeechCoverageRunResult */
         SpeechCoverageRunResult: {
@@ -26979,8 +27160,8 @@ export interface components {
              */
             message: string;
             /** Progress */
-            progress?: number | null;
-            result?: components["schemas"]["SpeechCoverageReport"] | null;
+            progress: number | null;
+            result: components["schemas"]["SpeechCoverageReport"] | null;
             /** Status */
             status: string;
         };
@@ -26992,7 +27173,7 @@ export interface components {
             /** Count */
             count: number;
             /** Examples */
-            examples?: components["schemas"]["GlossaryVariantExample"][];
+            examples: components["schemas"]["GlossaryVariantExample"][];
             /** Is Alias */
             is_alias: boolean;
             /** Is Term */
@@ -27013,16 +27194,16 @@ export interface components {
         /** SpellingSuggestResult */
         SpellingSuggestResult: {
             /** English */
-            english?: string | null;
+            english: string | null;
             /**
              * Lines Scanned
              * @default 0
              */
             lines_scanned: number;
             /** Proposals */
-            proposals?: components["schemas"]["SpellingProposal"][];
+            proposals: components["schemas"]["SpellingProposal"][];
             /** Term */
-            term?: string | null;
+            term: string | null;
             /**
              * Truncated
              * @default false
@@ -27051,10 +27232,10 @@ export interface components {
              */
             message: string;
             /** Progress */
-            progress?: number | null;
-            result?: components["schemas"]["SpellingSuggestResult"] | null;
+            progress: number | null;
+            result: components["schemas"]["SpellingSuggestResult"] | null;
             /** Run Id */
-            run_id?: string | null;
+            run_id: string | null;
             /** Status */
             status: string;
         };
@@ -27074,7 +27255,7 @@ export interface components {
              */
             is_other: boolean;
             /** Key */
-            key?: string | null;
+            key: string | null;
             /** Label */
             label: string;
             /** Output Tokens */
@@ -27089,13 +27270,13 @@ export interface components {
             /** By Title */
             by_title: components["schemas"]["SpendBreakdownRow"][];
             /** Cap Reset At */
-            cap_reset_at?: string | null;
+            cap_reset_at: string | null;
             /** Max Months */
             max_months: number;
             /** Months */
             months: components["schemas"]["SpendMonthRow"][];
             /** Selected Month */
-            selected_month?: string | null;
+            selected_month: string | null;
         };
         /** SpendMonthRow */
         SpendMonthRow: {
@@ -27104,7 +27285,7 @@ export interface components {
             /** Calls */
             calls: number;
             /** Cap Counted Usd */
-            cap_counted_usd?: number | null;
+            cap_counted_usd: number | null;
             /** Cost Usd */
             cost_usd: number;
             /** Input Tokens */
@@ -27146,7 +27327,7 @@ export interface components {
             /** Line Id */
             line_id: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Text */
             text: string;
         };
@@ -27177,7 +27358,7 @@ export interface components {
             /** Summary */
             summary: string;
             /** Updated At */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         /** StyleLearnRequest */
         StyleLearnRequest: {
@@ -27185,7 +27366,7 @@ export interface components {
              * Bulk
              * @default false
              */
-            bulk: boolean;
+            bulk?: boolean;
             /** Engine */
             engine?: string | null;
             /** Gemini Free Tier */
@@ -27198,7 +27379,7 @@ export interface components {
             /** Applied */
             applied: boolean;
             /** Confidence */
-            confidence?: string | null;
+            confidence: string | null;
             /** Preferences */
             preferences: string[];
             /** Sample Count */
@@ -27206,7 +27387,7 @@ export interface components {
             /** Summary */
             summary: string;
             /** Updated At */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         /** StyleResetRequest */
         StyleResetRequest: {
@@ -27214,7 +27395,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** StyleRestoreRequest */
         StyleRestoreRequest: {
@@ -27222,7 +27403,7 @@ export interface components {
              * Index
              * @default 0
              */
-            index: number;
+            index?: number;
         };
         /** StyleState */
         StyleState: {
@@ -27238,10 +27419,10 @@ export interface components {
              */
             history: components["schemas"]["StyleHistoryEntry"][];
             /** Message */
-            message?: string | null;
+            message: string | null;
             /** Min Samples */
             min_samples: number;
-            profile?: components["schemas"]["StyleProfileView"] | null;
+            profile: components["schemas"]["StyleProfileView"] | null;
             /** Scope */
             scope: string;
         };
@@ -27250,13 +27431,13 @@ export interface components {
             /** Bilingual Suspected */
             bilingual_suspected: boolean;
             /** Blocked Reason */
-            blocked_reason?: string | null;
+            blocked_reason: string | null;
             /** Blocking */
             blocking: boolean;
             /** Cue Count */
             cue_count: number;
             /** Detected Language */
-            detected_language?: string | null;
+            detected_language: string | null;
             /** Duration Seconds */
             duration_seconds: number;
             /** Encoding */
@@ -27300,7 +27481,7 @@ export interface components {
             mode: string;
             /** Replaced Lines */
             replaced_lines: number;
-            undo?: components["schemas"]["SubtitleUndoHandle"] | null;
+            undo: components["schemas"]["SubtitleUndoHandle"] | null;
             /** Unmatched Cues */
             unmatched_cues: number;
         };
@@ -27339,11 +27520,11 @@ export interface components {
             /** Added Count */
             added_count: number;
             /** History Id */
-            history_id?: number | null;
+            history_id: number | null;
             /** Line Ids */
             line_ids: number[];
             /** Lines Fingerprint */
-            lines_fingerprint?: string | null;
+            lines_fingerprint: string | null;
             /** Moved Count */
             moved_count: number;
             /** New Line Ids */
@@ -27374,7 +27555,7 @@ export interface components {
             /** Flagged */
             flagged: number;
             /** Notice */
-            notice?: string | null;
+            notice: string | null;
         };
         /** TimingCheckStarted */
         TimingCheckStarted: {
@@ -27385,16 +27566,16 @@ export interface components {
         TimingCheckStatus: {
             /** Job Id */
             job_id: string;
-            last_check?: components["schemas"]["TimingCheckLastRun"] | null;
+            last_check: components["schemas"]["TimingCheckLastRun"] | null;
             /**
              * Message
              * @default
              */
             message: string;
             /** Progress */
-            progress?: number | null;
+            progress: number | null;
             /** Result */
-            result?: {
+            result: {
                 [key: string]: unknown;
             } | null;
             /** Status */
@@ -27432,7 +27613,7 @@ export interface components {
         /** TimingSnapResult */
         TimingSnapResult: {
             /** History Id */
-            history_id?: number | null;
+            history_id: number | null;
             /** Snapped */
             snapped: number;
             /** Stale Ids */
@@ -27451,7 +27632,7 @@ export interface components {
             /** Language */
             language: string;
             /** Style */
-            style?: string | null;
+            style: string | null;
             styles: components["schemas"]["LanguagePackStyles"];
             /** Title */
             title: string;
@@ -27483,12 +27664,12 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /**
              * Fingerprint
              * @default
              */
-            fingerprint: string;
+            fingerprint?: string;
             /**
              * Kind
              * @enum {string}
@@ -27498,18 +27679,18 @@ export interface components {
              * Move Duplicates
              * @default false
              */
-            move_duplicates: boolean;
+            move_duplicates?: boolean;
             /** Target Id */
             target_id: number;
         };
         /** TitleRestructureChapter */
         TitleRestructureChapter: {
             /** Chars */
-            chars?: number | null;
+            chars: number | null;
             /** Id */
             id: string;
             /** Pages */
-            pages?: number | null;
+            pages: number | null;
             /** Title */
             title: string;
         };
@@ -27558,7 +27739,7 @@ export interface components {
         /** TitleRestructurePreviewChapter */
         TitleRestructurePreviewChapter: {
             /** Chars */
-            chars?: number | null;
+            chars: number | null;
             /** Duplicate */
             duplicate: boolean;
             /** Id */
@@ -27568,7 +27749,7 @@ export interface components {
             /** Moves */
             moves: boolean;
             /** Pages */
-            pages?: number | null;
+            pages: number | null;
             /** Title */
             title: string;
         };
@@ -27585,7 +27766,7 @@ export interface components {
              * Move Duplicates
              * @default false
              */
-            move_duplicates: boolean;
+            move_duplicates?: boolean;
             /** Target Id */
             target_id: number;
         };
@@ -27632,7 +27813,7 @@ export interface components {
         /** TrackedSeries */
         TrackedSeries: {
             /** Drama Id */
-            drama_id?: number | null;
+            drama_id: number | null;
             /**
              * Extension Only
              * @description Scheduled checks skip this series: its source works only through the browser extension.
@@ -27640,9 +27821,9 @@ export interface components {
              */
             extension_only: boolean;
             /** Last Check Error */
-            last_check_error?: string | null;
+            last_check_error: string | null;
             /** Last Checked */
-            last_checked?: number | null;
+            last_checked: number | null;
             /**
              * Save Cbz
              * @default false
@@ -27670,7 +27851,7 @@ export interface components {
             /** Asr Backend Choice */
             asr_backend_choice: string;
             /** Asr Backend Notice */
-            asr_backend_notice?: string | null;
+            asr_backend_notice: string | null;
             /** Audio Available */
             audio_available: boolean;
             /**
@@ -27694,7 +27875,7 @@ export interface components {
             drama_id: number;
             /** Effective Vad Threshold */
             effective_vad_threshold: number;
-            gpu_runtime?: components["schemas"]["GpuRuntimeStatus"];
+            gpu_runtime: components["schemas"]["GpuRuntimeStatus"];
             /** Hallucination Silence Sec */
             hallucination_silence_sec: number;
             /** Hardsub Interval Sec */
@@ -27711,16 +27892,16 @@ export interface components {
              */
             measured_diarize_runs: number;
             /** Measured Diarize Speed */
-            measured_diarize_speed?: number | null;
+            measured_diarize_speed: number | null;
             /** Measured Speed */
-            measured_speed?: number | null;
+            measured_speed: number | null;
             /**
              * Measured Speed Runs
              * @default 0
              */
             measured_speed_runs: number;
             /** Measured Stage Seconds */
-            measured_stage_seconds?: {
+            measured_stage_seconds: {
                 [key: string]: number;
             };
             /** Min Pause Sec */
@@ -27795,7 +27976,7 @@ export interface components {
             /** Whisper Size */
             whisper_size: string;
             /** Whisper Size Notice */
-            whisper_size_notice?: string | null;
+            whisper_size_notice: string | null;
         };
         /**
          * TranscribeConfigUpdate
@@ -27858,9 +28039,9 @@ export interface components {
          */
         TranscribeGap: {
             /** After Line Id */
-            after_line_id?: number | null;
+            after_line_id: number | null;
             /** Before Line Id */
-            before_line_id?: number | null;
+            before_line_id: number | null;
             /** End */
             end: number;
             /**
@@ -27878,7 +28059,7 @@ export interface components {
             /** Seconds */
             seconds: number;
             /** Speech */
-            speech?: boolean | null;
+            speech: boolean | null;
             /** Start */
             start: number;
         };
@@ -27907,12 +28088,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Max Speakers */
             max_speakers?: number | null;
             /** Min Speakers */
@@ -27921,7 +28102,7 @@ export interface components {
              * Run Diarize
              * @default false
              */
-            run_diarize: boolean;
+            run_diarize?: boolean;
             /** Source Language */
             source_language?: string | null;
             /** Tesseract Cmd */
@@ -27946,12 +28127,12 @@ export interface components {
              * Extra Names
              * @default
              */
-            extra_names: string;
+            extra_names?: string;
             /**
              * Initial Prompt
              * @default
              */
-            initial_prompt: string;
+            initial_prompt?: string;
             /** Max Speakers */
             max_speakers?: number | null;
             /** Min Speakers */
@@ -27960,7 +28141,7 @@ export interface components {
              * Run Diarize
              * @default false
              */
-            run_diarize: boolean;
+            run_diarize?: boolean;
         };
         /** TranslateBulkCancelResult */
         TranslateBulkCancelResult: {
@@ -27985,29 +28166,29 @@ export interface components {
             /** Kind */
             kind: string;
             /** Last Error */
-            last_error?: string | null;
+            last_error: string | null;
             /** Line Count */
             line_count: number;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Pending */
             pending: boolean;
             /** Pipeline Id */
-            pipeline_id?: string | null;
+            pipeline_id: string | null;
             /** Result Summary */
-            result_summary?: {
+            result_summary: {
                 [key: string]: unknown;
             } | null;
             /** Scheduled For */
-            scheduled_for?: string | null;
+            scheduled_for: string | null;
             /** Stage */
-            stage?: string | null;
+            stage: string | null;
             /** Status */
             status: string;
             /** Submitted At */
-            submitted_at?: string | null;
+            submitted_at: string | null;
             /** Updated At */
-            updated_at?: string | null;
+            updated_at: string | null;
         };
         /** TranslateBulkList */
         TranslateBulkList: {
@@ -28040,7 +28221,7 @@ export interface components {
          */
         TranslateEngine: {
             /** Cloud Models */
-            cloud_models?: string[];
+            cloud_models: string[];
             /** Free */
             free: boolean;
             /** Key Configured */
@@ -28048,11 +28229,11 @@ export interface components {
             /** Label */
             label: string;
             /** Model Labels */
-            model_labels?: {
+            model_labels: {
                 [key: string]: string;
             };
             /** Models */
-            models?: string[] | null;
+            models: string[] | null;
             /** Name */
             name: string;
             /**
@@ -28064,7 +28245,7 @@ export interface components {
         /** TranslateEngineListResponse */
         TranslateEngineListResponse: {
             /** Default Engine */
-            default_engine?: string | null;
+            default_engine: string | null;
             /** Items */
             items: components["schemas"]["TranslateEngine"][];
         };
@@ -28084,7 +28265,7 @@ export interface components {
             /** Cap Applies */
             cap_applies: boolean;
             /** Cap Left Usd */
-            cap_left_usd?: number | null;
+            cap_left_usd: number | null;
             /** Chunks */
             chunks: number;
             /** Engine */
@@ -28094,9 +28275,9 @@ export interface components {
             /** Fits Cap */
             fits_cap: boolean;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Monthly Cap Usd */
-            monthly_cap_usd?: number | null;
+            monthly_cap_usd: number | null;
             /** Requests */
             requests: number;
         };
@@ -28113,7 +28294,7 @@ export interface components {
         /** TranslateHistoryEntry */
         TranslateHistoryEntry: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Engine */
             engine: string;
             /** Source Language */
@@ -28141,25 +28322,25 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Engine Model */
-            engine_model?: string | null;
+            engine_model: string | null;
             /** Include Genre Notes */
             include_genre_notes: boolean;
             /** Locale */
-            locale?: string | null;
+            locale: string | null;
             /** Name */
             name: string;
             /** Options */
-            options?: {
+            options: {
                 [key: string]: unknown;
             };
             /** Preset Id */
             preset_id: number;
             /** Skipped */
-            skipped?: string[];
+            skipped: string[];
             /** Style Preset */
-            style_preset?: string | null;
+            style_preset: string | null;
             /** Translation Engine */
-            translation_engine?: string | null;
+            translation_engine: string | null;
         };
         /** TranslatePresetApply */
         TranslatePresetApply: {
@@ -28181,14 +28362,14 @@ export interface components {
              * Default Female Pronouns
              * @default false
              */
-            default_female_pronouns: boolean;
+            default_female_pronouns?: boolean;
             /** Engine Model */
             engine_model?: string | null;
             /**
              * Include Genre Notes
              * @default true
              */
-            include_genre_notes: boolean;
+            include_genre_notes?: boolean;
             /** Locale */
             locale?: string | null;
             /** Name */
@@ -28201,7 +28382,7 @@ export interface components {
              * Overwrite
              * @default false
              */
-            overwrite: boolean;
+            overwrite?: boolean;
             /** Style Preset */
             style_preset?: string | null;
             /** Translation Engine */
@@ -28222,14 +28403,14 @@ export interface components {
              * Default Female Pronouns
              * @default false
              */
-            default_female_pronouns: boolean;
+            default_female_pronouns?: boolean;
             /** Engine Model */
             engine_model?: string | null;
             /**
              * Include Genre Notes
              * @default true
              */
-            include_genre_notes: boolean;
+            include_genre_notes?: boolean;
             /** Locale */
             locale?: string | null;
             /** Name */
@@ -28269,7 +28450,7 @@ export interface components {
         /** TranslateResponse */
         TranslateResponse: {
             /** Message */
-            message?: string | null;
+            message: string | null;
             /** Translated Text */
             translated_text: string;
         };
@@ -28295,7 +28476,7 @@ export interface components {
                 [key: string]: boolean;
             };
             /** Default Female Pronouns */
-            default_female_pronouns?: boolean | null;
+            default_female_pronouns: boolean | null;
             /**
              * Default Locale
              * @default en-US
@@ -28334,15 +28515,15 @@ export interface components {
              */
             glossary_flagged_count: number;
             /** Glossary Redo Engine */
-            glossary_redo_engine?: string | null;
+            glossary_redo_engine: string | null;
             /** Has Novel Reference */
             has_novel_reference: boolean;
             /** Include Genre Notes */
-            include_genre_notes?: boolean | null;
+            include_genre_notes: boolean | null;
             /** Last Translate Errors */
-            last_translate_errors?: unknown | null;
+            last_translate_errors: unknown | null;
             /** Line Ai Engine */
-            line_ai_engine?: string | null;
+            line_ai_engine: string | null;
             /** Line Count */
             line_count: number;
             /** Locales */
@@ -28352,13 +28533,13 @@ export interface components {
             /** Monthly Cap Usd */
             monthly_cap_usd: number;
             /** Ollama Reachable */
-            ollama_reachable?: boolean | null;
+            ollama_reachable: boolean | null;
             /** Previous Episode Summary Present */
             previous_episode_summary_present: boolean;
             /** Project Instructions */
-            project_instructions?: string | null;
+            project_instructions: string | null;
             /** Series Instructions */
-            series_instructions?: string | null;
+            series_instructions: string | null;
             /** Style Presets */
             style_presets: components["schemas"]["TranslateRunStylePreset"][];
             /**
@@ -28372,9 +28553,9 @@ export interface components {
              */
             title_thinking: boolean;
             /** Translate By Sentence */
-            translate_by_sentence?: boolean | null;
+            translate_by_sentence: boolean | null;
             /** Translate Start */
-            translate_start?: {
+            translate_start: {
                 [key: string]: unknown;
             };
             /** Translation Engine */
@@ -28401,7 +28582,7 @@ export interface components {
             /** Cap Applies */
             cap_applies: boolean;
             /** Effective Cap Usd */
-            effective_cap_usd?: number | null;
+            effective_cap_usd: number | null;
             /** Engine */
             engine: string;
             /** Estimate Above Cap */
@@ -28412,11 +28593,11 @@ export interface components {
              */
             estimate_is_lower_bound: boolean;
             /** Estimated Usd */
-            estimated_usd?: number | null;
+            estimated_usd: number | null;
             /** Free */
             free: boolean;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /** Monthly Refusal */
             monthly_refusal: boolean;
             /** Target Line Count */
@@ -28438,7 +28619,7 @@ export interface components {
              * Bulk
              * @default false
              */
-            bulk: boolean;
+            bulk?: boolean;
             /** Context Window */
             context_window?: number | null;
             /** Context Window Ahead */
@@ -28453,7 +28634,7 @@ export interface components {
              * Force Retranslate
              * @default false
              */
-            force_retranslate: boolean;
+            force_retranslate?: boolean;
             /** Gemini Free Tier */
             gemini_free_tier?: boolean | null;
             /** Include Genre Notes */
@@ -28466,19 +28647,19 @@ export interface components {
              * Locale
              * @default en-US
              */
-            locale: string;
+            locale?: string;
             /** Model */
             model?: string | null;
             /**
              * Reflect
              * @default false
              */
-            reflect: boolean;
+            reflect?: boolean;
             /**
              * Style Note
              * @default
              */
-            style_note: string;
+            style_note?: string;
             /** Style Preset */
             style_preset?: string | null;
             /** Thinking */
@@ -28503,7 +28684,7 @@ export interface components {
             /** Job Id */
             job_id: string;
             /** Model */
-            model?: string | null;
+            model: string | null;
             /**
              * Reflect
              * @default false
@@ -28534,7 +28715,7 @@ export interface components {
             /** Auto Qc */
             auto_qc: boolean;
             /** Engine Model */
-            engine_model?: string | null;
+            engine_model: string | null;
             /** Key */
             key: string;
             /** Label */
@@ -28553,7 +28734,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** TranslationVersionActivateResult */
         TranslationVersionActivateResult: {
@@ -28597,7 +28778,7 @@ export interface components {
              */
             id: string;
             /** Modified At */
-            modified_at?: string | null;
+            modified_at: string | null;
             /** Size Bytes */
             size_bytes: number;
         };
@@ -28614,7 +28795,7 @@ export interface components {
         /** UnusedVoiceClipList */
         UnusedVoiceClipList: {
             /** Busy Reason */
-            busy_reason?: string | null;
+            busy_reason: string | null;
             /** Titles */
             titles: components["schemas"]["UnusedVoiceClipTitle"][];
             /**
@@ -28666,7 +28847,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** UpdateInstallRequest */
         UpdateInstallRequest: {
@@ -28685,10 +28866,20 @@ export interface components {
         /** UpdateSettingsRequest */
         UpdateSettingsRequest: {
             /** Auto Check */
-            auto_check: boolean;
+            auto_check?: boolean | null;
+            /** Include Prereleases */
+            include_prereleases?: boolean | null;
+            /** Service Auto Apply */
+            service_auto_apply?: boolean | null;
         };
         /** UpdateStatus */
         UpdateStatus: {
+            /**
+             * App Auto Apply
+             * @description The opt-in to download and apply app-only updates by themselves on the boot service.
+             * @default false
+             */
+            app_auto_apply: boolean;
             /**
              * App Download
              * @default idle
@@ -28696,7 +28887,7 @@ export interface components {
              */
             app_download: "idle" | "downloading" | "verified" | "failed";
             /** App Download Error */
-            app_download_error?: string | null;
+            app_download_error: string | null;
             /**
              * App Downloaded Bytes
              * @default 0
@@ -28706,11 +28897,11 @@ export interface components {
              * App Last Result
              * @description The last app-only update's outcome, in plain words.
              */
-            app_last_result?: string | null;
+            app_last_result: string | null;
             /** App Last Result At */
-            app_last_result_at?: number | null;
+            app_last_result_at: number | null;
             /** App Size */
-            app_size?: number | null;
+            app_size: number | null;
             /**
              * App Update
              * @description Whether the newer release can update the app layer alone (`available`: built against this install's Python, wheels and Caddy).
@@ -28718,6 +28909,12 @@ export interface components {
              * @enum {string}
              */
             app_update: "none" | "available" | "needs_full_installer";
+            /**
+             * App Update By Service
+             * @description This server is the boot service and the BaiheUpdate helper that applies app updates for it is installed.
+             * @default false
+             */
+            app_update_by_service: boolean;
             /**
              * App Update Here
              * @description This server can switch its own app folder: Windows, started by the Start-menu launcher.
@@ -28730,7 +28927,7 @@ export interface components {
              */
             app_verified: boolean;
             /** App Verified Version */
-            app_verified_version?: string | null;
+            app_verified_version: string | null;
             /** Auto Check */
             auto_check: boolean;
             /**
@@ -28741,14 +28938,14 @@ export interface components {
             /** Can Install */
             can_install: boolean;
             /** Check Error */
-            check_error?: string | null;
+            check_error: string | null;
             /** Checked At */
-            checked_at?: number | null;
+            checked_at: number | null;
             /**
              * Current
              * @description Installed version; null for a source checkout.
              */
-            current?: string | null;
+            current: string | null;
             /**
              * Custom Source
              * @description BAIHE_UPDATE_REPO names another repository than the default.
@@ -28760,15 +28957,21 @@ export interface components {
              */
             download: "idle" | "downloading" | "verified" | "failed";
             /** Download Error */
-            download_error?: string | null;
+            download_error: string | null;
             /** Downloaded Bytes */
             downloaded_bytes: number;
+            /**
+             * Include Prereleases
+             * @description Betas are offered as updates (only a newer one).
+             * @default false
+             */
+            include_prereleases: boolean;
             /** Installed */
             installed: boolean;
             /** Installer Name */
-            installer_name?: string | null;
+            installer_name: string | null;
             /** Latest */
-            latest?: string | null;
+            latest: string | null;
             /**
              * Notes
              * @description Release notes as plain text, links removed, truncated.
@@ -28792,7 +28995,7 @@ export interface components {
              */
             signature_verified: boolean;
             /** Size */
-            size?: number | null;
+            size: number | null;
             /** Update Available */
             update_available: boolean;
             /**
@@ -28801,12 +29004,12 @@ export interface components {
              */
             verified: boolean;
             /** Verified Name */
-            verified_name?: string | null;
+            verified_name: string | null;
             /**
              * Verified Version
              * @description The version Install would start.
              */
-            verified_version?: string | null;
+            verified_version: string | null;
         };
         /** UploadAndTranscribeResult */
         UploadAndTranscribeResult: {
@@ -28820,7 +29023,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Fingerprint */
             fingerprint: string;
             /** Previewed */
@@ -28868,11 +29071,11 @@ export interface components {
          */
         UsageRecostResult: {
             /** Changed */
-            changed?: number | null;
+            changed: number | null;
             /** Month Spend Usd */
             month_spend_usd: number;
             /** Previewed */
-            previewed?: number | null;
+            previewed: number | null;
             /** Recosted Rows */
             recosted_rows: number;
             /** Rows */
@@ -28881,9 +29084,9 @@ export interface components {
         /** ValidationError */
         ValidationError: {
             /** Context */
-            ctx?: Record<string, never>;
+            ctx: Record<string, never>;
             /** Input */
-            input?: unknown;
+            input: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
@@ -28894,7 +29097,7 @@ export interface components {
         /** VdbNamesStatus */
         VdbNamesStatus: {
             /** Age Days */
-            age_days?: number | null;
+            age_days: number | null;
             /** Downloaded */
             downloaded: boolean;
             /** Entry Count */
@@ -28919,7 +29122,7 @@ export interface components {
              * Notes
              * @default
              */
-            notes: string;
+            notes?: string;
             /** Speaker Label */
             speaker_label: string;
         };
@@ -28953,7 +29156,7 @@ export interface components {
              * Max Candidates
              * @default 3
              */
-            max_candidates: number;
+            max_candidates?: number;
             /** Speaker Label */
             speaker_label: string;
         };
@@ -28968,7 +29171,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Speaker Label */
             speaker_label: string;
         };
@@ -28991,16 +29194,16 @@ export interface components {
             /** Candidates */
             candidates: components["schemas"]["VoiceCloneCandidate"][];
             /** Closest Duration */
-            closest_duration?: number | null;
+            closest_duration: number | null;
             /** Skip Reason */
-            skip_reason?: string | null;
+            skip_reason: string | null;
             /** Speaker Label */
             speaker_label: string;
         };
         /** VoiceEngineInstallJob */
         VoiceEngineInstallJob: {
             /** Error */
-            error?: string | null;
+            error: string | null;
             /**
              * Message
              * @default
@@ -29012,7 +29215,7 @@ export interface components {
              */
             progress: number;
             /** Status */
-            status?: string | null;
+            status: string | null;
         };
         /** VoiceEngineInstallRequest */
         VoiceEngineInstallRequest: {
@@ -29020,7 +29223,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** VoiceEngineInstallResult */
         VoiceEngineInstallResult: {
@@ -29045,17 +29248,17 @@ export interface components {
             folder_present: boolean;
             /** Installed */
             installed: boolean;
-            job?: components["schemas"]["VoiceEngineInstallJob"] | null;
+            job: components["schemas"]["VoiceEngineInstallJob"] | null;
             /** Job Id */
             job_id: string;
             /** Label */
             label: string;
-            last_result?: components["schemas"]["VoiceEngineInstallResult"] | null;
+            last_result: components["schemas"]["VoiceEngineInstallResult"] | null;
             /**
              * Refusal
              * @description Why the install can't start now, or null.
              */
-            refusal?: string | null;
+            refusal: string | null;
             /** Required Mb */
             required_mb: number;
         };
@@ -29079,7 +29282,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
         };
         /** VoiceEngineRemoveStarted */
         VoiceEngineRemoveStarted: {
@@ -29091,7 +29294,7 @@ export interface components {
         /** WebSearchConfig */
         WebSearchConfig: {
             /** Base Url */
-            base_url?: string | null;
+            base_url: string | null;
             /** Enabled */
             enabled: boolean;
         };
@@ -29106,7 +29309,7 @@ export interface components {
              * Confirm
              * @default false
              */
-            confirm: boolean;
+            confirm?: boolean;
             /** Enabled */
             enabled?: boolean | null;
         };
@@ -29204,7 +29407,7 @@ export interface components {
             /** Drama Id */
             drama_id: number;
             /** Engine Model */
-            engine_model?: string | null;
+            engine_model: string | null;
             /** Label */
             label: string;
             /** Reflect */
@@ -29229,13 +29432,13 @@ export interface components {
                 [key: string]: number;
             };
             default: components["schemas"]["_TranslateSweepSetup"];
-            holdout?: components["schemas"]["BenchmarkSweepHoldout"] | null;
+            holdout: components["schemas"]["BenchmarkSweepHoldout"] | null;
             /** Margin */
             margin: number;
             /** Margin Rule */
             margin_rule: string;
             /** Noise */
-            noise?: number | null;
+            noise: number | null;
             /** Small Set */
             small_set: boolean;
             /**
@@ -29269,7 +29472,7 @@ export interface components {
             /** Label */
             label: string;
             /** Model */
-            model?: string | null;
+            model: string | null;
         };
     };
     responses: never;
@@ -35898,6 +36101,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiagnosticsCacheDeleteResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_model_downloads_api_diagnostics_model_downloads_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsModelDownloads"];
+                };
+            };
+        };
+    };
+    post_model_download_api_diagnostics_model_downloads__model_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticsJobStarted"];
                 };
             };
             /** @description Not Found */
@@ -59326,6 +59598,53 @@ export interface operations {
             };
         };
     };
+    fetch_api_system_android_app_fetch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AndroidAppFetchResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     shutdown_api_system_shutdown_post: {
         parameters: {
             query?: never;
@@ -59967,6 +60286,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompareEstimate"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_compare_flag_disagreements_api_transcribe_dramas__drama_id__compare_transcription_flag_disagreements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompareFlagRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompareFlagResult"];
                 };
             };
             /** @description Bad Request */

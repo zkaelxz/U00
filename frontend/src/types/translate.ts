@@ -3,20 +3,7 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-export interface TranslateEngine {
-  name: string
-  label: string
-  free: boolean
-  models: string[] | null
-  // Labels for offered models that have no built-in entry (id -> text).
-  model_labels?: Record<string, string>
-  // Models that run on the provider's servers (Ollama cloud tags), not on this PC.
-  cloud_models?: string[]
-  // Can run: a key is set and the SDK is installed, or (Ollama) the server answers.
-  key_configured: boolean
-  // False when the engine's SDK is not installed (older servers omit it: treated as installed).
-  package_installed?: boolean
-}
+export type TranslateEngine = Schemas['TranslateEngine']
 
 export interface EngineList {
   items: TranslateEngine[]
@@ -34,13 +21,7 @@ export interface TranslateResult {
   message?: string | null
 }
 
-export interface TranslateEstimate {
-  estimated_usd: number
-  cap_applies: boolean
-  monthly_cap_usd: number | null
-  cap_left_usd: number | null
-  fits_cap: boolean
-}
+export type TranslateEstimate = Schemas['TranslateEstimate']
 
 export type TranslateDirection = 'to_english' | 'from_english'
 
@@ -51,12 +32,4 @@ export interface ReadImageResult {
   message?: string | null
 }
 
-export interface ReadImageEstimate {
-  engine: string
-  model: string | null
-  estimated_usd: number
-  cap_applies: boolean
-  monthly_cap_usd: number | null
-  cap_left_usd: number | null
-  fits_cap: boolean
-}
+export type ReadImageEstimate = Schemas['ReadImageEstimate']

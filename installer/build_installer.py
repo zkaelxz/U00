@@ -87,14 +87,17 @@ INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
 # updater checks signatures against the key it was installed with; app_swap
 # so it can take app-only updates. The wheel lock ships so a restore checks
 # the kept wheels against the app's own copy (pending_install.kept_wheels).
+# setup_lock so the launcher can tell an open Setup before finishing a queued switch.
 RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py", "release_public_key.txt", "app_swap.py",
-                           "wheels.lock.txt")
+                           "wheels.lock.txt", "setup_lock.py")
 
 # The Python files of the elevated service script, which imports its siblings
 # as installer.<name> from helper/lib; one missing here breaks it only on
 # the user's machine.
 SERVICE_HELPER_FILES = ("service.py", "service_checks.py", "service_cli.py", "service_config.py",
-                        "service_control.py", "service_layout.py", "setup_lock.py")
+                        "service_control.py", "service_layout.py", "setup_lock.py",
+                        "service_update.py", "service_lock.py", "ed25519_verify.py", "app_swap.py",
+                        "release_public_key.txt")
 
 # The Windows service wrapper (docs/windows-installer-design.md, "Boot
 # service"): WinSW, MIT licence, the .NET Framework 4.6.1 build, which runs
@@ -120,7 +123,7 @@ CADDY_SOURCE_DIR = INSTALLER_DIR / "caddy"
 CADDY_MODULE = "baihe.local/caddy"
 CADDY_VERSION = "2.11.7"
 CADDY_GO_VERSION = "go1.26.10"
-CADDY_SHA256 = "f02437364b5361d34c4086ec17e93e75d861b33b21cd89e3090976b290a7acdb"
+CADDY_SHA256 = "b5df888ca20aa3e547ef8bf0fb22482a8b8cca8286da9adb9c40e0e694df8faa"
 CADDY_TEMPLATE = REPO_ROOT / "deploy" / "caddy" / "Caddyfile.template"
 _LICENSE_FILE_RE = re.compile(r"(?i)(licen[cs]e|notice|copying|patents)([._-].*)?")
 
@@ -279,7 +282,7 @@ def check_payload(app_dest) -> None:
                      "requirements-core.txt", "constraints.txt", "check_setup.py",
                      "installer/launcher.py", "installer/postinstall.py",
                      "installer/release_public_key.txt", "installer/app_swap.py",
-                     "installer/wheels.lock.txt"):
+                     "installer/wheels.lock.txt", "installer/setup_lock.py"):
         if not (app_dest / required).is_file():
             problems.append(f"missing: {required}")
     key_file = app_dest / "installer" / "release_public_key.txt"
@@ -645,6 +648,7 @@ def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses)
     _copy(INSTALLER_DIR / "service_menu.ps1",
           service / "helper" / "lib" / "installer" / "service_menu.ps1")
     _copy(winsw_exe, service / "wrapper" / "BaiheStudio.exe")
+    _copy(winsw_exe, service / "wrapper" / "BaiheUpdate.exe")
     _copy(CADDY_TEMPLATE, service / "helper" / "lib" / "deploy" / "caddy" / "Caddyfile.template")
     _copy(WINSW_LICENSE, service / "wrapper" / "licenses" / "WinSW-LICENSE.txt")
     _copy(winsw_exe, service / "caddy" / "BaiheCaddy.exe")

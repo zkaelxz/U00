@@ -41,6 +41,9 @@ export const checkAllFollows = (f?: Fetch) =>
 export const startFromFollow = async (id: number, f?: Fetch) =>
   postJson<LiveSessionStarted>(`${followPath(id)}/start`, undefined, f)
 
+// The server's default session length, for a start body that leaves it out.
+const DEFAULT_FOLLOW_MAX_MINUTES = 60
+
 /** The options a follow keeps, from a Live start body (whole minutes, as the server takes them). */
 export function followOptions(b: LiveSessionStart): LiveFollowOptions {
   return {
@@ -48,7 +51,7 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
     whisper_size: b.whisper_size,
     engine: b.engine ?? null,
     model: b.model ?? null,
-    max_minutes: Math.round(b.max_minutes),
+    max_minutes: Math.round(b.max_minutes ?? DEFAULT_FOLLOW_MAX_MINUTES),
     use_gpu: b.use_gpu,
     glossary_drama_id: b.glossary_drama_id ?? null,
     series_id: b.series_id ?? null,

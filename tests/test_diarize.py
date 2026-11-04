@@ -655,6 +655,7 @@ class TestFewSpeakersNotice:
 
     def test_worker_carries_the_hint_through_the_queue(self, monkeypatch):
         import numpy as np
+        pytest.importorskip("torch")   # diarize() imports it before the stubbed pipeline runs
         monkeypatch.setattr(diarize, "load_pipeline", lambda token: (object(), "m"))
         monkeypatch.setattr(diarize, "_place_pipeline", lambda p, g: "cpu")
         monkeypatch.setattr(diarize, "_run_pipeline",
@@ -679,7 +680,7 @@ class TestNemotronBackend:
             calls.append(audio_path)
             if isinstance(nemotron, Exception):
                 raise nemotron
-            return nemotron
+            return nemotron, {"SPEAKER_03": [0.5, 0.25]} if nemotron else {}
 
         monkeypatch.setattr(diarize_nemotron, "diarize", fake)
         monkeypatch.setattr(diarize, "diarize", lambda *a, **k: (
@@ -703,7 +704,7 @@ class TestNemotronBackend:
         assert outcome[0] == "ok"
         assert outcome[1]["segments"] == turns
         assert outcome[1]["model"] == "nemotron-3-diarization"
-        assert outcome[1]["embeddings"] == {}
+        assert outcome[1]["embeddings"] == {"SPEAKER_03": [0.5, 0.25]}
 
     @pytest.mark.parametrize("failure", [RuntimeError("no librosa"), []])
     def test_failure_or_empty_result_falls_back_to_pyannote(self, monkeypatch, failure):
@@ -721,3 +722,45 @@ class TestNemotronBackend:
         outcome, calls = self._run(monkeypatch, options, num_speakers=num, nemotron=[])
         assert calls == []
         assert outcome[1]["model"] == "pyannote-fake"
+
+
+class TestNemotronVoicePrints:
+    @staticmethod
+    def _audio(seconds, rate=16000):
+        import numpy as np
+        return np.arange(int(seconds * rate), dtype="float32")
+
+    def test_print_is_the_duration_weighted_mean_of_the_speakers_turns(self):
+        import diarize_nemotron
+        seen = []
+
+        def embed(piece):
+            seen.append(len(piece))
+            return [float(len(piece)) / 16000, 1.0]
+
+        turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
+                 {"start": 4.0, "end": 10.0, "speaker": "SPEAKER_00"},
+                 {"start": 10.0, "end": 12.0, "speaker": "SPEAKER_01"}]
+        prints = diarize_nemotron.embeddings_from_turns(self._audio(12), 16000, turns, embed)
+        # (2*2 + 6*6) / 8 = 5.0 for the first component, 1.0 for the second.
+        assert prints["SPEAKER_00"] == pytest.approx([5.0, 1.0])
+        assert prints["SPEAKER_01"] == pytest.approx([2.0, 1.0])
+
+    def test_turns_under_a_second_give_no_print(self):
+        import diarize_nemotron
+        turns = [{"start": 0.0, "end": 0.9, "speaker": "SPEAKER_00"}]
+        assert diarize_nemotron.embeddings_from_turns(
+            self._audio(2), 16000, turns, lambda piece: [1.0]) == {}
+
+    def test_long_turns_are_cut_into_pieces_and_speech_is_capped(self):
+        import diarize_nemotron
+        sizes = []
+
+        def embed(piece):
+            sizes.append(len(piece) / 16000)
+            return [1.0]
+
+        turns = [{"start": 0.0, "end": 900.0, "speaker": "SPEAKER_00"}]
+        diarize_nemotron.embeddings_from_turns(self._audio(900), 16000, turns, embed)
+        assert max(sizes) <= diarize_nemotron.PRINT_PIECE_SECONDS
+        assert sum(sizes) == pytest.approx(diarize_nemotron.MAX_PRINT_SPEECH_SECONDS)

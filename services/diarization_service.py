@@ -284,12 +284,18 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
         if applied is False:
             return {"failed_reason": "empty"}
         hint = (result or {}).get("speaker_count_hint")
+        extras = {"speaker_count_hint": hint} if hint else {}
+        backend_reason = (result or {}).get("backend_fallback_reason")
+        if backend_reason:
+            # Without this the finished job reads as a normal Nemotron run, and only the
+            # saved turns' model name shows pyannote did the work.
+            extras["backend_fallback"] = (f"Nemotron speaker detection didn't run, so pyannote was "
+                                          f"used instead ({backend_reason}).")
         if fell_back:
             # Replaces the stored result so the finished job still says it.
-            kept = {"device": "cpu", "gpu_fallback": notice, "device_notice": notice}
-            return {**kept, "speaker_count_hint": hint} if hint else kept
-        if hint:
-            return {"device": result.get("device"), "speaker_count_hint": hint}
+            return {"device": "cpu", "gpu_fallback": notice, "device_notice": notice, **extras}
+        if extras:
+            return {"device": result.get("device"), **extras}
     return _on_done
 
 

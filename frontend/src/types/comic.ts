@@ -25,19 +25,7 @@ export interface ComicPageInfo {
   hidden?: boolean
 }
 
-export interface ComicChapter {
-  id: string
-  // As given by the source; '' when it gave none.
-  title: string
-  // False for the one group of pages with no chapter data (older imports).
-  known: boolean
-  // 1-based ordinal of the chapter's first page.
-  first_page: number
-  page_count: number
-  hidden_count: number
-  // The chapter's page on its source (scheme, host and path only); '' or absent when not known.
-  url?: string
-}
+export type ComicChapter = Schemas['ComicChapter']
 
 // C1: GET /pages
 export interface ComicPagesResponse {
@@ -52,16 +40,7 @@ export interface ComicPagesResponse {
   chapters: ComicChapter[]
 }
 
-export interface ComicRegion {
-  idx: number
-  x: number
-  y: number
-  w: number
-  h: number
-  translated_text: string | null
-  source_text: string | null
-  kind: string | null
-}
+export type ComicRegion = Schemas['ComicRegion']
 
 // C3: GET /pages/{page_id}/regions (boxes in original-image pixels)
 export interface ComicRegionsResponse {
@@ -79,23 +58,10 @@ export type ComicViewPrefsView = Schemas['ComicViewPrefsView']
 export type ComicViewPrefs = Schemas['ComicViewPrefs']
 
 // POST /pages/visibility: page ids, or the first/last `count` pages of a chapter.
-export interface ComicVisibilityRequest {
-  hidden: boolean
-  page_ids?: number[]
-  chapter_id?: string
-  edge?: 'first' | 'last' | 'all'
-  count?: number
-}
+export type ComicVisibilityRequest = Schemas['ComicVisibilityRequest']
 
 export type ComicVisibilityResult = Schemas['ComicVisibilityResult']
 
 export type ComicSourceChapter = Schemas['ComicSourceChapter']
 
-export interface ComicSourceChapters {
-  mode: 'adapter' | 'links' | 'none'
-  source: string
-  series_id: string
-  // Adapter sites: chapter ids already imported; the list itself comes from the series job.
-  imported_ids: string[]
-  chapters: ComicSourceChapter[]
-}
+export type ComicSourceChapters = Schemas['ComicSourceChapters']

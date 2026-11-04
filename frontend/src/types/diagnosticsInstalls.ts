@@ -12,28 +12,7 @@ export type DiagnosticsJobStarted = Schemas['DiagnosticsJobStarted']
 
 export type DiagnosticsDenoStatus = Schemas['DiagnosticsDenoStatus']
 
-type UpgradeVerdict = 'safe' | 'broken' | 'conflict' | 'incomplete' | string
-
-interface DiagnosticsUpgradeCheckResult {
-  ok: boolean
-  verdict: UpgradeVerdict | null
-  reason: string | null
-  version: string | null
-  new_failures: string[] | null
-  preexisting_failures: string[] | null
-  conflicts: string[] | null
-}
-
-export interface DiagnosticsUpgradeCheckState {
-  package: string | null
-  target: string | null
-  output_tail: string[]
-  result: DiagnosticsUpgradeCheckResult | null
-  // Set when this copy has no test suite (an installed copy): hide Test first.
-  unavailable_reason: string | null
-  job_id: string
-  job: DiagnosticsJobState | null
-}
+export type DiagnosticsUpgradeCheckState = Schemas['DiagnosticsUpgradeCheckState']
 
 export interface DiagnosticsDependencyInstallResult {
   package: string
@@ -47,12 +26,6 @@ export interface DiagnosticsDependencyInstallResult {
   verify: DiagnosticsTorchVerify | null
 }
 
-export interface DiagnosticsDependencyInstallState {
-  kind: 'package' | 'upgrade' | 'upgrade_outdated' | 'gpu_torch' | 'cuda_runtime' | null
-  package: string | null
-  result: DiagnosticsDependencyInstallResult | null
-  job_id: string
-  job: DiagnosticsJobState | null
-}
+export type DiagnosticsDependencyInstallState = Schemas['DiagnosticsDependencyInstallState']
 
 export type DiagnosticsCudaRuntimeStatus = Schemas['DiagnosticsCudaRuntimeStatus']

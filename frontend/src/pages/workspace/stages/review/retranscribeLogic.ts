@@ -1,4 +1,4 @@
-import type { JobRecord } from '../../../../types/jobs'
+import type { JobLike } from '../../../../types/jobs'
 import { jobFailed } from '../../../../types/jobs'
 import type { TranscribeConfig } from '../../../../types/workspace'
 
@@ -22,7 +22,7 @@ export function retranscribeMenuState(canRun: boolean, jobMessage: string | null
 // job's result carries only line_id (never line text); a record that names a
 // different line is not ours. No line_id yet counts as ours: this editor
 // started the run it polls.
-export function jobIsForLine(job: Pick<JobRecord, 'result'> | null, lineId: number): boolean {
+export function jobIsForLine(job: JobLike<'result'> | null, lineId: number): boolean {
   const id = job?.result?.line_id
   return typeof id !== 'number' || id === lineId
 }
@@ -31,7 +31,7 @@ export function jobIsForLine(job: Pick<JobRecord, 'result'> | null, lineId: numb
 // .../retranscribe), or a plain-words reason why there is none.
 type RetranscribeOutcome = { kind: 'ready' } | { kind: 'none'; text: string }
 
-export function retranscribeOutcome(job: Pick<JobRecord, 'status' | 'outcome' | 'result'>): RetranscribeOutcome {
+export function retranscribeOutcome(job: JobLike<'status' | 'outcome' | 'result'>): RetranscribeOutcome {
   const reason = job.result?.failed_reason
   if (job.status === 'done' && !jobFailed(job) && !reason) return { kind: 'ready' }
   if (job.outcome === 'cancelled' || job.status === 'cancelled' || reason === 'cancelled') {

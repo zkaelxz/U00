@@ -15,9 +15,10 @@ import scanlate_art_text
 import scanlate_tuning
 from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import (
-    InpaintModelUnavailable, background_is_dark, inpaint_region, lama_ml_weights_cached,
+    erase_box, InpaintModelUnavailable, background_is_dark, inpaint_region, lama_ml_weights_cached,
 )
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
+from scanlate_watermark import is_site_mark_region, logo_box
 
 
 # Shown when a page is cleaned without the LaMa-manga weights. "auto" then
@@ -440,17 +441,10 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
         caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
                           for b, s in zip(captions, caption_styles)]
+        _erase_site_stamps(page, bubbles)
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
-        for b in to_render:
-            try:
-                erase_lettering(image_path, b, page, gray)
-            except InpaintModelUnavailable as exc:
-                # The OpenCV result is already in `page`.
-                if notes is None:
-                    raise
-                if not any(n[1] == "inpaint_fallback" for n in notes if len(n) > 1):
-                    notes.append(("warning", "inpaint_fallback", str(exc)))
+        _erase_lettering_of(image_path, to_render, page, gray, notes)
 
         if captions and not scanlate_art_text.paint_out_captions(page, captions, backend="auto"):
             if notes is not None and not any(n[1] == "inpaint_fallback" for n in notes if len(n) > 1):
@@ -478,6 +472,28 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         if os.path.exists(result_path):
             os.remove(result_path)
     return out_path, skipped_blank
+
+
+def _erase_site_stamps(page, bubbles: list) -> None:
+    """Paints out each skipped region that is a site's stamp, over the logo's area."""
+    page_h, page_w = page.shape[:2]
+    for b in bubbles:
+        if is_site_mark_region(b):
+            erase_box(page, logo_box(b, page_w, page_h))
+
+
+def _erase_lettering_of(image_path: str, regions: list, page, gray, notes) -> None:
+    """Erases each region's original lettering from `page`. A LaMa failure is
+    recorded once in `notes` and the render goes on with the OpenCV result that
+    is already in `page`; with no `notes` list it is raised."""
+    for b in regions:
+        try:
+            erase_lettering(image_path, b, page, gray)
+        except InpaintModelUnavailable as exc:
+            if notes is None:
+                raise
+            if not any(n[1] == "inpaint_fallback" for n in notes if len(n) > 1):
+                notes.append(("warning", "inpaint_fallback", str(exc)))
 
 
 def erase_lettering(image_path: str, b: dict, page, gray) -> None:

@@ -6,7 +6,4 @@ type Schemas = components['schemas']
 
 export type NarrationConfig = Schemas['NarrationConfig']
 
-export interface NarrationRunRequest {
-  engine?: string
-  model?: string
-}
+export type NarrationRunRequest = Schemas['NarrationRunRequest']

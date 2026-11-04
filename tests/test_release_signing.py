@@ -142,7 +142,8 @@ def _release_script() -> str:
     # Lets the owner keep the key as a `release` environment secret behind a
     # required reviewer; a repository secret still reaches the job.
     assert wf["jobs"]["release"]["environment"] == "release"
-    (step,) = wf["jobs"]["release"]["steps"]
+    # A later step uploads the signed files as an artifact; only the one that runs the script is checked.
+    (step,) = [s for s in wf["jobs"]["release"]["steps"] if "run" in s]
     assert step["env"]["BAIHE_RELEASE_SIGNING_KEY"] == "${{ secrets.BAIHE_RELEASE_SIGNING_KEY }}"
     assert "uses" not in step
     return step["run"]
@@ -154,6 +155,10 @@ if [ "$1 $2" = "run download" ]; then
   while [ $# -gt 0 ]; do case "$1" in --name) n="$2"; shift;; --dir) d="$2"; shift;; esac; shift; done
   mkdir -p "$d/$n"
   printf 'MZ fake installer' > "$d/$n/$n.exe"
+elif [ "$1" = "api" ]; then
+  printf '# comment\\n%s\\n' "$GH_COMMITTED_PUBLIC_KEY"
+elif [ "$1 $2" = "release view" ]; then
+  exit 1
 elif [ "$1 $2" = "release create" ]; then
   printf '%s\\n' "$@" > "$GH_LOG"
 fi
@@ -167,7 +172,8 @@ FAKE_GH_WITH_APP_ZIP = FAKE_GH.replace(
     "  printf '{}' > \"$d/$n/BaiheStudio-App-0.2.0.json\"")
 
 
-def _run_release(tmp_path, key, fake_gh=FAKE_GH):
+def _run_release(tmp_path, key, fake_gh=FAKE_GH, committed_public=None,
+                 ref="v0.2.0"):
     if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
                                and shutil.which("base64")):
         pytest.skip("needs bash, openssl and coreutils (the release job runs on ubuntu)")
@@ -178,9 +184,11 @@ def _run_release(tmp_path, key, fake_gh=FAKE_GH):
     (bindir / "gh").chmod(0o755)
     work = tmp_path / "work"
     work.mkdir()
-    env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "GITHUB_REF_NAME": "v0.2.0",
+    env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "GITHUB_REF_NAME": ref,
            "GITHUB_RUN_ID": "1", "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t",
-           "GH_LOG": str(tmp_path / "gh.log"), "TMPDIR": str(tmp_path)}
+           "GH_LOG": str(tmp_path / "gh.log"), "TMPDIR": str(tmp_path),
+           "GITHUB_SHA": "0" * 40,
+           "GH_COMMITTED_PUBLIC_KEY": committed_public or ""}
     if key is not None:
         env["BAIHE_RELEASE_SIGNING_KEY"] = key
     proc = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True,
@@ -193,8 +201,8 @@ def _run_release(tmp_path, key, fake_gh=FAKE_GH):
 
 
 def test_release_job_signs_what_the_app_verifies(tmp_path, keys):
-    seed, public, private, _ = keys
-    proc, gh_args, work = _run_release(tmp_path, private)
+    seed, public, private, public_text = keys
+    proc, gh_args, work = _run_release(tmp_path, private, committed_public=public_text)
     assert proc.returncode == 0, proc.stderr
     exe = work / "out" / "BaiheStudio-Setup-0.2.0" / NAME
     assets = [a for a in gh_args if a.startswith("out/")]
@@ -210,12 +218,28 @@ def test_release_job_signs_what_the_app_verifies(tmp_path, keys):
 
 
 def test_release_job_without_the_secret_publishes_unsigned_and_says_so(tmp_path):
-    proc, gh_args, _ = _run_release(tmp_path, None)
+    proc, gh_args, _ = _run_release(tmp_path, None, ref="v0.2.0-beta.1")
     assert proc.returncode == 0, proc.stderr
-    assert [Path(a).name for a in gh_args if a.startswith("out/")] == [NAME, NAME + ".sha256"]
+    name = "BaiheStudio-Setup-0.2.0-beta.1.exe"
+    assert [Path(a).name for a in gh_args if a.startswith("out/")] == [name, name + ".sha256"]
+    assert "--prerelease" in gh_args
     assert "UNSIGNED" in proc.stdout
     sha = hashlib.sha256(b"MZ fake installer").hexdigest()
-    assert f"{NAME} sha256 {sha}" in proc.stdout
+    assert f"{name} sha256 {sha}" in proc.stdout
+
+
+def test_release_job_without_the_secret_refuses_a_stable_tag(tmp_path):
+    proc, gh_args, _ = _run_release(tmp_path, None)
+    assert proc.returncode != 0 and gh_args is None
+    assert "Nothing was published" in proc.stdout
+
+
+def test_release_job_refuses_a_key_that_is_not_the_shipped_one(tmp_path, keys):
+    _, _, private, _ = keys
+    other_public = rs.generate()[1]
+    proc, gh_args, _ = _run_release(tmp_path, private, committed_public=other_public)
+    assert proc.returncode != 0 and gh_args is None
+    assert "Nothing was published" in proc.stdout
 
 
 @pytest.mark.parametrize("bad", ["not-a-key", "ed25519-private:AAAA", "ed25519-private:!!!"])
@@ -226,8 +250,9 @@ def test_release_job_with_a_broken_secret_publishes_nothing(tmp_path, bad):
 
 
 def test_release_job_signs_the_app_zip_too(tmp_path, keys):
-    seed, public, private, _ = keys
-    proc, gh_args, work = _run_release(tmp_path, private, FAKE_GH_WITH_APP_ZIP)
+    seed, public, private, public_text = keys
+    proc, gh_args, work = _run_release(tmp_path, private, FAKE_GH_WITH_APP_ZIP,
+                                       committed_public=public_text)
     assert proc.returncode == 0, proc.stderr
     out = work / "out" / "BaiheStudio-Setup-0.2.0"
     app = "BaiheStudio-App-0.2.0.zip"

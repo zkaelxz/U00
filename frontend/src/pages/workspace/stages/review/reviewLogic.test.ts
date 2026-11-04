@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../../../api/client'
 import type { ReviewLine } from '../../../../types/review'
+import type { ResplitResult } from '../../../../types/restructure'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, sourceTextLang } from './reviewDraft'
 import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
@@ -9,7 +10,7 @@ import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmen
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, ...over,
 })
 
 describe('spoken language', () => {
@@ -195,7 +196,7 @@ describe('AI re-segmentation preview (R47)', () => {
   afterEach(() => {
     TRANSLATION_ONLY.length = 0
   })
-  const eng = (name: string, free = false) => ({ name, label: name.toUpperCase(), free, models: null, key_configured: true })
+  const eng = (name: string, free = false) => ({ name, label: name.toUpperCase(), free, models: null, key_configured: true, model_labels: {}, cloud_models: [], package_installed: true })
   const config = {
     engines: [eng('claude'), eng('ollama', true), eng('fake_mt'), eng('gemini')],
     month_spend: 1.5,
@@ -255,27 +256,33 @@ describe('AI re-segmentation preview (R47)', () => {
   })
 })
 
+const resplit = (o: Partial<ResplitResult>): ResplitResult => ({
+  job_id: null, drama_id: null, split_lines: null, lines_before: null, line_count: null, timing: null, aligned_lines: null,
+  cleared_translations: null, speakers_reassigned: null, note: null, dry_run: null, pieces: null, history_id: null,
+  lines_fingerprint: null, ...o,
+})
+
 describe('re-split summary', () => {
-  const base = { split_lines: 31, lines_before: 260, line_count: 347, timing: 'proportional', speakers_reassigned: true }
+  const base = resplit({ split_lines: 31, lines_before: 260, line_count: 347, timing: 'proportional', speakers_reassigned: true })
   it('says how many lines became how many pieces', () => {
     expect(resplitSummary(base)).toBe('Split 31 lines into 118; speakers re-assigned.')
-    expect(resplitSummary({ ...base, split_lines: 1, line_count: 262, speakers_reassigned: false })).toBe('Split 1 line into 3.')
+    expect(resplitSummary(resplit({ ...base, split_lines: 1, line_count: 262, speakers_reassigned: false }))).toBe('Split 1 line into 3.')
   })
   it('adds aligned, cleared and note parts', () => {
-    expect(resplitSummary({ ...base, timing: 'aligned', aligned_lines: 30, cleared_translations: 1, note: 'x' })).toBe(
+    expect(resplitSummary(resplit({ ...base, timing: 'aligned', aligned_lines: 30, cleared_translations: 1, note: 'x' }))).toBe(
       'Split 31 lines into 118; 30 timed from the audio; speakers re-assigned; 1 translation cleared. x',
     )
   })
   it('reports nothing to split', () => {
-    expect(resplitSummary({ split_lines: 0 })).toMatch(/Nothing changed/)
+    expect(resplitSummary(resplit({ split_lines: 0 }))).toMatch(/Nothing changed/)
   })
   it('summarises a dry run', () => {
-    expect(resplitPreviewSummary({ dry_run: true, split_lines: 31, pieces: 118 })).toBe('Preview: 31 lines would be split into 118.')
-    expect(resplitPreviewSummary({ split_lines: 1, pieces: 3, cleared_translations: 1 })).toBe(
+    expect(resplitPreviewSummary(resplit({ dry_run: true, split_lines: 31, pieces: 118 }))).toBe('Preview: 31 lines would be split into 118.')
+    expect(resplitPreviewSummary(resplit({ split_lines: 1, pieces: 3, cleared_translations: 1 }))).toBe(
       'Preview: 1 line would be split into 3. 1 translation would be cleared.',
     )
-    expect(resplitPreviewSummary({ split_lines: 0, note: 'No line is over the limits at More sensitivity. Try "Sentence by sentence".' })).toMatch(/More sensitivity/)
-    expect(resplitPreviewSummary({ split_lines: 0 })).toBe('Preview: no line would be split.')
+    expect(resplitPreviewSummary(resplit({ split_lines: 0, note: 'No line is over the limits at More sensitivity. Try "Sentence by sentence".' }))).toMatch(/More sensitivity/)
+    expect(resplitPreviewSummary(resplit({ split_lines: 0 }))).toBe('Preview: no line would be split.')
   })
   it('names the word splitters "More" needs for Chinese and Japanese only', () => {
     expect(wordSplitterPackages('zh')).toEqual(['jieba'])
@@ -460,7 +467,7 @@ describe('parseJump', () => {
 
 describe('inFilter', () => {
   const base = { id: 1, idx: 0, start: 0, end: 1, zh: '你好', en: '', speaker: null, speaker_manual: false,
-    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null }
+    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false }
   it('follows the server filters', () => {
     expect(inFilter({ ...base, flag: 'check' }, 'flagged')).toBe(true)
     expect(inFilter(base, 'flagged')).toBe(false)

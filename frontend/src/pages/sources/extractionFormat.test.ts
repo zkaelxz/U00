@@ -205,7 +205,7 @@ describe('following next chapters', () => {
     expect(followStopText({ ...follow, stop: 'downgrade' })).toMatch(/plain http/)
     expect(followStopText({ ...follow, stop: 'invalid' })).toMatch(/next page/)
     expect(followStopText({ pages: [follow.pages[0]], stop: 'invalid' })).toMatch(/didn’t follow/)
-    expect(followStopText({ ...follow, stop: 'new-code' })).toBe('Stopped following next-chapter links.')
+    expect(followStopText({ ...follow, stop: 'new-code' as ExtractionFollow['stop'] })).toBe('Stopped following next-chapter links.')
     expect(reviewWhy('follow')).toMatch(/followed the next-chapter links/)
   })
 

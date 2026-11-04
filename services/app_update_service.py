@@ -13,10 +13,14 @@ updates").
 - Download: on the user's click, size-capped, SHA-256 checked and, with a
   release key, signature checked exactly as the installer is
   (update_service.fetch_verified; the `.sig` is fetched first).
-- Apply: on the user's click, only on Windows, only for a server the
-  Start-menu launcher started (the boot service's account can't write the
-  install folder, and stopping it needs an administrator), and never while a
-  job runs. A private copy of the zip is re-hashed and signature-checked, its
+- Apply: on the user's click (or, with the opt-in setting, after a check),
+  only on Windows, and never while a job runs. A server the Start-menu
+  launcher started switches itself, as below. The boot service's account can't
+  write the install folder or stop its own service, so there the zip and its
+  signature are left in the library's updates folder with a request, and the
+  BaiheUpdate service (installer/service_update.py, LocalSystem, started by
+  this server and nothing else) checks the signature again against the admin
+  folder's release key and does the switch. A private copy of the zip is re-hashed and signature-checked, its
   entries and manifest checked again (the signed zip's own manifest is the
   one that counts, not the copy read for the offer), and it is unpacked into
   a new `<install>\\app-<v>`. A copy of installer/app_swap.py then stops the
@@ -47,6 +51,9 @@ import background_jobs
 import db
 import process_guard
 from installer import app_swap
+from lib import release_signature
+from lib.proc import run_captured
+from services import shutdown_service
 from services import update_service as us
 from lib.errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
@@ -56,8 +63,15 @@ MAX_MANIFEST_BYTES = app_swap.MAX_MANIFEST_BYTES
 BACKUP_MAX_AGE_SECONDS = 24 * 3600
 ZIP_TEMP_PREFIX = "baihe_appzip_"
 # Only the Start-menu launcher gives the server this (installer/launcher.py
-# start_server); the boot service never does.
+# start_server); the boot service never does. The server removes it from its
+# environment at startup (shutdown_service.take_token_from_environment), so
+# whether it was given one is read from the shutdown service, not os.environ.
 LAUNCHER_TOKEN_ENV = "BAIHE_SHUTDOWN_TOKEN"
+UPDATER_SERVICE = "BaiheUpdate"      # installer/service_layout.UPDATE_SERVICE
+REQUEST_NAME = "app-update-request.json"    # installer/service_update.REQUEST_NAME
+SC_TIMEOUT_SECONDS = 20
+ADMIN_FOLDER = "Baihe Studio Services"     # installer/service_layout.ADMIN_FOLDER_NAME
+SERVICE_AUTO_APPLY_KEY = "update.service_auto_apply"
 
 RESULT_MESSAGES = {
     "updated": "Updated to {new}.",
@@ -134,10 +148,47 @@ def refresh_offer(release) -> None:
                 _state.update(download="idle", downloaded_bytes=0, download_error=None)
         _state.update(offer=offer, offer_version=release["version"] if release else None,
                       size=size)
+    _auto_apply_step()
 
 
 def launcher_started() -> bool:
-    return bool(os.environ.get(LAUNCHER_TOKEN_ENV))
+    return shutdown_service.enabled()
+
+
+def _system32(exe: str) -> str:
+    return os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", exe)
+
+
+def updater_present() -> bool:
+    """Whether this PC's boot service has the BaiheUpdate helper: Setup's
+    service step (from this version on) puts its wrapper in the admin folder,
+    which the service account can read. A file check, not a service query, so
+    a status poll stays cheap; starting a missing service fails with a plain
+    message."""
+    if not us._is_windows() or launcher_started():
+        return False
+    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+    return os.path.isfile(os.path.join(program_files, ADMIN_FOLDER, "service", UPDATER_SERVICE + ".exe"))
+
+
+def service_auto_apply() -> bool:
+    """The owner's opt-in (off by default) to download and apply app-only
+    updates by themselves on the boot service."""
+    from services import settings_service
+    try:
+        return settings_service.get(SERVICE_AUTO_APPLY_KEY) is True
+    except Exception:
+        return False
+
+
+def set_service_auto_apply(enabled: bool) -> None:
+    db.set_app_setting(SERVICE_AUTO_APPLY_KEY, bool(enabled))
+
+
+def can_switch_here() -> bool:
+    """This server can get an app update applied: it switches itself
+    (launcher) or the BaiheUpdate helper does it for it (boot service)."""
+    return launcher_started() or updater_present()
 
 
 def last_result():
@@ -160,13 +211,15 @@ def status_fields() -> dict:
     offer = s["offer"] if newer else "none"
     result = last_result()
     return {"app_update": offer,
-            "app_update_here": us._is_windows() and launcher_started(),
+            "app_update_here": us._is_windows() and can_switch_here(),
+            "app_update_by_service": updater_present(),
+            "app_auto_apply": service_auto_apply(),
             "app_size": s["size"] if offer != "none" else None,
             "app_download": s["download"], "app_downloaded_bytes": s["downloaded_bytes"],
             "app_download_error": s["download_error"], "app_verified": verified,
             "app_verified_version": verified_version,
             "can_apply_app": (verified and offer == "available" and us._is_windows()
-                              and launcher_started() and s["download"] != "downloading"),
+                              and can_switch_here() and s["download"] != "downloading"),
             "app_last_result": result["message"] if result else None,
             "app_last_result_at": result["at"] if result else None}
 
@@ -175,7 +228,7 @@ def status_fields() -> dict:
 
 def _clear_old_zips(folder) -> None:
     for name in os.listdir(folder):
-        if name.startswith("BaiheStudio-App-") and name.endswith((".zip", ".part")):
+        if name.startswith("BaiheStudio-App-") and name.endswith((".zip", ".part", ".sig")):
             with contextlib.suppress(OSError):
                 os.remove(os.path.join(folder, name))
 
@@ -221,6 +274,31 @@ def _run_download() -> None:
     except Exception as exc:
         with _lock:
             _state.update(download="failed", download_error=us._plain_error(exc))
+        return
+    _auto_apply_step()
+
+
+def _auto_apply_step() -> None:
+    """With the opt-in on and the BaiheUpdate helper present: after a check,
+    download the app-only update, and once it is verified apply it. Each step
+    that can't go ahead now (a job is running, a backup is needed) is left
+    for the next check, which runs this again; nothing here raises."""
+    if not (service_auto_apply() and updater_present()):
+        return
+    with _lock:
+        offered = _release is not None
+        state, held = _state["download"], _verified is not None
+    if not offered:
+        return
+    try:
+        if state in ("idle", "failed") and not held:
+            start_download()
+        elif state == "verified" and held:
+            apply()
+    except ServiceError as exc:
+        app_swap.log(install_root(), f"automatic update waits: {type(exc).__name__}")
+    except OSError:
+        pass
 
 
 def start_download() -> dict:
@@ -337,11 +415,15 @@ def _server_port():
 
 def apply_busy() -> bool:
     """Whether an apply is under way or handed over and not yet finished (its
-    journal is still there): the full Setup must not start meanwhile."""
+    journal is still there): the full Setup must not start meanwhile. A
+    queued switch is the exception: the helper that queued it has exited,
+    the launcher won't start another while Setup is open, and Setup deletes the journal, so a locked file must not leave the full
+    installer refused."""
     with _lock:
         if _applying:
             return True
-    return app_swap.read_journal(install_root()) is not None
+    journal = app_swap.read_journal(install_root())
+    return journal is not None and journal["state"] != app_swap.QUEUED
 
 
 def apply() -> dict:
@@ -376,10 +458,12 @@ def _apply() -> dict:
     if not us._is_installed():
         raise UnsupportedOperationError("Updates are for the installed app. A source checkout "
                                         "updates with git.")
-    if not launcher_started():
+    by_service = not launcher_started()
+    if by_service and not updater_present():
         raise UnsupportedOperationError(
-            "Baihe Studio runs as the boot service here, which can't replace its own files. "
-            "Use the full installer for this update.")
+            "Baihe Studio runs as the boot service here, which can't replace its own files, "
+            "and this copy has no app-update helper yet. Run the full installer once (it adds "
+            "the helper); app updates can then apply here.")
     with _lock:
         verified = _verified
         downloading = _state["download"] == "downloading"
@@ -400,6 +484,8 @@ def _apply() -> dict:
     base = app_swap.base_version(installed) if installed else None
     if base is None or not app_swap.valid_version(old):
         raise ConflictError("This install's manifest.json can't be read. Use the full installer.")
+    if by_service:
+        return _hand_to_updater(verified, installed)
     copy = _private_copy(verified, us._release_public_key())
     dest = app_swap.app_folder(root, verified["version"])
     try:
@@ -436,6 +522,50 @@ def _apply() -> dict:
             app_swap.remove_folder(dest, root)
         raise DependencyUnavailableError(_START_FAILED) from None
     app_swap.log(root, f"staged {verified['version']} over {old}")
+    with _lock:
+        _verified = None
+        _state.update(download="idle", downloaded_bytes=0)
+    return {"started": True, "version": verified["version"]}
+
+
+def _hand_to_updater(verified, installed) -> dict:
+    """Boot service: checks what it can here for an early, plain refusal, then
+    leaves the request and starts BaiheUpdate. It trusts none of this: it
+    verifies the signature, the base and the version again, as LocalSystem."""
+    global _verified
+    if verified["signature"] is None:
+        raise ConflictError("This update isn't signed, and the boot service only applies signed "
+                            "updates. Use the full installer.")
+    try:
+        with zipfile.ZipFile(verified["path"]) as zf:
+            app_swap.check_zip(zf)
+            manifest = app_swap.read_manifest(zf)
+    except (zipfile.BadZipFile, OSError):
+        raise ConflictError("The downloaded update can't be read. Download it again.") from None
+    except app_swap.SwapError as exc:
+        raise ConflictError(str(exc)) from None
+    if not _manifest_ok(manifest, verified["version"]) or not _base_matches(manifest):
+        raise ConflictError("This update was built for a different Python, packages or "
+                            "Caddy than this install has. Use the full installer.")
+    _check_database(manifest)
+    folder = us.updates_dir()
+    try:
+        with open(os.path.join(folder, verified["name"] + ".sig"), "w", encoding="ascii") as fh:
+            fh.write(release_signature.format_signature(verified["signature"]))
+        request = os.path.join(folder, REQUEST_NAME)
+        with open(request + ".part", "w", encoding="utf-8") as fh:
+            json.dump({"version": verified["version"], "name": verified["name"]}, fh)
+        os.replace(request + ".part", request)
+    except OSError as exc:
+        raise DependencyUnavailableError(us.copy_problem(exc) or _START_FAILED) from None
+    try:
+        started = run_captured([_system32("sc.exe"), "start", UPDATER_SERVICE], SC_TIMEOUT_SECONDS)
+    except OSError:
+        started = None
+    if started is None or started.returncode != 0:
+        with contextlib.suppress(OSError):
+            os.remove(request)
+        raise DependencyUnavailableError(_START_FAILED)
     with _lock:
         _verified = None
         _state.update(download="idle", downloaded_bytes=0)

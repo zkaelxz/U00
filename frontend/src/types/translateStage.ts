@@ -5,60 +5,14 @@ import type { components } from '../api/generated/schema'
 type Schemas = components['schemas']
 
 import type { LibraryPreset, ProfileOptions } from './library'
-import type { TranslateEngine } from './translate'
 
-export interface TranslateRunConfig {
-  drama_id: number
-  translation_engine: string
-  // The engine the per-line AI helpers use when none is named (missing on an older server).
-  line_ai_engine?: string
-  // The owner's saved choice for this title; null/omitted = never chosen.
-  default_female_pronouns?: boolean | null
-  include_genre_notes?: boolean | null
-  translate_by_sentence?: boolean | null
+// The server types these two as free JSON; the Translate stage reads them as below.
+export type TranslateRunConfig = Omit<Schemas['TranslateRunConfig'], 'translate_start' | 'last_translate_errors'> & {
   // The form's starting values a profile left on this title ({} if none).
-  translate_start?: ProfileOptions & { style_preset?: string; engine_model?: string }
-  // Engines whose request can switch thinking (DeepSeek, Ollama), and the
-  // title's remembered "think harder" choice.
-  thinking_switch_engines?: string[]
-  title_thinking?: boolean
-  engines: TranslateEngine[]
-  // guidance: what the style asks the translator for (parity X04)
-  style_presets: { key: string; label: string; guidance?: string }[]
-  default_style_preset: string
-  locales: string[]
-  workflow_tiers: WorkflowTier[]
-  defaults: { context_window: number; context_window_ahead: number; batch_size: number }
-  // {engine: {model: default batch size}}; '' is the engine's own default model.
-  batch_size_defaults?: Record<string, Record<string, number>>
-  // Settings > Defaults for new dramas (optional: older servers omit them).
-  default_locale?: string
-  default_style_note?: string
-  project_instructions: string | null
-  series_instructions: string | null
-  line_count: number
-  untranslated_count: number
-  monthly_cap_usd: number
-  month_spend: number
-  cap_applies_by_engine: Record<string, boolean>
-  bulk_supported_engines: string[]
+  translate_start: ProfileOptions & { style_preset?: string; engine_model?: string }
   // X01: the last full run's failed batches (null when none or dismissed).
   // `lines` are 0-based line positions; `error` is already redacted.
-  last_translate_errors?: TranslateBatchError[] | null
-  // X24: whether the Ollama server answers. Probed only when the drama's
-  // saved engine is Ollama; null (or missing on older servers) = not checked.
-  // A boolean only: the server never sends the URL.
-  ollama_reachable?: boolean | null
-  // 1-based numbers of the last run's failed lines: still empty, and holding
-  // the earlier engine's English. Missing on an older server.
-  failed_untranslated_numbers?: number[]
-  failed_kept_earlier_numbers?: number[]
-  // False for a record from before line ids were kept: the notice shows, Retry does not.
-  failed_retryable?: boolean
-  // Lines flagged for a missing glossary name, and the Settings engine the
-  // one-click redo would use (null until one is picked).
-  glossary_flagged_count?: number
-  glossary_redo_engine?: string | null
+  last_translate_errors: TranslateBatchError[] | null
 }
 
 /** The Translate form's options for retrying the failed lines; the server picks the lines. */
@@ -80,20 +34,7 @@ interface TranslateBatchError {
 
 export type TranslateErrorsDismissed = Schemas['TranslateErrorsDismissed']
 
-export interface TranslateRunEstimate {
-  engine: string
-  model: string | null
-  estimated_usd: number | null
-  target_line_count: number
-  free: boolean
-  cap_applies: boolean
-  effective_cap_usd: number | null
-  monthly_refusal: boolean
-  estimate_above_cap: boolean
-  thinking?: boolean
-  // True when thinking is on: hidden reasoning is billed but cannot be predicted.
-  estimate_is_lower_bound?: boolean
-}
+export type TranslateRunEstimate = Schemas['TranslateRunEstimate']
 
 export interface EstimateParams {
   engine?: string
@@ -174,17 +115,7 @@ export type TranslateRunStarted = Schemas['TranslateRunStarted']
 
 export type GlossaryAffectedLine = Schemas['GlossaryAffectedLine']
 
-export interface GlossaryAffectedPreview {
-  drama_id: number
-  has_glossary: boolean
-  terms: { id: number; term_original: string; term_translation: string }[]
-  selected_term_ids: number[]
-  lines: GlossaryAffectedLine[]
-  hand_edited_count: number
-  preview_hash: string
-  estimate: TranslateRunEstimate
-  estimate_with_hand_edited: TranslateRunEstimate
-}
+export type GlossaryAffectedPreview = Schemas['GlossaryAffectedPreview']
 
 export interface GlossaryAffectedParams {
   term_ids?: number[]
@@ -216,17 +147,7 @@ export interface GlossaryAffectedRunStarted extends TranslateRunStarted {
   skipped_hand_edited_count: number
 }
 
-export interface GlossaryTerm {
-  id: number
-  term_original: string
-  term_translation: string
-  notes: string
-  category: string | null
-  policy: string | null
-  enforce_exact: boolean
-  aliases: string[]
-  banned_translations: string[]
-}
+export type GlossaryTerm = Schemas['GlossaryTerm']
 
 export type GlossaryTermUpsert = Partial<Omit<GlossaryTerm, 'id'>> & { id?: number }
 
@@ -357,158 +278,21 @@ export interface TranslatePresetSaved {
 // GET /api/glossary/dramas/{id}/variants and /name-clusters: read-only, offline.
 export type GlossaryVariantExample = Schemas['GlossaryVariantExample']
 
-interface GlossaryVariantCandidate {
-  text: string
-  count: number
-  /** 0..1, 1 = the same sound. */
-  score: number
-  is_alias: boolean
-  is_term: boolean
-  examples: GlossaryVariantExample[]
-}
+export type GlossaryVariants = Schemas['GlossaryVariants']
 
-export interface GlossaryVariants {
-  term: string
-  /** False when a reading library for the title's language is missing; `reason` says which. */
-  available: boolean
-  reason: string
-  lines_scanned: number
-  truncated: boolean
-  candidates: GlossaryVariantCandidate[]
-}
+export type GlossaryNameCluster = Schemas['GlossaryNameCluster']
 
-interface GlossaryNameSpelling {
-  text: string
-  count: number
-  sources: string[]
-  is_alias: boolean
-  is_term: boolean
-}
+export type GlossaryNameClusters = Schemas['GlossaryNameClusters']
 
-export interface GlossaryNameCluster {
-  suggested_original: string
-  /** Set when one of the spellings is already a term or alias. */
-  existing_term: string | null
-  total: number
-  spellings: GlossaryNameSpelling[]
-  examples: GlossaryVariantExample[]
-}
+export type SpellingSuggestStatus = Schemas['SpellingSuggestStatus']
 
-export interface GlossaryNameClusters {
-  available: boolean
-  reason: string
-  lines_scanned: number
-  truncated: boolean
-  clusters: GlossaryNameCluster[]
-  /** Downloaded VTuber names found in the lines; empty unless the title opted in. */
-  known_vtuber_names: GlossaryNameCluster[]
-}
-
-interface SpellingProposal {
-  text: string
-  count: number
-  is_alias: boolean
-  is_term: boolean
-  examples: GlossaryVariantExample[]
-}
-
-interface SpellingSuggestResult {
-  term: string | null
-  english: string | null
-  proposals: SpellingProposal[]
-  /** True when the model's answer could not be read; nothing was proposed or changed. */
-  unusable: boolean
-  lines_scanned: number
-  truncated: boolean
-}
-
-export interface SpellingSuggestStatus {
-  job_id: string
-  status: string
-  progress: number | null
-  message: string
-  run_id: string | null
-  result: SpellingSuggestResult | null
-}
-
-interface NameConsistencyRow {
-  line_idx: number
-  source: string
-  english: string
-}
-
-export interface NameConsistency {
-  term: string
-  english: string
-  available: boolean
-  reason: string
-  lines_with_name: number
-  untranslated: number
-  consistent: number
-  differing: NameConsistencyRow[]
-  other_words: string[]
-  lines_scanned: number
-  /** The scan stopped at its budget; the counts cover only `lines_scanned` lines. */
-  truncated: boolean
-  /** More differing lines exist than are listed. */
-  more_rows: boolean
-}
+export type NameConsistency = Schemas['NameConsistency']
 
 // GET /api/glossary/name-report: the name check across every title the caller may see.
 export type NameMark = 'right' | 'wrong' | 'skip'
 
-interface NameReportVariant {
-  text: string
-  count: number
-}
+export type NameReportGroup = Schemas['NameReportGroup']
 
-interface NameReportTitle {
-  drama_id: number
-  title: string
-  count: number
-  in_glossary: boolean
-  glossary_term: string | null
-  glossary_english: string | null
-}
+export type NameReport = Schemas['NameReport']
 
-interface NameReportExample {
-  drama_id: number
-  line_idx: number
-  snippet: string
-}
-
-export interface NameReportGroup {
-  key: string
-  canonical: string
-  total: number
-  variants: NameReportVariant[]
-  /** The real number of titles; `titles` lists the first few. */
-  titles_total: number
-  titles: NameReportTitle[]
-  examples: NameReportExample[]
-  mark: NameMark | null
-}
-
-export interface NameReport {
-  titles_total: number
-  titles_scanned: number
-  titles_unavailable: number
-  titles_failed: number
-  reasons: string[]
-  /** A cap stopped the scan or trimmed the groups. */
-  truncated: boolean
-  /** The time budget ended the scan or the grouping early; the report is partial. */
-  stopped_early: boolean
-  singletons_omitted: number
-  groups_omitted: number
-  groups: NameReportGroup[]
-  counts: { unresolved: number; right: number; wrong: number; skip: number }
-}
-
-export interface NameReportStatus {
-  job_id: string
-  status: string
-  progress: number | null
-  message: string
-  result: NameReport | null
-}
+export type NameReportStatus = Schemas['NameReportStatus']

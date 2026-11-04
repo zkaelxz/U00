@@ -24,6 +24,9 @@ const eng = (name: string, key_configured = true, models: string[] | null = null
   free: false,
   models,
   key_configured,
+  model_labels: {},
+  cloud_models: [],
+  package_installed: true,
 })
 
 describe('engine picker', () => {

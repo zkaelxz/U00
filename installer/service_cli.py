@@ -39,7 +39,7 @@ EXIT_NOT_ADMIN = 3
 # The owner's commands that change the service and that Setup doesn't run.
 # Setup runs install, stop and uninstall itself while it holds its mutex, so
 # those must not wait for it.
-SETUP_LOCKED_COMMANDS = ("set-port", "enable-remote", "disable-remote")
+SETUP_LOCKED_COMMANDS = ("set-port", "enable-remote", "disable-remote", "apply-app-update")
 
 
 def build_services(args) -> Services:
@@ -88,10 +88,12 @@ commands:
   enable-remote [--household-port N]
                             household access through Caddy (sign-in settings in .env first)
   disable-remote            household access off: Caddy stopped and disabled
-  stop                      stop both services
+  stop [--for-update]       stop both services (Setup's --for-update also unlocks the install folder)
   install [--port N]        (Setup) create or refresh the service and start it; --port
                             only on a fresh install (an update keeps the stored port)
-  uninstall                 (the uninstaller) remove both services and the admin folder
+  uninstall                 (the uninstaller) remove all services and the admin folder
+  apply-app-update          (the BaiheUpdate service) check the signed app update the app
+                            asked for and switch to it; the app starts it, you don't need to
 """
 
 
@@ -111,11 +113,15 @@ def main(argv=None, services=None, admin=None, mutexes=None) -> int:
     # Checked by set_port (refused with exit code 2, nothing changed), like --port.
     set_port.add_argument("port", help="the new port, 1024 to 65535")
     sub.add_parser("uninstall", help="stop and remove both services and the admin folder")
-    sub.add_parser("stop", help="stop both services")
+    stop = sub.add_parser("stop", help="stop both services")
+    stop.add_argument("--for-update", action="store_true",
+                      help="(Setup) also unlock the install folder so Setup can replace its files")
     enable = sub.add_parser("enable-remote", help="turn household access through Caddy on")
     enable.add_argument("--household-port", type=int, default=DEFAULT_HOUSEHOLD_PORT)
     sub.add_parser("disable-remote", help="turn household access off")
     sub.add_parser("status", help="show both services' state")
+    sub.add_parser("apply-app-update", help="(BaiheUpdate) switch to the signed app update the "
+                                            "app asked for")
     args = parser.parse_args(argv)
 
     if args.command != "status" and not (is_admin() if admin is None else admin):
@@ -160,6 +166,8 @@ def _run_command(args, services) -> int:
             message = services.install(args.port)
         elif args.command == "set-port":
             message = services.set_port(args.port)
+        elif args.command == "stop":
+            message = services.stop(args.for_update)
         elif args.command == "uninstall":
             message = services.uninstall(args.install_root)
         else:

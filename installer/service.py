@@ -2,7 +2,8 @@
 installer/service.py -- runs the installed Baihe Studio as a Windows service
 (docs/windows-installer-design.md, "Boot service").
 
-Two services, each wrapped by a copy of the pinned WinSW binary named after
+Three services (the third, BaiheUpdate, is described in installer/service_update.py:
+a LocalSystem helper the app starts to switch to a signed app update), each wrapped by a copy of the pinned WinSW binary named after
 it (it answers the Service Control Manager and reads the .xml next to it):
 
 - BaiheStudio: `python -s -m api` on 127.0.0.1 and nothing else, at the
@@ -41,7 +42,9 @@ runs from the admin copy:
                           Start-menu item "Baihe Studio service" runs it);
                           refused, changing nothing, if N can't be used,
                           and put back on the old port if N doesn't answer
-    stop                  stop it (Setup, before an update)
+    stop [--for-update]   stop it (Setup, before an update); --for-update also
+                          unlocks the admin-owned install folder so Setup can
+                          replace its files (install locks it again)
     uninstall             stop and remove both, take BaiheStudio's permissions
                           off the per-user folders, remove the admin folder
     enable-remote [--household-port 8610]
@@ -89,6 +92,7 @@ from installer.service_config import (
     api_port_problem,
     app_service_xml,
     caddy_service_xml,
+    update_service_xml,
     read_config,
     read_env_file,
     remote_access_config,
@@ -109,15 +113,20 @@ from installer.service_control import (
     query_state,
     remote_reminder,
     revoke_commands,
+    service_sid,
     start_service,
     stop_service,
 )
+from installer.service_lock import (lock_commands, remove_marker, set_root_security, tree_problem,
+                                    unlock_commands, write_marker)
 from installer.service_layout import (
     ADMIN_FOLDER_NAME,
     APP_DISPLAY_NAME,
     APP_SERVICE,
     CADDY_DISPLAY_NAME,
     CADDY_SERVICE,
+    UPDATE_DISPLAY_NAME,
+    UPDATE_SERVICE,
     ConfigRefused,
     Layout,
     ServiceError,
@@ -138,6 +147,9 @@ HEALTH_WAIT_SECONDS = 180      # a first start compiles every .pyc
 class Services:
     """The commands, against a layout, a command runner and checks that
     tests replace."""
+
+    tree_check = staticmethod(tree_problem)
+    lock_root = staticmethod(set_root_security)
 
     def __init__(self, layout: Layout, run, health=health_ok, port_check=port_answers,
                  is_baihe=household_is_baihe, sleep=time.sleep, source=None):
@@ -263,7 +275,8 @@ class Services:
         wrapper = self.layout.wrapper(name)
         created = query_state(name, self.run) is None
         if created:
-            display = APP_DISPLAY_NAME if name == APP_SERVICE else CADDY_DISPLAY_NAME
+            display = {APP_SERVICE: APP_DISPLAY_NAME, CADDY_SERVICE: CADDY_DISPLAY_NAME,
+                       UPDATE_SERVICE: UPDATE_DISPLAY_NAME}[name]
             _check(self.run(create_service_command(name, wrapper, display)),
                    f"Creating the {name} service")
         try:
@@ -288,6 +301,34 @@ class Services:
                      " (the data folder can take a while)."))
         for cmd, timeout in grant_commands(lay, caddy_only):
             _check(self.run(cmd, timeout=timeout), "Setting folder permissions")
+
+    def _lock_install_folder(self) -> None:
+        """Admin-owned, users read and run: BaiheUpdate runs as LocalSystem and
+        writes inside this folder, so nothing running as the user may be able
+        to swap its contents or links while it does. Setup (the user) can only
+        replace files again after `stop --for-update` unlocks it."""
+        lay = self.layout
+        refuse_reparse_point(lay.root)
+        remove_marker(lay)
+        self.run.log("Locking the install folder to administrators (this can take a while).")
+        # First and in one step: nothing of the user's is left on the folder
+        # before the owner changes (see set_root_security).
+        self.lock_root(lay.root, service_sid(APP_SERVICE))
+        for cmd, timeout in lock_commands(lay):
+            _check(self.run(cmd, timeout=timeout), "Locking the install folder")
+        problem = self.tree_check(lay.root)
+        if problem:
+            raise ServiceError(problem)
+        write_marker(lay)
+
+    def _unlock_install_folder(self) -> None:
+        lay = self.layout
+        remove_marker(lay)
+        if not Path(lay.root).exists():
+            return
+        refuse_reparse_point(lay.root)
+        for cmd, timeout in unlock_commands(lay):
+            _check(self.run(cmd, timeout=timeout), "Unlocking the install folder")
 
     def _start_and_wait(self) -> None:
         start_service(APP_SERVICE, self.run, sleep=self.sleep)
@@ -418,8 +459,9 @@ class Services:
         created = []
         try:
             missing = [str(p) for p in (lay.wrapper(APP_SERVICE), lay.wrapper(CADDY_SERVICE),
-                                        lay.caddy_exe, lay.template, lay.helper_python,
-                                        lay.helper_script) if not p.is_file()]
+                                        lay.wrapper(UPDATE_SERVICE), lay.caddy_exe, lay.template,
+                                        lay.helper_python, lay.helper_script, lay.public_key)
+                       if not p.is_file()]
             if missing:
                 raise ServiceError("Setup's files are incomplete: " + ", ".join(missing))
             port = self.remote_state().get("household_port", 0)
@@ -432,12 +474,17 @@ class Services:
                     port = 0
             self._write_app_xml(port)
             lay.wrapper_xml(CADDY_SERVICE).write_text(caddy_service_xml(lay), encoding="utf-8")
+            lay.wrapper_xml(UPDATE_SERVICE).write_text(update_service_xml(lay), encoding="utf-8")
+            lay.update_logs.mkdir(exist_ok=True)
             # Caddy stays disabled here; it is set to start with Windows only
-            # once the household listener has answered.
-            for name, start in ((APP_SERVICE, "auto"), (CADDY_SERVICE, "disabled")):
+            # once the household listener has answered. BaiheUpdate is started
+            # by the app, never at boot.
+            for name, start in ((APP_SERVICE, "auto"), (CADDY_SERVICE, "disabled"),
+                                (UPDATE_SERVICE, "demand")):
                 if self._create_service(name, start):
                     created.append(name)
             self._grant()
+            self._lock_install_folder()
             if not config:
                 self._write_state(0)
             self._start_and_wait()
@@ -469,7 +516,13 @@ class Services:
                 stop_service(name, self.run, sleep=self.sleep)
             except Exception:
                 pass
-        for name in (CADDY_SERVICE, APP_SERVICE):
+        # A half-finished install must not leave the user locked out of the
+        # folder Setup has to repair.
+        try:
+            self._unlock_install_folder()
+        except Exception as e:
+            self.run.log(f"Couldn't unlock the install folder after the failure: {e}")
+        for name in (UPDATE_SERVICE, CADDY_SERVICE, APP_SERVICE):
             if name in created:
                 try:
                     delete_service(name, self.run, sleep=self.sleep)
@@ -595,9 +648,19 @@ class Services:
             message += " Remote access is still on."
         return message + note
 
-    def stop(self) -> str:
+    def apply_app_update(self) -> str:
+        """BaiheUpdate's one job (installer/service_update.py)."""
+        from installer.service_update import apply_update
+        return apply_update(self.layout, self.run, self.api_port(), self.health, self.sleep)
+
+    def stop(self, for_update: bool = False) -> str:
+        """`for_update` (Setup, before it replaces files as the user) also
+        unlocks the install folder; install locks it again."""
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
+        if for_update:
+            self._unlock_install_folder()
+            return "Stopped Baihe Studio's services and unlocked the install folder for Setup."
         return "Stopped Baihe Studio's services."
 
     def uninstall(self, install_root=None) -> str:
@@ -623,6 +686,7 @@ class Services:
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         try:
+            delete_service(UPDATE_SERVICE, self.run, sleep=self.sleep)
             delete_service(CADDY_SERVICE, self.run, sleep=self.sleep)
             delete_service(APP_SERVICE, self.run, sleep=self.sleep)
         except ServiceError:
@@ -633,6 +697,10 @@ class Services:
                     pass
             raise
         problems = []
+        try:
+            self._unlock_install_folder()
+        except ServiceError as e:
+            problems.append(f"unlocking {lay.root} ({e})")
         for cmd, timeout in revoke_commands(lay):
             if Path(cmd[1]).exists():
                 result = self.run(cmd, timeout=timeout)
@@ -743,7 +811,7 @@ class Services:
 
     def status(self) -> str:
         lines = []
-        for name in (APP_SERVICE, CADDY_SERVICE):
+        for name in (APP_SERVICE, CADDY_SERVICE, UPDATE_SERVICE):
             state = query_state(name, self.run)
             start = query_start_type(name, self.run) if state else None
             lines.append(f"{name}: {state or 'not installed'}"

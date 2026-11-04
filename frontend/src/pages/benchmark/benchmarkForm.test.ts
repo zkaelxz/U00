@@ -17,9 +17,9 @@ const options: BenchmarkOptions = {
   tiers: ['public', 'application', 'regression'],
   source_languages: ['zh', 'ja', 'ko'],
   translation_engines: [
-    { name: 'claude', label: 'x', free: false, models: ['sonnet', 'haiku'], key_configured: false },
-    { name: 'ollama', label: 'x', free: true, models: null, key_configured: true },
-    { name: 'deepseek', label: 'x', free: true, models: ['small'], key_configured: true },
+    { name: 'claude', label: 'x', free: false, models: ['sonnet', 'haiku'], key_configured: false, package_installed: true, model_labels: {} },
+    { name: 'ollama', label: 'x', free: true, models: null, key_configured: true, package_installed: true, model_labels: {} },
+    { name: 'deepseek', label: 'x', free: true, models: ['small'], key_configured: true, package_installed: true, model_labels: {} },
   ],
   whisper_sizes: ['small', 'medium', 'large-v3', 'ja-1.5b'],
   whisper_exclusions: { medium: { ja: 'No medium for Japanese.' }, 'ja-1.5b': { zh: 'Japanese only.', ko: 'Japanese only.' } },
@@ -56,14 +56,15 @@ const sel = (over: Partial<RunSelection> = {}): RunSelection => ({
 
 const estimate = (over: Partial<BenchmarkEstimate> = {}): BenchmarkEstimate => ({
   stage: 'translation', case_count: 3, configs: [], estimated_cost_usd: 0, monthly_cap_usd: 0, month_spend_usd: 0,
-  remaining_usd: null, monthly_refusal: null, estimate_above_cap: false, ...over,
+  remaining_usd: null, monthly_refusal: null, estimate_above_cap: false, judge: null, ...over,
 })
 
 const run = (id: number, over: Partial<BenchmarkRun> = {}): BenchmarkRun => ({
   id, label: '', stage: 'translation', engine: 'ollama', model: null, prompt_version: '', arena_group: null,
   status: 'done', case_count: 2, scored_count: 2, passed_count: 1, error_count: 0, aggregate_score: 0.5,
   avg_latency_seconds: 0.1, total_cost_usd: 0, peak_vram_mb: null, note: null, created_at: null, finished_at: null,
-  context_settings: {}, case_filter: {}, delta_vs_first: null, ...over,
+  context_settings: {}, case_filter: {}, delta_vs_first: null, judge: null, picks: null, script_counts: null, stored_aggregate_score: null,
+  timing: { cases: 0, start_median_ms: null, end_median_ms: null, within: null, merged: null, split: null, missed: null, silence: null }, timing_verdict: null, ...over,
 })
 
 describe('formatting', () => {
@@ -217,7 +218,7 @@ describe('engines that cannot run', () => {
     expect(engineBlockReason({ ...claude, key_configured: false, package_installed: false })).toContain('anthropic package')
   })
   it('names Ollama when it is not answering', () => {
-    const ollama = { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: false }
+    const ollama = { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: false, package_installed: true, model_labels: {} }
     expect(engineBlockReason(ollama)).toContain("Ollama isn't answering")
   })
   it('keeps the key wording when only the key is missing', () => {
@@ -227,10 +228,10 @@ describe('engines that cannot run', () => {
 
 describe('sets', () => {
   const sets: BenchmarkSet[] = [
-    { stage: 'translation', tier: 'public', set_name: 'flores', case_count: 10, with_reference: 10 },
+    { stage: 'translation', tier: 'public', set_name: 'flores', case_count: 10, with_reference: 10, excluded: 0 },
     { stage: 'translation', tier: 'application', set_name: 'mine', case_count: 3, with_reference: 2, excluded: 1 },
-    { stage: 'translation', tier: 'application', set_name: '', case_count: 2, with_reference: 0 },
-    { stage: 'ocr', tier: 'application', set_name: 'pages', case_count: 4, with_reference: 4 },
+    { stage: 'translation', tier: 'application', set_name: '', case_count: 2, with_reference: 0, excluded: 0 },
+    { stage: 'ocr', tier: 'application', set_name: 'pages', case_count: 4, with_reference: 4, excluded: 0 },
   ]
 
   it('offers named sets of the stage and tier', () => {
@@ -529,7 +530,7 @@ describe('transcription arms at real settings', () => {
 describe('timingLine', () => {
   it('is empty without timed cases', () => {
     expect(timingLine(undefined)).toBe('')
-    expect(timingLine({ cases: 0 })).toBe('')
+    expect(timingLine({ cases: 0, start_median_ms: null, end_median_ms: null, within: null, merged: null, split: null, missed: null, silence: null })).toBe('')
   })
 
   it('names the medians, the share within 0.3 s and the counts', () => {

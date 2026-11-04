@@ -37,6 +37,7 @@ import {
   checkFiles,
   defaultEngine,
   pagesText,
+  firstPageNote,
   progressSummary,
   runBlockedReason,
   toolsSummary,
@@ -326,7 +327,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
         {target ? `${target.todo} of ${pagesText(target.pages)} have no text yet. ` : ''}Translate skips pages that already have text. Redo replaces a page's text boxes, including edits.
       </p>
 
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      {starting && !jobId && <p className="muted" role="status">Starting…</p>}
+      {jobId && <JobPanel job={job} pollError={pollError} note={firstPageNote(jobKind, job)} />}
 
       {pageNotes.length > 0 && (
         <div className="stack scanlate-notes" aria-label={`Page ${pageNumber ?? ''} notes`}>

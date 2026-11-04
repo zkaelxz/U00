@@ -110,7 +110,8 @@ function IpCheckControls() {
       <ErrorBanner error={loadError} onDismiss={() => setLoadError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
         Optional. An https address that returns this PC&apos;s public IP, used to check that the name other
-        devices open still points here (dynamic DNS). Without it, the check is skipped.
+        devices open still points here (dynamic DNS). Without it, the check is skipped. With a tunnel or CDN in
+        front of the app, set it anyway: it is how link imports learn this home&apos;s address and refuse it.
       </p>
       {configured == null ? (
         !loadError && <p className="muted">Loading…</p>

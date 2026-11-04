@@ -5,42 +5,9 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-interface SourceSupports {
-  search: boolean
-  get_series: boolean
-  get_chapters: boolean
-  get_pages: boolean
-  download_page: boolean
-  get_chapter_text: boolean
-  get_audio_url: boolean
-  login: boolean
-}
-
 export type SourcePace = 'careful' | 'normal' | 'fast'
 
-type HealthLight = 'green' | 'yellow' | 'red'
-
-export interface SourceSummary {
-  name: string
-  display_name: string
-  content_types: string[]
-  languages: string[]
-  supports: SourceSupports
-  import_supported: boolean
-  auth_supported: boolean
-  supports_adult_toggle: boolean
-  // Only a real browser render gives this site's content: Search and Import wait for the browser.
-  needs_browser?: boolean
-  enabled: boolean
-  adult_enabled: boolean
-  health: HealthLight | string
-  has_saved_signin: boolean
-  pace: SourcePace
-  fast_allowed: boolean
-  slowed_down: boolean
-  // The person marked this source as working only through the browser extension.
-  extension_only?: boolean
-}
+export type SourceSummary = Schemas['SourceSummary']
 
 export type SourceHealth = Schemas['SourceHealth']
 
@@ -102,36 +69,11 @@ export type SourcesSettingsUpdate = Partial<
   >
 >
 
-export interface SourceProfileVersion {
-  version: number | null
-  kind: string | null
-  status: string | null
-  origin: string | null
-  created_at: number | null
-  approved: boolean
-  failures: number
-  last_failure_reason: string | null
-  last_used: number | null
-}
+export type SourceProfileVersion = Schemas['SourceProfileVersion']
 
-export interface SourceProfileDomain {
-  domain: string
-  versions: SourceProfileVersion[]
-}
+export type SourceProfileDomain = Schemas['SourceProfileDomain']
 
-export interface TrackedSeries {
-  source: string
-  series_id: string
-  title: string
-  url: string
-  drama_id: number | null
-  last_checked: number | null
-  last_check_error: string | null
-  // Scheduled checks skip it: its source works only through the browser extension.
-  extension_only?: boolean
-  // New chapters are saved as CBZ files by the check (comic sources).
-  save_cbz: boolean
-}
+export type TrackedSeries = Schemas['TrackedSeries']
 
 export type SourceMoveChapter = Schemas['SourceMoveChapter']
 

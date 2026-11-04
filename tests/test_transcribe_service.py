@@ -968,7 +968,7 @@ class TestRunTranscribeAndApplyJob:
         # Step 101: the chained run carries the persisted use_gpu setting.
         assert diarize_calls == [(f"diarize_{did}", (
             os.path.join(ddir, "audio.wav"), "hf-token", 3,
-            {"use_gpu": True, "backend": "pyannote", "min_speakers": None, "max_speakers": None}))]
+            {"use_gpu": True, "backend": "nemotron", "min_speakers": None, "max_speakers": None}))]
         assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
         _clear(job_id)
 
@@ -1461,7 +1461,7 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
             hardsub_interval=1.0, diarize_audio_path=audio_path)
 
         assert seen == [(audio_path, "hf-token", None,
-                         {"use_gpu": False, "backend": "pyannote", "min_speakers": None, "max_speakers": None})]
+                         {"use_gpu": False, "backend": "nemotron", "min_speakers": None, "max_speakers": None})]
         assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
         _clear(job_id)
 
@@ -2537,6 +2537,22 @@ class TestMissingPackageOutcome:
         assert (kind, outcome) == ("ok", {"failed_reason": "headroom", "detail": sentence})
         # The job ends Failed with the sentence alone, no "HeadroomError:" in front.
         assert job_runner._failed_outcome_error(outcome, "transcribe_1") == sentence
+
+    def test_a_permission_refusal_on_the_audio_tells_the_user_what_to_do(self, monkeypatch, tmp_path):
+        import queue
+
+        def refuse(*a, **k):
+            raise PermissionError(13, "Permission denied", "audio.wav")
+        monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", refuse)
+        q = queue.Queue()
+        transcribe_pipeline._transcribe_worker(
+            "a.wav", "whisper", None, "zh", "simplified", "small", 5, 300, 0.5, False, "auto",
+            False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
+            False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
+        kind, outcome = q.get_nowait()
+        assert (kind, outcome) == ("ok", {"failed_reason": "media_unreadable"})
+        message = job_runner._failed_outcome_error(outcome, "transcribe_1")
+        assert "run Setup again" in message and "audio.wav" not in message
 
     def test_the_hardsub_thread_job_shows_a_headroom_sentence_alone(self, isolated_db, monkeypatch):
         import memory_headroom

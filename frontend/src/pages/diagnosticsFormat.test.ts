@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
+import { testJob } from '../types/jobFixture'
 import {
   upsertJob, isFinished, orderJobs,
   describeGpu, formatJobDuration, formatSeconds, jobTimeLeftText, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
   plainJobText, pollWhenSettled, shouldRefreshGpu, splitDependencies,
 } from './diagnosticsFormat'
 
-const job = (o: Partial<JobRecord>): JobRecord => ({
+const job = (o: Partial<JobRecord>): JobRecord => testJob({
   job_id: 'j', status: 'done', progress: null, message: '', error: null, description: null,
   gpu_touching: false, started_at: 100, finished_at: null, updated_at: 0, ...o,
 })

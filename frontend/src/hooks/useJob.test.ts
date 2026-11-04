@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../api/client'
 import type { JobRecord } from '../types/jobs'
+import { testJob } from '../types/jobFixture'
 import { makeProgressGate, pickRunState, startJobPolling } from './useJob'
 
-const job = (status: string): JobRecord => ({
+const job = (status: string): JobRecord => testJob({
   job_id: 'j', status, progress: null, message: '', error: null, description: null,
   gpu_touching: false, started_at: null, finished_at: null, updated_at: 0,
 })

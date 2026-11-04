@@ -10,7 +10,7 @@ const added = (over: Partial<AddCorrectionsResult> = {}): AddCorrectionsResult =
   set_name: 'moon', lines_compared: 200, lines_corrected: 14, unedited_skipped: 186, unclippable_skipped: 0,
   case_count: 14, remaining: 0, added: 14, skipped: 0, dry_run: false, ...over,
 })
-const set = (stage: string, name: string): BenchmarkSet => ({ stage, tier: 'application', set_name: name, case_count: 1, with_reference: 1 })
+const set = (stage: string, name: string): BenchmarkSet => ({ stage, tier: 'application', set_name: name, case_count: 1, with_reference: 1, excluded: 0 })
 
 describe('corrections form', () => {
   it('lists only sets that hold transcription cases, once each', () => {

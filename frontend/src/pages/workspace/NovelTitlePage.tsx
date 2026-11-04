@@ -5,6 +5,7 @@ import { getWorkflowProgress } from '../../api/workspace'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
+import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Tabs } from '../../components/Tabs'
 import { routeHref } from '../../router'
@@ -13,6 +14,7 @@ import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 import { NovelInstructionsTab } from './NovelInstructionsTab'
 import { NovelLinkStart } from './NovelLinkStart'
+import { mainButton } from './novelLinkChain'
 import { chaptersHeadline, rowMeta, rowTitle } from './stages/novelChapters'
 import './stages/novelChapters.css'
 
@@ -32,6 +34,8 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
   const [untranslated, setUntranslated] = useState(0)
   // Bumped while the link chain works so the list and counts follow what the server now holds.
   const [tick, setTick] = useState(0)
+  // Raised by Translate when the title has chapters but no lines, so the link chain starts from where the title is.
+  const [startSignal, setStartSignal] = useState(0)
   const refresh = () => setTick((t) => t + 1)
   const title = drama.title_en || drama.title_zh || `Title #${id}`
 
@@ -72,9 +76,12 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
       (e: unknown) => setError(e),
     )
   const marks = !!list && list.translation_chars > 0
-  // The Media stage is where saved chapters become lines, so a title without lines sends Translate there.
+  // With no lines yet the Translate tab has nothing to translate, so Translate runs the link chain (lines, speakers, glossary scan) instead.
   const hasLines = lineCount !== null && lineCount > 0
-  const stage = (s: string, tab?: 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
+  // Everything has English: the next move is Review, so it takes the primary styling.
+  const main = mainButton(lineCount, untranslated)
+  const allTranslated = main === 'review'
+  const stage = (s: string, tab?: 'glossary' | 'translate') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
   return (
     <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
@@ -95,11 +102,18 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
           chapters={list.total}
           translating={lineCount > 0 && untranslated < lineCount}
           defaultUrl={drama.source_url ?? ''}
+          hasSeries={!!drama.series_id}
+          startSignal={startSignal}
           onProgress={refresh}
         />
       )}
       <div className="actions">
-        <ButtonLink href={stage(hasLines ? 'translate' : 'source')} variant={hasLines ? 'primary' : 'secondary'}>Translate</ButtonLink>
+        {allTranslated && <ButtonLink href={stage('review')} variant="primary">Review</ButtonLink>}
+        {hasLines || !list || list.total === 0 ? (
+          <ButtonLink href={hasLines ? stage('translate', 'translate') : stage('source')} variant={hasLines && !allTranslated ? 'primary' : 'secondary'}>Translate</ButtonLink>
+        ) : (
+          <button type="button" className={buttonClass('primary')} onClick={() => setStartSignal((n) => n + 1)}>Translate</button>
+        )}
         <ButtonLink href={stage('source')}>Add chapters</ButtonLink>
         <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
         <ButtonLink href={stage('export')}>Export</ButtonLink>

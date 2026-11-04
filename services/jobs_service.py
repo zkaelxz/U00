@@ -44,7 +44,7 @@ RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached", "translated_count",
     "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
-    "coverage_warning", "ollama_notice", "speaker_count_hint", "stage_summary", "diarize_skipped_reason",
+    "coverage_warning", "ollama_notice", "speaker_count_hint", "backend_fallback", "stage_summary", "diarize_skipped_reason",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
@@ -321,6 +321,9 @@ FAILED_REASON_MESSAGES = {
     "anime_whisper": "Anime-whisper failed on this audio.",
     "groq": "The Groq transcription request failed.",
     "vocal_separation": "Separating the vocals failed.",
+    "media_unreadable": (
+        "Windows refused Baihe permission to read the audio file. If Baihe runs as a background "
+        "service, run Setup again to re-apply its folder permissions, or download the audio again."),
 }
 
 
@@ -468,6 +471,9 @@ def _summary_outcome(result: dict) -> tuple:
     if result.get("speaker_count_hint"):
         # A suggestion, not a failure, so it doesn't make the outcome partial.
         parts.append(str(result["speaker_count_hint"]))
+    if result.get("backend_fallback"):
+        # The run still produced speakers, so it stays "ok"; the sentence says why pyannote ran.
+        parts.append(str(result["backend_fallback"]))
     fallbacks = [f for f in result.get("fallbacks") or [] if isinstance(f, dict)]
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(

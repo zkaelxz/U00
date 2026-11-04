@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { narrationApi } from '../../../api/dub'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { ModelSelect } from '../../../components/ModelSelect'
 import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
@@ -48,6 +49,9 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   // The title's engine list knows the SDK and Ollama; this panel's own key flags are the ones its run checks.
   const titleEngines = useTitleEngines(dramaId)
   const ownEngines = cfg?.engines.map((o) => ({ name: o.key, label: o.key, free: false, models: null, key_configured: o.key_configured }))
+  // The title's list knows each engine's models (Ollama's installed tags, the cloud engines' known ones); an engine without a list keeps the typed box.
+  const modelEngine = titleEngines.engines?.find((e) => e.name === engine)
+  const hasModelList = (modelEngine?.models?.length ?? 0) > 0
   const titleGate = useEngineGate(titleEngines.engines, engine)
   const ownGate = useEngineGate(ownEngines, engine)
   // A missing key does not block this run: it cuts the text and marks every line Narrator.
@@ -84,7 +88,11 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
           label={AI_ENGINE_LABEL}
           help={`Splits the novel into narration lines of up to ${cfg.max_chunk_chars} characters and tags who speaks each one.`}
         >
-          <select value={engine} onChange={(e) => setEngine(e.target.value)}>
+          <select value={engine} onChange={(e) => {
+              setEngine(e.target.value)
+              // A model name belongs to one engine, so it would be wrong for the next.
+              setModel('')
+            }}>
             {cfg.engines.map((o) => (
               <option key={o.key} value={o.key}>
                 {humanize('engine', o.key)}
@@ -93,15 +101,19 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
             ))}
           </select>
         </Field>
-        <Field label="Model" help="Optional; leave blank for the engine's default.">
-          <input value={model} onChange={(e) => setModel(e.target.value)} />
-        </Field>
+        {hasModelList ? (
+          <ModelSelect engine={modelEngine} value={model} onChange={setModel} help="Optional; leave on Engine default to use the engine's own." />
+        ) : (
+          <Field label="Model" help="Optional; leave blank for the engine's default.">
+            <input value={model} onChange={(e) => setModel(e.target.value)} />
+          </Field>
+        )}
       </div>
       <EngineGateNote gate={gate} />
       {needsConfirm && (
-        <div className="dub-check">
+        <div className="setting-list">
           <Field label={`Replace the ${cfg.existing_line_count} existing lines`}>
-            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            <Toggle checked={confirmed} onChange={setConfirmed} />
           </Field>
         </div>
       )}

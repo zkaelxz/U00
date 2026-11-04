@@ -59,7 +59,7 @@ def test_every_adapter_serializes(client):
 
 def test_needs_browser_marks_exactly_the_browser_only_adapters(client):
     by = {x["name"]: x for x in client.get("/api/sources").json()}
-    assert {n for n, x in by.items() if x["needs_browser"]} == {"fanjiao", "bilibili_manga"}
+    assert {n for n, x in by.items() if x["needs_browser"]} == {"fanjiao", "fanjiao_comic", "bilibili_manga"}
 
 
 def test_demo_source_hidden_until_enabled(client):

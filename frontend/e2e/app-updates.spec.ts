@@ -8,7 +8,7 @@ import { openSettingsGroups } from './settingsNav'
 const BASE = {
   current: '0.1.0', installed: true, latest: null, update_available: false, notes: '', installer_name: null,
   size: null, checked_at: null, check_error: null, release_lookup: 'unchecked', download: 'idle', downloaded_bytes: 0, download_error: null,
-  verified: false, verified_version: null, verified_name: null, can_install: false, signature_check: false, signature_verified: false, auto_check: false,
+  verified: false, verified_version: null, verified_name: null, can_install: false, signature_check: false, signature_verified: false, auto_check: false, include_prereleases: false,
   custom_source: false,
   app_update: 'none', app_update_here: true, app_size: null, app_download: 'idle', app_downloaded_bytes: 0,
   app_download_error: null, app_verified: false, app_verified_version: null, can_apply_app: false,
@@ -52,7 +52,7 @@ async function mockUpdates(page: Page, initial: Record<string, unknown> = {}, ap
       return json(route, (status = { ...status, download: 'downloading', downloaded_bytes: 52_000_000 }), 202)
     }
     if (path.endsWith('/install')) return json(route, { launched: true, installer_name: AVAILABLE.installer_name, version: '0.2.0' })
-    if (path.endsWith('/settings')) return json(route, (status = { ...status, auto_check: true }))
+    if (path.endsWith('/settings')) return json(route, (status = { ...status, ...JSON.parse(route.request().postData() ?? '{}') }))
     return route.abort()
   })
   return calls
@@ -122,7 +122,8 @@ test('under the background service the app-only path says to use the full instal
   const c = card(page)
   await c.getByRole('button', { name: 'Check for updates' }).click()
   await expect(c.getByTestId('update-app-line')).toHaveText(
-    'Baihe runs as the background service here, so this update needs the full installer.',
+    'Baihe runs as the background service here and has no app-update helper yet, so this update needs the full installer. ' +
+      'Running the full installer once adds the helper; app updates can then be applied here.',
   )
   await expect(c.getByRole('button', { name: 'Download app update', exact: true })).toHaveCount(0)
   await expect(c.getByRole('button', { name: /Update app only/ })).toHaveCount(0)
@@ -161,6 +162,16 @@ test('the daily check is a switch, off by default', async ({ page }) => {
   await expect(toggle).toBeChecked()
   expect(calls.find((x) => x.path.endsWith('/settings'))?.body).toEqual({ auto_check: true })
   expect(calls.some((x) => x.path.endsWith('/download') || x.path.endsWith('/check'))).toBe(false)
+})
+
+test('the pre-release switch is on the card without Developer Mode', async ({ page }) => {
+  const calls = await mockUpdates(page)
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Notifications and backups')
+  const toggle = card(page).getByRole('switch', { name: 'Include pre-releases' })
+  await toggle.click()
+  await expect(toggle).toBeChecked()
+  expect(calls.find((x) => x.path.endsWith('/settings'))?.body).toEqual({ include_prereleases: true })
 })
 
 test('a custom update source is named on the card', async ({ page }) => {

@@ -10,6 +10,12 @@ from scanlate_regions import region_excluded_from_auto
 
 _MAX_CONTEXT_CHARS = 1000
 
+# One read of a whole chapter must fit a single request: a chapter's lettering is
+# a few thousand characters, and a webtoon of hundreds of pages is cut here
+# rather than refused.
+_BRIEF_SOURCE_CHARS = 24000
+_BRIEF_MAX_CHARS = 1500
+
 # A dense page in one call needs a longer answer than an engine will write, and
 # one cut-off answer used to lose every region on the page.
 _REGIONS_PER_CALL = 40
@@ -20,7 +26,7 @@ _MAX_TOKENS_PER_CALL = 8192
 
 def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
                             previous_context: str = "", usage_cb=None, glossary_terms=None,
-                            character_notes: str = ""):
+                            character_notes: str = "", chapter_brief: str = ""):
     """Id-keyed page translation: translate_page_bubbles (and so the
     extension bridge) and the API jobs go through this. `texts_by_id` maps
     each region's id to its source text. Returns ({id: translation},
@@ -64,7 +70,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
     for start in range(0, len(items), _REGIONS_PER_CALL):
         chunk_got, context = _translate_region_chunk(
             items[start:start + _REGIONS_PER_CALL], engine, drama_meta, context,
-            usage_cb, glossary_terms, character_notes)
+            usage_cb, glossary_terms, character_notes, chapter_brief)
         got.update(chunk_got or {})
     if not got:
         return None, previous_context
@@ -72,7 +78,8 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
 
 
 def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_context: str,
-                            usage_cb, glossary_terms, character_notes: str = ""):
+                            usage_cb, glossary_terms, character_notes: str = "",
+                            chapter_brief: str = ""):
     """One LLM call for [(id, text), ...]. Returns ({id: translation},
     new_context), or (None, previous_context) when the answer doesn't name
     exactly the ids sent, each with a string."""
@@ -93,11 +100,21 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     # reference for the whole title rather than per-page context.
     if character_notes:
         glossary_block += f"\n\n{character_notes}"
+    if chapter_brief:
+        glossary_block += ("\n\nBrief of the whole chapter (who is speaking, names and what "
+                           f"happens), for consistency across pages: {chapter_brief}")
     payload = json.dumps([{"id": k, "text": t} for k, t in items], ensure_ascii=False)
+    # OCR of stylised lettering drops Korean word spaces and swaps look-alike
+    # characters (불이 read as 붙이 turned "the school caught fire" into "got into
+    # school"), so the model is told the text is machine-read, not authoritative.
+    ocr_note = (" The text was read by OCR: word spaces may be missing and a character may be "
+                "misread, so use the surrounding lines and the context to recover the intended "
+                "sentence." if (drama_meta or {}).get("source_language") in ("ko", "ja", "zh")
+                else "")
     prompt = (
         f"Translate these {source_name} manga/comic text regions into natural English, keeping "
         "character voice and plot consistent with the context below if any. They are listed in reading "
-        "order; each has an id."
+        "order; each has an id." + ocr_note
         + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         'Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
         '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
@@ -160,3 +177,37 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
         raise ValueError(f"{untranslated} of {len(by_key)} regions weren't translated: part of "
                          "the answer couldn't be matched to them by id. The others were applied.")
     return new_context
+
+
+def build_chapter_brief(page_texts: list, engine, drama_meta: dict, usage_cb=None) -> str:
+    """One call over a chapter's whole OCR text (`page_texts`: one string per
+    page, in reading order) that returns a short brief of who speaks, the names
+    and what happens, for the per-page translation calls to carry. Returns ""
+    for an engine that cannot follow a prompt, no text, or an answer that is not
+    the expected JSON: a missing brief must never stop the run."""
+    import re
+    from core import LANGUAGE_NAMES
+    from engine_backends.llm_tasks import call_llm_json
+    from engine_backends.shared import extract_first_json_value
+    if not getattr(engine, "supports_reference", False) or getattr(engine, "client", True) is None:
+        return ""
+    numbered = [f"Page {i}: {t}" for i, t in enumerate(page_texts, start=1) if t.strip()]
+    source = "\n".join(numbered)[:_BRIEF_SOURCE_CHARS]
+    if not source:
+        return ""
+    source_name = LANGUAGE_NAMES.get((drama_meta or {}).get("source_language") or "zh",
+                                     "source-language")
+    prompt = (
+        f"Below is all the text of one {source_name} comic chapter, page by page, read by OCR "
+        "(word spaces may be missing and a character may be misread). Write a brief for the "
+        "translator who will translate it page by page: who the characters are and how they "
+        "address each other, names and recurring terms with the English to use for each, and a "
+        "few sentences on what happens. Keep it under 200 words.\n\n" + source + "\n\n"
+        'Return ONLY a JSON object: {"brief": "<the brief in English>"}. No preamble, no markdown fences.')
+    text = call_llm_json(engine, prompt, max_tokens=700, fallback=None, usage_cb=usage_cb)
+    if not text:
+        return ""
+    data = extract_first_json_value(
+        re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip())
+    brief = data.get("brief") if isinstance(data, dict) else None
+    return brief.strip()[:_BRIEF_MAX_CHARS] if isinstance(brief, str) else ""

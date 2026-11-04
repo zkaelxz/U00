@@ -12,6 +12,7 @@ ever adds a firewall rule: the owner does, by hand.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -98,13 +99,14 @@ class FakeWindows:
         if verb == "config":
             key, value = cmd[3], cmd[4]
             if key == "start=":
-                svc["start"] = {"auto": "AUTO_START", "disabled": "DISABLED"}[value]
+                svc["start"] = {"auto": "AUTO_START", "disabled": "DISABLED",
+                                "demand": "DEMAND_START"}[value]
             elif key == "depend=":
                 svc["depend"] = value
             elif key == "obj=":
                 svc["account"] = value
             return self._result(cmd)
-        if verb in ("sidtype", "privs", "failure", "failureflag"):
+        if verb in ("sidtype", "privs", "failure", "failureflag", "sdset"):
             svc[verb] = cmd[3:]
             return self._result(cmd)
         raise AssertionError(f"unexpected sc command {cmd}")
@@ -129,7 +131,9 @@ def source(tmp_path):
     """Setup's extraction: {app}\\service."""
     src = tmp_path / "setup-service"
     for rel, text in (("helper/python/python.exe", "py"), ("helper/lib/installer/service.py", "new"),
-                      ("wrapper/BaiheStudio.exe", "winsw"), ("caddy/BaiheCaddy.exe", "winsw"),
+                      ("helper/lib/installer/release_public_key.txt", "# key"),
+                      ("wrapper/BaiheStudio.exe", "winsw"), ("wrapper/BaiheUpdate.exe", "winsw"),
+                      ("caddy/BaiheCaddy.exe", "winsw"),
                       ("caddy/caddy.exe", "caddy")):
         p = src / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -143,8 +147,12 @@ def source(tmp_path):
 def _services(layout, win, source=None, health=True, **kw):
     """`health` is True/False, or a function of the port probed."""
     probe = health if callable(health) else (lambda port: health)
-    return service.Services(layout, win, health=probe, sleep=lambda s: None,
-                            source=source, **kw)
+    svc = service.Services(layout, win, health=probe, sleep=lambda s: None,
+                           source=source, **kw)
+    svc.tree_check = lambda root: None      # file owners can't be read off Windows
+    svc.locked = []
+    svc.lock_root = lambda root, sid: svc.locked.append((root, sid))
+    return svc
 
 
 def _xml_env(path):
@@ -311,7 +319,9 @@ class TestInstall:
         win = FakeWindows()
         _services(layout, win, source).install()
         sid = "*" + service_control.service_sid("BaiheStudio")
-        grants = {c[1]: c[2:] for c in win.commands("icacls.exe")}
+        grants = {}
+        for c in win.commands("icacls.exe"):
+            grants.setdefault(c[1], c[2:])      # the first call per folder is the grant
         assert grants[str(layout.root)][:2] == ["/grant", f"{sid}:(OI)(CI)RX"]
         assert grants[str(layout.data)][:2] == ["/grant", f"{sid}:(OI)(CI)M"]
         assert grants[str(layout.service_dir)][:2] == ["/grant", f"{sid}:(OI)(CI)RX"]
@@ -329,7 +339,7 @@ class TestInstall:
         assert layout.helper_script.read_text(encoding="utf-8") == "newer"
         assert win.services["BaiheStudio"]["state"] == "RUNNING"
         assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_ALLOW_KEY_WRITES"] == "1"
-        assert sum(1 for c in win.calls if c[1] == "create") == 2      # once each, not again
+        assert sum(1 for c in win.calls if c[1] == "create") == 3      # once each, not again
 
     def test_failure_on_a_fresh_install_leaves_nothing(self, layout, source):
         win = FakeWindows()
@@ -482,6 +492,72 @@ class TestStopAndUninstall:
         win = FakeWindows(installed=True, state="RUNNING")
         _services(layout, win).stop()
         assert win.services["BaiheStudio"]["state"] == "STOPPED"
+
+    def test_a_plain_stop_leaves_the_install_folder_locked(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.install()
+        svc.stop()
+        assert layout.lock_marker.is_file()
+
+    def test_stop_for_update_unlocks_the_install_folder_for_setup(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.install()
+        svc.stop(for_update=True)
+        assert not layout.lock_marker.exists()
+        assert win.commands("icacls.exe")[-1][1:] == [str(layout.root), "/reset", "/T", "/L"]
+
+    def test_install_locks_the_install_folder_to_administrators(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.install()
+        # The root's whole permission list is replaced in one step before any owner changes,
+        # and the reset never names the root itself (that would turn its inheritance back on).
+        assert svc.locked == [(layout.root, service_control.service_sid("BaiheStudio"))]
+        icacls = [c for c in win.commands("icacls.exe") if "/setowner" in c or "/reset" in c][:2]
+        assert icacls[0][1:] == [str(layout.root), "/setowner", "*S-1-5-32-544", "/T", "/L"]
+        assert icacls[1][1] == str(layout.root / "*") and icacls[1][2] == "/reset"
+        assert layout.lock_marker.is_file()
+
+    def test_the_root_permission_list_has_no_inheritance_and_no_users_write(self):
+        from installer import service_lock
+        sddl = service_lock.root_sddl("S-1-5-80-1")
+        assert sddl.startswith("D:P(")      # protected: nothing from the parent
+        assert service_lock.write_access_problem("O:BA" + sddl, {"SY", "BA", "S-1-5-80-1"},
+                                                 protected=True) is None
+
+    def test_a_lock_that_leaves_a_user_owned_file_fails_the_install(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.tree_check = lambda root: "x.dll is still owned by a user after locking"
+        with pytest.raises(service_layout.ServiceError, match="still owned by a user"):
+            svc.install()
+        assert not layout.lock_marker.exists()
+        assert win.services == {}
+
+    def test_a_failed_lock_unlocks_again_and_rolls_the_install_back(self, layout, source):
+        win = FakeWindows()
+        real = win.__call__
+
+        def fail_on_lock(cmd, timeout=120):
+            if "/setowner" in [str(c) for c in cmd]:
+                return win._result(cmd, 1)
+            return real(cmd, timeout)
+
+        fail_on_lock.log = win.log
+        with pytest.raises(service_layout.ServiceError, match="Locking the install folder"):
+            service.Services(layout, fail_on_lock, health=lambda p: True, sleep=lambda s: None,
+                             source=source).install()
+        assert not layout.lock_marker.exists()
+        assert win.services == {}
+
+    def test_uninstall_unlocks_the_install_folder_so_the_uninstaller_can_delete_it(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.install()
+        svc.uninstall()
+        assert [str(layout.root), "/reset", "/T", "/L"] in [c[1:] for c in win.commands("icacls.exe")]
 
     def test_stop_when_not_installed(self, layout):
         assert "Stopped" in _services(layout, FakeWindows()).stop()
@@ -739,6 +815,44 @@ class TestCaddyInstalledOff:
         assert not layout.caddyfile.exists() and not layout.state_file.exists()
         assert layout.caddy_exe.read_text(encoding="utf-8") == "caddy"
         assert layout.template.is_file()
+
+    def test_the_update_helper_is_a_demand_start_system_service_only_the_app_can_start(self, layout, source):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        helper = win.services["BaiheUpdate"]
+        assert helper["start"] == "DEMAND_START" and helper["state"] == "STOPPED"
+        assert helper["account"] == "LocalSystem"       # it replaces files and stops the other service
+        assert "failure" not in helper                  # a one-shot: never restarted after exiting
+        sddl = helper["sdset"][0]
+        app_sid = service_control.service_sid("BaiheStudio")
+        # The app's account may query and start it (LC, RP, RC) and nothing else.
+        assert f"(A;;LCRPRC;;;{app_sid})" in sddl
+        assert sddl.count(app_sid) == 1
+        xml = ET.parse(layout.wrapper_xml("BaiheUpdate")).getroot()
+        assert xml.findtext("startmode") == "Manual"
+        assert xml.findtext("executable") == str(layout.helper_python)
+        assert xml.findtext("arguments").endswith("apply-app-update")
+        assert xml.findtext("arguments").startswith("-I -S ")
+
+    def test_the_update_helper_runs_only_from_the_admin_folder(self, layout, source):
+        _services(layout, FakeWindows(), source).install()
+        xml = ET.parse(layout.wrapper_xml("BaiheUpdate")).getroot()
+        admin = str(layout.admin)
+        assert xml.findtext("executable").startswith(admin)
+        assert str(layout.helper_script) in xml.findtext("arguments")
+        assert str(layout.root) not in ET.tostring(xml, encoding="unicode")
+
+    def test_an_install_without_the_release_key_is_refused(self, layout, source):
+        (source / "helper" / "lib" / "installer" / "release_public_key.txt").unlink()
+        with pytest.raises(service_layout.ServiceError, match="incomplete"):
+            _services(layout, FakeWindows(), source).install()
+
+    def test_uninstall_removes_the_update_helper_too(self, layout, source):
+        win = FakeWindows()
+        svcs = _services(layout, win, source)
+        svcs.install()
+        svcs.uninstall()
+        assert "BaiheUpdate" not in win.services
 
     def test_household_listener_stays_closed(self, layout, source):
         _services(layout, FakeWindows(), source).install()
@@ -1745,7 +1859,110 @@ class TestNothingBeyondLoopback:
         # service_cli is imported inside the __main__ guard (it imports Services from service).
         assert set(re.findall(r"^from (installer\.\w+)", self.SOURCE, re.M)) == {
             "installer.service", "installer.service_checks", "installer.service_config",
-            "installer.service_control", "installer.service_layout", "installer.setup_lock"}
+            "installer.service_control", "installer.service_layout", "installer.service_lock",
+            "installer.setup_lock"}
 
     def test_every_command_has_a_time_limit(self):
         assert "timeout=timeout" in self.SOURCE and "timeout=2)" in self.SOURCE
+
+
+class TestTreeProblem:
+    GOOD = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)(A;OICI;RC;;;OW)"
+
+    def _check(self, root, **kw):
+        from installer import service_lock
+        kw.setdefault("owner", lambda p: "S-1-5-32-544")
+        kw.setdefault("sddl", lambda p: self.GOOD)
+        return service_lock.tree_problem(root, **kw)
+
+    def test_a_locked_tree_is_fine(self, tmp_path):
+        (tmp_path / "a" / "b").mkdir(parents=True)
+        (tmp_path / "a" / "b" / "f").write_text("x")
+        assert self._check(str(tmp_path)) is None
+
+    def test_a_user_owned_entry_is_named(self, tmp_path):
+        (tmp_path / "f").write_text("x")
+        got = self._check(str(tmp_path), owner=lambda p: "S-1-5-21-1-2-3-1001" if p.endswith("f")
+                          else "S-1-5-18")
+        assert "still owned by a user" in got
+
+    def test_an_entry_that_lets_a_user_write_is_named_even_when_owned_by_admins(self, tmp_path):
+        (tmp_path / "f").write_text("x")
+        bad = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;AU)"
+        got = self._check(str(tmp_path), sddl=lambda p: bad if p.endswith("f") else self.GOOD)
+        assert "can write" in got
+
+    def test_an_unprotected_root_is_named(self, tmp_path):
+        got = self._check(str(tmp_path), sddl=lambda p: "O:BAD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
+        assert "inherits permissions" in got
+
+    def test_a_hard_linked_file_is_named(self, tmp_path):
+        (tmp_path / "f").write_text("x")
+        os.link(tmp_path / "f", tmp_path / "g")
+        assert "hard link" in self._check(str(tmp_path))
+
+    def test_a_folder_that_cannot_be_listed_is_named(self, tmp_path, monkeypatch):
+        (tmp_path / "locked").mkdir()
+        real = os.scandir
+
+        def scandir(path):
+            if str(path).endswith("locked"):
+                raise PermissionError(13, "denied", str(path))
+            return real(path)
+
+        monkeypatch.setattr(os, "scandir", scandir)
+        assert "can't be listed" in self._check(str(tmp_path))
+
+    def test_a_link_is_refused(self, tmp_path, monkeypatch):
+        (tmp_path / "junction").mkdir()
+        real = os.lstat
+        monkeypatch.setattr(os, "lstat", lambda p: type("S", (), {
+            "st_file_attributes": 0x400 if str(p).endswith("junction") else 0,
+            "st_nlink": 1})() if "junction" in str(p) else real(p))
+        assert "is a link" in self._check(str(tmp_path))
+
+
+class TestHoldDirectory:
+    def test_every_folder_above_is_held_outermost_first_and_released_in_reverse(self, tmp_path):
+        from installer import service_lock
+        events = []
+        target = tmp_path / "Programs" / "Baihe Studio"
+        target.mkdir(parents=True)
+        with service_lock.hold_directory(target, is_windows=True,
+                                         open_held=lambda p: events.append(("open", p)) or str(p),
+                                         close_held=lambda h: events.append(("close", h))):
+            events.append(("work", None))
+        opened = [e[1] for e in events if e[0] == "open"]
+        assert opened[-1] == target and opened[0] == Path(target.anchor)
+        assert opened == sorted(opened, key=lambda p: len(p.parts))
+        assert events[len(opened)] == ("work", None)
+        assert [str(e[1]) for e in events if e[0] == "close"] == [str(p) for p in reversed(opened)]
+
+    def test_a_link_among_the_folders_above_refuses_and_still_releases(self, tmp_path, monkeypatch):
+        from installer import service_lock
+        target = tmp_path / "Programs" / "Baihe Studio"
+        target.mkdir(parents=True)
+        closed = []
+        real = os.lstat
+        monkeypatch.setattr(os, "lstat", lambda p: type("S", (), {"st_file_attributes": 0x400})()
+                            if str(p).endswith("Programs") else real(p))
+        with pytest.raises(service_layout.ServiceError, match="is a link"):
+            with service_lock.hold_directory(target, is_windows=True,
+                                             open_held=lambda p: str(p), close_held=closed.append):
+                pytest.fail("must not run")
+        assert closed       # nothing stays held
+
+    def test_a_folder_that_cannot_be_opened_stops_it_and_releases_the_rest(self, tmp_path):
+        from installer import service_lock
+        closed = []
+
+        def open_held(p):
+            if p == tmp_path:
+                raise service_layout.ServiceError("can't be held open")
+            return str(p)
+
+        with pytest.raises(service_layout.ServiceError, match="held open"):
+            with service_lock.hold_directory(tmp_path, is_windows=True, open_held=open_held,
+                                             close_held=closed.append):
+                pytest.fail("must not run")
+        assert len(closed) == len(service_lock.ancestors(tmp_path)) - 1

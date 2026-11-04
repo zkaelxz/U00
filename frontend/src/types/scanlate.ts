@@ -16,50 +16,14 @@ export type ScanlateUploadResult = Schemas['ScanlateUploadResult']
 
 export type ScanlateRunMode = 'missing' | 'page' | 'all'
 
-export interface ScanlateRunRequest {
-  mode: ScanlateRunMode
-  page_id?: number
-  // Limits 'missing' / 'all' to one chapter (hidden pages are always skipped).
-  chapter_id?: string
-  confirm?: boolean
-  engine?: string
-  detect_backend?: ScanlateDetectBackend
-  // Also translate large lettering drawn on the artwork (off unless set).
-  art_captions?: boolean
-  // The page the reader is on: translates the next few untranslated pages (mode 'missing' only).
-  read_ahead_from?: number
-}
+export type ScanlateRunRequest = Schemas['ScanlateRunRequest']
 
 export type ScanlateExportFormat = 'zip' | 'pdf'
 
 export type ScanlateJobStarted = Schemas['ScanlateJobStarted']
-export interface ScanlateRegion {
-  id: number
-  idx: number
-  x: number
-  y: number
-  w: number
-  h: number
-  source_text: string
-  translated_text: string
-  font_size: number
-  font_category: string
-  kind: string
-  // "#rrggbb" set in the editor; null lets the render choose.
-  text_color: string | null
-}
+export type ScanlateRegion = Schemas['ScanlateRegion']
 
-export interface ScanlatePageDetail {
-  id: number
-  drama_id: number
-  ordinal: number
-  width: number
-  height: number
-  rev: number
-  undo_depth: number
-  has_rendered: boolean
-  regions: ScanlateRegion[]
-}
+export type ScanlatePageDetail = Schemas['ScanlatePageDetail']
 
 // The fields a box edit may change; only the ones present count.
 export type ScanlateRegionFields = Partial<

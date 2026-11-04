@@ -151,6 +151,9 @@ SETTINGS = (
     _pref("scene_aware_batches", "bool", True, label="Start batches at scene breaks",
           help="Translate batches start where the scene changes, so a scene is not split across two requests.",
           tab="translation", section="Translation style"),
+    _pref("scanlate_chapter_brief", "bool", True, label="Read the whole comic chapter before translating",
+          help="Before a comic run translates page by page, one extra request reads the chapter's whole text and writes a short brief (who speaks, names, what happens) that every page's translation carries, so names and plot stay consistent across pages. It costs one request per chapter and delays the first page while the chapter is read; the brief is kept, so running the chapter again is free. Turn off to translate each page with only the page before it as context.",
+          tab="translation", section="Translation style"),
     _pref("translate_reply_guard", "choice", "auto", choices="reply_guard_modes",
          label="Check translations for merged or shifted lines",
          help="After each batch, lines that look merged into a neighbour, shifted, duplicated or still in the source script are asked again once. Extra requests are billed like any other. Claude models rarely need this and weaker engines do, so Auto checks every engine except Claude and Gemini Pro. On always checks; Off never does.",
@@ -196,6 +199,14 @@ SETTINGS = (
     _own("update.auto_check", "bool", False, label="Check for updates automatically",
          tab="preferences", section="App updates"),
     _own("update.last_check_at", "float", 0.0, min=0),
+    # Shown by the App updates card, which saves it through /api/system/update/settings.
+    _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
+         tab="preferences", section="App updates"),
+    # Shown by the App updates card (only on the boot service, once the BaiheUpdate helper is
+    # installed), which saves it through /api/system/update/settings.
+    _own("update.service_auto_apply", "bool", False,
+         label="Install app updates automatically on the boot service",
+         tab="preferences", section="App updates"),
     _own("household.share_by_default", "bool", False, label="Share new items with the household",
          tab="preferences", section="Sharing"),
     _own("web_search", "json", {}, custom=True, tab="preferences", section="Web search",
@@ -231,9 +242,10 @@ SETTINGS = (
     _pref("ocr_backend", "choice", "auto", choices="ocr_backends", label="Default backend",
           help="Auto uses manga_ocr for Japanese, RapidOCR for Chinese and Korean, else Tesseract.",
           tab="system", section="Advanced"),
-    _pref("speaker_model", "choice", "pyannote", choices="speaker_models", label="Speaker detection model",
-          help="Pyannote is the default. Nemotron-3 is NVIDIA's newer model and mixed up fewer lines on the titles we scored; "
+    _pref("speaker_model", "choice", "nemotron", choices="speaker_models", label="Speaker detection model",
+          help="Nemotron-3 is NVIDIA's newer model and mixed up fewer lines than pyannote on the titles we scored; "
                "it needs the transformers and librosa packages and downloads about 380 MB the first time. "
+               "Pyannote (community-1) is the older choice: pick it to go back. "
                "A typed speaker count always uses pyannote, and a failed Nemotron run falls back to pyannote.",
           tab="system", section="Advanced"),
     _pref("ocr_prefer_paddle_vl_manga", "bool", False, label="Japanese: prefer PaddleOCR-VL",
@@ -440,9 +452,6 @@ SETTINGS = (
     _own("remote_uploads", "bool", False, label="Allow uploads from away", **_ASSISTANT),
     # When the switch above was last turned on; it lapses REMOTE_UPLOADS_DAYS later.
     _own("remote_uploads.on_at", "float", 0.0, min=0),
-    _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
-         help="Offer beta releases when checking for updates. Only a newer version than this one is ever offered.",
-         **_ASSISTANT),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

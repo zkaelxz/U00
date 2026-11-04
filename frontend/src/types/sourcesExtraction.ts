@@ -57,36 +57,11 @@ interface FieldConfidence {
   value: string | null
 }
 
-interface ExtractionContainer {
-  selector: string
-  chars: number
-  preview: string
-  exclusions: { selector: string; preview: string }[]
-}
-
-export interface ExtractionNovel {
-  text_preview: string
-  char_count: number
-  chapter_title: string
-  containers: ExtractionContainer[]
-  content_selector: string | null
-  exclude_selectors: string[]
-  headings: { id: string; text: string }[]
-  title_block: string | null
-  links: { id: string; text: string; url: string | null }[]
-  next_link: string | null
-  previous_link: string | null
-  number_from: 'title' | 'url'
-}
+export type ExtractionNovel = Schemas['ExtractionNovel']
 
 export type ExtractionImage = Schemas['ExtractionImage']
 
 export type ExtractionComic = Schemas['ExtractionComic']
-
-// Why following next-chapter links stopped.
-type FollowStop =
-  | 'cap' | 'no_next' | 'cycle' | 'other_host' | 'downgrade' | 'gate' | 'not_public' | 'handoff' | 'unreachable' | 'invalid'
-  | 'chars'
 
 // One page a followed import read; id 0 is the reviewed first page.
 export interface FollowedPage {
@@ -97,10 +72,7 @@ export interface FollowedPage {
   host: string
 }
 
-export interface ExtractionFollow {
-  pages: FollowedPage[]
-  stop: FollowStop | string
-}
+export type ExtractionFollow = Schemas['ExtractionFollow']
 
 // GET /api/sources/dramas/{id}/extraction
 export interface ExtractionReview {

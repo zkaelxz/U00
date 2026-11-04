@@ -8,16 +8,7 @@ export type BenchmarkTier = 'public' | 'application' | 'regression'
 export type SourceLanguage = 'zh' | 'ja' | 'ko'
 export type ImportFormat = 'jsonl' | 'tsv'
 
-export interface BenchmarkEngineOption {
-  name: string
-  label: string
-  free: boolean
-  models: string[] | null
-  model_labels?: Record<string, string>
-  key_configured: boolean
-  // Older servers omit it: treated as installed.
-  package_installed?: boolean
-}
+export type BenchmarkEngineOption = Schemas['BenchmarkEngineOption']
 
 /** A transcription arm's per-title options; a field left out takes the app's default (BenchmarkOptions.transcribe_defaults). */
 export interface BenchmarkTranscribeOptions {
@@ -41,105 +32,18 @@ export interface BenchmarkTranscribeOptions {
  * field left out takes what a title's Translate starts with (BenchmarkOptions.translate_choices). */
 export type BenchmarkTranslateOptions = Schemas['BenchmarkTranslateOptions']
 
-export interface BenchmarkTranslateChoices {
-  style_presets: { key: string; label: string }[]
-  series: { id: number; name: string }[]
-  /** Everything but the batch size, which follows the engine and model (batch_size_defaults). */
-  defaults: { context_window: number; context_window_ahead: number; batch_size: number; reflect: boolean; style_preset: string; memory_examples: boolean }
-  /** The engines that take a temperature. */
-  temperature_engines: string[]
-  /** {engine: {model or '' for the engine's default: lines per request}}. */
-  batch_size_defaults: Record<string, Record<string, number>>
-}
+export type BenchmarkTranslateChoices = Schemas['BenchmarkTranslateChoices']
 
 /** A run's line timing over the cases that have reference times; only `cases` (0) when none do. */
 export type BenchmarkTimingSummary = Schemas['BenchmarkTimingSummary']
 
-export interface BenchmarkCaseTiming {
-  lines: number
-  missed: boolean
-  split: boolean
-  merged: boolean
-  start_error_s: number | null
-  end_error_s: number | null
-  silence: number | null
-}
+export type BenchmarkCaseTiming = Schemas['BenchmarkCaseTiming']
 
-/** Arena only: whether a run's timing beat the first run's by more than the measured noise without a worse text score. */
-interface BenchmarkTimingVerdict {
-  state: 'baseline' | 'repeat' | 'untimed' | 'no_margin' | 'no_gain' | 'cer_worse' | 'gain'
-  text: string
-  margin_within: number | null
-  margin_score: number | null
-  gain?: number | null
-  score_change?: number | null
-}
+export type BenchmarkOptions = Schemas['BenchmarkOptions']
 
-interface BenchmarkBackendOption {
-  name: string
-  label: string
-  /** What it still needs on this PC (a package or a model to download); null when it can run. */
-  problem: string | null
-}
+export type BenchmarkCase = Schemas['BenchmarkCase']
 
-export interface BenchmarkOptions {
-  stages: BenchmarkStage[]
-  tiers: BenchmarkTier[]
-  source_languages: SourceLanguage[]
-  translation_engines: BenchmarkEngineOption[]
-  whisper_sizes: string[]
-  // {model: {language: reason}} for models not recommended for a language.
-  whisper_exclusions: Record<string, Record<string, string>>
-  /** Recognisers besides Whisper (Qwen3-ASR, anime-whisper); they run only when already installed. */
-  transcription_backends: BenchmarkBackendOption[]
-  transcribe_defaults: Required<BenchmarkTranscribeOptions>
-  /** Per recogniser ("whisper" included), the options it does not read. */
-  transcribe_options_ignored: Record<string, string[]>
-  translate_choices: BenchmarkTranslateChoices
-  ocr_backends: string[]
-  /** Vision engines that can also read a picture in the OCR stage (paid ones need a key and count toward the cap). */
-  vision_engines: string[]
-  pass_threshold: number
-  chrf_pass_threshold: number
-  max_configs: number
-}
-
-export interface BenchmarkCase {
-  id: number
-  label: string
-  stage: string | null
-  tier: string
-  set_name: string
-  source_language: string
-  source_text: string | null
-  reference_text: string | null
-  has_reference: boolean
-  has_input_file: boolean
-  /** Made from a title's video: pictures of the subtitle band, read by a vision arm. */
-  hard_sub?: boolean
-  origin_drama_id: number | null
-  origin_line_id: number | null
-  title: string
-  tags: string[]
-  scene_order: number | null
-  /** An excluded case is not run and drops out of comparisons; its results are kept. */
-  excluded: boolean
-  /** Goes up by one each time the reference is edited. */
-  ref_version: number
-  /** The case has a reference start and end, so a run scores its line timing. */
-  has_ref_times?: boolean
-  created_at: string | null
-}
-
-export interface BenchmarkSet {
-  stage: string | null
-  tier: string
-  set_name: string
-  case_count: number
-  with_reference: number
-  /** Cases left out of scoring. */
-  excluded?: number
-}
+export type BenchmarkSet = Schemas['BenchmarkSet']
 
 export interface BenchmarkConfig {
   engine: string
@@ -158,23 +62,7 @@ export interface BenchmarkRequestConfig {
   options?: BenchmarkTranscribeOptions | BenchmarkTranslateOptions
 }
 
-/** The engine that scores a translation run's outputs. allow_same_model must be true to judge with a tested model. */
-interface BenchmarkJudgeConfig {
-  engine: string
-  model?: string
-  allow_same_model?: boolean
-}
-
-export interface BenchmarkRunRequest {
-  stage: BenchmarkStage
-  configs: BenchmarkRequestConfig[]
-  tier?: BenchmarkTier
-  set_name?: string
-  case_ids?: number[]
-  label?: string
-  prompt_version?: string
-  judge?: BenchmarkJudgeConfig
-}
+export type BenchmarkRunRequest = Schemas['BenchmarkRunRequest']
 
 /** One output's judge scores, each 0-1. */
 export type BenchmarkJudgeScore = Schemas['BenchmarkJudgeScore']
@@ -196,80 +84,18 @@ export interface ScriptCounts {
   neutral_chars: number
 }
 
-export interface BenchmarkRun {
-  id: number
-  label: string | null
-  stage: string | null
-  engine: string | null
-  model: string | null
-  prompt_version: string | null
-  arena_group: string | null
-  status: string | null
-  case_count: number
-  scored_count: number
-  passed_count: number
-  error_count: number
-  aggregate_score: number | null
-  avg_latency_seconds: number | null
-  total_cost_usd: number | null
-  peak_vram_mb: number | null
-  note: string | null
-  created_at: string | null
-  finished_at: string | null
-  context_settings: Record<string, unknown>
-  case_filter: Record<string, unknown>
-  delta_vs_first: number | null
-  /** Arena only: the run's own total over all its cases (aggregate_score covers only the compared ones). */
-  stored_aggregate_score?: number | null
-  judge?: BenchmarkJudgeSummary | null
-  picks?: BenchmarkPickTotals | null
-  script_counts?: ScriptCounts | null
-  timing?: BenchmarkTimingSummary
-  timing_verdict?: BenchmarkTimingVerdict | null
-}
+export type BenchmarkRun = Schemas['BenchmarkRun']
 
 /** How often the owner picked this output over another run's (blind A/B). */
 export type BenchmarkPickTotals = Schemas['BenchmarkPickTotals']
 
-export interface BenchmarkResult {
-  case_id: number | null
-  case_label: string
-  output_text: string
-  score: number | null
-  metric: string | null
-  /** 'jiwer' or 'builtin' for CER/WER, 'sacrebleu' or 'builtin' for translation; null on older results (built-in). */
-  scorer?: string | null
-  passed: boolean | null
-  duration_seconds: number | null
-  cost_usd: number
-  error: string | null
-  judge?: BenchmarkJudgeScore | null
-  picks?: BenchmarkPickTotals | null
-  script_counts?: ScriptCounts | null
-  ref_version?: number
-  timing?: BenchmarkCaseTiming | null
-  /** What the recogniser or vision arm read, on an end-to-end or read-then-translate result. */
-  recognised_text?: string | null
-  /** A read-then-translate result: how well the picture was read, beside the translation's own score. */
-  read_score?: number | null
-}
-
-interface BenchmarkArenaRow {
-  case_id: number | null
-  label: string
-  source_text: string | null
-  reference_text: string | null
-  tier: string | null
-  results: (BenchmarkResult | null)[]
-}
+export type BenchmarkResult = Schemas['BenchmarkResult']
 
 /** Cases an Arena comparison skipped, and why. */
 export type BenchmarkLeftOut = Schemas['BenchmarkLeftOut']
 
-export interface BenchmarkArena {
-  runs: BenchmarkRun[]
-  rows: BenchmarkArenaRow[]
-  /** Absent for a single run's results. */
+/** A single run's results are shown in the same shape without `left_out`, which only a comparison has. */
+export type BenchmarkArena = Omit<Schemas['BenchmarkArena'], 'left_out'> & {
   left_out?: BenchmarkLeftOut | null
 }
 

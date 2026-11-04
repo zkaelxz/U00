@@ -34,11 +34,11 @@ const overview = (o: Partial<ReevalOverview> = {}): ReevalOverview => ({
   ...o,
 })
 
-const engine = (name: string, key = true): BenchmarkEngineOption => ({ name, label: name, free: false, models: null, key_configured: key })
+const engine = (name: string, key = true): BenchmarkEngineOption => ({ name, label: name, free: false, models: null, key_configured: key, package_installed: true, model_labels: {} })
 
 const estimate = (o: Partial<BenchmarkEstimate> = {}): BenchmarkEstimate => ({
   stage: 'translation', case_count: 3, configs: [], estimated_cost_usd: 0.02, monthly_cap_usd: 5, month_spend_usd: 1,
-  remaining_usd: 4, monthly_refusal: null, estimate_above_cap: false, ...o,
+  remaining_usd: 4, monthly_refusal: null, estimate_above_cap: false, judge: null, ...o,
 })
 
 describe('delta formatting', () => {

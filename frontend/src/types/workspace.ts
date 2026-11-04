@@ -15,69 +15,7 @@ export type UploadAndTranscribeResult = Schemas['UploadAndTranscribeResult']
 // The Transcribe form's run choices saved on a title (the transcript text is never kept).
 export type TranscribeRunStart = Schemas['TranscribeRunStart']
 
-export interface TranscribeConfig {
-  drama_id: number
-  transcript_mode: string
-  has_audio_pipeline: boolean
-  audio_available: boolean
-  alignment_method: string
-  asr_backend_choice: string
-  // Set when the saved backend was removed and the default is shown instead.
-  asr_backend_notice: string | null
-  whisper_size: string
-  // Set when the saved model is not recommended for the title's language and the default is shown instead.
-  whisper_size_notice: string | null
-  // {model: {language: reason}} for models not recommended for a language.
-  whisper_exclusions: Record<string, Record<string, string>>
-  // The sizes the picker lists (server: whisper_models.selectable_whisper_sizes); absent from an older server.
-  selectable_whisper_sizes?: string[]
-  whisper_model_cached: boolean
-  // Audio seconds per second of work on the last finished run of this model and device; null if none yet.
-  measured_speed: number | null
-  // How many recent runs that speed is the median of.
-  measured_speed_runs?: number
-  // Median seconds per stage (separate, load, decode_vad, transcribe, align) over those runs.
-  measured_stage_seconds?: Record<string, number>
-  // Audio seconds per second of speaker detection on this device; null until enough runs.
-  measured_diarize_speed?: number | null
-  measured_diarize_runs?: number
-  // False when faster-whisper isn't installed (transcription can't run).
-  whisper_installed: boolean
-  // CUDA runtime DLLs Whisper needs on the GPU; "unknown" off Windows or without a CUDA device.
-  gpu_runtime: { status: 'ok' | 'missing' | 'unknown'; reason: string | null }
-  beam_size: number
-  min_silence_ms: number
-  vad_threshold: number
-  // "normal" or "sensitive"; the threshold a run uses (the preset lowers an untouched one).
-  sensitivity_preset: string
-  effective_vad_threshold: number
-  // Shortest silence between words at which a long line may be cut.
-  min_pause_sec: number
-  // Seconds of silence inside a segment that make Whisper skip it; 0 = off.
-  hallucination_silence_sec: number
-  separate_vocals_first: boolean
-  separation_backend: string
-  realign_long_segments: boolean
-  whisper_fast_mode: boolean
-  // Whisper's no-repeat and repetition-penalty decoding; off by default.
-  whisper_repeat_guard: boolean
-  // Cut lines at sentence ends and word pauses instead of speech-detector pauses.
-  split_by_sentences: boolean
-  // Levels the audio, uses the sensitive detector and relaxes Whisper's skip rule; off by default.
-  difficult_audio: boolean
-  // Qwen3-ASR gets this title's character names and glossary terms as a spelling hint; off by default.
-  vocabulary_hint: boolean
-  use_groq: boolean
-  has_video_source: boolean
-  hardsub_ocr_backend: string
-  hardsub_interval_sec: number
-  // Whisper prompt from the series glossary and raw-novel excerpt; a run with an empty prompt uses it.
-  auto_initial_prompt: string
-  // The language, Chinese script and run choices saved on the title; absent from an older server.
-  source_language?: string
-  chinese_script?: string
-  run_start?: TranscribeRunStart
-}
+export type TranscribeConfig = Schemas['TranscribeConfig']
 
 // Every field optional: only what is sent is validated and written.
 export type TranscribeConfigUpdate = Partial<
@@ -100,40 +38,12 @@ export type TranscribeConfigUpdate = Partial<
   >
 >
 
-export interface TranscribeRunRequest {
-  source_language?: string | null
-  chinese_script?: string | null
-  transcript_text?: string | null
-  run_diarize?: boolean
-  expected_speakers?: number | null
-  // A speaker-count range for "Detect speakers after transcribing".
-  min_speakers?: number | null
-  max_speakers?: number | null
-  initial_prompt?: string
-  extra_names?: string
-  tesseract_cmd?: string | null
-}
+export type TranscribeRunRequest = Schemas['TranscribeRunRequest']
 
 // GET /api/diarization/dramas/{id}/config (api/schemas/transcribe.py DiarizationConfig).
-export interface DiarizationConfig {
-  drama_id: number
-  hf_token_configured: boolean
-  // Plain text of what stops speaker detection (no token, no pyannote); null when it can run.
-  speaker_notice?: string | null
-  expected_speakers: number | null // the last run's count
-  min_speakers: number | null
-  max_speakers: number | null
-  last_device: string | null
-  audio_available: boolean
-  manual_speaker_count?: number // lines whose speaker was corrected by hand
-  speaker_summary?: SpeakerTimeSummary | null // null: no saved detection
-}
+export type DiarizationConfig = Schemas['DiarizationConfig']
 
-export interface SpeakerTimeSummary {
-  speakers: { label: string; seconds: number; percent: number; turns: number }[]
-  total_speech_seconds: number
-  uncovered_seconds: number | null
-}
+export type SpeakerTimeSummary = Schemas['SpeakerTimeSummary']
 
 export interface JobStarted {
   job_id: string
@@ -204,10 +114,7 @@ export type SourceConfigUpdate = Partial<
 >
 
 // api/schemas/transcribe.py RetranscribeLineRequest / RetranscribeLineResult.
-export interface RetranscribeLineRequest {
-  initial_prompt?: string
-  extra_names?: string
-}
+export type RetranscribeLineRequest = Schemas['RetranscribeLineRequest']
 
 export type RetranscribeLineResult = Schemas['RetranscribeLineResult']
 
@@ -221,11 +128,7 @@ export type RetranscribeApplyRequest = Schemas['RetranscribeApplyRequest']
 export type RetranscribeApplyResult = Schemas['RetranscribeApplyResult']
 
 // api/schemas/retranscribe_lines.py: Review's "Re-transcribe selected" (several lines, one job).
-export interface RetranscribeManyRequest {
-  line_ids: number[]
-  initial_prompt?: string
-  extra_names?: string
-}
+export type RetranscribeManyRequest = Schemas['RetranscribeManyRequest']
 
 export type RetranscribeManyStarted = Schemas['RetranscribeManyStarted']
 
@@ -244,22 +147,9 @@ export type RetranscribeManyApplyResult = Schemas['RetranscribeManyApplyResult']
 
 // A stretch no subtitle line covers. speech: true when the speech coverage
 // check found speech there, null when it has not run (never false).
-export interface TranscribeGap {
-  start: number
-  end: number
-  seconds: number
-  pieces: number
-  part: number
-  parts: number
-  after_line_id: number | null
-  before_line_id: number | null
-  speech: boolean | null
-}
+export type TranscribeGap = Schemas['TranscribeGap']
 
-export interface TranscribeGaps {
-  gaps: TranscribeGap[]
-  speech_checked: boolean
-}
+export type TranscribeGaps = Schemas['TranscribeGaps']
 
 export type GapAddLinesRequest = Schemas['GapAddLinesRequest']
 
@@ -267,27 +157,7 @@ export type GapAddLinesResult = Schemas['GapAddLinesResult']
 
 export type TalkOverAddResult = Schemas['TalkOverAddResult']
 
-// GET /api/workflow/dramas/{id}/progress (api/schemas/library.py WorkflowProgress).
-type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
-
-interface WorkflowStageState {
-  key: string
-  state: WorkflowStageStateName
-}
-
-export interface WorkflowProgress {
-  drama_id: number
-  stage_index: number
-  stage: string
-  line_count: number
-  untranslated_count: number
-  flagged_count: number
-  has_audio: boolean
-  has_dub_track: boolean
-  has_narration_track?: boolean
-  exported: boolean
-  stages: WorkflowStageState[]
-}
+export type WorkflowProgress = Schemas['WorkflowProgress']
 
 // api/schemas/transcribe.py Compare* (Review: Compare transcription).
 export type CompareSelection =
@@ -312,17 +182,7 @@ export interface CompareEstimateRequest extends CompareTranslateFields {
   selection: CompareSelection
 }
 
-export interface CompareEstimate {
-  line_count: number
-  max_lines: number
-  translate: boolean
-  estimated_usd: number | null
-  free: boolean
-  cap_applies: boolean
-  effective_cap_usd: number | null
-  monthly_refusal: boolean
-  estimate_above_cap: boolean
-}
+export type CompareEstimate = Schemas['CompareEstimate']
 
 export interface CompareRunRequest extends CompareTranslateFields {
   selection: CompareSelection
@@ -336,21 +196,12 @@ export type CompareRunResult = Schemas['CompareRunResult']
 
 export type CompareProposal = Schemas['CompareProposal']
 
-export interface CompareResult {
-  job_id: string
-  proposals: CompareProposal[]
-  line_count: number
-  asr_backend: string | null
-  whisper_size: string | null
-  translated: boolean
-  partial: boolean
-  cap_reached: boolean
-  errors: string[]
-}
+export type CompareResult = Schemas['CompareResult']
 
 export type CompareApplyRequest = Schemas['CompareApplyRequest']
 
 export type CompareApplyResult = Schemas['CompareApplyResult']
+export type CompareFlagResult = Schemas['CompareFlagResult']
 
 // api/schemas/transcribe.py Retime* (Review: Re-time with the Qwen3 aligner).
 export type RetimeRunRequest = Schemas['RetimeRunRequest']

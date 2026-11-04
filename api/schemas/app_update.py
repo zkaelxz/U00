@@ -3,7 +3,7 @@
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 __all__ = [
     "UsageRecostModelRow",
@@ -54,12 +54,18 @@ class UpdateStatus(BaseModel):
                                               "accepted only with a valid release signature.")
     signature_verified: bool = Field(description="The verified download's release signature was checked.")
     auto_check: bool
+    include_prereleases: bool = Field(False, description="Betas are offered as updates (only a newer one).")
     custom_source: bool = Field(description="BAIHE_UPDATE_REPO names another repository than the default.")
     app_update: Literal["none", "available", "needs_full_installer"] = Field(
         "none", description="Whether the newer release can update the app layer alone "
                             "(`available`: built against this install's Python, wheels and Caddy).")
     app_update_here: bool = Field(False, description="This server can switch its own app folder: "
                                                      "Windows, started by the Start-menu launcher.")
+    app_update_by_service: bool = Field(False, description="This server is the boot service and the "
+                                                           "BaiheUpdate helper that applies app "
+                                                           "updates for it is installed.")
+    app_auto_apply: bool = Field(False, description="The opt-in to download and apply app-only "
+                                                    "updates by themselves on the boot service.")
     app_size: Optional[int] = None
     app_download: Literal["idle", "downloading", "verified", "failed"] = "idle"
     app_downloaded_bytes: int = 0
@@ -74,7 +80,16 @@ class UpdateStatus(BaseModel):
 
 class UpdateSettingsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    auto_check: StrictBool
+    auto_check: Optional[StrictBool] = None
+    include_prereleases: Optional[StrictBool] = None
+    service_auto_apply: Optional[StrictBool] = None
+
+    @model_validator(mode="after")
+    def _needs_a_field(self):
+        if (self.auto_check is None and self.include_prereleases is None
+                and self.service_auto_apply is None):
+            raise ValueError("Send auto_check, include_prereleases or service_auto_apply.")
+        return self
 
 
 class UpdateInstallRequest(BaseModel):

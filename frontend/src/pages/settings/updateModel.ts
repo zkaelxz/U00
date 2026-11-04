@@ -1,6 +1,6 @@
 // Settings > App updates: the words and the which-button-when rules, kept
 // out of the component so they can be tested on their own.
-import type { UpdateStatus } from '../../types/update'
+import type { AndroidAppFetchResult, UpdateStatus } from '../../types/update'
 import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 
 // The app downloads without a Mark-of-the-Web and starts Setup directly, so
@@ -11,6 +11,10 @@ export const HASH_NOTE =
   'The download is checked against the release’s SHA-256. That catches a broken download; it is not a signature.'
 export const INSTALL_NOTE =
   'Opens Setup. Baihe keeps running until you click Install there. Then Setup stops Baihe (running jobs are cancelled), updates it and can restart it. Cancelling Setup changes nothing.'
+export const PRERELEASES_HELP = 'Also offers beta versions. Only a version newer than this one is ever offered.'
+export const SERVICE_AUTO_APPLY_HELP =
+  'After a check finds an app update, downloads it, checks its signature and switches the background service to it when no job is running. ' +
+  'If the new version doesn’t start, the service goes back to this one. Needs the daily check to be on.'
 export const AUTO_CHECK_HELP = 'Looks for a newer version once a day. It never downloads or installs on its own.'
 export const NO_INSTALLER_RELEASE_LINE = 'No installer release has been published yet.'
 export const NO_RELEASE_LINE =
@@ -64,7 +68,8 @@ export const APP_APPLY_NOTE =
 export const APP_FULL_INSTALLER_LINE =
   'This update changes the bundled Python or its packages, so it needs the full installer.'
 export const APP_BOOT_SERVICE_LINE =
-  'Baihe runs as the background service here, so this update needs the full installer.'
+  'Baihe runs as the background service here and has no app-update helper yet, so this update needs the full installer. ' +
+  'Running the full installer once adds the helper; app updates can then be applied here.'
 export const APP_RESTARTING_LINE =
   'Updating the app: Baihe stops and starts again. Reload this page in a minute.'
 
@@ -98,3 +103,12 @@ export function appDownloadLine(s: UpdateStatus): string | null {
 }
 
 export const appApplyTarget = (s: UpdateStatus): string => `version ${s.app_verified_version ?? ''}`.trim()
+
+export const PHONE_APP_NOTE =
+  'Fetches the build made by the "Android APK" workflow on GitHub and offers it to the Baihe app on your phone, which shows Update Available the next time it opens.'
+
+export function phoneAppLine(r: AndroidAppFetchResult): string {
+  return r.changed
+    ? `Phone app build ${r.version_code} is ready for your phone.`
+    : `The phone app is already up to date (build ${r.version_code}).`
+}

@@ -402,10 +402,10 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   version (`base_version` in `manifest.json`, else its `app_version`) is at
   least `min_base_version`; otherwise the status says the release needs the
   full installer, whose flow is unchanged. Only a server the Start-menu
-  launcher started can apply it: the boot service's account can't write the
-  install folder, and stopping the service needs an administrator, so under
-  the service the status says the full installer is needed. No elevated
-  step is built for it (owner decision 2026-10-14: leave as is).
+  launcher started switches itself. The boot service's account can't write
+  the install folder or stop its own service, so there the server only hands
+  over (see "Under the boot service", below). Until Setup has installed the
+  `BaiheUpdate` helper the status says the full installer is needed.
 - **Download.** Like the installer: size-capped (400 MB), SHA-256 checked,
   and with a release key the `.sig` is fetched first and verified; a missing,
   malformed or wrong one is refused and the download deleted.
@@ -472,6 +472,74 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   never fetched; the app layer can replace `installer\release_public_key.txt`
   exactly as the full installer does, and only when signed by the key it
   replaces.
+
+- **Under the boot service** (owner decision 2026-11-04, replacing the
+  2026-10-14 "leave as is"). A third service, `BaiheUpdate`, is created by the
+  service step: LocalSystem, start type demand, never at boot, no restart on
+  failure. Its service ACL lets `NT SERVICE\BaiheStudio` query and start it
+  and nothing else (`service_control.update_service_sddl`); it runs
+  `service.py apply-app-update` from the admin folder
+  (`installer/service_update.py`). The server first does what it can to refuse
+  early (jobs, base, database backup), then leaves
+  `<data>\library\updates\app-update-request.json` (version and file name)
+  beside the zip and its `.sig`, and starts the helper. **The helper trusts
+  none of that:** it reads the request and files without following links,
+  copies the zip into the admin-only `update-staging`, checks its Ed25519
+  signature with the pure-Python verifier (`installer/ed25519_verify.py`; the
+  admin interpreter has no `cryptography`) against the release key copied into
+  the admin folder (never the app folder's: it refuses without one, unlike the
+  app, which accepts an unsigned release when it has no key), requires the
+  version to be newer than the installed one (the service account chooses
+  which signed file to hand over, so an old signed release must not
+  downgrade), then runs the same checks, unpack, journal and switch as above
+  through `app_swap.apply`, with the service manager in place of the launcher
+  (stop and start `BaiheStudio`, health on the stored port), no message box
+  and no sign-in recovery (nobody is signed in). A locked folder is not
+  queued: the launcher that would finish it never runs under the service, so
+  it is rolled back as `rolled_back_switch`. The helper takes Setup's mutex,
+  so it can't overlap Setup, `set-port` or the remote-access commands. A
+  refusal before the switch writes `not_started` to `result.json`; the reason is
+  in the admin `service.log`. The helper refuses a pre-release over a stable
+  install (the service account can write a request itself, so the owner's
+  pre-release switch can't be what stops it), refuses links on the way to
+  anything it writes under the install folder, opens request files once and
+  checks the open handle (single hard link, size), and settles an update cut
+  short earlier (the launcher that normally does it never runs under the
+  service). **The install folder is administrator-owned.** SYSTEM writes inside it, so
+  with the service task Setup's `install` (`installer/service_lock.py`) first
+  replaces the root's whole permission list in one step (`SetNamedSecurityInfoW`
+  with a protected DACL: SYSTEM and Administrators full control, Users and
+  `NT SERVICE\BaiheStudio` read and run, and an OWNER RIGHTS entry that cuts
+  the owner's implicit right to rewrite permissions to reading, so an entry the
+  user already had on the folder cannot survive and the user, still owner for a
+  moment, cannot re-grant itself), then sets the owner of everything under it to
+  Administrators and resets the children's own entries (never the root, which
+  would re-enable inheritance). It then walks the tree and fails the install on
+  an unlistable folder, a link, a hard-linked file, an owner that isn't
+  Administrators or SYSTEM, or any entry whose DACL lets another account do more
+  than read and run (read as SDDL). It then writes
+  `install-folder-locked.txt` (the folder's path) in the admin folder.
+  `apply-app-update` refuses unless that marker names this install folder and
+  the root, `app\` and `manifest.json` are still owned by Administrators or
+  SYSTEM (read with `GetNamedSecurityInfoW`; unreadable counts as not owned),
+  and holds the root and every folder above it open without delete sharing for the whole update, refusing if any is a link (the default install folder sits under folders the user owns, who could otherwise swap one for a junction or rename the locked folder away between the checks and the path-based writes), so the owner check is joined by a DACL check (the same rule as the install's walk) on the root, `app\` and `manifest.json`; an install from before this change, or one the user took back, updates
+  only after a full installer run. Setup, which runs as the user, would
+  otherwise be unable to replace files: it runs `stop --for-update` first
+  (only when the marker exists, because an older helper doesn't know the
+  option), which stops the services, deletes the marker and resets the
+  folder's permissions to what its parent gives; `install` locks it again at
+  the end. `uninstall` unlocks it before the uninstaller deletes the folder,
+  and a failed `install` unlocks it on rollback. Consequences: the user can no
+  longer change files in that folder without an administrator prompt, and
+  the in-app update that runs as the user is already refused under the
+  service. Not done: a hard link from outside the folder into it would have its
+  owner changed by the lock (nothing in Baihe creates one).
+  Not covered: the library-database backup rule is checked by the server only
+  (a compromised server could skip it; the cost is an unreliable rollback, not
+  code execution); a crash in the milliseconds between the two renames leaves
+  no `app\` until Setup repairs it. The opt-in "Install app updates
+  automatically" (`update.service_auto_apply`, off by default) makes each check
+  download and apply, retrying at the next check while a job runs.
 
 ## 8. Uninstall
 
@@ -739,7 +807,8 @@ numbers. By hand, in an administrator prompt (`status` needs none):
 - `disable-remote`: household access off, Caddy stopped and disabled.
 - `stop`: stop both services.
 - `install [--port N]`: Setup's step; creates or refreshes the service and starts it (`--port` only on a fresh install; an update keeps the stored port).
-- `uninstall`: the uninstaller's step; removes both services and the admin folder.
+- `apply-app-update`: the `BaiheUpdate` service's step (§7, "Under the boot service"); started by the app, not by hand.
+- `uninstall`: the uninstaller's step; removes all services and the admin folder.
 
 **One at a time with Setup.** `set-port`, `enable-remote` and
 `disable-remote` take Setup's own mutex (`SetupMutex` in `baihe.iss`, both

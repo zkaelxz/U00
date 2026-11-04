@@ -162,6 +162,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/model-cache` | admin.diagnostics |
 | `POST /api/diagnostics/model-cache/files/{kind}/{name}/delete` | local_only() |
 | `POST /api/diagnostics/model-cache/hf/{revision}/delete` | local_only() |
+| `GET /api/diagnostics/model-downloads` | admin.diagnostics |
+| `POST /api/diagnostics/model-downloads/{model_id}/start` | local_only() |
 | `POST /api/diagnostics/package-updates/check` | admin.diagnostics |
 | `GET /api/diagnostics/pending-install` | local_only() |
 | `POST /api/diagnostics/pending-install/cancel` | local_only() |
@@ -650,6 +652,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use + lines.read |
 | `POST /api/subtitle-import/dramas/{drama_id}/apply` | media.upload |
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | media.upload |
+| `POST /api/system/android-app/fetch` | local_only() |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
 | `POST /api/system/update/app/apply` | local_only() |
@@ -667,6 +670,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/transcribe/dramas/{drama_id}/autotune/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/estimate` | library.read |
+| `POST /api/transcribe/dramas/{drama_id}/compare-transcription/flag-disagreements` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/compare-transcription/options` | library.read |
 | `GET /api/transcribe/dramas/{drama_id}/compare-transcription/result` | lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/run` | jobs.start |

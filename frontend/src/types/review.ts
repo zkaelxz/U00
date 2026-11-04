@@ -6,36 +6,9 @@ type Schemas = components['schemas']
 
 export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed'
 
-export interface ReviewLine {
-  id: number
-  idx: number
-  start: number
-  end: number
-  zh: string
-  en: string
-  speaker: string | null
-  speaker_manual: boolean
-  sfx: boolean
-  flag: string | null
-  flag_note: string | null
-  dub_filename: string | null
-  // The line's spoken language; null means the drama's source_language.
-  lang: string | null
-  // Marked checked by a reviewer; editing `en` clears it. Optional only so
-  // fixtures and mocks written before the mark keep compiling.
-  reviewed?: boolean
-}
+export type ReviewLine = Schemas['ReviewLinesLine']
 
-export interface ReviewLinesPage {
-  lines: ReviewLine[]
-  page: number
-  page_size: number
-  total: number
-  flagged_count: number
-  untranslated_count: number
-  // Translated lines not marked checked yet; absent from mocks made before the mark.
-  unreviewed_count?: number
-}
+export type ReviewLinesPage = Schemas['ReviewLinesPage']
 
 // Lines flagged source_changed (source text changed after translation), in line order.
 export interface SourceChanged {
@@ -350,13 +323,4 @@ export interface VersionActivateResult {
 }
 
 // Review parity R10: POST /api/lines/dramas/{id}/lines/{lid}/retry-blocked
-export interface BlockedRetryResult {
-  drama_id: number
-  line_id: number
-  engine: string
-  model: string | null
-  retried: boolean
-  blocked: boolean
-  reason: string | null
-  line: ReviewLine
-}
+export type BlockedRetryResult = Schemas['BlockedRetryResult']

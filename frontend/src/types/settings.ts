@@ -64,6 +64,7 @@ export interface SettingsPreferences extends TimingPreferences {
   default_locale: string
   default_style_note: string
   scene_aware_batches: boolean // translate batches start at scene breaks
+  scanlate_chapter_brief: boolean // read the whole comic chapter once before translating its pages
   translate_reply_guard: string // auto | on | off
   translate_alignment_check: boolean // flag lines whose English doesn't match the source (bge-m3 via Ollama)
   episode_summary_engine: string
@@ -129,39 +130,8 @@ export type SettingsUpdate = Partial<Record<SettingsToggleKey, boolean>> &
 // Result of a write-only key set/clear: never carries the key itself.
 export type EngineKeyResult = Schemas['EngineKeyResult']
 
-export interface EndpointUrlResult {
-  name: EndpointName
-  url: string | null
-  configured: boolean
-}
+export type EndpointUrlResult = Schemas['EndpointUrlResult']
 
 export type MonthCounterResetResult = Schemas['MonthCounterResetResult']
 
-// GET /api/settings/schema: the declared settings the page builds forms from.
-// Metadata only; values come from the overview.
-type SettingsSchemaType = 'bool' | 'int' | 'float' | 'text' | 'choice' | 'path' | 'json'
-
-interface SettingsSchemaChoice {
-  value: string
-  label: string
-}
-
-export interface SettingsSchemaRow {
-  key: string
-  type: SettingsSchemaType
-  default: unknown
-  scope: string
-  label: string
-  help: string
-  unit: string
-  placeholder: string
-  tab: string
-  section: string
-  custom: boolean // a hand-written card owns this key's field
-  dev_only: boolean
-  choices: SettingsSchemaChoice[] | null
-  min: number | null
-  max: number | null
-  max_len: number | null
-  multiline: boolean
-}
+export type SettingsSchemaRow = Schemas['SettingsSchemaRow']
