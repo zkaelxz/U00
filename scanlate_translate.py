@@ -94,10 +94,17 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     if character_notes:
         glossary_block += f"\n\n{character_notes}"
     payload = json.dumps([{"id": k, "text": t} for k, t in items], ensure_ascii=False)
+    # OCR of stylised lettering drops Korean word spaces and swaps look-alike
+    # characters (불이 read as 붙이 turned "the school caught fire" into "got into
+    # school"), so the model is told the text is machine-read, not authoritative.
+    ocr_note = (" The text was read by OCR: word spaces may be missing and a character may be "
+                "misread, so use the surrounding lines and the context to recover the intended "
+                "sentence." if (drama_meta or {}).get("source_language") in ("ko", "ja", "zh")
+                else "")
     prompt = (
         f"Translate these {source_name} manga/comic text regions into natural English, keeping "
         "character voice and plot consistent with the context below if any. They are listed in reading "
-        "order; each has an id."
+        "order; each has an id." + ocr_note
         + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         'Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
         '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
