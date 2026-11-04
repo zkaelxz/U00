@@ -25,12 +25,16 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
     r"(?:优优独播剧场|中文字幕)?yo(?:yo)?televisionseriesexclusive",
     r"(?:ぜひ)?チャンネル登録.{0,20}",
     r"구독과?좋아요.{0,20}",
+    r"(?:mingpao(?:canada|toronto|news)?)+",
     r"(?:please|dontforgetto)?(?:likeand)?subscribe.{0,30}",
 )]
 # A stock phrase is only dropped with at least this much silence on each side
 # (a missing neighbour counts as silence), so dialogue that happens to say
 # "thanks for watching" between other lines survives.
 STOCK_PHRASE_ISOLATION_SEC = 5.0
+# The last line of a file has nothing after it to confirm the silence, and an outro
+# credit sits right after the last real line, so it needs less silence before it.
+FINAL_STOCK_PHRASE_ISOLATION_SEC = 3.0
 # Whisper loops inside one segment too ("谢谢谢谢…"). A run of one character is
 # only a loop at a higher count than a longer phrase: "哈哈哈哈" and "..." are
 # real speech, "好的好的好的好的" almost never is.
@@ -46,6 +50,118 @@ _LOOP_RES = (
     re.compile(r"(.)\1{%d,}" % (LOOP_MIN_REPEATS_SINGLE_CHAR - 1), re.S),
     re.compile(r"(.{2,%d}?)\1{%d,}" % (LOOP_MAX_PHRASE_CHARS, LOOP_MIN_REPEATS_PHRASE - 1), re.S),
 )
+
+
+# On hard audio (music, noise, overlapping voices) with the skip rule relaxed, Whisper
+# can write a run of short invented items ("凤凰、約翰、酷光、…") that scores confident
+# on every segment, so neither its own thresholds nor the loop checks above see it.
+LIST_MIN_ITEMS = 6
+LIST_MAX_ITEM_LETTERS = 6
+# A list this dense in a short time is not something a person said: real speech tops out
+# around 8-10 letters a second, and a list of names read that fast is invented text.
+LIST_DROP_MIN_CHARS_PER_SEC = 8.0
+# Alone, a rate above this is flagged for review, not dropped: fast real speech and
+# a wrong time range both reach it.
+IMPLAUSIBLE_CHARS_PER_SEC = 15.0
+IMPLAUSIBLE_FLAG = "text_uncertain"
+IMPLAUSIBLE_LIST_NOTE = "Looks like a list of invented words; check against the audio"
+IMPLAUSIBLE_RATE_NOTE = "More text than this stretch of audio can hold; check against the audio"
+# Whisper on noise can also chatter single characters ("無", "有", "無", …) that no
+# repeat check catches because the text alternates. One such line is real speech ("有");
+# a run of them is not.
+CHATTER_MIN_RUN = 3
+CHATTER_MAX_LETTERS = 1
+IMPLAUSIBLE_CHATTER_NOTE = "One-character lines in a row, often noise; check against the audio"
+# Fewer seconds than this cannot hold a word, so several letters in it are a guess.
+MIN_WORD_SEC = 0.5
+# Whisper on a voiced but unintelligible stretch can also cut it into slivers
+# ("ota", "request", "罪" in 0.1 s each), too short to hold a word.
+SLIVER_SEC = 0.3
+IMPLAUSIBLE_SLIVER_NOTE = "Cut into slivers of audio, often unclear speech; check against the audio"
+IMPLAUSIBLE_BLINK_NOTE = "Text in a split second of audio; check against the audio"
+_LIST_SPLIT_RE = re.compile(r"[、,，;；]")
+# Letters a second is only meaningful for scripts that write one character per syllable;
+# a Latin line of the same duration holds several times as many letters.
+_CJK_CHAR_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
+# Shorter than this the rate is dominated by the timing's rounding.
+_MIN_RATE_SEC = 0.5
+
+
+def _is_item_list(text):
+    items = [i for i in (_stock_key(p) for p in _LIST_SPLIT_RE.split(text or "")) if i]
+    return (len(items) >= LIST_MIN_ITEMS
+            and all(len(i) <= LIST_MAX_ITEM_LETTERS for i in items))
+
+
+def _chars_per_sec(seg):
+    try:
+        length = seg["end"] - seg["start"]
+    except KeyError:
+        return 0.0
+    if length < _MIN_RATE_SEC:
+        return 0.0
+    return len(_CJK_CHAR_RE.findall(seg["text"])) / length
+
+
+def _flag(seg, note):
+    return seg if seg.get("flag") else {**seg, "flag": IMPLAUSIBLE_FLAG, "flag_note": note}
+
+
+def _flag_chatter_and_blinks(segments):
+    """`segments` with each run of CHATTER_MIN_RUN or more one-character segments, and each
+    sub-MIN_WORD_SEC segment holding 3 or more letters, flagged IMPLAUSIBLE_FLAG."""
+    # Only CJK characters: a Latin one-letter line ("I", "x") is an ordinary word or a test stub.
+    tiny = [len(_CJK_CHAR_RE.findall(s["text"])) == CHATTER_MAX_LETTERS == _letters_in(s)
+            for s in segments]
+    out, i = list(segments), 0
+    while i < len(out):
+        j = i
+        while j < len(out) and tiny[j]:
+            j += 1
+        if j - i >= CHATTER_MIN_RUN:
+            out[i:j] = [_flag(s, IMPLAUSIBLE_CHATTER_NOTE) for s in out[i:j]]
+        i = max(j, i + 1)
+    out = _flag_slivers(out)
+    for k, seg in enumerate(out):
+        try:
+            blink = seg["end"] - seg["start"] < MIN_WORD_SEC and _letters_in(seg) >= 3
+        except KeyError:
+            blink = False
+        if blink:
+            out[k] = _flag(seg, IMPLAUSIBLE_BLINK_NOTE)
+    return out
+
+
+def _flag_slivers(segments):
+    """`segments` with each one under SLIVER_SEC long flagged: too short to hold a word."""
+    return [_flag(s, IMPLAUSIBLE_SLIVER_NOTE)
+            if "start" in s and "end" in s and 0 < s["end"] - s["start"] < SLIVER_SEC else s
+            for s in segments]
+
+
+def _letters_in(seg):
+    return len(_stock_key(seg["text"]))
+
+
+def screen_implausible_text(segments):
+    """`segments` without the dense item lists no one could have said (a list of short
+    items at LIST_DROP_MIN_CHARS_PER_SEC or more), and the other lists and over-fast
+    segments flagged IMPLAUSIBLE_FLAG, unless they carry a flag already."""
+    out = []
+    for seg in segments:
+        rate = _chars_per_sec(seg)
+        is_list = _is_item_list(seg["text"])
+        if is_list and rate >= LIST_DROP_MIN_CHARS_PER_SEC:
+            import applog
+            applog.get_logger().info(
+                f"invented list dropped: segment {seg['start']:.1f}-{seg['end']:.1f}s "
+                f"({rate:.1f} characters/s)")
+            continue
+        if (is_list or rate >= IMPLAUSIBLE_CHARS_PER_SEC) and not seg.get("flag"):
+            seg = {**seg, "flag": IMPLAUSIBLE_FLAG,
+                   "flag_note": IMPLAUSIBLE_LIST_NOTE if is_list else IMPLAUSIBLE_RATE_NOTE}
+        out.append(seg)
+    return _flag_chatter_and_blinks(out)
 
 
 def _stock_key(text):
@@ -92,7 +208,8 @@ def _is_isolated_stock_phrase(segments, i, isolation_sec=STOCK_PHRASE_ISOLATION_
         return False
     seg = segments[i]
     try:
-        if i > 0 and seg["start"] - segments[i - 1]["end"] < isolation_sec:
+        before = isolation_sec if i + 1 < len(segments) else min(isolation_sec, FINAL_STOCK_PHRASE_ISOLATION_SEC)
+        if i > 0 and seg["start"] - segments[i - 1]["end"] < before:
             return False
         if i + 1 < len(segments) and segments[i + 1]["start"] - seg["end"] < isolation_sec:
             return False
@@ -174,5 +291,5 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4,
         else:
             out.extend(segments[i:j])
         i = j
-    return [seg for k, seg in enumerate(out)
-            if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)]
+    return screen_implausible_text([seg for k, seg in enumerate(out)
+                                    if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)])
