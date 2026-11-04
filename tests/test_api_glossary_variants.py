@@ -27,16 +27,19 @@ def _title():
 _emails = itertools.count()
 
 
-def _session(*permissions, keep=()):
+def _session(*permissions, keep=(), drop=()):
     user = auth_service.add_user(f"kid{next(_emails)}@example.com")
     # New users start with the household defaults; the 403 cases need them gone.
     for gone in ("library.read", "lines.read"):
         if gone not in keep:
             auth_service.revoke_permission(user["id"], gone)
+    for p in drop:
+        auth_service.revoke_permission(user["id"], p)
     for p in permissions:
         auth_service.grant_permission(user["id"], p)
     s = auth_service.create_session(user["id"], "pytest", "203.0.113.9")
-    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}"}
+    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+            api_auth.CSRF_HEADER: s["csrf_token"]}
 
 
 @pytest.fixture
@@ -83,3 +86,21 @@ def test_errors_use_the_standard_shape(remote):
     assert remote.get(f"/api/glossary/dramas/{did}/variants?term=!!!", headers=headers).status_code == 422
     assert remote.get(f"/api/glossary/dramas/{did}/variants?term={'x' * 201}",
                       headers=headers).status_code == 422
+
+
+def test_name_fixes_routes_need_read_to_preview_and_edit_to_apply(remote):
+    did = _title()
+    sid = db.get_drama(did)["series_id"]
+    db.upsert_glossary_term(sid, "Yaloch", "X")
+    term_id = db.list_glossary_terms(sid)[0]["id"]
+    url = f"/api/glossary/dramas/{did}/name-fixes"
+    body = {"fixes": [{"term_id": term_id, "spelling": "Yalou"}]}
+    reader = _session("lines.read", drop=("lines.edit",))
+    assert remote.get(url).status_code == 401
+    assert remote.get(url, headers=reader).status_code == 200
+    assert remote.post(url, json=body, headers=reader).status_code == 403
+    editor = _session("lines.edit", keep=("lines.read", "library.read"))
+    out = remote.post(url, json=body, headers=editor)
+    assert out.status_code == 200
+    assert out.json() == {"lines_changed": 1, "replacements": 1, "aliases_added": 1}
+    assert remote.post(url, json={"fixes": []}, headers=editor).status_code == 422
