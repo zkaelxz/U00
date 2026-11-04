@@ -777,6 +777,7 @@ from db.auth import (  # noqa: F401
     series_has_unowned_drama,
     rename_series, series_content_counts, delete_series, copy_series_terms,
     update_series_instructions, set_series_defaults, apply_series_settings,
+    get_series_speaker_colours, set_series_speaker_colours,
     list_item_sharing,
     auth_get_user,
     auth_get_user_by_email,
