@@ -110,6 +110,28 @@ class TestPage:
         assert len(svc.get_series_page(people["a"], s)["titles"]) == 2
 
 
+# --- speaker mode -------------------------------------------------------------
+
+class TestSpeakerMode:
+    def test_defaults_to_auto_and_round_trips(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        assert svc.get_series_page(people["a"], s)["speaker_mode"] == "auto"
+        assert svc.set_speaker_mode(people["a"], s, "solo")["speaker_mode"] == "solo"
+        assert svc.get_series_page(people["a"], s)["speaker_mode"] == "solo"
+        svc.set_speaker_mode(people["a"], s, "auto")
+        assert svc.get_series_page(people["a"], s)["speaker_mode"] == "auto"
+
+    def test_rejects_an_unknown_mode(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        with pytest.raises(InvalidInputError):
+            svc.set_speaker_mode(people["a"], s, "duo")
+
+    def test_another_user_cannot_change_it(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"], is_private=True)
+        with pytest.raises((ForbiddenError, NotFoundError)):
+            svc.set_speaker_mode(people["b"], s, "solo")
+
+
 # --- rename ------------------------------------------------------------------
 
 class TestRename:

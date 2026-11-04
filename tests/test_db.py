@@ -2296,7 +2296,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "keep_original", "translate_by_sentence", "release_date", "difficult_audio",
         "translate_start_json", "transcribe_start_json", "ass_styles"),
     "presets": ("options_json", "is_default"),
-    "series": ("instructions", "owner_user_id", "is_private", "default_settings"),
+    "series": ("instructions", "owner_user_id", "is_private", "default_settings", "speaker_mode"),
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
     "glossary_terms": ("category", "policy", "enforce_exact", "aliases", "banned_translations"),

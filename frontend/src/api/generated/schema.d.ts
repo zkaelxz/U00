@@ -8491,6 +8491,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/{series_id}/speaker-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set how speaker detection treats the series (auto or solo) */
+        post: operations["set_speaker_mode_api_series__series_id__speaker_mode_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/{series_id}/translation-memory.tmx": {
         parameters: {
             query?: never;
@@ -24675,6 +24692,12 @@ export interface components {
             name: string;
             /** Owned By Me */
             owned_by_me: boolean;
+            /**
+             * Speaker Mode
+             * @description solo: one creator, so speaker detection keeps one speaker.
+             * @enum {string}
+             */
+            speaker_mode: "auto" | "solo";
             /** Titles */
             titles: components["schemas"]["SeriesTitle"][];
         };
@@ -24724,6 +24747,24 @@ export interface components {
             id: number;
             /** Name */
             name: string;
+        };
+        /** SeriesSpeakerModeRequest */
+        SeriesSpeakerModeRequest: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "auto" | "solo";
+        };
+        /** SeriesSpeakerModeResult */
+        SeriesSpeakerModeResult: {
+            /** Series Id */
+            series_id: number;
+            /**
+             * Speaker Mode
+             * @enum {string}
+             */
+            speaker_mode: "auto" | "solo";
         };
         /** SeriesTitle */
         SeriesTitle: {
@@ -54500,6 +54541,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesRenameResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_speaker_mode_api_series__series_id__speaker_mode_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeriesSpeakerModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesSpeakerModeResult"];
                 };
             };
             /** @description Forbidden */

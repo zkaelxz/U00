@@ -5,6 +5,7 @@ services/series_service.py.
     GET  /api/series                                    library.read  every visible series
     GET  /api/series/{series_id}                        library.read  titles and counts
     POST /api/series/{series_id}/rename                 lines.edit    editable series
+    POST /api/series/{series_id}/speaker-mode           lines.edit    editable series
     GET  /api/series/{series_id}/delete-preview         library.read  owner or admin
     POST /api/series/{series_id}/delete                 PC only       owner or admin
     GET  /api/series/{series_id}/copy-terms-preview     library.read  editable series
@@ -34,6 +35,7 @@ from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
                          SeriesDefaultsApplyResult, SeriesDefaultsPreview, SeriesDefaultsUpdate,
                          SeriesDeletePreview, SeriesDeleteRequest, SeriesDeleteResult,
                          SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult,
+                         SeriesSpeakerModeRequest, SeriesSpeakerModeResult,
                          SeriesTmxImportRequest, SeriesTmxImportResult, error_responses)
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
@@ -72,6 +74,13 @@ def get_series(request: Request, series_id: int = _id()):
              summary="Rename a series (409 if another series has that name, ignoring case)")
 def rename_series(body: SeriesRenameRequest, request: Request, series_id: int = _id()):
     return svc.rename_series(request.state.principal, series_id, body.name)
+
+
+@router.post("/{series_id}/speaker-mode", dependencies=[require_permission("lines.edit")],
+             response_model=SeriesSpeakerModeResult, responses=_ERRS,
+             summary="Set how speaker detection treats the series (auto or solo)")
+def set_speaker_mode(body: SeriesSpeakerModeRequest, request: Request, series_id: int = _id()):
+    return svc.set_speaker_mode(request.state.principal, series_id, body.mode)
 
 
 @router.get("/{series_id}/delete-preview", dependencies=[require_permission("library.read")],

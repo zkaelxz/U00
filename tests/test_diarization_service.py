@@ -588,3 +588,56 @@ def test_on_done_keeps_the_speaker_count_hint_for_the_finished_job(isolated_db, 
         "device": "cuda", "speaker_count_hint": hint}
     fell_back = on_done("j", {"segments": [], "fell_back_to_cpu": True, "speaker_count_hint": hint})
     assert fell_back["speaker_count_hint"] == hint and fell_back["device"] == "cpu"
+
+
+class TestSoloSeries:
+    TURNS = [{"start": 0.0, "end": 2.5, "speaker": "SPEAKER_00"},
+             {"start": 2.5, "end": 6.0, "speaker": "SPEAKER_01"}]
+
+    def _title(self, db, mode, fingerprint=None):
+        series = db.create_series("Solo")
+        db.set_series_speaker_mode(series, mode)
+        did, _ = _drama_with_audio(db, series_id=series)
+        db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="a", en=""),
+                            Line(idx=1, start=3.0, end=5.0, zh="b", en="")])
+        char = db.insert_series_character(series, "Uririn")
+        if fingerprint:
+            db.update_series_character_voice_fingerprint(char, fingerprint)
+        return did, char
+
+    def _speakers(self, db, did):
+        return [ln.speaker for ln in db.load_line_objects(did)]
+
+    def test_auto_series_keeps_every_cluster(self, isolated_db):
+        did, _ = self._title(isolated_db, "auto")
+        diarization_service.apply_diarization_result(did, {"segments": self.TURNS, "model": "m"})
+        assert self._speakers(isolated_db, did) == ["SPEAKER_00", "SPEAKER_01"]
+
+    def test_solo_series_without_an_enrolled_voice_gets_one_speaker(self, isolated_db):
+        did, _ = self._title(isolated_db, "solo")
+        diarization_service.apply_diarization_result(did, {"segments": self.TURNS, "model": "m"})
+        assert self._speakers(isolated_db, did) == ["SPEAKER_01", "SPEAKER_01"]
+
+    def test_solo_series_labels_the_main_voice_and_blanks_the_rest(self, isolated_db):
+        did, char = self._title(isolated_db, "solo", [1.0, 0.0])
+        result = {"segments": self.TURNS, "model": "m",
+                  "embeddings": {"SPEAKER_00": [0.0, 1.0], "SPEAKER_01": [1.0, 0.0]}}
+        diarization_service.apply_diarization_result(did, result)
+        assert self._speakers(isolated_db, did) == [None, "SPEAKER_01"]
+        row = next(c for c in isolated_db.list_characters(did) if c["speaker_label"] == "SPEAKER_01")
+        assert (row["character_name"], row["series_character_id"]) == ("Uririn", char)
+
+    def test_a_name_set_by_hand_is_kept(self, isolated_db):
+        did, _ = self._title(isolated_db, "solo", [1.0, 0.0])
+        isolated_db.upsert_character(did, "SPEAKER_01", character_name="Mine")
+        result = {"segments": self.TURNS, "model": "m", "embeddings": {"SPEAKER_01": [1.0, 0.0]}}
+        diarization_service.apply_diarization_result(did, result)
+        row = next(c for c in isolated_db.list_characters(did) if c["speaker_label"] == "SPEAKER_01")
+        assert row["character_name"] == "Mine"
+
+    def test_switching_to_solo_applies_on_reassign_from_saved_turns(self, isolated_db):
+        did, _ = self._title(isolated_db, "auto")
+        diarization_service.apply_diarization_result(did, {"segments": self.TURNS, "model": "m"})
+        isolated_db.set_series_speaker_mode(isolated_db.get_drama(did)["series_id"], "solo")
+        diarization_service.reassign_speakers_from_saved_turns(did)
+        assert self._speakers(isolated_db, did) == ["SPEAKER_01", "SPEAKER_01"]
