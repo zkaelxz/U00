@@ -220,7 +220,8 @@ def _migrate_drama_columns(conn):
 
 def _migrate_series_and_character_columns(conn):
     series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
-    for col in ("instructions", "default_settings"):   # the latter: series_defaults_service
+    # default_settings: series_defaults_service. speaker_mode: NULL means auto.
+    for col in ("instructions", "default_settings", "speaker_mode"):
         if col not in series_cols:
             db._safe_alter(conn, f"ALTER TABLE series ADD COLUMN {col} TEXT")
     if "speaker_colours" not in series_cols:

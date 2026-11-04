@@ -129,3 +129,36 @@ class TestSuggestSpeakerMatches:
         source = inspect.getsource(vid.suggest_speaker_matches)
         assert "upsert_character" not in source
         assert "import db" not in inspect.getsource(vid)
+
+
+class TestSoloTurns:
+    TURNS = [{"start": 0.0, "end": 10.0, "speaker": "A"},
+             {"start": 10.0, "end": 14.0, "speaker": "B"},
+             {"start": 14.0, "end": 16.0, "speaker": "C"}]
+
+    def test_without_an_enrolled_voice_every_cluster_becomes_the_biggest(self):
+        turns, main = vid.solo_turns(self.TURNS, {}, [])
+        assert {t["speaker"] for t in turns} == {"A"} and len(turns) == 3
+        assert main is None
+
+    def test_enrolled_voice_keeps_matching_clusters_and_drops_the_rest(self):
+        chars = [_char(7, "Uririn", [1.0, 0.0])]
+        embeddings = {"A": [0.9, 0.1], "B": [0.0, 1.0], "C": [1.0, 0.0]}
+        turns, main = vid.solo_turns(self.TURNS, embeddings, chars)
+        assert [(t["start"], t["speaker"]) for t in turns] == [(0.0, "A"), (14.0, "A")]
+        assert main["id"] == 7
+
+    def test_enrolled_voice_matching_nothing_leaves_every_line_blank(self):
+        chars = [_char(7, "Uririn", [1.0, 0.0])]
+        turns, main = vid.solo_turns(
+            self.TURNS, {"A": [0.0, 1.0], "B": [0.0, 1.0], "C": [0.0, 1.0]}, chars)
+        assert turns == [] and main is None
+
+    def test_character_with_the_most_matched_speech_is_the_main_voice(self):
+        chars = [_char(1, "Guest", [0.0, 1.0]), _char(2, "Host", [1.0, 0.0])]
+        embeddings = {"A": [1.0, 0.0], "B": [0.0, 1.0], "C": [0.0, 1.0]}
+        turns, main = vid.solo_turns(self.TURNS, embeddings, chars)
+        assert main["id"] == 2 and {t["speaker"] for t in turns} == {"A"}
+
+    def test_no_turns_gives_nothing(self):
+        assert vid.solo_turns([], {}, []) == ([], None)

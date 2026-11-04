@@ -120,6 +120,31 @@ def get_diarization_config(drama_id: int) -> dict:
     }
 
 
+def _series_turns(drama_id: int, turns: list, embeddings: dict):
+    """(turns, main_character) as the drama's series wants them: a solo series
+    collapses the clusters to its one creator (voice_id.solo_turns). Applied
+    when merging, not when saving, so the saved turns stay what pyannote found
+    and changing the series' mode can be re-applied without a new run."""
+    drama = db.get_drama(drama_id) or {}
+    series_id = drama.get("series_id")
+    if not series_id or db.get_series_speaker_mode(series_id) != "solo":
+        return turns, None
+    import voice_id
+    return voice_id.solo_turns(turns, embeddings, db.list_series_characters(series_id))
+
+
+def _link_main_voice(drama_id: int, lines, main_character) -> None:
+    """Names the kept label after the enrolled main voice. The fingerprint is
+    not blended here: only a person accepting a suggestion refines it. A label
+    already named by hand keeps its name."""
+    if main_character is None:
+        return
+    named = {c["speaker_label"] for c in db.list_characters(drama_id) if c.get("character_name")}
+    for label in {ln.speaker for ln in lines if ln.speaker} - named:
+        db.upsert_character(drama_id, label, character_name=main_character["character_name"],
+                            series_character_id=main_character["id"])
+
+
 def apply_diarization_result(drama_id: int, result: dict,
                              expected_speakers: Optional[int] = None,
                              overwrite_manual: bool = False,
@@ -161,9 +186,11 @@ def apply_diarization_result(drama_id: int, result: dict,
         then = (speakers_at_start or {}).get(ln.id)
         if then is not None:
             ln.orig = {**(ln.orig or {}), **then}
-    diarize.merge_speakers(lines, turns, overwrite_manual=overwrite_manual)
+    merge_turns, main_character = _series_turns(drama_id, turns, result.get("embeddings") or {})
+    diarize.merge_speakers(lines, merge_turns, overwrite_manual=overwrite_manual)
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
+    _link_main_voice(drama_id, lines, main_character)
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
     db.prune_unused_speaker_rows(drama_id)
     return True
@@ -194,9 +221,11 @@ def relabel_from_saved_turns(drama_id: int, only_ids=None) -> dict:
     if only_ids is not None:
         keep = set(only_ids)
         lines = [ln for ln in lines if ln.id in keep]
+    turns, main_character = _series_turns(drama_id, turns, diarize.load_embeddings(db.drama_dir(drama_id)))
     counts = diarize.merge_speakers(lines, turns)
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
         db.upsert_character(drama_id, label)
+    _link_main_voice(drama_id, lines, main_character)
     # Only where the database still holds what was loaded: a speaker the user
     # set while this ran is kept.
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"), only_if_unchanged=True)
