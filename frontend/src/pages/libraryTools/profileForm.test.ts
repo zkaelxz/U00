@@ -12,7 +12,7 @@ const fields: ProfileField[] = [
 
 const preset = (o: Partial<LibraryPreset> = {}): LibraryPreset => ({
   id: 3, name: 'Wuxia', translation_engine: 'claude', engine_model: 'claude-b', style_preset: 'subtitle',
-  locale: 'en-GB', default_female_pronouns: 1, include_genre_notes: 0,
+  locale: 'en-GB', default_female_pronouns: 1, include_genre_notes: 0, is_default: false,
   options: {
     batch_size: 12, reflect: true, style_note: 'Honorifics.', fallback_engines: ['deepseek'], cost_cap: 1.5,
     beam_size: 7, whisper_fast_mode: false, whisper_size: 'large-v3',

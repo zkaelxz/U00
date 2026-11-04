@@ -30,7 +30,7 @@ export function validateCreate(form: DramaCreateRequest): string | null {
   if ((form.summary ?? '').length > MAX_SUMMARY_LEN) {
     return `Summary is too long (max ${MAX_SUMMARY_LEN} characters).`
   }
-  if (form.new_series_name !== undefined) {
+  if (form.new_series_name != null) {
     if (!form.new_series_name.trim()) return 'Enter a name for the new series.'
     if (form.new_series_name.length > MAX_NAME_LEN) return `Series name is too long (max ${MAX_NAME_LEN} characters).`
   }
