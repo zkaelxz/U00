@@ -5281,6 +5281,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lines/dramas/{drama_id}/mark-reviewed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark the episode's untouched translated lines reviewed and remember them in translation memory */
+        post: operations["post_mark_episode_reviewed_api_lines_dramas__drama_id__mark_reviewed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lines/dramas/{drama_id}/notes": {
         parameters: {
             query?: never;
@@ -19699,6 +19716,34 @@ export interface components {
             /** Expected En */
             expected_en: string;
         };
+        /** LinesEpisodeReviewedResult */
+        LinesEpisodeReviewedResult: {
+            /**
+             * Already Reviewed
+             * @description Translated lines that were already marked reviewed.
+             */
+            already_reviewed: number;
+            /**
+             * Kept Existing
+             * @description Of those, lines whose source the memory already held (that entry is kept).
+             */
+            kept_existing: number;
+            /**
+             * Remembered
+             * @description Of those, pairs newly added to the series' translation memory.
+             */
+            remembered: number;
+            /**
+             * Reviewed
+             * @description Lines newly marked reviewed.
+             */
+            reviewed: number;
+            /**
+             * Skipped Flagged
+             * @description Unchecked lines left alone because they carry a flag.
+             */
+            skipped_flagged: number;
+        };
         /** LinesFindReplaceApplyRequest */
         LinesFindReplaceApplyRequest: {
             /** Matches */
@@ -28799,6 +28844,11 @@ export interface components {
              * @default en-US
              */
             locale?: string;
+            /**
+             * Memory Examples
+             * @default false
+             */
+            memory_examples?: boolean;
             /** Model */
             model?: string | null;
             /**
@@ -44364,6 +44414,46 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_mark_episode_reviewed_api_lines_dramas__drama_id__mark_reviewed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinesEpisodeReviewedResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

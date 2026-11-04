@@ -22,7 +22,7 @@ from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (LinesAcceptTmRequest, LinesFindReplaceApplyRequest,
                          LinesFindReplaceApplyResult, LinesKeepEnglishRequest,
-                         LinesKeepEnglishResult, LinesNote, LinesNoteCreate,
+                         LinesEpisodeReviewedResult, LinesKeepEnglishResult, LinesNote, LinesNoteCreate,
                          LinesNoteDeleteResult, LinesPatchRequest, LinesReviewedRequest, LinesSetLangRequest,
                          LinesSetLangResult, LinesShortenRequest, LinesShortenResult,
                          ReviewLinesLine, error_responses)
@@ -46,6 +46,14 @@ def post_patch_line(body: LinesPatchRequest, drama_id: int = Path(ge=1), line_id
              responses=_404_409_422)
 def post_set_reviewed(body: LinesReviewedRequest, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return lines_service.set_reviewed(drama_id, line_id, body.reviewed, body.expected_en)
+
+
+@router.post("/dramas/{drama_id}/mark-reviewed", dependencies=[require_permission("lines.edit")],
+             response_model=LinesEpisodeReviewedResult,
+             summary="Mark the episode's untouched translated lines reviewed and remember them in translation memory",
+             responses=_404_422)
+def post_mark_episode_reviewed(drama_id: int = Path(ge=1)):
+    return lines_service.mark_episode_reviewed(drama_id)
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/dismiss-flag", dependencies=[require_permission("lines.edit")], response_model=ReviewLinesLine,
