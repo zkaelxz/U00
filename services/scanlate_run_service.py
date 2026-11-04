@@ -187,10 +187,10 @@ def _has_text(region: dict) -> bool:
                 or (region.get("translated_text") or "").strip())
 
 
-def _predecessor_context(drama_id: int, page_id: int) -> str:
-    """The stored context of the page before this one in the run's order.
-    Hidden pages are not part of the story, so they are stepped over; a page
-    that is itself hidden (a single-page redo) falls back to the full order."""
+def _predecessor_page(drama_id: int, page_id: int):
+    """The page before this one in the run's order. Hidden pages are not part
+    of the story, so they are stepped over; a page that is itself hidden (a
+    single-page redo) falls back to the full order."""
     visible = {p["id"] for p in db.list_pages(drama_id)} & set(
         comic_chapters_service.run_page_ids(drama_id))
     prev = None
@@ -199,7 +199,37 @@ def _predecessor_context(drama_id: int, page_id: int) -> str:
             break
         if page_id not in visible or p["id"] in visible:
             prev = p
-    return (prev or {}).get("context_summary") or ""
+    return prev
+
+
+def _predecessor_context(drama_id: int, page_id: int) -> str:
+    """The stored context of the page before this one in the run's order."""
+    return (_predecessor_page(drama_id, page_id) or {}).get("context_summary") or ""
+
+
+_TAIL_REGIONS = 3
+
+
+def _predecessor_tail(drama_id: int, page_id: int) -> str:
+    """The last translated lines of the previous page, source beside English.
+    A webtoon sentence often runs across a page break, and the one-sentence
+    summary alone leaves the next page's opening fragment with nothing to
+    attach to."""
+    prev = _predecessor_page(drama_id, page_id)
+    if prev is None:
+        return ""
+    lines = [f"{(b.get('source_text') or '').strip()} => {(b.get('translated_text') or '').strip()}"
+             for b in db.load_bubbles(prev["id"])
+             if (b.get("translated_text") or "").strip() and not b.get("skip")]
+    if not lines:
+        return ""
+    return ("Last lines of the previous page (source => English); the first lines of this page "
+            "may continue the same sentence: " + " | ".join(lines[-_TAIL_REGIONS:]))
+
+
+def _translation_context(drama_id: int, page_id: int) -> str:
+    return " ".join(part for part in (_predecessor_context(drama_id, page_id),
+                                       _predecessor_tail(drama_id, page_id)) if part)
 
 
 _STAMP_LOOKBACK_PAGES = 4
@@ -441,7 +471,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if bubbles and not _ocr_lost_text(existing, detect_notes):
         translated_ok, new_context = _translate(
             bubbles, engine, engine_name, drama, guide[0],
-            _predecessor_context(drama_id, page_id), drama_id, notes, guide[1])
+            _translation_context(drama_id, page_id), drama_id, notes, guide[1])
     ai_seconds = time.monotonic() - ai_started
     if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
         notes.append(("warning", "Redo did not produce a complete result for this page (no "
