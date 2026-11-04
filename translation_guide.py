@@ -18,7 +18,7 @@ depend on context only a person reading the story can settle.
 import difflib
 import re
 from core import LANGUAGE_NAMES
-from glossary_io import TERM_CATEGORIES, TERM_POLICIES
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES, alias_note, confirmed_aliases
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import load_json_reply
 from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
@@ -300,6 +300,7 @@ def build_glossary_block(glossary_terms) -> str:
         policy = t.get("policy") or "keep_pinyin"
         by_policy.setdefault(policy, []).append(t)
 
+    aliases = confirmed_aliases(glossary_terms)
     lines = ["TERM GLOSSARY -- these translations are fixed, use them exactly:"]
     for policy, terms in by_policy.items():
         pol = TERM_POLICIES.get(policy, TERM_POLICIES["keep_pinyin"])
@@ -307,7 +308,8 @@ def build_glossary_block(glossary_terms) -> str:
         for t in terms:
             cat = f" ({TERM_CATEGORIES.get(t.get('category'), '')})" if t.get("category") else ""
             note = f" -- {t['notes']}" if t.get("notes") else ""
-            lines.append(f"  {t['term_original']} → {t['term_translation']}{cat}{note}")
+            lines.append(f"  {t['term_original']}{alias_note(aliases.get(t['term_original']))} "
+                         f"→ {t['term_translation']}{cat}{note}")
     return "\n".join(lines)
 
 
