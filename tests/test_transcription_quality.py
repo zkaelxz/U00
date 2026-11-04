@@ -366,3 +366,16 @@ class TestImplausibleText:
             [self._seg("今天天气很好，我们去公园吧"), flagged])
         assert "flag" not in out[0]
         assert out[1]["flag"] == "timing_uncertain"
+
+    def test_a_run_of_one_character_lines_is_flagged_but_one_is_not(self):
+        run = [self._seg(c, i * 2.0, i * 2.0 + 1.0) for i, c in enumerate("無有無")]
+        out = whisper_hallucination.filter_hallucinated_segments(
+            [self._seg("今天天气很好", 0.0, 3.0)] + [{**s, "start": s["start"] + 10, "end": s["end"] + 10} for s in run])
+        assert [s.get("flag") for s in out] == [None] + ["text_uncertain"] * 3
+        lone = whisper_hallucination.filter_hallucinated_segments(
+            [self._seg("有", 0.0, 1.0), self._seg("今天天气很好", 5.0, 8.0)])
+        assert all("flag" not in s for s in lone)
+
+    def test_letters_in_a_split_second_are_flagged(self):
+        out = whisper_hallucination.filter_hallucinated_segments([self._seg("bss", 0.0, 0.32)])
+        assert out[0]["flag"] == "text_uncertain"

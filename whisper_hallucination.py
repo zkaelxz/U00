@@ -62,6 +62,15 @@ IMPLAUSIBLE_CHARS_PER_SEC = 15.0
 IMPLAUSIBLE_FLAG = "text_uncertain"
 IMPLAUSIBLE_LIST_NOTE = "Looks like a list of invented words; check against the audio"
 IMPLAUSIBLE_RATE_NOTE = "More text than this stretch of audio can hold; check against the audio"
+# Whisper on noise can also chatter single characters ("無", "有", "無", …) that no
+# repeat check catches because the text alternates. One such line is real speech ("有");
+# a run of them is not.
+CHATTER_MIN_RUN = 3
+CHATTER_MAX_LETTERS = 1
+IMPLAUSIBLE_CHATTER_NOTE = "One-character lines in a row, often noise; check against the audio"
+# Fewer seconds than this cannot hold a word, so several letters in it are a guess.
+MIN_WORD_SEC = 0.5
+IMPLAUSIBLE_BLINK_NOTE = "Text in a split second of audio; check against the audio"
 _LIST_SPLIT_RE = re.compile(r"[、,，;；]")
 # Letters a second is only meaningful for scripts that write one character per syllable;
 # a Latin line of the same duration holds several times as many letters.
@@ -86,6 +95,38 @@ def _chars_per_sec(seg):
     return len(_CJK_CHAR_RE.findall(seg["text"])) / length
 
 
+def _flag(seg, note):
+    return seg if seg.get("flag") else {**seg, "flag": IMPLAUSIBLE_FLAG, "flag_note": note}
+
+
+def _flag_chatter_and_blinks(segments):
+    """`segments` with each run of CHATTER_MIN_RUN or more one-character segments, and each
+    sub-MIN_WORD_SEC segment holding 3 or more letters, flagged IMPLAUSIBLE_FLAG."""
+    # Only CJK characters: a Latin one-letter line ("I", "x") is an ordinary word or a test stub.
+    tiny = [len(_CJK_CHAR_RE.findall(s["text"])) == CHATTER_MAX_LETTERS == _letters_in(s)
+            for s in segments]
+    out, i = list(segments), 0
+    while i < len(out):
+        j = i
+        while j < len(out) and tiny[j]:
+            j += 1
+        if j - i >= CHATTER_MIN_RUN:
+            out[i:j] = [_flag(s, IMPLAUSIBLE_CHATTER_NOTE) for s in out[i:j]]
+        i = max(j, i + 1)
+    for k, seg in enumerate(out):
+        try:
+            blink = seg["end"] - seg["start"] < MIN_WORD_SEC and _letters_in(seg) >= 3
+        except KeyError:
+            blink = False
+        if blink:
+            out[k] = _flag(seg, IMPLAUSIBLE_BLINK_NOTE)
+    return out
+
+
+def _letters_in(seg):
+    return len(_stock_key(seg["text"]))
+
+
 def screen_implausible_text(segments):
     """`segments` without the dense item lists no one could have said (a list of short
     items at LIST_DROP_MIN_CHARS_PER_SEC or more), and the other lists and over-fast
@@ -104,7 +145,7 @@ def screen_implausible_text(segments):
             seg = {**seg, "flag": IMPLAUSIBLE_FLAG,
                    "flag_note": IMPLAUSIBLE_LIST_NOTE if is_list else IMPLAUSIBLE_RATE_NOTE}
         out.append(seg)
-    return out
+    return _flag_chatter_and_blinks(out)
 
 
 def _stock_key(text):
