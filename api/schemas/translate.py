@@ -555,8 +555,11 @@ class RetryFailedLinesStarted(TranslateRunStarted):
 
 
 class GlossaryFlaggedRedoStart(BaseModel):
-    """Empty on purpose: the engine is the stronger one chosen in Settings."""
+    """The engine is the stronger one chosen in Settings. line_ids (optional) redoes
+    exactly those lines of the title, as the series consistency report offers, instead
+    of the lines flagged for a missing glossary name."""
     model_config = ConfigDict(extra="forbid")
+    line_ids: Optional[List[int]] = Field(default=None, min_length=1, max_length=500)
 
 
 class GlossaryFlaggedRedoStarted(TranslateRunStarted):

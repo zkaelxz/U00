@@ -156,6 +156,14 @@ class TestInheritance:
         assert (row["include_genre_notes"], row["default_female_pronouns"]) == (0, 1)
         assert row["separation_backend"] == "demucs"
 
+    def test_a_new_title_inherits_sensitivity_and_difficult_audio(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        svc.set_defaults(people["a"], s, {"sensitivity_preset": "sensitive", "difficult_audio": True})
+        d = drama_service.create_drama(source_language="ko", title_en="New", series_id=s,
+                                       principal=people["a"])
+        row = db.get_drama(d["id"])
+        assert (row["sensitivity_preset"], row["difficult_audio"]) == ("sensitive", 1)
+
     def test_a_new_title_naming_an_existing_series_inherits_too(self, people):
         s = db.create_series("Saga", owner_user_id=people["a_id"])
         svc.set_defaults(people["a"], s, {"beam_size": 9})

@@ -8457,6 +8457,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/{series_id}/consistency-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every English rendering of each glossary term across the series' titles (read-only) */
+        get: operations["get_consistency_report_api_series__series_id__consistency_report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/{series_id}/copy-terms": {
         parameters: {
             query?: never;
@@ -15381,6 +15398,78 @@ export interface components {
             /** To Number */
             to_number?: number | null;
         };
+        /** ConsistencyExample */
+        ConsistencyExample: {
+            /** Drama Id */
+            drama_id: number;
+            /** En */
+            en: string;
+            /** Idx */
+            idx: number;
+            /** Line Id */
+            line_id: number;
+        };
+        /** ConsistencyRendering */
+        ConsistencyRendering: {
+            /** Count */
+            count: number;
+            /** Examples */
+            examples: components["schemas"]["ConsistencyExample"][];
+            /** Flagged */
+            flagged: boolean;
+            /**
+             * Kind
+             * @description glossary: the term's required English. other: a different name. unnamed: no name in the line (never flagged).
+             * @enum {string}
+             */
+            kind: "glossary" | "other" | "unnamed";
+            /** Text */
+            text: string;
+            /** Titles */
+            titles: components["schemas"]["ConsistencyTitleLines"][];
+        };
+        /** ConsistencySummary */
+        ConsistencySummary: {
+            /** Flagged Lines */
+            flagged_lines: number;
+            /** Glossary Missing Lines */
+            glossary_missing_lines: number;
+            /** Lines Scanned */
+            lines_scanned: number;
+            /** Names With Several Renderings */
+            names_with_several_renderings: number;
+            /** Terms Checked */
+            terms_checked: number;
+            /** Terms Found */
+            terms_found: number;
+            /** Titles Scanned */
+            titles_scanned: number;
+        };
+        /** ConsistencyTerm */
+        ConsistencyTerm: {
+            /** Flagged Lines */
+            flagged_lines: number;
+            /** Renderings */
+            renderings: components["schemas"]["ConsistencyRendering"][];
+            /** Term Id */
+            term_id: number;
+            /** Term Original */
+            term_original: string;
+            /** Term Translation */
+            term_translation: string;
+        };
+        /** ConsistencyTitleLines */
+        ConsistencyTitleLines: {
+            /** Drama Id */
+            drama_id: number;
+            /** Line Count */
+            line_count: number;
+            /**
+             * Line Ids
+             * @description Empty unless the rendering is flagged; capped.
+             */
+            line_ids: number[];
+        };
         /** CoverArtResult */
         CoverArtResult: {
             /** Drama Id */
@@ -18197,9 +18286,14 @@ export interface components {
         };
         /**
          * GlossaryFlaggedRedoStart
-         * @description Empty on purpose: the engine is the stronger one chosen in Settings.
+         * @description The engine is the stronger one chosen in Settings. line_ids (optional) redoes
+         *     exactly those lines of the title, as the series consistency report offers, instead
+         *     of the lines flagged for a missing glossary name.
          */
-        GlossaryFlaggedRedoStart: Record<string, never>;
+        GlossaryFlaggedRedoStart: {
+            /** Line Ids */
+            line_ids?: number[] | null;
+        };
         /** GlossaryFlaggedRedoStarted */
         GlossaryFlaggedRedoStarted: {
             /**
@@ -24813,6 +24907,16 @@ export interface components {
             deleted: boolean;
             /** Series Id */
             series_id: number;
+        };
+        /** SeriesConsistencyReport */
+        SeriesConsistencyReport: {
+            /** Series Id */
+            series_id: number;
+            summary: components["schemas"]["ConsistencySummary"];
+            /** Terms */
+            terms: components["schemas"]["ConsistencyTerm"][];
+            /** Truncated */
+            truncated: boolean;
         };
         /** SeriesCopyTermsPreview */
         SeriesCopyTermsPreview: {
@@ -54698,6 +54802,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesPage"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_consistency_report_api_series__series_id__consistency_report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesConsistencyReport"];
                 };
             };
             /** @description Forbidden */
