@@ -25241,6 +25241,11 @@ export interface components {
              * @default 3
              */
             retime_window_pad_seconds: number;
+            /**
+             * Scanlate Chapter Brief
+             * @default true
+             */
+            scanlate_chapter_brief: boolean;
             /** Scene Aware Batches */
             scene_aware_batches: boolean;
             /**
@@ -25507,6 +25512,8 @@ export interface components {
             repeat_loop_min_repeats?: number | null;
             /** Retime Window Pad Seconds */
             retime_window_pad_seconds?: number | null;
+            /** Scanlate Chapter Brief */
+            scanlate_chapter_brief?: boolean | null;
             /** Scene Aware Batches */
             scene_aware_batches?: boolean | null;
             /** Scene Break Gap Seconds */
