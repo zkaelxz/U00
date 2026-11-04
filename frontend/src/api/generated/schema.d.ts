@@ -4043,6 +4043,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/glossary/dramas/{drama_id}/name-fixes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sound-alike spellings of glossary names that could be fixed (read-only, offline) */
+        get: operations["get_name_fixes_api_glossary_dramas__drama_id__name_fixes_get"];
+        put?: never;
+        /** Confirm spellings: save them as aliases and rewrite the title's source lines */
+        post: operations["apply_name_fixes_api_glossary_dramas__drama_id__name_fixes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/glossary/dramas/{drama_id}/spelling-suggestions": {
         parameters: {
             query?: never;
@@ -21049,6 +21067,59 @@ export interface components {
             line_idx: number;
             /** Source */
             source: string;
+        };
+        /** NameFixCandidate */
+        NameFixCandidate: {
+            /** Count */
+            count: number;
+            /** Examples */
+            examples: components["schemas"]["GlossaryVariantExample"][];
+            /** Score */
+            score: number;
+            /** Spelling */
+            spelling: string;
+            /** Term */
+            term: string;
+            /** Term Id */
+            term_id: number;
+        };
+        /** NameFixItem */
+        NameFixItem: {
+            /** Spelling */
+            spelling: string;
+            /** Term Id */
+            term_id: number;
+        };
+        /** NameFixPreview */
+        NameFixPreview: {
+            /** Available */
+            available: boolean;
+            /** Fixes */
+            fixes: components["schemas"]["NameFixCandidate"][];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** NameFixRequest */
+        NameFixRequest: {
+            /** Fixes */
+            fixes: components["schemas"]["NameFixItem"][];
+        };
+        /** NameFixResult */
+        NameFixResult: {
+            /**
+             * Aliases Added
+             * @default 0
+             */
+            aliases_added: number;
+            /** Lines Changed */
+            lines_changed: number;
+            /** Replacements */
+            replacements: number;
         };
         /** NameReport */
         NameReport: {
@@ -40722,6 +40793,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NameConsistency"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_name_fixes_api_glossary_dramas__drama_id__name_fixes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NameFixPreview"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_name_fixes_api_glossary_dramas__drama_id__name_fixes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NameFixRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NameFixResult"];
                 };
             };
             /** @description Not Found */

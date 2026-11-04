@@ -59,6 +59,7 @@ __all__ = [
     "LinesGlossaryApplyRequest",
     "GlossaryRunCancelRequest",
     "GlossaryVariantExample", "GlossaryVariantCandidate", "GlossaryVariants",
+    "NameFixCandidate", "NameFixPreview", "NameFixItem", "NameFixRequest", "NameFixResult",
     "GlossaryNameSpelling", "GlossaryNameCluster", "GlossaryNameClusters",
     "SpellingSuggestRequest", "SpellingSuggestRunResult", "SpellingProposal",
     "SpellingSuggestResult", "SpellingSuggestStatus",
@@ -540,6 +541,37 @@ class GlossaryVariants(BaseModel):
     lines_scanned: int
     truncated: bool
     candidates: List[GlossaryVariantCandidate] = Field(default_factory=list)
+
+
+class NameFixCandidate(BaseModel):
+    term_id: int
+    term: str
+    spelling: str
+    count: int
+    score: float
+    examples: List[GlossaryVariantExample] = Field(default_factory=list)
+
+
+class NameFixPreview(BaseModel):
+    available: bool
+    reason: str = ""
+    truncated: bool
+    fixes: List[NameFixCandidate] = Field(default_factory=list)
+
+
+class NameFixItem(BaseModel):
+    term_id: int = Field(ge=1)
+    spelling: str = Field(min_length=2, max_length=200)
+
+
+class NameFixRequest(BaseModel):
+    fixes: List[NameFixItem] = Field(min_length=1, max_length=50)
+
+
+class NameFixResult(BaseModel):
+    lines_changed: int
+    replacements: int
+    aliases_added: int = 0
 
 
 class GlossaryNameSpelling(BaseModel):
