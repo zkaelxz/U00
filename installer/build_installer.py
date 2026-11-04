@@ -123,7 +123,7 @@ CADDY_SOURCE_DIR = INSTALLER_DIR / "caddy"
 CADDY_MODULE = "baihe.local/caddy"
 CADDY_VERSION = "2.11.7"
 CADDY_GO_VERSION = "go1.26.10"
-CADDY_SHA256 = "f02437364b5361d34c4086ec17e93e75d861b33b21cd89e3090976b290a7acdb"
+CADDY_SHA256 = "b5df888ca20aa3e547ef8bf0fb22482a8b8cca8286da9adb9c40e0e694df8faa"
 CADDY_TEMPLATE = REPO_ROOT / "deploy" / "caddy" / "Caddyfile.template"
 _LICENSE_FILE_RE = re.compile(r"(?i)(licen[cs]e|notice|copying|patents)([._-].*)?")
 
