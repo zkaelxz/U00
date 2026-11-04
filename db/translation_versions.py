@@ -19,7 +19,8 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
                 "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
                 "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None),
                 "reviewed": bool(getattr(ln, "reviewed", False)),
-                "ass_event": getattr(ln, "ass_event", None)}
+                "ass_event": getattr(ln, "ass_event", None),
+                "confidence": getattr(ln, "confidence", None)}
                for ln in lines]
     with contextlib.closing(db.get_conn()) as conn:
         if make_active:

@@ -64,6 +64,12 @@ MISSING_TRANSCRIPTION_MESSAGE = "Transcription isn't installed yet. Open Diagnos
 MISSING_OCR_MESSAGE = "Reading on-screen text needs an OCR package that isn't installed yet. Open Diagnostics to install one."
 
 
+def _usable_confidence(value) -> Optional[float]:
+    """A segment's confidence as stored, or None when a resumed checkpoint holds something else."""
+    ok = isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
+    return float(value) if ok else None
+
+
 def missing_package_outcome(message: str = MISSING_TRANSCRIPTION_MESSAGE) -> dict:
     """The pipeline outcome for a run that could not start for a missing package."""
     return {"failed_reason": "dependency_missing", "detail": message}
@@ -597,6 +603,7 @@ class _PipelineRun:
         return [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                      speaker=seg.get("speaker") or None, flag=seg.get("flag"),
                      flag_note=seg.get("flag_note") or "", lang=seg.get("lang"),
+                     confidence=_usable_confidence(seg.get("confidence")),
                      word_timings=segment_splitting.encode_line_words(seg["text"],
                                                                 seg.get("words")))
                 for i, seg in enumerate(

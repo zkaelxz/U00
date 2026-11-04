@@ -356,3 +356,48 @@ class TestSfxPersistence:
         loaded[0].sfx = True
         isolated_db.save_lines(did, loaded)
         assert [ln.sfx for ln in isolated_db.load_line_objects(did)] == [True, True]
+
+
+class TestShakyView:
+    """Whisper's per-line confidence: the `shaky` view lists the doubtful, unchecked lines worst first."""
+
+    def _lines(self, db):
+        rows = [(0, 0.9), (1, 0.4), (2, None), (3, 0.1), (4, 0.55), (5, 0.3)]
+        did = _seed(db, [Line(idx=i, start=i, end=i + 1, zh=f"中{i}", en=f"E{i}", confidence=c)
+                         for i, c in rows])
+        checked = db.load_line_objects(did)[5]
+        checked.reviewed = True
+        db.save_lines(did, [checked], fields=("reviewed",))
+        return did
+
+    def test_least_confident_first_and_skips_checked_unknown_and_confident(self, isolated_db):
+        did = self._lines(isolated_db)
+        page = svc.list_review_lines(did, only="shaky")
+        assert [l["zh"] for l in page["lines"]] == ["中3", "中1", "中4"]
+        assert [l["confidence"] for l in page["lines"]] == [0.1, 0.4, 0.55]
+        assert page["total"] == page["shaky_count"] == 3
+
+    def test_later_pages_keep_the_confidence_order(self, isolated_db):
+        did = self._lines(isolated_db)
+        second = svc.list_review_lines(did, page=2, page_size=2, only="shaky")
+        assert [l["zh"] for l in second["lines"]] == ["中4"]
+
+    def test_unfiltered_view_still_in_line_order(self, isolated_db):
+        did = self._lines(isolated_db)
+        assert [l["idx"] for l in svc.list_review_lines(did)["lines"]] == list(range(6))
+
+    def test_editing_the_source_text_clears_it(self, isolated_db):
+        from services import lines_service
+        did = self._lines(isolated_db)
+        worst = svc.list_review_lines(did, only="shaky")["lines"][0]
+        lines_service.patch_line(did, worst["id"], zh="改了")
+        page = svc.list_review_lines(did, only="shaky")
+        assert [l["zh"] for l in page["lines"]] == ["中1", "中4"]
+        assert next(r for r in isolated_db.load_lines(did) if r["id"] == worst["id"])["confidence"] is None
+
+    def test_editing_only_the_translation_keeps_it(self, isolated_db):
+        from services import lines_service
+        did = self._lines(isolated_db)
+        worst = svc.list_review_lines(did, only="shaky")["lines"][0]
+        edited = lines_service.patch_line(did, worst["id"], en="New English")
+        assert edited["confidence"] == 0.1

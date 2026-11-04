@@ -2279,7 +2279,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
     "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
-              "word_timings", "reviewed", "ass_event"),
+              "word_timings", "reviewed", "ass_event", "confidence"),
     "dramas": (
         "translation_engine", "content_mode", "narration_language", "source_video_filename",
         "source_language", "chinese_script", "media_type", "series_id", "episode_number",
@@ -3229,3 +3229,34 @@ def test_job_record_listing_keeps_every_active_row_and_caps_finished_ones(isolat
     ids = [r["job_id"] for r in isolated_db.list_job_records(finished_limit=2)]
     assert ids == ["done-4", "done-3", "old-active"]
     assert len(isolated_db.list_job_records()) == 6
+
+
+def test_confidence_survives_saves_and_clears_when_the_source_text_is_edited(isolated_db):
+    did = isolated_db.create_drama(title_en="D")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="x", confidence=0.42),
+                                 Line(idx=1, start=1, end=2, zh="b", en="y", confidence=0.8)])
+    lines = isolated_db.load_line_objects(did)
+    assert [ln.confidence for ln in lines] == [0.42, 0.8]
+
+    lines[0].en = "changed"
+    isolated_db.save_lines(did, lines, fields=("en",))
+    assert isolated_db.load_line_objects(did)[0].confidence == 0.42
+
+    lines = isolated_db.load_line_objects(did)
+    lines[0].zh = "edited"
+    isolated_db.save_lines(did, lines, fields=("zh",))
+    assert lines[0].confidence is None
+    after = isolated_db.load_line_objects(did)
+    assert [ln.confidence for ln in after] == [None, 0.8]
+
+    isolated_db.update_line_fields_if(did, after[1].id, {"zh": "c"}, {"zh": "b"})
+    assert isolated_db.load_line_objects(did)[1].confidence is None
+
+
+def test_retranscription_writes_new_confidence_with_new_text(isolated_db):
+    did = isolated_db.create_drama(title_en="D")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", confidence=0.2)])
+    ln = isolated_db.load_line_objects(did)[0]
+    ln.zh, ln.confidence = "b", 0.9
+    isolated_db.save_lines(did, [ln], fields=("zh", "confidence"))
+    assert isolated_db.load_line_objects(did)[0].confidence == 0.9

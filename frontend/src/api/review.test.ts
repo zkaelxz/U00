@@ -8,7 +8,7 @@ import * as review from './review'
 
 const line: ReviewLine = {
   id: 7, idx: 3, start: 1, end: 2.5, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null,
 }
 
 function fakeFetch(status: number, body: unknown, calls: { url: string; init?: RequestInit }[] = []) {

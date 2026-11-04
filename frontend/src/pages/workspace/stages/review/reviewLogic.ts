@@ -352,17 +352,24 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'all') return `All${n}`
   if (filter === 'flagged') return short ? `⚑${n}` : `Flagged${n}`
   if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
+  if (filter === 'shaky') return short ? `Shaky${n}` : `Least confident${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
 }
 
 /** A translated line nobody has marked checked (review_lines_service._is_unreviewed). */
 const isUnreviewed = (line: Pick<ReviewLine, 'en' | 'reviewed'>) => !!line.en.trim() && !line.reviewed
 
+/** Mirrors review_lines_service.SHAKY_BELOW: Whisper was unsure of the line and nobody has checked it since. */
+const SHAKY_BELOW = 0.6
+export const isShaky = (line: Pick<ReviewLine, 'confidence' | 'reviewed'>) =>
+  line.confidence != null && line.confidence < SHAKY_BELOW && !line.reviewed
+
 /** Whether the server's filter (review_lines_service._visible) still lists this line. */
 export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
   if (filter === 'flagged') return !!line.flag
   if (filter === 'untranslated') return !!line.zh.trim() && !line.en.trim()
   if (filter === 'unreviewed') return isUnreviewed(line)
+  if (filter === 'shaky') return isShaky(line)
   return true
 }
 
@@ -371,6 +378,7 @@ export function emptyMessage(filter: LineFilter, term: string): string {
   if (filter === 'flagged') return 'No flagged lines. Nice.'
   if (filter === 'untranslated') return 'Every line has English.'
   if (filter === 'unreviewed') return 'Every translated line is checked.'
+  if (filter === 'shaky') return 'No unchecked lines Whisper was unsure of.'
   return 'No lines yet. Transcribe on Media first.'
 }
 

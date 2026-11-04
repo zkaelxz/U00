@@ -10,7 +10,7 @@ import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmen
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
 })
 
 describe('spoken language', () => {
@@ -166,6 +166,8 @@ describe('labels', () => {
     expect(chipLabel('all', null, false)).toBe('All')
     expect(chipLabel('unreviewed', 3, true)).toBe('Unrev. 3')
     expect(chipLabel('unreviewed', 3, false)).toBe('Unreviewed 3')
+    expect(chipLabel('shaky', 2, false)).toBe('Least confident 2')
+    expect(emptyMessage('shaky', '')).toBe('No unchecked lines Whisper was unsure of.')
     expect(emptyMessage('unreviewed', '')).toBe('Every translated line is checked.')
     expect(emptyMessage('flagged', '')).toBe('No flagged lines. Nice.')
     expect(emptyMessage('all', 'abc')).toBe('No lines match “abc”.')
@@ -467,7 +469,7 @@ describe('parseJump', () => {
 
 describe('inFilter', () => {
   const base = { id: 1, idx: 0, start: 0, end: 1, zh: '你好', en: '', speaker: null, speaker_manual: false,
-    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false }
+    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null }
   it('follows the server filters', () => {
     expect(inFilter({ ...base, flag: 'check' }, 'flagged')).toBe(true)
     expect(inFilter(base, 'flagged')).toBe(false)
@@ -479,6 +481,11 @@ describe('inFilter', () => {
     expect(inFilter({ ...base, en: 'Hi' }, 'unreviewed')).toBe(true)
     expect(inFilter({ ...base, en: 'Hi', reviewed: true }, 'unreviewed')).toBe(false)
     expect(inFilter(base, 'unreviewed')).toBe(false)
+    // Shaky: Whisper was unsure and nobody has checked since; no score means not shaky.
+    expect(inFilter({ ...base, confidence: 0.3 }, 'shaky')).toBe(true)
+    expect(inFilter({ ...base, confidence: 0.9 }, 'shaky')).toBe(false)
+    expect(inFilter({ ...base, confidence: 0.3, reviewed: true }, 'shaky')).toBe(false)
+    expect(inFilter(base, 'shaky')).toBe(false)
   })
 })
 

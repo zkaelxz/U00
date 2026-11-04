@@ -114,6 +114,9 @@ def _migrate_line_columns(conn):
         # JSON: the ASS Dialogue a line was imported from (subtitle_parse.ass_event),
         # so an ASS export writes back its style, margins and override tags.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN ass_event TEXT")
+    if "confidence" not in existing_cols:
+        # whisper_transcribe.segment_confidence: 0-1, NULL for lines Whisper didn't transcribe.
+        db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN confidence REAL")
 
 
 def _migrate_drama_columns(conn):

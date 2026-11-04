@@ -4,6 +4,7 @@ path, the opt-in Groq cloud path and the Whisper prompt/sensitivity settings.
 """
 
 import json
+import math
 import os
 import re
 
@@ -74,6 +75,28 @@ def _is_sparse(seg: dict) -> bool:
     return length >= SPARSE_SEGMENT_MIN_SEC and _letters(seg["text"]) / length < SPARSE_MAX_CHARS_PER_SEC
 
 
+# faster-whisper's own cut-off for "this decode is a repetition loop" (compression_ratio_threshold).
+LOOPING_COMPRESSION_RATIO = 2.4
+
+
+def segment_confidence(segment) -> float | None:
+    """0-1 estimate of how sure Whisper was of a segment, or None when it reported nothing usable.
+    exp(avg_logprob) is the mean probability of the tokens it chose; that is scaled down by the
+    chance the stretch holds no speech, and halved when the text is as repetitive as a decoding
+    loop. A rank for ordering lines, not a calibrated probability."""
+    logprob = getattr(segment, "avg_logprob", None)
+    if not isinstance(logprob, (int, float)) or isinstance(logprob, bool):
+        return None
+    score = math.exp(min(logprob, 0.0))
+    no_speech = getattr(segment, "no_speech_prob", None)
+    if isinstance(no_speech, (int, float)) and not isinstance(no_speech, bool):
+        score *= 1.0 - min(max(no_speech, 0.0), 1.0)
+    ratio = getattr(segment, "compression_ratio", None)
+    if isinstance(ratio, (int, float)) and not isinstance(ratio, bool) and ratio > LOOPING_COMPRESSION_RATIO:
+        score *= 0.5
+    return round(min(max(score, 0.0), 1.0), 3)
+
+
 def _segment_dicts(segments, prompt_keys: set, on_segment=None, on_kept=None) -> list:
     """faster-whisper segments as {start, end, text[, words]} dicts, times narrowed to the
     spoken words; on_segment(s) is called for every segment, kept or not, on_kept(dict)
@@ -91,6 +114,9 @@ def _segment_dicts(segments, prompt_keys: set, on_segment=None, on_kept=None) ->
             words = _word_dicts(getattr(s, "words", None))
             if words:
                 seg["words"] = words
+            confidence = segment_confidence(s)
+            if confidence is not None:
+                seg["confidence"] = confidence
             result.append(seg)
             if on_kept:
                 on_kept(seg)

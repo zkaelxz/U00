@@ -293,7 +293,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
 
   const counts = data
-    ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count, unreviewed: data.unreviewed_count ?? 0 }
+    ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count, unreviewed: data.unreviewed_count ?? 0, shaky: data.shaky_count ?? 0 }
     : null
   const setSpeaker = useSetSpeakerPanel(dramaId, selection.selectedIds, onChanged)
   const selectionCtx = selectionContext(dramaId, selection, setStatus, {

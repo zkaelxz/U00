@@ -4,7 +4,7 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed'
+export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed' | 'shaky'
 
 export type ReviewLine = Schemas['ReviewLinesLine']
 

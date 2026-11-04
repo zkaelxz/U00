@@ -26,7 +26,7 @@ ISO_639_2 = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor"}
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.
 LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
-               "speaker_manual", "sfx", "lang", "reviewed", "ass_event")
+               "speaker_manual", "sfx", "lang", "reviewed", "ass_event", "confidence")
 
 
 @dataclass
@@ -57,6 +57,10 @@ class Line:
     # JSON of the ASS Dialogue this line was imported from
     # (subtitle_parse.ass_event); None for every other line.
     ass_event: str | None = None
+    # 0-1 estimate of how sure Whisper was of this line (whisper_transcribe.segment_confidence);
+    # None for lines from any other source and for rows saved before it existed. Editing
+    # `zh` clears it, since a person has since read the line.
+    confidence: float | None = None
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int | None = field(default=None, compare=False)
     # encode_line_words' stored form, read through line_words. None means "not
@@ -106,7 +110,7 @@ def line_from_row(row) -> "Line":
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
               sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"),
               reviewed=bool(row.get("reviewed")), word_timings=row.get("word_timings"),
-              ass_event=row.get("ass_event"))
+              ass_event=row.get("ass_event"), confidence=row.get("confidence"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
     if "word_timings" in row:
         ln.orig["word_timings"] = ln.word_timings
@@ -162,6 +166,9 @@ def adopt_ids(restored, current, recorded=()) -> list:
                 setattr(ln, f, getattr(match, f))
         if "sfx" not in recorded:
             ln.sfx = ln.sfx or match.sfx
+        # Snapshots from before it was recorded lack it; it describes the audio, so it follows the same source text.
+        if ln.confidence is None and ln.zh == match.zh:
+            ln.confidence = match.confidence
         # The current Checked mark wins while the English is what the reviewer
         # checked (a different English is unchecked on save).
         if getattr(match, "reviewed", False) and (ln.en or "") == (match.en or ""):
@@ -188,6 +195,7 @@ def lines_from_saved(rows) -> list:
                  speaker_manual=bool(r.get("speaker_manual")),
                  lang=_stored_line_lang(r.get("lang")), id=r.get("id"),
                  reviewed=bool(r.get("reviewed")), ass_event=r.get("ass_event"),
+                 confidence=r.get("confidence"),
                  word_timings=words_for_text(r.get("word_timings"), r.get("zh") or ""))
             for r in rows]
 
