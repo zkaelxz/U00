@@ -48,6 +48,7 @@ interface Props {
   player: ReactNode
 }
 
+// The shaky chip only appears for a title that has scored lines, so other titles keep the four chips a phone's row fits.
 const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed', 'shaky']
 const FULL: Record<LineFilter, string> = {
   all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed', shaky: 'Least confident first',
@@ -137,7 +138,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
 
   const chips = (
     <div className="review-chips" role="radiogroup" aria-label="Show">
-      {FILTERS.map((f) => {
+      {FILTERS.filter((f) => f !== 'shaky' || p.filter === 'shaky' || (p.counts?.shaky ?? 0) > 0).map((f) => {
         const count = !p.counts ? null : f === 'all' ? p.counts.all : p.counts[f]
         return (
           <label key={f} className="review-chip">
