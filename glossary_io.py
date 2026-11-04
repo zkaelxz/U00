@@ -65,6 +65,37 @@ TERM_POLICIES = {
 
 
 
+MIN_ALIAS_LEN = 2   # one character is a word in CJK, not a spelling of a name (as in name_fix_service)
+
+
+def confirmed_aliases(glossary_terms) -> dict:
+    """term_original -> the alias spellings the owner confirmed for it, for the prompt.
+    A spelling that is another term's own text, or that two terms both claim, is left
+    out: telling the engine it means two different things would change the meaning."""
+    terms = [t for t in (glossary_terms or []) if t.get("term_original")]
+    originals = {t["term_original"] for t in terms}
+    claims: dict = {}
+    for t in terms:
+        raw = t.get("aliases") or ""
+        items = raw if isinstance(raw, (list, tuple)) else str(raw).split("|")
+        for a in items:
+            a = str(a).strip()
+            if len(a) >= MIN_ALIAS_LEN and a not in originals:
+                claims.setdefault(a, set()).add(t["term_original"])
+    out: dict = {}
+    for a, owners in claims.items():
+        if len(owners) == 1:
+            out.setdefault(next(iter(owners)), []).append(a)
+    return out
+
+
+def alias_note(aliases) -> str:
+    """The prompt's clause for a term's aliases; the stored transcript keeps the heard spelling."""
+    if not aliases:
+        return ""
+    return " [also written in the source as: " + ", ".join(aliases) + " -- the same name]"
+
+
 GLOSSARY_COLUMNS = ["term_original", "term_translation", "category", "policy",
                     "enforce_exact", "notes", "aliases", "banned_translations"]
 
