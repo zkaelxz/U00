@@ -150,6 +150,8 @@ def _services(layout, win, source=None, health=True, **kw):
     svc = service.Services(layout, win, health=probe, sleep=lambda s: None,
                            source=source, **kw)
     svc.tree_check = lambda root: None      # file owners can't be read off Windows
+    svc.locked = []
+    svc.lock_root = lambda root, sid: svc.locked.append((root, sid))
     return svc
 
 
@@ -508,19 +510,22 @@ class TestStopAndUninstall:
 
     def test_install_locks_the_install_folder_to_administrators(self, layout, source):
         win = FakeWindows()
-        _services(layout, win, source).install()
-        calls = [c[1:] for c in win.commands("icacls.exe") if c[1] == str(layout.root)]
-        assert [str(layout.root), "/setowner", "*S-1-5-32-544", "/T", "/L"] in calls
-        final = next(c for c in calls if "/inheritance:r" in c)
-        # The user's write goes before any owner changes, and the reset never names the root
-        # itself (that would turn its inheritance back on).
-        order = [c for c in win.commands("icacls.exe")
-                 if "/inheritance:r" in c or "/setowner" in c or "/reset" in c][-3:]
-        assert ["/inheritance:r" in order[0], "/setowner" in order[1], "/reset" in order[2]] == [True] * 3
-        assert order[2][1] == str(layout.root / "*")
-        assert "*S-1-5-32-545:(OI)(CI)RX" in final     # users read and run, never write
-        assert all("(OI)(CI)RX" in a or "(OI)(CI)F" in a for a in final if "(OI)" in a)
+        svc = _services(layout, win, source)
+        svc.install()
+        # The root's whole permission list is replaced in one step before any owner changes,
+        # and the reset never names the root itself (that would turn its inheritance back on).
+        assert svc.locked == [(layout.root, service_control.service_sid("BaiheStudio"))]
+        icacls = [c for c in win.commands("icacls.exe") if "/setowner" in c or "/reset" in c][:2]
+        assert icacls[0][1:] == [str(layout.root), "/setowner", "*S-1-5-32-544", "/T", "/L"]
+        assert icacls[1][1] == str(layout.root / "*") and icacls[1][2] == "/reset"
         assert layout.lock_marker.is_file()
+
+    def test_the_root_permission_list_has_no_inheritance_and_no_users_write(self):
+        from installer import service_lock
+        sddl = service_lock.root_sddl("S-1-5-80-1")
+        assert sddl.startswith("D:P(")      # protected: nothing from the parent
+        assert service_lock.write_access_problem("O:BA" + sddl, {"SY", "BA", "S-1-5-80-1"},
+                                                 protected=True) is None
 
     def test_a_lock_that_leaves_a_user_owned_file_fails_the_install(self, layout, source):
         win = FakeWindows()
@@ -1862,23 +1867,102 @@ class TestNothingBeyondLoopback:
 
 
 class TestTreeProblem:
-    def test_owned_by_administrators_is_fine(self, tmp_path):
+    GOOD = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)(A;OICI;RC;;;OW)"
+
+    def _check(self, root, **kw):
         from installer import service_lock
+        kw.setdefault("owner", lambda p: "S-1-5-32-544")
+        kw.setdefault("sddl", lambda p: self.GOOD)
+        return service_lock.tree_problem(root, **kw)
+
+    def test_a_locked_tree_is_fine(self, tmp_path):
         (tmp_path / "a" / "b").mkdir(parents=True)
         (tmp_path / "a" / "b" / "f").write_text("x")
-        assert service_lock.tree_problem(tmp_path, owner=lambda p: "S-1-5-32-544") is None
+        assert self._check(str(tmp_path)) is None
 
     def test_a_user_owned_entry_is_named(self, tmp_path):
-        from installer import service_lock
-        (tmp_path / "a").mkdir()
-        (tmp_path / "a" / "f").write_text("x")
-        got = service_lock.tree_problem(
-            tmp_path, owner=lambda p: "S-1-5-21-1-2-3-1001" if str(p).endswith("f") else "S-1-5-18")
-        assert got and "still owned by a user" in got
+        (tmp_path / "f").write_text("x")
+        got = self._check(str(tmp_path), owner=lambda p: "S-1-5-21-1-2-3-1001" if p.endswith("f")
+                          else "S-1-5-18")
+        assert "still owned by a user" in got
+
+    def test_an_entry_that_lets_a_user_write_is_named_even_when_owned_by_admins(self, tmp_path):
+        (tmp_path / "f").write_text("x")
+        bad = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;AU)"
+        got = self._check(str(tmp_path), sddl=lambda p: bad if p.endswith("f") else self.GOOD)
+        assert "can write" in got
+
+    def test_an_unprotected_root_is_named(self, tmp_path):
+        got = self._check(str(tmp_path), sddl=lambda p: "O:BAD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
+        assert "inherits permissions" in got
+
+    def test_a_hard_linked_file_is_named(self, tmp_path):
+        (tmp_path / "f").write_text("x")
+        os.link(tmp_path / "f", tmp_path / "g")
+        assert "hard link" in self._check(str(tmp_path))
+
+    def test_a_folder_that_cannot_be_listed_is_named(self, tmp_path, monkeypatch):
+        (tmp_path / "locked").mkdir()
+        real = os.scandir
+
+        def scandir(path):
+            if str(path).endswith("locked"):
+                raise PermissionError(13, "denied", str(path))
+            return real(path)
+
+        monkeypatch.setattr(os, "scandir", scandir)
+        assert "can't be listed" in self._check(str(tmp_path))
 
     def test_a_link_is_refused(self, tmp_path, monkeypatch):
-        from installer import service_lock
         (tmp_path / "junction").mkdir()
-        monkeypatch.setattr(os, "lstat", lambda p: type(
-            "S", (), {"st_file_attributes": 0x400 if str(p).endswith("junction") else 0})())
-        assert "is a link" in service_lock.tree_problem(tmp_path, owner=lambda p: "S-1-5-18")
+        real = os.lstat
+        monkeypatch.setattr(os, "lstat", lambda p: type("S", (), {
+            "st_file_attributes": 0x400 if str(p).endswith("junction") else 0,
+            "st_nlink": 1})() if "junction" in str(p) else real(p))
+        assert "is a link" in self._check(str(tmp_path))
+
+
+class TestHoldDirectory:
+    def test_every_folder_above_is_held_outermost_first_and_released_in_reverse(self, tmp_path):
+        from installer import service_lock
+        events = []
+        target = tmp_path / "Programs" / "Baihe Studio"
+        target.mkdir(parents=True)
+        with service_lock.hold_directory(target, is_windows=True,
+                                         open_held=lambda p: events.append(("open", p)) or str(p),
+                                         close_held=lambda h: events.append(("close", h))):
+            events.append(("work", None))
+        opened = [e[1] for e in events if e[0] == "open"]
+        assert opened[-1] == target and opened[0] == Path(target.anchor)
+        assert opened == sorted(opened, key=lambda p: len(p.parts))
+        assert events[len(opened)] == ("work", None)
+        assert [str(e[1]) for e in events if e[0] == "close"] == [str(p) for p in reversed(opened)]
+
+    def test_a_link_among_the_folders_above_refuses_and_still_releases(self, tmp_path, monkeypatch):
+        from installer import service_lock
+        target = tmp_path / "Programs" / "Baihe Studio"
+        target.mkdir(parents=True)
+        closed = []
+        real = os.lstat
+        monkeypatch.setattr(os, "lstat", lambda p: type("S", (), {"st_file_attributes": 0x400})()
+                            if str(p).endswith("Programs") else real(p))
+        with pytest.raises(service_layout.ServiceError, match="is a link"):
+            with service_lock.hold_directory(target, is_windows=True,
+                                             open_held=lambda p: str(p), close_held=closed.append):
+                pytest.fail("must not run")
+        assert closed       # nothing stays held
+
+    def test_a_folder_that_cannot_be_opened_stops_it_and_releases_the_rest(self, tmp_path):
+        from installer import service_lock
+        closed = []
+
+        def open_held(p):
+            if p == tmp_path:
+                raise service_layout.ServiceError("can't be held open")
+            return str(p)
+
+        with pytest.raises(service_layout.ServiceError, match="held open"):
+            with service_lock.hold_directory(tmp_path, is_windows=True, open_held=open_held,
+                                             close_held=closed.append):
+                pytest.fail("must not run")
+        assert len(closed) == len(service_lock.ancestors(tmp_path)) - 1

@@ -160,6 +160,13 @@ def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, req
                                                        "name": name}))
 
 
+_GOOD = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;OICI;RC;;;OW)"
+
+
+def _good_sddl(path):
+    return _GOOD
+
+
 def _admin_owner(path):
     return "S-1-5-32-544"
 
@@ -180,9 +187,9 @@ class _Held:
         return held()
 
 
-def _apply(layout, svc, owner=_admin_owner):
+def _apply(layout, svc, owner=_admin_owner, sddl=_good_sddl):
     return su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
-                           owner=owner)
+                           owner=owner, sddl=sddl)
 
 
 def _app_text(layout):
@@ -282,7 +289,7 @@ def test_a_new_version_that_does_not_answer_is_rolled_back_and_the_old_one_runs_
 
     with pytest.raises(service_layout.ServiceError, match="previous version was put back"):
         su.apply_update(layout, Log(), 8600, health=healthy_once_old_is_back, sleep=lambda s: None,
-                        owner=_admin_owner)
+                        owner=_admin_owner, sddl=_good_sddl)
     assert _app_text(layout) == "old" and svc.running
     assert json.loads((layout.root / "manifest.json").read_text())["app_version"] == OLD
     assert sw.read_result(layout.root)["code"] == "rolled_back_health"
@@ -424,7 +431,7 @@ def test_the_install_folder_is_held_open_for_the_whole_update(env, key):
     _release(layout, key)
     held = _Held()
     su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
-                    owner=_admin_owner, hold=held)
+                    owner=_admin_owner, sddl=_good_sddl, hold=held)
     assert held.events == [("open", layout.root), ("close", layout.root)]
     assert _app_text(layout) == "new"
 
@@ -438,5 +445,20 @@ def test_an_install_folder_that_cannot_be_held_stops_the_update(env, key):
 
     with pytest.raises(service_layout.ServiceError, match="held open"):
         su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
-                        owner=_admin_owner, hold=cannot)
+                        owner=_admin_owner, sddl=_good_sddl, hold=cannot)
+    assert _app_text(layout) == "old"
+
+
+@pytest.mark.parametrize("sddl, why", [
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;S-1-5-21-1-2-3-1001)", "can write"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;AU)", "can write"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;BU)", "can write"),
+    ("O:BAD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", "inherits permissions"),
+    (None, "can't be read"),
+])
+def test_an_explicit_entry_that_lets_someone_write_is_refused(env, key, sddl, why):
+    layout, svc, _ = env
+    _release(layout, key)
+    with pytest.raises(service_layout.ServiceError, match=why):
+        _apply(layout, svc, sddl=lambda path: sddl)
     assert _app_text(layout) == "old"

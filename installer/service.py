@@ -113,11 +113,12 @@ from installer.service_control import (
     query_state,
     remote_reminder,
     revoke_commands,
+    service_sid,
     start_service,
     stop_service,
 )
-from installer.service_lock import (lock_commands, remove_marker, tree_problem, unlock_commands,
-                                    write_marker)
+from installer.service_lock import (lock_commands, remove_marker, set_root_security, tree_problem,
+                                    unlock_commands, write_marker)
 from installer.service_layout import (
     ADMIN_FOLDER_NAME,
     APP_DISPLAY_NAME,
@@ -148,6 +149,7 @@ class Services:
     tests replace."""
 
     tree_check = staticmethod(tree_problem)
+    lock_root = staticmethod(set_root_security)
 
     def __init__(self, layout: Layout, run, health=health_ok, port_check=port_answers,
                  is_baihe=household_is_baihe, sleep=time.sleep, source=None):
@@ -309,6 +311,9 @@ class Services:
         refuse_reparse_point(lay.root)
         remove_marker(lay)
         self.run.log("Locking the install folder to administrators (this can take a while).")
+        # First and in one step: nothing of the user's is left on the folder
+        # before the owner changes (see set_root_security).
+        self.lock_root(lay.root, service_sid(APP_SERVICE))
         for cmd, timeout in lock_commands(lay):
             _check(self.run(cmd, timeout=timeout), "Locking the install folder")
         problem = self.tree_check(lay.root)

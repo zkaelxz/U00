@@ -228,7 +228,7 @@ def _settle_earlier_update(root, run, sleep) -> None:
 
 
 def apply_update(layout, run, port, health=health_ok, sleep=time.sleep, owner=owner_sid,
-                 hold=hold_directory) -> str:
+                 hold=hold_directory, sddl=None) -> str:
     """Verifies the requested app zip and switches the service to it. Raises
     ServiceError with the reason when nothing changed or the previous
     version was put back; the outcome is also in app-update\\result.json,
@@ -242,7 +242,7 @@ def apply_update(layout, run, port, health=health_ok, sleep=time.sleep, owner=ow
             refuse_reparse_point(path)
         # LocalSystem writes into this folder: only when Setup's lock holds can no
         # process running as the user be swapping it underneath.
-        problem = locked_problem(layout, owner)
+        problem = locked_problem(layout, owner, sddl)
         if problem:
             raise ServiceError(problem)
         installed = app_swap.installed_manifest(root)
