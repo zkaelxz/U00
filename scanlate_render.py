@@ -15,9 +15,10 @@ import scanlate_art_text
 import scanlate_tuning
 from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import (
-    InpaintModelUnavailable, background_is_dark, inpaint_region, lama_ml_weights_cached,
+    erase_box, InpaintModelUnavailable, background_is_dark, inpaint_region, lama_ml_weights_cached,
 )
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
+from scanlate_watermark import is_site_mark_region, logo_box
 
 
 # Shown when a page is cleaned without the LaMa-manga weights. "auto" then
@@ -440,6 +441,10 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
         caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
                           for b, s in zip(captions, caption_styles)]
+        page_h, page_w = page.shape[:2]
+        for b in bubbles:
+            if is_site_mark_region(b):
+                erase_box(page, logo_box(b, page_w, page_h))
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
         for b in to_render:
