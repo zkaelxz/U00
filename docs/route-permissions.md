@@ -671,6 +671,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/transcribe/dramas/{drama_id}/autotune/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/apply` | lines.edit |
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/estimate` | library.read |
+| `POST /api/transcribe/dramas/{drama_id}/compare-transcription/flag-disagreements` | lines.edit |
 | `GET /api/transcribe/dramas/{drama_id}/compare-transcription/options` | library.read |
 | `GET /api/transcribe/dramas/{drama_id}/compare-transcription/result` | lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/compare-transcription/run` | jobs.start |

@@ -201,6 +201,7 @@ export type CompareResult = Schemas['CompareResult']
 export type CompareApplyRequest = Schemas['CompareApplyRequest']
 
 export type CompareApplyResult = Schemas['CompareApplyResult']
+export type CompareFlagResult = Schemas['CompareFlagResult']
 
 // api/schemas/transcribe.py Retime* (Review: Re-time with the Qwen3 aligner).
 export type RetimeRunRequest = Schemas['RetimeRunRequest']
