@@ -229,6 +229,15 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
+function ShakyBadge({ line }: { line: ReviewLine }) {
+  if (!isShaky(line)) return null
+  return (
+    <span data-testid="line-shaky" title="Whisper was unsure of this line">
+      <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
+    </span>
+  )
+}
+
 function LineCps({ line, lineAbove = false }: { line: ReviewLine; lineAbove?: boolean }) {
   const cps = lineCps(line)
   if (cps === null) return null
@@ -317,11 +326,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
-        {isShaky(line) && (
-          <span data-testid="line-shaky" title="Whisper was unsure of this line">
-            <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
-          </span>
-        )}
+        <ShakyBadge line={line} />
         {isSourceChanged(line) && (
           <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
             <Badge tone="warn">Source changed</Badge>
