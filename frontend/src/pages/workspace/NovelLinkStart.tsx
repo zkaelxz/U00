@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -25,12 +25,14 @@ const STEP_TEXT: Record<ChainStep, string> = {
  * the glossary review (the Translate tab offers it with a start button), because names and genders are cheaper to fix before translating than after.
  * With chapters already saved but no lines, the same button continues from where the title is.
  */
-export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSeries, onProgress }: {
+export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSeries, startSignal, onProgress }: {
   id: number
   hasSeries: boolean
   chapters: number
   translating: boolean
   defaultUrl: string
+  /** Raised by the title page's Translate button, which has no lines to open and so runs the chain. */
+  startSignal: number
   onProgress: () => void
 }) {
   const [url, setUrl] = useState(defaultUrl)
@@ -62,6 +64,12 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSerie
       },
     )
   }
+
+  // Not a dependency on `running`: a press while the chain already works must not queue a second run.
+  useEffect(() => {
+    if (startSignal > 0 && !running && resuming) start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startSignal])
 
   if (!running && !finished && translating) return null
   const submit = (e: FormEvent) => {

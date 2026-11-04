@@ -73,6 +73,15 @@ test('a reload mid-chain continues from the chapters the server already holds', 
   expect(s.calls).toEqual(['tag', 'extract'])
 })
 
+test('Translate on a novel with chapters and no lines runs the chain to the glossary review', async ({ page }) => {
+  const s = await mockServer(page, { chapters: 3, text: true })
+  await page.goto('/#/drama/2')
+  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
+  expect(s.calls).toEqual(['tag', 'extract'])
+})
+
 test('Enter in the link box starts the chain', async ({ page }) => {
   const s = await mockServer(page)
   await page.goto('/#/drama/2')

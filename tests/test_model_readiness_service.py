@@ -607,6 +607,27 @@ def test_sensevoice_loads_the_cached_folder_offline(caches, monkeypatch):
     assert models[-1] == sensevoice_tags.MODEL_ID
 
 
+def test_sensevoice_is_found_in_the_snapshot_layout_of_newer_modelscope(caches):
+    import sensevoice_tags
+    assert model_offline.modelscope_model_dir(sensevoice_tags.MODEL_ID) is None
+    snap = caches["modelscope"] / "models" / "iic--SenseVoiceSmall" / "snapshots" / "master"
+    snap.mkdir(parents=True)
+    (snap / "config.yaml").write_bytes(b"x")
+    assert model_offline.modelscope_model_dir(sensevoice_tags.MODEL_ID) is None
+    (snap / "model.pt").write_bytes(b"x")
+    assert model_offline.modelscope_model_dir(sensevoice_tags.MODEL_ID) == str(snap)
+
+
+def test_sensevoice_default_cache_is_found_above_the_old_hub_folder(tmp_path, monkeypatch):
+    import sensevoice_tags
+    monkeypatch.delenv("MODELSCOPE_CACHE", raising=False)
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(tmp_path) if p == "~" else p)
+    snap = tmp_path / ".cache" / "modelscope" / "models" / "iic--SenseVoiceSmall" / "snapshots" / "master"
+    snap.mkdir(parents=True)
+    (snap / "model.pt").write_bytes(b"x")
+    assert model_offline.modelscope_model_dir(sensevoice_tags.MODEL_ID) == str(snap)
+
+
 def test_manga_ocr_loads_the_cached_folder_offline(caches, monkeypatch):
     import sys
     import types
