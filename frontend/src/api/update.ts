@@ -1,6 +1,6 @@
 // App updates (api/routers/update_routes.py). Every route is PC only, so all
 // go through pcOnlyFetch (a 403 marks the tab as away from the PC).
-import type { AppUpdateApplyResponse, UpdateInstallResponse, UpdateStatus } from '../types/update'
+import type { AndroidAppFetchResult, AppUpdateApplyResponse, UpdateInstallResponse, UpdateStatus } from '../types/update'
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -25,3 +25,7 @@ export const downloadAppUpdate = (f?: Fetch) => postJson<UpdateStatus>(`${BASE}/
 
 export const applyAppUpdate = (f?: Fetch) =>
   postJson<AppUpdateApplyResponse>(`${BASE}/app/apply`, { confirm: true }, pcOnlyFetch(f))
+
+// Fetches the newest phone-app build GitHub holds (api/routers/android_app_routes.py).
+export const fetchPhoneApp = (f?: Fetch) =>
+  postJson<AndroidAppFetchResult>('/api/system/android-app/fetch', {}, pcOnlyFetch(f))
