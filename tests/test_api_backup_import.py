@@ -467,7 +467,7 @@ COPIED = {
                "include_genre_notes", "whisper_repeat_guard", "split_by_sentences",
                "vocabulary_hint", "translate_thinking", "source_url_full", "keep_original",
                "translate_by_sentence", "translate_start_json", "transcribe_start_json", "release_date",
-               "difficult_audio", "ass_styles"},
+               "difficult_audio", "ass_styles", "episode_brief"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
               "speaker_manual", "sfx", "lang", "word_timings", "reviewed", "ass_event"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
