@@ -188,7 +188,7 @@ def update_service_xml(layout: Layout) -> str:
         ("arguments", f'-I -S "{layout.helper_script}" apply-app-update'),
         ("workingdirectory", str(layout.helper)),
         ("startmode", "Manual"),
-        ("stoptimeout", "30 sec"),
+        ("stoptimeout", "600 sec"),
     ]
     return _winsw_xml(fields, {}, layout.update_logs)
 

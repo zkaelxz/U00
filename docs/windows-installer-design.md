@@ -499,7 +499,18 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   it is rolled back as `rolled_back_switch`. The helper takes Setup's mutex,
   so it can't overlap Setup, `set-port` or the remote-access commands. A
   refusal before the switch writes `not_started` to `result.json`; the reason is
-  in the admin `service.log`.
+  in the admin `service.log`. The helper refuses a pre-release over a stable
+  install (the service account can write a request itself, so the owner's
+  pre-release switch can't be what stops it), refuses links on the way to
+  anything it writes under the install folder, opens request files once and
+  checks the open handle (single hard link, size), and settles an update cut
+  short earlier (the launcher that normally does it never runs under the
+  service). **Open decision for the owner:** SYSTEM now writes inside the
+  user-owned install folder, so a process running as that user could point a
+  link there between the helper's checks and its writes. The robust fix is for
+  Setup to make the install folder administrator-owned (user read/run only)
+  once the service is installed; not done here because it changes who may
+  update or repair the install without a prompt.
   Not covered: the library-database backup rule is checked by the server only
   (a compromised server could skip it; the cost is an unreliable rollback, not
   code execution); a crash in the milliseconds between the two renames leaves

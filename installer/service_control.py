@@ -190,8 +190,9 @@ def update_service_sddl() -> str:
     It cannot stop, reconfigure or delete it. The service runs as LocalSystem
     and takes no input but the signed zip it verifies itself, so starting it
     is all the app can do with it."""
+    # IU: any signed-in user may read its state, so a non-admin `status` still works.
     return ("D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)"
-            f"(A;;LCRPRC;;;{service_sid(APP_SERVICE)})")
+            f"(A;;LCRPRC;;;{service_sid(APP_SERVICE)})(A;;LCRC;;;IU)")
 
 
 def configure_service_commands(name: str, wrapper: Path) -> list:

@@ -247,14 +247,6 @@ def test_a_linked_updates_folder_is_not_read_through(env, key, tmp_path):
     assert svc.stops == 0
 
 
-def test_an_unfinished_earlier_update_blocks_a_new_one(env, key):
-    layout, svc, _ = env
-    sw.work_dir(layout.root).mkdir()
-    sw.write_journal(layout.root, sw.CHECKING, OLD, "0.1.5", OLD)
-    _release(layout, key)
-    with pytest.raises(service_layout.ServiceError, match="unfinished"):
-        _apply(layout, svc)
-    assert svc.stops == 0
 
 
 def test_a_new_version_that_does_not_answer_is_rolled_back_and_the_old_one_runs_again(env, key):
@@ -314,3 +306,65 @@ def test_a_refusal_before_the_switch_leaves_a_result_the_app_can_show(env, key):
         _apply(layout, svc)
     result = sw.read_result(layout.root)
     assert (result["code"], result["old"], result["new"]) == ("not_started", OLD, NEW)
+
+
+def test_a_beta_is_not_installed_over_a_stable_version_even_if_signed(env, key):
+    # The service account can write the request itself, so the owner's
+    # pre-release switch can't be what stops this.
+    layout, svc, _ = env
+    _release(layout, key, version="0.2.0-beta.1")
+    with pytest.raises(service_layout.ServiceError, match="pre-release"):
+        _apply(layout, svc)
+    assert svc.stops == 0
+
+
+def test_a_signature_file_with_bytes_that_are_not_text_is_refused_with_a_result(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+    (layout.data / "library" / "updates" / (NAME + ".sig")).write_bytes(b"\xff\xfe\x00")
+    with pytest.raises(service_layout.ServiceError, match="isn't text"):
+        _apply(layout, svc)
+    assert sw.read_result(layout.root)["code"] == "not_started"
+
+
+def test_a_linked_work_folder_is_refused_before_anything_is_written(env, key, tmp_path):
+    layout, svc, _ = env
+    _release(layout, key)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    try:
+        os.symlink(elsewhere, sw.work_dir(layout.root), target_is_directory=True)
+    except OSError:
+        pytest.skip("symbolic links need extra rights here")
+    with pytest.raises(service_layout.ServiceError, match="link"):
+        _apply(layout, svc)
+    assert list(elsewhere.iterdir()) == [] and svc.stops == 0
+
+
+def test_a_hard_linked_zip_is_not_read(env, key, tmp_path):
+    layout, svc, _ = env
+    _release(layout, key)
+    zip_path = layout.data / "library" / "updates" / NAME
+    os.link(zip_path, tmp_path / "second-name")
+    with pytest.raises(service_layout.ServiceError, match="plain file"):
+        _apply(layout, svc)
+
+
+def test_an_update_cut_short_earlier_is_settled_and_the_next_one_goes_ahead(env, key):
+    # The launcher that settles these never runs under the service.
+    layout, svc, _ = env
+    sw.work_dir(layout.root).mkdir()
+    sw.write_journal(layout.root, sw.STAGED, OLD, "0.1.5", OLD)
+    _release(layout, key)
+    assert "0.2.0" in _apply(layout, svc)
+    assert _app_text(layout) == "new"
+
+
+def test_an_earlier_update_that_cannot_be_settled_blocks_a_new_one(env, key):
+    layout, svc, _ = env
+    sw.work_dir(layout.root).mkdir()
+    (sw.work_dir(layout.root) / sw.JOURNAL_NAME).write_text("not json")
+    (layout.root / "app").rename(layout.root / "app-elsewhere")     # and no app\ to go back to
+    _release(layout, key)
+    with pytest.raises(service_layout.ServiceError, match="couldn't be settled"):
+        _apply(layout, svc)

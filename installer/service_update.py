@@ -16,8 +16,10 @@ import binascii
 import contextlib
 import hashlib
 import json
+import os
 import re
 import shutil
+import stat
 import time
 import zipfile
 from pathlib import Path
@@ -90,26 +92,40 @@ def read_release_key(path) -> bytes:
     return _b64(lines[0][len(KEY_PREFIX):], 32, "key")
 
 
-def _data_file(updates, name: str, cap: int) -> Path:
-    """A regular file in the data folder's updates folder. The service
-    account can create links there, so a link anywhere on the way is refused
-    rather than read through."""
+def _open_data_file(updates, name: str, cap: int):
+    """Opens a regular, unlinked file in the data folder's updates folder.
+    The service account can create links there, so a link anywhere on the way
+    is refused, and the checks run on the open handle (size, a single hard
+    link) so the file can't be swapped between checking and reading."""
     for part in (updates.parent, updates):
         if is_reparse_point(part):
             raise ServiceError("The update folder is a link; refusing to read through it.")
     path = updates / name
-    if is_reparse_point(path) or not path.is_file():
+    if is_reparse_point(path):
         raise ServiceError(f"The update request names a file that isn't there ({name}).")
-    if path.stat().st_size > cap:
+    try:
+        fh = open(path, "rb")
+    except OSError:
+        raise ServiceError(f"The update request names a file that isn't there ({name}).") from None
+    info = os.fstat(fh.fileno())
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        fh.close()
+        raise ServiceError(f"The update request names a file that isn't a plain file ({name}).")
+    if info.st_size > cap:
+        fh.close()
         raise ServiceError(f"The update request names a file that is too large ({name}).")
-    return path
+    return fh
+
+
+def _read_data_file(updates, name: str, cap: int) -> bytes:
+    with _open_data_file(updates, name, cap) as fh:
+        return fh.read(cap + 1)[:cap]
 
 
 def read_request(updates) -> tuple:
     """(version, zip name) from the request the server wrote."""
     try:
-        doc = json.loads(_data_file(updates, REQUEST_NAME, MAX_SMALL_FILE_BYTES)
-                         .read_text(encoding="utf-8"))
+        doc = json.loads(_read_data_file(updates, REQUEST_NAME, MAX_SMALL_FILE_BYTES))
     except (OSError, ValueError):
         raise ServiceError("The update request can't be read.") from None
     name = doc.get("name") if isinstance(doc, dict) else None
@@ -119,12 +135,12 @@ def read_request(updates) -> tuple:
     return m.group(1), name
 
 
-def _stage(src: Path, dest: Path) -> str:
+def _stage(updates, name: str, dest: Path) -> str:
     """Copies the zip into the admin-only folder, hashing as it goes; every
     later check and the unpack read this copy, so the service account
     can't change the file after it was checked."""
     sha, total = hashlib.sha256(), 0
-    with open(src, "rb") as inp, open(dest, "wb") as out:
+    with _open_data_file(updates, name, MAX_ZIP_BYTES) as inp, open(dest, "wb") as out:
         while chunk := inp.read(CHUNK):
             total += len(chunk)
             if total > MAX_ZIP_BYTES:
@@ -188,20 +204,41 @@ def _check_zip(copy: Path, installed, version: str, key: bytes, sha: str, name: 
     return manifest
 
 
+def _settle_earlier_update(root, run, sleep) -> None:
+    """The service never runs launcher.py, which is what settles an update
+    that was cut short, so this does: done is finished, anything earlier is
+    rolled back, and a queued switch is dropped. Refuses when the folders
+    don't say what happened."""
+    if app_swap.read_journal(root) is None:
+        return
+    code = app_swap.recover(root, stop=lambda: stop_service(APP_SERVICE, run, sleep=sleep),
+                            sleep=sleep)
+    if code == "queued":
+        app_swap.clear_journal(root)
+        code = "not_started"
+    if code in ("busy", "broken") or app_swap.read_journal(root) is not None:
+        raise ServiceError("An earlier app update is still unfinished and couldn't be settled. "
+                           "Run Setup again to repair it.")
+    try:
+        if query_state(APP_SERVICE, run) == "STOPPED":
+            start_service(APP_SERVICE, run, sleep=sleep)
+    except ServiceError:
+        pass
+
+
 def apply_update(layout, run, port, health=health_ok, sleep=time.sleep) -> str:
     """Verifies the requested app zip and switches the service to it. Raises
     ServiceError with the reason when nothing changed or the previous
     version was put back; the outcome is also in app-update\\result.json,
     which the app reads."""
     root, updates = layout.root, layout.data / "library" / "updates"
-    refuse_reparse_point(root)
+    for path in (root, root / "app", root / "manifest.json", app_swap.work_dir(root)):
+        refuse_reparse_point(path)
     installed = app_swap.installed_manifest(root)
     old = installed.get("app_version") if installed else None
     if not app_swap.valid_version(old) or app_swap.base_version(installed) is None:
         raise ServiceError("This install's manifest.json can't be read. Run Setup again.")
-    if app_swap.read_journal(root) is not None:
-        raise ServiceError("An earlier app update is still unfinished. Run Setup again to "
-                           "repair it.")
+    _settle_earlier_update(root, run, sleep)
     version, name = read_request(updates)
     return _apply_requested(layout, run, port, health, sleep, installed, old, version, name)
 
@@ -219,8 +256,17 @@ def _apply_requested(layout, run, port, health, sleep, installed, old, version, 
         new_key, old_key = version_key(version), version_key(old)
         if new_key is None or old_key is None or new_key <= old_key:
             raise ServiceError(f"{version} isn't newer than the installed {old}.")
-        signature = _b64("".join(_data_file(updates, name + ".sig", MAX_SMALL_FILE_BYTES)
-                                 .read_text(encoding="ascii").split()), 64, "signature")
+        if not new_key[3] and old_key[3]:
+            # The service account can write a request itself, so the owner's
+            # pre-release switch (app side) can't be what keeps a beta off a
+            # stable install.
+            raise ServiceError(f"{version} is a pre-release and the installed {old} isn't.")
+        try:
+            sig_text = "".join(_read_data_file(updates, name + ".sig", MAX_SMALL_FILE_BYTES)
+                               .decode("ascii").split())
+        except UnicodeDecodeError:
+            raise ServiceError("The release signature isn't text.") from None
+        signature = _b64(sig_text, 64, "signature")
         key = read_release_key(layout.public_key)
         staging = layout.staging
         shutil.rmtree(staging, ignore_errors=True)
@@ -228,7 +274,7 @@ def _apply_requested(layout, run, port, health, sleep, installed, old, version, 
         dest = app_swap.app_folder(root, version)
         try:
             copy = staging / name
-            sha = _stage(_data_file(updates, name, MAX_ZIP_BYTES), copy)
+            sha = _stage(updates, name, copy)
             _check_zip(copy, installed, version, key, sha, name, signature)
             if dest.exists() or app_swap.is_link(dest):
                 app_swap.remove_folder(dest, root)
@@ -254,8 +300,8 @@ def _apply_requested(layout, run, port, health, sleep, installed, old, version, 
     code = app_swap.apply(root, launcher, sleep, notify=lambda text: run.log(text), recovery=False)
     if code == "queued":
         # A queued switch is finished by the Start-menu launcher's next start,
-        # which the service never has; forget it rather than leave a journal
-        # that blocks the next update.
+        # which the service never has; forget it (a crash before this line is
+        # settled by _settle_earlier_update at the next run).
         app_swap.clear_journal(root)
         app_swap.write_result(root, "rolled_back_switch", old, version)
         code = "rolled_back_switch"
