@@ -21,7 +21,7 @@ vi.mock('../../../../api/timingCheck', () => ({ snapToSpeech: vi.fn() }))
 
 const line = (id: number, en = `en ${id}`): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 0.5, zh: `zh ${id}`, en, speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false,
 })
 
 const conflict = () => new ApiError(409, { code: 'conflict', message: 'changed' })
