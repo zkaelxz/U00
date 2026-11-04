@@ -216,7 +216,8 @@ def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart
     # The checked name is passed on, so a Settings change in between is refused.
     return translate_thinking_service.start_with_thinking(
         glossary_flagged_service.start_redo, drama_id, None, False, engine,
-        allow_paid_summary=holds_paid_engines(request))
+        allow_paid_summary=holds_paid_engines(request),
+        line_ids=body.line_ids if body else None)
 
 
 @router.get("/dramas/{drama_id}/episode-summary", dependencies=[require_permission("library.read")],
