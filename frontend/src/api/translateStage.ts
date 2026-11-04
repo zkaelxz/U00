@@ -88,9 +88,9 @@ export const startSourceChangedRun = (id: number, body: SourceChangedRunBody, f?
 /** Translates exactly the lines the last run failed on, with the form's engine. */
 export const retryFailedLines = (id: number, body: RetryFailedBody, f?: Fetch) =>
   postJson<RetryFailedStarted>(`/api/translate-run/dramas/${id}/retry-failed/run`, body, f)
-/** Redoes the lines flagged for a missing glossary name with the Settings stronger engine. */
-export const redoGlossaryFlagged = (id: number, f?: Fetch) =>
-  postJson<RetryFailedStarted>(`/api/translate-run/dramas/${id}/glossary-flagged/run`, {}, f)
+/** Redoes the lines flagged for a missing glossary name (or, with lineIds, exactly those lines) with the Settings stronger engine. */
+export const redoGlossaryFlagged = (id: number, lineIds?: number[], f?: Fetch) =>
+  postJson<RetryFailedStarted>(`/api/translate-run/dramas/${id}/glossary-flagged/run`, lineIds ? { line_ids: lineIds } : {}, f)
 export const getEpisodeSummaryOptions = (id: number, f?: Fetch) =>
   getJson<EpisodeSummaryOptions>(`/api/translate-run/dramas/${id}/episode-summary`, f)
 /** Spends on the chosen engine; returns the text without saving it. */
