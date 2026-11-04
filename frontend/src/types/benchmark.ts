@@ -8,16 +8,7 @@ export type BenchmarkTier = 'public' | 'application' | 'regression'
 export type SourceLanguage = 'zh' | 'ja' | 'ko'
 export type ImportFormat = 'jsonl' | 'tsv'
 
-export interface BenchmarkEngineOption {
-  name: string
-  label: string
-  free: boolean
-  models: string[] | null
-  model_labels?: Record<string, string>
-  key_configured: boolean
-  // Older servers omit it: treated as installed.
-  package_installed?: boolean
-}
+export type BenchmarkEngineOption = Schemas['BenchmarkEngineOption']
 
 /** A transcription arm's per-title options; a field left out takes the app's default (BenchmarkOptions.transcribe_defaults). */
 export interface BenchmarkTranscribeOptions {
@@ -57,16 +48,6 @@ export type BenchmarkTimingSummary = Schemas['BenchmarkTimingSummary']
 
 export type BenchmarkCaseTiming = Schemas['BenchmarkCaseTiming']
 
-/** Arena only: whether a run's timing beat the first run's by more than the measured noise without a worse text score. */
-interface BenchmarkTimingVerdict {
-  state: 'baseline' | 'repeat' | 'untimed' | 'no_margin' | 'no_gain' | 'cer_worse' | 'gain'
-  text: string
-  margin_within: number | null
-  margin_score: number | null
-  gain?: number | null
-  score_change?: number | null
-}
-
 interface BenchmarkBackendOption {
   name: string
   label: string
@@ -98,15 +79,7 @@ export interface BenchmarkOptions {
 
 export type BenchmarkCase = Schemas['BenchmarkCase']
 
-export interface BenchmarkSet {
-  stage: string | null
-  tier: string
-  set_name: string
-  case_count: number
-  with_reference: number
-  /** Cases left out of scoring. */
-  excluded?: number
-}
+export type BenchmarkSet = Schemas['BenchmarkSet']
 
 export interface BenchmarkConfig {
   engine: string
@@ -147,37 +120,7 @@ export interface ScriptCounts {
   neutral_chars: number
 }
 
-export interface BenchmarkRun {
-  id: number
-  label: string | null
-  stage: string | null
-  engine: string | null
-  model: string | null
-  prompt_version: string | null
-  arena_group: string | null
-  status: string | null
-  case_count: number
-  scored_count: number
-  passed_count: number
-  error_count: number
-  aggregate_score: number | null
-  avg_latency_seconds: number | null
-  total_cost_usd: number | null
-  peak_vram_mb: number | null
-  note: string | null
-  created_at: string | null
-  finished_at: string | null
-  context_settings: Record<string, unknown>
-  case_filter: Record<string, unknown>
-  delta_vs_first: number | null
-  /** Arena only: the run's own total over all its cases (aggregate_score covers only the compared ones). */
-  stored_aggregate_score?: number | null
-  judge?: BenchmarkJudgeSummary | null
-  picks?: BenchmarkPickTotals | null
-  script_counts?: ScriptCounts | null
-  timing?: BenchmarkTimingSummary
-  timing_verdict?: BenchmarkTimingVerdict | null
-}
+export type BenchmarkRun = Schemas['BenchmarkRun']
 
 /** How often the owner picked this output over another run's (blind A/B). */
 export type BenchmarkPickTotals = Schemas['BenchmarkPickTotals']
