@@ -124,11 +124,24 @@ def torch_hub_checkpoint(filename: str) -> bool:
 
 def modelscope_model_dir(model_id: str, weights: str = "model.pt"):
     """A ModelScope download's folder when it holds `weights`, or None.
-    ModelScope moved its layout to hub/models/<id> in newer releases."""
-    root = os.environ.get("MODELSCOPE_CACHE") or os.path.join(
-        os.path.expanduser("~"), ".cache", "modelscope", "hub")
-    for prefix in (("models",), ()):
-        folder = os.path.join(root, *prefix, *model_id.split("/"))
-        if os.path.isfile(os.path.join(folder, weights)):
-            return folder
+    ModelScope has used three layouts: <root>/<id>, <root>/models/<id>, and
+    (1.40 on) <cache>/models/<org>--<name>/snapshots/<revision>, where <cache>
+    is the folder above the old "hub" one."""
+    default_cache = os.path.join(os.path.expanduser("~"), ".cache", "modelscope")
+    roots = ([os.environ["MODELSCOPE_CACHE"]] if os.environ.get("MODELSCOPE_CACHE")
+             else [os.path.join(default_cache, "hub"), default_cache])
+    for root in roots:
+        for prefix in (("models",), ()):
+            folder = os.path.join(root, *prefix, *model_id.split("/"))
+            if os.path.isfile(os.path.join(folder, weights)):
+                return folder
+        snapshots = os.path.join(root, "models", model_id.replace("/", "--"), "snapshots")
+        try:
+            revisions = sorted(os.listdir(snapshots))
+        except OSError:
+            continue
+        for revision in revisions:
+            folder = os.path.join(snapshots, revision)
+            if os.path.isfile(os.path.join(folder, weights)):
+                return folder
     return None
