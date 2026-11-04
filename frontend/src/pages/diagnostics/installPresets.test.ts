@@ -14,7 +14,7 @@ const task = (o: Partial<DiagnosticsInstallTask> = {}): DiagnosticsInstallTask =
 
 const pkg = (o: Partial<DiagnosticsPackageInfo> = {}): DiagnosticsPackageInfo => ({
   name: 'a', dist: 'a', installed: false, installable: true, powers: '', approx_mb: 5, pulls_torch: false,
-  source_url: 'https://pypi.org/project/a/', not_offered_reason: null, warning: null, ...o,
+  source_url: 'https://pypi.org/project/a/', not_offered_reason: null, warning: null, installed_version: null, min_version: null, below_min: false, ...o,
 })
 
 describe('install presets helpers', () => {

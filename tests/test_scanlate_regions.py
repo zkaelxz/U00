@@ -322,6 +322,25 @@ class _FakeLLM:
     supports_reference = True
 
 
+class TestOcrNoteInScanlateTranslation:
+    def _prompt_for(self, monkeypatch, source_language):
+        prompts = []
+
+        def fake_call(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+            prompts.append(prompt)
+            return json.dumps({"translations": {"0": "x"}, "context_summary": "s"})
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fake_call)
+        scanlate_translate.translate_regions_by_id(
+            {"0": "학교에붙이났던그날"}, _FakeLLM(), {"source_language": source_language})
+        return prompts[0]
+
+    def test_korean_prompt_warns_that_the_text_is_ocr(self, monkeypatch):
+        assert "read by OCR" in self._prompt_for(monkeypatch, "ko")
+
+    def test_other_languages_keep_the_prompt_unchanged(self, monkeypatch):
+        assert "read by OCR" not in self._prompt_for(monkeypatch, "en")
+
+
 class TestGlossaryInScanlateTranslation:
     def _fake_llm_that_follows_the_glossary(self, monkeypatch, prompts):
         def fake_call(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
