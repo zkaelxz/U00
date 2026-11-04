@@ -289,6 +289,12 @@ def _read_capped(resp, cap) -> bytes:
                                    make_deadline_error=_too_slow)
 
 
+def read_small(url, cap) -> bytes:
+    """A small GitHub API answer or text asset, for callers outside this module
+    that need the same host allowlist, redirect checks and size cap."""
+    return _read_capped(_open(url, API_HOSTS | DOWNLOAD_HOSTS, "application/octet-stream"), cap)
+
+
 def copy_problem(exc):
     """The fixed sentence for a full disk or a file another program (often an
     antivirus scan) holds, else None. storage_errors' other sentences name

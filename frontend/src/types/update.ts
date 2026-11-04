@@ -6,6 +6,7 @@ import type { components } from '../api/generated/schema'
 type Schemas = components['schemas']
 
 export type UpdateStatus = Schemas['UpdateStatus']
+export type AndroidAppFetchResult = Schemas['AndroidAppFetchResult']
 export type AppUpdateApplyResponse = Schemas['AppUpdateApplyResponse']
 export type UpdateInstallResponse = Schemas['UpdateInstallResponse']
 

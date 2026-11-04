@@ -651,6 +651,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use + lines.read |
 | `POST /api/subtitle-import/dramas/{drama_id}/apply` | media.upload |
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | media.upload |
+| `POST /api/system/android-app/fetch` | local_only() |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
 | `POST /api/system/update/app/apply` | local_only() |
