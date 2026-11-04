@@ -40,16 +40,7 @@ export interface ComicPagesResponse {
   chapters: ComicChapter[]
 }
 
-export interface ComicRegion {
-  idx: number
-  x: number
-  y: number
-  w: number
-  h: number
-  translated_text: string | null
-  source_text: string | null
-  kind: string | null
-}
+export type ComicRegion = Schemas['ComicRegion']
 
 // C3: GET /pages/{page_id}/regions (boxes in original-image pixels)
 export interface ComicRegionsResponse {

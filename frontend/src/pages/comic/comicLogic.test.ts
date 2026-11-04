@@ -164,8 +164,8 @@ describe('text overlay', () => {
   })
 
   it('lists lines in reading order, falling back to the source text', () => {
-    const r = (idx: number, translated_text: string | null, source_text: string | null) => ({ idx, x: 0, y: 0, w: 1, h: 1, translated_text, source_text, kind: 'bubble' })
-    expect(orderedLines([r(2, 'Two', '二'), r(0, '', '零'), r(1, '  ', null)]).map((l) => [l.idx, l.text])).toEqual([
+    const r = (idx: number, translated_text: string, source_text: string) => ({ idx, x: 0, y: 0, w: 1, h: 1, translated_text, source_text, kind: 'bubble' })
+    expect(orderedLines([r(2, 'Two', '二'), r(0, '', '零'), r(1, '  ', '')]).map((l) => [l.idx, l.text])).toEqual([
       [0, '零'],
       [2, 'Two'],
     ])
