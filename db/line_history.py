@@ -37,7 +37,8 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
          "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
          "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None),
          "reviewed": bool(getattr(ln, "reviewed", False)),
-         "ass_event": getattr(ln, "ass_event", None)}
+         "ass_event": getattr(ln, "ass_event", None),
+         "confidence": getattr(ln, "confidence", None)}
         for ln in lines
     ]
     conn = db.get_conn()

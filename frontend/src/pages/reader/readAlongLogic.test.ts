@@ -5,7 +5,7 @@ import { activeIndex, alongLines } from './readAlongLogic'
 
 const line = (id: number, start: number, zh: string, en: string): ReviewLine => ({
   id, idx: id, start, end: start + 1, zh, en, speaker: null, speaker_manual: false, sfx: false,
-  flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false,
+  flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null,
 })
 
 describe('alongLines', () => {

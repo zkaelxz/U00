@@ -138,6 +138,9 @@ _CLEAR_STALE_WORDS = "word_timings = CASE WHEN zh IS ? THEN word_timings ELSE NU
 # A reviewer checked the English as it was; any writer that changes it (an
 # edit, find-and-replace, a translate job, a restore) leaves the line
 # unchecked. Living here, no service can forget it.
+# A person changing the source text has read the line, so Whisper's guess about the old
+# text no longer applies.
+_CLEAR_STALE_CONFIDENCE = "confidence = CASE WHEN zh IS ? THEN confidence ELSE NULL END"
 _UNCHECK_ON_NEW_EN = "reviewed = CASE WHEN COALESCE(en, '') = COALESCE(?, '') THEN reviewed ELSE 0 END"
 
 
@@ -152,6 +155,9 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     if "zh" in values:
         sets.append(_CLEAR_STALE_WORDS)
         args.append(values["zh"])
+        if "confidence" not in values:
+            sets.append(_CLEAR_STALE_CONFIDENCE)
+            args.append(values["zh"])
     if "en" in values and "reviewed" not in values:
         sets.append(_UNCHECK_ON_NEW_EN)
         args.append(values["en"])
@@ -319,6 +325,12 @@ def _update_line(conn, drama_id: int, ln, cols, full_sync: bool, only_if_unchang
         sets.append(_CLEAR_STALE_WORDS)
         values.append(db.line_value(ln, "zh"))
         outcome = "cleared"
+    if "zh" in changed and "confidence" not in changed:
+        sets.append(_CLEAR_STALE_CONFIDENCE)
+        values.append(db.line_value(ln, "zh"))
+        ln.confidence = None
+        if orig is not None:
+            orig["confidence"] = None
     if "en" in changed and _unchecks(cols, full_sync, "reviewed" in changed):
         sets.append(_UNCHECK_ON_NEW_EN)
         values.append(db.line_value(ln, "en"))
@@ -482,7 +494,7 @@ def _delete_line_refs(conn, line_id):
 
 
 _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, "
-                 "speaker_manual, sfx, lang, reviewed, ass_event")
+                 "speaker_manual, sfx, lang, reviewed, ass_event, confidence")
 
 
 def load_lines(drama_id: int, with_words: bool = False, ids=None):
@@ -508,7 +520,7 @@ def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     return lines_from_rows(db.load_lines(drama_id, with_words, ids))
 
 
-LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note reviewed")
+LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note reviewed confidence")
 
 
 def load_line_texts(drama_id: int) -> list:
