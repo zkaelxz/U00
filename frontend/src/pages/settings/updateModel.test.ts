@@ -6,7 +6,7 @@ import type { UpdateStatus } from '../../types/update'
 import {
   APP_BOOT_SERVICE_LINE, APP_FULL_INSTALLER_LINE, appApplyTarget, appDownloadLine, appUpdateLine, canDownloadApp,
   NO_INSTALLER_RELEASE_LINE, NO_RELEASE_LINE, SIGNATURE_REQUIRED_LINE, SIGNATURE_VERIFIED_LINE, SMARTSCREEN_NOTE, UNSIGNED_LINE,
-  canDownload, checkLine, downloadLine, installTarget, isDownloading, signatureLine, versionLine,
+  canDownload, checkLine, downloadLine, installTarget, isDownloading, phoneAppLine, signatureLine, versionLine,
 } from './updateModel'
 
 const BASE: UpdateStatus = {
@@ -171,5 +171,12 @@ describe('update API', () => {
     resetPcModeForTests('local')
     await expect(checkForUpdates(reply({ error: { code: 'forbidden', message: 'No.' } }, 403))).rejects.toThrow()
     expect(getPcMode()).toBe('remote')
+  })
+})
+
+describe('phoneAppLine', () => {
+  it('says when a build was copied and when nothing changed', () => {
+    expect(phoneAppLine({ version_code: 1042, changed: true })).toContain('build 1042 is ready')
+    expect(phoneAppLine({ version_code: 1042, changed: false })).toContain('already up to date')
   })
 })

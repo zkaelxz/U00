@@ -1,6 +1,6 @@
 // Settings > App updates: the words and the which-button-when rules, kept
 // out of the component so they can be tested on their own.
-import type { UpdateStatus } from '../../types/update'
+import type { AndroidAppFetchResult, UpdateStatus } from '../../types/update'
 import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 
 // The app downloads without a Mark-of-the-Web and starts Setup directly, so
@@ -103,3 +103,12 @@ export function appDownloadLine(s: UpdateStatus): string | null {
 }
 
 export const appApplyTarget = (s: UpdateStatus): string => `version ${s.app_verified_version ?? ''}`.trim()
+
+export const PHONE_APP_NOTE =
+  'Fetches the build made by the "Android APK" workflow on GitHub and offers it to the Baihe app on your phone, which shows Update Available the next time it opens.'
+
+export function phoneAppLine(r: AndroidAppFetchResult): string {
+  return r.changed
+    ? `Phone app build ${r.version_code} is ready for your phone.`
+    : `The phone app is already up to date (build ${r.version_code}).`
+}

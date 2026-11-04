@@ -10115,6 +10115,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/android-app/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fetch the newest Android app build from GitHub and offer it */
+        post: operations["fetch_api_system_android_app_fetch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/shutdown": {
         parameters: {
             query?: never;
@@ -11379,6 +11396,19 @@ export interface components {
             member_permissions: string[];
             /** Users */
             users: components["schemas"]["AdminUser"][];
+        };
+        /** AndroidAppFetchResult */
+        AndroidAppFetchResult: {
+            /**
+             * Changed
+             * @description False when the server already held this build or a newer one.
+             */
+            changed: boolean;
+            /**
+             * Version Code
+             * @description versionCode of the build the server offers after the fetch.
+             */
+            version_code: number;
         };
         /** AndroidAppVersion */
         AndroidAppVersion: {
@@ -59362,6 +59392,53 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    fetch_api_system_android_app_fetch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AndroidAppFetchResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
