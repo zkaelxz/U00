@@ -27,7 +27,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
-from api.schemas import (GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
+from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSaveResult,
+                         GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
@@ -41,7 +42,7 @@ from api.schemas import (GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
                          LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
                          NovelGlossaryStatus, error_responses)
-from services import (export_service, glossary_name_report_service, glossary_service, name_fix_service,
+from services import (address_terms_service, export_service, glossary_name_report_service, glossary_service, name_fix_service,
                       glossary_spelling_service, glossary_variants_service)
 from lib.errors import ForbiddenError, InvalidInputError
 
@@ -114,6 +115,23 @@ def get_term_variants(drama_id: int = Path(ge=1),
                           "The term, or any name being worked out; its aliases are included "
                           "when it is a glossary term"))):
     return glossary_variants_service.find_variants(drama_id, term)
+
+
+# lines.read, not library.read: the examples are source line text.
+@router.get("/dramas/{drama_id}/address-terms", dependencies=[require_permission("lines.read")],
+            response_model=AddressTerms,
+            summary="Common forms of address in the source lines not yet in the glossary (read-only, offline)",
+            responses=error_responses(404))
+def get_address_terms(drama_id: int = Path(ge=1)):
+    return address_terms_service.find_address_terms(drama_id)
+
+
+@router.post("/dramas/{drama_id}/address-terms", dependencies=[require_permission("lines.edit")],
+             response_model=AddressTermsSaveResult,
+             summary="Save one rendering per address term as glossary terms",
+             responses=error_responses(404, 422))
+def post_address_terms(payload: AddressTermsSaveRequest, drama_id: int = Path(ge=1)):
+    return address_terms_service.save_address_terms(drama_id, [c.model_dump() for c in payload.terms])
 
 
 @router.get("/dramas/{drama_id}/name-fixes", dependencies=[require_permission("lines.read")],

@@ -59,6 +59,8 @@ __all__ = [
     "LinesGlossaryApplyRequest",
     "GlossaryRunCancelRequest",
     "GlossaryVariantExample", "GlossaryVariantCandidate", "GlossaryVariants",
+    "AddressTermCandidate", "AddressTerms", "AddressTermChoice", "AddressTermsSaveRequest",
+    "AddressTermsSaveResult",
     "NameFixCandidate", "NameFixPreview", "NameFixItem", "NameFixRequest", "NameFixResult",
     "GlossaryNameSpelling", "GlossaryNameCluster", "GlossaryNameClusters",
     "SpellingSuggestRequest", "SpellingSuggestRunResult", "SpellingProposal",
@@ -541,6 +543,36 @@ class GlossaryVariants(BaseModel):
     lines_scanned: int
     truncated: bool
     candidates: List[GlossaryVariantCandidate] = Field(default_factory=list)
+
+
+class AddressTermCandidate(BaseModel):
+    term: str
+    count: int
+    examples: List[GlossaryVariantExample] = Field(default_factory=list)
+
+
+class AddressTerms(BaseModel):
+    """`available` is false for a source language with no address-term list."""
+    language: str
+    available: bool
+    lines_scanned: int
+    truncated: bool
+    terms: List[AddressTermCandidate] = Field(default_factory=list)
+
+
+class AddressTermChoice(BaseModel):
+    term: Annotated[str, Field(min_length=1, max_length=200)]
+    translation: Annotated[str, Field(max_length=200)] = ""
+    keep_as_is: bool = False
+
+
+class AddressTermsSaveRequest(BaseModel):
+    terms: List[AddressTermChoice] = Field(min_length=1, max_length=50)
+
+
+class AddressTermsSaveResult(BaseModel):
+    saved: List[str]
+    skipped_existing: List[str]
 
 
 class NameFixCandidate(BaseModel):
