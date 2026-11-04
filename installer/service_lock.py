@@ -71,6 +71,8 @@ _RIGHT_BITS = {"FA": 0x1f01ff, "FR": 0x120089, "FW": 0x120116, "FX": 0x1200a0, "
                "LC": 0x4, "SW": 0x8, "LO": 0x80, "DT": 0x40, "CR": 0x100}
 _READ_RUN_BITS = 0x1200a9 | 0x80000000 | 0x20000000
 _ALLOW_TYPES = {"A", "OA", "XA", "ZA"}
+# A deny entry only takes rights away.
+_DENY_TYPES = {"D", "OD", "XD"}
 
 
 def security_sddl(path):
@@ -109,12 +111,21 @@ def write_access_problem(sddl, trusted, protected=False):
     if not sddl:
         return "its permissions can't be read"
     dacl = sddl.partition("D:")[2].partition("S:")[0]
+    # A NULL DACL (no entries at all) grants everyone full control.
+    if "NO_ACCESS_CONTROL" in dacl or "(" not in dacl:
+        return "it has no permission list, which lets everyone write"
+    if dacl.count("(") != dacl.count(")"):
+        return "its permission list can't be read"
     if protected and "P" not in dacl.partition("(")[0]:
         return "it still inherits permissions from its parent folder"
     for ace in re.findall(r"\(([^)]*)\)", dacl):
         fields = ace.split(";")
-        if len(fields) < 6 or fields[0] not in _ALLOW_TYPES or fields[5] in trusted:
+        if len(fields) < 6:
+            return "an entry can't be read"
+        if fields[0] in _DENY_TYPES or fields[5] in trusted:
             continue
+        if fields[0] not in _ALLOW_TYPES:
+            return "an entry has a type that can't be checked"
         rights = fields[2]
         if rights.lower().startswith("0x"):
             try:

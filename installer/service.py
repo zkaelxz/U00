@@ -520,8 +520,8 @@ class Services:
         # folder Setup has to repair.
         try:
             self._unlock_install_folder()
-        except Exception:
-            pass
+        except Exception as e:
+            self.run.log(f"Couldn't unlock the install folder after the failure: {e}")
         for name in (UPDATE_SERVICE, CADDY_SERVICE, APP_SERVICE):
             if name in created:
                 try:

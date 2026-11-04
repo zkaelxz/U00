@@ -454,6 +454,15 @@ def test_an_install_folder_that_cannot_be_held_stops_the_update(env, key):
     ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;AU)", "can write"),
     ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;BU)", "can write"),
     ("O:BAD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", "inherits permissions"),
+    ("O:BAD:NO_ACCESS_CONTROL", "no permission list"),
+    ("O:BAD:PNO_ACCESS_CONTROL", "no permission list"),
+    ("O:BAD:P", "no permission list"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;CO)", "can write"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;WD;;;OW)", "can write"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;ZZ;;;BU)", "rights can't be read"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX", "can't be read"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(AU;OICI;FA;;;BU)", "type that can't be checked"),
+    ("O:BAD:P(A;OICIIO;FA;;;SY)(A;OICI;FA;;;BA)(A;OICIIO;FA;;;BU)", "can write"),
     (None, "can't be read"),
 ])
 def test_an_explicit_entry_that_lets_someone_write_is_refused(env, key, sddl, why):
@@ -462,3 +471,10 @@ def test_an_explicit_entry_that_lets_someone_write_is_refused(env, key, sddl, wh
     with pytest.raises(service_layout.ServiceError, match=why):
         _apply(layout, svc, sddl=lambda path: sddl)
     assert _app_text(layout) == "old"
+
+
+def test_deny_entries_and_read_only_entries_do_not_count_as_write_access():
+    from installer import service_lock
+    sddl = ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(D;OICI;FA;;;S-1-5-21-1-2-3-1001)"
+            "(A;OICI;FRFX;;;BU)(A;OICI;RC;;;OW)")
+    assert service_lock.write_access_problem(sddl, {"SY", "BA"}, protected=True) is None

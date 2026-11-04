@@ -488,8 +488,12 @@ class TestBootService:
         assert "RunServiceHelper(AdminDir(), StopArgs)" in stop
         # Only a locked install's helper knows the option; an older one would refuse it.
         assert "StopArgs := 'stop';" in stop
-        assert "FileExists(AdminDir() + '\\install-folder-locked.txt')" in stop
+        assert "Locked := AdminDir() + '\\install-folder-locked.txt';" in stop
+        assert "if FileExists(Locked) then" in stop
         assert "StopArgs := StopArgs + ' --for-update';" in stop
+        # A locked folder whose service was removed by hand still gets unlocked.
+        assert "if not ServiceInstalled() and not FileExists(Locked) then" in stop
+        assert "icacls" in stop and "/reset /T /L" in stop
         assert "'\\Baihe Studio Services'" in _func(iss, "AdminDir")
 
     def test_a_damaged_admin_folder_is_named_instead_of_a_prompt_that_never_showed(self, iss):

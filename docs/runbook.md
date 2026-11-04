@@ -149,3 +149,5 @@ Never delete these when cleaning up branches; they are the only record of the wo
 - Log: `logs/app.log` in the library folder (installed default: `%LOCALAPPDATA%\Baihe Studio\library\logs`). Diagnostics -> "Log" shows recent lines.
 - Header "Report a problem" -> "Copy a report for a bug" copies or downloads a support report (secrets are removed).
 - Break glass, on the PC: `python -m api grant-admin <email>` (make or reactivate an admin), `python -m api deactivate <email>` (block a user and end their sessions).
+
+**Locked install folder, service removed by hand.** With the boot service installed the install folder is administrator-owned (docs/windows-installer-design.md, "App-only updates"). Setup unlocks it itself (`stop --for-update`) even if the service is gone. If the admin folder is damaged too, in an administrator prompt run `sc stop BaiheStudio`, `sc delete BaiheStudio`, then `icacls "<install folder>" /reset /T /L`, and run Setup again. An in-app update is refused while any folder above the install folder is a link (a junction or symlink); the full installer still works.
