@@ -5299,6 +5299,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lines/dramas/{drama_id}/mark-reviewed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark the episode's untouched translated lines reviewed and remember them in translation memory */
+        post: operations["post_mark_episode_reviewed_api_lines_dramas__drama_id__mark_reviewed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lines/dramas/{drama_id}/notes": {
         parameters: {
             query?: never;
@@ -8450,6 +8467,23 @@ export interface paths {
         };
         /** A series' titles (media type, line count) and glossary/people counts */
         get: operations["get_series_api_series__series_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/{series_id}/consistency-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every English rendering of each glossary term across the series' titles (read-only) */
+        get: operations["get_consistency_report_api_series__series_id__consistency_report_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -15434,6 +15468,78 @@ export interface components {
             /** To Number */
             to_number?: number | null;
         };
+        /** ConsistencyExample */
+        ConsistencyExample: {
+            /** Drama Id */
+            drama_id: number;
+            /** En */
+            en: string;
+            /** Idx */
+            idx: number;
+            /** Line Id */
+            line_id: number;
+        };
+        /** ConsistencyRendering */
+        ConsistencyRendering: {
+            /** Count */
+            count: number;
+            /** Examples */
+            examples: components["schemas"]["ConsistencyExample"][];
+            /** Flagged */
+            flagged: boolean;
+            /**
+             * Kind
+             * @description glossary: the term's required English. other: a different name. unnamed: no name in the line (never flagged).
+             * @enum {string}
+             */
+            kind: "glossary" | "other" | "unnamed";
+            /** Text */
+            text: string;
+            /** Titles */
+            titles: components["schemas"]["ConsistencyTitleLines"][];
+        };
+        /** ConsistencySummary */
+        ConsistencySummary: {
+            /** Flagged Lines */
+            flagged_lines: number;
+            /** Glossary Missing Lines */
+            glossary_missing_lines: number;
+            /** Lines Scanned */
+            lines_scanned: number;
+            /** Names With Several Renderings */
+            names_with_several_renderings: number;
+            /** Terms Checked */
+            terms_checked: number;
+            /** Terms Found */
+            terms_found: number;
+            /** Titles Scanned */
+            titles_scanned: number;
+        };
+        /** ConsistencyTerm */
+        ConsistencyTerm: {
+            /** Flagged Lines */
+            flagged_lines: number;
+            /** Renderings */
+            renderings: components["schemas"]["ConsistencyRendering"][];
+            /** Term Id */
+            term_id: number;
+            /** Term Original */
+            term_original: string;
+            /** Term Translation */
+            term_translation: string;
+        };
+        /** ConsistencyTitleLines */
+        ConsistencyTitleLines: {
+            /** Drama Id */
+            drama_id: number;
+            /** Line Count */
+            line_count: number;
+            /**
+             * Line Ids
+             * @description Empty unless the rendering is flagged; capped.
+             */
+            line_ids: number[];
+        };
         /** CoverArtResult */
         CoverArtResult: {
             /** Drama Id */
@@ -18250,9 +18356,14 @@ export interface components {
         };
         /**
          * GlossaryFlaggedRedoStart
-         * @description Empty on purpose: the engine is the stronger one chosen in Settings.
+         * @description The engine is the stronger one chosen in Settings. line_ids (optional) redoes
+         *     exactly those lines of the title, as the series consistency report offers, instead
+         *     of the lines flagged for a missing glossary name.
          */
-        GlossaryFlaggedRedoStart: Record<string, never>;
+        GlossaryFlaggedRedoStart: {
+            /** Line Ids */
+            line_ids?: number[] | null;
+        };
         /** GlossaryFlaggedRedoStarted */
         GlossaryFlaggedRedoStarted: {
             /**
@@ -19768,6 +19879,34 @@ export interface components {
             entry_id: number;
             /** Expected En */
             expected_en: string;
+        };
+        /** LinesEpisodeReviewedResult */
+        LinesEpisodeReviewedResult: {
+            /**
+             * Already Reviewed
+             * @description Translated lines that were already marked reviewed.
+             */
+            already_reviewed: number;
+            /**
+             * Kept Existing
+             * @description Of those, lines whose source the memory already held (that entry is kept).
+             */
+            kept_existing: number;
+            /**
+             * Remembered
+             * @description Of those, pairs newly added to the series' translation memory.
+             */
+            remembered: number;
+            /**
+             * Reviewed
+             * @description Lines newly marked reviewed.
+             */
+            reviewed: number;
+            /**
+             * Skipped Flagged
+             * @description Unchecked lines left alone because they carry a flag.
+             */
+            skipped_flagged: number;
         };
         /** LinesFindReplaceApplyRequest */
         LinesFindReplaceApplyRequest: {
@@ -24839,6 +24978,16 @@ export interface components {
             /** Series Id */
             series_id: number;
         };
+        /** SeriesConsistencyReport */
+        SeriesConsistencyReport: {
+            /** Series Id */
+            series_id: number;
+            summary: components["schemas"]["ConsistencySummary"];
+            /** Terms */
+            terms: components["schemas"]["ConsistencyTerm"][];
+            /** Truncated */
+            truncated: boolean;
+        };
         /** SeriesCopyTermsPreview */
         SeriesCopyTermsPreview: {
             /** New Count */
@@ -28869,6 +29018,11 @@ export interface components {
              * @default en-US
              */
             locale?: string;
+            /**
+             * Memory Examples
+             * @default false
+             */
+            memory_examples?: boolean;
             /** Model */
             model?: string | null;
             /**
@@ -44536,6 +44690,46 @@ export interface operations {
             };
         };
     };
+    post_mark_episode_reviewed_api_lines_dramas__drama_id__mark_reviewed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinesEpisodeReviewedResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_add_note_api_lines_dramas__drama_id__notes_post: {
         parameters: {
             query?: never;
@@ -54762,6 +54956,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesPage"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_consistency_report_api_series__series_id__consistency_report_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesConsistencyReport"];
                 };
             };
             /** @description Forbidden */
