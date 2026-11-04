@@ -149,6 +149,15 @@ def test_needs_the_full_installer_when_the_base_is_too_old(env):
     assert us.check()["app_update"] == "needs_full_installer"
 
 
+def test_a_beta_base_is_new_enough_for_the_shipped_minimum(env):
+    from installer import build_app_zip
+    beta = dict(INSTALLED_MANIFEST, app_version="0.1.0-beta.3")
+    (env["root"] / "manifest.json").write_text(json.dumps(beta))
+    _serve(env, manifest=_app_manifest(min_base_version=build_app_zip.MIN_BASE_VERSION,
+                                       base=app_swap.base_fingerprint(beta)))
+    assert us.check()["app_update"] == "available"
+
+
 def test_a_release_without_an_app_zip_offers_only_the_installer(env):
     env["http"].add(API_URL, body=json.dumps([_release_obj(with_sig=True)]).encode())
     s = us.check()
