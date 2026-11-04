@@ -3,13 +3,12 @@ import { useEffect, useState } from 'react'
 import { withSignal } from '../../../api/client'
 import { getTranslateConfig } from '../../../api/translateStage'
 import { useReadiness } from '../../../hooks/useReadiness'
-import type { TranslateEngine } from '../../../types/translate'
 import type { TranslateRunConfig } from '../../../types/translateStage'
-import { engineGate, ollamaAnswer, type EngineGate } from './engineReady'
+import { engineGate, ollamaAnswer, type EngineGate, type GateEngine } from './engineReady'
 
 /** The gate for the engine a button will call (`engineName` already resolved to the title's default when blank). */
 export function useEngineGate(
-  engines: TranslateEngine[] | null | undefined,
+  engines: GateEngine[] | null | undefined,
   engineName: string,
   configOllama?: boolean | null,
 ): EngineGate | null {

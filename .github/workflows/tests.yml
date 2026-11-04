@@ -318,7 +318,7 @@ jobs:
             tests/test_export_service.py tests/test_hardsub_ocr.py tests/test_reader_service.py \
             tests/test_resegment.py tests/test_scanlate.py tests/test_scanlate_art_text.py \
             tests/test_scanlate_bench.py tests/test_scanlate_ocr_deps.py tests/test_scanlate_quality.py \
-            tests/test_scanlate_regions.py tests/test_segment.py tests/test_transcription_quality.py \
+            tests/test_scanlate_regions.py tests/test_segment.py tests/test_transcription_quality.py tests/test_api_reader_m4.py tests/test_release_signing.py \
             tests/test_video_export.py tests/test_vocab_export.py
 
   # The one required check name. It stays `test` so branch protection does not
@@ -489,6 +489,11 @@ jobs:
 
       - name: uninstall.bat prompts, library rule and leftovers
         run: python tools/windows_script_checks.py uninstall
+
+      - name: Windows primitives (mutexes, job objects, process handles) for real
+        run: |
+          pip install -r requirements-core.txt pytest httpx -c constraints.txt
+          python -m pytest -q -o addopts= tests/test_windows_real.py
 
   # The React frontend: typecheck + production build, unit tests and lint.
   # The browser (Playwright) tests run in the separate four-shard `e2e` job

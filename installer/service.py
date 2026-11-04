@@ -42,7 +42,9 @@ runs from the admin copy:
                           Start-menu item "Baihe Studio service" runs it);
                           refused, changing nothing, if N can't be used,
                           and put back on the old port if N doesn't answer
-    stop                  stop it (Setup, before an update)
+    stop [--for-update]   stop it (Setup, before an update); --for-update also
+                          unlocks the admin-owned install folder so Setup can
+                          replace its files (install locks it again)
     uninstall             stop and remove both, take BaiheStudio's permissions
                           off the per-user folders, remove the admin folder
     enable-remote [--household-port 8610]
@@ -111,9 +113,12 @@ from installer.service_control import (
     query_state,
     remote_reminder,
     revoke_commands,
+    service_sid,
     start_service,
     stop_service,
 )
+from installer.service_lock import (lock_commands, remove_marker, set_root_security, tree_problem,
+                                    unlock_commands, write_marker)
 from installer.service_layout import (
     ADMIN_FOLDER_NAME,
     APP_DISPLAY_NAME,
@@ -142,6 +147,9 @@ HEALTH_WAIT_SECONDS = 180      # a first start compiles every .pyc
 class Services:
     """The commands, against a layout, a command runner and checks that
     tests replace."""
+
+    tree_check = staticmethod(tree_problem)
+    lock_root = staticmethod(set_root_security)
 
     def __init__(self, layout: Layout, run, health=health_ok, port_check=port_answers,
                  is_baihe=household_is_baihe, sleep=time.sleep, source=None):
@@ -293,6 +301,34 @@ class Services:
                      " (the data folder can take a while)."))
         for cmd, timeout in grant_commands(lay, caddy_only):
             _check(self.run(cmd, timeout=timeout), "Setting folder permissions")
+
+    def _lock_install_folder(self) -> None:
+        """Admin-owned, users read and run: BaiheUpdate runs as LocalSystem and
+        writes inside this folder, so nothing running as the user may be able
+        to swap its contents or links while it does. Setup (the user) can only
+        replace files again after `stop --for-update` unlocks it."""
+        lay = self.layout
+        refuse_reparse_point(lay.root)
+        remove_marker(lay)
+        self.run.log("Locking the install folder to administrators (this can take a while).")
+        # First and in one step: nothing of the user's is left on the folder
+        # before the owner changes (see set_root_security).
+        self.lock_root(lay.root, service_sid(APP_SERVICE))
+        for cmd, timeout in lock_commands(lay):
+            _check(self.run(cmd, timeout=timeout), "Locking the install folder")
+        problem = self.tree_check(lay.root)
+        if problem:
+            raise ServiceError(problem)
+        write_marker(lay)
+
+    def _unlock_install_folder(self) -> None:
+        lay = self.layout
+        remove_marker(lay)
+        if not Path(lay.root).exists():
+            return
+        refuse_reparse_point(lay.root)
+        for cmd, timeout in unlock_commands(lay):
+            _check(self.run(cmd, timeout=timeout), "Unlocking the install folder")
 
     def _start_and_wait(self) -> None:
         start_service(APP_SERVICE, self.run, sleep=self.sleep)
@@ -448,6 +484,7 @@ class Services:
                 if self._create_service(name, start):
                     created.append(name)
             self._grant()
+            self._lock_install_folder()
             if not config:
                 self._write_state(0)
             self._start_and_wait()
@@ -479,6 +516,12 @@ class Services:
                 stop_service(name, self.run, sleep=self.sleep)
             except Exception:
                 pass
+        # A half-finished install must not leave the user locked out of the
+        # folder Setup has to repair.
+        try:
+            self._unlock_install_folder()
+        except Exception as e:
+            self.run.log(f"Couldn't unlock the install folder after the failure: {e}")
         for name in (UPDATE_SERVICE, CADDY_SERVICE, APP_SERVICE):
             if name in created:
                 try:
@@ -610,9 +653,14 @@ class Services:
         from installer.service_update import apply_update
         return apply_update(self.layout, self.run, self.api_port(), self.health, self.sleep)
 
-    def stop(self) -> str:
+    def stop(self, for_update: bool = False) -> str:
+        """`for_update` (Setup, before it replaces files as the user) also
+        unlocks the install folder; install locks it again."""
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
+        if for_update:
+            self._unlock_install_folder()
+            return "Stopped Baihe Studio's services and unlocked the install folder for Setup."
         return "Stopped Baihe Studio's services."
 
     def uninstall(self, install_root=None) -> str:
@@ -649,6 +697,10 @@ class Services:
                     pass
             raise
         problems = []
+        try:
+            self._unlock_install_folder()
+        except ServiceError as e:
+            problems.append(f"unlocking {lay.root} ({e})")
         for cmd, timeout in revoke_commands(lay):
             if Path(cmd[1]).exists():
                 result = self.run(cmd, timeout=timeout)
