@@ -8,7 +8,7 @@ import { MergeConfirm } from './MergeConfirm'
 
 const line = (id: number, zh: string): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh, en: '', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false,
 })
 
 function preview(sourceLanguage: string | null) {
