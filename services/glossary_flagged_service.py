@@ -10,7 +10,7 @@ the usage log and the pre-run undo snapshot all apply as for any run.
 import db
 from engine_backends.glossary_check import GLOSSARY_FLAG, missing_terms
 from services import ownership_service, profile_service, settings_service, stronger_engine_service, translate_run_service
-from lib.errors import UnsupportedOperationError
+from lib.errors import InvalidInputError, UnsupportedOperationError
 
 
 def _flagged_rows(drama_id: int) -> list:
@@ -40,17 +40,28 @@ def engine_name(drama_id: int) -> str:
     return name
 
 
+def _rows_for_ids(drama_id: int, line_ids: list) -> list:
+    wanted = set(line_ids)
+    rows = [r for r in db.load_line_texts(drama_id)
+            if r.id in wanted and (r.zh or "").strip() and (r.en or "").strip()]
+    if len(rows) != len(wanted):
+        raise InvalidInputError("line_ids must be translated lines of this title.")
+    return [r._asdict() for r in rows]
+
+
 def start_redo(drama_id: int, engine: str, allow_paid_summary: bool = True,
-               thinking: bool | None = None) -> dict:
+               thinking: bool | None = None, line_ids: list | None = None) -> dict:
     """Runs the stronger engine over the flagged lines. `engine` is the name the
     caller was checked for; a Settings change since is refused rather than run
     on an engine nobody checked. Lines that no longer miss a name are left out;
     a line edited between reading it here and the run's own read is dropped
-    (expected_en), so the run never overwrites English it did not see."""
+    (expected_en), so the run never overwrites English it did not see.
+    `line_ids` (the series consistency report's per-flag redo) replaces the flagged
+    set with those lines of this title."""
     name = engine_name(drama_id)
     if name != engine:
         raise UnsupportedOperationError("The stronger engine changed in Settings. Try again.")
-    rows = _flagged_rows(drama_id)
+    rows = _rows_for_ids(drama_id, line_ids) if line_ids else _flagged_rows(drama_id)
     if not rows:
         raise UnsupportedOperationError("No lines are flagged for a missing glossary name.")
     locale, style_note = profile_service.locale_and_note(

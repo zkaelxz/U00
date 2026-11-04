@@ -1,7 +1,16 @@
 import type {
-  SeriesCopyTermsPreview, SeriesDefaultsField, SeriesDefaultsPreview, SeriesDeletePreview, SeriesListItem, SettingValue,
+  SeriesConsistencyReport, SeriesCopyTermsPreview, SeriesDefaultsField, SeriesDefaultsPreview, SeriesDeletePreview, SeriesListItem, SettingValue,
 } from '../../api/series'
 import { plural } from '../../labels'
+
+export function consistencySummaryText(s: SeriesConsistencyReport['summary']): string {
+  return [
+    `${plural(s.names_with_several_renderings, 'name has', 'names have')} more than one rendering`,
+    `${plural(s.flagged_lines, 'line')} off-glossary`,
+    `${plural(s.glossary_missing_lines, 'line')} still flagged for a missing glossary name`,
+    `${plural(s.lines_scanned, 'line')} checked in ${plural(s.titles_scanned, 'title')}`,
+  ].join(' · ')
+}
 
 // The Series page tabs. A deep link names one ("#/series/3?tab=glossary").
 export type SeriesTab = 'titles' | 'defaults' | 'glossary' | 'settings'

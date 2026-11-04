@@ -173,3 +173,14 @@ class TestDefaults:
         assert c.get(url, headers=world["a"]).status_code == 404
         assert c.post(url, headers=world["a"], json={"settings": {}}).status_code == 404
         assert c.post(f"{url}/apply", headers=world["a"], json={"mode": "fill"}).status_code == 404
+
+
+class TestConsistencyReport:
+    def test_report_for_a_visible_series_and_404_for_a_private_one(self, world):
+        c = _remote(_app())
+        r = c.get(f"/api/series/{world['saga']}/consistency-report", headers=world["a"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["series_id"] == world["saga"] and body["summary"]["terms_checked"] == 1
+        assert c.get(f"/api/series/{world['secret']}/consistency-report",
+                     headers=world["a"]).status_code == 404

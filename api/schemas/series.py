@@ -13,7 +13,8 @@ __all__ = ["SeriesListItem", "SeriesListResponse", "SeriesTitle", "SeriesPage",
            "SeriesDefaults", "SeriesDefaultsUpdate", "SeriesDefaultsTitle",
            "SeriesDefaultsPreview", "SeriesDefaultsApplyRequest", "SeriesDefaultsApplyResult",
            "SeriesTmxImportRequest", "SeriesTmxImportResult", "SeriesSpeakerModeRequest",
-           "SeriesSpeakerModeResult"]
+           "SeriesSpeakerModeResult", "ConsistencyTitleLines", "ConsistencyExample",
+           "ConsistencyRendering", "ConsistencyTerm", "ConsistencySummary", "SeriesConsistencyReport"]
 
 _ID: dict[str, Any] = dict(ge=1, le=2**31 - 1)
 
@@ -189,3 +190,52 @@ class SeriesSpeakerModeRequest(BaseModel):
 class SeriesSpeakerModeResult(BaseModel):
     series_id: int
     speaker_mode: Literal["auto", "solo"]
+
+
+class ConsistencyTitleLines(BaseModel):
+    drama_id: int
+    line_count: int
+    line_ids: List[int] = Field(description="Empty unless the rendering is flagged; capped.")
+
+
+class ConsistencyExample(BaseModel):
+    drama_id: int
+    line_id: int
+    idx: int
+    en: str
+
+
+class ConsistencyRendering(BaseModel):
+    text: str
+    kind: Literal["glossary", "other", "unnamed"] = Field(
+        description="glossary: the term's required English. other: a different name. "
+                    "unnamed: no name in the line (never flagged).")
+    count: int
+    flagged: bool
+    titles: List[ConsistencyTitleLines]
+    examples: List[ConsistencyExample]
+
+
+class ConsistencyTerm(BaseModel):
+    term_id: int
+    term_original: str
+    term_translation: str
+    renderings: List[ConsistencyRendering]
+    flagged_lines: int
+
+
+class ConsistencySummary(BaseModel):
+    titles_scanned: int
+    lines_scanned: int
+    terms_checked: int
+    terms_found: int
+    names_with_several_renderings: int
+    flagged_lines: int
+    glossary_missing_lines: int
+
+
+class SeriesConsistencyReport(BaseModel):
+    series_id: int
+    truncated: bool
+    summary: ConsistencySummary
+    terms: List[ConsistencyTerm]

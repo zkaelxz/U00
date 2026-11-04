@@ -13,7 +13,7 @@ from core import Line
 from engine_backends import glossary_check
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
                       settings_service, translate_run_service)
-from lib.errors import ServiceError, UnsupportedOperationError
+from lib.errors import InvalidInputError, ServiceError, UnsupportedOperationError
 from tests import fake_engine
 from tests.job_helpers import wait_for_job
 
@@ -139,6 +139,21 @@ def test_redo_uses_the_stronger_engine_on_flagged_lines_only(isolated_db, monkey
     assert len(out["line_ids"]) == 2
     wait_for_job(out["job_id"], timeout=20.0)
     assert _en(did) == ["[TEST] 句0", "fine", "[TEST] 句2", ""]
+
+
+def test_redo_with_line_ids_redoes_exactly_those_lines(isolated_db, monkeypatch):
+    did = _title(en=("Buki", "fine", "Buki", ""), errors=None)
+    from services import stronger_engine_service as sts
+    monkeypatch.setattr(sts, "stronger_engine_or_none", lambda drama_id: "fake")
+    ids = [ln.id for ln in db.load_line_objects(did)]
+    out = glossary_flagged_service.start_redo(did, "fake", line_ids=[ids[1]])
+    assert out["line_ids"] == [ids[1]]
+    wait_for_job(out["job_id"], timeout=20.0)
+    assert _en(did) == ["Buki", "[TEST] 句1", "Buki", ""]
+    with pytest.raises(InvalidInputError):
+        glossary_flagged_service.start_redo(did, "fake", line_ids=[ids[3]])  # untranslated
+    with pytest.raises(InvalidInputError):
+        glossary_flagged_service.start_redo(did, "fake", line_ids=[10**6])
 
 
 def _with(real, overrides):
