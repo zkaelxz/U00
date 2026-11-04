@@ -553,7 +553,10 @@ def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: 
     background_jobs.update_progress(jid, 0.0, "Reading the whole chapter first")
     previous = None
     for pid in page_ids:
-        ahead.setdefault(pid, start_detect(pid, previous))
+        # setdefault would call start_detect even for the page already started,
+        # detecting the first page twice.
+        if pid not in ahead:
+            ahead[pid] = start_detect(pid, previous)
         previous = ahead[pid]
     texts = _page_texts_when_read(drama_id, page_ids, ahead, jid)
     key = hashlib.sha1(chr(10).join(texts).encode("utf-8")).hexdigest()[:16]
