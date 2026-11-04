@@ -606,10 +606,17 @@ end;
 // through the admin copy of the install being replaced. '' when done or
 // when there's nothing to stop.
 function StopBackgroundService(): String;
+var
+  StopArgs: String;
 begin
   Result := '';
   if not ServiceInstalled() then
     Exit;
+  // --for-update unlocks the admin-owned install folder, which only a locked
+  // install has (an older helper doesn't know the option).
+  StopArgs := 'stop';
+  if FileExists(AdminDir() + '\install-folder-locked.txt') then
+    StopArgs := StopArgs + ' --for-update';
   // Without its helper no prompt is ever shown, and the service stays
   // installed whatever the owner stops, so every rerun would fail the same way.
   if not FileExists(AdminDir() + '\helper\python\python.exe') then
@@ -617,7 +624,7 @@ begin
       'replaced: ' + AdminDir() + ' was damaged. An administrator can remove the service ' +
       'with: sc stop ' + AppServiceName + ', then sc delete ' + AppServiceName +
       ', then run Setup again.'
-  else if not RunServiceHelper(AdminDir(), 'stop') then
+  else if not RunServiceHelper(AdminDir(), StopArgs) then
     Result := 'Setup couldn''t stop Baihe Studio''s background service, so its files can''t be ' +
       'replaced. Allow the administrator prompt, or stop the "Baihe Studio" service in ' +
       'Services, then run Setup again.';

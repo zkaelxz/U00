@@ -26,6 +26,7 @@ from pathlib import Path
 
 from installer import app_swap, ed25519_verify
 from installer.service_checks import health_ok, wait_until
+from installer.service_lock import locked_problem, owner_sid
 from installer.service_control import query_state, start_service, stop_service
 from installer.service_layout import APP_SERVICE, ServiceError, is_reparse_point, refuse_reparse_point
 
@@ -226,7 +227,7 @@ def _settle_earlier_update(root, run, sleep) -> None:
         pass
 
 
-def apply_update(layout, run, port, health=health_ok, sleep=time.sleep) -> str:
+def apply_update(layout, run, port, health=health_ok, sleep=time.sleep, owner=owner_sid) -> str:
     """Verifies the requested app zip and switches the service to it. Raises
     ServiceError with the reason when nothing changed or the previous
     version was put back; the outcome is also in app-update\\result.json,
@@ -234,6 +235,11 @@ def apply_update(layout, run, port, health=health_ok, sleep=time.sleep) -> str:
     root, updates = layout.root, layout.data / "library" / "updates"
     for path in (root, root / "app", root / "manifest.json", app_swap.work_dir(root)):
         refuse_reparse_point(path)
+    # LocalSystem writes into this folder: only when Setup's lock holds can no
+    # process running as the user be swapping it underneath.
+    problem = locked_problem(layout, owner)
+    if problem:
+        raise ServiceError(problem)
     installed = app_swap.installed_manifest(root)
     old = installed.get("app_version") if installed else None
     if not app_swap.valid_version(old) or app_swap.base_version(installed) is None:

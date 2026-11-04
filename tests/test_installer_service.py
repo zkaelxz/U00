@@ -314,7 +314,9 @@ class TestInstall:
         win = FakeWindows()
         _services(layout, win, source).install()
         sid = "*" + service_control.service_sid("BaiheStudio")
-        grants = {c[1]: c[2:] for c in win.commands("icacls.exe")}
+        grants = {}
+        for c in win.commands("icacls.exe"):
+            grants.setdefault(c[1], c[2:])      # the first call per folder is the grant
         assert grants[str(layout.root)][:2] == ["/grant", f"{sid}:(OI)(CI)RX"]
         assert grants[str(layout.data)][:2] == ["/grant", f"{sid}:(OI)(CI)M"]
         assert grants[str(layout.service_dir)][:2] == ["/grant", f"{sid}:(OI)(CI)RX"]
@@ -485,6 +487,54 @@ class TestStopAndUninstall:
         win = FakeWindows(installed=True, state="RUNNING")
         _services(layout, win).stop()
         assert win.services["BaiheStudio"]["state"] == "STOPPED"
+
+    def test_a_plain_stop_leaves_the_install_folder_locked(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.install()
+        svc.stop()
+        assert layout.lock_marker.is_file()
+
+    def test_stop_for_update_unlocks_the_install_folder_for_setup(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.install()
+        svc.stop(for_update=True)
+        assert not layout.lock_marker.exists()
+        assert win.commands("icacls.exe")[-1][1:] == [str(layout.root), "/reset", "/T", "/L"]
+
+    def test_install_locks_the_install_folder_to_administrators(self, layout, source):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        calls = [c[1:] for c in win.commands("icacls.exe") if c[1] == str(layout.root)]
+        assert [str(layout.root), "/setowner", "*S-1-5-32-544", "/T", "/L"] in calls
+        final = next(c for c in calls if "/inheritance:r" in c)
+        assert "*S-1-5-32-545:(OI)(CI)RX" in final     # users read and run, never write
+        assert all("(OI)(CI)RX" in a or "(OI)(CI)F" in a for a in final if "(OI)" in a)
+        assert layout.lock_marker.is_file()
+
+    def test_a_failed_lock_unlocks_again_and_rolls_the_install_back(self, layout, source):
+        win = FakeWindows()
+        real = win.__call__
+
+        def fail_on_lock(cmd, timeout=120):
+            if "/setowner" in [str(c) for c in cmd]:
+                return win._result(cmd, 1)
+            return real(cmd, timeout)
+
+        fail_on_lock.log = win.log
+        with pytest.raises(service_layout.ServiceError, match="Locking the install folder"):
+            service.Services(layout, fail_on_lock, health=lambda p: True, sleep=lambda s: None,
+                             source=source).install()
+        assert not layout.lock_marker.exists()
+        assert win.services == {}
+
+    def test_uninstall_unlocks_the_install_folder_so_the_uninstaller_can_delete_it(self, layout, source):
+        win = FakeWindows()
+        svc = _services(layout, win, source)
+        svc.install()
+        svc.uninstall()
+        assert [str(layout.root), "/reset", "/T", "/L"] in [c[1:] for c in win.commands("icacls.exe")]
 
     def test_stop_when_not_installed(self, layout):
         assert "Stopped" in _services(layout, FakeWindows()).stop()
@@ -1786,7 +1836,8 @@ class TestNothingBeyondLoopback:
         # service_cli is imported inside the __main__ guard (it imports Services from service).
         assert set(re.findall(r"^from (installer\.\w+)", self.SOURCE, re.M)) == {
             "installer.service", "installer.service_checks", "installer.service_config",
-            "installer.service_control", "installer.service_layout", "installer.setup_lock"}
+            "installer.service_control", "installer.service_layout", "installer.service_lock",
+            "installer.setup_lock"}
 
     def test_every_command_has_a_time_limit(self):
         assert "timeout=timeout" in self.SOURCE and "timeout=2)" in self.SOURCE

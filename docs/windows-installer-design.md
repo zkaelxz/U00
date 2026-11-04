@@ -505,12 +505,28 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   anything it writes under the install folder, opens request files once and
   checks the open handle (single hard link, size), and settles an update cut
   short earlier (the launcher that normally does it never runs under the
-  service). **Open decision for the owner:** SYSTEM now writes inside the
-  user-owned install folder, so a process running as that user could point a
-  link there between the helper's checks and its writes. The robust fix is for
-  Setup to make the install folder administrator-owned (user read/run only)
-  once the service is installed; not done here because it changes who may
-  update or repair the install without a prompt.
+  service). **The install folder is administrator-owned.** SYSTEM writes inside it, so
+  with the service task Setup's `install` (`installer/service_lock.py`) sets
+  the owner of everything under it to Administrators (an owner can always
+  rewrite permissions), resets the entries below the root and gives SYSTEM and
+  Administrators full control, and Users and `NT SERVICE\BaiheStudio` read and
+  run, with no inheritance from the parent. It then writes
+  `install-folder-locked.txt` (the folder's path) in the admin folder.
+  `apply-app-update` refuses unless that marker names this install folder and
+  the root, `app\` and `manifest.json` are still owned by Administrators or
+  SYSTEM (read with `GetNamedSecurityInfoW`; unreadable counts as not owned),
+  so an install from before this change, or one the user took back, updates
+  only after a full installer run. Setup, which runs as the user, would
+  otherwise be unable to replace files: it runs `stop --for-update` first
+  (only when the marker exists, because an older helper doesn't know the
+  option), which stops the services, deletes the marker and resets the
+  folder's permissions to what its parent gives; `install` locks it again at
+  the end. `uninstall` unlocks it before the uninstaller deletes the folder,
+  and a failed `install` unlocks it on rollback. Consequences: the user can no
+  longer change files in that folder without an administrator prompt, and
+  the in-app update that runs as the user is already refused under the
+  service. Not done: a hard link from outside the folder into it would have its
+  owner changed by the lock (nothing in Baihe creates one).
   Not covered: the library-database backup rule is checked by the server only
   (a compromised server could skip it; the cost is an unreliable rollback, not
   code execution); a crash in the milliseconds between the two renames leaves
