@@ -19,11 +19,11 @@ import {
 
 const region = (over: Partial<ScanlateRegion> = {}): ScanlateRegion => ({
   id: 5, idx: 0, x: 10, y: 20, w: 100, h: 50, source_text: '原文', translated_text: 'Hello',
-  font_size: 18, font_category: 'regular', kind: 'bubble', text_color: null, ...over,
+  font_size: 18, font_category: 'regular', kind: 'bubble', text_color: null, include_sfx: false, language: null, orientation: null, skip: false, ...over,
 })
 const detail = (over: Partial<ScanlatePageDetail> = {}): ScanlatePageDetail => ({
   id: 1, drama_id: 7, ordinal: 1, width: 800, height: 1200, rev: 3, undo_depth: 0, has_rendered: false,
-  regions: [region()], ...over,
+  regions: [region()], run_notes: [], ...over,
 })
 const conflict = (reason: string) => new ApiError(409, { code: 'conflict', message: 'Changed.', details: { reason, rev: 9 } }, 'PATCH')
 
