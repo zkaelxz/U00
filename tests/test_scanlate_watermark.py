@@ -54,3 +54,22 @@ def test_a_short_repeat_is_not_a_stamp():
 def test_repeats_cannot_be_judged_without_the_page_size():
     regions = [_r("스캔랩", y=170)]
     assert wm.flag_site_marks(regions, [[_r("스캔랩", y=170)]]) == 0
+
+
+@pytest.mark.parametrize("text", ["뉴토끼뉴토주소.com", "토끼뉴소.com", "NewToJuso.com"])
+def test_the_newtoki_stamp_and_its_ocr_variants_are_marks(text):
+    assert wm.looks_like_site_mark(text)
+
+
+def test_the_logo_box_reaches_up_from_the_address_strip_and_stays_on_the_page():
+    box = wm.logo_box(_r("뉴토끼뉴토주소.com", x=27, y=453, w=135, h=65, skip=True), 845, 704)
+    assert box["y"] + box["h"] > 453 + 65 and box["y"] < 453 - 60
+    assert 0 <= box["x"] and box["x"] + box["w"] <= 845 and box["y"] >= 0
+    corner = wm.logo_box(_r("x.com", x=0, y=0, w=135, h=65, skip=True), 845, 704)
+    assert corner["x"] == 0 and corner["y"] == 0
+
+
+def test_only_a_skipped_stamp_is_painted_out():
+    assert wm.is_site_mark_region(_r("뉴토끼.com", skip=True))
+    assert not wm.is_site_mark_region(_r("뉴토끼.com"))
+    assert not wm.is_site_mark_region(_r("안녕", skip=True))

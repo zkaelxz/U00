@@ -404,6 +404,25 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     return result
 
 
+_ERASE_CONTEXT_PX = 24
+
+
+def erase_box(img, box: dict) -> None:
+    """Paints out every pixel of `box` on `img` (BGR, in place), for a logo or
+    stamp. OpenCV, from a margin of surrounding art: the LaMa-manga model is
+    trained on balloons and fills a large patch of artwork with flat pale
+    grey, and OpenCV given only the box has no pixels to draw from."""
+    import cv2
+    h, w = img.shape[:2]
+    x0, y0 = max(0, box["x"] - _ERASE_CONTEXT_PX), max(0, box["y"] - _ERASE_CONTEXT_PX)
+    x1 = min(w, box["x"] + box["w"] + _ERASE_CONTEXT_PX)
+    y1 = min(h, box["y"] + box["h"] + _ERASE_CONTEXT_PX)
+    roi = img[y0:y1, x0:x1]
+    mask = np.zeros(roi.shape[:2], dtype=np.uint8)
+    mask[box["y"] - y0:box["y"] - y0 + box["h"], box["x"] - x0:box["x"] - x0 + box["w"]] = 255
+    roi[:] = cv2.inpaint(roi, mask, 7, cv2.INPAINT_TELEA)
+
+
 def inpaint_mask_region(image_path: str, mask, out_path: str | None = None, padding: int = 4,
                          backend: str = "auto", hf_token: str | None = None):
     """Manual erase/heal brush: inpaints exactly the

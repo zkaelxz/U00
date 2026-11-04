@@ -74,7 +74,9 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
     notes = notes if notes is not None else []
     page = pages_svc.require_page(drama_id, page_id)
     bubbles = db.load_bubbles(page_id)
-    if not _placed_regions(bubbles):
+    import scanlate_watermark
+    if not _placed_regions(bubbles) and not any(
+            scanlate_watermark.is_site_mark_region(b) for b in bubbles):
         _drop_stale_typeset(drama_id, page)
         return {"rendered": False, "blank": 0}
     src = original_path(drama_id, page)
