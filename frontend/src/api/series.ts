@@ -24,6 +24,8 @@ interface SeriesTitle {
   translated_count: number
 }
 
+export type SpeakerMode = 'auto' | 'solo'
+
 export interface SeriesPageData {
   id: number
   name: string
@@ -33,6 +35,7 @@ export interface SeriesPageData {
   has_instructions: boolean
   glossary_term_count: number
   character_count: number
+  speaker_mode: SpeakerMode
   titles: SeriesTitle[]
 }
 
@@ -80,6 +83,9 @@ export const getSeriesPage = (id: number, f?: Fetch) => getJson<SeriesPageData>(
 
 export const renameSeries = (id: number, name: string, f?: Fetch) =>
   postJson<{ id: number; name: string }>(`/api/series/${id}/rename`, { name }, f)
+
+export const setSeriesSpeakerMode = (id: number, mode: SpeakerMode, f?: Fetch) =>
+  postJson<{ series_id: number; speaker_mode: SpeakerMode }>(`/api/series/${id}/speaker-mode`, { mode }, f)
 
 export const getSeriesDeletePreview = (id: number, f?: Fetch) =>
   getJson<SeriesDeletePreview>(`/api/series/${id}/delete-preview`, f)
