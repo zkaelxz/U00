@@ -10,7 +10,9 @@ read back with get_compare_result. apply_compare writes only `zh` (and `en`
 when the owner chose that candidate's English) per line, as a compare-and-set
 against what the preview was built from, after a history snapshot.
 """
+import difflib
 import threading
+import unicodedata
 from typing import TypeGuard
 
 import asr_backend
@@ -41,6 +43,7 @@ from services import (
     translate_service,
     workspace_job_service,
 )
+from services.export_service import save_flags
 from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
 from lib.errors import (
     ConflictError,
@@ -52,6 +55,14 @@ from lib.errors import (
 )
 
 MAX_LINES = 200
+DISAGREE_FLAG = "engines_disagree"
+# Below this character similarity two hearings of the same window count as
+# different. Punctuation and spacing are ignored first, since engines punctuate
+# differently; 0.6 leaves room for a swapped name or homophone but flags a
+# rewritten sentence.
+DISAGREE_BELOW = 0.6
+# A shorter text than this says too little to call a disagreement.
+_DISAGREE_MIN_CHARS = 2
 _MAX_TEXT_CHARS = 2000
 _MAX_APPLY_ITEMS = MAX_LINES
 
@@ -689,3 +700,65 @@ def apply_compare(drama_id: int, job_id, items) -> dict:
         run_token = job.get("finished_at")
         _run_applied[drama_id] = (run_token, _applied_ids_locked(drama_id, run_token) | set(applied))
     return {"applied": applied, "skipped": list(skipped)}
+
+
+def _core(text: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKC", text or "").casefold() if c.isalnum())
+
+
+def agreement(a: str, b: str) -> float | None:
+    """Character similarity 0..1 of two hearings of one window, or None when
+    either has too little text to compare."""
+    a, b = _core(a), _core(b)
+    if len(a) < _DISAGREE_MIN_CHARS or len(b) < _DISAGREE_MIN_CHARS:
+        return None
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
+
+
+def _disagreement_note(p: dict, score: float, backend: str) -> str:
+    candidate = _BACKEND_LABELS.get(backend, backend)
+    return (f"Heard differently ({round(score * 100)}% alike). Saved: {p['base_zh'][:60]} / "
+            f"{candidate}: {p['candidate_zh'][:60]}")
+
+
+def flag_disagreements(drama_id: int, job_id) -> dict:
+    """Flags lines where the finished compare run heard something different
+    from the saved text, so Review can start with them. Each proposal is the
+    other engine's hearing of that line's own window, so no time matching is
+    needed even though Qwen3 merges lines when run over a whole title.
+
+    Writes flag/flag_note only (compare-and-set on zh, start and end): a line
+    edited since the run, or already carrying another flag, is left alone. A
+    line this check flagged earlier and that now agrees loses its flag.
+    Returns {compared_count, flagged_count, cleared_count}.
+
+    InvalidInputError for another drama's job id; NotFoundError with no
+    finished run."""
+    if not isinstance(job_id, str) or job_id != compare_job_id(drama_id):
+        raise InvalidInputError("job_id is not this title's transcription comparison.")
+    result = _finished_job(drama_id)["result"]
+    backend = result.get("asr_backend") or ""
+    by_id = {p["line_id"]: p for p in result["proposals"]}
+    with _apply_lock:
+        lines = db.load_line_objects(drama_id)
+        compared, flagged, cleared = 0, [], []
+        for ln in lines:
+            p = by_id.get(ln.id)
+            # Text changed since the run: the comparison no longer describes it.
+            if p is None or (ln.zh or "") != p["base_zh"]:
+                continue
+            score = agreement(p["base_zh"], p["candidate_zh"])
+            if score is None:
+                continue
+            compared += 1
+            if score < DISAGREE_BELOW:
+                if not ln.flag:
+                    ln.flag, ln.flag_note = DISAGREE_FLAG, _disagreement_note(p, score, backend)
+                    flagged.append(ln.id)
+            elif ln.flag == DISAGREE_FLAG:
+                ln.flag, ln.flag_note = None, ""
+                cleared.append(ln.id)
+        kept = save_flags(drama_id, lines, ("zh", "start", "end")) if flagged or cleared else set()
+    return {"compared_count": compared,
+            "flagged_count": sum(1 for i in flagged if i not in kept),
+            "cleared_count": sum(1 for i in cleared if i not in kept)}

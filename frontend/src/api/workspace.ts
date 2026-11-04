@@ -4,6 +4,7 @@ import type {
   CompareApplyRequest,
   CompareApplyResult,
   CompareEstimate,
+  CompareFlagResult,
   CompareEstimateRequest,
   CompareOptions,
   CompareResult,
@@ -224,6 +225,9 @@ export const startCompare = (id: number, req: CompareRunRequest, f?: Fetch) =>
   postJson<CompareRunResult>(`${compareBase(id)}/run`, req, f)
 
 export const getCompareResult = (id: number, f?: Fetch) => getJson<CompareResult>(`${compareBase(id)}/result`, f)
+
+export const flagCompareDisagreements = (id: number, jobId: string, f?: Fetch) =>
+  postJson<CompareFlagResult>(`${compareBase(id)}/flag-disagreements`, { job_id: jobId }, f)
 
 export const applyCompare = (id: number, req: CompareApplyRequest, f?: Fetch) =>
   postJson<CompareApplyResult>(`${compareBase(id)}/apply`, req, f)

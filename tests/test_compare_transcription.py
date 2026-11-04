@@ -701,3 +701,68 @@ def test_translation_leaves_out_a_style_profile_the_starter_may_not_see(monkeypa
         ownership_service.unbind_request(token)
     _run(did, translate=True, engine_name="claude")
     assert "Someone else's rule" not in seen[0] and "Someone else's rule" in seen[1]
+
+
+class TestFlagDisagreements:
+    SAME = "今天我们一起去公园玩吧"
+
+    def _heard(self, monkeypatch, texts):
+        queue = iter(texts)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda path, model_size="medium", **kw:
+                            [{"start": 0.0, "end": 1.0, "text": next(queue)}])
+
+    def _setup(self, monkeypatch, heard):
+        did, ids = _drama(3)
+        lines = db.load_line_objects(did)
+        for ln in lines:
+            ln.zh = self.SAME
+            ln.flag = None
+        lines[2].flag = "check"
+        db.save_lines(did, lines, fields=("zh", "flag", "flag_note"))
+        self._heard(monkeypatch, heard)
+        out = _run(did)
+        return did, ids, out["job_id"]
+
+    def test_agreement_ignores_punctuation_and_short_text(self):
+        assert svc.agreement("你好，世界！", "你好 世界") == 1.0
+        assert svc.agreement("好", "好吗") is None
+        assert svc.agreement(self.SAME, "完全不同的另一句话呢") < svc.DISAGREE_BELOW
+
+    def test_flags_only_lines_heard_differently(self, monkeypatch):
+        did, ids, job_id = self._setup(
+            monkeypatch, [self.SAME, "完全不同的另一句话呢", "完全不同的另一句话呢"])
+        out = svc.flag_disagreements(did, job_id)
+        assert out == {"compared_count": 3, "flagged_count": 1, "cleared_count": 0}
+        lines = {ln.id: ln for ln in db.load_line_objects(did)}
+        assert lines[ids[0]].flag is None
+        assert lines[ids[1]].flag == svc.DISAGREE_FLAG
+        assert "完全不同" in lines[ids[1]].flag_note
+        # An existing flag is not replaced.
+        assert lines[ids[2]].flag == "check"
+
+    def test_line_edited_since_the_run_is_left_alone(self, monkeypatch):
+        did, ids, job_id = self._setup(
+            monkeypatch, [self.SAME, "完全不同的另一句话呢", self.SAME])
+        db.update_line_fields_if(did, ids[1], {"zh": "我改过了这一句"}, {"zh": self.SAME})
+        out = svc.flag_disagreements(did, job_id)
+        assert out["flagged_count"] == 0
+        assert db.load_line_objects(did)[1].flag is None
+
+    def test_rerun_clears_its_own_flag_once_the_lines_agree(self, monkeypatch):
+        did, ids, job_id = self._setup(
+            monkeypatch, [self.SAME, "完全不同的另一句话呢", self.SAME])
+        svc.flag_disagreements(did, job_id)
+        self._heard(monkeypatch, [self.SAME] * 3)
+        _run(did)
+        out = svc.flag_disagreements(did, job_id)
+        assert out["cleared_count"] == 1
+        assert db.load_line_objects(did)[1].flag is None
+
+    def test_other_dramas_job_and_missing_run_are_refused(self, monkeypatch):
+        did, _ids, job_id = self._setup(monkeypatch, [self.SAME] * 3)
+        with pytest.raises(InvalidInputError):
+            svc.flag_disagreements(did, "comparetx_999")
+        other, _ = _drama(1)
+        with pytest.raises(NotFoundError):
+            svc.flag_disagreements(other, svc.compare_job_id(other))

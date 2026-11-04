@@ -25,7 +25,7 @@ from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_at_pc, is_local_request, require_engines_allowed, require_paid_engines,
                       require_permission)
 from api.schemas import (AsrAdvice, AsrAdviceRequest, AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
-                         AutotuneStatus, CompareApplyRequest, CompareApplyResult,
+                         AutotuneStatus, CompareApplyRequest, CompareApplyResult, CompareFlagRequest, CompareFlagResult,
                          CompareEstimate, CompareEstimateRequest, CompareOptions,
                          CompareResult, CompareRunRequest, CompareRunResult, GapAddLinesRequest, GapAddLinesResult, TalkOverAddResult, RetimeApplyRequest, RetimeApplyResult,
                          RetimeResult, RetimeRunRequest, RetranscribeApplyRequest,
@@ -315,6 +315,14 @@ def get_compare_result(drama_id: int = Path(ge=1)):
 def post_compare_apply(payload: CompareApplyRequest, drama_id: int = Path(ge=1)):
     return compare_transcription_service.apply_compare(
         drama_id, payload.job_id, [i.model_dump() for i in payload.items])
+
+
+@router.post("/dramas/{drama_id}/compare-transcription/flag-disagreements",
+             dependencies=[require_permission("lines.edit")], response_model=CompareFlagResult,
+             summary="Flag lines the finished comparison heard differently from the saved text",
+             responses=_COMPARE_ERRORS)
+def post_compare_flag_disagreements(payload: CompareFlagRequest, drama_id: int = Path(ge=1)):
+    return compare_transcription_service.flag_disagreements(drama_id, payload.job_id)
 
 
 # --- Re-time with the Qwen3 aligner (Review): new start/end for existing lines --

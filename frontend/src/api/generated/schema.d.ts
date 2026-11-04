@@ -10405,6 +10405,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/transcribe/dramas/{drama_id}/compare-transcription/flag-disagreements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Flag lines the finished comparison heard differently from the saved text */
+        post: operations["post_compare_flag_disagreements_api_transcribe_dramas__drama_id__compare_transcription_flag_disagreements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transcribe/dramas/{drama_id}/compare-transcription/options": {
         parameters: {
             query?: never;
@@ -15068,6 +15085,20 @@ export interface components {
              * @default false
              */
             translate?: boolean;
+        };
+        /** CompareFlagRequest */
+        CompareFlagRequest: {
+            /** Job Id */
+            job_id: string;
+        };
+        /** CompareFlagResult */
+        CompareFlagResult: {
+            /** Cleared Count */
+            cleared_count: number;
+            /** Compared Count */
+            compared_count: number;
+            /** Flagged Count */
+            flagged_count: number;
         };
         /** CompareOptions */
         CompareOptions: {
@@ -60152,6 +60183,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompareEstimate"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_compare_flag_disagreements_api_transcribe_dramas__drama_id__compare_transcription_flag_disagreements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompareFlagRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompareFlagResult"];
                 };
             };
             /** @description Bad Request */
