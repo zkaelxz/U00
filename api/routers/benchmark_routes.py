@@ -50,7 +50,9 @@ from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCas
                          BenchmarkHardSubReadEstimate, BenchmarkHardSubReadRequest,
                          BenchmarkHardSubReadStarted,
                          BenchmarkHardSubReadResult,
-                         BenchmarkHardSubApplyResult,
+                         BenchmarkHardSubApplyRequest, BenchmarkHardSubApplyResult,
+                         BenchmarkHardSubCaptionAcceptRequest, BenchmarkHardSubCaptionAcceptResult,
+                         BenchmarkHardSubCaptionSuggestions,
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
                          BenchmarkPairNext, BenchmarkPickRequest, BenchmarkPickSummary,
@@ -65,6 +67,7 @@ from lib.errors import InvalidInputError
 from services import benchmark_clip_service as clip_svc
 from services import benchmark_export_service as export_svc
 from services import benchmark_hardsub_service as hardsub_svc
+from services import hardsub_caption_service as hardsub_caption_svc
 from services import hardsub_speaker_apply_service as hardsub_apply_svc
 from services import hardsub_speaker_read_service as hardsub_read_svc
 from services import benchmark_judge_service as judge_svc
@@ -216,8 +219,24 @@ def get_hard_sub_reading(request: Request, drama_id: int = Path(ge=1)):
              response_model=BenchmarkHardSubApplyResult,
              responses=_ERRS,  # pyright: ignore[reportArgumentType]
              summary="PC only: label a title's lines with the speaker groups of its latest hard-sub reading")
-def post_hard_sub_reading_apply(request: Request, drama_id: int = Path(ge=1)):
-    return hardsub_apply_svc.apply(request.state.principal, drama_id)
+def post_hard_sub_reading_apply(request: Request, body: Optional[BenchmarkHardSubApplyRequest] = None,
+                                drama_id: int = Path(ge=1)):
+    return hardsub_apply_svc.apply(request.state.principal, drama_id, body.names if body else None)
+
+
+@router.get("/dramas/{drama_id}/hard-sub-reading/captions", dependencies=[local_only()],
+            response_model=BenchmarkHardSubCaptionSuggestions, responses=_ERRS,
+            summary="PC only: lines whose burned-in caption is close to the transcript but not the same")
+def get_hard_sub_captions(request: Request, drama_id: int = Path(ge=1)):
+    return hardsub_caption_svc.suggestions(request.state.principal, drama_id)
+
+
+@router.post("/dramas/{drama_id}/hard-sub-reading/captions/accept", dependencies=[local_only()],
+             response_model=BenchmarkHardSubCaptionAcceptResult, responses=_ERRS,
+             summary="PC only: write the burned-in caption into the chosen lines")
+def post_hard_sub_captions_accept(body: BenchmarkHardSubCaptionAcceptRequest, request: Request,
+                                  drama_id: int = Path(ge=1)):
+    return hardsub_caption_svc.accept(request.state.principal, drama_id, body.line_ids)
 
 
 @router.post("/estimate", dependencies=_READ, response_model=BenchmarkEstimate,

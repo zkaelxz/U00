@@ -4,6 +4,7 @@ series writes (rename, delete, copying glossary terms). The tables are
 created by db.init_db."""
 
 import contextlib
+import json
 from lib import clock
 import time
 
@@ -285,6 +286,26 @@ def set_series_defaults(series_id: int, settings_json) -> bool:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("UPDATE series SET default_settings = ? WHERE id = ?",
                            (settings_json, series_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_series_speaker_colours(series_id: int) -> dict:
+    """{hard-sub colour group: person} stored for a series; {} for none or an unknown series."""
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute("SELECT speaker_colours FROM series WHERE id = ?", (series_id,)).fetchone()
+    try:
+        got = json.loads(row["speaker_colours"]) if row and row["speaker_colours"] else {}
+    except ValueError:
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def set_series_speaker_colours(series_id: int, colours: dict) -> bool:
+    """Replaces a series' colour-to-person map. False for an unknown series."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("UPDATE series SET speaker_colours = ? WHERE id = ?",
+                           (json.dumps(colours, ensure_ascii=False) if colours else None, series_id))
         conn.commit()
         return cur.rowcount > 0
 
