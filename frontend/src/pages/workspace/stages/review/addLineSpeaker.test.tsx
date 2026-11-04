@@ -8,7 +8,7 @@ import { AddLineForm } from './AddLineForm'
 
 const prev: ReviewLine = {
   id: 1, idx: 0, start: 1, end: 2, zh: '', en: '', speaker: 'Mei', speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false,
 }
 
 function render(dramaId?: number) {
