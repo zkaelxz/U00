@@ -75,6 +75,8 @@ __all__ = [
     "CompareRunResult",
     "CompareProposal",
     "CompareResult",
+    "CompareFlagRequest",
+    "CompareFlagResult",
     "CompareApplyItem",
     "CompareApplyRequest",
     "CompareApplyResult",
@@ -733,6 +735,17 @@ class CompareResult(BaseModel):
     partial: bool
     cap_reached: bool
     errors: List[str]
+
+
+class CompareFlagRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    job_id: str = Field(..., min_length=1, max_length=100)
+
+
+class CompareFlagResult(BaseModel):
+    compared_count: int
+    flagged_count: int
+    cleared_count: int
 
 
 class CompareApplyItem(BaseModel):
