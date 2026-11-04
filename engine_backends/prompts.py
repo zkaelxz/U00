@@ -2,6 +2,7 @@
 
 import re
 from core import LANGUAGE_NAMES
+from glossary_io import alias_note, confirmed_aliases
 from . import medium_prompts
 
 
@@ -127,7 +128,8 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
     if style_guidelines:
         glossary_block = f"\n{style_guidelines}\n"
     elif glossary_terms:
-        pairs = "\n".join(f"- {t['term_original']} -> {t['term_translation']}"
+        aliases = confirmed_aliases(glossary_terms)
+        pairs = "\n".join(f"- {t['term_original']}{alias_note(aliases.get(t['term_original']))} -> {t['term_translation']}"
                           + (f" ({t['notes']})" if t.get("notes") else "")
                           for t in glossary_terms)
         glossary_block = (

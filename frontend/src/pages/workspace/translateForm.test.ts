@@ -159,6 +159,15 @@ describe('translate form', () => {
     expect(buildRunBody({ ...base, force: true }).force_retranslate).toBe(false)
   })
 
+  it('asks for approved examples only when the toggle is on, and never keeps it in a draft', () => {
+    const f = initialForm(config)
+    expect(f.memory_examples).toBe(false)
+    expect(buildRunBody(f)).not.toHaveProperty('memory_examples')
+    expect(buildRunBody({ ...f, memory_examples: true })).toMatchObject({ memory_examples: true })
+    const draft = runOptionsDraft({ form: { ...f, memory_examples: true }, baseEngine: 'claude', reviewFirst: false })
+    expect(draft.form).not.toHaveProperty('memory_examples')
+  })
+
   it('parses caps and estimate params', () => {
     expect(parseCap('')).toBeUndefined()
     expect(parseCap('abc')).toBeNull()

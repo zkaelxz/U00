@@ -347,6 +347,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/dismiss-flag` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/retry-blocked` | jobs.start + lines.read + lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/reviewed` | lines.edit |
+| `POST /api/lines/dramas/{drama_id}/mark-reviewed` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/notes` | lines.edit |
 | `DELETE /api/lines/dramas/{drama_id}/notes/{note_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/set-language` | lines.edit |
@@ -547,6 +548,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/scanlate/dramas/{drama_id}/view-prefs` | lines.edit |
 | `GET /api/series` | library.read |
 | `GET /api/series/{series_id}` | library.read |
+| `GET /api/series/{series_id}/consistency-report` | lines.read |
 | `POST /api/series/{series_id}/copy-terms` | lines.edit |
 | `GET /api/series/{series_id}/copy-terms-preview` | library.read |
 | `GET /api/series/{series_id}/defaults` | library.read |
