@@ -375,6 +375,7 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
   const ariaSort = (k: 'started' | 'duration') => (sort.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined)
   const cols = props.authOn ? 9 : 8
   return (
+    <div className="table-scroll">
     <table className="jobs-table" data-testid="jobs-table">
       <thead>
         <tr>
@@ -425,6 +426,7 @@ function JobTable({ jobs, sort, onSort, ...props }: TableProps) {
         })}
       </tbody>
     </table>
+    </div>
   )
 }
 
