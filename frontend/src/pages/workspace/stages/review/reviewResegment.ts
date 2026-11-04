@@ -16,7 +16,7 @@ export function resegmentSummary(p: ResegmentPreview): string {
 }
 
 /** "Split 31 lines into 118; speakers re-assigned" from a re-split summary. */
-export function resplitSummary(r: ResplitResult): string {
+export function resplitSummary(r: Partial<ResplitResult>): string {
   const n = r.split_lines ?? 0
   if (n === 0) return r.note || 'No line is over the length limits. Nothing changed.'
   const pieces = (r.line_count ?? 0) - (r.lines_before ?? 0) + n
@@ -64,7 +64,7 @@ export const RESPLIT_DRAFT_STAGE = 'review.resplit'
 export const RESPLIT_DRAFT_SHAPE = { align: false, sensitivity: '', capSec: 0 }
 
 /** "Preview: 31 lines would be split into 118." from a dry-run result. */
-export function resplitPreviewSummary(r: ResplitResult): string {
+export function resplitPreviewSummary(r: Partial<ResplitResult>): string {
   const n = r.split_lines ?? 0
   if (n === 0) return r.note || 'Preview: no line would be split.'
   const cleared = r.cleared_translations
