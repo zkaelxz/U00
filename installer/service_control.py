@@ -14,7 +14,8 @@ import time
 from pathlib import Path
 
 from installer.service_config import HTTPS_PORT
-from installer.service_layout import APP_SERVICE, CADDY_SERVICE, Layout, ServiceError, _system32
+from installer.service_layout import (APP_SERVICE, CADDY_SERVICE, UPDATE_SERVICE, Layout, ServiceError,
+                                      _system32)
 
 # The rule the owner adds by hand (firewall_rule_command). This script only
 # reads it, never adds it.
@@ -183,11 +184,26 @@ def create_service_command(name: str, wrapper: Path, display: str) -> list:
             "DisplayName=", display]
 
 
+def update_service_sddl() -> str:
+    """Who may do what to BaiheUpdate: SYSTEM and administrators everything
+    they need, and the app's own account only to read its state and start it.
+    It cannot stop, reconfigure or delete it. The service runs as LocalSystem
+    and takes no input but the signed zip it verifies itself, so starting it
+    is all the app can do with it."""
+    return ("D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)"
+            f"(A;;LCRPRC;;;{service_sid(APP_SERVICE)})")
+
+
 def configure_service_commands(name: str, wrapper: Path) -> list:
     """sc.exe settings applied on every install, before the start type:
     the wrapper in the admin folder, its own virtual account, a cut-down
     privilege list, and restart after a failure (also when it exits with an
     error)."""
+    if name == UPDATE_SERVICE:
+        # LocalSystem (sc create's default): it replaces files in the per-user
+        # install folder and stops and starts the other service.
+        return [[SC, "config", name, "binPath=", _quoted(wrapper)],
+                [SC, "sdset", name, update_service_sddl()]]
     cmds = [
         [SC, "config", name, "binPath=", _quoted(wrapper)],
         [SC, "sidtype", name, "unrestricted"],

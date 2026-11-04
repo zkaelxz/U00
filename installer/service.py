@@ -2,7 +2,8 @@
 installer/service.py -- runs the installed Baihe Studio as a Windows service
 (docs/windows-installer-design.md, "Boot service").
 
-Two services, each wrapped by a copy of the pinned WinSW binary named after
+Three services (the third, BaiheUpdate, is described in installer/service_update.py:
+a LocalSystem helper the app starts to switch to a signed app update), each wrapped by a copy of the pinned WinSW binary named after
 it (it answers the Service Control Manager and reads the .xml next to it):
 
 - BaiheStudio: `python -s -m api` on 127.0.0.1 and nothing else, at the
@@ -89,6 +90,7 @@ from installer.service_config import (
     api_port_problem,
     app_service_xml,
     caddy_service_xml,
+    update_service_xml,
     read_config,
     read_env_file,
     remote_access_config,
@@ -118,6 +120,8 @@ from installer.service_layout import (
     APP_SERVICE,
     CADDY_DISPLAY_NAME,
     CADDY_SERVICE,
+    UPDATE_DISPLAY_NAME,
+    UPDATE_SERVICE,
     ConfigRefused,
     Layout,
     ServiceError,
@@ -263,7 +267,8 @@ class Services:
         wrapper = self.layout.wrapper(name)
         created = query_state(name, self.run) is None
         if created:
-            display = APP_DISPLAY_NAME if name == APP_SERVICE else CADDY_DISPLAY_NAME
+            display = {APP_SERVICE: APP_DISPLAY_NAME, CADDY_SERVICE: CADDY_DISPLAY_NAME,
+                       UPDATE_SERVICE: UPDATE_DISPLAY_NAME}[name]
             _check(self.run(create_service_command(name, wrapper, display)),
                    f"Creating the {name} service")
         try:
@@ -418,8 +423,9 @@ class Services:
         created = []
         try:
             missing = [str(p) for p in (lay.wrapper(APP_SERVICE), lay.wrapper(CADDY_SERVICE),
-                                        lay.caddy_exe, lay.template, lay.helper_python,
-                                        lay.helper_script) if not p.is_file()]
+                                        lay.wrapper(UPDATE_SERVICE), lay.caddy_exe, lay.template,
+                                        lay.helper_python, lay.helper_script, lay.public_key)
+                       if not p.is_file()]
             if missing:
                 raise ServiceError("Setup's files are incomplete: " + ", ".join(missing))
             port = self.remote_state().get("household_port", 0)
@@ -432,9 +438,13 @@ class Services:
                     port = 0
             self._write_app_xml(port)
             lay.wrapper_xml(CADDY_SERVICE).write_text(caddy_service_xml(lay), encoding="utf-8")
+            lay.wrapper_xml(UPDATE_SERVICE).write_text(update_service_xml(lay), encoding="utf-8")
+            lay.update_logs.mkdir(exist_ok=True)
             # Caddy stays disabled here; it is set to start with Windows only
-            # once the household listener has answered.
-            for name, start in ((APP_SERVICE, "auto"), (CADDY_SERVICE, "disabled")):
+            # once the household listener has answered. BaiheUpdate is started
+            # by the app, never at boot.
+            for name, start in ((APP_SERVICE, "auto"), (CADDY_SERVICE, "disabled"),
+                                (UPDATE_SERVICE, "demand")):
                 if self._create_service(name, start):
                     created.append(name)
             self._grant()
@@ -469,7 +479,7 @@ class Services:
                 stop_service(name, self.run, sleep=self.sleep)
             except Exception:
                 pass
-        for name in (CADDY_SERVICE, APP_SERVICE):
+        for name in (UPDATE_SERVICE, CADDY_SERVICE, APP_SERVICE):
             if name in created:
                 try:
                     delete_service(name, self.run, sleep=self.sleep)
@@ -595,6 +605,11 @@ class Services:
             message += " Remote access is still on."
         return message + note
 
+    def apply_app_update(self) -> str:
+        """BaiheUpdate's one job (installer/service_update.py)."""
+        from installer.service_update import apply_update
+        return apply_update(self.layout, self.run, self.api_port(), self.health, self.sleep)
+
     def stop(self) -> str:
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
@@ -623,6 +638,7 @@ class Services:
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         try:
+            delete_service(UPDATE_SERVICE, self.run, sleep=self.sleep)
             delete_service(CADDY_SERVICE, self.run, sleep=self.sleep)
             delete_service(APP_SERVICE, self.run, sleep=self.sleep)
         except ServiceError:
@@ -743,7 +759,7 @@ class Services:
 
     def status(self) -> str:
         lines = []
-        for name in (APP_SERVICE, CADDY_SERVICE):
+        for name in (APP_SERVICE, CADDY_SERVICE, UPDATE_SERVICE):
             state = query_state(name, self.run)
             start = query_start_type(name, self.run) if state else None
             lines.append(f"{name}: {state or 'not installed'}"

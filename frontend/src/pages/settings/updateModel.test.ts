@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { getPcMode, resetPcModeForTests } from '../../api/pcOnly'
-import { applyAppUpdate, checkForUpdates, downloadAppUpdate, installUpdate, setUpdateAutoCheck, setUpdatePrereleases } from '../../api/update'
+import { applyAppUpdate, checkForUpdates, downloadAppUpdate, installUpdate, setUpdateAutoCheck, setUpdatePrereleases, setUpdateServiceAutoApply } from '../../api/update'
 import type { UpdateStatus } from '../../types/update'
 import {
   APP_BOOT_SERVICE_LINE, APP_FULL_INSTALLER_LINE, appApplyTarget, appDownloadLine, appUpdateLine, canDownloadApp,
@@ -15,7 +15,7 @@ const BASE: UpdateStatus = {
   download: 'idle',
   downloaded_bytes: 0, download_error: null, verified: false, verified_version: null, verified_name: null,
   can_install: false, signature_check: false, signature_verified: false, auto_check: false, include_prereleases: false, custom_source: false,
-  app_update: 'none', app_update_here: true, app_size: null, app_download: 'idle', app_downloaded_bytes: 0,
+  app_update: 'none', app_update_here: true, app_update_by_service: false, app_auto_apply: false, app_size: null, app_download: 'idle', app_downloaded_bytes: 0,
   app_download_error: null, app_verified: false, app_verified_version: null, can_apply_app: false,
   app_last_result: null, app_last_result_at: null,
 }
@@ -161,6 +161,10 @@ describe('update API', () => {
     const h = reply(BASE)
     await setUpdatePrereleases(true, h)
     expect(JSON.parse(String(h.mock.calls[0][1]?.body))).toEqual({ include_prereleases: true })
+
+    const k = reply(BASE)
+    await setUpdateServiceAutoApply(true, k)
+    expect(JSON.parse(String(k.mock.calls[0][1]?.body))).toEqual({ service_auto_apply: true })
   })
 
   it('a 403 marks the tab as away from the PC', async () => {

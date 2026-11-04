@@ -16,6 +16,9 @@ export const setUpdateAutoCheck = (autoCheck: boolean, f?: Fetch) =>
 export const setUpdatePrereleases = (include: boolean, f?: Fetch) =>
   postJson<UpdateStatus>(`${BASE}/settings`, { include_prereleases: include }, pcOnlyFetch(f))
 
+export const setUpdateServiceAutoApply = (enabled: boolean, f?: Fetch) =>
+  postJson<UpdateStatus>(`${BASE}/settings`, { service_auto_apply: enabled }, pcOnlyFetch(f))
+
 export const downloadUpdate = (f?: Fetch) => postJson<UpdateStatus>(`${BASE}/download`, {}, pcOnlyFetch(f))
 
 export const installUpdate = (f?: Fetch) =>

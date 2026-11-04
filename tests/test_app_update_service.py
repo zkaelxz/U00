@@ -171,15 +171,17 @@ def test_the_launcher_check_survives_the_servers_startup(monkeypatch):
     assert aus.launcher_started() is True
 
 
-def test_no_offer_under_the_boot_service(env, monkeypatch):
+def test_no_offer_under_the_boot_service_without_the_updater(env, monkeypatch):
     _serve(env)
     monkeypatch.setattr(shutdown_service, "_token", "")
     monkeypatch.delenv(aus.LAUNCHER_TOKEN_ENV, raising=False)
+    monkeypatch.setenv("ProgramFiles", str(env["tmp"] / "no Program Files"))
     us.check()
     _download(env)
     s = us.status()
     assert s["app_update_here"] is False and s["can_apply_app"] is False
-    with pytest.raises(UnsupportedOperationError, match="boot service"):
+    assert s["app_update_by_service"] is False
+    with pytest.raises(UnsupportedOperationError, match="no app-update helper"):
         aus.apply()
 
 
@@ -507,3 +509,135 @@ def test_a_failed_unpack_gives_a_reason_and_changes_nothing(env, monkeypatch, er
         aus.apply()
     assert app_swap.read_journal(env["root"]) is None and env["started"] == []
     assert not list(Path(us.tempfile.gettempdir()).iterdir())
+
+
+# --- the boot service: hand-off to the BaiheUpdate helper ---------------------------
+
+class FakeSc:
+    def __init__(self, returncode=0):
+        self.calls, self.returncode = [], returncode
+
+    def __call__(self, cmd, timeout):
+        self.calls.append(cmd)
+
+        class Result:
+            pass
+        result = Result()
+        result.returncode = self.returncode
+        return result
+
+
+@pytest.fixture
+def service_env(env, monkeypatch):
+    """The boot service (no launcher token) on a PC whose Setup installed the helper."""
+    monkeypatch.setattr(shutdown_service, "_token", "")
+    monkeypatch.delenv(aus.LAUNCHER_TOKEN_ENV, raising=False)
+    program_files = env["tmp"] / "Program Files"
+    wrapper = program_files / aus.ADMIN_FOLDER / "service" / (aus.UPDATER_SERVICE + ".exe")
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_bytes(b"MZ")
+    monkeypatch.setenv("ProgramFiles", str(program_files))
+    sc = FakeSc()
+    monkeypatch.setattr(aus, "run_captured", sc)
+    env["sc"] = sc
+    return env
+
+
+def test_the_service_hands_a_verified_update_to_the_updater_and_unpacks_nothing(service_env):
+    env = service_env
+    _serve(env)
+    us.check()
+    _download(env)
+    s = us.status()
+    assert s["app_update_here"] and s["app_update_by_service"] and s["can_apply_app"]
+    assert aus.apply() == {"started": True, "version": "0.2.0"}
+    updates = Path(us.updates_dir())
+    assert json.loads((updates / aus.REQUEST_NAME).read_text()) == {"version": "0.2.0",
+                                                                    "name": ZIP_NAME}
+    signature = rs.parse_signature((updates / (ZIP_NAME + ".sig")).read_bytes())
+    sha = hashlib.sha256((updates / ZIP_NAME).read_bytes()).hexdigest()
+    assert rs.verify(us._release_public_key(), signature, ZIP_NAME, sha)
+    assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
+    assert not (env["root"] / "app-0.2.0").exists() and env["started"] == []
+    assert app_swap.read_journal(env["root"]) is None      # the helper writes it, not this server
+
+
+def test_the_service_refuses_while_a_job_runs_and_leaves_no_request(service_env, monkeypatch):
+    env = service_env
+    _serve(env)
+    us.check()
+    _download(env)
+    monkeypatch.setattr(aus.background_jobs, "active_job_ids", lambda: ["j1"])
+    with pytest.raises(ConflictError, match="running jobs"):
+        aus.apply()
+    assert env["sc"].calls == [] and not (Path(us.updates_dir()) / aus.REQUEST_NAME).exists()
+
+
+def test_a_helper_that_wont_start_leaves_no_request_behind(service_env):
+    env = service_env
+    env["sc"].returncode = 5
+    _serve(env)
+    us.check()
+    _download(env)
+    with pytest.raises(DependencyUnavailableError, match="couldn't start the update"):
+        aus.apply()
+    assert not (Path(us.updates_dir()) / aus.REQUEST_NAME).exists()
+
+
+def test_the_service_refuses_a_zip_for_another_base_before_asking_the_updater(service_env):
+    env = service_env
+    _serve(env)
+    us.check()
+    _download(env)
+    other = dict(app_swap.base_fingerprint(INSTALLED_MANIFEST), caddy_sha256="new")
+    with aus._lock:
+        aus._verified["path"] = str(env["tmp"] / "other.zip")
+    (env["tmp"] / "other.zip").write_bytes(_zip_bytes(env["tmp"], _app_manifest(base=other)))
+    with pytest.raises(ConflictError, match="different Python"):
+        aus.apply()
+    assert env["sc"].calls == []
+
+
+def _settle_download():
+    thread = aus._download_thread
+    if thread is not None:
+        thread.join(10)
+
+
+def test_automatic_updates_are_off_unless_the_owner_turned_them_on(service_env):
+    env = service_env
+    _serve(env)
+    s = us.check()
+    assert s["app_auto_apply"] is False
+    assert s["app_download"] == "idle" and env["sc"].calls == []
+
+
+def test_with_the_opt_in_a_check_downloads_and_applies(service_env):
+    env = service_env
+    aus.set_service_auto_apply(True)
+    _serve(env)
+    us.check()
+    _settle_download()
+    assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
+    assert (Path(us.updates_dir()) / aus.REQUEST_NAME).is_file()
+
+
+def test_with_the_opt_in_but_a_job_running_the_next_check_applies_it(service_env, monkeypatch):
+    env = service_env
+    aus.set_service_auto_apply(True)
+    _serve(env)
+    monkeypatch.setattr(aus.background_jobs, "active_job_ids", lambda: ["j1"])
+    us.check()
+    _settle_download()
+    assert env["sc"].calls == [] and us.status()["app_verified"] is True
+    monkeypatch.setattr(aus.background_jobs, "active_job_ids", lambda: [])
+    us.check()
+    assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
+
+
+def test_the_opt_in_does_nothing_for_a_launcher_started_server(env):
+    aus.set_service_auto_apply(True)
+    _serve(env)
+    us.check()
+    _settle_download()
+    assert us.status()["app_download"] == "idle"

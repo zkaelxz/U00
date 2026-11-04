@@ -641,11 +641,15 @@ BROKEN_MESSAGE = ("Baihe Studio couldn't finish or undo an app update. Run the B
                   "installer again to repair it; your library and settings are kept.")
 
 
-def apply(root, launcher=None, sleep=time.sleep) -> str:
+def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> str:
     """Stops the running app, switches to the staged version and keeps it
     only if it answers; otherwise puts the previous version back and starts
-    it. Returns the result code it recorded."""
+    it. Returns the result code it recorded. `notify` shows a failure to
+    the person (a message box by default) and `recovery` registers the
+    sign-in recovery; the boot service's updater runs with neither, since
+    nothing is signed in where it runs."""
     root = Path(root)
+    notify = _message if notify is None else notify
     journal = read_journal(root)
     if journal is None or journal["state"] not in (STAGED, QUEUED):
         return "not_started"
@@ -670,7 +674,8 @@ def apply(root, launcher=None, sleep=time.sleep) -> str:
             launcher.open_window()
             return "rolled_back_switch"
         _record(root, journal, SWITCHING, 0)
-        register_recovery(root)
+        if recovery:
+            register_recovery(root)
         try:
             switch_in(root, old, new, sleep, on_step=lambda step: _record(root, journal,
                                                                           SWITCHING, step))
@@ -678,7 +683,7 @@ def apply(root, launcher=None, sleep=time.sleep) -> str:
             if not app_dir(root).is_dir():
                 # Not even the undo could rename: sign-in's recovery tries again.
                 write_result(root, "broken", old, new)
-                _message(BROKEN_MESSAGE)
+                notify(BROKEN_MESSAGE)
                 return "broken"
             # Something still holds a file in app\: the next start finishes it.
             _record(root, journal, QUEUED, 0)
@@ -692,7 +697,7 @@ def apply(root, launcher=None, sleep=time.sleep) -> str:
                 roll_back(root, journal, sleep)
             except (OSError, Locked, SwapError):
                 write_result(root, "broken", old, new)
-                _message(BROKEN_MESSAGE)
+                notify(BROKEN_MESSAGE)
                 return "broken"
             write_result(root, "rolled_back_switch", old, new)
             launcher.open_window()
@@ -708,11 +713,11 @@ def apply(root, launcher=None, sleep=time.sleep) -> str:
             roll_back(root, journal, sleep)
         except (OSError, Locked, SwapError):
             write_result(root, "broken", old, new)
-            _message(BROKEN_MESSAGE)
+            notify(BROKEN_MESSAGE)
             return "broken"
         if not launcher.start_and_check():
             write_result(root, "broken", old, new)
-            _message(BROKEN_MESSAGE)
+            notify(BROKEN_MESSAGE)
             return "broken"
         write_result(root, "rolled_back_health", old, new)
         launcher.open_window()

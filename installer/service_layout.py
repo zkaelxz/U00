@@ -15,8 +15,10 @@ from pathlib import Path
 
 APP_SERVICE = "BaiheStudio"
 CADDY_SERVICE = "BaiheCaddy"
+UPDATE_SERVICE = "BaiheUpdate"
 APP_DISPLAY_NAME = "Baihe Studio"
 CADDY_DISPLAY_NAME = "Baihe Studio remote access (Caddy)"
+UPDATE_DISPLAY_NAME = "Baihe Studio app updates"
 ADMIN_FOLDER_NAME = "Baihe Studio Services"
 
 
@@ -218,6 +220,9 @@ class Layout:
         self.helper_script = self.helper / "lib" / "installer" / "service.py"
         self.config_file = self.helper / CONFIG_FILE_NAME
         self.template = self.helper / "lib" / "deploy" / "caddy" / "Caddyfile.template"
+        self.public_key = self.helper / "lib" / "installer" / "release_public_key.txt"
+        self.staging = admin / "update-staging"
+        self.update_logs = admin / "update-logs"
         self.service_dir = admin / "service"
         self.caddy_dir = admin / "caddy"
         self.caddy_exe = self.caddy_dir / "caddy.exe"
@@ -228,7 +233,8 @@ class Layout:
         self.log_file = admin / LOG_FILE_NAME
 
     def wrapper(self, name: str) -> Path:
-        return (self.service_dir if name == APP_SERVICE else self.caddy_dir) / f"{name}.exe"
+        folder = self.service_dir if name in (APP_SERVICE, UPDATE_SERVICE) else self.caddy_dir
+        return folder / f"{name}.exe"
 
     def wrapper_xml(self, name: str) -> Path:
         return self.wrapper(name).with_suffix(".xml")

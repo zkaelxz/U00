@@ -20,6 +20,8 @@ from installer.service_layout import (
     ConfigRefused,
     Layout,
     ServiceError,
+    UPDATE_DISPLAY_NAME,
+    UPDATE_SERVICE,
 )
 
 ADMIN_PORT = 8600              # api_config.DEFAULT_PORT
@@ -172,6 +174,23 @@ def app_service_xml(layout: Layout, household_port: int = 0, allow_key_writes: b
     ]
     env = app_service_env(layout.data, household_port, allow_key_writes, api_port)
     return _winsw_xml(fields, env, layout.app_logs)
+
+
+def update_service_xml(layout: Layout) -> str:
+    """BaiheUpdate runs the admin copy's `apply-app-update` once per start and
+    exits; it is started only by the app (service_control.update_service_sddl)."""
+    fields = [
+        ("id", UPDATE_SERVICE),
+        ("name", UPDATE_DISPLAY_NAME),
+        ("description", "Switches Baihe Studio's service to a signed app update when the "
+                        "app asks for it. Does nothing otherwise."),
+        ("executable", str(layout.helper_python)),
+        ("arguments", f'-I -S "{layout.helper_script}" apply-app-update'),
+        ("workingdirectory", str(layout.helper)),
+        ("startmode", "Manual"),
+        ("stoptimeout", "30 sec"),
+    ]
+    return _winsw_xml(fields, {}, layout.update_logs)
 
 
 def caddy_service_xml(layout: Layout) -> str:
