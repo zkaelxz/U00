@@ -1,7 +1,7 @@
 // Pure helpers for Packages > "By task" (install presets from
 // GET /api/diagnostics/install-presets). Sizes are the server's static
 // estimates, always shown as "approx.".
-import type { DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsPackageInfo, TaskRole } from '../../types/diagnostics'
+import type { DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
 
 /** "approx. 45 MB", "approx. 2.5 GB", "under 1 MB"; null when unknown. */
 export function formatApproxMb(mb: number | null | undefined): string | null {
@@ -73,11 +73,11 @@ export function missingTranscription(presets: Pick<DiagnosticsInstallPresets, 't
   return presets.tasks.find((t) => t.id === 'transcribe' && !taskReady(t)) ?? null
 }
 
-const ROLE_LABELS: Record<TaskRole, string> = { required: 'Required', recommended: 'Recommended', optional: 'Optional' }
+const ROLE_LABELS: Record<string, string | undefined> = { required: 'Required', recommended: 'Recommended', optional: 'Optional' }
 
 /** "Required" / "Recommended" / "Optional", or null when the server sent no roles. */
 export const roleLabel = (t: DiagnosticsInstallTask, name: string): string | null =>
-  t.roles?.[name] ? ROLE_LABELS[t.roles[name]] : null
+  ROLE_LABELS[t.roles?.[name] ?? ''] ?? null
 
 /** "≥ 0.42" when the app needs a minimum version. */
 export const minVersionText = (p: DiagnosticsPackageInfo | undefined): string | null =>
