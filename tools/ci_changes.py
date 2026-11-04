@@ -29,7 +29,8 @@ EVERYTHING_PATTERNS = ("requirements*.txt",)
 WINDOWS_SCRIPT_PREFIXES = ("installer/",)
 WINDOWS_SCRIPT_FILES = frozenset({"check_setup.py", "tools/windows_script_checks.py",
                                   "services/library_restore_service.py", "services/library_restore_sql.py",
-                                  "db/library_folder.py"})
+                                  "db/library_folder.py", "tests/test_windows_real.py", "process_guard.py",
+                                  "lib/proc_kill.py", "lib/file_lock.py"})
 WINDOWS_SCRIPT_PATTERNS = ("*.bat", "*.ps1")
 # The `caddy` job builds the bundled Caddy and serves the rendered household Caddyfile, so it needs
 # whatever changes that file, how it is rendered, or the Caddy build.

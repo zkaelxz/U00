@@ -140,6 +140,8 @@ workflow step each:
   copy is removed as a link and what it points to survives. Restore copies with no library folder are never deleted, and a `!` in the
   folder path works.
 
+The job's last step runs `tests/test_windows_real.py`: Setup's real named mutexes, a real job object ended by name, and the real process-identity and file-lock calls, which the rest of the suite fakes.
+
 Needs the network only for the pip install that `windows-bootstrap.yml` already does. Not covered, still for a person on a real PC:
 a real GPU or driver, winget actually installing Git, Python, ffmpeg or Node.js (the `y` path of `setup.bat`), the desktop window and
 shortcut icon from `make_shortcut.bat` / `start.bat` without `--ci`, `uninstall_path_cleanup.ps1` (the PATH editing is not run),
