@@ -36,6 +36,7 @@ No FastAPI import.
 """
 import contextvars
 import importlib.util
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -260,7 +261,7 @@ def load_translation_guide(drama: dict) -> tuple:
 
 
 def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, context: str,
-               drama_id: int, notes: list, character_notes: str = ""):
+               drama_id: int, notes: list, character_notes: str = "", chapter_brief: str = ""):
     """Translates the eligible regions in place. Each region is sent under
     an explicit key and its answer is applied through a key -> region map
     built here, never by the position of the answer. Returns (ok, context):
@@ -280,7 +281,8 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     try:
         result, new_context = scanlate_translate.translate_regions_by_id(
             keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
-            glossary_terms=glossary, character_notes=character_notes)
+            glossary_terms=glossary, character_notes=character_notes,
+            chapter_brief=chapter_brief)
     except (HeadroomError, LLMTaskTimeout, TranslateRunStopped):
         # The Ollama check refuses on every page, and a timed-out request is
         # still running and would refuse the next page's call: stop the job once.
@@ -449,7 +451,7 @@ def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
                   detect_kwargs: dict, guide: tuple, jid: str, detected=None,
-                  previous_id: int | None = None) -> str:
+                  previous_id: int | None = None, chapter_brief: str = "") -> str:
     """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
     old regions stay), "done" or "translated". `detected` is the page's
     _detect_stage result when the run already started it (a Future), else it
@@ -471,7 +473,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if bubbles and not _ocr_lost_text(existing, detect_notes):
         translated_ok, new_context = _translate(
             bubbles, engine, engine_name, drama, guide[0],
-            _translation_context(drama_id, page_id), drama_id, notes, guide[1])
+            _translation_context(drama_id, page_id), drama_id, notes, guide[1], chapter_brief)
     ai_seconds = time.monotonic() - ai_started
     if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
         notes.append(("warning", "Redo did not produce a complete result for this page (no "
@@ -520,6 +522,70 @@ def _failure_note(exc: Exception) -> str:
     return f"This page failed: {type(exc).__name__}: {engine_shared.redact_secrets(str(exc))}"
 
 
+def _page_texts_when_read(drama_id: int, page_ids: list, ahead: dict, jid: str) -> list:
+    """The OCR text of each page, in order, as the page's detect futures finish.
+    A page whose detection failed or was skipped as already done contributes
+    what is stored for it. Checks for a cancel while it waits."""
+    from concurrent.futures import wait
+    texts = []
+    for pid in page_ids:
+        future = ahead[pid]
+        while not future.done():
+            render_svc.check_cancel(jid)
+            wait([future], timeout=1)
+        result = None if future.exception() else future.result()
+        regions = result[3] if isinstance(result, tuple) else db.load_bubbles(pid)
+        texts.append(" ".join((b.get("source_text") or "").strip() for b in regions
+                              if not b.get("skip") and (b.get("source_text") or "").strip()))
+    return texts
+
+
+def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: dict,
+                   start_detect, engine, engine_name: str) -> str:
+    """Reads the whole run's pages first, then returns one brief of the chapter
+    for every page's translation call to carry. The brief is cached beside the
+    title under a hash of the pages' text, so running the same chapter again
+    costs no call. Never stops the run: any failure but a cancel, a memory
+    refusal or a timeout (which end the run for every page anyway) gives ""."""
+    import hashlib
+    import scanlate_translate
+    from engine_backends.run_limits import TranslateRunStopped
+    background_jobs.update_progress(jid, 0.0, "Reading the whole chapter first")
+    previous = None
+    for pid in page_ids:
+        # setdefault would call start_detect even for the page already started,
+        # detecting the first page twice.
+        if pid not in ahead:
+            ahead[pid] = start_detect(pid, previous)
+        previous = ahead[pid]
+    texts = _page_texts_when_read(drama_id, page_ids, ahead, jid)
+    key = hashlib.sha1(chr(10).join(texts).encode("utf-8")).hexdigest()[:16]
+    cache = os.path.join(db.drama_dir(drama_id), f"chapter_brief_{key}.txt")
+    try:
+        with open(cache, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        pass
+    try:
+        brief = scanlate_translate.build_chapter_brief(
+            texts, engine, drama, paid_calls.usage_logger(drama_id, engine_name, engine,
+                                                          "scanlate_translate"))
+    except TranslationCancelled:
+        raise background_jobs.JobCancelled(jid)
+    except TranslateRunStopped:
+        return ""
+    except (HeadroomError, LLMTaskTimeout, background_jobs.JobCancelled):
+        raise
+    except Exception as exc:
+        from applog import get_logger
+        get_logger().warning("Chapter brief failed: %s", engine_shared.redact_secrets(str(exc)))
+        return ""
+    if brief:
+        with open(cache, "w", encoding="utf-8") as fh:
+            fh.write(brief)
+    return brief
+
+
 def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
              detect_backend: str, art_captions: bool = False):
     import scanlate_detect
@@ -557,6 +623,9 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
             return detector.submit(contextvars.copy_context().run, run)
         ahead = {page_ids[0]: start_detect(page_ids[0])} if page_ids else {}
         saved_before = None          # the page before this one, if this run translated it
+        brief = (_chapter_brief(jid, drama_id, drama, page_ids, ahead, start_detect, engine,
+                                engine_name)
+                 if total > 1 and settings_service.get("scanlate_chapter_brief") else "")
         for n, pid in enumerate(page_ids, start=1):
             render_svc.check_cancel(jid)
             if n < total and page_ids[n] not in ahead:
@@ -566,7 +635,8 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
             try:
                 outcome = _process_page(drama_id, drama, pid, mode, engine, engine_name,
                                         detect_kwargs, guide, jid,
-                                        detected=ahead.pop(pid, None), previous_id=previous_id)
+                                        detected=ahead.pop(pid, None), previous_id=previous_id,
+                                        chapter_brief=brief)
                 counts[outcome] += 1
                 if outcome == "translated":
                     saved_before = pid

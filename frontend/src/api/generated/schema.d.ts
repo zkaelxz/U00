@@ -4077,6 +4077,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/glossary/dramas/{drama_id}/name-fixes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sound-alike spellings of glossary names that could be fixed (read-only, offline) */
+        get: operations["get_name_fixes_api_glossary_dramas__drama_id__name_fixes_get"];
+        put?: never;
+        /** Confirm spellings: save them as aliases and rewrite the title's source lines */
+        post: operations["apply_name_fixes_api_glossary_dramas__drama_id__name_fixes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/glossary/dramas/{drama_id}/spelling-suggestions": {
         parameters: {
             query?: never;
@@ -10439,6 +10457,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/transcribe/dramas/{drama_id}/compare-transcription/flag-disagreements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Flag lines the finished comparison heard differently from the saved text */
+        post: operations["post_compare_flag_disagreements_api_transcribe_dramas__drama_id__compare_transcription_flag_disagreements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transcribe/dramas/{drama_id}/compare-transcription/options": {
         parameters: {
             query?: never;
@@ -15148,6 +15183,20 @@ export interface components {
              * @default false
              */
             translate?: boolean;
+        };
+        /** CompareFlagRequest */
+        CompareFlagRequest: {
+            /** Job Id */
+            job_id: string;
+        };
+        /** CompareFlagResult */
+        CompareFlagResult: {
+            /** Cleared Count */
+            cleared_count: number;
+            /** Compared Count */
+            compared_count: number;
+            /** Flagged Count */
+            flagged_count: number;
         };
         /** CompareOptions */
         CompareOptions: {
@@ -21099,6 +21148,59 @@ export interface components {
             /** Source */
             source: string;
         };
+        /** NameFixCandidate */
+        NameFixCandidate: {
+            /** Count */
+            count: number;
+            /** Examples */
+            examples: components["schemas"]["GlossaryVariantExample"][];
+            /** Score */
+            score: number;
+            /** Spelling */
+            spelling: string;
+            /** Term */
+            term: string;
+            /** Term Id */
+            term_id: number;
+        };
+        /** NameFixItem */
+        NameFixItem: {
+            /** Spelling */
+            spelling: string;
+            /** Term Id */
+            term_id: number;
+        };
+        /** NameFixPreview */
+        NameFixPreview: {
+            /** Available */
+            available: boolean;
+            /** Fixes */
+            fixes: components["schemas"]["NameFixCandidate"][];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** NameFixRequest */
+        NameFixRequest: {
+            /** Fixes */
+            fixes: components["schemas"]["NameFixItem"][];
+        };
+        /** NameFixResult */
+        NameFixResult: {
+            /**
+             * Aliases Added
+             * @default 0
+             */
+            aliases_added: number;
+            /** Lines Changed */
+            lines_changed: number;
+            /** Replacements */
+            replacements: number;
+        };
         /** NameReport */
         NameReport: {
             counts: components["schemas"]["NameReportCounts"];
@@ -25290,6 +25392,11 @@ export interface components {
              * @default 3
              */
             retime_window_pad_seconds: number;
+            /**
+             * Scanlate Chapter Brief
+             * @default true
+             */
+            scanlate_chapter_brief: boolean;
             /** Scene Aware Batches */
             scene_aware_batches: boolean;
             /**
@@ -25556,6 +25663,8 @@ export interface components {
             repeat_loop_min_repeats?: number | null;
             /** Retime Window Pad Seconds */
             retime_window_pad_seconds?: number | null;
+            /** Scanlate Chapter Brief */
+            scanlate_chapter_brief?: boolean | null;
             /** Scene Aware Batches */
             scene_aware_batches?: boolean | null;
             /** Scene Break Gap Seconds */
@@ -40870,6 +40979,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NameConsistency"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_name_fixes_api_glossary_dramas__drama_id__name_fixes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NameFixPreview"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_name_fixes_api_glossary_dramas__drama_id__name_fixes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NameFixRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NameFixResult"];
                 };
             };
             /** @description Not Found */
@@ -60331,6 +60524,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompareEstimate"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_compare_flag_disagreements_api_transcribe_dramas__drama_id__compare_transcription_flag_disagreements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompareFlagRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompareFlagResult"];
                 };
             };
             /** @description Bad Request */
