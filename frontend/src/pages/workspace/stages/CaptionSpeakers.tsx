@@ -12,6 +12,7 @@ import { usePersistedState } from '../../../hooks/usePersistedState'
 import type { HardSubApplyResult, HardSubReadingEstimate } from '../../../types/benchmark'
 import type { TranslateEngine } from '../../../types/translate'
 import { formatCost } from '../../benchmark/benchmarkForm'
+import { HardSubSpeakerActions } from '../../benchmark/HardSubSpeakerActions'
 import { useStage } from '../StageContext'
 import { canStartReading, captionEngine, READING_POLL_MS, readyVisionEngines } from './captionSpeakersModel'
 
@@ -25,6 +26,7 @@ export function CaptionSpeakers({ hasVideo, hasLines, busy }: { hasVideo: boolea
   const [running, setRunning] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [applied, setApplied] = useState<HardSubApplyResult | null>(null)
+  const [groupKeys, setGroupKeys] = useState<string[]>([])
   const [error, setError] = useState<unknown>(null)
   const alive = useRef(true)
 
@@ -70,6 +72,7 @@ export function CaptionSpeakers({ hasVideo, hasLines, busy }: { hasVideo: boolea
       if (r.result.stopped) throw new Error(r.result.note || `The reading stopped (${r.result.stopped}).`)
       const done = await applyHardSubReading(dramaId)
       if (!alive.current) return
+      setGroupKeys(r.result.groups.map((g) => g.key))
       setApplied(done)
       refetchDrama()
     })
@@ -78,6 +81,7 @@ export function CaptionSpeakers({ hasVideo, hasLines, busy }: { hasVideo: boolea
     setRunning(true)
     setError(null)
     setApplied(null)
+    setGroupKeys([])
     startHardSubReading(dramaId, { engine })
       .then(() => poll())
       .catch((e: unknown) => alive.current && setError(e instanceof ApiError || e instanceof Error ? e : new Error('Reading failed.')))
@@ -110,6 +114,7 @@ export function CaptionSpeakers({ hasVideo, hasLines, busy }: { hasVideo: boolea
       {estimate && <p className="muted">{formatCost(estimate.estimated_usd)} at most</p>}
       {running && <p role="status">{message || 'Reading…'}</p>}
       {applied && <p role="status">{applied.labelled} lines labelled, {applied.unplaced} left as they were.</p>}
+      {applied && groupKeys.length > 0 && <HardSubSpeakerActions dramaId={dramaId} groupKeys={groupKeys} onChanged={refetchDrama} />}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </Section>
   )

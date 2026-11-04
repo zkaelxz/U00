@@ -26,6 +26,8 @@ import type {
   BuildSetResult,
   CaseEdit,
   HardSubApplyResult,
+  HardSubCaptionAcceptResult,
+  HardSubCaptionSuggestion,
   HardSubReadingEstimate,
   HardSubReadingResult,
   ClipImportResult,
@@ -124,8 +126,20 @@ export const startHardSubReading = (dramaId: number, body: { engine: string; mod
     `${BASE}/dramas/${dramaId}/hard-sub-reading`, { ...body, confirm: true }, pcOnlyFetch(f))
 
 // Puts the finished reading's speaker groups on the title's lines. PC only.
-export const applyHardSubReading = (dramaId: number, f?: Fetch) =>
-  postJson<HardSubApplyResult>(`${BASE}/dramas/${dramaId}/hard-sub-reading/apply`, {}, pcOnlyFetch(f))
+// `names` maps a colour group to the person it stands for ({"yellow-right": "Mei"}); the title's series
+// remembers them for its next videos, and a blank name forgets a colour.
+export const applyHardSubReading = (dramaId: number, names?: Record<string, string>, f?: Fetch) =>
+  postJson<HardSubApplyResult>(
+    `${BASE}/dramas/${dramaId}/hard-sub-reading/apply`, names && Object.keys(names).length ? { names } : {}, pcOnlyFetch(f))
+
+// Lines whose burned-in caption is close to the transcript but not the same. PC only.
+export const getHardSubCaptions = (dramaId: number, f?: Fetch) =>
+  getJson<{ suggestions: HardSubCaptionSuggestion[] }>(`${BASE}/dramas/${dramaId}/hard-sub-reading/captions`, f)
+
+// Writes the caption into each chosen line; a line edited since it was offered is skipped. PC only.
+export const acceptHardSubCaptions = (dramaId: number, lineIds: number[], f?: Fetch) =>
+  postJson<HardSubCaptionAcceptResult>(
+    `${BASE}/dramas/${dramaId}/hard-sub-reading/captions/accept`, { line_ids: lineIds }, pcOnlyFetch(f))
 
 // Reads pasted text only; nothing is downloaded.
 export const importGoldenSet = (body: BenchmarkImportRequest, f?: Fetch) =>

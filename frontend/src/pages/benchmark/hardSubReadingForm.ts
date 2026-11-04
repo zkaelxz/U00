@@ -37,3 +37,21 @@ export function clock(seconds: number): string {
   const s = Math.max(0, Math.round(seconds))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
+
+/** The names to send with "put speakers on lines": only the colour groups with something typed or a
+ * remembered name being cleared are sent, trimmed; an untouched box sends nothing. */
+export function namesToSend(typed: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(typed)) if (value !== undefined) out[key] = value.trim()
+  return out
+}
+
+/** "3 lines labelled, 1 kept (set by hand), 2 not placed." */
+export function describeApply(r: { labelled: number; kept_manual: number; unplaced: number }): string {
+  return `${r.labelled} lines labelled, ${r.kept_manual} kept (set by hand), ${r.unplaced} not placed.`
+}
+
+/** "2 lines changed, 1 skipped (edited since)." */
+export function describeAccept(r: { changed: number; skipped: number }): string {
+  return `${r.changed} lines changed${r.skipped ? `, ${r.skipped} skipped (edited since)` : ''}.`
+}
