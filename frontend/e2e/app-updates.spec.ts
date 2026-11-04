@@ -122,7 +122,8 @@ test('under the background service the app-only path says to use the full instal
   const c = card(page)
   await c.getByRole('button', { name: 'Check for updates' }).click()
   await expect(c.getByTestId('update-app-line')).toHaveText(
-    'Baihe runs as the background service here, so this update needs the full installer.',
+    'Baihe runs as the background service here and has no app-update helper yet, so this update needs the full installer. ' +
+      'Running the full installer once adds the helper; app updates can then be applied here.',
   )
   await expect(c.getByRole('button', { name: 'Download app update', exact: true })).toHaveCount(0)
   await expect(c.getByRole('button', { name: /Update app only/ })).toHaveCount(0)

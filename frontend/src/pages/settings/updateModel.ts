@@ -12,6 +12,9 @@ export const HASH_NOTE =
 export const INSTALL_NOTE =
   'Opens Setup. Baihe keeps running until you click Install there. Then Setup stops Baihe (running jobs are cancelled), updates it and can restart it. Cancelling Setup changes nothing.'
 export const PRERELEASES_HELP = 'Also offers beta versions. Only a version newer than this one is ever offered.'
+export const SERVICE_AUTO_APPLY_HELP =
+  'After a check finds an app update, downloads it, checks its signature and switches the background service to it when no job is running. ' +
+  'If the new version doesn’t start, the service goes back to this one. Needs the daily check to be on.'
 export const AUTO_CHECK_HELP = 'Looks for a newer version once a day. It never downloads or installs on its own.'
 export const NO_INSTALLER_RELEASE_LINE = 'No installer release has been published yet.'
 export const NO_RELEASE_LINE =
@@ -65,7 +68,8 @@ export const APP_APPLY_NOTE =
 export const APP_FULL_INSTALLER_LINE =
   'This update changes the bundled Python or its packages, so it needs the full installer.'
 export const APP_BOOT_SERVICE_LINE =
-  'Baihe runs as the background service here, so this update needs the full installer.'
+  'Baihe runs as the background service here and has no app-update helper yet, so this update needs the full installer. ' +
+  'Running the full installer once adds the helper; app updates can then be applied here.'
 export const APP_RESTARTING_LINE =
   'Updating the app: Baihe stops and starts again. Reload this page in a minute.'
 

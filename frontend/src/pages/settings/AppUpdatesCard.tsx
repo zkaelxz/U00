@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   applyAppUpdate, checkForUpdates, downloadAppUpdate, downloadUpdate, fetchPhoneApp, getUpdateStatus, installUpdate, setUpdateAutoCheck,
   setUpdatePrereleases,
+  setUpdateServiceAutoApply,
 } from '../../api/update'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -24,7 +25,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
-  APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, PRERELEASES_HELP, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
+  APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, PRERELEASES_HELP, SERVICE_AUTO_APPLY_HELP, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
   PHONE_APP_NOTE, appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
   downloadLine, installTarget, isDownloading, phoneAppLine, signatureLine, versionLine,
 } from './updateModel'
@@ -202,6 +203,12 @@ function AppUpdatesControls() {
               <Toggle checked={status.auto_check} disabled={busy}
                 onChange={(next) => run(() => setUpdateAutoCheck(next))} />
             </Field>
+            {status.app_update_by_service && (
+              <Field label="Install app updates automatically" help={SERVICE_AUTO_APPLY_HELP}>
+                <Toggle checked={status.app_auto_apply} disabled={busy}
+                  onChange={(next) => run(() => setUpdateServiceAutoApply(next))} />
+              </Field>
+            )}
             <Field label="Include pre-releases" help={PRERELEASES_HELP}>
               <Toggle checked={status.include_prereleases} disabled={busy}
                 onChange={(next) => run(() => setUpdatePrereleases(next))} />
