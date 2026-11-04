@@ -18,7 +18,7 @@ from typing import List
 from fastapi import APIRouter, Path, Request
 
 from api.auth import local_only, require_permission
-from api.schemas import (GlossaryTerm, GlossaryTermUpsert, SharedGlossaryCreateRequest,
+from api.schemas import (SharedGlossaryTerm, SharedGlossaryTermWrite, SharedGlossaryCreateRequest,
                          SharedGlossaryDeleteResult, SharedGlossaryGroup, SharedGlossaryGroupList,
                          SharedGlossaryTermDeleteResult, error_responses)
 from services import shared_glossary_service as svc
@@ -50,15 +50,15 @@ def delete_group(request: Request, group_id: int = Path(ge=1, le=_MAX_ID)):
 
 
 @router.get("/{group_id}/terms", dependencies=[require_permission("library.read")],
-            response_model=List[GlossaryTerm], responses=_ERRS, summary="A group's terms")
+            response_model=List[SharedGlossaryTerm], responses=_ERRS, summary="A group's terms")
 def list_terms(request: Request, group_id: int = Path(ge=1, le=_MAX_ID)):
     return svc.list_terms(request.state.principal, group_id)
 
 
 @router.post("/{group_id}/terms", dependencies=[require_permission("lines.edit")],
-             response_model=GlossaryTerm, responses=_ERRS,
+             response_model=SharedGlossaryTerm, responses=_ERRS,
              summary="Create or update a group term (update when id is given)")
-def save_term(body: GlossaryTermUpsert, request: Request, group_id: int = Path(ge=1, le=_MAX_ID)):
+def save_term(body: SharedGlossaryTermWrite, request: Request, group_id: int = Path(ge=1, le=_MAX_ID)):
     return svc.save_term(request.state.principal, group_id, body.model_dump(exclude_unset=True))
 
 

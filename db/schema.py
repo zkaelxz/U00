@@ -211,6 +211,26 @@ def _create_series_tables(conn):
             UNIQUE(series_id, term_original)
         );
 
+        -- One undo for a speaker merge, kept here so the browser never holds
+        -- the Characters rows (reference-clip names, transcripts). Single-use
+        -- and short-lived; scoped to the drama and the user who merged.
+        CREATE TABLE IF NOT EXISTS speaker_merge_undos (
+            id TEXT PRIMARY KEY,
+            drama_id INTEGER NOT NULL,
+            user_id INTEGER,
+            source_label TEXT NOT NULL,
+            target_label TEXT NOT NULL,
+            snapshot TEXT NOT NULL,
+            stale INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+    """)
+
+
+def _create_shared_glossary_tables(conn):
+    conn.executescript("""
         -- A named glossary several series share (e.g. one creator's slang and
         -- ASR mishearings). A series joins at most one, through
         -- series.shared_group_id; its own terms win on the same source term.
@@ -235,22 +255,6 @@ def _create_series_tables(conn):
             banned_translations TEXT,
             FOREIGN KEY (group_id) REFERENCES shared_glossary_groups(id) ON DELETE CASCADE,
             UNIQUE(group_id, term_original)
-        );
-
-        -- One undo for a speaker merge, kept here so the browser never holds
-        -- the Characters rows (reference-clip names, transcripts). Single-use
-        -- and short-lived; scoped to the drama and the user who merged.
-        CREATE TABLE IF NOT EXISTS speaker_merge_undos (
-            id TEXT PRIMARY KEY,
-            drama_id INTEGER NOT NULL,
-            user_id INTEGER,
-            source_label TEXT NOT NULL,
-            target_label TEXT NOT NULL,
-            snapshot TEXT NOT NULL,
-            stale INTEGER NOT NULL DEFAULT 0,
-            created_at REAL NOT NULL,
-            expires_at REAL NOT NULL,
-            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
     """)
 

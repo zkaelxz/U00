@@ -306,6 +306,7 @@ def init_db():
         # ones create (the ownership step needs users and app_settings).
         _create_library_tables(conn)
         _create_series_tables(conn)
+        _create_shared_glossary_tables(conn)
         _create_line_annotation_tables(conn)
         _create_bulk_job_tables(conn)
         _create_reading_tables(conn)
@@ -349,7 +350,7 @@ from db.schema import (  # noqa: E402,F401
     _create_library_tool_tables, _create_line_annotation_tables,
     _create_metadata_research_tables, _create_reading_tables, _create_review_tables,
     ensure_legacy_bug_reports,
-    _create_series_tables)
+    _create_series_tables, _create_shared_glossary_tables)
 
 from db.schema_system import (  # noqa: E402,F401
     _create_auth_tables, _create_job_tables, _init_benchmark_lab_schema)

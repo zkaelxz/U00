@@ -5,11 +5,36 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from api.schemas.characters import GlossaryTerm
-
-__all__ = ["SharedGlossaryGroup", "SharedGlossaryGroupList", "SharedGlossaryCreateRequest",
+__all__ = ["SharedGlossaryTerm", "SharedGlossaryTermWrite", "SharedGlossaryGroup", "SharedGlossaryGroupList", "SharedGlossaryCreateRequest",
            "SharedGlossaryDeleteResult", "SharedGlossaryTermDeleteResult",
            "EffectiveGlossaryTerm", "SeriesSharedGlossary", "SeriesSharedGlossaryRequest"]
+
+
+class SharedGlossaryTerm(BaseModel):
+    id: int
+    term_original: str
+    term_translation: str
+    notes: str = ""
+    category: Optional[str] = None
+    policy: Optional[str] = None
+    enforce_exact: bool = False
+    aliases: List[str] = Field(default_factory=list)
+    banned_translations: List[str] = Field(default_factory=list)
+
+
+class SharedGlossaryTermWrite(BaseModel):
+    """With `id` the term is updated in place (omitted fields keep their stored
+    value); without it the term is keyed on term_original."""
+    model_config = ConfigDict(extra="forbid")
+    id: Optional[int] = None
+    term_original: Optional[str] = None
+    term_translation: Optional[str] = None
+    notes: Optional[str] = None
+    category: Optional[str] = None
+    policy: Optional[str] = None
+    enforce_exact: Optional[bool] = None
+    aliases: Optional[List[str]] = None
+    banned_translations: Optional[List[str]] = None
 
 
 class SharedGlossaryGroup(BaseModel):
@@ -39,7 +64,7 @@ class SharedGlossaryTermDeleteResult(BaseModel):
     deleted: bool
 
 
-class EffectiveGlossaryTerm(GlossaryTerm):
+class EffectiveGlossaryTerm(SharedGlossaryTerm):
     origin: Literal["series", "shared"]
     origin_name: Optional[str] = Field(None, description="The group's name when origin is shared.")
 

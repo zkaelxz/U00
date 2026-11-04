@@ -26050,10 +26050,62 @@ export interface components {
             /** Items */
             items: components["schemas"]["SharedGlossaryGroup"][];
         };
+        /** SharedGlossaryTerm */
+        SharedGlossaryTerm: {
+            /** Aliases */
+            aliases: string[];
+            /** Banned Translations */
+            banned_translations: string[];
+            /** Category */
+            category: string | null;
+            /**
+             * Enforce Exact
+             * @default false
+             */
+            enforce_exact: boolean;
+            /** Id */
+            id: number;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /** Policy */
+            policy: string | null;
+            /** Term Original */
+            term_original: string;
+            /** Term Translation */
+            term_translation: string;
+        };
         /** SharedGlossaryTermDeleteResult */
         SharedGlossaryTermDeleteResult: {
             /** Deleted */
             deleted: boolean;
+        };
+        /**
+         * SharedGlossaryTermWrite
+         * @description With `id` the term is updated in place (omitted fields keep their stored
+         *     value); without it the term is keyed on term_original.
+         */
+        SharedGlossaryTermWrite: {
+            /** Aliases */
+            aliases?: string[] | null;
+            /** Banned Translations */
+            banned_translations?: string[] | null;
+            /** Category */
+            category?: string | null;
+            /** Enforce Exact */
+            enforce_exact?: boolean | null;
+            /** Id */
+            id?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** Policy */
+            policy?: string | null;
+            /** Term Original */
+            term_original?: string | null;
+            /** Term Translation */
+            term_translation?: string | null;
         };
         /** SharingItem */
         SharingItem: {
@@ -56647,7 +56699,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GlossaryTerm"][];
+                    "application/json": components["schemas"]["SharedGlossaryTerm"][];
                 };
             };
             /** @description Forbidden */
@@ -56699,7 +56751,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["GlossaryTermUpsert"];
+                "application/json": components["schemas"]["SharedGlossaryTermWrite"];
             };
         };
         responses: {
@@ -56709,7 +56761,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GlossaryTerm"];
+                    "application/json": components["schemas"]["SharedGlossaryTerm"];
                 };
             };
             /** @description Forbidden */
