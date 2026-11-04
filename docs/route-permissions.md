@@ -73,6 +73,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/benchmark/dramas/{drama_id}/hard-sub-reading` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading/apply` | local_only() |
+| `GET /api/benchmark/dramas/{drama_id}/hard-sub-reading/captions` | local_only() |
+| `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading/captions/accept` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/hard-sub-reading/estimate` | local_only() |
 | `POST /api/benchmark/dramas/{drama_id}/lines/{line_id}/regression` | local_only() |
 | `POST /api/benchmark/estimate` | admin.diagnostics |
