@@ -490,6 +490,11 @@ jobs:
       - name: uninstall.bat prompts, library rule and leftovers
         run: python tools/windows_script_checks.py uninstall
 
+      - name: Windows primitives (mutexes, job objects, process handles) for real
+        run: |
+          pip install -r requirements-core.txt pytest httpx -c constraints.txt
+          python -m pytest -q -o addopts= tests/test_windows_real.py
+
   # The React frontend: typecheck + production build, unit tests and lint.
   # The browser (Playwright) tests run in the separate four-shard `e2e` job
   # below, so this job no longer waits on them.
