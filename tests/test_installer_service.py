@@ -98,13 +98,14 @@ class FakeWindows:
         if verb == "config":
             key, value = cmd[3], cmd[4]
             if key == "start=":
-                svc["start"] = {"auto": "AUTO_START", "disabled": "DISABLED"}[value]
+                svc["start"] = {"auto": "AUTO_START", "disabled": "DISABLED",
+                                "demand": "DEMAND_START"}[value]
             elif key == "depend=":
                 svc["depend"] = value
             elif key == "obj=":
                 svc["account"] = value
             return self._result(cmd)
-        if verb in ("sidtype", "privs", "failure", "failureflag"):
+        if verb in ("sidtype", "privs", "failure", "failureflag", "sdset"):
             svc[verb] = cmd[3:]
             return self._result(cmd)
         raise AssertionError(f"unexpected sc command {cmd}")
@@ -129,7 +130,9 @@ def source(tmp_path):
     """Setup's extraction: {app}\\service."""
     src = tmp_path / "setup-service"
     for rel, text in (("helper/python/python.exe", "py"), ("helper/lib/installer/service.py", "new"),
-                      ("wrapper/BaiheStudio.exe", "winsw"), ("caddy/BaiheCaddy.exe", "winsw"),
+                      ("helper/lib/installer/release_public_key.txt", "# key"),
+                      ("wrapper/BaiheStudio.exe", "winsw"), ("wrapper/BaiheUpdate.exe", "winsw"),
+                      ("caddy/BaiheCaddy.exe", "winsw"),
                       ("caddy/caddy.exe", "caddy")):
         p = src / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -329,7 +332,7 @@ class TestInstall:
         assert layout.helper_script.read_text(encoding="utf-8") == "newer"
         assert win.services["BaiheStudio"]["state"] == "RUNNING"
         assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_ALLOW_KEY_WRITES"] == "1"
-        assert sum(1 for c in win.calls if c[1] == "create") == 2      # once each, not again
+        assert sum(1 for c in win.calls if c[1] == "create") == 3      # once each, not again
 
     def test_failure_on_a_fresh_install_leaves_nothing(self, layout, source):
         win = FakeWindows()
@@ -739,6 +742,44 @@ class TestCaddyInstalledOff:
         assert not layout.caddyfile.exists() and not layout.state_file.exists()
         assert layout.caddy_exe.read_text(encoding="utf-8") == "caddy"
         assert layout.template.is_file()
+
+    def test_the_update_helper_is_a_demand_start_system_service_only_the_app_can_start(self, layout, source):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        helper = win.services["BaiheUpdate"]
+        assert helper["start"] == "DEMAND_START" and helper["state"] == "STOPPED"
+        assert helper["account"] == "LocalSystem"       # it replaces files and stops the other service
+        assert "failure" not in helper                  # a one-shot: never restarted after exiting
+        sddl = helper["sdset"][0]
+        app_sid = service_control.service_sid("BaiheStudio")
+        # The app's account may query and start it (LC, RP, RC) and nothing else.
+        assert f"(A;;LCRPRC;;;{app_sid})" in sddl
+        assert sddl.count(app_sid) == 1
+        xml = ET.parse(layout.wrapper_xml("BaiheUpdate")).getroot()
+        assert xml.findtext("startmode") == "Manual"
+        assert xml.findtext("executable") == str(layout.helper_python)
+        assert xml.findtext("arguments").endswith("apply-app-update")
+        assert xml.findtext("arguments").startswith("-I -S ")
+
+    def test_the_update_helper_runs_only_from_the_admin_folder(self, layout, source):
+        _services(layout, FakeWindows(), source).install()
+        xml = ET.parse(layout.wrapper_xml("BaiheUpdate")).getroot()
+        admin = str(layout.admin)
+        assert xml.findtext("executable").startswith(admin)
+        assert str(layout.helper_script) in xml.findtext("arguments")
+        assert str(layout.root) not in ET.tostring(xml, encoding="unicode")
+
+    def test_an_install_without_the_release_key_is_refused(self, layout, source):
+        (source / "helper" / "lib" / "installer" / "release_public_key.txt").unlink()
+        with pytest.raises(service_layout.ServiceError, match="incomplete"):
+            _services(layout, FakeWindows(), source).install()
+
+    def test_uninstall_removes_the_update_helper_too(self, layout, source):
+        win = FakeWindows()
+        svcs = _services(layout, win, source)
+        svcs.install()
+        svcs.uninstall()
+        assert "BaiheUpdate" not in win.services
 
     def test_household_listener_stays_closed(self, layout, source):
         _services(layout, FakeWindows(), source).install()

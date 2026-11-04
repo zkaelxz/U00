@@ -95,7 +95,9 @@ RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py", "release_public_key.
 # as installer.<name> from helper/lib; one missing here breaks it only on
 # the user's machine.
 SERVICE_HELPER_FILES = ("service.py", "service_checks.py", "service_cli.py", "service_config.py",
-                        "service_control.py", "service_layout.py", "setup_lock.py")
+                        "service_control.py", "service_layout.py", "setup_lock.py",
+                        "service_update.py", "ed25519_verify.py", "app_swap.py",
+                        "release_public_key.txt")
 
 # The Windows service wrapper (docs/windows-installer-design.md, "Boot
 # service"): WinSW, MIT licence, the .NET Framework 4.6.1 build, which runs
@@ -646,6 +648,7 @@ def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses)
     _copy(INSTALLER_DIR / "service_menu.ps1",
           service / "helper" / "lib" / "installer" / "service_menu.ps1")
     _copy(winsw_exe, service / "wrapper" / "BaiheStudio.exe")
+    _copy(winsw_exe, service / "wrapper" / "BaiheUpdate.exe")
     _copy(CADDY_TEMPLATE, service / "helper" / "lib" / "deploy" / "caddy" / "Caddyfile.template")
     _copy(WINSW_LICENSE, service / "wrapper" / "licenses" / "WinSW-LICENSE.txt")
     _copy(winsw_exe, service / "caddy" / "BaiheCaddy.exe")

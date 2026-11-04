@@ -61,6 +61,11 @@ class UpdateStatus(BaseModel):
                             "(`available`: built against this install's Python, wheels and Caddy).")
     app_update_here: bool = Field(False, description="This server can switch its own app folder: "
                                                      "Windows, started by the Start-menu launcher.")
+    app_update_by_service: bool = Field(False, description="This server is the boot service and the "
+                                                           "BaiheUpdate helper that applies app "
+                                                           "updates for it is installed.")
+    app_auto_apply: bool = Field(False, description="The opt-in to download and apply app-only "
+                                                    "updates by themselves on the boot service.")
     app_size: Optional[int] = None
     app_download: Literal["idle", "downloading", "verified", "failed"] = "idle"
     app_downloaded_bytes: int = 0
@@ -77,11 +82,13 @@ class UpdateSettingsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     auto_check: Optional[StrictBool] = None
     include_prereleases: Optional[StrictBool] = None
+    service_auto_apply: Optional[StrictBool] = None
 
     @model_validator(mode="after")
     def _needs_a_field(self):
-        if self.auto_check is None and self.include_prereleases is None:
-            raise ValueError("Send auto_check or include_prereleases.")
+        if (self.auto_check is None and self.include_prereleases is None
+                and self.service_auto_apply is None):
+            raise ValueError("Send auto_check, include_prereleases or service_auto_apply.")
         return self
 
 

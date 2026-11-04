@@ -199,6 +199,11 @@ SETTINGS = (
     # Shown by the App updates card, which saves it through /api/system/update/settings.
     _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
          tab="preferences", section="App updates"),
+    # Shown by the App updates card (only on the boot service, once the BaiheUpdate helper is
+    # installed), which saves it through /api/system/update/settings.
+    _own("update.service_auto_apply", "bool", False,
+         label="Install app updates automatically on the boot service",
+         tab="preferences", section="App updates"),
     _own("household.share_by_default", "bool", False, label="Share new items with the household",
          tab="preferences", section="Sharing"),
     _own("web_search", "json", {}, custom=True, tab="preferences", section="Web search",

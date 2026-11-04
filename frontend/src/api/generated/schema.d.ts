@@ -10260,7 +10260,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Turn the once-a-day check or pre-release updates on or off */
+        /** Turn the once-a-day check, pre-release updates or automatic service updates on or off */
         post: operations["update_settings_api_system_update_settings_post"];
         delete?: never;
         options?: never;
@@ -28734,9 +28734,17 @@ export interface components {
             auto_check?: boolean | null;
             /** Include Prereleases */
             include_prereleases?: boolean | null;
+            /** Service Auto Apply */
+            service_auto_apply?: boolean | null;
         };
         /** UpdateStatus */
         UpdateStatus: {
+            /**
+             * App Auto Apply
+             * @description The opt-in to download and apply app-only updates by themselves on the boot service.
+             * @default false
+             */
+            app_auto_apply: boolean;
             /**
              * App Download
              * @default idle
@@ -28766,6 +28774,12 @@ export interface components {
              * @enum {string}
              */
             app_update: "none" | "available" | "needs_full_installer";
+            /**
+             * App Update By Service
+             * @description This server is the boot service and the BaiheUpdate helper that applies app updates for it is installed.
+             * @default false
+             */
+            app_update_by_service: boolean;
             /**
              * App Update Here
              * @description This server can switch its own app folder: Windows, started by the Start-menu launcher.

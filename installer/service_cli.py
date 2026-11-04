@@ -39,7 +39,7 @@ EXIT_NOT_ADMIN = 3
 # The owner's commands that change the service and that Setup doesn't run.
 # Setup runs install, stop and uninstall itself while it holds its mutex, so
 # those must not wait for it.
-SETUP_LOCKED_COMMANDS = ("set-port", "enable-remote", "disable-remote")
+SETUP_LOCKED_COMMANDS = ("set-port", "enable-remote", "disable-remote", "apply-app-update")
 
 
 def build_services(args) -> Services:
@@ -91,7 +91,9 @@ commands:
   stop                      stop both services
   install [--port N]        (Setup) create or refresh the service and start it; --port
                             only on a fresh install (an update keeps the stored port)
-  uninstall                 (the uninstaller) remove both services and the admin folder
+  uninstall                 (the uninstaller) remove all services and the admin folder
+  apply-app-update          (the BaiheUpdate service) check the signed app update the app
+                            asked for and switch to it; the app starts it, you don't need to
 """
 
 
@@ -116,6 +118,8 @@ def main(argv=None, services=None, admin=None, mutexes=None) -> int:
     enable.add_argument("--household-port", type=int, default=DEFAULT_HOUSEHOLD_PORT)
     sub.add_parser("disable-remote", help="turn household access off")
     sub.add_parser("status", help="show both services' state")
+    sub.add_parser("apply-app-update", help="(BaiheUpdate) switch to the signed app update the "
+                                            "app asked for")
     args = parser.parse_args(argv)
 
     if args.command != "status" and not (is_admin() if admin is None else admin):
