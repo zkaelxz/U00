@@ -5,60 +5,14 @@ import type { components } from '../api/generated/schema'
 type Schemas = components['schemas']
 
 import type { LibraryPreset, ProfileOptions } from './library'
-import type { TranslateEngine } from './translate'
 
-export interface TranslateRunConfig {
-  drama_id: number
-  translation_engine: string
-  // The engine the per-line AI helpers use when none is named (missing on an older server).
-  line_ai_engine?: string
-  // The owner's saved choice for this title; null/omitted = never chosen.
-  default_female_pronouns?: boolean | null
-  include_genre_notes?: boolean | null
-  translate_by_sentence?: boolean | null
+// The server types these two as free JSON; the Translate stage reads them as below.
+export type TranslateRunConfig = Omit<Schemas['TranslateRunConfig'], 'translate_start' | 'last_translate_errors'> & {
   // The form's starting values a profile left on this title ({} if none).
-  translate_start?: ProfileOptions & { style_preset?: string; engine_model?: string }
-  // Engines whose request can switch thinking (DeepSeek, Ollama), and the
-  // title's remembered "think harder" choice.
-  thinking_switch_engines?: string[]
-  title_thinking?: boolean
-  engines: TranslateEngine[]
-  // guidance: what the style asks the translator for (parity X04)
-  style_presets: { key: string; label: string; guidance?: string }[]
-  default_style_preset: string
-  locales: string[]
-  workflow_tiers: WorkflowTier[]
-  defaults: { context_window: number; context_window_ahead: number; batch_size: number }
-  // {engine: {model: default batch size}}; '' is the engine's own default model.
-  batch_size_defaults?: Record<string, Record<string, number>>
-  // Settings > Defaults for new dramas (optional: older servers omit them).
-  default_locale?: string
-  default_style_note?: string
-  project_instructions: string | null
-  series_instructions: string | null
-  line_count: number
-  untranslated_count: number
-  monthly_cap_usd: number
-  month_spend: number
-  cap_applies_by_engine: Record<string, boolean>
-  bulk_supported_engines: string[]
+  translate_start: ProfileOptions & { style_preset?: string; engine_model?: string }
   // X01: the last full run's failed batches (null when none or dismissed).
   // `lines` are 0-based line positions; `error` is already redacted.
-  last_translate_errors?: TranslateBatchError[] | null
-  // X24: whether the Ollama server answers. Probed only when the drama's
-  // saved engine is Ollama; null (or missing on older servers) = not checked.
-  // A boolean only: the server never sends the URL.
-  ollama_reachable?: boolean | null
-  // 1-based numbers of the last run's failed lines: still empty, and holding
-  // the earlier engine's English. Missing on an older server.
-  failed_untranslated_numbers?: number[]
-  failed_kept_earlier_numbers?: number[]
-  // False for a record from before line ids were kept: the notice shows, Retry does not.
-  failed_retryable?: boolean
-  // Lines flagged for a missing glossary name, and the Settings engine the
-  // one-click redo would use (null until one is picked).
-  glossary_flagged_count?: number
-  glossary_redo_engine?: string | null
+  last_translate_errors: TranslateBatchError[] | null
 }
 
 /** The Translate form's options for retrying the failed lines; the server picks the lines. */

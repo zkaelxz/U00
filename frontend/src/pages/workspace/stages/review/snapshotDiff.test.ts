@@ -5,7 +5,7 @@ import { PREVIEW_CAP, previewSnapshot, previewSummary } from './snapshotDiff'
 
 const cur = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 1, zh: `z${id}`, en: `e${id}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, ...over,
 })
 const snap = (id: number | null, over: Partial<HistorySnapshotLine> = {}): HistorySnapshotLine => ({
   id, idx: (id ?? 9) - 1, start: id, end: (id ?? 9) + 1, zh: `z${id}`, en: `e${id}`, speaker: null,

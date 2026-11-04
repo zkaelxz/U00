@@ -206,6 +206,21 @@ def test_repeated_fetch_failures_give_up(monkeypatch):
     assert board.snapshot()["state"] == "lost"
 
 
+def test_stopping_the_reader_ends_a_chat_still_marked_reading(monkeypatch):
+    worker, board, _ = _worker(FakeTranslator(), [], monkeypatch)
+    board.set_state("reading", live_chat.READING)
+    worker.stop()
+    assert board.snapshot()["state"] == "ended"
+    assert board.snapshot()["message"] == live_chat.SESSION_ENDED
+
+
+def test_stopping_keeps_a_reason_the_chat_already_gave(monkeypatch):
+    worker, board, _ = _worker(FakeTranslator(), [], monkeypatch)
+    board.set_state("lost", live_chat.LOST)
+    worker.stop()
+    assert board.snapshot()["state"] == "lost"
+
+
 def test_a_cancelled_session_stops_the_reader(monkeypatch):
     worker, board, _ = _worker(FakeTranslator(), [_reply([])] * 50, monkeypatch)
     monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda sid: True)

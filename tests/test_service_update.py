@@ -128,6 +128,8 @@ def env(tmp_path, key, monkeypatch):
     layout = service_layout.Layout(root, data, tmp_path / "Program Files" / "Baihe Studio Services")
     layout.public_key.parent.mkdir(parents=True)
     layout.public_key.write_text(release_signature.format_public_key(_raw_public(key)) + "\n")
+    layout.lock_marker.parent.mkdir(parents=True, exist_ok=True)
+    layout.lock_marker.write_text(service_layout._norm(layout.root))
     svc = FakeService()
     monkeypatch.setattr(su, "stop_service", svc.stop)
     monkeypatch.setattr(su, "start_service", svc.start)
@@ -158,8 +160,36 @@ def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, req
                                                        "name": name}))
 
 
-def _apply(layout, svc):
-    return su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None)
+_GOOD = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)(A;OICI;RC;;;OW)"
+
+
+def _good_sddl(path):
+    return _GOOD
+
+
+def _admin_owner(path):
+    return "S-1-5-32-544"
+
+
+class _Held:
+    """Records that the install folder was held open for the whole update."""
+    def __init__(self):
+        self.events = []
+
+    def __call__(self, path):
+        import contextlib
+
+        @contextlib.contextmanager
+        def held():
+            self.events.append(("open", path))
+            yield
+            self.events.append(("close", path))
+        return held()
+
+
+def _apply(layout, svc, owner=_admin_owner, sddl=_good_sddl):
+    return su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
+                           owner=owner, sddl=sddl)
 
 
 def _app_text(layout):
@@ -258,7 +288,8 @@ def test_a_new_version_that_does_not_answer_is_rolled_back_and_the_old_one_runs_
         return svc.running and (_app_text(layout) == "old" or svc.starts == 0)
 
     with pytest.raises(service_layout.ServiceError, match="previous version was put back"):
-        su.apply_update(layout, Log(), 8600, health=healthy_once_old_is_back, sleep=lambda s: None)
+        su.apply_update(layout, Log(), 8600, health=healthy_once_old_is_back, sleep=lambda s: None,
+                        owner=_admin_owner, sddl=_good_sddl)
     assert _app_text(layout) == "old" and svc.running
     assert json.loads((layout.root / "manifest.json").read_text())["app_version"] == OLD
     assert sw.read_result(layout.root)["code"] == "rolled_back_health"
@@ -368,3 +399,82 @@ def test_an_earlier_update_that_cannot_be_settled_blocks_a_new_one(env, key):
     _release(layout, key)
     with pytest.raises(service_layout.ServiceError, match="couldn't be settled"):
         _apply(layout, svc)
+
+
+def test_an_install_folder_nobody_locked_is_refused_before_anything_is_read(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+    layout.lock_marker.unlink()
+    with pytest.raises(service_layout.ServiceError, match="isn't locked to administrators"):
+        _apply(layout, svc)
+    assert _app_text(layout) == "old"
+
+
+def test_a_folder_the_user_owns_again_is_refused_even_with_the_marker(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+    with pytest.raises(service_layout.ServiceError, match="not owned by administrators"):
+        _apply(layout, svc, owner=lambda path: "S-1-5-21-1-2-3-1001")
+    assert _app_text(layout) == "old"
+
+
+def test_a_marker_for_another_folder_does_not_count(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+    layout.lock_marker.write_text("c:\\somewhere else")
+    with pytest.raises(service_layout.ServiceError, match="isn't locked"):
+        _apply(layout, svc)
+
+
+def test_the_install_folder_is_held_open_for_the_whole_update(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+    held = _Held()
+    su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
+                    owner=_admin_owner, sddl=_good_sddl, hold=held)
+    assert held.events == [("open", layout.root), ("close", layout.root)]
+    assert _app_text(layout) == "new"
+
+
+def test_an_install_folder_that_cannot_be_held_stops_the_update(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+
+    def cannot(path):
+        raise service_layout.ServiceError("can't be held open")
+
+    with pytest.raises(service_layout.ServiceError, match="held open"):
+        su.apply_update(layout, Log(), 8600, health=svc.health, sleep=lambda s: None,
+                        owner=_admin_owner, sddl=_good_sddl, hold=cannot)
+    assert _app_text(layout) == "old"
+
+
+@pytest.mark.parametrize("sddl, why", [
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;S-1-5-21-1-2-3-1001)", "can write"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;AU)", "can write"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;BU)", "can write"),
+    ("O:BAD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", "inherits permissions"),
+    ("O:BAD:NO_ACCESS_CONTROL", "no permission list"),
+    ("O:BAD:PNO_ACCESS_CONTROL", "no permission list"),
+    ("O:BAD:P", "no permission list"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;CO)", "can write"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;WD;;;OW)", "can write"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;ZZ;;;BU)", "rights can't be read"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX", "can't be read"),
+    ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(AU;OICI;FA;;;BU)", "type that can't be checked"),
+    ("O:BAD:P(A;OICIIO;FA;;;SY)(A;OICI;FA;;;BA)(A;OICIIO;FA;;;BU)", "can write"),
+    (None, "can't be read"),
+])
+def test_an_explicit_entry_that_lets_someone_write_is_refused(env, key, sddl, why):
+    layout, svc, _ = env
+    _release(layout, key)
+    with pytest.raises(service_layout.ServiceError, match=why):
+        _apply(layout, svc, sddl=lambda path: sddl)
+    assert _app_text(layout) == "old"
+
+
+def test_deny_entries_and_read_only_entries_do_not_count_as_write_access():
+    from installer import service_lock
+    sddl = ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(D;OICI;FA;;;S-1-5-21-1-2-3-1001)"
+            "(A;OICI;FRFX;;;BU)(A;OICI;RC;;;OW)")
+    assert service_lock.write_access_problem(sddl, {"SY", "BA"}, protected=True) is None

@@ -32,50 +32,14 @@ export interface BenchmarkTranscribeOptions {
  * field left out takes what a title's Translate starts with (BenchmarkOptions.translate_choices). */
 export type BenchmarkTranslateOptions = Schemas['BenchmarkTranslateOptions']
 
-export interface BenchmarkTranslateChoices {
-  style_presets: { key: string; label: string }[]
-  series: { id: number; name: string }[]
-  /** Everything but the batch size, which follows the engine and model (batch_size_defaults). */
-  defaults: { context_window: number; context_window_ahead: number; batch_size: number; reflect: boolean; style_preset: string; memory_examples: boolean }
-  /** The engines that take a temperature. */
-  temperature_engines: string[]
-  /** {engine: {model or '' for the engine's default: lines per request}}. */
-  batch_size_defaults: Record<string, Record<string, number>>
-}
+export type BenchmarkTranslateChoices = Schemas['BenchmarkTranslateChoices']
 
 /** A run's line timing over the cases that have reference times; only `cases` (0) when none do. */
 export type BenchmarkTimingSummary = Schemas['BenchmarkTimingSummary']
 
 export type BenchmarkCaseTiming = Schemas['BenchmarkCaseTiming']
 
-interface BenchmarkBackendOption {
-  name: string
-  label: string
-  /** What it still needs on this PC (a package or a model to download); null when it can run. */
-  problem: string | null
-}
-
-export interface BenchmarkOptions {
-  stages: BenchmarkStage[]
-  tiers: BenchmarkTier[]
-  source_languages: SourceLanguage[]
-  translation_engines: BenchmarkEngineOption[]
-  whisper_sizes: string[]
-  // {model: {language: reason}} for models not recommended for a language.
-  whisper_exclusions: Record<string, Record<string, string>>
-  /** Recognisers besides Whisper (Qwen3-ASR, anime-whisper); they run only when already installed. */
-  transcription_backends: BenchmarkBackendOption[]
-  transcribe_defaults: Required<BenchmarkTranscribeOptions>
-  /** Per recogniser ("whisper" included), the options it does not read. */
-  transcribe_options_ignored: Record<string, string[]>
-  translate_choices: BenchmarkTranslateChoices
-  ocr_backends: string[]
-  /** Vision engines that can also read a picture in the OCR stage (paid ones need a key and count toward the cap). */
-  vision_engines: string[]
-  pass_threshold: number
-  chrf_pass_threshold: number
-  max_configs: number
-}
+export type BenchmarkOptions = Schemas['BenchmarkOptions']
 
 export type BenchmarkCase = Schemas['BenchmarkCase']
 
@@ -127,22 +91,11 @@ export type BenchmarkPickTotals = Schemas['BenchmarkPickTotals']
 
 export type BenchmarkResult = Schemas['BenchmarkResult']
 
-interface BenchmarkArenaRow {
-  case_id: number | null
-  label: string
-  source_text: string | null
-  reference_text: string | null
-  tier: string | null
-  results: (BenchmarkResult | null)[]
-}
-
 /** Cases an Arena comparison skipped, and why. */
 export type BenchmarkLeftOut = Schemas['BenchmarkLeftOut']
 
-export interface BenchmarkArena {
-  runs: BenchmarkRun[]
-  rows: BenchmarkArenaRow[]
-  /** Absent for a single run's results. */
+/** A single run's results are shown in the same shape without `left_out`, which only a comparison has. */
+export type BenchmarkArena = Omit<Schemas['BenchmarkArena'], 'left_out'> & {
   left_out?: BenchmarkLeftOut | null
 }
 

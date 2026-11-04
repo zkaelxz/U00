@@ -12,7 +12,11 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, Stri
 __all__ = [
     "BenchmarkTranscribeOptions",
     "BenchmarkTranslateOptions",
+    "BenchmarkSeriesChoice",
+    "BenchmarkStylePreset",
+    "BenchmarkTranscribeDefaults",
     "BenchmarkTranslateChoices",
+    "BenchmarkTranslateDefaults",
     "BenchmarkTimingSummary",
     "BenchmarkCaseTiming",
     "BenchmarkTimingVerdict",
@@ -428,10 +432,48 @@ class BenchmarkTranslateOptions(BaseModel):
     temperature: Optional[Union[StrictInt, StrictFloat]] = None
 
 
+class BenchmarkTranscribeDefaults(BaseModel):
+    """What a title with no saved options transcribes with: every field of
+    BenchmarkTranscribeOptions, always present (the options model is all-optional because
+    it is a request body)."""
+    beam_size: int
+    min_silence_ms: int
+    vad_threshold: float
+    sensitivity_preset: str
+    hallucination_silence_sec: float
+    whisper_repeat_guard: bool
+    difficult_audio: bool
+    separate_vocals_first: bool
+    initial_prompt: str
+    speech_pad_ms: int
+    refine_timing: bool
+    split_max_seconds: float
+    split_max_chars: int
+
+
+class BenchmarkStylePreset(BaseModel):
+    key: str
+    label: str
+
+
+class BenchmarkSeriesChoice(BaseModel):
+    id: int
+    name: str
+
+
+class BenchmarkTranslateDefaults(BaseModel):
+    context_window: int
+    context_window_ahead: int
+    batch_size: int
+    reflect: bool
+    style_preset: str
+    memory_examples: bool
+
+
 class BenchmarkTranslateChoices(BaseModel):
-    style_presets: List[Dict[str, str]]
-    series: List[Dict[str, Union[int, str]]]
-    defaults: Dict[str, Union[StrictBool, StrictInt, str]]
+    style_presets: List[BenchmarkStylePreset]
+    series: List[BenchmarkSeriesChoice]
+    defaults: BenchmarkTranslateDefaults
     batch_size_defaults: Dict[str, Dict[str, int]]
     temperature_engines: List[str]
 

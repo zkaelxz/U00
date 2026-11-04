@@ -7,7 +7,7 @@ import { LineRow, type RowActions } from './LineRow'
 
 const LINE: ReviewLine = {
   id: 7, idx: 6, start: 1, end: 3, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: 'timing_drift', flag_note: null, dub_filename: null, lang: null,
+  sfx: false, flag: 'timing_drift', flag_note: null, dub_filename: null, lang: null, reviewed: false,
 }
 
 const noop = () => {}

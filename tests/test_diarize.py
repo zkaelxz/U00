@@ -655,6 +655,7 @@ class TestFewSpeakersNotice:
 
     def test_worker_carries_the_hint_through_the_queue(self, monkeypatch):
         import numpy as np
+        pytest.importorskip("torch")   # diarize() imports it before the stubbed pipeline runs
         monkeypatch.setattr(diarize, "load_pipeline", lambda token: (object(), "m"))
         monkeypatch.setattr(diarize, "_place_pipeline", lambda p, g: "cpu")
         monkeypatch.setattr(diarize, "_run_pipeline",
