@@ -17,6 +17,9 @@ const engine = (name: string, key_configured = true): TranslateEngine => ({
   free: name === 'ollama',
   models: null,
   key_configured,
+  model_labels: {},
+  cloud_models: [],
+  package_installed: true,
 })
 const ALL = ['deepseek', 'claude', 'ollama'].map((n) => engine(n))
 
