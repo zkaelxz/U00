@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
-  applyAppUpdate, checkForUpdates, downloadAppUpdate, downloadUpdate, getUpdateStatus, installUpdate, setUpdateAutoCheck,
+  applyAppUpdate, checkForUpdates, downloadAppUpdate, downloadUpdate, fetchPhoneApp, getUpdateStatus, installUpdate, setUpdateAutoCheck,
   setUpdatePrereleases,
 } from '../../api/update'
 import { Card } from '../../components/Card'
@@ -25,8 +25,8 @@ import { usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
   APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, PRERELEASES_HELP, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
-  appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
-  downloadLine, installTarget, isDownloading, signatureLine, versionLine,
+  PHONE_APP_NOTE, appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
+  downloadLine, installTarget, isDownloading, phoneAppLine, signatureLine, versionLine,
 } from './updateModel'
 import { useInterval } from '../../hooks/useInterval'
 
@@ -53,6 +53,7 @@ function AppUpdatesControls() {
   const [busy, setBusy] = useState(false)
   const [launched, setLaunched] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
+  const [phoneLine, setPhoneLine] = useState<string | null>(null)
 
   const run = useCallback(async (action: () => Promise<UpdateStatus>) => {
     setBusy(true)
@@ -99,6 +100,19 @@ function AppUpdatesControls() {
     } catch (e) {
       setError(e)
       getUpdateStatus().then(setStatus, () => undefined)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function getPhoneApp() {
+    setBusy(true)
+    setError(null)
+    setPhoneLine(null)
+    try {
+      setPhoneLine(phoneAppLine(await fetchPhoneApp()))
+    } catch (e) {
+      setError(e)
     } finally {
       setBusy(false)
     }
@@ -175,6 +189,14 @@ function AppUpdatesControls() {
               <p className="muted">{HASH_NOTE}</p>
             </>
           )}
+          <div className="settings-actions">
+            <button type="button" className={buttonClass('secondary')} disabled={busy || downloading}
+              onClick={() => void getPhoneApp()}>
+              Get the newest phone app
+            </button>
+          </div>
+          {phoneLine && <p role="status" data-testid="update-phone-line">{phoneLine}</p>}
+          <p className="muted">{PHONE_APP_NOTE}</p>
           <div className="setting-list">
             <Field label="Check once a day" help={AUTO_CHECK_HELP}>
               <Toggle checked={status.auto_check} disabled={busy}
