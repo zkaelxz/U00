@@ -27,12 +27,14 @@ def _title():
 _emails = itertools.count()
 
 
-def _session(*permissions, keep=()):
+def _session(*permissions, keep=(), drop=()):
     user = auth_service.add_user(f"kid{next(_emails)}@example.com")
     # New users start with the household defaults; the 403 cases need them gone.
     for gone in ("library.read", "lines.read"):
         if gone not in keep:
             auth_service.revoke_permission(user["id"], gone)
+    for p in drop:
+        auth_service.revoke_permission(user["id"], p)
     for p in permissions:
         auth_service.grant_permission(user["id"], p)
     s = auth_service.create_session(user["id"], "pytest", "203.0.113.9")
@@ -93,7 +95,7 @@ def test_name_fixes_routes_need_read_to_preview_and_edit_to_apply(remote):
     term_id = db.list_glossary_terms(sid)[0]["id"]
     url = f"/api/glossary/dramas/{did}/name-fixes"
     body = {"fixes": [{"term_id": term_id, "spelling": "Yalou"}]}
-    reader = _session("lines.read")
+    reader = _session("lines.read", drop=("lines.edit",))
     assert remote.get(url).status_code == 401
     assert remote.get(url, headers=reader).status_code == 200
     assert remote.post(url, json=body, headers=reader).status_code == 403
