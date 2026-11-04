@@ -42,6 +42,7 @@ __all__ = [
     "LinesSetLangRequest",
     "LinesSetLangResult",
     "LinesKeepEnglishRequest",
+    "LinesEpisodeReviewedResult",
     "LinesKeepEnglishResult",
     "ReviewSourceChanged",
     "LinesAcceptTmRequest",
@@ -431,6 +432,14 @@ class LinesSetLangResult(BaseModel):
     updated: int = Field(description="Lines whose language changed.")
     line_ids: List[int]
     skipped_ids: List[int] = Field(description="Requested ids that are not lines of this drama.")
+
+
+class LinesEpisodeReviewedResult(BaseModel):
+    reviewed: int = Field(description="Lines newly marked reviewed.")
+    remembered: int = Field(description="Of those, pairs newly added to the series' translation memory.")
+    kept_existing: int = Field(description="Of those, lines whose source the memory already held (that entry is kept).")
+    skipped_flagged: int = Field(description="Unchecked lines left alone because they carry a flag.")
+    already_reviewed: int = Field(description="Translated lines that were already marked reviewed.")
 
 
 class LinesKeepEnglishRequest(BaseModel):

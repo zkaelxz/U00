@@ -108,7 +108,7 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         if body.fallback_chain else None,
         reflect=body.reflect, bulk=body.bulk,
         default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes,
+        include_genre_notes=body.include_genre_notes, memory_examples=body.memory_examples,
         # The Settings episode-summary engine may be a cloud one: skipped
         # for a caller without engines.paid rather than refusing the run.
         allow_paid_summary=holds_paid_engines(request))
@@ -216,7 +216,8 @@ def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart
     # The checked name is passed on, so a Settings change in between is refused.
     return translate_thinking_service.start_with_thinking(
         glossary_flagged_service.start_redo, drama_id, None, False, engine,
-        allow_paid_summary=holds_paid_engines(request))
+        allow_paid_summary=holds_paid_engines(request),
+        line_ids=body.line_ids if body else None)
 
 
 @router.get("/dramas/{drama_id}/episode-summary", dependencies=[require_permission("library.read")],
