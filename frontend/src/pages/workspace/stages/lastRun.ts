@@ -1,6 +1,6 @@
 // Pure helpers for the Last run card (JobPanel.tsx): which finished record a
 // stage shows when nothing is running, and the counts it carries.
-import { isTerminalStatus, type JobRecord } from '../../../types/jobs'
+import { isTerminalStatus, type JobRecord, type JobLike } from '../../../types/jobs'
 import { plural } from '../../../labels'
 
 const endedAt = (job: JobRecord) => job.finished_at ?? job.updated_at ?? 0
@@ -41,7 +41,7 @@ const COUNTS: [key: string, text: (n: number) => string][] = [
 
 // "12 lines · 3 failed" from the record's projected result, or '' when it
 // carries no counts (an export, say).
-export function lastRunCounts(job: Pick<JobRecord, 'result'>): string {
+export function lastRunCounts(job: JobLike<'result'>): string {
   const result = job.result ?? {}
   const parts: string[] = []
   const bulk = result.bulk

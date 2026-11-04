@@ -1,7 +1,7 @@
 // Pure filter, sort and link logic for the Jobs page (pages/Jobs.tsx).
 import type { Route } from '../../router'
 import { isActive, isFinished } from '../diagnosticsFormat'
-import { shownStatus, type JobKind, type JobPage, type JobRecord } from '../../types/jobs'
+import { shownStatus, type JobKind, type JobPage, type JobRecord, type JobLike } from '../../types/jobs'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
 
 type StatusFilter = 'active' | 'failed' | 'finished' | 'cancelled' | 'all'
@@ -49,10 +49,10 @@ export const RANGE_OPTIONS: { id: RangeFilter; label: string }[] = [
 const DAY_S = 86_400
 
 // Every list, pill and count reads the status through shownStatus, so a job the server calls done whose outcome failed is Failed everywhere.
-const isFailed = (j: Pick<JobRecord, 'status' | 'outcome'>) => shownStatus(j) === 'error'
+const isFailed = (j: JobLike<'status' | 'outcome'>) => shownStatus(j) === 'error'
 
 // A run stopped by Cancel can end 'done' with a cancelled outcome when the job noticed the cancel itself.
-const isCancelled = (j: Pick<JobRecord, 'status' | 'outcome'>) => shownStatus(j) === 'cancelled'
+const isCancelled = (j: JobLike<'status' | 'outcome'>) => shownStatus(j) === 'cancelled'
 
 // Each ended job lands in exactly one of Failed, Cancelled and Finished, so the chips add up to All.
 const matchesStatus = (j: JobRecord, status: StatusFilter) =>
@@ -167,7 +167,7 @@ const PAGE_LINKS: Partial<Record<JobPage, { label: string; route: Route }>> = {
 }
 
 /** Where a job's title and stage live. A job with no title links to the page the server says it belongs to, if any. */
-export function jobLinks(j: Pick<JobRecord, 'drama_id' | 'kind' | 'page'> & { job_id?: string }): JobLinks {
+export function jobLinks(j: JobLike<'drama_id' | 'kind' | 'page'> & { job_id?: string }): JobLinks {
   if (j.drama_id == null) return { title: null, stage: j.page ? PAGE_LINKS[j.page] ?? null : null }
   // A transcription comparison's results are in Review's History tab, not the Media stage.
   if (j.job_id?.startsWith('comparetx_')) {
@@ -183,7 +183,7 @@ export function jobLinks(j: Pick<JobRecord, 'drama_id' | 'kind' | 'page'> & { jo
   }
 }
 
-export const progressPercent = (j: Pick<JobRecord, 'status' | 'progress'>): number | null =>
+export const progressPercent = (j: JobLike<'status' | 'progress'>): number | null =>
   isActive(j.status) && j.progress != null ? Math.max(0, Math.min(100, Math.round(j.progress * 100))) : null
 
 /** Filters read back from storage: anything unknown or malformed falls back to its default. */

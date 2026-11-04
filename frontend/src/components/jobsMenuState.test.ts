@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
+import { testJob } from '../types/jobFixture'
 import { activeCount, badgeText, jobsButtonLabel, menuJobs } from './jobsMenuState'
 
-const job = (id: string, status: string): JobRecord => ({
+const job = (id: string, status: string): JobRecord => testJob({
   job_id: id, status, progress: null, message: '', error: null, description: id,
   gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1,
 })

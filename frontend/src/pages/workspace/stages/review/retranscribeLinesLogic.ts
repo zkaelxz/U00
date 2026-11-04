@@ -1,4 +1,4 @@
-import type { JobRecord } from '../../../../types/jobs'
+import type { JobLike } from '../../../../types/jobs'
 import { jobFailed } from '../../../../types/jobs'
 import type {
   RetranscribeManyApplyItem,
@@ -24,7 +24,7 @@ export function retranscribeLinesProblem(count: number, maxLines = RETRANSCRIBE_
 
 // A finished many-line job: the proposals are ready to fetch, or a plain-words reason there are none.
 export function retranscribeLinesOutcome(
-  job: Pick<JobRecord, 'status' | 'outcome' | 'result'>,
+  job: JobLike<'status' | 'outcome' | 'result'>,
 ): { kind: 'ready' } | { kind: 'none'; text: string } {
   const reason = job.result?.failed_reason
   if (job.status === 'done' && !jobFailed(job) && !reason) return { kind: 'ready' }

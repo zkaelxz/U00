@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import type { Route } from '../../router'
 import type { JobPage, JobRecord } from '../../types/jobs'
+import { testJob } from '../../types/jobFixture'
 import {
   NO_FILTERS, effectiveStatus, filterJobs, jobLinks, kindGroup, normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts,
   type JobFilters,
 } from './jobsFilter'
 
 const NOW = 10_000_000
-const job = (o: Partial<JobRecord>): JobRecord => ({
+const job = (o: Partial<JobRecord>): JobRecord => testJob({
   job_id: 'j', status: 'done', progress: null, message: '', error: null, description: null,
   gpu_touching: false, started_at: NOW - 100, finished_at: NOW - 50, updated_at: NOW - 50, owned_by_me: true, ...o,
 })

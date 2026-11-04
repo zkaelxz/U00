@@ -1,6 +1,6 @@
 // Pure helpers for the Library admin UI (selection, result lines, sizes).
 import type { DramaSummary } from '../../api/types'
-import { isTerminalStatus, type JobRecord } from '../../types/jobs'
+import { isTerminalStatus, type JobRecord, type JobLike } from '../../types/jobs'
 import type { QueueBulkAdded } from '../../types/queue'
 import type {
   LibraryBulkDeleteResult,
@@ -144,7 +144,7 @@ export function describeQueueAdd(r: Pick<QueueBulkAdded, 'added' | 'skipped'>, n
 /**
  * The finished bulk-translate job leaves titles whose engine has no key untouched; without this line the run just looks like it did nothing. Null when none were skipped.
  */
-export function describeNoKeySkips(result: JobRecord['result'], names: Names): string | null {
+export function describeNoKeySkips(result: JobRecord['result'] | undefined, names: Names): string | null {
   const bulk = result?.bulk as { skipped?: { no_key?: { count?: number; drama_ids?: unknown[] } } } | undefined
   const entry = bulk?.skipped?.no_key
   const count = entry?.count ?? 0
@@ -185,7 +185,7 @@ export function describeClean(r: LibraryStorageCleanResult): string {
 }
 
 /** Any job queued or running (restore waits for all of them). */
-export const anyJobActive = (jobs: readonly Pick<JobRecord, 'status'>[]) =>
+export const anyJobActive = (jobs: readonly JobLike<'status'>[]) =>
   jobs.some((j) => !isTerminalStatus(j.status))
 
 /** "40%" from a 0..1 progress, or '' when unknown. */

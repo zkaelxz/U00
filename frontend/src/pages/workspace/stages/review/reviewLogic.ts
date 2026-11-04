@@ -1,6 +1,6 @@
 import { ApiError } from '../../../../api/client'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
-import type { JobRecord } from '../../../../types/jobs'
+import type { JobLike } from '../../../../types/jobs'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import type { LineFilter, LinePatch, ReviewLine, ReviewMatch } from '../../../../types/review'
 import { lineNumber } from '../../../../lineNumber'
@@ -328,7 +328,7 @@ export function structureErrorText(e: unknown): string | null {
 // title counts. A job left behind by a dead process (`stale`) is ignored, as is
 // one whose id merely ends in the same number (a source or series job).
 export function jobRunsOnDrama(
-  jobs: Pick<JobRecord, 'job_id' | 'status' | 'drama_id' | 'stale'>[],
+  jobs: JobLike<'job_id' | 'status' | 'drama_id' | 'stale'>[],
   dramaId: number,
 ): boolean {
   return jobs.some((j) => {

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { JobRecord } from '../../../types/jobs'
+import { testJob } from '../../../types/jobFixture'
 import { STALL_NOTE, STUCK_TICK_MS, progressKey, stripStallNote, stuckMinutesFor, stuckText, watchStuck } from './jobStuck'
 
-const job = (over: Partial<JobRecord> = {}): JobRecord => ({
+const job = (over: Partial<JobRecord> = {}): JobRecord => testJob({
   job_id: 'translate_3', status: 'running', progress: 0.2, message: 'Batch 1 of 5', error: null, description: null,
   gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, ...over,
 })

@@ -3,50 +3,22 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
-
 const TERMINAL_STATUSES: readonly string[] = ['done', 'error', 'cancelled']
 
 export const isActiveStatus = (status: string | null | undefined) => status === 'queued' || status === 'running'
 
 export const isTerminalStatus = (status: string) => TERMINAL_STATUSES.includes(status)
 
-export interface JobRecord {
-  job_id: string
-  status: JobStatus | string
-  progress: number | null
-  message: string
-  error: string | null
-  description: string | null
-  gpu_touching: boolean
-  started_at: number | null
-  finished_at: number | null
-  updated_at: number
-  // Redacted, allowlisted projection of the job's result dict.
-  result?: Record<string, unknown> | null
-  // Normalised outcome of a finished job (null while queued/running).
-  outcome?: JobOutcome | null
-  outcome_message?: string | null
-  // Queued/running on record but not heartbeated for 15 minutes (judged on
-  // the server's clock): left behind by a process that died.
-  stale?: boolean
-  // Running here, but no progress update for a while (advisory only).
-  stalled?: boolean
-  // Cancel was heard over a minute ago and the worker still runs: when Force
-  // stop is offered. Judged on the server's clock; missing counts as false.
-  can_force_stop?: boolean
-  // The caller started this job or owns its drama, judged by the server from
-  // the session. Missing (an older server) counts as false.
-  owned_by_me?: boolean
-  // The title a drama-scoped job runs on, else null. Missing (an older
-  // server) counts as null.
-  drama_id?: number | null
-  // What the job does; `other` for anything unclassified. Missing counts as other.
-  kind?: JobKind
-  // The page the job belongs to, decided by the server from the job id; how a
-  // job with no title can still link somewhere. Missing counts as null.
-  page?: JobPage | null
-}
+export type JobRecord = Schemas['JobRecord']
+
+/** The fields a helper may be given without. The server sends all of them, but a helper keeps working on a
+ * partial record: a caller that holds only some of a job, or a cached tab from before a field existed. */
+type LooseJobKeys =
+  | 'result' | 'outcome' | 'outcome_message' | 'stale' | 'stalled' | 'can_force_stop' | 'owned_by_me' | 'drama_id'
+  | 'kind' | 'page'
+
+export type JobLike<K extends keyof JobRecord> =
+  Pick<JobRecord, Exclude<K, LooseJobKeys>> & Partial<Pick<JobRecord, Extract<K, LooseJobKeys>>>
 
 export type JobPage = 'title' | 'sources' | 'discover' | 'live' | 'settings' | 'diagnostics'
 
@@ -65,7 +37,7 @@ const DEPENDENCY_INSTALL_JOB = 'dependency_install'
 const INSTALL_DESCRIPTION = /^(Installing|Updating) (\S+)$/
 
 /** The one label for a job in the header menu, the Jobs page and the stage panel. */
-export function jobName(j: Pick<JobRecord, 'description' | 'job_id'>): string {
+export function jobName(j: JobLike<'description' | 'job_id'>): string {
   const text = j.description || j.job_id
   if (j.job_id !== DEPENDENCY_INSTALL_JOB) return text
   const m = INSTALL_DESCRIPTION.exec(text)
@@ -76,7 +48,7 @@ export function jobName(j: Pick<JobRecord, 'description' | 'job_id'>): string {
 // The server's rule: a member stops only their own jobs (owned_by_me); an
 // admin (from away too), the PC owner and auth off stop any (`anyJob`,
 // useSession's cancelsAnyJob).
-export function offersCancel(job: Pick<JobRecord, 'owned_by_me'>, anyJob: boolean): boolean {
+export function offersCancel(job: JobLike<'owned_by_me'>, anyJob: boolean): boolean {
   return anyJob || job.owned_by_me === true
 }
 
@@ -96,7 +68,7 @@ type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'interrupted' | 'partial' | 'k
 
 // A terminal job that did not fully succeed, even when status is 'done'
 // (a transcription that returned early with a failure reason, say).
-export function jobFailed(job: Pick<JobRecord, 'status' | 'outcome'>): boolean {
+export function jobFailed(job: JobLike<'status' | 'outcome'>): boolean {
   return job.status === 'error' || job.outcome === 'failed' || job.outcome === 'cancelled' || job.outcome === 'interrupted'
 }
 
@@ -104,17 +76,17 @@ export function jobFailed(job: Pick<JobRecord, 'status' | 'outcome'>): boolean {
 // worker returned, even when the work failed (a missing model, say); the
 // outcome says what happened, so a done job with a failed or cancelled
 // outcome reads as Failed or Cancelled in every list, pill and filter.
-export function shownStatus(job: Pick<JobRecord, 'status' | 'outcome'>): string {
+export function shownStatus(job: JobLike<'status' | 'outcome'>): string {
   if (job.status !== 'done' || !jobFailed(job)) return job.status
   return job.outcome === 'cancelled' ? 'cancelled' : 'error'
 }
 
 // Done and not failed/cancelled: safe to treat the job's output as ready.
-export function jobSucceeded(job: Pick<JobRecord, 'status' | 'outcome'> | null | undefined): boolean {
+export function jobSucceeded(job: JobLike<'status' | 'outcome'> | null | undefined): boolean {
   return !!job && job.status === 'done' && !jobFailed(job)
 }
 
-const OUTCOME_LABELS: Record<JobOutcome, string> = {
+const OUTCOME_LABELS: Record<JobOutcome, string> & Record<string, string | undefined> = {
   ok: 'Finished',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -127,7 +99,7 @@ const bare = (text: string) => text.trim().replace(/[.\s]+$/, '').toLowerCase()
 
 // Plain-words outcome line for a finished job, or null when there is none.
 // A message that only repeats the label ("Finished" / "Finished.") shows once.
-export function jobOutcomeText(job: Pick<JobRecord, 'outcome' | 'outcome_message'>): string | null {
+export function jobOutcomeText(job: JobLike<'outcome' | 'outcome_message'>): string | null {
   if (!job.outcome) return null
   const label = OUTCOME_LABELS[job.outcome] ?? job.outcome
   const message = job.outcome_message?.trim()
@@ -139,7 +111,7 @@ export function jobOutcomeText(job: Pick<JobRecord, 'outcome' | 'outcome_message
 
 // The line under a status pill. The pill already says Failed or Cancelled,
 // so those show the reason alone; a plain "Finished" adds nothing.
-export function jobOutcomeDetail(job: Pick<JobRecord, 'status' | 'outcome' | 'outcome_message'>): string | null {
+export function jobOutcomeDetail(job: JobLike<'status' | 'outcome' | 'outcome_message'>): string | null {
   if (!job.outcome) return null
   const message = job.outcome_message?.trim() || null
   if (job.outcome === 'failed' || job.outcome === 'cancelled') return message && bare(message) !== bare(OUTCOME_LABELS[job.outcome]) ? message : null
@@ -195,12 +167,12 @@ export const isCancellingMessage = (message: string | null | undefined) => !!mes
 
 // A running transcription, or any job past 10%, is hours of GPU time or paid
 // calls: Cancel asks first. Queued and just-started jobs lose nothing.
-export function cancelNeedsConfirm(job: Pick<JobRecord, 'status' | 'kind' | 'progress'>): boolean {
+export function cancelNeedsConfirm(job: JobLike<'status' | 'kind' | 'progress'>): boolean {
   return job.status === 'running' && (job.kind === 'transcribe' || (job.progress ?? 0) > 0.1)
 }
 
 // Force stop shares Cancel's permission, so it follows the same rule.
-export function offersForceStop(job: Pick<JobRecord, 'status' | 'can_force_stop' | 'owned_by_me'>, anyJob: boolean): boolean {
+export function offersForceStop(job: JobLike<'status' | 'can_force_stop' | 'owned_by_me'>, anyJob: boolean): boolean {
   return job.status === 'running' && job.can_force_stop === true && offersCancel(job, anyJob)
 }
 
