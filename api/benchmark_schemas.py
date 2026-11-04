@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeOptions, BenchmarkTranslateChoices, BenchmarkTranslateOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkPickTotals
+from api.schemas.benchmark import BenchmarkBackendOption, BenchmarkCaseTiming, BenchmarkTimingSummary, BenchmarkTimingVerdict, BenchmarkTranscribeDefaults, BenchmarkTranscribeOptions, BenchmarkTranslateChoices, BenchmarkTranslateOptions, BenchmarkLeftOut, BenchmarkJudgeConfig, BenchmarkJudgeEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkPickTotals
 from core import SOURCE_LANGUAGES
 from services.benchmark_runs_service import MAX_CONFIGS
 
@@ -273,14 +273,14 @@ class BenchmarkEngineOption(BaseModel):
 
 
 class BenchmarkOptions(BaseModel):
-    stages: List[str]
-    tiers: List[str]
-    source_languages: List[str]
+    stages: List[Stage]
+    tiers: List[Tier]
+    source_languages: List[SourceLanguage]
     translation_engines: List[BenchmarkEngineOption]
     whisper_sizes: List[str]
     whisper_exclusions: Dict[str, Dict[str, str]]
     transcription_backends: List[BenchmarkBackendOption]
-    transcribe_defaults: BenchmarkTranscribeOptions
+    transcribe_defaults: BenchmarkTranscribeDefaults
     # Per recogniser, the options it does not read (shown disabled in the form).
     transcribe_options_ignored: Dict[str, List[str]]
     translate_choices: BenchmarkTranslateChoices

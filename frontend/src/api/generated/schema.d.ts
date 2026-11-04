@@ -12879,12 +12879,12 @@ export interface components {
             /** Pass Threshold */
             pass_threshold: number;
             /** Source Languages */
-            source_languages: string[];
+            source_languages: ("zh" | "ja" | "ko")[];
             /** Stages */
-            stages: string[];
+            stages: ("translation" | "transcription" | "ocr")[];
             /** Tiers */
-            tiers: string[];
-            transcribe_defaults: components["schemas"]["BenchmarkTranscribeOptions"];
+            tiers: ("public" | "application" | "regression")[];
+            transcribe_defaults: components["schemas"]["BenchmarkTranscribeDefaults"];
             /** Transcribe Options Ignored */
             transcribe_options_ignored: {
                 [key: string]: string[];
@@ -13213,6 +13213,13 @@ export interface components {
              */
             traditional_lines: number;
         };
+        /** BenchmarkSeriesChoice */
+        BenchmarkSeriesChoice: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
         /** BenchmarkSet */
         BenchmarkSet: {
             /** Case Count */
@@ -13291,6 +13298,13 @@ export interface components {
         BenchmarkSetList: {
             /** Sets */
             sets: components["schemas"]["BenchmarkSet"][];
+        };
+        /** BenchmarkStylePreset */
+        BenchmarkStylePreset: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
         };
         /** BenchmarkSweep */
         BenchmarkSweep: {
@@ -13682,6 +13696,40 @@ export interface components {
             options?: components["schemas"]["BenchmarkTranscribeOptions"] | null;
         };
         /**
+         * BenchmarkTranscribeDefaults
+         * @description What a title with no saved options transcribes with: every field of
+         *     BenchmarkTranscribeOptions, always present (the options model is all-optional because
+         *     it is a request body).
+         */
+        BenchmarkTranscribeDefaults: {
+            /** Beam Size */
+            beam_size: number;
+            /** Difficult Audio */
+            difficult_audio: boolean;
+            /** Hallucination Silence Sec */
+            hallucination_silence_sec: number;
+            /** Initial Prompt */
+            initial_prompt: string;
+            /** Min Silence Ms */
+            min_silence_ms: number;
+            /** Refine Timing */
+            refine_timing: boolean;
+            /** Sensitivity Preset */
+            sensitivity_preset: string;
+            /** Separate Vocals First */
+            separate_vocals_first: boolean;
+            /** Speech Pad Ms */
+            speech_pad_ms: number;
+            /** Split Max Chars */
+            split_max_chars: number;
+            /** Split Max Seconds */
+            split_max_seconds: number;
+            /** Vad Threshold */
+            vad_threshold: number;
+            /** Whisper Repeat Guard */
+            whisper_repeat_guard: boolean;
+        };
+        /**
          * BenchmarkTranscribeOptions
          * @description A Lab transcription arm's per-title options (services/transcribe_options_service.py
          *     checks the values); a field left out takes the app's default.
@@ -13729,20 +13777,28 @@ export interface components {
                     [key: string]: number;
                 };
             };
-            /** Defaults */
-            defaults: {
-                [key: string]: boolean | number | string;
-            };
+            defaults: components["schemas"]["BenchmarkTranslateDefaults"];
             /** Series */
-            series: {
-                [key: string]: number | string;
-            }[];
+            series: components["schemas"]["BenchmarkSeriesChoice"][];
             /** Style Presets */
-            style_presets: {
-                [key: string]: string;
-            }[];
+            style_presets: components["schemas"]["BenchmarkStylePreset"][];
             /** Temperature Engines */
             temperature_engines: string[];
+        };
+        /** BenchmarkTranslateDefaults */
+        BenchmarkTranslateDefaults: {
+            /** Batch Size */
+            batch_size: number;
+            /** Context Window */
+            context_window: number;
+            /** Context Window Ahead */
+            context_window_ahead: number;
+            /** Memory Examples */
+            memory_examples: boolean;
+            /** Reflect */
+            reflect: boolean;
+            /** Style Preset */
+            style_preset: string;
         };
         /**
          * BenchmarkTranslateOptions
