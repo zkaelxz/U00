@@ -94,3 +94,49 @@ def test_the_route_is_pc_only_and_returns_the_counts(isolated_db):
     assert r.status_code == 200, r.text
     assert r.json()["labelled"] == 1
     assert db.drama_dir(did) not in r.text
+
+
+def _series_title(lines):
+    sid = db.create_series("Creator")
+    did = db.create_drama(title_en="Ep 1", source_language="zh", series_id=sid)
+    db.save_lines(did, lines)
+    return sid, did
+
+
+def test_a_colour_takes_the_person_it_is_named_for_and_the_series_remembers_it(isolated_db):
+    sid, did = _series_title([Line(0, 0.2, 2.8, "你好吗", speaker="SPEAKER_00"),
+                              Line(1, 3.1, 5.9, "我很好", speaker="SPEAKER_00")])
+    reading._save_result(did, _outcome(GROUPS))
+    got = apply_svc.apply(None, did, {"white-left": "Mei"})
+    assert _speakers(did) == ["Mei", "yellow-right"]
+    assert got["speakers"] == ["Mei", "yellow-right"]
+    assert db.get_series_speaker_colours(sid) == {"white-left": "Mei"}
+    # A later video of the same creator needs no names given.
+    other = db.create_drama(title_en="Ep 2", source_language="zh", series_id=sid)
+    db.save_lines(other, [Line(0, 0.0, 3.0, "你好吗", speaker="SPEAKER_00")])
+    reading._save_result(other, _outcome(GROUPS))
+    apply_svc.apply(None, other)
+    assert _speakers(other) == ["Mei"]
+
+
+def test_a_blank_name_forgets_a_colour(isolated_db):
+    sid, did = _series_title([Line(0, 0.0, 3.0, "你好吗", speaker="SPEAKER_00")])
+    reading._save_result(did, _outcome(GROUPS))
+    apply_svc.apply(None, did, {"white-left": "Mei"})
+    apply_svc.apply(None, did, {"white-left": ""})
+    assert db.get_series_speaker_colours(sid) == {}
+
+
+def test_names_without_a_series_apply_once_and_are_not_stored(isolated_db):
+    did = _title([Line(0, 0.0, 3.0, "你好吗", speaker="SPEAKER_00")])
+    reading._save_result(did, _outcome(GROUPS))
+    apply_svc.apply(None, did, {"white-left": "Mei"})
+    assert _speakers(did) == ["Mei"]
+    assert apply_svc.colour_names(did) == {}
+
+
+def test_bad_colour_names_are_refused(isolated_db):
+    did = _title([Line(0, 0.0, 3.0, "你好吗")])
+    reading._save_result(did, _outcome(GROUPS))
+    with pytest.raises(Exception):
+        apply_svc.apply(None, did, {"white-left": "x" * 61})

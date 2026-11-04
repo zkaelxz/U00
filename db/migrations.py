@@ -224,6 +224,9 @@ def _migrate_series_and_character_columns(conn):
     for col in ("instructions", "default_settings", "speaker_mode"):
         if col not in series_cols:
             db._safe_alter(conn, f"ALTER TABLE series ADD COLUMN {col} TEXT")
+    if "speaker_colours" not in series_cols:
+        # JSON {hard-sub colour group: person}: what a creator's caption colours mean, learned once.
+        db._safe_alter(conn, "ALTER TABLE series ADD COLUMN speaker_colours TEXT")
     preset_cols = {r[1] for r in conn.execute("PRAGMA table_info(presets)").fetchall()}
     for col, coltype in (("options_json", "TEXT"), ("is_default", "INTEGER DEFAULT 0")):
         if col not in preset_cols:

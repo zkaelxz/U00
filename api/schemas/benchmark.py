@@ -41,6 +41,11 @@ __all__ = [
     "BenchmarkHardSubReadStarted",
     "BenchmarkHardSubReadResult",
     "BenchmarkHardSubApplyResult",
+    "BenchmarkHardSubApplyRequest",
+    "BenchmarkHardSubCaptionSuggestion",
+    "BenchmarkHardSubCaptionSuggestions",
+    "BenchmarkHardSubCaptionAcceptRequest",
+    "BenchmarkHardSubCaptionAcceptResult",
     "BenchmarkHardSubLine",
     "BenchmarkHardSubGroup",
     "BenchmarkHardSubGroupScore",
@@ -297,6 +302,37 @@ class BenchmarkHardSubReadResult(BaseModel):
     message: Optional[str] = None
     # None while the reading is still going.
     result: Optional[BenchmarkHardSubReadOutcome] = None
+
+
+class BenchmarkHardSubApplyRequest(BaseModel):
+    """Optional colour-to-person names ({"yellow-right": "Mei"}); remembered for the title's series."""
+    model_config = ConfigDict(extra="forbid")
+    names: Optional[Dict[str, str]] = None
+
+
+class BenchmarkHardSubCaptionSuggestion(BaseModel):
+    line_id: int
+    start: float
+    end: float
+    current: str
+    caption: str
+    group: str
+    person: Optional[str] = None
+    similarity: float
+
+
+class BenchmarkHardSubCaptionSuggestions(BaseModel):
+    suggestions: List[BenchmarkHardSubCaptionSuggestion]
+
+
+class BenchmarkHardSubCaptionAcceptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[int] = Field(min_length=1, max_length=2000)
+
+
+class BenchmarkHardSubCaptionAcceptResult(BaseModel):
+    changed: int
+    skipped: int
 
 
 class BenchmarkHardSubApplyResult(BaseModel):
