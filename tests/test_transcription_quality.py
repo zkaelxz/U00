@@ -379,3 +379,19 @@ class TestImplausibleText:
     def test_letters_in_a_split_second_are_flagged(self):
         out = whisper_hallucination.filter_hallucinated_segments([self._seg("bss", 0.0, 0.32)])
         assert out[0]["flag"] == "text_uncertain"
+
+    def test_slivers_under_a_third_of_a_second_are_flagged_and_normal_lines_are_not(self):
+        slivers = [("ota", 46.0, 46.64), ("ota", 46.64, 46.76), ("v", 46.76, 47.4), ("罪", 47.4, 47.5)]
+        out = whisper_hallucination.filter_hallucinated_segments(
+            [self._seg("今天天气很好", 40.0, 43.0)] + [self._seg(t, a, b) for t, a, b in slivers]
+            + [self._seg("我们去公园吧", 60.0, 63.0)])
+        assert [s.get("flag") for s in out] == [None, None, "text_uncertain", None, "text_uncertain", None]
+
+    def test_a_channel_credit_over_the_final_outro_is_dropped(self):
+        credit = "MING PAO CANADA // MING PAO TORONTO"
+        out = whisper_hallucination.filter_hallucinated_segments(
+            [self._seg("好貴喔。", 0.0, 1.0), self._seg(credit, 5.0, 16.0)])
+        assert [s["text"] for s in out] == ["好貴喔。"]
+        mid = whisper_hallucination.filter_hallucinated_segments(
+            [self._seg("好貴喔。", 0.0, 1.0), self._seg(credit, 5.0, 16.0), self._seg("再見了", 16.5, 18.0)])
+        assert len(mid) == 3

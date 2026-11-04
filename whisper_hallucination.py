@@ -25,12 +25,16 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
     r"(?:优优独播剧场|中文字幕)?yo(?:yo)?televisionseriesexclusive",
     r"(?:ぜひ)?チャンネル登録.{0,20}",
     r"구독과?좋아요.{0,20}",
+    r"(?:mingpao(?:canada|toronto|news)?)+",
     r"(?:please|dontforgetto)?(?:likeand)?subscribe.{0,30}",
 )]
 # A stock phrase is only dropped with at least this much silence on each side
 # (a missing neighbour counts as silence), so dialogue that happens to say
 # "thanks for watching" between other lines survives.
 STOCK_PHRASE_ISOLATION_SEC = 5.0
+# The last line of a file has nothing after it to confirm the silence, and an outro
+# credit sits right after the last real line, so it needs less silence before it.
+FINAL_STOCK_PHRASE_ISOLATION_SEC = 3.0
 # Whisper loops inside one segment too ("谢谢谢谢…"). A run of one character is
 # only a loop at a higher count than a longer phrase: "哈哈哈哈" and "..." are
 # real speech, "好的好的好的好的" almost never is.
@@ -70,6 +74,10 @@ CHATTER_MAX_LETTERS = 1
 IMPLAUSIBLE_CHATTER_NOTE = "One-character lines in a row, often noise; check against the audio"
 # Fewer seconds than this cannot hold a word, so several letters in it are a guess.
 MIN_WORD_SEC = 0.5
+# Whisper on a voiced but unintelligible stretch can also cut it into slivers
+# ("ota", "request", "罪" in 0.1 s each), too short to hold a word.
+SLIVER_SEC = 0.3
+IMPLAUSIBLE_SLIVER_NOTE = "Cut into slivers of audio, often unclear speech; check against the audio"
 IMPLAUSIBLE_BLINK_NOTE = "Text in a split second of audio; check against the audio"
 _LIST_SPLIT_RE = re.compile(r"[、,，;；]")
 # Letters a second is only meaningful for scripts that write one character per syllable;
@@ -113,6 +121,7 @@ def _flag_chatter_and_blinks(segments):
         if j - i >= CHATTER_MIN_RUN:
             out[i:j] = [_flag(s, IMPLAUSIBLE_CHATTER_NOTE) for s in out[i:j]]
         i = max(j, i + 1)
+    out = _flag_slivers(out)
     for k, seg in enumerate(out):
         try:
             blink = seg["end"] - seg["start"] < MIN_WORD_SEC and _letters_in(seg) >= 3
@@ -121,6 +130,13 @@ def _flag_chatter_and_blinks(segments):
         if blink:
             out[k] = _flag(seg, IMPLAUSIBLE_BLINK_NOTE)
     return out
+
+
+def _flag_slivers(segments):
+    """`segments` with each one under SLIVER_SEC long flagged: too short to hold a word."""
+    return [_flag(s, IMPLAUSIBLE_SLIVER_NOTE)
+            if "start" in s and "end" in s and 0 < s["end"] - s["start"] < SLIVER_SEC else s
+            for s in segments]
 
 
 def _letters_in(seg):
@@ -192,7 +208,8 @@ def _is_isolated_stock_phrase(segments, i, isolation_sec=STOCK_PHRASE_ISOLATION_
         return False
     seg = segments[i]
     try:
-        if i > 0 and seg["start"] - segments[i - 1]["end"] < isolation_sec:
+        before = isolation_sec if i + 1 < len(segments) else min(isolation_sec, FINAL_STOCK_PHRASE_ISOLATION_SEC)
+        if i > 0 and seg["start"] - segments[i - 1]["end"] < before:
             return False
         if i + 1 < len(segments) and segments[i + 1]["start"] - seg["end"] < isolation_sec:
             return False
