@@ -8,6 +8,7 @@ import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import {
   applyCompare,
   estimateCompare,
+  flagCompareDisagreements,
   getCompareOptions,
   getCompareResult,
   startCompare,
@@ -319,6 +320,21 @@ export function CompareTranscription({
       .finally(() => setApplying(false))
   }
 
+  const flagDifferences = () => {
+    if (!result) return
+    setError(null)
+    setApplying(true)
+    flagCompareDisagreements(dramaId, result.job_id)
+      .then((r) => {
+        setNote(
+          `Flagged ${r.flagged_count} of ${r.compared_count} compared line${r.compared_count === 1 ? '' : 's'}` +
+            (r.cleared_count ? `; cleared ${r.cleared_count} that now agree.` : '.'),
+        )
+        onChanged()
+      }, setError)
+      .finally(() => setApplying(false))
+  }
+
   const setMode = (mode: SelectionMode) => setForm((f) => ({ ...f, mode }))
   const num = (key: keyof SelectionForm, label: string, max?: number) => (
     <Field label={label}>
@@ -476,6 +492,7 @@ export function CompareTranscription({
           <div data-testid="compare-results">
             <div className="review-actions">
               <span className="muted" data-testid="compare-last-run">{compareRunText(result, finishedAt)}</span>
+              <button type="button" onClick={flagDifferences} disabled={applying}>Flag lines that differ</button>
               <button type="button" onClick={clearResult}>Clear</button>
             </div>
             {usedPrompt && (usedPrompt.hint || usedPrompt.names) && (
