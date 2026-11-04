@@ -91,22 +91,11 @@ export type BenchmarkPickTotals = Schemas['BenchmarkPickTotals']
 
 export type BenchmarkResult = Schemas['BenchmarkResult']
 
-interface BenchmarkArenaRow {
-  case_id: number | null
-  label: string
-  source_text: string | null
-  reference_text: string | null
-  tier: string | null
-  results: (BenchmarkResult | null)[]
-}
-
 /** Cases an Arena comparison skipped, and why. */
 export type BenchmarkLeftOut = Schemas['BenchmarkLeftOut']
 
-export interface BenchmarkArena {
-  runs: BenchmarkRun[]
-  rows: BenchmarkArenaRow[]
-  /** Absent for a single run's results. */
+/** A single run's results are shown in the same shape without `left_out`, which only a comparison has. */
+export type BenchmarkArena = Omit<Schemas['BenchmarkArena'], 'left_out'> & {
   left_out?: BenchmarkLeftOut | null
 }
 
