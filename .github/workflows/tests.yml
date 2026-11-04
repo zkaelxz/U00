@@ -492,7 +492,7 @@ jobs:
 
       - name: Windows primitives (mutexes, job objects, process handles) for real
         run: |
-          pip install pytest -c constraints.txt
+          pip install -r requirements-core.txt pytest httpx -c constraints.txt
           python -m pytest -q -o addopts= tests/test_windows_real.py
 
   # The React frontend: typecheck + production build, unit tests and lint.
