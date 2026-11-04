@@ -96,7 +96,7 @@ RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py", "release_public_key.
 # the user's machine.
 SERVICE_HELPER_FILES = ("service.py", "service_checks.py", "service_cli.py", "service_config.py",
                         "service_control.py", "service_layout.py", "setup_lock.py",
-                        "service_update.py", "ed25519_verify.py", "app_swap.py",
+                        "service_update.py", "service_lock.py", "ed25519_verify.py", "app_swap.py",
                         "release_public_key.txt")
 
 # The Windows service wrapper (docs/windows-installer-design.md, "Boot

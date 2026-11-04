@@ -223,6 +223,7 @@ class Layout:
         self.public_key = self.helper / "lib" / "installer" / "release_public_key.txt"
         self.staging = admin / "update-staging"
         self.update_logs = admin / "update-logs"
+        self.lock_marker = admin / "install-folder-locked.txt"
         self.service_dir = admin / "service"
         self.caddy_dir = admin / "caddy"
         self.caddy_exe = self.caddy_dir / "caddy.exe"
