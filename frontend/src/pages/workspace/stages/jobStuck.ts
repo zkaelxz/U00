@@ -3,7 +3,7 @@
 // and appends STALL_NOTE to its message; this watch counts the same thing in
 // the browser, so a job that stops moving after the page loaded is caught
 // without waiting for the next record read.
-import type { JobRecord } from '../../../types/jobs'
+import type { JobRecord, JobLike } from '../../../types/jobs'
 
 const STUCK_MINUTES = 5
 // Whisper and pyannote load models in silence: a transcribe or diarize run
@@ -23,7 +23,7 @@ export const stripStallNote = (message: string): string => message.replace(STALL
 // What counts as progress: the percent, the message and the record's
 // updated_at. The "(elapsed 1m 05s)" ticker a silent stage keeps fresh and the
 // stall note are not progress, so they are left out of the key.
-export function progressKey(job: Pick<JobRecord, 'progress' | 'message' | 'updated_at'>): string {
+export function progressKey(job: JobLike<'progress' | 'message' | 'updated_at'>): string {
   const message = stripStallNote(job.message ?? '').replace(/\s*\(elapsed [^)]*\)/g, '')
   return `${job.progress ?? ''}\u0000${message}\u0000${job.updated_at ?? ''}`
 }

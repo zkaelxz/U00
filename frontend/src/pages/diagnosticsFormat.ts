@@ -1,7 +1,7 @@
 import { withoutExceptionNames } from '../components/errorMessages'
 import type { DependencyStatus, GpuStatus } from '../types/diagnostics'
 import { formatLeft, isNoPercentStage } from './workspace/stages/transcribeEstimate'
-import { cancellingText, isActiveStatus, isCancellingMessage, isTerminalStatus, jobName, shownStatus, type JobRecord } from '../types/jobs'
+import { cancellingText, isActiveStatus, isCancellingMessage, isTerminalStatus, jobName, shownStatus, type JobRecord, type JobLike } from '../types/jobs'
 
 export const isActive = isActiveStatus
 
@@ -94,7 +94,7 @@ export function formatSeconds(seconds: number): string {
 // the error for a failed job, nothing once it is done or cancelled (its
 // last progress text, e.g. "Transcribing... 99%", would read as stuck),
 // except why a cancelled job ended when the server says (Baihe restarted).
-export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'> & { job_id?: string }): string | null {
+export function jobDetail(job: JobLike<'status' | 'message' | 'error'> & { job_id?: string }): string | null {
   if (job.status === 'cancelled') return job.error || null
   if (job.status === 'done') return null
   if (job.status === 'error') return job.error || job.message || null
@@ -125,7 +125,7 @@ export function upsertJob(list: JobRecord[], job: JobRecord): JobRecord[] {
 
 /** The status pill text for a job: Failed for a done job whose outcome failed. */
 // A job closed because Baihe restarted is stored as cancelled, but nobody cancelled it.
-export const jobStatusLabel = (job: Pick<JobRecord, 'status' | 'outcome'>) =>
+export const jobStatusLabel = (job: JobLike<'status' | 'outcome'>) =>
   job.outcome === 'interrupted' ? 'Interrupted' : jobStatusText(shownStatus(job))
 
 const PACKAGES_HOME = 'Diagnostics > Packages and installs'
@@ -150,7 +150,7 @@ export function plainJobText(text: string): string {
 }
 
 /** A job's name without its trailing "(title #3)": the Title column already names the title. */
-export function jobBaseName(job: Pick<JobRecord, 'description' | 'job_id'>): string {
+export function jobBaseName(job: JobLike<'description' | 'job_id'>): string {
   const name = plainJobText(jobName(job)).replace(/\s*\((?:title|drama) #\d+\)\s*$/i, '').trim()
   return name || plainJobText(jobName(job))
 }
@@ -160,7 +160,7 @@ export function jobBaseName(job: Pick<JobRecord, 'description' | 'job_id'>): str
  * While the title's name is unknown (not loaded yet, or the read failed) the "(title #3)" suffix
  * stays, so two jobs of one kind never read the same.
  */
-export function jobTitledName(job: Pick<JobRecord, 'description' | 'job_id' | 'drama_id'>, titles: ReadonlyMap<number, string>): string {
+export function jobTitledName(job: JobLike<'description' | 'job_id' | 'drama_id'>, titles: ReadonlyMap<number, string>): string {
   const base = jobBaseName(job)
   const title = job.drama_id != null ? titles.get(job.drama_id) : undefined
   if (!title) return plainJobText(jobName(job))
