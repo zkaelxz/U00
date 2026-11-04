@@ -10,6 +10,7 @@ interface FilterCounts {
   flagged: number
   untranslated: number
   unreviewed: number
+  shaky: number
 }
 
 interface Props {
@@ -47,8 +48,10 @@ interface Props {
   player: ReactNode
 }
 
-const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed']
-const FULL: Record<LineFilter, string> = { all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed' }
+const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed', 'shaky']
+const FULL: Record<LineFilter, string> = {
+  all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed', shaky: 'Least confident first',
+}
 
 // A number you can type into: Enter or leaving the box jumps (clamped to 1..max), Escape puts the old value back.
 function JumpInput({ value, max, label, describedBy, placeholder, className, onJump }: {

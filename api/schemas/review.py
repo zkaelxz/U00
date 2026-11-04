@@ -127,6 +127,9 @@ class ReviewLinesLine(BaseModel):
         "This line's spoken language (zh/ja/ko/en); null means the drama's source_language."))
     reviewed: bool = Field(default=False, description=(
         "True once a reviewer marked the translation checked; editing `en` clears it."))
+    confidence: Optional[float] = Field(default=None, description=(
+        "0-1 estimate of how sure Whisper was of the transcribed text; null for lines from "
+        "another source and for older rows. Editing the source text clears it."))
 
 
 class ReviewLinesPage(BaseModel):
@@ -138,6 +141,8 @@ class ReviewLinesPage(BaseModel):
     untranslated_count: int = Field(description="Untranslated lines in the whole drama.")
     unreviewed_count: int = Field(default=0, description=(
         "Translated lines not yet marked checked, in the whole drama."))
+    shaky_count: int = Field(default=0, description=(
+        "Unchecked lines Whisper was unsure of (the `shaky` filter), in the whole drama."))
 
 
 class ReviewLinesFindReplaceRequest(BaseModel):

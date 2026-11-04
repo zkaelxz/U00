@@ -19,7 +19,7 @@ import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
-import { CONFLICT_MESSAGE, formatTime, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -317,6 +317,11 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
+        {isShaky(line) && (
+          <span data-testid="line-shaky" title="Whisper was unsure of this line">
+            <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
+          </span>
+        )}
         {isSourceChanged(line) && (
           <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
             <Badge tone="warn">Source changed</Badge>

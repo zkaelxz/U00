@@ -7791,7 +7791,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed */
+        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed/shaky */
         get: operations["get_review_lines_api_review_dramas__drama_id__lines_get"];
         put?: never;
         post?: never;
@@ -23948,6 +23948,11 @@ export interface components {
         };
         /** ReviewLinesLine */
         ReviewLinesLine: {
+            /**
+             * Confidence
+             * @description 0-1 estimate of how sure Whisper was of the transcribed text; null for lines from another source and for older rows. Editing the source text clears it.
+             */
+            confidence: number | null;
             /** Dub Filename */
             dub_filename: string | null;
             /** En */
@@ -24043,6 +24048,12 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+            /**
+             * Shaky Count
+             * @description Unchecked lines Whisper was unsure of (the `shaky` filter), in the whole drama.
+             * @default 0
+             */
+            shaky_count: number;
             /**
              * Total
              * @description Lines in the filtered view (before paging).
