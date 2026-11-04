@@ -219,7 +219,7 @@ def get_hard_sub_reading(request: Request, drama_id: int = Path(ge=1)):
              response_model=BenchmarkHardSubApplyResult,
              responses=_ERRS,  # pyright: ignore[reportArgumentType]
              summary="PC only: label a title's lines with the speaker groups of its latest hard-sub reading")
-def post_hard_sub_reading_apply(request: Request, body: BenchmarkHardSubApplyRequest = None,
+def post_hard_sub_reading_apply(request: Request, body: Optional[BenchmarkHardSubApplyRequest] = None,
                                 drama_id: int = Path(ge=1)):
     return hardsub_apply_svc.apply(request.state.principal, drama_id, body.names if body else None)
 

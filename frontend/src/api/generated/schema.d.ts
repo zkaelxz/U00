@@ -32121,7 +32121,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["BenchmarkHardSubApplyRequest"];
+                "application/json": components["schemas"]["BenchmarkHardSubApplyRequest"] | null;
             };
         };
         responses: {
