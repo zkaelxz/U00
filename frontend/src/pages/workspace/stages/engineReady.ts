@@ -10,6 +10,9 @@ import type { Need } from '../../readiness/needs'
 // The SDK each hosted engine imports (services/translate_service._ENGINE_PACKAGES); Diagnostics > Packages names it.
 const ENGINE_PACKAGES: Record<string, string> = { claude: 'anthropic', deepseek: 'openai', openai: 'openai' }
 
+/** What the gate reads of an engine, so a list that is not the full engine list (one engine's, or Narration's own) can be checked too. */
+export type GateEngine = Pick<TranslateEngine, 'name' | 'key_configured'> & Partial<Pick<TranslateEngine, 'package_installed'>>
+
 type EngineGateId = 'engine_package' | 'engine_key' | 'engine_ollama'
 
 export interface EngineGate extends Need {
@@ -21,7 +24,7 @@ export interface EngineGate extends Need {
  * "the title's engine": pass the resolved name. `ollamaReachable` is null/undefined while unknown.
  */
 export function engineGate(
-  engines: TranslateEngine[] | null | undefined,
+  engines: GateEngine[] | null | undefined,
   engineName: string,
   ollamaReachable: boolean | null | undefined,
 ): EngineGate | null {

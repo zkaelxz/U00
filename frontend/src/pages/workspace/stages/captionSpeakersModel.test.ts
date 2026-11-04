@@ -4,7 +4,7 @@ import type { TranslateEngine } from '../../../types/translate'
 import { canStartReading, captionEngine, readyVisionEngines } from './captionSpeakersModel'
 
 const engine = (name: string, key_configured: boolean): TranslateEngine => ({
-  name, label: name, free: false, models: null, key_configured,
+  name, label: name, free: false, models: null, key_configured, model_labels: {}, cloud_models: [], package_installed: true,
 })
 
 describe('captionSpeakers', () => {

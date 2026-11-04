@@ -5,7 +5,7 @@ import { aiUnavailableText, engineGate, ollamaAnswer } from './engineReady'
 import { startOptions } from './StartFromPicker'
 
 const eng = (name: string, over: Partial<TranslateEngine> = {}): TranslateEngine => ({
-  name, label: name, free: false, models: null, key_configured: true, package_installed: true, ...over,
+  name, label: name, free: false, models: null, key_configured: true, model_labels: {}, cloud_models: [], package_installed: true, ...over,
 })
 
 describe('engineGate', () => {

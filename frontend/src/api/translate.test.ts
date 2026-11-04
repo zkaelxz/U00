@@ -50,6 +50,9 @@ const engine = (name: string, key_configured: boolean) => ({
   free: false,
   models: null,
   key_configured,
+  model_labels: {},
+  cloud_models: [],
+  package_installed: true,
 })
 
 function fakeFetch(status: number, body: unknown, calls: { url: string; init?: RequestInit }[] = []) {

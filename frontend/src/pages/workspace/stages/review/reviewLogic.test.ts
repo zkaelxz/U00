@@ -196,7 +196,7 @@ describe('AI re-segmentation preview (R47)', () => {
   afterEach(() => {
     TRANSLATION_ONLY.length = 0
   })
-  const eng = (name: string, free = false) => ({ name, label: name.toUpperCase(), free, models: null, key_configured: true })
+  const eng = (name: string, free = false) => ({ name, label: name.toUpperCase(), free, models: null, key_configured: true, model_labels: {}, cloud_models: [], package_installed: true })
   const config = {
     engines: [eng('claude'), eng('ollama', true), eng('fake_mt'), eng('gemini')],
     month_spend: 1.5,

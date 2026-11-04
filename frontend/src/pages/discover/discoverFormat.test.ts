@@ -21,7 +21,7 @@ import {
   titleMeta,
 } from './discoverFormat'
 
-const eng = (name: string, key_configured = true) => ({ name, label: name, free: false, models: null, key_configured })
+const eng = (name: string, key_configured = true) => ({ name, label: name, free: false, models: null, key_configured, model_labels: {}, cloud_models: [], package_installed: true })
 
 describe('discoverEngines', () => {
   it('keeps configured engines the Discover routes accept', () => {

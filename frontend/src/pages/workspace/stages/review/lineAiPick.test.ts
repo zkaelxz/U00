@@ -6,7 +6,7 @@ import {
 } from './lineAiPick'
 
 const eng = (over: Partial<TranslateEngine> = {}): TranslateEngine => ({
-  name: 'claude', label: 'Paid, cloud.', free: false, models: ['m1', 'm2'], key_configured: true, ...over,
+  name: 'claude', label: 'Paid, cloud.', free: false, models: ['m1', 'm2'], key_configured: true, model_labels: {}, cloud_models: [], package_installed: true, ...over,
 })
 const claude = eng()
 const ollama = eng({ name: 'ollama', free: true, models: ['gemma', 'cloud-x'], cloud_models: ['cloud-x'] })

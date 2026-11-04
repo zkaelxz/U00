@@ -5,7 +5,7 @@ import type { TranslateEngine } from '../../types/translate'
 import { EnginePicker } from './ReaderEngine'
 
 const eng = (name: string, extra: Partial<TranslateEngine> = {}): TranslateEngine =>
-  ({ name, label: name, free: false, models: null, key_configured: true, ...extra })
+  ({ name, label: name, free: false, models: null, key_configured: true, model_labels: {}, cloud_models: [], package_installed: true, ...extra })
 
 describe('EnginePicker', () => {
   it('lists engines that cannot run as disabled options with the reason and a fix', () => {

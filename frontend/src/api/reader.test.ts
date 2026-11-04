@@ -31,6 +31,9 @@ const engine = (name: string, free: boolean, key_configured = true): TranslateEn
   free,
   models: null,
   key_configured,
+  model_labels: {},
+  cloud_models: [],
+  package_installed: true,
 })
 
 // No translation-only engine is offered now; the filter still applies to one.

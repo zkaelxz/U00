@@ -7,8 +7,8 @@ import { emptyProfile, fromPreset } from './profileForm'
 
 const data: ProfileEditorData = {
   engines: [
-    { name: 'claude', label: 'Claude', free: false, models: ['claude-a'], key_configured: true },
-    { name: 'deepseek', label: 'DeepSeek', free: false, models: null, key_configured: true },
+    { name: 'claude', label: 'Claude', free: false, models: ['claude-a'], key_configured: true, model_labels: {}, cloud_models: [], package_installed: true },
+    { name: 'deepseek', label: 'DeepSeek', free: false, models: null, key_configured: true, model_labels: {}, cloud_models: [], package_installed: true },
   ],
   style_presets: [{ key: 'audio_drama', label: 'Audio drama' }],
   fields: [
