@@ -12,9 +12,17 @@ _DOMAIN = re.compile(
     r"(https?://|www\.|\b[a-z0-9][a-z0-9-]{1,}\.(?:com|net|org|co|kr|cc|me|tv|xyz|top|site|"
     r"info|io|jp|cn|tw|to|app|vip|club|moe)\b)", re.I)
 
+# An address stamped under a Korean or CJK site name has no Latin label before
+# the dot, and OCR garbles the name itself ("토끼뉴소.com"), so the dot-and-suffix
+# after any CJK character is enough to call it an address.
+_CJK_DOMAIN = re.compile(
+    r"[\u3040-\u9fff\uac00-\ud7af]\.(?:com|net|org|co|kr|cc|me|tv|xyz|top|site|"
+    r"info|io|jp|cn|tw|to|app|vip|club|moe)\b", re.I)
+
 # Names of reader sites whose stamp has no address in it. OCR drops the dots
 # of a stamped address often enough that the bare name has to match as well.
-_SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "toonkor", "툰코", "copymanga",
+_SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "newtojuso", "뉴토주소", "toonkor", "툰코",
+               "copymanga",
                "拷贝漫画", "拷貝漫畫", "mangadex", "twmanga", "kuaikan", "快看漫画", "快看漫畫")
 
 # A repeat counts as one stamp only while it stays in the same spot. The
@@ -34,7 +42,7 @@ def _normal(text: str | None) -> str:
 def looks_like_site_mark(text: str) -> bool:
     """True when the text is a web address or a known reader site's name."""
     text = text or ""
-    if _DOMAIN.search(text):
+    if _DOMAIN.search(text) or _CJK_DOMAIN.search(text):
         return True
     squashed = _normal(text)
     return any(name in squashed for name in _SITE_NAMES)
@@ -79,3 +87,26 @@ def flag_site_marks(regions: list, earlier_pages: Sequence[list] = (), width: in
             region["skip"] = True
             flagged += 1
     return flagged
+
+
+def is_site_mark_region(region: dict) -> bool:
+    """A skipped region whose text is a site's stamp: the one skipped kind the
+    render paints out, because the stamp is not part of the art."""
+    return bool(region.get("skip")) and looks_like_site_mark(region.get("source_text") or "")
+
+
+# The OCR box of a stamp holds only its address strip; the logo is a square
+# about as wide as that strip, sitting above it.
+_LOGO_SIDE_PER_STRIP_WIDTH = 1.15
+_LOGO_MARGIN_PX = 8
+
+
+def logo_box(region: dict, page_width: int, page_height: int) -> dict:
+    """The area a stamp covers, grown from its OCR box: wider by a margin and
+    reaching upward by the logo's side, clamped to the page."""
+    side = int(region["w"] * _LOGO_SIDE_PER_STRIP_WIDTH) + 2 * _LOGO_MARGIN_PX
+    left = max(0, region["x"] - _LOGO_MARGIN_PX)
+    right = min(page_width, region["x"] + region["w"] + _LOGO_MARGIN_PX)
+    bottom = min(page_height, region["y"] + region["h"] + _LOGO_MARGIN_PX)
+    top = max(0, bottom - max(side, region["h"] + 2 * _LOGO_MARGIN_PX))
+    return {"x": left, "y": top, "w": right - left, "h": bottom - top}

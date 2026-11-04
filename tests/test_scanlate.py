@@ -1158,3 +1158,18 @@ class TestLetteringMask:
         mask = scanlate_inpaint._lettering_mask(roi)
         assert (mask[25:35, 50:70] == 255).all()
         assert mask[:, :40].max() == 0 and mask[:, 80:].max() == 0
+
+
+def test_render_paints_out_a_skipped_site_stamp(tmp_path):
+    import cv2
+    import numpy as np
+    img = np.full((300, 300, 3), (40, 90, 200), np.uint8)
+    img[100:180, 20:150] = (255, 255, 255)           # the stamp, a bright square
+    src, out = str(tmp_path / "p.png"), str(tmp_path / "o.png")
+    cv2.imwrite(src, img)
+    strip = {"x": 20, "y": 150, "w": 130, "h": 30, "source_text": "뉴토끼뉴토주소.com",
+             "skip": True, "translated_text": ""}
+    scanlate_render.process_page(src, [strip], out)
+    done = cv2.imread(out)
+    assert done[100:180, 20:150].mean() < 200        # no longer white
+    assert (done[0:15] == img[0:15]).all()            # the art away from it is untouched
