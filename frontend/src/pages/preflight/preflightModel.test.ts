@@ -21,7 +21,7 @@ const setup = (ffmpeg: boolean, cuda: boolean | null): DiagnosticsSetupChecks =>
 })
 const gpu = (available: boolean): GpuStatus =>
   ({ available, name: null, vram_used_gb: null, vram_total_gb: null, torch_cuda_version: null, message: null })
-const engine = (name: string, key: boolean): TranslateEngine => ({ name, label: name, free: false, models: null, key_configured: key })
+const engine = (name: string, key: boolean): TranslateEngine => ({ name, label: name, free: false, models: null, key_configured: key, model_labels: {}, cloud_models: [], package_installed: true })
 
 const allOk = (): PreflightInputs => ({
   presets: ok(presets(true)), setup: ok(setup(true, true)), gpu: ok(gpu(true)),
