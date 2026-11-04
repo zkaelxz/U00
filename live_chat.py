@@ -38,6 +38,7 @@ CONNECTING = "Connecting to the chat…"
 READING = "Reading the chat."
 LOST = "The chat stopped answering, so it is no longer being read."
 ENDED = "The chat has ended."
+SESSION_ENDED = "The session ended, so the chat is no longer being read."
 CAP_REACHED = "Chat translation limit reached for this session; new messages are shown as written."
 
 _YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
@@ -200,6 +201,12 @@ class ChatBoard:
         with self._lock:
             self.state, self.message = state, message
 
+    def close(self, message: str) -> None:
+        """Ends a still-live state; a reason already given (no chat, lost, ended) is kept."""
+        with self._lock:
+            if self.state in ("connecting", "reading"):
+                self.state, self.message = "ended", message
+
     def snapshot(self, after: int = 0) -> dict:
         """Messages with id above `after`. A pending one changes in place, so a client passes the id
         before its oldest pending message."""
@@ -251,6 +258,8 @@ class ChatWorker:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(join_seconds)
+        # The status is all the panel has: without this it says "Reading the chat" after the session ended.
+        self.board.close(SESSION_ENDED)
 
     def _done(self) -> bool:
         return self._stop.is_set() or background_jobs.is_cancel_requested(self.session_id)
