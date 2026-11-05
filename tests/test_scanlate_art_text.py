@@ -200,6 +200,7 @@ class TestPaintOut:
         assert page[180, 130].max() < 100        # the letters are gone
 
     def test_a_caption_too_large_for_the_model_falls_back_alone(self, monkeypatch):
+        monkeypatch.setattr(art, "_paint_out_over_dark_art", lambda page, box: False)
         monkeypatch.setattr(scanlate_inpaint, "_resolve_inpaint_backend", lambda b: "ml")
 
         def too_big(roi, mask, **kw):
@@ -210,6 +211,7 @@ class TestPaintOut:
         assert page[180, 130].max() < 100
 
     def test_the_model_result_is_used_and_never_downloads(self, monkeypatch):
+        monkeypatch.setattr(art, "_paint_out_over_dark_art", lambda page, box: False)
         monkeypatch.setattr(scanlate_inpaint, "_resolve_inpaint_backend", lambda b: "ml")
         kwargs = {}
 
@@ -383,3 +385,17 @@ def test_a_balloon_with_an_outline_does_not_use_the_art_fill(monkeypatch):
     scanlate_inpaint.inpaint_region(None, {"x": 70, "y": 120, "w": 460, "h": 140}, image=page,
                                     inside=inside, spare_art=True, backend="cv")
     assert not called
+
+
+def test_outlined_caption_on_dark_art_is_painted_out_with_the_art_tone_without_the_model(monkeypatch):
+    # Captions never pass through inpaint_region, so they need the same art fill
+    # or the model smears a grey patch over the art.
+    def no_model(*a, **k):
+        raise AssertionError("the art fill should have handled this caption")
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", no_model)
+    page = _outlined_red_lettering_on_dark_art()
+    box = {"x": 70, "y": 120, "w": 460, "h": 140}
+    art.paint_out_captions(page, [box])
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert int(erased.max()) < 90
+    assert abs(float(erased.mean()) - 30) < 15
