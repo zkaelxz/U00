@@ -651,7 +651,7 @@ faster-whisper. On, a transcription does three things:
 
 1. **No speech detector for Whisper.** `transcribe_for_timing` passes `vad_filter=False` (not in Whisper fast mode, whose batched pipeline is cut
    by the detector), so Whisper hears the whole file. The title still runs with the Sensitive preset (`sensitivity_preset.difficult_audio_view`), which now
-   only drops the repeat penalties for Whisper; the detectors of the Qwen3 recognizers ignore it as before. Measured on a 12-minute drunk VTuber stream
+   only drops the repeat penalties for Whisper; the Qwen3 recognizers' detectors use the Sensitive threshold (0.35 in place of an unchanged 0.5 for `qwen3_asr_vad`; `qwen3_asr_long` is already at 0.35) but are otherwise unchanged by it. Unmeasured: no run compared Qwen3 with and without this. Measured on a 12-minute drunk VTuber stream
    with burned-in Chinese subtitles (2026-10-26, large-v3 on CPU): Silero scored her shouted speech 0.1-0.45, so at 0.5 the detector kept 212 s of the
    709 s and the run heard 42% of her 206 subtitle lines; 0.35 heard 51%, 0.15 heard 60%, and no detector 86% (character errors 69% to 46%), with six
    extra lines. A full Difficult audio run heard 80%: the levelled copy cost her lines there (86% without it) but gained the quieter caller's (58% against 46%), so it is kept.

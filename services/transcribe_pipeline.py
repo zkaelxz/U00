@@ -25,6 +25,7 @@ import long_line_split
 import memory_headroom
 import ollama_unload
 import segment_splitting
+import sensitivity_preset as presets
 import storage
 from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
@@ -138,6 +139,17 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
 _move_into_place = storage.move_into_place
 
 
+def _tuning_for_preset(tuning, backend, preset):
+    """The speech-detection backends use their own threshold, not the title's VAD
+    threshold, so the Sensitive preset (also set by Difficult audio) must lower theirs
+    too: Silero scores quiet or shouted speech below 0.5 and drops it. A threshold
+    changed in Settings wins, as the title's own does."""
+    if (backend in VAD_BACKENDS and preset == presets.SENSITIVE
+            and tuning.vad_threshold == presets.DEFAULT_VAD_THRESHOLD):
+        return tuning._replace(vad_threshold=presets.SENSITIVE_VAD_THRESHOLD)
+    return tuning
+
+
 class _PipelineRun:
     """One _transcribe_pipeline call: the options, the state the stages share
     and one method per stage. A stage method returns a failure outcome dict
@@ -149,6 +161,7 @@ class _PipelineRun:
         self.audio_path = o.audio_path
         self.tuning = (timing_settings_service.asr_tuning(o.timing) if o.timing is not None
                        else asr_backend.DEFAULT_TUNING)
+        self.tuning = _tuning_for_preset(self.tuning, o.asr_backend_choice, o.sensitivity_preset)
         self.gpu_fallback_msg = []
         self.whisper_clock = {}
         self.stage_seconds = {}

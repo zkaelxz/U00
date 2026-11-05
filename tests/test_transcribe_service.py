@@ -2657,3 +2657,25 @@ class TestRunSettings:
             hardsub_interval=1.0, diarize_audio_path=os.path.join(ddir, "audio.wav"))
         assert seen[0]["run_settings"]["expected_speakers"] == 2
         _clear(job_id)
+
+
+def test_sensitive_preset_lowers_the_qwen_speech_detector_threshold():
+    import asr_backend
+    from services.transcribe_pipeline import _tuning_for_preset
+    for backend in ("qwen3_asr_vad", "qwen3_asr_long"):
+        assert _tuning_for_preset(asr_backend.DEFAULT_TUNING, backend, "sensitive").vad_threshold == 0.35
+
+
+def test_normal_preset_and_whisper_boundary_backends_keep_the_threshold():
+    import asr_backend
+    from services.transcribe_pipeline import _tuning_for_preset
+    tuning = asr_backend.DEFAULT_TUNING
+    assert _tuning_for_preset(tuning, "qwen3_asr_vad", "normal") is tuning
+    assert _tuning_for_preset(tuning, "qwen3_asr", "sensitive") is tuning
+
+
+def test_a_threshold_changed_in_settings_wins_over_the_sensitive_preset():
+    import asr_backend
+    from services.transcribe_pipeline import _tuning_for_preset
+    tuning = asr_backend.DEFAULT_TUNING._replace(vad_threshold=0.6)
+    assert _tuning_for_preset(tuning, "qwen3_asr_vad", "sensitive").vad_threshold == 0.6
