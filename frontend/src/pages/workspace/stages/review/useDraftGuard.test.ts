@@ -19,7 +19,7 @@ class MemoryStore {
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 0.5, zh: `zh ${id}`, en: `en ${id}`, speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, ...over,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
 })
 
 const editing = (base: ReviewLine, en: string): EditState =>

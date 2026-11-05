@@ -3819,6 +3819,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/glossary/dramas/{drama_id}/address-terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Common forms of address in the source lines not yet in the glossary (read-only, offline) */
+        get: operations["get_address_terms_api_glossary_dramas__drama_id__address_terms_get"];
+        put?: never;
+        /** Save one rendering per address term as glossary terms */
+        post: operations["post_address_terms_api_glossary_dramas__drama_id__address_terms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/glossary/dramas/{drama_id}/dismissals": {
         parameters: {
             query?: never;
@@ -7808,7 +7826,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed */
+        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed/shaky */
         get: operations["get_review_lines_api_review_dramas__drama_id__lines_get"];
         put?: never;
         post?: never;
@@ -11526,6 +11544,58 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddressTermCandidate */
+        AddressTermCandidate: {
+            /** Count */
+            count: number;
+            /** Examples */
+            examples: components["schemas"]["GlossaryVariantExample"][];
+            /** Term */
+            term: string;
+        };
+        /** AddressTermChoice */
+        AddressTermChoice: {
+            /**
+             * Keep As Is
+             * @default false
+             */
+            keep_as_is?: boolean;
+            /** Term */
+            term: string;
+            /**
+             * Translation
+             * @default
+             */
+            translation?: string;
+        };
+        /**
+         * AddressTerms
+         * @description `available` is false for a source language with no address-term list.
+         */
+        AddressTerms: {
+            /** Available */
+            available: boolean;
+            /** Language */
+            language: string;
+            /** Lines Scanned */
+            lines_scanned: number;
+            /** Terms */
+            terms: components["schemas"]["AddressTermCandidate"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** AddressTermsSaveRequest */
+        AddressTermsSaveRequest: {
+            /** Terms */
+            terms: components["schemas"]["AddressTermChoice"][];
+        };
+        /** AddressTermsSaveResult */
+        AddressTermsSaveResult: {
+            /** Saved */
+            saved: string[];
+            /** Skipped Existing */
+            skipped_existing: string[];
+        };
         /** AdminDeviceToken */
         AdminDeviceToken: {
             /** Created At */
@@ -17051,6 +17121,8 @@ export interface components {
             director: string | null;
             /** Director Romanized */
             director_romanized: string | null;
+            /** Episode Brief */
+            episode_brief: string | null;
             /** Episode Number */
             episode_number: number | null;
             /** Episode Summary */
@@ -17198,6 +17270,8 @@ export interface components {
             director: string | null;
             /** Director Romanized */
             director_romanized: string | null;
+            /** Episode Brief */
+            episode_brief: string | null;
             /** Episode Number */
             episode_number: number | null;
             /** Episode Summary */
@@ -17342,6 +17416,8 @@ export interface components {
             default_female_pronouns?: boolean | null;
             /** Director */
             director?: string | null;
+            /** Episode Brief */
+            episode_brief?: string | null;
             /** Episode Number */
             episode_number?: number | null;
             /** Episode Summary */
@@ -24212,6 +24288,11 @@ export interface components {
         };
         /** ReviewLinesLine */
         ReviewLinesLine: {
+            /**
+             * Confidence
+             * @description 0-1 estimate of how sure Whisper was of the transcribed text; null for lines from another source and for older rows. Editing the source text clears it.
+             */
+            confidence: number | null;
             /** Dub Filename */
             dub_filename: string | null;
             /** En */
@@ -24307,6 +24388,12 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+            /**
+             * Shaky Count
+             * @description Unchecked lines Whisper was unsure of (the `shaky` filter), in the whole drama.
+             * @default 0
+             */
+            shaky_count: number;
             /**
              * Total
              * @description Lines in the filtered view (before paging).
@@ -25591,6 +25678,11 @@ export interface components {
              * @default 0.8
              */
             difficult_no_speech_threshold: number;
+            /**
+             * Episode Brief
+             * @default true
+             */
+            episode_brief: boolean;
             /** Episode Summary Engine */
             episode_summary_engine: string;
             /**
@@ -25930,6 +26022,8 @@ export interface components {
             difficult_log_prob_threshold?: number | null;
             /** Difficult No Speech Threshold */
             difficult_no_speech_threshold?: number | null;
+            /** Episode Brief */
+            episode_brief?: boolean | null;
             /** Episode Summary Engine */
             episode_summary_engine?: string | null;
             /** Gap Fill Min Gap Seconds */
@@ -40484,6 +40578,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GlossaryCatalogues"];
+                };
+            };
+        };
+    };
+    get_address_terms_api_glossary_dramas__drama_id__address_terms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddressTerms"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_address_terms_api_glossary_dramas__drama_id__address_terms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddressTermsSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddressTermsSaveResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

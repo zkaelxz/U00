@@ -1,4 +1,7 @@
 import type {
+  AddressTermChoice,
+  AddressTerms,
+  AddressTermsSaveResult,
   BulkCancelResult,
   BulkJobList,
   BulkResumeResult,
@@ -129,6 +132,10 @@ export const saveGlossaryTerm = (id: number, term: GlossaryTermUpsert, f?: Fetch
 export const getGlossaryVariants = (id: number, term: string, f?: Fetch) =>
   getJson<GlossaryVariants>(`/api/glossary/dramas/${id}/variants?term=${encodeURIComponent(term)}`, f)
 /** Names that recur under several sound-alike spellings (read-only, no engine, no cost). */
+export const getAddressTerms = (id: number, f?: Fetch) =>
+  getJson<AddressTerms>(`/api/glossary/dramas/${id}/address-terms`, f)
+export const saveAddressTerms = (id: number, terms: AddressTermChoice[], f?: Fetch) =>
+  postJson<AddressTermsSaveResult>(`/api/glossary/dramas/${id}/address-terms`, { terms }, f)
 export const getGlossaryNameClusters = (id: number, f?: Fetch) =>
   getJson<GlossaryNameClusters>(`/api/glossary/dramas/${id}/name-clusters`, f)
 /** Deletes the named terms in one request (by id); ids no longer in the glossary come back in not_found. */

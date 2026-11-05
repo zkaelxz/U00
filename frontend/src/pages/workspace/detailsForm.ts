@@ -26,6 +26,7 @@ export interface DetailsForm {
   chapter_count: string // '' = not set
   episode_number: string // '' = not set
   episode_summary: string
+  episode_brief: string
   publication_status: string // '' = not set
   custom_tags: string // comma-separated, as stored
   media_type: string
@@ -40,10 +41,10 @@ export type DetailsErrors = Partial<Record<keyof DetailsForm, string>>
 
 const TEXT_KEYS = [
   'title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors', 'summary', 'genre', 'source_url',
-  'episode_summary', 'release_date',
+  'episode_summary', 'episode_brief', 'release_date',
 ] as const
 const COUNT_KEYS = ['chapter_count', 'episode_number'] as const
-const LONG_KEYS: readonly string[] = ['summary', 'episode_summary']
+const LONG_KEYS: readonly string[] = ['summary', 'episode_summary', 'episode_brief']
 
 export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   title_en: 'English title',
@@ -59,6 +60,7 @@ export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   chapter_count: 'Chapter count',
   episode_number: 'Episode number',
   episode_summary: 'Running episode summary',
+  episode_brief: 'Episode brief',
   publication_status: 'Publication status',
   custom_tags: 'Tags',
   media_type: 'Media type',
@@ -97,6 +99,7 @@ export function formFromDrama(d: DramaDetail): DetailsForm {
     chapter_count: d.chapter_count ? String(d.chapter_count) : '',
     episode_number: d.episode_number ? String(d.episode_number) : '',
     episode_summary: d.episode_summary ?? '',
+    episode_brief: d.episode_brief ?? '',
     publication_status: d.publication_status ?? '',
     custom_tags: (d.custom_tags ?? []).join(', '),
     media_type: d.media_type ?? 'audio_drama',

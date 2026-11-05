@@ -156,6 +156,7 @@ class DramaDetail(DramaSummary):
     source_url: Optional[str] = None
     episode_number: Optional[int] = None
     episode_summary: Optional[str] = None
+    episode_brief: Optional[str] = None
     narration_language: Optional[str] = None
     author_romanized: Optional[str] = None
     studio_romanized: Optional[str] = None
@@ -309,6 +310,7 @@ class DramaMetadataUpdate(BaseModel):
     custom_tags: Optional[str] = Field(default=None, max_length=2000)
     source_url: Optional[str] = Field(default=None, max_length=2000)
     episode_summary: Optional[str] = Field(default=None, max_length=5000)
+    episode_brief: Optional[str] = Field(default=None, max_length=5000)
     project_instructions: Optional[str] = Field(default=None, max_length=5000)
     chapter_count: Optional[int] = Field(default=None, ge=0, le=2147483647)
     episode_number: Optional[int] = Field(default=None, ge=0, le=2147483647)

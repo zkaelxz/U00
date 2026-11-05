@@ -668,6 +668,40 @@ def generate_episode_summary(lines, engine, usage_cb=None) -> str:
     return ""
 
 
+# One pre-read must fit a single request; a very long episode is cut here
+# rather than refused, and the brief is cut to what a prompt can carry in every batch.
+EPISODE_BRIEF_SOURCE_CHARS = 24000
+EPISODE_BRIEF_MAX_CHARS = 1500
+
+
+def generate_episode_brief(lines, engine, drama_meta=None, character_names=None,
+                           usage_cb=None) -> str:
+    """One LLM call over a whole untranslated episode that returns a short brief
+    for the batch translation calls to carry. Returns "" for an engine that
+    cannot follow a prompt, an episode with no text, or an answer that is not the
+    expected JSON: a missing brief must never stop the run. Errors from the call
+    itself (cancel, memory refusal, timeout) propagate to the caller."""
+    if not getattr(engine, "supports_reference", False) or getattr(engine, "client", True) is None:
+        return ""
+    names = character_names or {}
+    rows = []
+    for ln in lines:
+        text = (ln.zh or "").strip()
+        if text and not getattr(ln, "sfx", False):
+            speaker = names.get(ln.speaker) if ln.speaker else None
+            rows.append(f"[{speaker}] {text}" if speaker else text)
+    source = "\n".join(rows)[:EPISODE_BRIEF_SOURCE_CHARS]
+    if not source:
+        return ""
+    prompt = build_episode_brief_prompt(source, (drama_meta or {}).get("source_language") or "zh")
+    text = call_llm_json(engine, prompt, max_tokens=700, fallback=None, usage_cb=usage_cb)
+    if not text:
+        return ""
+    data = extract_first_json_value(text)
+    brief = data.get("brief") if isinstance(data, dict) else None
+    return brief.strip()[:EPISODE_BRIEF_MAX_CHARS] if isinstance(brief, str) else ""
+
+
 def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None,
                          cancel_check=None, source_language=None, stats=None):
     """
@@ -738,4 +772,5 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
 # Defined in the modules below; re-exported so `engine_backends.llm_tasks.<name>` keeps working.
 from .llm_feature_prompts import (  # noqa: E402,F401
     smart_segment_lines, build_consistency_prompt, build_episode_summary_prompt,
+    build_episode_brief_prompt,
     matching_glossary_terms, build_flag_prompt, flaggable_lines)

@@ -282,14 +282,15 @@ def test_metadata_p10_fields_round_trip_through_the_detail(client):
     did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "T"}).json()["id"]
     body = {"genre": "xianxia", "publication_status": "ongoing", "chapter_count": 120,
             "episode_number": 3, "source_url": "https://example.com/d/1",
-            "episode_summary": "Key events."}
+            "episode_summary": "Key events.", "episode_brief": "Lin is the boss."}
     r = client.post(f"/api/dramas/{did}/metadata", json=body)
     assert r.status_code == 200, r.text
     assert {k: r.json()[k] for k in body} == body
     got = client.get(f"/api/library/dramas/{did}").json()
     assert {k: got[k] for k in body} == body
     r = client.post(f"/api/dramas/{did}/metadata", json={"chapter_count": 0, "episode_number": 0,
-                                                         "source_url": "", "episode_summary": ""})
+                                                         "source_url": "", "episode_summary": "",
+                                                         "episode_brief": ""})
     assert r.status_code == 200, r.text
     assert (r.json()["chapter_count"], r.json()["episode_number"]) == (None, None)
     assert r.json()["source_url"] is None and r.json()["episode_summary"] == ""

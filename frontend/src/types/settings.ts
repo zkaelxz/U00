@@ -64,6 +64,7 @@ export interface SettingsPreferences extends TimingPreferences {
   default_locale: string
   default_style_note: string
   scene_aware_batches: boolean // translate batches start at scene breaks
+  episode_brief: boolean // read the whole episode once before translating it in batches
   scanlate_chapter_brief: boolean // read the whole comic chapter once before translating its pages
   translate_reply_guard: string // auto | on | off
   translate_alignment_check: boolean // flag lines whose English doesn't match the source (bge-m3 via Ollama)
