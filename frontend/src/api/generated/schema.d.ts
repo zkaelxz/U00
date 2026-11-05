@@ -17033,6 +17033,8 @@ export interface components {
             director: string | null;
             /** Director Romanized */
             director_romanized: string | null;
+            /** Episode Brief */
+            episode_brief: string | null;
             /** Episode Number */
             episode_number: number | null;
             /** Episode Summary */
@@ -17180,6 +17182,8 @@ export interface components {
             director: string | null;
             /** Director Romanized */
             director_romanized: string | null;
+            /** Episode Brief */
+            episode_brief: string | null;
             /** Episode Number */
             episode_number: number | null;
             /** Episode Summary */
@@ -17324,6 +17328,8 @@ export interface components {
             default_female_pronouns?: boolean | null;
             /** Director */
             director?: string | null;
+            /** Episode Brief */
+            episode_brief?: string | null;
             /** Episode Number */
             episode_number?: number | null;
             /** Episode Summary */
@@ -25523,6 +25529,11 @@ export interface components {
              * @default 0.8
              */
             difficult_no_speech_threshold: number;
+            /**
+             * Episode Brief
+             * @default true
+             */
+            episode_brief: boolean;
             /** Episode Summary Engine */
             episode_summary_engine: string;
             /**
@@ -25862,6 +25873,8 @@ export interface components {
             difficult_log_prob_threshold?: number | null;
             /** Difficult No Speech Threshold */
             difficult_no_speech_threshold?: number | null;
+            /** Episode Brief */
+            episode_brief?: boolean | null;
             /** Episode Summary Engine */
             episode_summary_engine?: string | null;
             /** Gap Fill Min Gap Seconds */

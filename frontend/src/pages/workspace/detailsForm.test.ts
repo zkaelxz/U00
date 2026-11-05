@@ -90,13 +90,13 @@ describe('validateDetails', () => {
 describe('P10 fields (genre, status, counts, source URL, episode summary)', () => {
   const full = {
     ...drama, genre: 'xianxia', publication_status: 'ongoing', chapter_count: 120,
-    source_url: 'https://example.com/d/1', episode_number: 3, episode_summary: 'Before.',
+    source_url: 'https://example.com/d/1', episode_number: 3, episode_summary: 'Before.', episode_brief: 'Lin is the boss.',
   } as unknown as DramaDetail
   const init = formFromDrama(full)
   it('seeds from the title, counts as text and nulls as empty', () => {
     expect(init).toMatchObject({
       genre: 'xianxia', publication_status: 'ongoing', chapter_count: '120', source_url: 'https://example.com/d/1',
-      episode_number: '3', episode_summary: 'Before.',
+      episode_number: '3', episode_summary: 'Before.', episode_brief: 'Lin is the boss.',
     })
     expect(formFromDrama(drama)).toMatchObject({ chapter_count: '', episode_number: '', publication_status: '', source_url: '' })
   })

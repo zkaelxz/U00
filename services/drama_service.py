@@ -57,7 +57,7 @@ PUBLICATION_STATUSES = ("unknown", "ongoing", "completed", "hiatus")
 
 _TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_actors",
                 "summary", "genre", "custom_tags", "source_url", "episode_summary",
-                "project_instructions")
+                "episode_brief", "project_instructions")
 _INT_FIELDS = ("chapter_count", "episode_number")
 # Stored 0/1: the Translate stage's two toggles (translate_run_service.save_style_toggles)
 # and the Media stage's "Keep original files" pin (keep_original_service).
@@ -71,6 +71,7 @@ MAX_NAME_LEN = 300
 MAX_LONG_TEXT_LEN = 5000
 MAX_URL_LEN = 2000
 _TEXT_CAPS = {"summary": MAX_LONG_TEXT_LEN, "episode_summary": MAX_LONG_TEXT_LEN,
+              "episode_brief": MAX_LONG_TEXT_LEN,
               "project_instructions": MAX_LONG_TEXT_LEN, "source_url": MAX_URL_LEN,
               "custom_tags": MAX_URL_LEN}
 _STRIPPED = ("title_en", "title_zh")
