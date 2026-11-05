@@ -36,6 +36,10 @@ test('suggest spellings and the English check fit a phone', async ({ page }) => 
   await gotoTranslate(page, 'glossary')
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expectPickedTab(glossary, 'Glossary', 'Terms')
+  // The row's three buttons once squeezed the original to one letter per line (seen with smaller phone text).
+  await page.addStyleTag({ content: 'html { font-size: 75%; }' })
+  const original = glossary.getByRole('cell', { name: 'ヤロ', exact: true })
+  expect((await original.boundingBox())!.width).toBeGreaterThan(80)
   await glossary.getByRole('button', { name: 'Suggest spellings of ヤロ' }).click()
   const panel = glossary.getByRole('region', { name: 'Suggest spellings of ヤロ' })
   await panel.getByRole('button', { name: 'Suggest spellings', exact: true }).click()
