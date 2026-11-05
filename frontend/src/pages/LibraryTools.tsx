@@ -42,6 +42,7 @@ import { useRoute } from '../router'
 import { seedPageTabFolds } from '../components/sectionStorage'
 import { BackupTab } from './libraryTools/BackupTab'
 import { StorageTab } from './libraryTools/StorageTab'
+import { VoicesTab } from './libraryTools/VoicesTab'
 import { TabCard } from './libraryTools/TabCard'
 import { LinkCheckCard } from './libraryTools/LinkCheckCard'
 import { ProfileTools } from './libraryTools/ProfileTools'
@@ -355,6 +356,7 @@ export default function LibraryToolsPage() {
         )}
           </>
         ))}
+        {panel('voices', tab === 'voices' && <VoicesTab pc={pc} />)}
         {panel('activity', (
           <>
         <ToolSection

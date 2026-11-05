@@ -992,6 +992,12 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .tool-body > p { margin: 0; }
 .tool-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .tool-list > li { display: grid; gap: 2px; }
+.voice-list { gap: var(--space-4); }
+.voice-row { display: grid; gap: var(--space-2); }
+.voice-head { display: grid; gap: 2px; }
+.voice-sample .tool-row { align-items: center; }
+.voice-row .actions { margin-top: var(--space-2); }
+.voice-sample .row-actions { display: inline-flex; align-items: center; gap: var(--space-3); }
 .tool-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 
 /* Sheets on this page: flat folds, detail layout, sticky actions on phone */

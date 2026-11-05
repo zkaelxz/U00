@@ -193,6 +193,7 @@
 		path /api/characters/series/*/characters/*/delete /api/series/*/delete /api/shared-glossaries/*/delete
 		path /api/characters/dramas/*/reference-clip /api/characters/dramas/*/reference-clip/remove
 		path /api/jobs/clear-finished /api/jobs/*/delete
+		path /api/voices/*/*/clear /api/voices/*/*/retrain /api/voices/*/*/remove-sample
 		path /api/language-packs/defaults/*
 		path /api/vdb-names/fetch
 		path /api/translate/read-image /api/translate/read-image/estimate

@@ -542,6 +542,50 @@ def update_series_character_voice_fingerprint(series_character_id: int, new_embe
         conn.commit()
 
 
+def list_series_character_links(series_character_id: int) -> list:
+    """The drama speakers linked to one series character, with their title
+    (drama_id, speaker_label, title_en, title_zh), in a stable order."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT c.drama_id, c.speaker_label, d.title_en, d.title_zh FROM characters c "
+            "JOIN dramas d ON d.id = c.drama_id WHERE c.series_character_id = ? "
+            "ORDER BY c.drama_id, c.speaker_label", (series_character_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_series_character_voice_fingerprint(series_character_id: int, embedding: list | None,
+                                           samples: int, *, unlink: tuple | None = None) -> bool:
+    """Replaces a character's voice print outright (None clears it) in one
+    transaction; the blend helpers only ever add to it. `unlink`
+    (drama_id, speaker_label) also detaches that speaker, keeping its name,
+    and the whole write is refused (False) when the speaker is no longer
+    linked to this character, so a stale page can't drop another link."""
+    conn = db.get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if unlink is not None:
+            cur = conn.execute(
+                "UPDATE characters SET series_character_id = NULL WHERE drama_id = ? "
+                "AND speaker_label = ? AND series_character_id = ?", (*unlink, series_character_id))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return False
+        cur = conn.execute(
+            "UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = ? WHERE id = ?",
+            (json.dumps(embedding) if embedding else None, samples if embedding else 0,
+             series_character_id))
+        if cur.rowcount != 1:
+            conn.rollback()
+            return False
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def accept_voice_link(drama_id: int, speaker_label: str, series_character_id: int,
                       character_name: str, embedding: list | None = None) -> bool:
     """An accepted voice suggestion, in one transaction: names the speaker

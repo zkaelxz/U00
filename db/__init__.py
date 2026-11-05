@@ -503,6 +503,8 @@ from db.speakers import (  # noqa: F401
     list_series_characters,
     delete_series_character,
     update_series_character_voice_fingerprint,
+    list_series_character_links,
+    set_series_character_voice_fingerprint,
     accept_voice_link,
     remember_speaker_as_series_character,
     dismiss_voice_suggestion,
