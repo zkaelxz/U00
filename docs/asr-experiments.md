@@ -451,6 +451,49 @@ its auto-mapping and `prepare_forced_aligner_inputs` / `decode_forced_alignment`
    GPU." (`diarization_turns.json` has `"device": "cuda"`).
 4. Turn the setting off, run it again; the line says it used the CPU.
 
+## Trying Nemotron-3.5-Transcribe (manual, not in the app)
+
+NVIDIA's open `Nemotron-3.5-Transcribe-30B-A4B` (about 34B parameters, 4.3B active; OpenMDW-1.1)
+claims 40 languages including Japanese, Korean and Mandarin, speaker labels, word times and
+overlap handling. Every score on its model page is NVIDIA's own, with no Whisper or Qwen3
+comparison on hard audio. Its published Chinese score (FLEURS 8.62% CER) is behind Whisper and
+Qwen3-ASR in the baseline table; its Japanese (4.42%) and Korean (2.78%) look ahead. Nothing
+here has run on this app's audio. It is not a transcription backend; `tools/nemotron_transcribe.py`
+only turns one clip into an SRT to put beside Whisper and Qwen3 on the same reviewed clip.
+
+It runs through NVIDIA's NeMo-Speech.cpp (`nemo-speech`), not through this app's Python packages.
+From its docs: Windows builds natively (Visual Studio 2022 Build Tools, CMake, Ninja), CUDA builds
+need CUDA 12.8 or newer, and the prebuilt Linux CUDA archive covers Turing (compute 7.5) and
+newer. **Volta (V100, compute 7.0) is not mentioned anywhere**, so the V100 needs a source build
+set for compute 7.0, and whether that builds and runs is unconfirmed. The docs say a pre-Turing
+card can use `--backend cpu` or `--backend vulkan` instead. SALM does not take a hotword list:
+names go in as `--instruction "...Context terms: A, B."` on the command line.
+
+1. Build `nemo-speech` from <https://github.com/NVIDIA/NeMo-Speech.cpp> following its
+   `docs/build.md`, in a folder outside the app's. Set `CMAKE_CUDA_ARCHITECTURES=70` for the V100
+   (the build guide says to set it when the output must run on another GPU than the build host).
+   The CUDA the build needs is the CUDA Toolkit installed for it, not the app's PyTorch: a V100
+   running the app's `torch 2.11.0+cu126` still needs a separate toolkit, and the guide says a
+   default CUDA build (with its `patches/`) needs 12.8 or newer. Whether a 12.6 toolkit builds
+   without the patches, and whether a 12.8 build runs under the V100's driver, is not stated.
+   A source build needs `NEMO_SPEECH_BUILD_SPEECHLM=ON` unless the `*-server` preset sets it; check
+   `scripts\windows\build.ps1` for how it passes options.
+2. Download one decoder GGUF and the encoder GGUF from
+   <https://huggingface.co/AtomicChat/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-GGUF> (a third-party
+   conversion): the IQ4_NL decoder (19.7 GB) and `Encoder-F16` (1.7 GB), in one folder. The
+   runtime looks for the encoder next to the decoder; its file name is not stated in the docs.
+   The 5-bit decoder (29.3 GB) leaves almost no room on a 32 GB card.
+3. Start the server on this PC only: `nemo-speech serve --asr-model DECODER.gguf --host 127.0.0.1 --port 8080`.
+   Its defaults fit a 32 GB GPU (`docs/salm/configuration.md` in that repo).
+4. Cut the same clip you scored Whisper and Qwen3 on:
+   `python tools\nemotron_transcribe.py CLIP.mp4 --language zh --start 0 --end 600 [--diarize]`.
+   The tool refuses a server that is not on this PC, writes `CLIP.nemotron.srt` beside the input,
+   and never overwrites an SRT.
+5. Score the SRT with the same reviewed text as the other engines (see "Evaluating a change").
+
+The first failure tells you where it stops: a build error (compute 7.0 not supported), a load error
+(memory), or a wrong transcript (the model). Keep the error text.
+
 ## Evaluating a change
 
 Use the same reviewed clips for every run (narration, dialogue, music under speech,
