@@ -246,6 +246,18 @@ class TestRemember:
         (sc,) = isolated_db.list_series_characters(sid)
         assert sc["voice_fingerprint_samples"] == 1
 
+    def test_renamed_speaker_gets_its_voice_from_the_detector_labels(self, client, isolated_db):
+        """Renaming SPEAKER_00 to a name leaves the saved embedding under the old label."""
+        sid = isolated_db.get_or_create_series("S")
+        did = isolated_db.create_drama(title_en="D", series_id=sid)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=20, zh="你", speaker="Lin")])
+        isolated_db.upsert_character(did, "Lin", character_name="Lin")
+        diarize.save_turns(isolated_db.drama_dir(did), [{"speaker": "SPEAKER_00", "start": 0, "end": 20}],
+                           embeddings={"SPEAKER_00": [0.5, 0.5]})
+        assert self._post(client, did, "Lin").status_code == 200
+        (sc,) = isolated_db.list_series_characters(sid)
+        assert sc["voice_fingerprint_samples"] == 1
+
     def test_second_remember_refused_without_reblending(self, client, isolated_db):
         did, sid = self._drama(isolated_db)
         isolated_db.upsert_character(did, "A", character_name="Lin")

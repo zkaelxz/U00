@@ -88,7 +88,7 @@ Lines are tagged with an emotional register (14, including sarcasm, dry humour, 
 
 ### Streamer VODs and series
 
-For a streamer, "English title" and "Original title" are the translated and untranslated stream name, and the **Source URL** field keeps the original link (auto-filled for URL downloads, and shown without its `?query` part; see **Open original page**). Assign every stream to one **series** to share its glossary, style profile and named characters. Speaker labels (`SPEAKER_00`) are not stable across recordings, so a named character lives at series level: add it from the Characters section, then pick it from the dropdown in later streams. Typing a name does not add it to the series unless you tick "Remember {name} in this series".
+For a streamer, "English title" and "Original title" are the translated and untranslated stream name, and the **Source URL** field keeps the original link (auto-filled for URL downloads, and shown without its `?query` part; see **Open original page**). Assign every stream to one **series** to share its glossary, style profile and named characters. Speaker labels (`SPEAKER_00`) are not stable across recordings, so a named character lives at series level: add it from the Characters section, then pick it from the dropdown in later streams. Typing a name does not add it to the series unless you tick "Remember {name} in this series". If you renamed or merged speakers after detection, Remember still builds the voice print, from the detector speakers that sit cleanly on that name's lines (at least 10 seconds); a speaker whose lines share a detector speaker with someone else gets the name but no voice print.
 
 ### Raw novel
 

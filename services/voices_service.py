@@ -32,6 +32,10 @@ def _stored_embedding(drama_id: int, speaker_label: str):
     except (ImportError, OSError, ValueError):
         return None
     vec = embeddings.get(speaker_label) if isinstance(embeddings, dict) else None
+    if not (isinstance(vec, list) and vec):
+        # Renamed or merged speakers: their embedding is still under the detector's label.
+        vec = diarize.embedding_from_lines(db.drama_dir(drama_id), speaker_label,
+                                           db.load_line_objects(drama_id))
     return vec if isinstance(vec, list) and vec else None
 
 
