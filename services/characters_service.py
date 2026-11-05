@@ -326,6 +326,17 @@ def _load_voice_embeddings(drama_id: int) -> dict:
     return embeddings if isinstance(embeddings, dict) else {}
 
 
+def _renamed_speaker_embedding(drama_id: int, speaker_label: str):
+    """Fingerprint for a speaker renamed or merged since detection, whose saved
+    embedding is still under the detector's label; None when there is no clean one."""
+    try:
+        import diarize
+        return diarize.embedding_from_lines(drama_dir(drama_id), speaker_label,
+                                            db.load_line_objects(drama_id))
+    except (ImportError, OSError, ValueError):
+        return None
+
+
 def _current_suggestions(drama_id: int, drama: dict):
     """(suggestions, embeddings): only for a
     drama in a series with characters and stored embeddings; speakers
@@ -453,7 +464,8 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     name = entry["character_name"].strip()
     if not name:
         raise InvalidInputError("Save a name for this speaker first.")
-    embedding = _load_voice_embeddings(drama_id).get(speaker_label)
+    embedding = _load_voice_embeddings(drama_id).get(speaker_label) or _renamed_speaker_embedding(
+        drama_id, speaker_label)
     # One conditional transaction (link only while still unlinked and still
     # so named; insert-only into the series cast).
     linked = db.remember_speaker_as_series_character(
