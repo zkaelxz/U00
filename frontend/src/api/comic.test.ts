@@ -50,6 +50,7 @@ describe('comic api', () => {
     expect(comicImageUrl(4, 17)).toBe('/api/scanlate/dramas/4/pages/17/image?variant=original')
     expect(comicImageUrl(4, 17, 'rendered', 1712)).toBe('/api/scanlate/dramas/4/pages/17/image?variant=rendered&v=1712')
     expect(comicImageUrl(4, 17, 'original', '')).toBe('/api/scanlate/dramas/4/pages/17/image?variant=original')
+    expect(comicImageUrl(4, 17, 'original', 3, 'reader')).toBe('/api/scanlate/dramas/4/pages/17/image?variant=original&size=reader&v=3')
   })
 
   it('probes a failed image with HEAD and names the reason', async () => {

@@ -170,7 +170,7 @@ test('Typeset and Text: rendered pages, boxes and the side panel, text only', as
   const s = await mockComic(page, { id: 11, mediaType: 'manga', pageCount: 3, rendered: [0], firstPageText: '<b>Bold?</b> & more' })
   await page.goto('/#/comic/11?page=1')
   const img = page.getByTestId('comic-page').locator('img')
-  await expect(img).toHaveAttribute('src', /variant=rendered&v=1700000000$/)
+  await expect(img).toHaveAttribute('src', /variant=rendered&size=reader&v=1700000000$/)
   const typeset = page.getByRole('button', { name: 'Typeset' })
   await expect(typeset).toHaveAttribute('aria-pressed', 'true')
   await typeset.click()

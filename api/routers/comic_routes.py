@@ -28,7 +28,8 @@ from api.auth import require_permission
 from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
                               ComicViewPrefs, ComicViewPrefsView, ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import error_responses
-from services import comic_chapters_service, comic_source_chapters_service, comic_view_service
+from services import (comic_chapters_service, comic_reader_copy_service, comic_source_chapters_service,
+                      comic_view_service)
 
 router = APIRouter(prefix="/api/scanlate", tags=["comic"])
 
@@ -63,8 +64,12 @@ _STREAM = [require_permission("media.stream")]
             responses={200: {"content": {"image/png": {}, "image/jpeg": {}}},
                        304: {"description": "Not modified"}, **_ERRS})
 def get_page_image(request: Request, drama_id: int = Path(ge=1), page_id: int = Path(ge=1),
-                   variant: Literal["original", "rendered"] = Query("original")):
+                   variant: Literal["original", "rendered"] = Query("original"),
+                   size: Literal["full", "reader"] = Query(
+                       "full", description="reader: a smaller JPEG copy of the same page for the viewer")):
     found = comic_view_service.resolve_page_image(drama_id, page_id, variant)
+    if size == "reader":
+        found = comic_reader_copy_service.reader_copy(drama_id, found)
     name = f"page_{found['ordinal']}.{_EXT[found['content_type']]}"
     resp = FileResponse(found["path"], media_type=found["content_type"], filename=name,
                         content_disposition_type="inline", stat_result=found["stat"],

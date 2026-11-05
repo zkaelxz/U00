@@ -54427,6 +54427,8 @@ export interface operations {
         parameters: {
             query?: {
                 variant?: "original" | "rendered";
+                /** @description reader: a smaller JPEG copy of the same page for the viewer */
+                size?: "full" | "reader";
             };
             header?: never;
             path: {

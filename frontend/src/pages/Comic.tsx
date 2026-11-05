@@ -267,7 +267,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   )
 
   const srcFor = useCallback(
-    (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version),
+    (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version, 'reader'),
     [id, prefs.typeset, original.originals],
   )
   const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current)
