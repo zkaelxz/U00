@@ -306,6 +306,73 @@ def _drop_marks_running_off_edge(mask) -> None:
             mask[labels == i] = 0
 
 
+_ART_FILL_CONTEXT_PX = 60
+# Outlined lettering is white or pale; bright pixels that are strongly coloured
+# are artwork (flames, glare), and painting them out would blank the art. Measured
+# on four crops of a Korean title: lettering 0.01-0.12, a box that took in flames 0.26.
+_ART_FILL_MAX_SATURATED_SHARE = 0.18
+_ART_FILL_SATURATION = 120
+
+
+def _fill_enclosed_holes(mask):
+    """`mask` with every 0-region that does not reach its edge set to 255: the
+    inside of a letter whose outline is the only part that was masked. The
+    border is padded first so the flood starts on background even when the
+    corner pixel is itself masked."""
+    import cv2
+    h, w = mask.shape[:2]
+    padded = cv2.copyMakeBorder(mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    cv2.floodFill(padded, np.zeros((h + 4, w + 4), np.uint8), (0, 0), 255)
+    return cv2.bitwise_or(mask, cv2.bitwise_not(padded[1:-1, 1:-1]))
+
+
+def _dark_art_lettering_mask(gray_roi):
+    """uint8 mask (255 = erase) of outlined lettering over dark art. The bright
+    outline is the only part a brightness cut-off finds, so the fill inside
+    each letter is recovered by flooding from the corner and everything within
+    a few pixels is taken too, which removes the glow round the strokes."""
+    import cv2
+    _, core = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY)
+    core = cv2.dilate(core, np.ones((3, 3), np.uint8), iterations=2)
+    core = _fill_enclosed_holes(core)
+    core = cv2.morphologyEx(core, cv2.MORPH_CLOSE,
+                            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
+    return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (33, 33)))
+
+
+def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
+    """The box's crop with its lettering replaced by the colours of the art
+    round it, or None when its bright pixels are mostly coloured, i.e. artwork.
+    TELEA and LaMa both pull the stroke glow into the fill and leave a grey
+    smudge on dark art; averaging only pixels well clear of the lettering
+    gives the art's own tone."""
+    import cv2
+    crop = img[y:y + bh, x:x + bw]
+    gray_roi = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    bright = gray_roi > 150
+    if bright.any():
+        saturation = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1]
+        coloured = np.count_nonzero(bright & (saturation > _ART_FILL_SATURATION))
+        if coloured / np.count_nonzero(bright) > _ART_FILL_MAX_SATURATED_SHARE:
+            return None
+    mask_box = _dark_art_lettering_mask(gray_roi)
+    ih, iw = img.shape[:2]
+    x0, y0 = max(0, x - _ART_FILL_CONTEXT_PX), max(0, y - _ART_FILL_CONTEXT_PX)
+    x1, y1 = min(iw, x + bw + _ART_FILL_CONTEXT_PX), min(ih, y + bh + _ART_FILL_CONTEXT_PX)
+    area = img[y0:y1, x0:x1].astype(np.float32)
+    mask = np.zeros(area.shape[:2], np.uint8)
+    mask[y - y0:y - y0 + bh, x - x0:x - x0 + bw] = mask_box
+    mask = _fill_enclosed_holes(mask)
+    clear = (cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (41, 41))) == 0)
+    clear = clear.astype(np.float32)
+    sigma = 15
+    tone = cv2.GaussianBlur(area * clear[..., None], (0, 0), sigma) \
+        / np.maximum(cv2.GaussianBlur(clear, (0, 0), sigma)[..., None], 1e-3)
+    weight = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 4)[..., None]
+    blended = (tone * weight + area * (1 - weight)).clip(0, 255).astype(np.uint8)
+    return blended[y - y0:y - y0 + bh, x - x0:x - x0 + bw]
+
+
 def _resolve_inpaint_backend(backend: str) -> str:
     if backend == "auto":
         return "ml" if lama_ml_weights_cached() else "cv"
@@ -364,8 +431,10 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     elif spare_art:
         _drop_marks_running_off_edge(mask)
 
-    resolved = _resolve_inpaint_backend(backend)
     inpainted_roi = None
+    if inside is None and spare_art and background_is_dark(gray_roi):
+        inpainted_roi = _dark_art_fill(img, x, y, bw, bh)
+    resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
     fallback_error = None
     if resolved == "ml":
         try:
