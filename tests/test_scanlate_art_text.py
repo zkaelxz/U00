@@ -345,3 +345,41 @@ class TestCaptionAcrossPages:
 
     def test_a_single_word_cannot_be_split(self):
         assert art.split_by_source_share("Hello", "ab", "ab") is None
+
+
+def _outlined_red_lettering_on_dark_art():
+    page = np.full((400, 600, 3), (15, 20, 45), np.uint8)
+    fill = np.zeros(page.shape[:2], np.uint8)
+    cv2.putText(fill, "FIRE", (90, 230), cv2.FONT_HERSHEY_SIMPLEX, 3, 255, 8)
+    outline = cv2.dilate(fill, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13)))
+    page[outline > 0] = (255, 255, 255)
+    page[fill > 0] = (40, 20, 150)
+    return page
+
+
+def test_outlined_lettering_on_dark_art_is_erased_to_the_art_tone():
+    # The brightness cut-off only finds the white outline, so the red fill and the
+    # glow used to survive as ghost letters under the English.
+    page = _outlined_red_lettering_on_dark_art()
+    box = {"x": 70, "y": 120, "w": 460, "h": 140}
+    scanlate_inpaint.inpaint_region(None, box, image=page, spare_art=True, backend="cv")
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert int(erased.max()) < 90
+    assert abs(float(erased.mean()) - 30) < 15
+
+
+def test_a_box_full_of_coloured_bright_art_is_not_painted_out_as_lettering():
+    page = np.full((300, 400, 3), (15, 20, 45), np.uint8)
+    page[40:260, 60:340] = (0, 140, 255)
+    assert scanlate_inpaint._dark_art_fill(page, 50, 30, 300, 240) is None
+
+
+def test_a_balloon_with_an_outline_does_not_use_the_art_fill(monkeypatch):
+    page = _outlined_red_lettering_on_dark_art()
+    called = []
+    monkeypatch.setattr(scanlate_inpaint, "_dark_art_fill",
+                        lambda *a, **k: called.append(1))
+    inside = np.ones((140, 460), bool)
+    scanlate_inpaint.inpaint_region(None, {"x": 70, "y": 120, "w": 460, "h": 140}, image=page,
+                                    inside=inside, spare_art=True, backend="cv")
+    assert not called
