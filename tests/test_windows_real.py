@@ -36,6 +36,12 @@ def test_setup_mutexes_are_held_for_the_block_and_refuse_a_second_holder():
 
 
 @windows_only
+def test_the_session_check_answers_for_this_process():
+    # Session 0 is a service's; the CI job and a developer's shell are not in it.
+    assert setup_lock.WindowsMutexes().shares_global_namespace() is False
+
+
+@windows_only
 def test_setup_mutexes_are_released_when_the_block_raises():
     with pytest.raises(RuntimeError):
         with setup_lock.setup_lock(setup_lock.WindowsMutexes()):

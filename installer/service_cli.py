@@ -145,9 +145,13 @@ def main(argv=None, services=None, admin=None, mutexes=None) -> int:
     try:
         with setup_lock(default_mutexes() if mutexes is None else mutexes):
             return _run_command(args, services)
-    except SetupRunning:
+    except SetupRunning as e:
         if hasattr(run, "log"):
-            run.log(f"refused: {SETUP_RUNNING_MESSAGE}")
+            # Which name and which Windows error: the message alone can't say
+            # whether Setup really is open or the check itself misfired.
+            run.log(f"refused: {SETUP_RUNNING_MESSAGE} (mutex {e.name}, Windows error {e.error})")
+        if args.command == "apply-app-update" and hasattr(services, "record_update_refused"):
+            services.record_update_refused()
         print(SETUP_RUNNING_MESSAGE, file=sys.stderr)
         return EXIT_REFUSED
     except OSError as e:

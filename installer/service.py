@@ -653,6 +653,10 @@ class Services:
         from installer.service_update import apply_update
         return apply_update(self.layout, self.run, self.api_port(), self.health, self.sleep)
 
+    def record_update_refused(self) -> None:
+        from installer.service_update import record_refusal
+        record_refusal(self.layout, self.run)
+
     def stop(self, for_update: bool = False) -> str:
         """`for_update` (Setup, before it replaces files as the user) also
         unlocks the install folder; install locks it again."""
