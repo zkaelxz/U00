@@ -53,8 +53,8 @@ describe('NavDrawer', () => {
 describe('PhoneBar', () => {
   const bar = (running: number, route: Route = library, moreOpen = false, context: NavContext = owner) =>
     renderToStaticMarkup(withJobs(running, createElement(PhoneBar, { route, context, moreOpen, onMore: () => {} })))
-  // Make subtitles needs admin.library; the bar leaves out what the person may not use.
-  const owner: NavContext = { ...ctx, session: { ...session, me: { ...session.me, permissions: [...session.me.permissions, 'admin.library'] } } as SessionState }
+  // Make subtitles needs library.create; the bar leaves out what the person may not use.
+  const owner: NavContext = { ...ctx, session: { ...session, me: { ...session.me, permissions: [...session.me.permissions, 'library.create'] } } as SessionState }
 
   it('has Library, Make, Jobs in that order and a More button that controls the drawer', () => {
     const html = bar(0)

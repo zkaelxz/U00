@@ -145,8 +145,8 @@ test('a 401 mid-visit shows a sign-in overlay above the still-mounted app', asyn
 })
 
 test('a 401 with a draft open keeps the draft; signing in from another tab brings it back', async ({ page }) => {
-  // New title is for members who hold admin.library.
-  const s = await mockAuth(page, { ...ME.signedIn, permissions: [...ME.signedIn.permissions, 'admin.library'] })
+  // New title is for sessions that hold library.create.
+  const s = await mockAuth(page, { ...ME.signedIn, permissions: [...ME.signedIn.permissions, 'library.create'] })
   await page.goto('/#/library')
   await page.getByRole('button', { name: 'New title', exact: true }).click()
   const title = page.getByRole('dialog', { name: 'New title' }).getByLabel('English title')
