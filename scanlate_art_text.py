@@ -137,6 +137,25 @@ def _inside(shape, box, x0, y0):
     return inside
 
 
+def _paint_out_over_dark_art(page, box: dict) -> bool:
+    """Paints `box`'s outlined lettering out of `page` with the art's own tone,
+    and says whether it did. The brightness mask in caption_mask() finds only the
+    white outline, so both LaMa and OpenCV drew the glow and the letters' fill
+    back as a grey smudge on dark art."""
+    from scanlate_inpaint import _dark_art_fill, background_is_dark
+    import cv2
+    ph, pw = page.shape[:2]
+    x, y = max(0, box["x"]), max(0, box["y"])
+    w, h = min(pw - x, box["w"]), min(ph - y, box["h"])
+    if w < 1 or h < 1 or not background_is_dark(cv2.cvtColor(page[y:y + h, x:x + w], cv2.COLOR_BGR2GRAY)):
+        return False
+    filled = _dark_art_fill(page, x, y, w, h)
+    if filled is None:
+        return False
+    page[y:y + h, x:x + w] = filled
+    return True
+
+
 def paint_out_captions(page, boxes: list, backend: str = "auto"):
     """Erases each caption's lettering from `page` (a BGR array, changed in
     place) with the LaMa-manga model. Returns True when the model painted every
@@ -151,6 +170,8 @@ def paint_out_captions(page, boxes: list, backend: str = "auto"):
         mask = caption_mask(page, box)
         ys, xs = np.nonzero(mask)
         if not len(xs):
+            continue
+        if _paint_out_over_dark_art(page, box):
             continue
         y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
         roi, roi_mask = page[y0:y1, x0:x1], mask[y0:y1, x0:x1]
