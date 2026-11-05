@@ -9,13 +9,13 @@ const ALL = Object.keys(CARDS) as LibraryToolsCard[]
 
 describe('Library tools tabs', () => {
   it('leaves out Backup, Storage and Data folder away from the PC only', () => {
-    expect(visibleLibraryToolsTabs('remote').map((t) => t.label)).toEqual(['Organize', 'Activity'])
+    expect(visibleLibraryToolsTabs('remote').map((t) => t.label)).toEqual(['Organize', 'Voices', 'Activity'])
     expect(visibleLibraryToolsTabs('local')).toEqual(LIBRARY_TOOLS_TABS)
     expect(visibleLibraryToolsTabs('unknown')).toEqual(LIBRARY_TOOLS_TABS)
   })
 
-  it('lists the five tabs in order', () => {
-    expect(LIBRARY_TOOLS_TABS.map((t) => t.label)).toEqual(['Organize', 'Activity', 'Backup', 'Storage', 'Data folder'])
+  it('lists the six tabs in order', () => {
+    expect(LIBRARY_TOOLS_TABS.map((t) => t.label)).toEqual(['Organize', 'Voices', 'Activity', 'Backup', 'Storage', 'Data folder'])
   })
 
   it('puts every card on exactly one tab, and no tab is empty', () => {

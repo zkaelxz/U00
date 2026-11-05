@@ -11454,6 +11454,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every enrolled voice print, with its samples and match scores */
+        get: operations["list_voices_api_voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/voices/{series_id}/{character_id}/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear a person's voice print, keeping the person (confirm=true) */
+        post: operations["clear_voice_api_voices__series_id___character_id__clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/voices/{series_id}/{character_id}/remove-sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unlink one speaker and rebuild the print without it (confirm=true) */
+        post: operations["remove_sample_api_voices__series_id___character_id__remove_sample_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/voices/{series_id}/{character_id}/retrain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rebuild a voice print from the speakers linked to the person (confirm=true) */
+        post: operations["retrain_voice_api_voices__series_id___character_id__retrain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/web-search/config": {
         parameters: {
             query?: never;
@@ -29757,6 +29825,23 @@ export interface components {
             /** Entry Id */
             entry_id: number;
         };
+        /** VoiceChangeResult */
+        VoiceChangeResult: {
+            /** Character Id */
+            character_id: number;
+            /** Sample Count */
+            sample_count: number;
+            /** Series Id */
+            series_id: number;
+        };
+        /** VoiceClearRequest */
+        VoiceClearRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+        };
         /** VoiceCloneBankSaveRequest */
         VoiceCloneBankSaveRequest: {
             /** Name */
@@ -29933,6 +30018,63 @@ export interface components {
             job_id: string;
             /** Started */
             started: boolean;
+        };
+        /** VoiceEntry */
+        VoiceEntry: {
+            /** Average Similarity */
+            average_similarity: number | null;
+            /** Character Id */
+            character_id: number;
+            /** Character Name */
+            character_name: string;
+            /** Linked */
+            linked: components["schemas"]["VoiceSample"][];
+            /** Lowest Similarity */
+            lowest_similarity: number | null;
+            /** Rebuildable */
+            rebuildable: number;
+            /** Sample Count */
+            sample_count: number;
+            /** Series Id */
+            series_id: number;
+            /** Series Name */
+            series_name: string;
+        };
+        /** VoiceListResponse */
+        VoiceListResponse: {
+            /** Items */
+            items: components["schemas"]["VoiceEntry"][];
+        };
+        /** VoiceRemoveSampleRequest */
+        VoiceRemoveSampleRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+            /** Drama Id */
+            drama_id: number;
+            /** Speaker Label */
+            speaker_label: string;
+        };
+        /** VoiceRetrainRequest */
+        VoiceRetrainRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+        };
+        /** VoiceSample */
+        VoiceSample: {
+            /** Drama Id */
+            drama_id: number;
+            /** Similarity */
+            similarity: number | null;
+            /** Speaker Label */
+            speaker_label: string;
+            /** Title */
+            title: string;
         };
         /** WebSearchConfig */
         WebSearchConfig: {
@@ -64589,6 +64731,188 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_voices_api_voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceListResponse"];
+                };
+            };
+        };
+    };
+    clear_voice_api_voices__series_id___character_id__clear_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+                character_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceClearRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceChangeResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_sample_api_voices__series_id___character_id__remove_sample_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+                character_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceRemoveSampleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceChangeResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retrain_voice_api_voices__series_id___character_id__retrain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+                character_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceRetrainRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceChangeResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
