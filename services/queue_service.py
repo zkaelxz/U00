@@ -320,7 +320,7 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
     thinking = translate_thinking_service.effective(
         [engine], translate_thinking_service.get_title_choice(drama_id))
     series_id = drama.get("series_id")
-    terms = len(db.list_glossary_terms(series_id)) if series_id else 0
+    terms = len(db.list_effective_glossary_terms(series_id)) if series_id else 0
     packs = [p["name"] for p in language_pack_service.get_title_packs(drama_id)["packs"] if p["enabled"]]
     override = settings_service.reply_guard_override()
     guard = engine_registry.default_reply_guard(engine, model) if override is None else override

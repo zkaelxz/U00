@@ -153,6 +153,7 @@ or `series` go when the parent goes.
 | `series` | Groups titles; `name` (unique), `instructions`, `owner_user_id`, `is_private` | `services/ownership_service.py` (`get_or_create_series_for`) | `create_series`, `get_or_create_series` |
 | `series_characters` | Characters shared across a series: `aliases`, `gender`, `voice_fingerprint(_samples)` | `characters_service`, `series_people_service` | `upsert_series_character`, `accept_voice_link`, fingerprint blend |
 | `glossary_terms` | Per-series glossary: `term_original`, `term_translation`, `policy`, `enforce_exact`, `aliases`, `banned_translations` | `glossary_service` | `upsert_glossary_term`, `insert_glossary_term_if_absent`, `update_glossary_term` |
+| `shared_glossary_groups` / `shared_glossary_terms` | A named glossary several series inherit (`series.shared_group_id` links one); terms have the `glossary_terms` columns | `shared_glossary_service` | `db.list_effective_glossary_terms` (the group overlaid by the series' own terms; read by every consumer), `save_shared_glossary_term` |
 | `translation_memory` | Per-series source -> translation pairs with `use_count` | `lines_service` | `record_translation_memory` |
 | `glossary_dismissals` | Per-series proposals the user ignored (`term_original`); no extraction lists them again until restored | `glossary_service` | `add_glossary_dismissals`, `remove_glossary_dismissals` |
 | `voice_suggestion_dismissals` | Suggested voice links a user rejected (drama, label, series character) | `characters_service` | `dismiss_voice_suggestion` |

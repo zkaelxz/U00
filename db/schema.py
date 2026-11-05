@@ -229,6 +229,36 @@ def _create_series_tables(conn):
     """)
 
 
+def _create_shared_glossary_tables(conn):
+    conn.executescript("""
+        -- A named glossary several series share (e.g. one creator's slang and
+        -- ASR mishearings). A series joins at most one, through
+        -- series.shared_group_id; its own terms win on the same source term.
+        CREATE TABLE IF NOT EXISTS shared_glossary_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            owner_user_id INTEGER,
+            created_at TEXT
+        );
+
+        -- Same columns and meaning as glossary_terms.
+        CREATE TABLE IF NOT EXISTS shared_glossary_terms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            term_original TEXT,
+            term_translation TEXT,
+            notes TEXT,
+            category TEXT,
+            policy TEXT,
+            enforce_exact INTEGER DEFAULT 0,
+            aliases TEXT,
+            banned_translations TEXT,
+            FOREIGN KEY (group_id) REFERENCES shared_glossary_groups(id) ON DELETE CASCADE,
+            UNIQUE(group_id, term_original)
+        );
+    """)
+
+
 def _create_line_annotation_tables(conn):
     conn.executescript("""
 

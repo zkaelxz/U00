@@ -37,7 +37,7 @@ def explain_line(drama_id: int, line, all_lines=None, glossary_terms=None,
     neighbors; pass None to skip that section entirely."""
     drama = db.get_drama(drama_id) or {}
     if glossary_terms is None and drama.get("series_id"):
-        glossary_terms = db.list_glossary_terms(drama["series_id"])
+        glossary_terms = db.list_effective_glossary_terms(drama["series_id"])
 
     notes = [n for n in db.list_translation_notes(drama_id) if n["line_idx"] == line.idx]
     emotion = db.load_emotions(drama_id).get(line.idx)

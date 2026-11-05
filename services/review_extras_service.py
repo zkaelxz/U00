@@ -170,7 +170,7 @@ def cleanup_plan(drama_id: int, lines) -> list:
     Kept apart from the apply step so the preview and the write read the
     glossary and title style one way."""
     drama = ownership_service.require_drama(drama_id)
-    terms = [t["term_translation"] for t in db.list_glossary_terms(drama["series_id"])] \
+    terms = [t["term_translation"] for t in db.list_effective_glossary_terms(drama["series_id"])] \
         if drama.get("series_id") else []
     terms = en_cleanup.compile_terms(terms)
     style = en_cleanup.detect_style(ln.en for ln in lines if not en_cleanup.too_long(ln.en))

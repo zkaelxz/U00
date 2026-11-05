@@ -306,6 +306,7 @@ def init_db():
         # ones create (the ownership step needs users and app_settings).
         _create_library_tables(conn)
         _create_series_tables(conn)
+        _create_shared_glossary_tables(conn)
         _create_line_annotation_tables(conn)
         _create_bulk_job_tables(conn)
         _create_reading_tables(conn)
@@ -349,7 +350,7 @@ from db.schema import (  # noqa: E402,F401
     _create_library_tool_tables, _create_line_annotation_tables,
     _create_metadata_research_tables, _create_reading_tables, _create_review_tables,
     ensure_legacy_bug_reports,
-    _create_series_tables)
+    _create_series_tables, _create_shared_glossary_tables)
 
 from db.schema_system import (  # noqa: E402,F401
     _create_auth_tables, _create_job_tables, _init_benchmark_lab_schema)
@@ -561,6 +562,13 @@ from db.glossary import (  # noqa: E402,F401
     upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
     delete_glossary_term)
+
+from db.shared_glossary import (  # noqa: E402,F401
+    create_group as create_shared_glossary_group, delete_group as delete_shared_glossary_group,
+    delete_group_term as delete_shared_glossary_term, get_group as get_shared_glossary_group,
+    get_series_group_id as get_series_shared_group_id, list_effective_glossary_terms,
+    list_group_terms as list_shared_glossary_terms, list_groups as list_shared_glossary_groups,
+    save_group_term as save_shared_glossary_term, set_series_group as set_series_shared_group)
 
 
 # ---------------------------------------------------------------------------

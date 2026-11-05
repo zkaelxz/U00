@@ -40,7 +40,9 @@ NON_ADMIN = auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS + auth_service.OPT_IN_PER
 # Each is either nested under a `{drama_id}`/`{series_id}` path (the guard
 # covers the parent; the service scopes the child to it) or not drama-scoped.
 OWNERSHIP_EXEMPT_PARAMS = {
-    "title_id": "discover known_titles: household-wide (plan B, decision 6)",
+    "group_id": "a shared glossary group: visible by name to all, changed only by its creator or an "
+                "admin at the PC (shared_glossary_service checks)",
+    "term_id": "a term of a shared glossary group; the service checks the group first",    "title_id": "discover known_titles: household-wide (plan B, decision 6)",
     "pack_id": "a built-in language pack id, not an item (read-only data shipped with the app)",
     "language": "a source language code for the language-pack default (admin.settings)",
     "name": "a source adapter name or a model file name, not an item",

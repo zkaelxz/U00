@@ -144,6 +144,43 @@ def list_glossary_terms(drama_id: int) -> list:
     return [_serialize(r) for r in db.list_glossary_terms(sid)]
 
 
+def effective_glossary_terms(drama_id: int) -> list:
+    """list_glossary_terms plus the terms the series inherits from its shared
+    group; each carries `origin`. Read-only: edits go through the own-term calls."""
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=False)
+    if sid is None:
+        return []
+    return [{**_serialize(r), "origin": r["origin"], "origin_name": r["origin_name"]}
+            for r in db.list_effective_glossary_terms(sid)]
+
+
+def clean_term_fields(term_fields: dict, base: dict) -> tuple:
+    """Validate a term write; fields it omits keep `base`'s value (a serialized
+    term, or {} for a new one). Returns (original, translation, notes, category,
+    policy, enforce_exact, aliases, banned) with the lists pipe-joined, in the
+    order db.upsert_glossary_term takes them."""
+    def pick(key, default=None):
+        return term_fields[key] if key in term_fields else base.get(key, default)
+
+    original = _text(pick("term_original"), "term_original", MAX_TERM_LEN, required=True)
+    translation = _text(pick("term_translation"), "term_translation", MAX_TERM_LEN, required=True)
+    notes = _text(pick("notes"), "notes", MAX_NOTES_LEN)
+
+    category = pick("category")
+    if category is not None and category not in TERM_CATEGORIES:
+        raise InvalidInputError("Unknown category.")
+    policy = pick("policy")
+    if policy is not None and policy not in TERM_POLICIES:
+        raise InvalidInputError("Unknown policy.")
+    enforce = pick("enforce_exact", False)
+    if not isinstance(enforce, bool):
+        raise InvalidInputError("enforce_exact must be true or false.")
+    aliases = _str_list(pick("aliases", []), "aliases")
+    banned = _str_list(pick("banned_translations", []), "banned_translations")
+    return original, translation, notes, category, policy, enforce, aliases, banned
+
+
 def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
     """Create or update a term in the drama's series glossary.
 
@@ -169,39 +206,20 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
         if match:
             base = _serialize(match)
 
-    def pick(key, default=None):
-        return term_fields[key] if key in term_fields else base.get(key, default)
-
-    original = _text(pick("term_original"), "term_original", MAX_TERM_LEN, required=True)
-    translation = _text(pick("term_translation"), "term_translation", MAX_TERM_LEN, required=True)
-    notes = _text(pick("notes"), "notes", MAX_NOTES_LEN)
-
-    category = pick("category")
-    if category is not None and category not in TERM_CATEGORIES:
-        raise InvalidInputError("Unknown category.")
-    policy = pick("policy")
-    if policy is not None and policy not in TERM_POLICIES:
-        raise InvalidInputError("Unknown policy.")
-    enforce = pick("enforce_exact", False)
-    if not isinstance(enforce, bool):
-        raise InvalidInputError("enforce_exact must be true or false.")
-    aliases = _str_list(pick("aliases", []), "aliases")
-    banned = _str_list(pick("banned_translations", []), "banned_translations")
+    fields = clean_term_fields(term_fields, base)
 
     sid = sid or _series_id(drama, required=True)
     if existing:
         clash = next((r for r in db.list_glossary_terms(sid)
-                      if r["term_original"] == original and r["id"] != existing["id"]), None)
+                      if r["term_original"] == fields[0] and r["id"] != existing["id"]), None)
         if clash:
             raise ConflictError("Another term already uses that original text.")
-        db.update_glossary_term(existing["id"], original, translation, notes, category, policy,
-                                enforce, aliases, banned)
+        db.update_glossary_term(existing["id"], *fields)
         saved_id = existing["id"]
     else:
-        db.upsert_glossary_term(sid, original, translation, notes, category, policy, enforce,
-                                aliases, banned)
+        db.upsert_glossary_term(sid, *fields)
         saved_id = next(r["id"] for r in db.list_glossary_terms(sid)
-                        if r["term_original"] == original)
+                        if r["term_original"] == fields[0])
     return _serialize(_owned_term(sid, saved_id))
 
 

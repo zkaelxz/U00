@@ -256,7 +256,7 @@ def load_translation_guide(drama: dict) -> tuple:
     series_id = (drama or {}).get("series_id")
     if not series_id:
         return None, ""
-    return (db.list_glossary_terms(series_id),
+    return (db.list_effective_glossary_terms(series_id),
             tguide.build_character_guidance(db.list_series_characters(series_id)))
 
 

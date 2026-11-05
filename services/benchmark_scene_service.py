@@ -131,7 +131,7 @@ def style_context(options: dict, examples=None) -> tuple:
     learned style and character hints: the Lab has no title to read them from. The run starts
     on the PC (a PC-only route), so the learned style is not held back as it is from members."""
     series_id = options["series_id"]
-    glossary = db.list_glossary_terms(series_id) if series_id else None
+    glossary = db.list_effective_glossary_terms(series_id) if series_id else None
     notes = []
     if series_id:
         profile = db.get_style_profile(f"series:{series_id}")

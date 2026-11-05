@@ -8629,6 +8629,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/{series_id}/shared-glossary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The series' shared glossary group and its effective glossary, each term with its origin */
+        get: operations["get_shared_glossary_api_series__series_id__shared_glossary_get"];
+        put?: never;
+        /** Join a shared glossary group (group_id), or leave it (null); own terms are kept */
+        post: operations["set_shared_glossary_api_series__series_id__shared_glossary_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/{series_id}/speaker-mode": {
         parameters: {
             query?: never;
@@ -9118,6 +9136,76 @@ export interface paths {
         get: operations["get_readiness_api_setup_readiness_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-glossaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every shared glossary group */
+        get: operations["list_groups_api_shared_glossaries_get"];
+        put?: never;
+        /** Create a shared glossary group (409 if the name is taken, ignoring case) */
+        post: operations["create_group_api_shared_glossaries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-glossaries/{group_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete a group and its terms; series that joined it keep their own terms */
+        post: operations["delete_group_api_shared_glossaries__group_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-glossaries/{group_id}/terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A group's terms */
+        get: operations["list_terms_api_shared_glossaries__group_id__terms_get"];
+        put?: never;
+        /** Create or update a group term (update when id is given) */
+        post: operations["save_term_api_shared_glossaries__group_id__terms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-glossaries/{group_id}/terms/{term_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete one group term */
+        post: operations["delete_term_api_shared_glossaries__group_id__terms__term_id__delete_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -17514,6 +17602,43 @@ export interface components {
              */
             keep_original?: boolean;
         };
+        /** EffectiveGlossaryTerm */
+        EffectiveGlossaryTerm: {
+            /** Aliases */
+            aliases: string[];
+            /** Banned Translations */
+            banned_translations: string[];
+            /** Category */
+            category: string | null;
+            /**
+             * Enforce Exact
+             * @default false
+             */
+            enforce_exact: boolean;
+            /** Id */
+            id: number;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "series" | "shared";
+            /**
+             * Origin Name
+             * @description The group's name when origin is shared.
+             */
+            origin_name: string | null;
+            /** Policy */
+            policy: string | null;
+            /** Term Original */
+            term_original: string;
+            /** Term Translation */
+            term_translation: string;
+        };
         /** EmotionJobStart */
         EmotionJobStart: {
             /**
@@ -25305,6 +25430,30 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** SeriesSharedGlossary */
+        SeriesSharedGlossary: {
+            /**
+             * Can Edit
+             * @description The viewer may join or leave a group for this series.
+             */
+            can_edit: boolean;
+            group: components["schemas"]["SharedGlossaryGroup"] | null;
+            /** Series Id */
+            series_id: number;
+            /**
+             * Terms
+             * @description The glossary the series uses: its group's terms overlaid by its own.
+             */
+            terms: components["schemas"]["EffectiveGlossaryTerm"][];
+        };
+        /** SeriesSharedGlossaryRequest */
+        SeriesSharedGlossaryRequest: {
+            /**
+             * Group Id
+             * @description The group to join; null leaves it.
+             */
+            group_id?: number | null;
+        };
         /** SeriesSpeakerModeRequest */
         SeriesSpeakerModeRequest: {
             /**
@@ -26105,6 +26254,101 @@ export interface components {
         ShareByDefault: {
             /** Share By Default */
             share_by_default: boolean;
+        };
+        /** SharedGlossaryCreateRequest */
+        SharedGlossaryCreateRequest: {
+            /** Name */
+            name: string;
+        };
+        /** SharedGlossaryDeleteResult */
+        SharedGlossaryDeleteResult: {
+            /** Deleted */
+            deleted: boolean;
+            /** Group Id */
+            group_id: number;
+            /** Series Unlinked */
+            series_unlinked: number;
+        };
+        /** SharedGlossaryGroup */
+        SharedGlossaryGroup: {
+            /**
+             * Can Edit
+             * @description The viewer may change its terms and delete it.
+             */
+            can_edit: boolean;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Series Count
+             * @description Series that currently inherit it.
+             */
+            series_count: number;
+            /** Term Count */
+            term_count: number;
+        };
+        /** SharedGlossaryGroupList */
+        SharedGlossaryGroupList: {
+            /** Items */
+            items: components["schemas"]["SharedGlossaryGroup"][];
+        };
+        /** SharedGlossaryTerm */
+        SharedGlossaryTerm: {
+            /** Aliases */
+            aliases: string[];
+            /** Banned Translations */
+            banned_translations: string[];
+            /** Category */
+            category: string | null;
+            /**
+             * Enforce Exact
+             * @default false
+             */
+            enforce_exact: boolean;
+            /** Id */
+            id: number;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /** Policy */
+            policy: string | null;
+            /** Term Original */
+            term_original: string;
+            /** Term Translation */
+            term_translation: string;
+        };
+        /** SharedGlossaryTermDeleteResult */
+        SharedGlossaryTermDeleteResult: {
+            /** Deleted */
+            deleted: boolean;
+        };
+        /**
+         * SharedGlossaryTermWrite
+         * @description With `id` the term is updated in place (omitted fields keep their stored
+         *     value); without it the term is keyed on term_original.
+         */
+        SharedGlossaryTermWrite: {
+            /** Aliases */
+            aliases?: string[] | null;
+            /** Banned Translations */
+            banned_translations?: string[] | null;
+            /** Category */
+            category?: string | null;
+            /** Enforce Exact */
+            enforce_exact?: boolean | null;
+            /** Id */
+            id?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** Policy */
+            policy?: string | null;
+            /** Term Original */
+            term_original?: string | null;
+            /** Term Translation */
+            term_translation?: string | null;
         };
         /** SharingItem */
         SharingItem: {
@@ -55624,6 +55868,126 @@ export interface operations {
             };
         };
     };
+    get_shared_glossary_api_series__series_id__shared_glossary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesSharedGlossary"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_shared_glossary_api_series__series_id__shared_glossary_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeriesSharedGlossaryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesSharedGlossary"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     set_speaker_mode_api_series__series_id__speaker_mode_post: {
         parameters: {
             query?: never;
@@ -56606,6 +56970,323 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetupReadiness"];
+                };
+            };
+        };
+    };
+    list_groups_api_shared_glossaries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedGlossaryGroupList"];
+                };
+            };
+        };
+    };
+    create_group_api_shared_glossaries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharedGlossaryCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedGlossaryGroup"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_group_api_shared_glossaries__group_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedGlossaryDeleteResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_terms_api_shared_glossaries__group_id__terms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedGlossaryTerm"][];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_term_api_shared_glossaries__group_id__terms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharedGlossaryTermWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedGlossaryTerm"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_term_api_shared_glossaries__group_id__terms__term_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+                term_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedGlossaryTermDeleteResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
