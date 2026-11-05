@@ -121,13 +121,14 @@
   .stage-translate .card-table .card-meta:empty { display: none; }
   .stage-translate .card-table .card-action { flex: 1 1 100%; text-align: right; padding-right: 6px; } /* room for the 44px tap area that reaches past a small button */
   .stage-translate .card-table .card-action .error { text-align: left; }
-  /* Glossary: tick box, original and Edit share the first row; translation below at full width. */
+  /* Glossary: tick box and original share the first row; translation and notes below; the row's buttons
+     (Edit, Find similar, Suggest spellings) get a full row last, since beside the original they squeezed it to one letter per line. */
   .stage-translate .glossary-table tr.card-main { gap: var(--space-1) var(--space-3); align-items: center; padding-bottom: var(--space-3); }
   .stage-translate .card-table td.card-meta[data-label="Reference"]::before { display: none; }
   .stage-translate .glossary-table .card-check { order: 1; flex: 0 0 44px; margin-left: calc(var(--space-2) * -1); }
   .stage-translate .glossary-table .card-check input { width: 24px; height: 24px; margin: 10px; }
   .stage-translate .glossary-table .card-title { order: 2; flex: 1 1 0; font-size: var(--text-lg); }
-  .stage-translate .glossary-table .card-action { order: 3; flex: 0 0 auto; }
+  .stage-translate .glossary-table .card-action { order: 6; flex: 1 1 100%; }
   .stage-translate .glossary-table .card-wide { order: 4; }
   .stage-translate .glossary-table .card-meta { order: 5; }
   .stage-translate .glossary-table td.card-title::before, .stage-translate .glossary-table td.card-wide::before { display: none; }
