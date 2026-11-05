@@ -250,6 +250,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/extension/status` | local_only() |
 | `POST /api/extension/token` | local_only() |
 | `GET /api/glossary/catalogues` | library.read |
+| `GET /api/glossary/dramas/{drama_id}/address-terms` | lines.read |
+| `POST /api/glossary/dramas/{drama_id}/address-terms` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/dismissals` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/dismissals` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/dismissals/restore` | lines.edit |
