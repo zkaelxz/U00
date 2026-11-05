@@ -7,12 +7,14 @@ import {
   buildEstimateQuery,
   cancelBulkTranslation,
   deleteGlossaryTerms,
+  getAddressTerms,
   glossaryCsvUrl,
   importGlossary,
 
   dismissTranslateErrors,
   getTranslateEstimate,
   listBulkTranslations,
+  saveAddressTerms,
   saveCharacter,
   saveGlossaryTerm,
   saveInstructions,
@@ -56,6 +58,15 @@ describe('translate stage api', () => {
     expect(calls[1].url).toBe('/api/translate-run/dramas/4/run')
     expect(calls[1].init?.method).toBe('POST')
     expect(JSON.parse(String(calls[1].init?.body)).batch_size).toBe(20)
+  })
+
+  it('reads address terms and posts the chosen renderings', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, {}, calls)
+    await getAddressTerms(2, f)
+    await saveAddressTerms(2, [{ term: '姐姐', translation: 'big sister' }], f)
+    expect(calls.map((c) => c.url)).toEqual(['/api/glossary/dramas/2/address-terms', '/api/glossary/dramas/2/address-terms'])
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ terms: [{ term: '姐姐', translation: 'big sister' }] })
   })
 
   it('posts glossary, instruction and character writes to their routes', async () => {

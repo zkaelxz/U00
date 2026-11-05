@@ -23,6 +23,7 @@ import { GlossaryImport } from './GlossaryImport'
 import { InstructionsEditor } from './GlossaryInstructions'
 import { GlossaryRetranslateAction } from './GlossaryRetranslate'
 import { SuggestSpellings } from './GlossarySpellings'
+import { AddressTermsPanel } from './GlossaryAddressTerms'
 import { PossibleNames, SimilarSpellings } from './GlossaryVariants'
 import { NameReportPanel } from './NameReportPanel'
 import { VtuberNames } from './VtuberNames'
@@ -475,6 +476,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       {panel('names', (
         <>
       <PossibleNames hasSeries={seriesId != null} onCreated={() => setReloads((n) => n + 1)} />
+      <AddressTermsPanel onAdded={() => setReloads((n) => n + 1)} />
       {similarFor === null && suggestFor === null && hasTerms && (
         <p className="muted">To look for other spellings of a term, use Find similar or Suggest spellings on its row in Terms.</p>
       )}

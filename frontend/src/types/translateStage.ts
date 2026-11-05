@@ -285,6 +285,15 @@ export type GlossaryNameCluster = Schemas['GlossaryNameCluster']
 
 export type GlossaryNameClusters = Schemas['GlossaryNameClusters']
 
+// GET/POST /api/glossary/dramas/{id}/address-terms: the scan is read-only and offline.
+export type AddressTerms = Schemas['AddressTerms']
+
+export type AddressTermCandidate = Schemas['AddressTermCandidate']
+
+export type AddressTermChoice = Schemas['AddressTermChoice']
+
+export type AddressTermsSaveResult = Schemas['AddressTermsSaveResult']
+
 export type SpellingSuggestStatus = Schemas['SpellingSuggestStatus']
 
 export type NameConsistency = Schemas['NameConsistency']
