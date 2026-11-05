@@ -41,7 +41,7 @@ from xml.sax.saxutils import escape
 import background_jobs
 import db
 import portable
-from lib.file_manager import open_folder as _launch
+from lib.file_manager import NoDesktopError, open_folder as _launch
 from lib.safe_paths import is_device_name
 from lib.errors import InvalidInputError, UnsupportedOperationError
 from services.sources_import_service import parse_chapter_ids
@@ -112,6 +112,9 @@ def open_save_folder() -> dict:
     os.makedirs(folder, exist_ok=True)
     try:
         _launch(folder)
+    except NoDesktopError:
+        raise UnsupportedOperationError("Baihe is running as a background service on this PC, so it "
+                                        "can't open a window. Open the folder yourself in File Explorer.") from None
     except OSError:
         raise UnsupportedOperationError("This PC has no file manager the app can open.") from None
     return {"opened": True}

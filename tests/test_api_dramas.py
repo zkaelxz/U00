@@ -452,3 +452,14 @@ def test_open_folder_route_is_pc_only():
     decls = {(path, tuple(sorted(methods))): d
              for _r, path, methods, d in iter_route_declarations(create_app(ApiSettings()))}
     assert decls[("/api/dramas/{drama_id}/folder/open", ("POST",))] == [("local_only", None)]
+
+
+def test_open_folder_from_a_background_service_says_so(client, monkeypatch):
+    from lib import file_manager
+
+    def no_desktop(folder):
+        raise file_manager.NoDesktopError("no desktop session")
+    monkeypatch.setattr(file_manager, "open_folder", no_desktop)
+    drama_id = db.create_drama(title_en="A")
+    r = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
+    assert r.status_code == 400 and "background service" in _error(r)["message"]
