@@ -1,9 +1,10 @@
 // The Library tools tabs and which tab holds each card. A deep link names a tab
 // ("#/library-tools?tab=storage"); the other pages' text points at the same names.
-export type LibraryToolsTab = 'organize' | 'activity' | 'backup' | 'storage' | 'data'
+export type LibraryToolsTab = 'organize' | 'voices' | 'activity' | 'backup' | 'storage' | 'data'
 
 export const LIBRARY_TOOLS_TABS: { id: LibraryToolsTab; label: string }[] = [
   { id: 'organize', label: 'Organize' },
+  { id: 'voices', label: 'Voices' },
   { id: 'activity', label: 'Activity' },
   { id: 'backup', label: 'Backup' },
   { id: 'storage', label: 'Storage' },
@@ -26,6 +27,7 @@ export const CARDS = {
   presets: { tab: 'organize', title: 'Profiles' },
   'voice-bank': { tab: 'organize', title: 'Voice bank' },
   'saved-manga': { tab: 'organize', title: 'Saved manga' },
+  'enrolled-voices': { tab: 'voices', title: 'Enrolled voices' },
   cost: { tab: 'activity', title: 'Cost by title' },
   history: { tab: 'activity', title: 'Reading history' },
   backup: { tab: 'backup', title: 'Back up' },
