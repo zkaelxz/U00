@@ -847,6 +847,9 @@ def test_cancel_between_pages(client, monkeypatch):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
     seen = []
+    # The chapter pre-read would detect both pages before "Page 1 of 2" is
+    # reported, so the cancel below could never come from inside page 1.
+    patch_setting(monkeypatch, "scanlate_chapter_brief", False)
     # Page 1 is detected ahead on a worker thread: the cancel must come once
     # the run has started on page 1, as a person's cancel does, not before
     # the run's first between-pages check.
