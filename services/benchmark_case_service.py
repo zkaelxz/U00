@@ -277,6 +277,8 @@ def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str | None =
                 kwargs = _whisper_kwargs(options, prepared.timing, tuning, lambda frac: cancel_check())
             else:
                 kwargs = _backend_kwargs(backend, options, tuning, language, cancel_check)
+                if (prepared.timing or {}).get(difficult.FIXED_WINDOWS):
+                    kwargs["fixed_window_s"] = difficult.FIXED_WINDOW_S
             result = benchmark.run_transcription_case(
                 dict(case, input_path=audio), whisper_size=cfg["model"], use_gpu=use_gpu,
                 local_model_path=folder if cfg["model"] == benchmark.LOCAL_FOLDER_MODEL else None,

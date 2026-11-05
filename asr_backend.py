@@ -512,7 +512,7 @@ class Qwen3ASRVadBackend:
                    cancel_check=None, refine_timing=False, vad_fn=None,
                    mixed_languages=False, stage_cb=None, on_device=None,
                    on_gpu_fallback=None, detector="standard", on_notice=None, prompt=None,
-                   tuning: AsrTuning = DEFAULT_TUNING):
+                   tuning: AsrTuning = DEFAULT_TUNING, fixed_window_s=None):
         """Segments as {"start", "end", "text"} (plus "flag"/"flag_note" where
         refined timing is uncertain). cancel_check() is called between batches
         and between aligned spans and should raise to stop; nothing is written
@@ -537,7 +537,12 @@ class Qwen3ASRVadBackend:
         can't run, Silero is used and on_notice(text) says why. "auto_asmr" is
         the same but falls back without a notice. An explicit
         vad_fn wins.
-        prompt: see Qwen3ASRBackend.transcribe. tuning: the run's thresholds (AsrTuning)."""
+        prompt: see Qwen3ASRBackend.transcribe. tuning: the run's thresholds (AsrTuning).
+
+        fixed_window_s: cut the audio into back-to-back windows of this length instead of
+        finding speech, and always refine the times with the forced aligner (a window's
+        edges say nothing about where the words are). Ignored with mixed_languages, whose
+        per-span language detection needs real spans."""
         import vad_segments
         if language is None:
             mixed_languages = True
@@ -552,38 +557,43 @@ class Qwen3ASRVadBackend:
             stage_cb("Loading audio (CPU)")
         audio = load_audio_16k(audio_path)
         sr = 16000
-        if vad_fn is None and detector in ("asmr", "auto_asmr"):
+        fixed_window = None if mixed_languages else fixed_window_s
+        fixed = fixed_window is not None
+        if not fixed and vad_fn is None and detector in ("asmr", "auto_asmr"):
             import asmr_vad
             # Chosen by Auto, the user never asked for it: fall back quietly.
             vad_fn = asmr_vad.vad_fn_or_fallback(
                 on_notice if detector == "asmr" else None,
                 **_changed(start=(tuning.asmr_start, 0.5), stop=(tuning.asmr_stop, 0.35)))
         if stage_cb:
-            stage_cb("Finding speech (CPU)")
+            stage_cb("Cutting the audio into windows (CPU)" if fixed else "Finding speech (CPU)")
         # A short pause inside a sentence is not a place to cut: Qwen3-ASR does
         # worse on the halves. Language detection keeps the finer spans so a
         # quick change of speaker and language is not merged into one.
         long_windows = self.long_windows and not mixed_languages
-        # A default run calls the helpers exactly as it always has: only what differs is passed.
-        if long_windows:
-            detect = {"threshold": tuning.long_vad_threshold,
-                      "min_speech_ms": tuning.long_vad_min_speech_ms,
-                      "pad_ms": tuning.long_vad_pad_ms,
-                      **_changed(min_silence_ms=(tuning.vad_min_silence_ms, 300))}
-            merge_gap, cap = tuning.long_merge_gap_s, {
-                "max_s": tuning.long_window_s, "search_window_s": tuning.long_cut_search_s}
+        if fixed_window is not None:
+            spans = vad_segments.fixed_spans(len(audio) / sr, fixed_window)
         else:
-            detect = _changed(threshold=(tuning.vad_threshold, 0.5),
-                              min_silence_ms=(tuning.vad_min_silence_ms, 300),
-                              min_speech_ms=(tuning.vad_min_speech_ms, 250),
-                              pad_ms=(tuning.vad_pad_ms, 100))
-            merge_gap = tuning.merge_gap_mixed_s if mixed_languages else tuning.merge_gap_s
-            cap = _changed(max_s=(tuning.span_cap_s, 15.0),
-                           search_window_s=(tuning.span_cap_search_s, 3.0))
-        spans = vad_segments.cap_spans(
-            vad_segments.merge_close(
-                vad_segments.speech_spans(audio, sr, vad_fn=vad_fn, **detect), gap_s=merge_gap),
-            audio, sr, **cap)
+            # A default run calls the helpers exactly as it always has: only what differs is passed.
+            if long_windows:
+                detect = {"threshold": tuning.long_vad_threshold,
+                          "min_speech_ms": tuning.long_vad_min_speech_ms,
+                          "pad_ms": tuning.long_vad_pad_ms,
+                          **_changed(min_silence_ms=(tuning.vad_min_silence_ms, 300))}
+                merge_gap, cap = tuning.long_merge_gap_s, {
+                    "max_s": tuning.long_window_s, "search_window_s": tuning.long_cut_search_s}
+            else:
+                detect = _changed(threshold=(tuning.vad_threshold, 0.5),
+                                  min_silence_ms=(tuning.vad_min_silence_ms, 300),
+                                  min_speech_ms=(tuning.vad_min_speech_ms, 250),
+                                  pad_ms=(tuning.vad_pad_ms, 100))
+                merge_gap = tuning.merge_gap_mixed_s if mixed_languages else tuning.merge_gap_s
+                cap = _changed(max_s=(tuning.span_cap_s, 15.0),
+                               search_window_s=(tuning.span_cap_search_s, 3.0))
+            spans = vad_segments.cap_spans(
+                vad_segments.merge_close(
+                    vad_segments.speech_spans(audio, sr, vad_fn=vad_fn, **detect), gap_s=merge_gap),
+                audio, sr, **cap)
         windows = vad_segments.context_windows(spans, len(audio) / sr, tuning.context_pad_s)
         # Frees the ONNX session before Qwen loads.
         del audio, vad_fn
@@ -596,7 +606,7 @@ class Qwen3ASRVadBackend:
         span_segments = [{"start": w.start_s, "end": w.end_s, "text": ""} for w in windows]
         # A long window holds many lines whose split times are only estimates
         # until the aligner places them.
-        refine_timing = (refine_timing or long_windows) and not mixed_languages
+        refine_timing = (refine_timing or long_windows or fixed) and not mixed_languages
         scale = 0.9 if refine_timing else 1.0
 
         def _progress(frac):

@@ -201,12 +201,36 @@ class TestWorker:
         assert items[-1][1]["coverage_warning"] == (
             "ffmpeg was not found, so the audio was not levelled. Speech coverage looks low.")
 
-    @pytest.mark.parametrize("backend", ["qwen3_asr_vad", "qwen3_asr_long", "anime_whisper"])
-    def test_detector_backends_get_levelling_only(self, worker, backend):
+    @pytest.mark.parametrize("backend", ["qwen3_asr_vad", "qwen3_asr_long"])
+    def test_qwen_detector_backends_hear_fixed_windows_with_no_detector(self, worker, backend):
         items = worker["run"](True, backend=backend)
         assert len(worker["levelled"]) == 1
-        assert difficult_audio_service.whisper_kwargs(worker["pipeline"][0][1]["timing"]) == {}
+        timing = worker["pipeline"][0][1]["timing"]
+        assert timing[difficult_audio_service.FIXED_WINDOWS] is True
+        # Whisper's skip rule means nothing to a Qwen3 recognizer.
+        assert difficult_audio_service.whisper_kwargs(timing) == {}
+        assert "fixed windows with no speech detector" in items[-1][1]["coverage_warning"]
+
+    def test_anime_whisper_gets_levelling_only(self, worker):
+        items = worker["run"](True, backend="anime_whisper")
+        assert len(worker["levelled"]) == 1
+        timing = worker["pipeline"][0][1]["timing"]
+        assert difficult_audio_service.FIXED_WINDOWS not in timing
+        assert difficult_audio_service.whisper_kwargs(timing) == {}
         assert "levelled the sound only" in items[-1][1]["coverage_warning"]
+
+    def test_qwen_language_detection_keeps_its_spans_and_gets_levelling_only(self, worker):
+        items = worker["run"](True, backend="qwen3_asr_vad", mixed=True)
+        assert difficult_audio_service.FIXED_WINDOWS not in worker["pipeline"][0][1]["timing"]
+        assert "fixed windows" not in items[-1][1]["coverage_warning"]
+
+    def test_fixed_windows_survive_a_missing_ffmpeg(self, worker, monkeypatch):
+        def missing(src, out, cancel=None, **k):
+            raise audio_preprocess.AudioLevelingUnavailable("ffmpeg was not found, so the audio was not levelled.")
+        monkeypatch.setattr(audio_preprocess, "level_audio", missing)
+        items = worker["run"](True, backend="qwen3_asr_vad")
+        assert worker["pipeline"][0][1]["timing"][difficult_audio_service.FIXED_WINDOWS] is True
+        assert "ffmpeg was not found" in items[-1][1]["coverage_warning"]
 
     def test_qwen3_asr_on_whisper_segments_gets_all_three(self, worker):
         worker["run"](True, backend="qwen3_asr")

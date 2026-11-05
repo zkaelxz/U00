@@ -187,6 +187,45 @@ def test_refine_timing_keeps_span_times_when_aligner_gives_nothing(monkeypatch):
     assert out[0]["flag"] == "timing_uncertain"
 
 
+def _fixed_run(fakes, monkeypatch, texts, **kw):
+    """A fixed-window run over 60 s of audio; returns (spans handed to the aligner, output)."""
+    fakes(texts)
+    handed = {}
+
+    def refine(audio_path, groups, language, **k):
+        handed["groups"] = groups
+        return [ln for g in groups for ln in g]
+    monkeypatch.setattr(forced_align, "refine_segment_timing", refine)
+    out = ab.Qwen3ASRVadBackend().transcribe(
+        "/a.wav", "zh", vad_fn=lambda *a: pytest.fail("the speech detector ran"),
+        fixed_window_s=8.0, **kw)
+    return handed, out
+
+
+def test_fixed_windows_hear_every_stretch_without_a_speech_detector(fakes, monkeypatch):
+    # 60 s in 8 s windows is eight windows; the quiet middle one comes back empty.
+    texts = ["一", "二", "", "四", "五", "六", "七", "八"]
+    handed, out = _fixed_run(fakes, monkeypatch, texts)
+    assert [ln["text"] for ln in out] == ["一", "二", "四", "五", "六", "七", "八"]
+    assert [(g[0]["start"], g[0]["end"]) for g in handed["groups"]][:2] == [(0.0, 8.0), (8.0, 16.0)]
+
+
+def test_fixed_windows_always_use_the_aligner_for_times(fakes, monkeypatch):
+    handed, _ = _fixed_run(fakes, monkeypatch, ["字"] * 8, refine_timing=False)
+    assert handed["groups"]
+
+
+def test_fixed_windows_are_ignored_while_language_detection_needs_real_spans(fakes, monkeypatch):
+    import mixed_language
+    monkeypatch.setattr(mixed_language, "transcribe_spans",
+                        lambda spans, language, *a, **k: [
+                            {"start": s.start_s, "end": s.end_s, "text": "你好"} for s in spans])
+    fakes([])
+    out = ab.Qwen3ASRVadBackend().transcribe(
+        "/a.wav", "zh", vad_fn=vad([(1.0, 3.0), (5.5, 8.0)]), mixed_languages=True, fixed_window_s=8.0)
+    assert len(out) == 2
+
+
 def test_refine_through_the_backend_is_off_unless_asked(fakes, monkeypatch):
     fakes(["你好"])
     monkeypatch.setattr(forced_align, "refine_segment_timing",
@@ -351,7 +390,7 @@ class _Rep:
 
 
 def _pipeline(rep, tmp_path, monkeypatch, fake_transcribe, backend="qwen3_asr_vad",
-              language="zh"):
+              language="zh", **extra):
     from services import transcribe_pipeline
     import anime_whisper
     monkeypatch.setattr(ab.Qwen3ASRVadBackend, "transcribe", fake_transcribe)
@@ -361,7 +400,7 @@ def _pipeline(rep, tmp_path, monkeypatch, fake_transcribe, backend="qwen3_asr_va
     return transcribe_pipeline._transcribe_pipeline(
         rep, str(tmp_path / "a.wav"), "whisper", None, language, "simplified", "medium", 5, 300, 0.5,
         False, "auto", False, False, False, None, "", False, backend, "whisper_diff",
-        vad_refine_timing=True)
+        vad_refine_timing=True, **extra)
 
 
 def test_pipeline_reports_backend_and_keeps_span_times_and_flags(tmp_path, monkeypatch):
@@ -593,3 +632,17 @@ def test_pipeline_passes_the_detector_and_surfaces_its_fallback_notice(tmp_path,
         voice_detector="asmr")
     assert seen["detector"] == "asmr"
     assert "not downloaded" in out["coverage_warning"]
+
+
+def test_pipeline_asks_for_fixed_windows_only_when_the_run_says_so(tmp_path, monkeypatch):
+    from services import difficult_audio_service as difficult, timing_settings_service
+    seen = {}
+
+    def fake(self, audio_path, language, **kw):
+        seen.clear()
+        seen.update(kw)
+        return [{"start": 1.0, "end": 2.0, "text": "你好"}]
+    _pipeline(_Rep(), tmp_path, monkeypatch, fake)
+    assert "fixed_window_s" not in seen
+    _pipeline(_Rep(), tmp_path, monkeypatch, fake, timing={**timing_settings_service.defaults(), difficult.FIXED_WINDOWS: True})
+    assert seen["fixed_window_s"] == difficult.FIXED_WINDOW_S
