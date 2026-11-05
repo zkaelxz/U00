@@ -27,6 +27,7 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
     r"구독과?좋아요.{0,20}",
     r"(?:mingpao(?:canada|toronto|news)?)+",
     r"(?:please|dontforgetto)?(?:likeand)?subscribe.{0,30}",
+    r"(?:please)?(?:likeand)?subscribetomychannel(?:and(?:hit|click|press)thebell(?:icon)?(?:tobenotified)?)?",
 )]
 # A stock phrase is only dropped with at least this much silence on each side
 # (a missing neighbour counts as silence), so dialogue that happens to say

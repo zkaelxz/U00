@@ -654,6 +654,14 @@ class TestStockPhraseFilter:
                         self._seg(60, 62, "another line")]
             assert filter_hallucinated_segments(segments) == [segments[0], segments[2]], text
 
+    def test_the_long_subscribe_outro_is_dropped_but_a_sentence_using_the_words_is_not(self):
+        outro = "Please subscribe to my channel and click the bell icon to be notified."
+        segments = [self._seg(0, 2, "real line"), self._seg(30, 34, outro), self._seg(60, 62, "another line")]
+        assert filter_hallucinated_segments(segments) == [segments[0], segments[2]]
+        speech = [self._seg(0, 2, "I told him to subscribe to my channel if he liked the show"),
+                  self._seg(30, 32, "Please subscribe to my channel")]
+        assert filter_hallucinated_segments(speech)[0] == speech[0]
+
     def test_a_stock_phrase_at_the_end_of_the_audio_is_dropped(self):
         segments = [self._seg(0, 2, "real line"), self._seg(40, 42, "Thanks for watching")]
         assert filter_hallucinated_segments(segments) == [segments[0]]
