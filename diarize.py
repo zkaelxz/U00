@@ -638,6 +638,50 @@ def load_embeddings(drama_dir: str) -> dict:
     return _read_turns_file(drama_dir).get("embeddings") or {}
 
 
+def embedding_from_lines(drama_dir: str, label: str, lines, *, min_purity: float = 0.9,
+                         min_seconds: float = 10.0):
+    """A voice fingerprint for a speaker that was renamed or merged after detection.
+
+    The saved embeddings stay keyed by the detector's own labels, so a speaker
+    named by hand finds none under its name. This rebuilds one from the saved
+    turns: each detector label whose speech falls at least `min_purity` on
+    this speaker's lines is averaged in, weighted by the seconds it covers.
+    A detector label shared with another speaker is left out because blending
+    it would smear two voices into one print. None unless the clean speech
+    adds up to `min_seconds`, since a few seconds is not a usable voice."""
+    data = _read_turns_file(drama_dir)
+    embeddings, turns = data.get("embeddings") or {}, data.get("turns") or []
+    if not isinstance(embeddings, dict) or not isinstance(turns, list):
+        return None
+    spans = sorted((ln.start, ln.end, ln.speaker == label) for ln in lines)
+    mine: dict = {}
+    total: dict = {}
+    for turn in turns:
+        try:
+            detector, t0, t1 = turn["speaker"], float(turn["start"]), float(turn["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        vec = embeddings.get(detector)
+        if not isinstance(vec, list) or not vec:
+            continue
+        for start, end, is_mine in spans:
+            if start >= t1:
+                break
+            overlap = min(end, t1) - max(start, t0)
+            if overlap > 0:
+                total[detector] = total.get(detector, 0.0) + overlap
+                if is_mine:
+                    mine[detector] = mine.get(detector, 0.0) + overlap
+    clean = [d for d, secs in mine.items() if secs / total[d] >= min_purity]
+    if sum(mine[d] for d in clean) < min_seconds:
+        return None
+    sizes = [len(embeddings[d]) for d in clean]
+    size = max(set(sizes), key=sizes.count)
+    clean = [d for d in clean if len(embeddings[d]) == size]
+    weight = sum(mine[d] for d in clean)
+    return [sum(embeddings[d][i] * mine[d] for d in clean) / weight for i in range(size)]
+
+
 def fallback_done_message(kind) -> str:
     """The past-tense sentence for a finished run that fell back to CPU."""
     return PLACEMENT_FALLBACK_DONE_MESSAGE if kind == "placement" else OOM_FALLBACK_DONE_MESSAGE

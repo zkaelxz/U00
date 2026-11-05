@@ -764,3 +764,37 @@ class TestNemotronVoicePrints:
         diarize_nemotron.embeddings_from_turns(self._audio(900), 16000, turns, embed)
         assert max(sizes) <= diarize_nemotron.PRINT_PIECE_SECONDS
         assert sum(sizes) == pytest.approx(diarize_nemotron.MAX_PRINT_SPEECH_SECONDS)
+
+
+class TestEmbeddingFromLines:
+    """A speaker renamed after detection has no embedding under its name; one is rebuilt from the detector labels that sit on its lines."""
+
+    @staticmethod
+    def _lines(*spans):
+        from core import Line
+        return [Line(idx=i, start=s, end=e, zh="x", speaker=who) for i, (s, e, who) in enumerate(spans)]
+
+    @staticmethod
+    def _save(tmp_path, turns, embeddings):
+        diarize.save_turns(str(tmp_path), turns, embeddings=embeddings)
+
+    def test_averages_clean_detector_labels_weighted_by_seconds(self, tmp_path):
+        self._save(tmp_path, [{"speaker": "SPEAKER_00", "start": 0, "end": 30},
+                              {"speaker": "SPEAKER_01", "start": 30, "end": 40}],
+                   {"SPEAKER_00": [1.0, 0.0], "SPEAKER_01": [0.0, 1.0]})
+        lines = self._lines((0, 30, "Uririn"), (30, 40, "Uririn"))
+        vec = diarize.embedding_from_lines(str(tmp_path), "Uririn", lines)
+        assert vec == pytest.approx([0.75, 0.25])
+
+    def test_a_detector_label_shared_with_another_speaker_is_left_out(self, tmp_path):
+        self._save(tmp_path, [{"speaker": "SPEAKER_00", "start": 0, "end": 40}],
+                   {"SPEAKER_00": [1.0, 0.0]})
+        lines = self._lines((0, 30, "Anok"), (30, 40, "Uririn"))
+        assert diarize.embedding_from_lines(str(tmp_path), "Anok", lines) is None
+
+    def test_too_little_clean_speech_gives_none(self, tmp_path):
+        self._save(tmp_path, [{"speaker": "SPEAKER_00", "start": 0, "end": 5}], {"SPEAKER_00": [1.0, 0.0]})
+        assert diarize.embedding_from_lines(str(tmp_path), "Anok", self._lines((0, 5, "Anok"))) is None
+
+    def test_no_saved_turns_gives_none(self, tmp_path):
+        assert diarize.embedding_from_lines(str(tmp_path), "Anok", self._lines((0, 20, "Anok"))) is None
