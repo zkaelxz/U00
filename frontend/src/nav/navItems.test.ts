@@ -15,7 +15,7 @@ const MEMBER_PERMISSIONS = ['library.read', 'lines.read', 'lines.edit', 'review.
 
 const personas: Record<string, NavContext> = {
   'owner at the PC': {
-    session: meOf({ auth_enabled: false, zone: 'local', permissions: [...MEMBER_PERMISSIONS, 'admin.users.read', 'admin.users', 'admin.diagnostics', 'admin.settings', 'admin.library'] }),
+    session: meOf({ auth_enabled: false, zone: 'local', permissions: [...MEMBER_PERMISSIONS, 'admin.users.read', 'admin.users', 'admin.diagnostics', 'admin.settings', 'admin.library', 'library.create'] }),
     pcMode: 'local',
     developerMode: false,
   },

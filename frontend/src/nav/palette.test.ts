@@ -103,7 +103,7 @@ describe('isPaletteShortcut', () => {
 })
 
 const owner_: NavContext = {
-  session: sessionOf(['library.read', 'admin.library', 'admin.settings', 'admin.diagnostics']),
+  session: sessionOf(['library.read', 'admin.library', 'library.create', 'admin.settings', 'admin.diagnostics']),
   pcMode: 'local',
   developerMode: false,
 }

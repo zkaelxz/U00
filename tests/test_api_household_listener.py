@@ -530,6 +530,27 @@ class TestAdminOverrideIsPcOnly:
         assert h.post(f"/api/translate-run/dramas/{theirs}/run", headers=_h(s),
                       json={"engine": "ollama"}).status_code == 403
 
+    def test_admin_creates_a_title_from_away_and_a_member_cannot(self, isolated_db, monkeypatch):
+        # A link on the new title is stored but not read from away: only a
+        # request at the PC makes the PC fetch it, so a nameless title gets
+        # the placeholder name.
+        from services import link_details_service
+        monkeypatch.setattr(link_details_service, "check_public_url", lambda url: url)
+        monkeypatch.setattr(link_details_service, "title_for_new",
+                            lambda url, at_pc: ("example.com", "placeholder" if not at_pc else "link"))
+        s = _admin_session()
+        h = _household_client()
+        r = h.post("/api/dramas", headers=_h(s), json={"source_language": "zh", "title_en": "From the phone"})
+        assert r.status_code == 201 and r.json()["title_en"] == "From the phone"
+        r = h.post("/api/dramas", headers=_h(s), json={"source_language": "zh",
+                                                       "source_url": "https://example.com/watch?v=abc"})
+        assert r.status_code == 201 and r.json()["title_from_link"] == "placeholder"
+        member = auth_service.add_user("kid@example.com")
+        auth_service.activate_user(member["id"])
+        ms = auth_service.create_session(member["id"], "pytest", "127.0.0.1")
+        assert h.post("/api/dramas", headers=_h(ms),
+                      json={"source_language": "zh", "title_en": "No"}).status_code == 403
+
     @pytest.mark.parametrize("where", ["admin", "single_port"])
     def test_pc_and_single_port_unchanged(self, isolated_db, where):
         s, private = self._world()

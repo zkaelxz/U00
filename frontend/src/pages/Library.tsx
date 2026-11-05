@@ -285,9 +285,9 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
-  // POST /api/dramas needs admin.library, which household members lack. It only hides the
+  // POST /api/dramas needs library.create, which only an admin holds (at the PC or away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
-  const canCreate = useHolds('admin.library')
+  const canCreate = useHolds('library.create')
   const [startedDismissed, setStartedDismissed] = usePersistedState(GET_STARTED_PREF, false)
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)

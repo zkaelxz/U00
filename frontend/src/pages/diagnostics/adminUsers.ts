@@ -8,8 +8,9 @@ import type { AdminUser, AuditEvent } from '../../types/adminUsers'
 export function holds(s: SessionState, permission: string): boolean {
   if (s.status === 'loading') return false
   // Unknown session: render as before sign-in existed (routes still enforce),
-  // except admin controls, which would otherwise light up for every member.
-  if (s.status === 'unavailable') return !permission.startsWith('admin.')
+  // except admin controls (and library.create, which only an admin holds), which would otherwise
+  // light up for every member.
+  if (s.status === 'unavailable') return !permission.startsWith('admin.') && permission !== 'library.create'
   return s.me.permissions.includes(permission)
 }
 
