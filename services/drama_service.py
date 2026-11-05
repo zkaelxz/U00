@@ -426,6 +426,9 @@ def open_drama_folder(drama_id: int, principal) -> dict:
                             "or the library folder can't be written to.") from e
     try:
         file_manager.open_folder(folder)
+    except file_manager.NoDesktopError:
+        raise UnsupportedOperationError("Baihe is running as a background service on this PC, so it "
+                                        "can't open a window. Open the folder yourself in File Explorer.") from None
     except OSError:
         raise UnsupportedOperationError("This PC has no file manager the app can open.") from None
     return {"opened": True}

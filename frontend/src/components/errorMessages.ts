@@ -33,7 +33,7 @@ const GENERIC: Record<string, string> = {
   invalid_input: 'Some of the values entered are not valid. Check them and try again.',
   not_found: 'That item could not be found. It may have been deleted.',
   conflict: 'That cannot be done right now because something else is already using it.',
-  unsupported_operation: 'This project type does not support that action.',
+  unsupported_operation: 'That is not available here.',
   application_error: 'The action failed. Nothing was changed unless stated otherwise.',
   job_failed: 'The job failed.',
   internal_error: 'Something went wrong inside Baihe. Details are in the app log.',
