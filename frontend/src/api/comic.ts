@@ -24,8 +24,10 @@ export function comicImageUrl(
   pageId: number,
   variant: ComicVariant = 'original',
   version: number | string | null = null,
+  size: 'full' | 'reader' = 'full',
 ): string {
   const q = new URLSearchParams({ variant })
+  if (size !== 'full') q.set('size', size)
   if (version !== null && version !== '') q.set('v', String(version))
   return apiUrl(`${root(dramaId)}/pages/${pageId}/image?${q}`)
 }
