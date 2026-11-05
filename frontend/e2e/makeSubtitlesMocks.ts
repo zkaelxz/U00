@@ -35,7 +35,7 @@ export async function mockMakeSubtitles(
   const started = new Set<string>()
 
   await page.route('**/api/events?*', (r) => json(r, { error: { code: 'rate_limited', message: 'No stream.' } }, 429))
-  await page.route((u) => u.pathname === '/api/auth/me', (r) => json(r, { ...ME.authOff, permissions: [...ME.authOff.permissions, 'library.read', 'admin.library'] }))
+  await page.route((u) => u.pathname === '/api/auth/me', (r) => json(r, { ...ME.authOff, permissions: [...ME.authOff.permissions, 'library.read', 'library.create'] }))
   await page.route('**/api/translate/engines', (r) => json(r, {
     items: [
       { name: 'deepseek', label: 'DeepSeek.', free: false, models: null, key_configured: true },

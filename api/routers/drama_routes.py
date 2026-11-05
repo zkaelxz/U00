@@ -47,7 +47,7 @@ from lib.storage_errors import require_readable
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 
 
-@router.post("", dependencies=[require_permission("admin.library")], response_model=DramaCreateResult, status_code=201,
+@router.post("", dependencies=[require_permission("library.create")], response_model=DramaCreateResult, status_code=201,
              summary="Create a drama (optionally with a series and/or preset)",
              responses=error_responses(404, 409, 422))
 def post_drama(payload: DramaCreateRequest, request: Request):

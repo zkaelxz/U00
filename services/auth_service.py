@@ -69,7 +69,11 @@ UPLOAD_PERMISSION = "media.upload"
 # from away too, with no PC switch; the update source is fixed to this copy's
 # own git remote and nothing in the request chooses it.
 UPDATE_PERMISSION = "system.update"
-ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION)
+# Making a new, empty title (POST /api/dramas). It writes one library row and
+# fetches nothing, so unlike the rest of admin.library an admin keeps it away
+# from the PC; editing, importing and deleting titles stay PC-only.
+CREATE_PERMISSION = "library.create"
+ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION, CREATE_PERMISSION)
 ADMIN_FLAG_PERMISSIONS = ADMIN_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
 PERMISSIONS = (HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
                + ADMIN_ONLY_PERMISSIONS)

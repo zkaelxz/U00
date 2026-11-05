@@ -71,7 +71,7 @@ export const NAV_ITEMS: NavItem[] = [
   }),
   // Creating a title is what the run does first, so the item needs the same permission as the Library's New title.
   item('Make subtitles', { name: 'make-subtitles' }, {
-    requires: 'admin.library',
+    requires: 'library.create',
     hideWithoutPermission: true,
     rail: { group: 'tools', active: ['make-subtitles'] },
   }),
