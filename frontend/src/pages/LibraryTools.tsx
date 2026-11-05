@@ -356,7 +356,7 @@ export default function LibraryToolsPage() {
         )}
           </>
         ))}
-        {panel('voices', <VoicesTab pc={pc} />)}
+        {panel('voices', tab === 'voices' && <VoicesTab pc={pc} />)}
         {panel('activity', (
           <>
         <ToolSection
