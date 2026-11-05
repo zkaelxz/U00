@@ -355,7 +355,7 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
     engine = _build_engine(config)
     if engine is None:
         return [["warning", "already in the library; translate it in Scanlate"]]
-    glossary = (db.list_glossary_terms(drama["series_id"])
+    glossary = (db.list_effective_glossary_terms(drama["series_id"])
                 if drama and drama.get("series_id") else None)
     originals = page_capture_checks.snapshot_texts(missing)
     try:
@@ -506,7 +506,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         notes.extend(_detect_notes(detect_notes, member))
         engine = _build_engine(config)
         if bubbles and engine is not None:
-            glossary = (db.list_glossary_terms(drama["series_id"])
+            glossary = (db.list_effective_glossary_terms(drama["series_id"])
                         if drama and drama.get("series_id") else None)
             try:
                 page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama,

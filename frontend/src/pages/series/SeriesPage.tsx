@@ -28,6 +28,7 @@ import {
 } from './seriesModel'
 import { ConsistencyCard } from './ConsistencyCard'
 import { DefaultsTab } from './DefaultsTab'
+import { SharedGlossaryCard } from './SharedGlossaryCard'
 import { TmxCard } from './TmxCard'
 import { TITLE_SORTS, defaultSeriesSort, isTitleSort, sortTitles, type TitleSort } from '../titleOrder'
 import './seriesPage.css'
@@ -183,6 +184,7 @@ function GlossaryTab({ data, onCopied }: { data: SeriesPageData; onCopied: () =>
           <p className="muted">Add a title to this series to edit its glossary and instructions.</p>
         )}
       </Card>
+      <SharedGlossaryCard data={data} onChanged={onCopied} />
       <CopyTermsCard data={data} onCopied={onCopied} />
       {data.can_edit && <ConsistencyCard data={data} />}
       <TmxCard seriesId={data.id} canEdit={data.can_edit} onImported={onCopied} />

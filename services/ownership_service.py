@@ -213,6 +213,13 @@ def require_copy_source(principal, series_id) -> None:
         raise _not_found("series")
 
 
+def can_edit_shared_group(principal, group: dict) -> bool:
+    """A shared glossary group is visible by name to everyone but changed only by
+    its creator or whoever may override (an admin at the PC); a group made at the
+    PC has no account owner, like a PC-made series (see _owns)."""
+    return _everything(principal, True) or _owns(principal, group.get("owner_user_id"), True)
+
+
 def visible_to_filter(principal):
     """The `visible_to` argument for db.list_dramas / db.list_series:
     None when the principal sees everything, else their user id (-1 for a

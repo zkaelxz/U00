@@ -100,7 +100,7 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     the API transcribe and auto-tune paths so they can't drift. Returns "" when there's nothing to prime with. Raises
     NotFoundError for an unknown drama id."""
     drama = ownership_service.require_drama(drama_id)
-    terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
+    terms = db.list_effective_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
     glossary_names = core_module.build_initial_prompt(terms).rstrip("。")
     prompt = "、".join(x for x in (glossary_names, (extra_names or "").strip()) if x)
     if prompt:

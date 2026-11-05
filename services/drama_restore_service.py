@@ -243,7 +243,8 @@ def _resolve_series(src, dst, series_id, drama_owner, owners, counts, import_as=
 def _insert_series(src, dst, series_id, row, counts) -> tuple:
     """Inserts the series row and its glossary, characters and memory;
     (live series id, {old series_character id: live id})."""
-    live_id = _insert(dst, "series", row, columns(dst, "series"))
+    # The group's id belongs to the library the snapshot came from.
+    live_id = _insert(dst, "series", {**row, "shared_group_id": None}, columns(dst, "series"))
     counts["series"] = 1
     char_map = {}
     for table in SERIES_CHILDREN:

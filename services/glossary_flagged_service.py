@@ -22,7 +22,7 @@ def _flagged_rows(drama_id: int) -> list:
         return []
     drama = db.get_drama(drama_id) or {}
     series_id = drama.get("series_id")
-    terms = db.list_glossary_terms(series_id) if series_id else []
+    terms = db.list_effective_glossary_terms(series_id) if series_id else []
     return [r._asdict() for r in flagged if missing_terms(r.zh, r.en, terms)]
 
 

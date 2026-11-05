@@ -374,7 +374,7 @@ def get_export_readiness(drama_id: int) -> dict:
     # Same names / banned terms run_auto_qc_flagging uses, so this count
     # matches what "Flag these for review" would flag.
     series_id = drama.get("series_id")
-    glossary_terms = db.list_glossary_terms(series_id) if series_id else []
+    glossary_terms = db.list_effective_glossary_terms(series_id) if series_id else []
     names = auto_qc.build_name_list(
         glossary_terms, db.list_series_characters(series_id) if series_id else [])
     qc_issues = auto_qc.find_issues(lines, names, auto_qc.build_banned_terms(glossary_terms))
@@ -677,7 +677,7 @@ def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
 def run_auto_qc_flagging(drama_id: int) -> dict:
     """Runs Auto QC's factual-detail check over this drama's lines and
     updates flags in place, with the glossary-name-list/banned-terms inputs
-    from db.list_glossary_terms/db.list_series_characters (the same inputs
+    from db.list_effective_glossary_terms/db.list_series_characters (the same inputs
     get_export_readiness counts with). Raises
     NotFoundError for an unknown drama id. Returns
     {"flagged", "cleared", "already_flagged", "checked"} -- see
@@ -685,7 +685,7 @@ def run_auto_qc_flagging(drama_id: int) -> dict:
     drama, lines = _load_drama_and_lines(drama_id)
 
     series_id = drama.get("series_id")
-    glossary_terms = db.list_glossary_terms(series_id) if series_id else []
+    glossary_terms = db.list_effective_glossary_terms(series_id) if series_id else []
     names = auto_qc.build_name_list(
         glossary_terms, db.list_series_characters(series_id) if series_id else [])
     banned_terms = auto_qc.build_banned_terms(glossary_terms)

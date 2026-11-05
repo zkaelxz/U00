@@ -44,7 +44,7 @@ def _candidates(drama_id: int, series_id) -> list:
         for sc in db.list_series_characters(series_id):
             out.append(sc.get("character_name"))
             out.extend(_ALIAS_SPLIT.split(sc.get("aliases") or ""))
-        for term in db.list_glossary_terms(series_id):
+        for term in db.list_effective_glossary_terms(series_id):
             out.append(term.get("term_original"))
             out.extend(_ALIAS_SPLIT.split(term.get("aliases") or ""))
     return out

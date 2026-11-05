@@ -63,7 +63,7 @@ def _visible_titles(principal, series_id: int) -> List[dict]:
 def build_report(principal, series_id: int) -> dict:
     ownership_service.require_visible(principal, "series", series_id)
     titles = _visible_titles(principal, series_id)
-    terms = [t for t in db.list_glossary_terms(series_id) if (t.get("term_translation") or "").strip()]
+    terms = [t for t in db.list_effective_glossary_terms(series_id) if (t.get("term_translation") or "").strip()]
     by_original = {t["term_original"]: t for t in terms}
     known_names = {t["term_translation"].strip().casefold() for t in terms}
 
