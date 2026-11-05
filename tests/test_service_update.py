@@ -478,3 +478,18 @@ def test_deny_entries_and_read_only_entries_do_not_count_as_write_access():
     sddl = ("O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(D;OICI;FA;;;S-1-5-21-1-2-3-1001)"
             "(A;OICI;FRFX;;;BU)(A;OICI;RC;;;OW)")
     assert service_lock.write_access_problem(sddl, {"SY", "BA"}, protected=True) is None
+
+
+def test_a_refusal_before_the_update_began_spends_the_request_and_leaves_a_result(env, key):
+    layout, svc, _ = env
+    _release(layout, key)
+    su.record_refusal(layout, Log())
+    assert sw.read_result(layout.root)["code"] == "not_started"
+    assert not (layout.data / "library" / "updates" / su.REQUEST_NAME).exists()
+    assert svc.stops == 0
+
+
+def test_a_refusal_with_no_readable_request_writes_nothing(env):
+    layout, _, _ = env
+    su.record_refusal(layout, Log())
+    assert sw.read_result(layout.root) is None
