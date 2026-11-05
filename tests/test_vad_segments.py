@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import vad_segments
-from vad_segments import Span, cap_spans, merge_close, speech_spans
+from vad_segments import Span, cap_spans, fixed_spans, merge_close, speech_spans
 
 SR = 16000
 
@@ -103,3 +103,16 @@ def test_cap_is_deterministic_on_silence():
     first = cap_spans([Span(0.0, 40.0)], audio, SR)
     assert first == cap_spans([Span(0.0, 40.0)], audio, SR)
     assert all(p.end_s - p.start_s <= 15.0 for p in first)
+
+
+def test_fixed_spans_tile_the_audio_back_to_back():
+    spans = fixed_spans(20.0, 8.0)
+    assert spans == [Span(0.0, 8.0), Span(8.0, 16.0), Span(16.0, 20.0)]
+
+
+def test_fixed_spans_fold_a_tiny_tail_into_the_window_before_it():
+    assert fixed_spans(16.4, 8.0) == [Span(0.0, 8.0), Span(8.0, 16.4)]
+
+
+def test_fixed_spans_of_nothing_is_nothing():
+    assert fixed_spans(0.0, 8.0) == []

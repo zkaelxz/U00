@@ -647,7 +647,8 @@ Whisper plus Qwen combined.
 
 A per-title opt-in (`dramas.difficult_audio`, Transcribe > Advanced > Switches, also a series default) for audio where the default drops speech:
 someone screams or talks very loud, or two people whisper. Off, a run is identical to before: the same worker arguments, the same keywords to
-faster-whisper. On, a transcription does three things:
+faster-whisper. On, a transcription does three things (the two Qwen3 recognizers that find speech with their own detector, `qwen3_asr_vad` and
+`qwen3_asr_long`, take the levelled copy and a fourth treatment instead of the Whisper ones; see "Qwen3 with no speech detector" below):
 
 1. **No speech detector for Whisper.** `transcribe_for_timing` passes `vad_filter=False` (not in Whisper fast mode, whose batched pipeline is cut
    by the detector), so Whisper hears the whole file. The title still runs with the Sensitive preset (`sensitivity_preset.difficult_audio_view`), which now
@@ -669,6 +670,19 @@ faster-whisper. On, a transcription does three things:
    the second; faster-whisper's defaults are 0.6 and -1.0, and the recipe uses 0.8 and -1.5. Both are Developer Mode rows in Settings > Timing and
    splitting (`difficult_no_speech_threshold`, `difficult_log_prob_threshold`); with Developer Mode off they read as these defaults. The hallucination guards
    (`filter_hallucinated_segments`, the stock-phrase and silence guards, and the title's repeat guard) still run on what comes back.
+
+### Qwen3 with no speech detector
+
+For `qwen3_asr_vad` and `qwen3_asr_long` the option hears the (levelled) audio in back-to-back 8 s windows (`difficult_audio_service.FIXED_WINDOW_S`,
+`vad_segments.fixed_spans`) with no speech detector, always refines the line times with the forced aligner, and lets the usual repeat and stock-phrase filters
+(`asr_backend._span_groups`) run on the result. Language detection (Mixed languages) keeps its detector spans and gets the levelling only. Anime-whisper
+gets the levelling only.
+
+Measured once, on one 172 s hand-corrected clip (title 59, 40 reference lines, RTX 3080 Ti, 2026-11-05): the Silero detector kept 17 lines and missed 22
+reference lines (1-CER 0.51); fixed windows missed none (1-CER 0.72 at 15 s, 0.66 at 8 s, 0.82 against 0.68 on the hand-converted first 70 s at 8 s), at the
+cost of 11 to 18 lines over near-silence (not checked by ear) and window-level times: without the aligner the start error was a median 3.5 s at 8 s windows.
+The 8 s size and the aligner were taken from that run; the aligner on fixed windows was not itself measured. Unmeasured: other clips, other languages, how
+often an invented line survives the filters, and whether the levelled copy helps Qwen3 the way it helps Whisper.
 
 Every Whisper run, Difficult audio or not, then hears a segment again when it is at least 6 s long and holds fewer than 1.5 letters per second
 (`whisper_transcribe._rehear_sparse`): faster-whisper sometimes closes a segment 20-80 s after it opened with a few words in it, having skipped the
