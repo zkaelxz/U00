@@ -309,8 +309,8 @@ def _drop_marks_running_off_edge(mask) -> None:
 _ART_FILL_CONTEXT_PX = 60
 # Outlined lettering is white or pale; bright pixels that are strongly coloured
 # are artwork (flames, glare), and painting them out would blank the art. Measured
-# on three Korean title pages: lettering 0.01-0.06, a box that took in flames 0.26.
-_ART_FILL_MAX_SATURATED_SHARE = 0.12
+# on four crops of a Korean title: lettering 0.01-0.12, a box that took in flames 0.26.
+_ART_FILL_MAX_SATURATED_SHARE = 0.18
 _ART_FILL_SATURATION = 120
 
 
