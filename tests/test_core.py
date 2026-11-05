@@ -643,7 +643,7 @@ class TestStockPhraseFilter:
 
     def test_isolated_stock_phrases_are_dropped(self):
         for text in ("Subtitles by the Amara.org community", "ご視聴ありがとうございました",
-                     "请不吝点赞 订阅 转发 打赏", "字幕由Amara.org社群提供",
+                     "请不吝点赞 订阅 转发 打赏", "字幕由Amara.org社群提供", "由 Amara.org 社群提供的字幕",
                      "MBC 뉴스 이덕영입니다", "Thanks for watching!", "字幕志愿者 李宗盛",
                      "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目",
                      "优优独播剧场——YoYo Television Series Exclusive",
