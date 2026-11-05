@@ -380,6 +380,8 @@ class _PipelineRun:
                 stage_cb=self._vad_set_stage, on_device=self._on_vad_device,
                 on_gpu_fallback=self._qwen_on_fallback, detector=o.voice_detector,
                 on_notice=self.detector_notices.append, prompt=o.qwen_prompt, tuning=self.tuning,
+                **({"fixed_window_s": difficult.FIXED_WINDOW_S}
+                   if (o.timing or {}).get(difficult.FIXED_WINDOWS) else {}),
                 # Only anime-whisper takes it; the Qwen3 backends have no decode penalties.
                 **({"repeat_guard": o.repeat_guard} if self.anime_run else {}))
         except vad_segments.VadNotInstalledError:

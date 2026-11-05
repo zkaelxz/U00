@@ -104,6 +104,20 @@ def merge_close(spans, gap_s: float = 0.3) -> list:
     return out
 
 
+def fixed_spans(duration_s: float, window_s: float) -> list:
+    """Back-to-back windows of window_s covering [0, duration_s], for hearing audio with no
+    speech detector. A tail shorter than a piece Qwen3-ASR can use is folded into the window
+    before it, so it is not sent alone (a lone fraction of a second invites an invented line)."""
+    spans, t = [], 0.0
+    while t < duration_s:
+        end = min(duration_s, t + window_s)
+        if duration_s - end < _MIN_PIECE_S:
+            end = duration_s
+        spans.append(Span(t, end))
+        t = end
+    return spans
+
+
 def _quietest_cut(audio, sr, lo_s: float, hi_s: float) -> float:
     """Time of the lowest-RMS 20 ms frame between lo_s and hi_s. When several
     frames tie (digital silence), the middle of the tied frames is used."""
