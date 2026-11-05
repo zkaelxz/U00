@@ -1528,6 +1528,16 @@ class FakeMutexes:
         self.existing.discard(handle)
 
 
+class SessionZeroMutexes(FakeMutexes):
+    """A service's session has one namespace: a plain name is the Global\\ one."""
+
+    def shares_global_namespace(self):
+        return True
+
+    def create(self, name):
+        return super().create(name.removeprefix("Global\\"))
+
+
 class TestSetupLock:
     """set-port, enable-remote and disable-remote hold Setup's own mutex
     names while they run and are refused while anyone else holds them;
@@ -1631,6 +1641,29 @@ class TestSetupLock:
         mutexes = FakeMutexes(setup_lock.SETUP_MUTEX_NAMES)
         assert service_cli.main(argv, services=svc, admin=True, mutexes=mutexes) == 0
         assert mutexes.existing == set(setup_lock.SETUP_MUTEX_NAMES)
+
+    def test_a_refused_app_update_is_logged_with_the_name_and_leaves_a_result(self, layout, source):
+        svc, win = self._installed(layout, source)
+        recorded = []
+        svc.record_update_refused = lambda: recorded.append(True)
+        lines = []
+        svc.run.log = lines.append
+        mutexes = FakeMutexes({setup_lock.SETUP_MUTEX_NAMES[1]})
+        assert service_cli.main(["apply-app-update"], services=svc, admin=True, mutexes=mutexes) == 2
+        assert recorded == [True]
+        assert any("Global\\BaiheStudioSetupMutex" in line for line in lines)
+
+    def test_a_service_session_does_not_collide_with_its_own_two_names(self):
+        mutexes = SessionZeroMutexes()
+        with setup_lock.setup_lock(mutexes):
+            assert mutexes.existing == {"BaiheStudioSetupMutex"}
+        assert mutexes.existing == set()
+
+    def test_a_service_session_is_still_kept_out_by_an_open_setup(self):
+        mutexes = SessionZeroMutexes({"BaiheStudioSetupMutex"})
+        with pytest.raises(setup_lock.SetupRunning):
+            with setup_lock.setup_lock(mutexes):
+                pass
 
     def test_a_mutex_error_changes_nothing(self, layout, source, capsys):
         svc, win = self._installed(layout, source)

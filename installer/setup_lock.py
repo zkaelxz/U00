@@ -28,7 +28,12 @@ SETUP_MUTEX_SDDL = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x00100000;;;WD)"
 
 class SetupRunning(Exception):
     """One of Setup's mutex names already exists: Setup, or another locked
-    command, is running."""
+    command, is running. `error` is the Windows error that said so, kept so
+    the log can tell "exists" (183) from "exists and may not be opened" (5)."""
+
+    def __init__(self, name, error=None):
+        super().__init__(name)
+        self.name, self.error = name, error
 
 
 class WindowsMutexes:
@@ -58,6 +63,14 @@ class WindowsMutexes:
                             ctypes.c_void_p)
         convert.restype = wintypes.BOOL
 
+    def shares_global_namespace(self) -> bool:
+        """Session 0 (a service) has no separate local namespace: a plain name
+        there is the Global\\ one, so creating both would collide with itself."""
+        ctypes = self._ctypes
+        session = ctypes.c_ulong()
+        pid = self._kernel32.GetCurrentProcessId()
+        return bool(self._kernel32.ProcessIdToSessionId(pid, ctypes.byref(session))) and session.value == 0
+
     def create(self, name: str):
         """A handle to a new mutex called `name`; SetupRunning if it already
         exists (or exists and may not be opened from here)."""
@@ -75,11 +88,11 @@ class WindowsMutexes:
             self._kernel32.LocalFree(descriptor)
         if not handle:
             if error == ERROR_ACCESS_DENIED:
-                raise SetupRunning(name)
+                raise SetupRunning(name, error)
             raise ctypes.WinError(error)
         if error == ERROR_ALREADY_EXISTS:
             self._kernel32.CloseHandle(handle)
-            raise SetupRunning(name)
+            raise SetupRunning(name, error)
         return handle
 
     def close(self, handle) -> None:
@@ -88,6 +101,9 @@ class WindowsMutexes:
 
 class NoMutexes:
     """Elsewhere than Windows there is no Setup to keep out."""
+
+    def shares_global_namespace(self) -> bool:
+        return False
 
     def create(self, name: str):
         return None
@@ -105,8 +121,13 @@ def setup_lock(mutexes):
     """Holds every one of Setup's mutex names until the block ends (also on
     an error or Ctrl+C); SetupRunning, holding none, if any already exists."""
     handles = []
+    names = SETUP_MUTEX_NAMES
+    if getattr(mutexes, "shares_global_namespace", lambda: False)():
+        # Setup creates the Global\ name too, so holding just that one still
+        # keeps it out.
+        names = tuple(n for n in names if n.startswith("Global\\"))
     try:
-        for name in SETUP_MUTEX_NAMES:
+        for name in names:
             handles.append(mutexes.create(name))
         yield
     finally:

@@ -319,3 +319,23 @@ def _apply_requested(layout, run, port, health, sleep, installed, old, version, 
     if code == "updated":
         return f"Updated Baihe Studio's service from {old} to {version}."
     raise ServiceError(OUTCOMES.get(code, f"The update ended with {code}."))
+
+
+def record_refusal(layout, run) -> None:
+    """The update was refused before it began (Setup's lock): spend the request
+    and leave the app a "didn't start" line, as every other early refusal does,
+    so the owner isn't left with a helper that exited and no word in the app."""
+    root, updates = layout.root, layout.data / "library" / "updates"
+    installed = app_swap.installed_manifest(root)
+    old = installed.get("app_version") if installed else None
+    try:
+        version, _ = read_request(updates)
+    except ServiceError:
+        return
+    with contextlib.suppress(OSError):
+        (updates / REQUEST_NAME).unlink()
+    if not app_swap.valid_version(old):
+        return
+    with contextlib.suppress(OSError, app_swap.SwapError):
+        app_swap.work_dir(root).mkdir(parents=True, exist_ok=True)
+        app_swap.write_result(root, "not_started", old, version)

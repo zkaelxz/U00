@@ -819,7 +819,11 @@ changing nothing ("Setup is running ...; try again when it has finished").
 The mutex they create lets everyone open it for `SYNCHRONIZE`, because Setup
 runs unelevated and checks with `OpenMutex`. `install`, `stop` and
 `uninstall` don't take it (Setup runs them while it holds it), and neither
-does the read-only `status`.
+does the read-only `status`. `apply-app-update` takes it too, but BaiheUpdate
+runs in session 0, where a plain name and the `Global\` one are the same
+object: there it holds only the `Global\` name (creating both made it refuse
+itself). A refusal is logged with the mutex name and Windows error, and leaves
+a `not_started` result for the app to show.
 
 The CI checks the menu only through its non-interactive `-Status`.
 
