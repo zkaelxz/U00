@@ -100,3 +100,17 @@ def test_save_refuses_a_bad_choice_and_writes_nothing(isolated_db, bad):
 def test_save_needs_at_least_one_choice(isolated_db):
     with pytest.raises(InvalidInputError):
         at.save_address_terms(_title(["x"], language="zh"), [])
+
+
+def test_shared_glossary_terms_are_not_offered_again_and_series_terms_still_count(isolated_db):
+    did = _title(["姐姐你好", "姐姐好", "老师好", "老师再见", "师兄来", "师兄走"], language="zh", terms=[("师兄", [])])
+    sid = db.get_or_create_series("S")
+    gid = db.shared_glossary.create_group("Creator", None)
+    db.shared_glossary.save_group_term(gid, None, "姐姐", "Sis", "", None, None, False, "", "")
+    db.shared_glossary.save_group_term(gid, None, "师兄", "Shared senior", "", None, None, False, "", "")
+    db.shared_glossary.set_series_group(sid, gid)
+    out = at.find_address_terms(did)
+    assert set(_found(out)) == {"老师"}           # 姐姐 from the group, 师兄 from the series
+    saved = at.save_address_terms(did, [{"term": "姐姐", "translation": "Sister"}])
+    assert saved == {"saved": [], "skipped_existing": ["姐姐"]}
+    assert db.list_glossary_terms(sid)[0]["term_translation"] == "X"   # series 师兄 untouched

@@ -61,7 +61,7 @@ def _known(language: str) -> List[str]:
 
 def _in_glossary(drama_id: int) -> set:
     taken = set()
-    for t in glossary_service.list_glossary_terms(drama_id):
+    for t in glossary_service.effective_glossary_terms(drama_id):
         taken.add(t["term_original"])
         taken.update(t["aliases"])
     return taken
