@@ -557,7 +557,8 @@ class Qwen3ASRVadBackend:
             stage_cb("Loading audio (CPU)")
         audio = load_audio_16k(audio_path)
         sr = 16000
-        fixed = fixed_window_s is not None and not mixed_languages
+        fixed_window = None if mixed_languages else fixed_window_s
+        fixed = fixed_window is not None
         if not fixed and vad_fn is None and detector in ("asmr", "auto_asmr"):
             import asmr_vad
             # Chosen by Auto, the user never asked for it: fall back quietly.
@@ -570,8 +571,8 @@ class Qwen3ASRVadBackend:
         # worse on the halves. Language detection keeps the finer spans so a
         # quick change of speaker and language is not merged into one.
         long_windows = self.long_windows and not mixed_languages
-        if fixed:
-            spans = vad_segments.fixed_spans(len(audio) / sr, fixed_window_s)
+        if fixed_window is not None:
+            spans = vad_segments.fixed_spans(len(audio) / sr, fixed_window)
         else:
             # A default run calls the helpers exactly as it always has: only what differs is passed.
             if long_windows:
