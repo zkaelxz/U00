@@ -200,7 +200,9 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
           </div>
         </form>
       )}
-      {!result && (
+      {/* The proxy answers every GET under /api/diagnostics from away with an empty 404, which the
+          panels would show as a server error; reading these is an admin-at-the-PC job anyway. */}
+      {!result && pc !== 'remote' && (
         <div className="report-extra">
           <SupportReportPanel />
           <SavedReports pc={pc} />

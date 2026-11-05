@@ -109,3 +109,19 @@ test('Report a problem on a phone: Copy a report and Saved reports fit, Deleteâ€
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/phone-dialog-extras.png` })
   expect(unmocked).toEqual([])
 })
+
+// From away the proxy refuses every GET under /api/diagnostics, so the panels that read them are left out.
+test('Report a problem away from the PC: no Copy a report or Saved reports', async ({ page }) => {
+  const unmocked = await guard(page)
+  await page.route('**/api/meta', (r) => r.fulfill({
+    json: { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: false } }))
+  await page.goto('/#/library')
+  await page.getByRole('button', { name: 'More', exact: true }).tap()
+  await page.getByRole('button', { name: 'Report a problem' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Report a problem' })
+  await expect(dialog.getByRole('button', { name: 'Send report' })).toBeVisible()
+  await expect(dialog.getByTestId('report-shot-pc-only')).toBeVisible()
+  await expect(dialog.getByRole('region', { name: 'Copy a report for a bug' })).toHaveCount(0)
+  await expect(dialog.locator('summary', { hasText: /^Saved reports/ })).toHaveCount(0)
+  expect(unmocked).toEqual([])
+})
