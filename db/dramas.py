@@ -152,6 +152,26 @@ def get_drama(drama_id: int):
     return dict(row) if row else None
 
 
+def earlier_episode_summaries(drama_id: int) -> list:
+    """[(episode_number, summary)] of the episodes of this drama's series that come
+    before it, oldest first, leaving out the one just before it (that one reaches
+    the prompt as previous_episode_summary). Strictly lower episode numbers only,
+    so a later episode's summary can never reach this episode's translation.
+    Empty when the drama has no series or no episode number."""
+    drama = db.get_drama(drama_id)
+    if not drama or drama.get("series_id") is None or drama.get("episode_number") is None:
+        return []
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT episode_number, episode_summary FROM dramas WHERE series_id = ? "
+            "AND episode_number IS NOT NULL AND episode_number < ? ORDER BY episode_number",
+            (drama["series_id"], drama["episode_number"])).fetchall()
+    # The previous episode is the highest-numbered row, whether or not it has a summary.
+    previous_number = rows[-1][0] if rows else None
+    return [(r[0], r[1].strip()) for r in rows
+            if (r[1] or "").strip() and r[0] != previous_number]
+
+
 def drama_visible_sql(alias: str, visible_to: int):
     """(sql, params): a WHERE fragment true when the drama row `alias` is
     visible to user `visible_to`. Same rule as

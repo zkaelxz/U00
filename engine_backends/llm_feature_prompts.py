@@ -88,6 +88,20 @@ def build_episode_summary_prompt(lines) -> str:
     )
 
 
+def build_episode_brief_prompt(source_text: str, source_language=None) -> str:
+    """The pre-read prompt: the whole untranslated episode in, one short brief out."""
+    return (
+        f"Below is the complete text of one {language_name(source_language, 'source-language')} "
+        "episode (a speaker's name in [brackets] starts a line when it is known). Write a "
+        "brief for the translator who will translate it in batches without seeing the "
+        "rest: who is who and how they address each other, the register of the speech, "
+        "recurring names and terms with the English to use for each, and any lines "
+        "whose meaning or speaker is ambiguous. Use only what the text says. Keep it "
+        "under 200 words.\n\n" + source_text + "\n\n"
+        'Return ONLY a JSON object: {"brief": "<the brief in English>"}. No preamble, '
+        "no markdown fences.")
+
+
 def glossary_term_forms(term: dict) -> list:
     """The source texts a glossary entry is looked for as: the term, then its aliases."""
     aliases = [a.strip() for a in re.split(r"[|,，、]", term.get("aliases") or "") if a.strip()]

@@ -2294,7 +2294,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "is_private", "default_female_pronouns", "include_genre_notes", "whisper_repeat_guard",
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
         "keep_original", "translate_by_sentence", "release_date", "difficult_audio",
-        "translate_start_json", "transcribe_start_json", "ass_styles"),
+        "translate_start_json", "transcribe_start_json", "ass_styles", "episode_brief"),
     "presets": ("options_json", "is_default"),
     "series": ("instructions", "owner_user_id", "is_private", "default_settings", "speaker_colours",
                "speaker_mode"),

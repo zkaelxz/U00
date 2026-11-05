@@ -101,7 +101,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
     const bad = validateDetails(form, initial)
     setErrors(bad)
     // An error on a field inside "More details" must not stay hidden.
-    if (bad.custom_tags || bad.episode_summary) setMoreSignal((n) => n + 1)
+    if (bad.custom_tags || bad.episode_summary || bad.episode_brief) setMoreSignal((n) => n + 1)
     if (Object.keys(bad).length || !dirty) return
     const sent = form
     setBusy(true)
@@ -271,6 +271,13 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                   dramaId={dramaId}
                   onGenerated={(text) => set('episode_summary')({ target: { value: text } })}
                 />
+                <Field
+                  label={FIELD_LABELS.episode_brief}
+                  help="Written by one extra request that reads the whole episode before a translate run (Settings > Translation: Read the whole episode before translating), and given to every batch. Edit it freely: an edited brief is used as written, and empty means the next run writes a new one. A wrong brief colours every line."
+                  error={errors.episode_brief}
+                >
+                  <textarea rows={4} value={form.episode_brief} onChange={set('episode_brief')} />
+                </Field>
               </Section>
             </form>
           </Section>
