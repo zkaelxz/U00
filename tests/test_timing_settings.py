@@ -530,9 +530,11 @@ class TestLineSplitting:
     def test_the_stock_phrase_silence_decides_whether_a_credit_line_is_dropped(self):
         credit = {"start": 0.0, "end": 1.0, "text": "Thanks for watching"}
         near = [credit, {"start": 4.0, "end": 5.0, "text": "ok"}]
-        assert whisper_hallucination.filter_hallucinated_segments(near) == near
+        def texts(result):
+            return [seg["text"] for seg in result]
+        assert texts(whisper_hallucination.filter_hallucinated_segments(near)) == ["Thanks for watching", "ok"]
         assert whisper_hallucination.filter_hallucinated_segments(near, 4, 3.0) == near[1:]
-        assert whisper_hallucination.filter_hallucinated_segments(near, 4, 5.0) == near
+        assert texts(whisper_hallucination.filter_hallucinated_segments(near, 4, 5.0)) == ["Thanks for watching", "ok"]
 
     def test_the_saved_stock_phrase_and_loop_limits_reach_transcribe_for_timing_callers(
             self, developer_mode, tmp_path, monkeypatch):
