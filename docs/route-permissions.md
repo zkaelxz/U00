@@ -287,6 +287,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/glossary/name-report/export.md` | lines.read |
 | `POST /api/glossary/name-report/marks` | lines.read + lines.edit |
 | `GET /api/health` | public() |
+| `GET /api/inbox` | local_only() |
+| `POST /api/inbox` | local_only() |
 | `GET /api/jellyfin/config` | local_only() |
 | `POST /api/jellyfin/config` | local_only() |
 | `POST /api/jellyfin/dramas/{drama_id}/send` | local_only() |
