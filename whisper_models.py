@@ -184,6 +184,9 @@ def release_gpu_models():
         module = sys.modules.get(module_name)
         if module is not None:
             getattr(module, cache_name).clear()
+    ocr_module = sys.modules.get("ocr")
+    if ocr_module is not None:
+        ocr_module.release_models()
     gc.collect()
     torch = sys.modules.get("torch")
     if torch is not None:
