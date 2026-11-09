@@ -4,7 +4,7 @@ import type { AuthMe } from '../../api/auth'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
-  auditTime, canChangeUsers, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
+  auditTime, canChangeUsers, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
   rightAbout, rightName, sessionsText, showRevokeAdmin, showRights, userName,
 } from './adminUsers'
 
@@ -164,5 +164,26 @@ describe('labels', () => {
   it('appends an older page without repeating rows', () => {
     const e = (id: number) => ({ id, ts: '', user_id: null, action: 'x', detail: '' })
     expect(appendAudit([e(9), e(8)], [e(8), e(7)]).map((x) => x.id)).toEqual([9, 8, 7])
+  })
+})
+
+describe('paid-engine limit', () => {
+  it('describes this month\'s spending with and without a limit', () => {
+    expect(paidSpendText(user())).toBe('No paid-engine spending this month')
+    expect(paidSpendText(user({ month_paid_spend_usd: 1.5 }))).toBe('Paid engines this month: $1.50')
+    expect(paidSpendText(user({ month_paid_spend_usd: 1.5, monthly_paid_cap_usd: 5 })))
+      .toBe('Paid engines this month: $1.50 of their $5.00 limit')
+    expect(paidSpendText(user({ month_paid_spend_usd: 5, monthly_paid_cap_usd: 5 })))
+      .toBe('Paid engines this month: $5.00 of their $5.00 limit (limit reached, so paid engines are off for them)')
+  })
+
+  it('accepts only a positive dollar amount up to the maximum', () => {
+    expect(['5', ' 12.50 ', '$3', String(MAX_PAID_LIMIT_USD)].map(parsePaidLimit)).toEqual([5, 12.5, 3, MAX_PAID_LIMIT_USD])
+    expect(['', '0', '-1', 'abc', '1.234', '1e3', String(MAX_PAID_LIMIT_USD + 1)].map(parsePaidLimit))
+      .toEqual([null, null, null, null, null, null, null])
+  })
+
+  it('labels the audit action', () => {
+    expect(auditActionLabel('user.paid_limit')).toBe('Paid-engine limit changed')
   })
 })

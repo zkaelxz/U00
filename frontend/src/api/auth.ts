@@ -22,6 +22,8 @@ export interface AuthMe {
   permissions: string[]
   // A usable Ollama key of the signed-in person's own (Settings > Your Ollama key).
   own_ollama_key?: boolean
+  // Their own monthly limit for paid engines is used up, so engines.paid is left out of permissions.
+  paid_limit_reached?: boolean
 }
 
 export const me = (f?: Fetch) => getJson<AuthMe>('/api/auth/me', f)

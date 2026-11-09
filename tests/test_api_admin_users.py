@@ -28,7 +28,8 @@ ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"),
           ("POST", "/api/admin/users/{id}/revoke-admin"),
           ("DELETE", "/api/admin/users/{id}/ollama-key"),
           ("POST", "/api/admin/users/{id}/permissions/{permission}"),
-          ("DELETE", "/api/admin/users/{id}/permissions/{permission}")]
+          ("DELETE", "/api/admin/users/{id}/permissions/{permission}"),
+          ("POST", "/api/admin/users/{id}/paid-limit")]
 
 
 def _app(auth="on"):
@@ -781,3 +782,160 @@ def test_remote_key_removal_on_a_member_promoted_meanwhile_is_refused(isolated_d
     assert r.status_code == 403 and len(calls) == 2
     assert member_keys.get(m["id"], "ollama") is not None
     assert not _audit("member_key.remove")
+
+
+# --- paid-engine spending per member ---------------------------------------------
+
+def _limit_url(user_id):
+    return f"/api/admin/users/{user_id}/paid-limit"
+
+
+def _spend_rows():
+    with contextlib.closing(db.get_conn()) as conn:
+        return [tuple(r) for r in conn.execute(
+            "SELECT user_id, estimated_cost_usd FROM usage_log ORDER BY id")]
+
+
+def _paid_member(email="kid@example.com", limit=None):
+    m, ms = _member(email)
+    auth_service.grant_permission(m["id"], "engines.paid")
+    if limit is not None:
+        auth_service.admin_set_paid_limit(m["id"], limit)
+    return m, ms
+
+
+def test_a_paid_call_is_logged_for_the_account_it_ran_for(isolated_db):
+    """A request's own user, a job's starter, and no one (the PC owner) when neither applies."""
+    from jobs.job_runner import wait_for_job_threads
+    from jobs import job_launch
+    from services import ownership_service
+    m, _ = _paid_member()
+    db.log_usage(None, "claude", "m", "translate", 1, 1, 0.25)
+    token = ownership_service.bind_request()
+    try:
+        ownership_service.note_acting_principal(auth_service.member_principal(m["id"]))
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
+        # The job records its starter here and logs from its own thread.
+        assert job_launch.start_job("paid-attr", lambda: db.log_usage(
+            None, "claude", "m", "translate", 1, 1, 0.75))
+    finally:
+        ownership_service.unbind_request(token)
+    assert wait_for_job_threads(5)
+    assert _spend_rows() == [(None, 0.25), (m["id"], 0.5), (m["id"], 0.75)]
+    assert db.get_month_spend_by_user() == {m["id"]: 1.25}
+
+
+def test_people_list_shows_each_accounts_spend_and_the_members_limit(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    m, _ = _paid_member(limit=5)
+    with db.spending_for(m["id"]):
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 1.5)
+    with db.spending_for(a["id"]):
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
+    rows = {u["id"]: u for u in c.get("/api/admin/users", headers=_h(s)).json()["users"]}
+    assert (rows[m["id"]]["month_paid_spend_usd"], rows[m["id"]]["monthly_paid_cap_usd"]) == (1.5, 5.0)
+    assert (rows[a["id"]]["month_paid_spend_usd"], rows[a["id"]]["monthly_paid_cap_usd"]) == (0.5, None)
+
+
+def test_remote_admin_sets_and_clears_a_members_limit_with_audit(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    m, _ = _member()
+    r = c.post(_limit_url(m["id"]), headers=_h(s), json={"monthly_cap_usd": 12.5})
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert r.json()["monthly_paid_cap_usd"] == 12.5
+    r = c.post(_limit_url(m["id"]), headers=_h(s), json={"monthly_cap_usd": None})
+    assert r.status_code == 200 and r.json()["monthly_paid_cap_usd"] is None
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("user.paid_limit")] == [
+        (a["id"], f"user {m['id']}: none"), (a["id"], f"user {m['id']}: $12.50")]   # newest first
+
+
+@pytest.mark.parametrize("value", [0, -1, 100001, "5", True])
+def test_a_limit_must_be_a_positive_amount(isolated_db, value):
+    c = loopback_client(_app())
+    _a, s = _admin()
+    m, _ = _member()
+    assert c.post(_limit_url(m["id"]), headers=_h(s), json={"monthly_cap_usd": value}).status_code == 422
+    assert db.auth_get_user(m["id"])["monthly_paid_cap_usd"] is None
+
+
+def test_an_admin_has_no_limit_of_their_own(isolated_db):
+    c = loopback_client(_app())
+    a, s = _admin()
+    other, _ = _admin("second@example.com")
+    for target in (a, other):
+        r = c.post(_limit_url(target["id"]), headers=_h(s), json={"monthly_cap_usd": 5})
+        assert r.status_code == 409
+    assert not _audit("user.paid_limit")
+
+
+def test_a_member_over_their_limit_loses_paid_engines_until_it_is_raised(isolated_db):
+    c = _remote(_app())
+    m, ms = _paid_member(limit=1)
+    with db.spending_for(m["id"]):
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 0.6)
+    assert "engines.paid" in auth_service.resolve_session(ms["session_token"], touch=False)["permissions"]
+    with db.spending_for(m["id"]):
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 0.4)
+    assert "engines.paid" not in auth_service.resolve_session(ms["session_token"], touch=False)["permissions"]
+    assert "engines.paid" not in auth_service.member_principal(m["id"])["permissions"]
+    # The right itself stays given: the People screen still shows it ticked.
+    assert "engines.paid" in auth_service.effective_permissions(m["id"])
+    me = c.get("/api/auth/me", headers=_h(ms)).json()
+    assert me["paid_limit_reached"] is True and "engines.paid" not in me["permissions"]
+    r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
+    assert r.status_code == 403
+    assert r.json()["error"] == {"code": "forbidden", "message": auth_service.PAID_LIMIT_MESSAGE,
+                                 "details": {"reason": "paid_limit_reached"}}
+    auth_service.admin_set_paid_limit(m["id"], 3)
+    assert "engines.paid" in auth_service.resolve_session(ms["session_token"], touch=False)["permissions"]
+
+
+def test_a_member_without_the_right_still_gets_the_plain_refusal(isolated_db):
+    c = _remote(_app())
+    m, ms = _member()
+    auth_service.admin_set_paid_limit(m["id"], 1)
+    with db.spending_for(m["id"]):
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 2)
+    r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
+    assert r.status_code == 403 and r.json()["error"]["message"] != auth_service.PAID_LIMIT_MESSAGE
+
+
+def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(isolated_db):
+    from lib.errors import UnsupportedOperationError
+    from services import translate_run_service
+    m, _ = _paid_member(limit=1)
+    with db.spending_for(m["id"]):
+        translate_run_service.refuse_when_cap_spent("claude")
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 1)
+        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+            translate_run_service.refuse_when_cap_spent("claude")
+        translate_run_service.refuse_when_cap_spent("ollama")   # a free engine is not capped
+    translate_run_service.refuse_when_cap_spent("claude")       # the PC owner's own work goes on
+
+
+def test_a_job_that_crosses_its_starters_limit_is_stopped(isolated_db):
+    import background_jobs
+    from jobs import job_launch
+    from services import ownership_service, paid_job_service  # noqa: F401  (registers the stop)
+    m, _ = _paid_member(limit=1)
+    seen = {}
+
+    def work():
+        for _ in range(3):
+            db.log_usage(None, "claude", "m", "translate", 1, 1, 0.6)
+            if background_jobs.is_cancel_requested("over-limit"):
+                seen["stopped_after"] = len(_spend_rows())
+                raise background_jobs.JobCancelled()
+
+    token = ownership_service.bind_request()
+    try:
+        ownership_service.note_acting_principal(auth_service.member_principal(m["id"]))
+        assert job_launch.start_job("over-limit", work)
+    finally:
+        ownership_service.unbind_request(token)
+    from jobs.job_runner import wait_for_job_threads
+    assert wait_for_job_threads(5)
+    assert seen == {"stopped_after": 2}
+    assert background_jobs.get_status("over-limit")["status"] == "cancelled"

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPermission } from '../../api/adminUsers'
+import {
+  listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPaidLimit, setUserPermission,
+} from '../../api/adminUsers'
 import { removeUserOllamaKey } from '../../api/memberKey'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -11,13 +13,14 @@ import type { PcMode } from '../../hooks/usePcOnly'
 import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
 import {
-  canChangeUsers, canViewUsers, CHANGES_AT_PC, revokeAdminBlock, rowBlocks, sessionsText, showRevokeAdmin,
-  rightAbout, rightName, showRights, userName,
+  canChangeUsers, canViewUsers, CHANGES_AT_PC, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, revokeAdminBlock,
+  rowBlocks, sessionsText, showRevokeAdmin, rightAbout, rightName, showRights, userName,
 } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
+import { buttonClass } from '../../components/uiClasses'
 
 type Action = 'active' | 'revoke' | 'admin' | 'ollama-key'
-type Busy = { id: number; what: Action | 'right' } | null
+type Busy = { id: number; what: Action | 'right' | 'limit' } | null
 
 /**
  * "People": the household's accounts. An admin can deactivate or activate
@@ -98,6 +101,21 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
     }
   }
 
+  const setLimit = async (user: AdminUser, usd: number | null) => {
+    setBusy({ id: user.id, what: 'limit' })
+    setNote('')
+    setError(null)
+    try {
+      const r = await setUserPaidLimit(user.id, usd)
+      setNote(usd === null ? `${r.email}: paid-engine limit cleared.` : `${r.email}: paid-engine limit set to $${usd.toFixed(2)} a month.`)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(null)
+      load()
+    }
+  }
+
   return (
     <Section title="People" storageKey="admin.people" defaultOpen={defaultOpen} count={users?.length}
       summary="Who can sign in">
@@ -116,7 +134,7 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
             {users.map((u) => (
               <UserRow key={u.id} user={u} users={users} pc={pc} busy={busy} canChange={canChange}
                 rights={rights} onRun={(what) => void run(u, what)}
-                onRight={(p, on) => void setRight(u, p, on)} />
+                onRight={(p, on) => void setRight(u, p, on)} onLimit={(usd) => void setLimit(u, usd)} />
             ))}
           </ul>
         )}
@@ -126,7 +144,7 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
   )
 }
 
-function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight }: {
+function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, onLimit }: {
   user: AdminUser
   users: AdminUser[]
   pc: PcMode
@@ -135,6 +153,7 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight }
   rights: string[]
   onRun: (what: Action) => void
   onRight: (permission: string, granted: boolean) => void
+  onLimit: (usd: number | null) => void
 }) {
   const { deactivate: offBlock, revoke: sessBlock, activate: onBlock, key: keyBlock } = rowBlocks(u, users, pc)
   const demote = canChange && showRevokeAdmin(u, pc)
@@ -156,6 +175,7 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight }
           {[sessionsText(u.active_sessions), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
             .join(' · ')}
         </div>
+        <div className="muted">{paidSpendText(u)}</div>
         {why && <div className="muted" id={whyId}>{why}</div>}
       </div>
       {canChange && <div className="actions">
@@ -206,6 +226,42 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight }
           </ul>
         </fieldset>
       )}
+      {showRights(u) && canChange && (
+        <PaidLimitForm user={u} busy={busy !== null} onLimit={onLimit} />
+      )}
     </li>
+  )
+}
+
+/** A member's own monthly limit for paid engines, which run on this PC's keys. */
+function PaidLimitForm({ user: u, busy, onLimit }: { user: AdminUser; busy: boolean; onLimit: (usd: number | null) => void }) {
+  const saved = u.monthly_paid_cap_usd ?? null
+  const [text, setText] = useState(saved === null ? '' : String(saved))
+  const usd = parsePaidLimit(text)
+  const id = `admin-paid-limit-${u.id}`
+  const bad = text.trim() !== '' && usd === null
+  return (
+    <form className="admin-user-limit" onSubmit={(e) => {
+      e.preventDefault()
+      if (usd !== null) onLimit(usd)
+    }}>
+      <label htmlFor={id}>Monthly limit for paid engines (USD)</label>{' '}
+      <HelpTip label="Monthly limit for paid engines" id={`${id}-tip`}>
+        Paid engines run on this PC&apos;s keys. Once this person&apos;s spending this month reaches the limit, paid
+        engines are off for them until next month, and a running paid job of theirs stops. The monthly cap in
+        Settings still applies to everyone.
+      </HelpTip>
+      <input id={id} type="text" inputMode="decimal" size={8} value={text} placeholder="No limit"
+        aria-invalid={bad || undefined} aria-describedby={bad ? `${id}-bad` : undefined}
+        onChange={(e) => setText(e.target.value)} />{' '}
+      <button type="submit" className={buttonClass('secondary', 'sm')} disabled={busy || usd === null || usd === saved}>Save limit</button>{' '}
+      {saved !== null && (
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} onClick={() => {
+          setText('')
+          onLimit(null)
+        }}>Remove limit</button>
+      )}
+      {bad && <div className="muted" id={`${id}-bad`}>Enter an amount above $0 and up to ${MAX_PAID_LIMIT_USD.toLocaleString('en-US')}, such as 5 or 12.50.</div>}
+    </form>
   )
 }
