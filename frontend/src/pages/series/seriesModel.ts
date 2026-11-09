@@ -3,6 +3,21 @@ import type {
 } from '../../api/series'
 import { plural } from '../../labels'
 
+// Pre-filled when auto-run is switched on; the limits mirror DEFAULT_CEILING_USD / MAX_CEILING_USD in
+// services/series_auto_service.py.
+export const DEFAULT_CEILING = 1
+const MAX_CEILING = 1000
+
+export const money = (usd: number): string => `$${usd.toFixed(2)}`
+
+export function ceilingProblem(text: string): string | null {
+  const n = Number(text)
+  if (!text.trim() || !Number.isFinite(n) || n <= 0 || n > MAX_CEILING) {
+    return `Enter a ceiling above $0 and at most $${MAX_CEILING}.`
+  }
+  return null
+}
+
 export function consistencySummaryText(s: SeriesConsistencyReport['summary']): string {
   return [
     `${plural(s.names_with_several_renderings, 'name has', 'names have')} more than one rendering`,
