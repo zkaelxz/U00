@@ -10,6 +10,8 @@ import { buttonClass } from '../../components/uiClasses'
 import { useLoad } from '../../hooks/useLoad'
 
 const REFRESH_MS = 15000
+// Module level: useLoad reruns whenever the function it is given changes.
+const loadSeries = () => listAllSeries().then((r) => r.items)
 
 function Form({ state, series, onSaved }: { state: InboxState; series: SeriesListItem[]; onSaved: (s: InboxState) => void }) {
   const [on, setOn] = useState(state.on)
@@ -75,7 +77,7 @@ function Form({ state, series, onSaved }: { state: InboxState; series: SeriesLis
 export function InboxCard() {
   const [reloadKey, setReloadKey] = useState(0)
   const state = useLoad(getInbox, reloadKey)
-  const list = useLoad(() => listAllSeries().then((r) => r.items), 0)
+  const list = useLoad(loadSeries, 0)
   const [latest, setLatest] = useState<InboxState | null>(null)
   const current = latest ?? state.data
   useEffect(() => {
