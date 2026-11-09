@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.json.JSONArray;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -102,7 +103,7 @@ public class GrabLogicTest {
     public void bridgeIgnoresImagesWithoutTheGrabSecret() {
         final List<PageImage> got = new ArrayList<>();
         GrabBridge bridge = new GrabBridge(new GrabBridge.Listener() {
-            public void onBegin(List<String> titles, int count) {}
+            public void onBegin(List<String> titles, int count, JSONArray chapters, String next) {}
 
             public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
                 got.addAll(images);
@@ -152,7 +153,7 @@ public class GrabLogicTest {
         final boolean[] cut = {false};
         final int[] kept = {0};
         GrabBridge bridge = new GrabBridge(new GrabBridge.Listener() {
-            public void onBegin(List<String> titles, int count) {}
+            public void onBegin(List<String> titles, int count, JSONArray chapters, String next) {}
 
             public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
                 kept[0] = images.size();
