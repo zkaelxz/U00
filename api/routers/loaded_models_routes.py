@@ -10,8 +10,8 @@ from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from api.auth import local_only, require_permission
 from api.routers.settings_routes import read_body, require_confirm
-from api.schemas import FreeAppModelsRequest, LoadedModels
-from services import loaded_models_service
+from api.schemas import FreeAppModelsRequest, LoadedModels, ProcessMemory
+from services import loaded_models_service, process_memory_service
 
 router = APIRouter(prefix="/api/settings/loaded-models", tags=["settings"])
 
@@ -29,3 +29,10 @@ async def free_app_models(request: Request):
     body = await read_body(request, FreeAppModelsRequest)
     require_confirm(body.confirm)
     return await run_in_threadpool(loaded_models_service.free_app_models)
+
+
+@router.get("/processes", dependencies=[local_only()], response_model=ProcessMemory,
+            summary="PC only: Python, Ollama and llama.cpp processes with their RAM and graphics memory")
+async def get_process_memory():
+    # Command lines of other processes are PC-owner information, so not a Settings read.
+    return await run_in_threadpool(process_memory_service.get_process_memory)

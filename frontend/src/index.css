@@ -522,6 +522,8 @@ details.section[open] > summary::before { content: '\25BE'; }
 .toggle-list input[type='checkbox'] { margin: 0; }
 .table-scroll { overflow-x: auto; }
 .table-scroll table { min-width: 28rem; }
+.process-table td { overflow-wrap: anywhere; vertical-align: top; }
+.process-command { font-family: var(--font-mono); font-size: 0.85em; }
 
 /* ---- touch / phone pass: 44px targets, scrollable stage tabs ---- */
 .field-help-btn, button.link { position: relative; }

@@ -23,6 +23,7 @@ export const CARD_TAB = {
   'model-status': 'models',
   models: 'models',
   'loaded-models': 'models',
+  'process-memory': 'models',
   'test-models': 'models',
   ports: 'system',
   log: 'system',
