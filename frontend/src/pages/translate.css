@@ -82,3 +82,7 @@
 .translate-read-box { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); pointer-events: none; }
 .translate-read-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-3); }
 .translate-read-controls select { min-height: 44px; }
+
+/* The Simple Translate line wraps with its Change button beside it instead of clipping either. */
+.translate-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
+.translate-summary p { margin: 0; overflow-wrap: anywhere; }
