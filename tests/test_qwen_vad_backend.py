@@ -83,6 +83,12 @@ def test_repeated_phrase_loop_collapses_to_one_line_and_empty_text_is_skipped(fa
     assert [s["text"] for s in out] == ["哈哈"]
 
 
+def test_each_sentence_of_a_short_span_is_its_own_line(fakes):
+    fakes(["不可能啊！你们才欺负我！我根本没有吃啊！"])
+    out = run(vad([(0.0, 6.0)]))
+    assert [s["text"] for s in out] == ["不可能啊！", "你们才欺负我！", "我根本没有吃啊！"]
+
+
 def test_a_short_pause_inside_a_sentence_does_not_split_it(fakes):
     model = fakes(["你好吗我很好"])
     out = run(vad([(1.0, 3.0), (3.8, 6.0)]))
