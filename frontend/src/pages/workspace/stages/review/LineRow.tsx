@@ -121,6 +121,8 @@ interface Props {
   issue: RowIssue | null
   actions: RowActions
   // Shown as a search result: offers "Show on its page".
+  // Simple view: the meta line and toolbar leave out what a first pass over the lines does not use.
+  simple?: boolean
   searchHit?: boolean
   // Just jumped to from a search result: briefly highlighted.
   jumped?: boolean
@@ -248,7 +250,44 @@ function LineCps({ line, lineAbove = false }: { line: ReviewLine; lineAbove?: bo
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, searchHit, jumped, focusRetranscribe }: Props) {
+// Why, Split and Merge stay in the ⋯ menu and on their shortcuts in Simple view; the row keeps what most lines need.
+function WhySplitMerge({ line, ai, jobRunning, limited, reasonId, actions }: {
+  line: ReviewLine
+  ai: PanelMode | null
+  jobRunning: boolean
+  limited: boolean
+  reasonId: string
+  actions: RowActions
+}) {
+  return (
+    <>
+          <button
+            type="button"
+            className={buttonClass('ghost', 'sm')}
+            aria-pressed={ai === 'explain'}
+            onClick={() => actions.setAi(line.id, ai === 'explain' ? null : 'explain')}
+            title="Why this? (W)"
+          >
+            Why this?
+          </button>
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} aria-describedby={jobRunning ? reasonId : undefined} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
+            Split…
+          </button>
+          <button
+            type="button"
+            className={buttonClass('ghost', 'sm')}
+            disabled={jobRunning || limited}
+            aria-describedby={jobRunning || limited ? reasonId : undefined}
+            onClick={() => actions.openStructure(line.id, 'merge')}
+            title="Merge with next (M)"
+          >
+            Merge ↓
+          </button>
+    </>
+  )
+}
+
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, simple = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -313,10 +352,10 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         {!prose && (
           <span className="review-time">
             {formatTime(line.start)}
-            {!isPhone && <>–{formatTime(line.end)}</>}
+            {!isPhone && !simple && <>–{formatTime(line.end)}</>}
           </span>
         )}
-        {!prose && !isPhone && <LineCps line={line} />}
+        {!prose && !isPhone && (!simple || line.flag === READING_SPEED_FLAG) && <LineCps line={line} />}
         {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
@@ -332,7 +371,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             <Badge tone="warn">Source changed</Badge>
           </span>
         )}
-        {line.dub_filename && !isPhone && <span>Dub: {line.dub_filename}</span>}
+        {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
         {line.flag && isPhone && (
           <span className="review-flag" data-testid="line-flag">
             <span aria-hidden="true">⚑</span>
@@ -459,28 +498,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           >
             {line.en ? 'Improve translation' : 'Improve (needs a translation first)'}
           </button>
-          <button
-            type="button"
-            className={buttonClass('ghost', 'sm')}
-            aria-pressed={ai === 'explain'}
-            onClick={() => actions.setAi(line.id, ai === 'explain' ? null : 'explain')}
-            title="Why this? (W)"
-          >
-            Why this?
-          </button>
-          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} aria-describedby={jobRunning ? reasonId : undefined} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
-            Split…
-          </button>
-          <button
-            type="button"
-            className={buttonClass('ghost', 'sm')}
-            disabled={jobRunning || limited}
-            aria-describedby={jobRunning || limited ? reasonId : undefined}
-            onClick={() => actions.openStructure(line.id, 'merge')}
-            title="Merge with next (M)"
-          >
-            Merge ↓
-          </button>
+          {!simple && <WhySplitMerge line={line} ai={ai} jobRunning={jobRunning} limited={limited} reasonId={reasonId} actions={actions} />}
           {timingSnap && actions.snapToSpeech && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.snapToSpeech?.(line.id)}
                     title={`Set ${formatTime(timingSnap.new_start)} – ${formatTime(timingSnap.new_end)}; saves a history snapshot first`}>
@@ -503,7 +521,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               {isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}
             </button>
           )}
-          {jobRunning ? (
+          {simple ? null : jobRunning ? (
             <span className="muted review-reason" id={reasonId}>{JOB_RUNNING_MESSAGE}</span>
           ) : (
             limited && <span className="muted review-reason" id={reasonId}>Merge works in the All lines view.</span>
