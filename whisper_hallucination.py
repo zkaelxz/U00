@@ -16,13 +16,14 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
     r"thanksforwatching",
     r"字幕由.{0,30}提供",
     r"由amaraorg社[群區区]提供的?字幕",
-    r"请不吝点赞.*",
+    r"[请請]不吝[点點][赞贊讚].*",
     r"ご視聴ありがとうございま(?:した|す)",
     r"ご清聴ありがとうございま(?:した|す)",
     r"mbc뉴스.{0,12}입니다",
     r"시청해주셔서감사합니다",
     r"(?:中文)?字幕志愿者.{0,20}",
-    r".{0,20}明镜与点点栏目",
+    r".{0,20}明[镜鏡][与與][点點][点點][栏欄]目",
+    r"字幕by.{0,20}",
     r"(?:优优独播剧场|中文字幕)?yo(?:yo)?televisionseriesexclusive",
     r"(?:ぜひ)?チャンネル登録.{0,20}",
     r"구독과?좋아요.{0,20}",
@@ -204,9 +205,14 @@ def collapse_phrase_loop(text):
         text = text[:unit_end] + text[run_end:]
 
 
+def is_stock_phrase(text):
+    """Whether the whole of `text` is one of the credit/outro phrases Whisper invents."""
+    key = _stock_key(text)
+    return any(rx.fullmatch(key) for rx in _STOCK_PHRASE_RES)
+
+
 def _is_isolated_stock_phrase(segments, i, isolation_sec=STOCK_PHRASE_ISOLATION_SEC):
-    key = _stock_key(segments[i]["text"])
-    if not any(rx.fullmatch(key) for rx in _STOCK_PHRASE_RES):
+    if not is_stock_phrase(segments[i]["text"]):
         return False
     seg = segments[i]
     try:

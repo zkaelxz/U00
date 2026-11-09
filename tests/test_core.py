@@ -676,6 +676,11 @@ class TestStockPhraseFilter:
                     self._seg(60, 62, "another line")]
         assert filter_hallucinated_segments(segments) == segments
 
+    def test_the_traditional_and_by_credit_wordings_are_stock_phrases(self):
+        for text in ("請不吝點贊 訂閱 轉發 打賞支持明鏡與點點欄目", "字幕by索兰娅"):
+            segments = [self._seg(0, 2, "real line"), self._seg(30, 32, text), self._seg(60, 62, "another line")]
+            assert filter_hallucinated_segments(segments) == [segments[0], segments[2]], text
+
     def test_real_dialogue_containing_the_words_is_kept_even_when_isolated(self):
         segments = [self._seg(0, 2, "real line"),
                     self._seg(30, 33, "He said thanks for watching over her all those years"),
@@ -946,6 +951,16 @@ class TestRehearSparse:
         assert calls[1]["clip_timestamps"] == [0.0, 40.0]
         assert [s["text"] for s in out] == ["后面还说了很多话呢"]
         assert not any("_span" in s for s in out)
+
+    def test_a_stock_sentence_heard_again_is_not_taken_for_the_speech(self):
+        out, _ = self._run(first=[(0.0, 2.0, "我的肉给我好吗"), (3.0, 37.0, "吃肉只是不记得")],
+                           again=[(3.5, 30.0, "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目")])
+        assert out == [(0.0, 2.0, "我的肉给我好吗"), (3.0, 37.0, "吃肉只是不记得")]
+
+    def test_a_stock_sentence_over_a_stretch_is_replaced_by_what_is_heard_again(self):
+        out, _ = self._run(first=[(0.0, 2.0, "我的肉给我好吗"), (2.5, 20.0, "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目")],
+                           again=[(3.0, 5.0, "拜托给你两百块重买吧")])
+        assert out == [(0.0, 2.0, "我的肉给我好吗"), (3.0, 5.0, "拜托给你两百块重买吧")]
 
     def test_a_faster_whisper_without_clip_timestamps_keeps_the_lines(self):
         out, calls = self._run(first=[(0.0, 20.0, "好吃")], sig="old")
