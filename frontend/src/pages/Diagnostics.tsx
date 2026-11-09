@@ -24,6 +24,7 @@ import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { ModelsList } from './diagnostics/ModelsList'
 import { LoadedModelsCard } from './settings/LoadedModelsCard'
+import { ProcessMemoryCard } from './settings/ProcessMemoryCard'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
@@ -279,6 +280,7 @@ function DiagnosticsContent() {
               onChanged={refreshCache} onGoTo={goTo} openSignal={signal('models')} />
           ))}
           {card('loaded-models', <LoadedModelsCard openSignal={signal('loaded-models')} />)}
+          {card('process-memory', <ProcessMemoryCard openSignal={signal('process-memory')} />)}
           {card('test-models', <RealModelCheck pc={pc} jobsActive={active} openSignal={signal('test-models')} />)}
           <p className="muted diag-lab-link">
             Compare engines and prompts on your own test sets.{' '}

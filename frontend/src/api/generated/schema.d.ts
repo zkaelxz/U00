@@ -8938,6 +8938,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/loaded-models/processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** PC only: Python, Ollama and llama.cpp processes with their RAM and graphics memory */
+        get: operations["get_process_memory_api_settings_loaded_models_processes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/month-counter/reset": {
         parameters: {
             query?: never;
@@ -22384,6 +22401,43 @@ export interface components {
             deleted: number;
             /** Freed Bytes */
             freed_bytes: number;
+        };
+        /** ProcessMemory */
+        ProcessMemory: {
+            /** Checked At */
+            checked_at: string;
+            gpu: components["schemas"]["GpuMemory"];
+            /** Processes */
+            processes: components["schemas"]["ProcessMemoryRow"][];
+            /** Server Pid */
+            server_pid: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ok" | "unsupported" | "unavailable";
+            /** Vram Attributed Bytes */
+            vram_attributed_bytes: number | null;
+        };
+        /** ProcessMemoryRow */
+        ProcessMemoryRow: {
+            /** Command */
+            command: string;
+            /** Parent Pid */
+            parent_pid: number;
+            /** Pid */
+            pid: number;
+            /** Ram Bytes */
+            ram_bytes: number;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "this_server" | "child" | "orphan" | "other";
+            /** Role */
+            role: string;
+            /** Vram Bytes */
+            vram_bytes: number | null;
         };
         /** ProductionModel */
         ProductionModel: {
@@ -56897,6 +56951,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoadedModels"];
+                };
+            };
+        };
+    };
+    get_process_memory_api_settings_loaded_models_processes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessMemory"];
                 };
             };
         };
