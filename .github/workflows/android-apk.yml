@@ -8,8 +8,8 @@ name: Android APK
 # Without the ANDROID_DEBUG_KEYSTORE_BASE64 secret the debug build is signed with
 # the runner's throwaway debug key: it can be sideloaded but no phone accepts it
 # as an update to an app signed with another key, so it is not published.
-# With the secret (a debug.keystore file, base64), the same key signs every run,
-# and the publish job puts the APK on the rolling "android-app" pre-release that
+# With the secret (a debug.keystore file, base64), the same key signs every run of
+# baihe-subtitler, and the publish job puts the APK on the rolling "android-app" pre-release that
 # Settings > App updates > "Get the newest phone app" fetches. The secret is
 # read only by the build job of a manual run; the publish job checks out and
 # runs nothing from the repository.
@@ -57,6 +57,13 @@ jobs:
         env:
           KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
+          # Only the integration branch feeds the phone update channel: a run on any
+          # other branch (a dependency bump under test, say) must not put its APK there.
+          if [ "$GITHUB_REF" != "refs/heads/baihe-subtitler" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Not published::Runs on $GITHUB_REF build and test only; the android-app pre-release is updated from baihe-subtitler."
+            exit 0
+          fi
           if [ -z "$KEYSTORE" ]; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "::warning title=Not published::ANDROID_DEBUG_KEYSTORE_BASE64 is not set, so this APK is signed with a throwaway key and is not offered to phones."
