@@ -12,8 +12,7 @@ import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
 import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
-import { FloatingFrame } from './FloatingFrame'
-import { FLOAT_DEFAULT_WIDTH } from './floatLogic'
+import { FloatingFrame, PopOutButton, useFloatBox } from './FloatingFrame'
 
 export interface PlayerHandle {
   // Seek to the line's start and stop at its end (or repeat it with Loop line).
@@ -134,9 +133,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   useEffect(() => applyRate(media.current), [applyRate])
 
   // Browsers without Document Picture-in-Picture get a box inside the page instead.
-  const [boxed, setBoxed] = useState(false)
-  const [boxHost, setBoxHost] = useState<HTMLElement | null>(null)
-  const [boxWidth, setBoxWidth] = usePersistedState('review.floatWidth', FLOAT_DEFAULT_WIDTH)
+  const { boxed, setBoxed, boxHost, setBoxHost, boxWidth, setBoxWidth } = useFloatBox()
   const place = useCallback(() => {
     // Until the box has mounted its body the panel stays where it is, so the video keeps playing.
     const target = boxed ? boxHost : panelHost === undefined ? slotRef.current : panelHost
@@ -592,14 +589,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide player' : 'Show player'}
         </button>
-        <button
-          type="button"
-          className={buttonClass('ghost', 'sm')}
-          onClick={pop.supported ? (floating ? pop.close : () => void pop.open()) : () => setBoxed(!boxed)}
-          title={pop.supported ? 'Keep the player in a small window that stays on top' : 'Keep the player floating over the page; drag to move, resize from its corner'}
-        >
-          {floating || boxed ? 'Return player' : 'Pop out'}
-        </button>
+        <PopOutButton supported={pop.supported} floating={floating} boxed={boxed} onPop={() => void pop.open()} onReturn={pop.close} onToggleBox={() => setBoxed(!boxed)} />
         {trailing}
       </div>
       {failed && (
