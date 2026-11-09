@@ -8,7 +8,7 @@ import { JobPill } from './JobPill'
 import { ButtonLink } from '../../components/Button'
 import { routeHref } from '../../router'
 import { ComicChapterList } from './ComicChapterList'
-import { TitleFlowStart } from './TitleFlowStart'
+import { TitleSteps } from './TitleSteps'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { episodeRows, type EpisodeInput, type TitleView } from './titleView'
 import './stages/novelChapters.css'
@@ -19,6 +19,7 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
   // Unknown until answered; with no lines yet, the main button starts at Transcribe.
   const [lineCount, setLineCount] = useState<number | null>(null)
   const [translatedCount, setTranslatedCount] = useState(0)
+  const [exported, setExported] = useState(false)
   // Audio or video already attached: only then can one button transcribe.
   const [audioReady, setAudioReady] = useState(false)
   const [tick, setTick] = useState(0)
@@ -36,6 +37,7 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
         if (cancelled) return
         setLineCount(p.line_count)
         setTranslatedCount(p.line_count - p.untranslated_count)
+        setExported(p.exported)
       },
       () => !cancelled && setLineCount(null),
     )
@@ -84,7 +86,6 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
   }, [comic, siblings, id, drama.title_en, drama.title_zh, drama.episode_number, lineCount, translatedCount])
 
   const loadingSeries = seriesId != null && !seriesDone
-  const hasLines = lineCount !== null && lineCount > 0
   const stage = (s: string, tab?: 'add' | 'transcribe' | 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
   return (
@@ -109,17 +110,20 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
           <ButtonLink href={stage('export')}>Export</ButtonLink>
         </div>
       ) : (
-      <div className="actions">
-        {flowOn || (!hasLines && audioReady && lineCount !== null) ? (
-          <TitleFlowStart id={id} onProgress={() => { setFlowOn(true); setTick((t) => t + 1) }} />
-        ) : (
-          <ButtonLink href={hasLines ? stage('translate') : stage('source', 'transcribe')} variant="primary">Transcribe and translate</ButtonLink>
-        )}
-        <ButtonLink href={stage('source', 'add')}>Add media</ButtonLink>
-        <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
-        <ButtonLink href={stage('review')}>Review</ButtonLink>
-        <ButtonLink href={stage('export')}>Export</ButtonLink>
-      </div>
+        <>
+          <TitleSteps
+            id={id}
+            audioReady={audioReady}
+            lineCount={lineCount}
+            translatedCount={translatedCount}
+            exported={exported}
+            flowOn={flowOn}
+            onFlowProgress={() => { setFlowOn(true); setTick((t) => t + 1) }}
+          />
+          <div className="actions">
+            <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
+          </div>
+        </>
       )}
       {comic && <ComicChapterList id={id} />}
       {/* A comic's own chapters are listed above; its series list names the other titles, so the two headings differ. */}

@@ -1,0 +1,21 @@
+/* Wrapping, not clipping: a step's text and its button share a row only while both fit, then the button drops below. */
+.title-steps { list-style: none; margin: 1rem 0; padding: 0; display: grid; gap: 0.75rem; }
+.title-step {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.5rem 1rem;
+  padding: 0.9rem 1rem; border: 1px solid var(--border, #d7deea); border-radius: 12px; background: var(--surface, transparent);
+}
+.title-step.is-current { border-width: 2px; border-color: var(--accent, #1f6fe0); }
+.title-step.is-todo { opacity: 0.8; }
+.title-step-dot {
+  width: 2rem; height: 2rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700;
+  background: var(--chip, #eef2f9); color: inherit;
+}
+.title-step.is-done .title-step-dot { background: #1f9d63; color: #fff; }
+.title-step.is-current .title-step-dot { background: var(--accent, #1f6fe0); color: #fff; }
+.title-step-title { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
+.title-step-note { margin: 0.1rem 0 0; overflow-wrap: anywhere; }
+.title-step-action { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; justify-content: flex-end; }
+@media (max-width: 480px) {
+  .title-step { grid-template-columns: auto minmax(0, 1fr); }
+  .title-step-action { grid-column: 1 / -1; justify-content: flex-start; }
+}
