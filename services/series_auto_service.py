@@ -43,7 +43,7 @@ def _read(series_id: int) -> dict:
         return state
     state["on"] = raw.get("on") is True
     ceiling = raw.get("ceiling_usd")
-    if type(ceiling) in (int, float) and 0 < ceiling <= MAX_CEILING_USD:
+    if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and 0 < ceiling <= MAX_CEILING_USD:
         state["ceiling_usd"] = float(ceiling)
     state["reviewed"] = raw.get("reviewed") is True
     if isinstance(raw.get("hold"), str) and raw.get("hold_kind") in (REVIEW, STOPPED, CEILING, QUEUE):
@@ -52,7 +52,8 @@ def _read(series_id: int) -> dict:
         state["current"] = raw["current"]
     state["queued"] = [i for i in raw.get("queued", []) if type(i) is int] \
         if isinstance(raw.get("queued"), list) else []
-    by = raw.get("by") if isinstance(raw.get("by"), dict) else {}
+    raw_by = raw.get("by")
+    by: dict = raw_by if isinstance(raw_by, dict) else {}
     uid = by.get("user_id")
     state["by"] = {"user_id": uid if type(uid) is int else None,
                    "override": by.get("override") is True, "at_pc": by.get("at_pc") is True}
