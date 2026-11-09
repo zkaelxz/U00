@@ -414,14 +414,23 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
-        {!searching && !!data?.flagged_count && (
-          <div className="review-flagnav" role="group" aria-label="Flagged lines">
-            <button type="button" className={buttonClass('secondary', 'sm')} title="Previous flagged line (Alt+↑)" onClick={() => void ctl.moveFlagged(-1)}>
-              ‹ Previous flagged
-            </button>
-            <button type="button" className={buttonClass('secondary', 'sm')} title="Next flagged line (Alt+↓)" onClick={() => void ctl.moveFlagged(1)}>
-              Next flagged ›
-            </button>
+        {!searching && (!!data?.flagged_count || !!data?.unreviewed_count) && (
+          <div className="review-flagnav" role="group" aria-label="Move between lines">
+            {!!data?.flagged_count && (
+              <>
+                <button type="button" className={buttonClass('secondary', 'sm')} title="Previous flagged line (Alt+↑)" onClick={() => void ctl.moveFlagged(-1)}>
+                  ‹ Previous flagged
+                </button>
+                <button type="button" className={buttonClass('secondary', 'sm')} title="Next flagged line (Alt+↓)" onClick={() => void ctl.moveFlagged(1)}>
+                  Next flagged ›
+                </button>
+              </>
+            )}
+            {!!data?.unreviewed_count && (
+              <button type="button" className={buttonClass('secondary', 'sm')} title="Next translated line nobody has marked checked" onClick={() => void ctl.moveFlagged(1, 'unreviewed')}>
+                Next line to check ›
+              </button>
+            )}
           </div>
         )}
         <p className="review-status" role="status">
