@@ -14,6 +14,8 @@ __all__ = [
     "MemoryHeadroom",
     "LoadedModels",
     "FreeAppModelsRequest",
+    "ProcessMemoryRow",
+    "ProcessMemory",
 ]
 
 
@@ -72,3 +74,22 @@ class LoadedModels(BaseModel):
 
 class FreeAppModelsRequest(BaseModel):
     confirm: bool = False
+
+
+class ProcessMemoryRow(BaseModel):
+    pid: int
+    parent_pid: int
+    role: str
+    relation: Literal["this_server", "child", "orphan", "other"]
+    ram_bytes: int
+    vram_bytes: Optional[int] = None
+    command: str
+
+
+class ProcessMemory(BaseModel):
+    checked_at: str
+    state: Literal["ok", "unsupported", "unavailable"]
+    server_pid: int
+    processes: List[ProcessMemoryRow]
+    gpu: GpuMemory
+    vram_attributed_bytes: Optional[int] = None

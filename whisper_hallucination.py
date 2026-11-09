@@ -33,6 +33,22 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
     r"(?:please|dontforgetto)?(?:likeand)?subscribe.{0,30}",
     r"(?:please)?(?:likeand)?subscribetomychannel(?:and(?:hit|click|press)thebell(?:icon)?(?:tobenotified)?)?",
 )]
+# Credit-like lines that are not a whole stock phrase ("本期影片就到這裏,謝謝觀看,記得訂閱、按讚、分享唷"
+# or "please subscribe, press the like button"; the English form must open like an appeal, so that
+# "I told him to subscribe to my channel" stays unflagged). A streamer can really say these, so they are only
+# flagged, never dropped; the length cap keeps a long real sentence that mentions them out.
+_CREDIT_LIKE_RES = [re.compile(p) for p in (
+    r".*(?:訂閱|订阅).*(?:按讚|按赞|點贊|点赞|點讚|分享|轉發|转发).*",
+    r".*(?:按讚|按赞|點贊|点赞|點讚).*(?:訂閱|订阅).*",
+    r"(?:please|dontforget|remember|like|subscribe|soattheend|ifyou).*subscribe.*(?:like|share|channel|bell).*",
+    r".*amaraorg.*",
+)]
+CREDIT_LIKE_MAX_LETTERS = 100
+# No title this app transcribes is Russian or Greek; a line in those scripts is Whisper writing
+# invented text over unclear audio.
+_FOREIGN_SCRIPT_RE = re.compile(r"[Ͱ-ϿЀ-ӿ]")
+STOCK_LINE_FLAG_NOTE = "Looks like a credit line Whisper writes on silence; check against the audio"
+FOREIGN_SCRIPT_FLAG_NOTE = "Text in a script this audio is unlikely to hold; check against the audio"
 # A stock phrase is only dropped with at least this much silence on each side
 # (a missing neighbour counts as silence), so dialogue that happens to say
 # "thanks for watching" between other lines survives.
@@ -214,6 +230,28 @@ def collapse_phrase_loop(text):
         text = text[:unit_end] + text[run_end:]
 
 
+def is_credit_like(text):
+    """Whether `text` reads like a credit/outro line Whisper invents, without being a whole
+    stock phrase: subscribe/like/share wording, or an Amara.org mention."""
+    key = _stock_key(text)
+    return len(key) <= CREDIT_LIKE_MAX_LETTERS and any(rx.fullmatch(key) for rx in _CREDIT_LIKE_RES)
+
+
+def _flag_invented_text(segments):
+    """`segments` with each kept stock phrase, credit-like line or line in a foreign script
+    flagged IMPLAUSIBLE_FLAG (unless it carries a flag already). Nothing is dropped: the stock
+    phrase reaches here only because it sits next to speech, where it may be real."""
+    out = []
+    for seg in segments:
+        text = seg["text"]
+        if is_stock_phrase(text) or is_credit_like(text):
+            seg = _flag(seg, STOCK_LINE_FLAG_NOTE)
+        elif _FOREIGN_SCRIPT_RE.search(text):
+            seg = _flag(seg, FOREIGN_SCRIPT_FLAG_NOTE)
+        out.append(seg)
+    return out
+
+
 def is_stock_phrase(text):
     """Whether the whole of `text` is one of the credit/outro phrases Whisper invents."""
     key = _stock_key(text)
@@ -311,5 +349,5 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEA
         else:
             out.extend(segments[i:j])
         i = j
-    return screen_implausible_text([seg for k, seg in enumerate(out)
-                                    if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)])
+    kept = [seg for k, seg in enumerate(out) if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)]
+    return screen_implausible_text(_flag_invented_text(kept))
