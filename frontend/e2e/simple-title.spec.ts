@@ -153,3 +153,15 @@ test('a title in a series lists its episodes in order with each state', async ({
   await expect(items.nth(2)).toContainText('Episode Three')
   await expect(items.nth(2)).toContainText('Not transcribed')
 })
+
+test.describe('a browser that never chose a title view', () => {
+  test.use({ storageState: { cookies: [], origins: [] } })
+
+  test('opens audio, video and comic titles on Simple', async ({ page }) => {
+    await page.goto('/#/drama/1')
+    await expect(page.getByRole('radio', { name: 'Simple' })).toBeChecked()
+    await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+    await page.goto('/#/drama/3')
+    await expect(page.getByRole('radio', { name: 'Simple' })).toBeChecked()
+  })
+})

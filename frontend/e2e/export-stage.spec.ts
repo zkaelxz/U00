@@ -373,8 +373,12 @@ test.describe('export blocks fold under their headings', () => {
   })
 
   test('works with storage blocked: the defaults still hold', async ({ page }) => {
+    // Everything is blocked but the title view: Simple would leave Audiobook out of the page, and this test is about the folds.
     await page.addInitScript(() => {
-      Object.defineProperty(window, 'localStorage', { get: () => { throw new Error('blocked') } })
+      const blocked = () => { throw new Error('blocked') }
+      Object.defineProperty(window, 'localStorage', {
+        get: () => ({ getItem: (k: string) => (k === 'baihe.pref.title.view' ? '"full"' : blocked()), setItem: blocked, removeItem: blocked }),
+      })
     })
     await page.goto('/#/drama/3/export')
     await expectOpen(page, { 'Video with a subtitle track': true })
