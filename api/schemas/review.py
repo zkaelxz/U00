@@ -144,6 +144,8 @@ class ReviewLinesPage(BaseModel):
         "Translated lines not yet marked checked, in the whole drama."))
     shaky_count: int = Field(default=0, description=(
         "Unchecked lines Whisper was unsure of (the `shaky` filter), in the whole drama."))
+    risk_count: int = Field(default=0, description=(
+        "Unchecked translated lines with a flag or low confidence (the `risk` filter), in the whole drama."))
 
 
 class ReviewLinesFindReplaceRequest(BaseModel):
