@@ -59,6 +59,10 @@ export const updateDramaMetadata = (id: number, body: DramaMetadataUpdate, f?: F
 export const setDramaSeries = (id: number, body: Pick<DramaMetadataUpdate, 'series_id' | 'new_series_name'>, f?: Fetch) =>
   postJson<DramaDetail>(`/api/dramas/${id}/series`, body, f)
 
+// Makes an independent test copy of a title (library.create, so it works from away).
+export const duplicateDrama = (id: number, f?: Fetch) =>
+  postJson<DramaDetail>(`/api/dramas/${id}/duplicate`, {}, f)
+
 // PC only: the source link as imported or typed, query included (the
 // drama detail's source_url is the cleaned form).
 export const getSourceLink = (id: number, f?: Fetch) =>

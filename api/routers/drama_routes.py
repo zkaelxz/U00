@@ -41,7 +41,7 @@ from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          error_responses)
 from lib.capped_request import read_capped_form
 from services import (cover_art_service, drama_service, link_details_service, source_link_service,
-                      title_restructure_service)
+                      title_copy_service, title_restructure_service)
 from lib.errors import InvalidInputError
 from lib.storage_errors import require_readable
 
@@ -88,6 +88,17 @@ def post_drama_series(payload: DramaSeriesUpdate, request: Request,
     return to_detail(drama_service.set_drama_series(
         drama_id, principal=request.state.principal,
         **payload.model_dump(exclude_unset=True)))
+
+
+# library.create like making a title: the copy is a new title the caller owns,
+# and the original is only read.
+@router.post("/{drama_id}/duplicate", dependencies=[require_permission("library.create")],
+             response_model=DramaDetail, status_code=201,
+             summary="Make an independent test copy of a title",
+             responses=error_responses(404, 409))
+def post_drama_duplicate(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return to_detail(title_copy_service.duplicate_title(
+        drama_id, principal=request.state.principal))
 
 
 # local_only: the stored link may carry a query or token, so only the PC

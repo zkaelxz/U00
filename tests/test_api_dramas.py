@@ -463,3 +463,11 @@ def test_open_folder_from_a_background_service_says_so(client, monkeypatch):
     drama_id = db.create_drama(title_en="A")
     r = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
     assert r.status_code == 400 and "background service" in _error(r)["message"]
+
+
+def test_duplicate_makes_an_independent_copy(client):
+    src = client.post("/api/dramas", json={"source_language": "zh", "title_en": "Orig"}).json()
+    resp = client.post(f"/api/dramas/{src['id']}/duplicate", json={})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["title_en"] == "Orig (copy)" and resp.json()["id"] != src["id"]
+    assert client.post("/api/dramas/987654/duplicate", json={}).status_code == 404
