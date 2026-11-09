@@ -604,10 +604,10 @@ class TestFilterHallucinatedSegments:
         assert filter_hallucinated_segments([seg]) == [seg]
 
     def test_a_long_run_is_collapsed_to_the_first_occurrence(self):
-        segments = ([self._seg(i, i + 1, "thanks for watching") for i in range(5)]
+        segments = ([self._seg(i, i + 1, "see you later") for i in range(5)]
                     + [self._seg(5, 6, "real dialogue")])
         result = filter_hallucinated_segments(segments, min_repeat_count=4)
-        assert result == [self._seg(0, 1, "thanks for watching"),
+        assert result == [self._seg(0, 1, "see you later"),
                            self._seg(5, 6, "real dialogue")]
 
     def test_exactly_at_the_threshold_is_collapsed(self):
@@ -655,6 +655,33 @@ class TestStockPhraseFilter:
     def _seg(self, start, end, text):
         return {"start": start, "end": end, "text": text}
 
+    @staticmethod
+    def _kept_and_flagged(result, original, flagged_index):
+        """Every line survives with its text and times; only the one at `flagged_index` gains a flag."""
+        plain = [{k: v for k, v in seg.items() if k not in ("flag", "flag_note")} for seg in result]
+        return (plain == original and result[flagged_index].get("flag") == "text_uncertain"
+                and all(not seg.get("flag") for i, seg in enumerate(result) if i != flagged_index))
+
+    def test_credit_like_wordings_next_to_speech_are_kept_but_flagged(self):
+        for text in ("本期影片就到這裏,謝謝觀看,記得訂閱、按讚、分享及分享唷!",
+                     "為了獲得最新的影片請訂閱、按讚、分享及分享唷",
+                     "So at the end of each video, please subscribe, press the like button, and share it with your friends.",
+                     "字幕 by 沛隊字幕組"):
+            segments = [self._seg(0, 2, "real line"), self._seg(2.5, 5, text), self._seg(5.5, 7, "another line")]
+            assert self._kept_and_flagged(filter_hallucinated_segments(segments), segments, 1), text
+
+    def test_a_sentence_that_only_mentions_subscribing_is_not_flagged(self):
+        segments = [self._seg(0, 2, "real line"),
+                    self._seg(2.5, 5, "I told him to subscribe to my channel if he liked the show"),
+                    self._seg(5.5, 7, "another line")]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_a_line_in_cyrillic_or_greek_is_flagged_not_dropped(self):
+        segments = [self._seg(0, 2, "real line"), self._seg(2.5, 5, "косmos 日、月"), self._seg(5.5, 7, "another line")]
+        assert self._kept_and_flagged(filter_hallucinated_segments(segments), segments, 1)
+        mixed = [self._seg(0, 2, "碰撞一下Gordon Ramsay")]
+        assert filter_hallucinated_segments(mixed) == mixed
+
     def test_isolated_stock_phrases_are_dropped(self):
         for text in ("Subtitles by the Amara.org community", "ご視聴ありがとうございました",
                      "请不吝点赞 订阅 转发 打赏", "字幕由Amara.org社群提供", "由 Amara.org 社群提供的字幕",
@@ -682,7 +709,7 @@ class TestStockPhraseFilter:
 
     def test_a_chinese_thanks_for_watching_between_speech_or_inside_a_sentence_is_kept(self):
         near = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "感谢观看"), self._seg(4.5, 6, "another line")]
-        assert filter_hallucinated_segments(near) == near
+        assert self._kept_and_flagged(filter_hallucinated_segments(near), near, 1)
         inside = [self._seg(0, 2, "real line"), self._seg(30, 33, "感谢观看我们的节目，我们下次见"),
                   self._seg(60, 62, "another line")]
         assert filter_hallucinated_segments(inside) == inside
@@ -690,12 +717,12 @@ class TestStockPhraseFilter:
     def test_a_stock_phrase_inside_dialogue_is_kept(self):
         segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
                     self._seg(4.5, 6, "another line")]
-        assert filter_hallucinated_segments(segments) == segments
+        assert self._kept_and_flagged(filter_hallucinated_segments(segments), segments, 1)
 
     def test_silent_on_one_side_only_is_kept(self):
         segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
                     self._seg(60, 62, "another line")]
-        assert filter_hallucinated_segments(segments) == segments
+        assert self._kept_and_flagged(filter_hallucinated_segments(segments), segments, 1)
 
     def test_the_traditional_and_by_credit_wordings_are_stock_phrases(self):
         for text in ("請不吝點贊 訂閱 轉發 打賞支持明鏡與點點欄目", "字幕by索兰娅", "感谢观看", "謝謝觀看。"):
@@ -1014,11 +1041,11 @@ class TestTranscribeForTimingHallucinationFilter:
     def test_hallucination_filter_is_applied_by_default(self):
         import whisper_transcribe
         whisper_models._whisper_model_cache.clear()
-        self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
+        self._stub_faster_whisper(["see you later"] * 5 + ["real line"])
 
         result = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3")
 
-        assert result == [{"start": 0.0, "end": 1.0, "text": "thanks for watching"},
+        assert result == [{"start": 0.0, "end": 1.0, "text": "see you later"},
                            {"start": 5.0, "end": 6.0, "text": "real line"}]
 
     def test_filter_can_be_disabled(self):
