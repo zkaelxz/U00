@@ -1,9 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 import { buttonClass } from '../../../../components/uiClasses'
-import { usePersistedState } from '../../../../hooks/usePersistedState'
-import { clampFloatPos, clampFloatWidth, FLOAT_DEFAULT_WIDTH, FLOAT_MARGIN, FLOAT_MIN_WIDTH, FLOAT_STEP, type FloatPos } from './floatLogic'
+import { clampFloatPos, clampFloatWidth, FLOAT_MARGIN, FLOAT_MIN_WIDTH, FLOAT_STEP, type FloatPos } from './floatLogic'
 
 interface Props {
   width: number
@@ -36,7 +35,6 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-  useLayoutEffect(() => setPos((p) => keepOnScreen(p)), [w])
 
   const drag = (e: ReactPointerEvent<HTMLElement>, onMove: (dx: number, dy: number, start: { pos: FloatPos; width: number }) => void) => {
     if (e.button !== 0) return
@@ -68,7 +66,7 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
   }
 
   return createPortal(
-    <div ref={box} className="review-float" role="group" aria-label="Floating player" style={{ width: w, right: pos.right, bottom: pos.bottom }}>
+    <div ref={box} className="review-float" role="group" aria-label="Floating player" style={{ width: w, right: `min(${pos.right}px, calc(100vw - ${w}px))`, bottom: pos.bottom }}>
       <div className="review-float-bar" onPointerDown={onMoveDrag} title="Drag to move">
         <span className="review-float-grip" aria-hidden="true">⠿</span>
         <span className="review-float-title">Player</span>
@@ -100,34 +98,4 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
     </div>,
     document.body,
   )
-}
-
-interface PopOutButtonProps {
-  supported: boolean
-  floating: boolean
-  boxed: boolean
-  onPop: () => void
-  onReturn: () => void
-  onToggleBox: () => void
-}
-
-// One button for both kinds of floating: the always-on-top window where the browser has one, the in-page box otherwise.
-export function PopOutButton({ supported, floating, boxed, onPop, onReturn, onToggleBox }: PopOutButtonProps) {
-  return (
-    <button
-      type="button"
-      className={buttonClass('ghost', 'sm')}
-      onClick={supported ? (floating ? onReturn : onPop) : onToggleBox}
-      title={supported ? 'Keep the player in a small window that stays on top' : 'Keep the player floating over the page; drag to move, resize from its corner'}
-    >
-      {floating || boxed ? 'Return player' : 'Pop out'}
-    </button>
-  )
-}
-
-export function useFloatBox() {
-  const [boxed, setBoxed] = useState(false)
-  const [boxHost, setBoxHost] = useState<HTMLElement | null>(null)
-  const [boxWidth, setBoxWidth] = usePersistedState('review.floatWidth', FLOAT_DEFAULT_WIDTH)
-  return { boxed, setBoxed, boxHost, setBoxHost, boxWidth, setBoxWidth }
 }

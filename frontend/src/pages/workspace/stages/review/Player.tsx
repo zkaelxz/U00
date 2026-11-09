@@ -12,7 +12,9 @@ import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
 import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
-import { FloatingFrame, PopOutButton, useFloatBox } from './FloatingFrame'
+import { FloatingFrame } from './FloatingFrame'
+import { PopOutButton } from './PopOutButton'
+import { useFloatBox } from './useFloatBox'
 
 export interface PlayerHandle {
   // Seek to the line's start and stop at its end (or repeat it with Loop line).
