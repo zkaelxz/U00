@@ -190,6 +190,7 @@ class TestLinesGlossaryService:
         monkeypatch.setattr(tguide, "extract_terms_llm", boom)
         st = wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         assert st["status"] == "error" and SECRET not in repr(st)
+        assert "Glossary extraction failed (engine: " in st["error"]
         assert SECRET not in repr(gs.get_lines_glossary_status(did))
 
     def test_cancel_during_call_drops_result(self, isolated_db, monkeypatch, fake_engine):

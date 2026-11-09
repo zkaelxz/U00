@@ -34,7 +34,10 @@ from lib.errors import (
 # ---------------------------------------------------------------------------
 
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"
-_EXTRACT_FAILED = "Glossary extraction failed."
+def _extract_failed(engine_name: str) -> str:
+    """Names the engine because it is the title's saved one, which is not the engine
+    picked on the Translate form for a single run."""
+    return f"Glossary extraction failed (engine: {engine_name})."
 
 
 def novel_glossary_job_id(drama_id: int) -> str:
@@ -167,7 +170,7 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
     except Exception as exc:
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
+            _extract_failed(engine_name) + " " + engine_shared.redact_secrets(str(exc))) from None
     background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms, src_text),
                                         "run_id": run_id, **paid_job_service.stop_fields(limits)})
 
@@ -527,7 +530,7 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
+            _extract_failed(engine_name) + " " + engine_shared.redact_secrets(str(exc))) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
     # `renderings` is the novel path's cross-window tally; a single call has no
