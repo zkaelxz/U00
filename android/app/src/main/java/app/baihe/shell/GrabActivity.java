@@ -23,6 +23,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import android.util.Base64;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -51,7 +52,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private GrabBridge bridge;
     private final ExecutorService sender = Executors.newSingleThreadExecutor();
     private final SecureRandom random = new SecureRandom();
+    private Button chapters;
     private volatile boolean grabbing;
+    // Chapters still to follow after the current one; 0 when not following.
+    private volatile int chaptersLeft;
+    private volatile boolean loadingNext;
     private volatile boolean uploading;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -91,6 +96,16 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
 
             @Override
+            public void onPageFinished(WebView view, String url) {
+                // The next chapter has loaded; the delay lets its reader start drawing pages.
+                if (!loadingNext) return;
+                loadingNext = false;
+                web.postDelayed(() -> {
+                    if (chaptersLeft > 0 && !grabbing) startGrab();
+                }, 2500);
+            }
+
+            @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 address.setText(url);
                 // Leaving the page ends a grab that is still reading it, or Grab would stay
@@ -109,6 +124,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         grab = button("Grab", v -> startGrab());
         buttons.addView(grab, weighted());
+        chapters = button("Chapters", v -> toggleChapters());
+        buttons.addView(chapters, weighted());
         buttons.addView(button("Open Baihe", v -> openBaihe()), weighted());
         buttons.addView(button("Settings", v -> showSettings()), weighted());
         root.addView(buttons);
@@ -229,7 +246,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 return;
             }
             upload(new BaiheClient(server, token), "", java.util.Collections.singletonList(title),
-                    images, unreadable, truncated);
+                    null, images, unreadable, truncated);
         });
     }
 
@@ -398,15 +415,76 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         return out.toString();
     }
 
+    /** Pressing Chapters asks how many to follow; pressing it again while following stops. */
+    private void toggleChapters() {
+        if (chaptersLeft > 0) {
+            chaptersLeft = 0;
+            loadingNext = false;
+            runOnUiThread(() -> chapters.setText("Chapters"));
+            say("Stopped after this chapter.");
+            return;
+        }
+        if (grabbing) return;
+        EditText count = new EditText(this);
+        count.setInputType(InputType.TYPE_CLASS_NUMBER);
+        count.setText("3");
+        new AlertDialog.Builder(this)
+                .setTitle("Grab this chapter and the next ones")
+                .setMessage("How many chapters in all (up to " + MAX_CHAPTERS + ")?")
+                .setView(count)
+                .setPositiveButton("Start", (d, w) -> {
+                    int n = 0;
+                    try {
+                        n = Integer.parseInt(count.getText().toString().trim());
+                    } catch (NumberFormatException ignored) {
+                        // Falls through to the range message below.
+                    }
+                    if (n < 1 || n > MAX_CHAPTERS) {
+                        say("Enter a number from 1 to " + MAX_CHAPTERS + ".");
+                        return;
+                    }
+                    chaptersLeft = n;
+                    chapters.setText("Stop");
+                    startGrab();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Ends one grab; when following chapters and this one went through, opens the next. */
     private void finishGrab(String message) {
+        finishGrab(message, false);
+    }
+
+    private void finishGrab(String message, boolean sent) {
         grabbing = false;
         uploading = false;
         bridge.cancel();
+        String next = null;
+        if (chaptersLeft > 0) {
+            chaptersLeft--;
+            if (sent && chaptersLeft > 0) {
+                next = ServerAddress.nextChapterUrl(pageUrl, pageNext);
+                if (next == null) message = message + ". No next chapter link was found.";
+            }
+            if (next == null) chaptersLeft = 0;
+        }
+        String shown = message;
+        String go = next;
         runOnUiThread(() -> {
             grab.setEnabled(true);
-            status.setText(message);
+            chapters.setText(chaptersLeft > 0 ? "Stop" : "Chapters");
+            status.setText(shown);
+            if (go != null) {
+                loadingNext = true;
+                web.loadUrl(go);
+            }
         });
     }
+
+    private static final int MAX_CHAPTERS = 20;
+    private volatile String pageNext = "";
+    private JSONArray pageChapters = new JSONArray();
 
     private static final long GRAB_TIMEOUT_MS = 5 * 60 * 1000;
     private volatile String runningGrab = "";
@@ -415,8 +493,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private List<String> pageTitles = new ArrayList<>();
 
     @Override
-    public void onBegin(List<String> titles, int count) {
+    public void onBegin(List<String> titles, int count, JSONArray chapterLinks, String next) {
         pageTitles = titles;
+        pageChapters = chapterLinks;
+        pageNext = next;
         if (count == 0) say("Reading pages");
     }
 
@@ -428,17 +508,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
         String url = pageUrl;
         List<String> titles = pageTitles;
+        JSONArray chapterLinks = pageChapters;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
-        sender.execute(() -> upload(new BaiheClient(server, token), url, titles, images, unreadable, truncated));
+        sender.execute(() -> upload(new BaiheClient(server, token), url, titles, chapterLinks, images, unreadable, truncated));
     }
 
-    private void upload(BaiheClient client, String url, List<String> titles, List<PageImage> images,
-                        int unreadable, boolean truncated) {
+    private void upload(BaiheClient client, String url, List<String> titles, JSONArray chapterLinks,
+                        List<PageImage> images, int unreadable, boolean truncated) {
         try {
             int max = client.health().optInt("max_images_per_request", 12);
-            JSONObject title = client.resolveTitle(url, titles);
+            JSONObject title = client.resolveTitle(url, titles, chapterLinks);
             long dramaId = title.getLong("drama_id");
             List<List<PageImage>> batches = Batches.plan(images, max);
             int stored = 0;
@@ -461,7 +542,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             StringBuilder out = new StringBuilder("Sent " + stored + " pages to " + title.optString("title", "Baihe"));
             if (failed > 0 || truncated) out.append(". Not sent: ").append(failed + (truncated ? " or more" : ""));
             if (!firstError.isEmpty()) out.append(". ").append(firstError);
-            finishGrab(out.toString());
+            // A chapter where every page was refused must not send the chain on to the next.
+            finishGrab(out.toString(), stored > 0);
         } catch (BaiheClient.BridgeException e) {
             finishGrab(e.getMessage());
         } catch (Exception e) {

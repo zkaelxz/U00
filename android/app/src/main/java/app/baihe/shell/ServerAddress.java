@@ -129,4 +129,48 @@ final class ServerAddress {
         if (!token.isEmpty()) return token;
         return newOrigin != null && newOrigin.equals(savedOrigin) && saved != null ? saved : "";
     }
+
+    /**
+     * The "next chapter" address a page offered, if it stays on the page's own site over
+     * http(s) and is a different page. The page's script can claim anything, so a link to
+     * another site is refused rather than followed with the grab chain.
+     */
+    static String nextChapterUrl(String current, String candidate) {
+        try {
+            if (candidate == null || candidate.length() > 2000) return null;
+            URI next = new URI(candidate.trim());
+            URI here = new URI(current == null ? "" : current);
+            String scheme = next.getScheme() == null ? "" : next.getScheme().toLowerCase(Locale.ROOT);
+            if (!scheme.equals("http") && !scheme.equals("https")) return null;
+            if (next.getHost() == null || here.getHost() == null) return null;
+            if (!bareHost(next.getHost()).equals(bareHost(here.getHost()))) return null;
+            if (next.getRawUserInfo() != null) return null;
+            String a = next.getRawPath() + "?" + next.getRawQuery();
+            String b = here.getRawPath() + "?" + here.getRawQuery();
+            return a.equals(b) ? null : next.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String bareHost(String host) {
+        String h = host.toLowerCase(Locale.ROOT);
+        return h.startsWith("www.") ? h.substring(4) : h;
+    }
+
+    /**
+     * Whether a link tapped in the Baihe shell opens in Baihe Grab's own browser. Google's
+     * sign-in pages refuse embedded web views, so those stay in the system browser.
+     */
+    static boolean opensInGrab(String url) {
+        String link = browsable(url);
+        if (link == null) return false;
+        try {
+            String host = bareHost(new URI(link).getHost());
+            return !(host.equals("google.com") || host.endsWith(".google.com")
+                    || host.equals("accounts.youtube.com"));
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

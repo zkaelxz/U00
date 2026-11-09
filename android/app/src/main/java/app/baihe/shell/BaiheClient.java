@@ -47,13 +47,13 @@ final class BaiheClient {
     }
 
     /** The title for this page (drama_id and title), found or made by the server's Auto title logic. */
-    JSONObject resolveTitle(String pageUrl, List<String> titles) throws BridgeException {
+    JSONObject resolveTitle(String pageUrl, List<String> titles, JSONArray chapters) throws BridgeException {
         try {
             JSONObject body = new JSONObject();
             body.put("url", ServerAddress.publicSourceUrl(pageUrl));
             body.put("titles", new JSONArray(titles));
             body.put("kind", "comic");
-            body.put("chapter_links", new JSONArray());
+            body.put("chapter_links", chapters == null ? new JSONArray() : chapters);
             JSONObject answer = call("POST", "/title", body);
             if (answer.optLong("drama_id", 0) <= 0) throw new BridgeException(0, "Baihe did not return a title.");
             return answer;
