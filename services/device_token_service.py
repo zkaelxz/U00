@@ -239,7 +239,7 @@ def _principal_for(row: dict, now: float):
         return None
     return {"user_id": user["id"], "email": user["email"], "is_admin": False,
             "is_local_owner": False, "admin_override": False, "device_token_id": row["id"],
-            "permissions": [p for p in auth_service.effective_permissions(user["id"])
+            "permissions": [p for p in auth_service.working_permissions(user["id"])
                             if p not in auth_service.ADMIN_FLAG_PERMISSIONS]}
 
 

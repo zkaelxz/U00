@@ -9,8 +9,10 @@ import contextlib
 
 import background_jobs
 import bulk_providers
+import db
 from engine_backends import llm_tasks, paid_calls
 from lib.errors import UnsupportedOperationError
+from services import auth_service
 
 NO_CAP_MESSAGE = bulk_providers.NO_CAP_MESSAGE
 
@@ -34,6 +36,16 @@ def _cap_spent(engine_name: str, engine):
 
 
 paid_calls.set_default_cap_check_factory(_cap_spent)
+
+
+def _stop_job_over_member_limit(user_id, job_id) -> None:
+    """A job whose paid call just used up its starter's own monthly limit is
+    asked to stop; a translation keeps the lines it finished, as on Cancel."""
+    if job_id and auth_service.paid_limit_reached(user_id):
+        background_jobs.request_cancel(job_id)
+
+
+db.on_member_spend(_stop_job_over_member_limit)
 
 
 def require_cap_for_unattended(engine_name: str, gemini_free_tier: bool = False) -> None:

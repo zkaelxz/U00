@@ -89,6 +89,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/users/{user_id}/paid-limit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set or clear a member's own monthly limit for paid engines */
+        post: operations["set_user_paid_limit_api_admin_users__user_id__paid_limit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/users/{user_id}/permissions/{permission}": {
         parameters: {
             query?: never;
@@ -11849,6 +11866,13 @@ export interface components {
             is_admin: boolean;
             /** Is Self */
             is_self: boolean;
+            /**
+             * Month Paid Spend Usd
+             * @default 0
+             */
+            month_paid_spend_usd: number;
+            /** Monthly Paid Cap Usd */
+            monthly_paid_cap_usd: number | null;
             /** Permissions */
             permissions: string[];
         };
@@ -21091,6 +21115,11 @@ export interface components {
              * @default false
              */
             own_ollama_key: boolean;
+            /**
+             * Paid Limit Reached
+             * @default false
+             */
+            paid_limit_reached: boolean;
             /** Permissions */
             permissions: string[];
             /** Sign In Configured */
@@ -21365,6 +21394,14 @@ export interface components {
             last4: string | null;
             /** Unreadable */
             unreadable: boolean;
+        };
+        /**
+         * MemberPaidLimitRequest
+         * @description A member's own monthly limit for paid engines; null clears it.
+         */
+        MemberPaidLimitRequest: {
+            /** Monthly Cap Usd */
+            monthly_cap_usd: number | null;
         };
         /** MemoryHeadroom */
         MemoryHeadroom: {
@@ -30586,6 +30623,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberKeyRemoved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_user_paid_limit_api_admin_users__user_id__paid_limit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberPaidLimitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
                 };
             };
             /** @description Validation Error */

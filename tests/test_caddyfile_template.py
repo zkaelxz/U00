@@ -265,6 +265,7 @@ ADMIN_AWAY_WRITES = [
     ("POST", "/api/admin/users/{user_id}/permissions/{permission}"),
     ("DELETE", "/api/admin/users/{user_id}/permissions/{permission}"),
     ("POST", "/api/admin/users/{user_id}/revoke-sessions"),
+    ("POST", "/api/admin/users/{user_id}/paid-limit"),
 ]
 
 
