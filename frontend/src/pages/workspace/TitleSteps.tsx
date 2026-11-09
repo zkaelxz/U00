@@ -4,7 +4,7 @@
 import { ButtonLink } from '../../components/Button'
 import { routeHref } from '../../router'
 import { TitleFlowStart } from './TitleFlowStart'
-import { titleSteps, type Step, type StepInput, type StepKey } from './titleSteps'
+import { titleSteps, type Step, type StepInput, type StepKey } from './stepModel'
 import './titleSteps.css'
 
 interface Props extends StepInput {

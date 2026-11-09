@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { titleSteps } from './titleSteps'
+import { titleSteps } from './stepModel'
 
 const states = (i: Parameters<typeof titleSteps>[0]) => titleSteps(i).map((s) => `${s.key}:${s.state}`)
 const base = { audioReady: false, lineCount: 0, translatedCount: 0, exported: false }
