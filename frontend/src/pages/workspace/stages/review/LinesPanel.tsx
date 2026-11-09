@@ -48,6 +48,7 @@ import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 import { useReviewShortcuts } from './useReviewShortcuts'
 import { useTimingSnap } from './useTimingSnap'
 import { useTmByLine } from './useTmByLine'
+import { LineStepButtons } from './LineStepButtons'
 import { lineNumber } from '../../../../lineNumber'
 import { browserStorage } from '../../../../hooks/usePersistedState'
 
@@ -414,25 +415,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
-        {!searching && (!!data?.flagged_count || !!data?.unreviewed_count) && (
-          <div className="review-flagnav" role="group" aria-label="Move between lines">
-            {!!data?.flagged_count && (
-              <>
-                <button type="button" className={buttonClass('secondary', 'sm')} title="Previous flagged line (Alt+↑)" onClick={() => void ctl.moveFlagged(-1)}>
-                  ‹ Previous flagged
-                </button>
-                <button type="button" className={buttonClass('secondary', 'sm')} title="Next flagged line (Alt+↓)" onClick={() => void ctl.moveFlagged(1)}>
-                  Next flagged ›
-                </button>
-              </>
-            )}
-            {!!data?.unreviewed_count && (
-              <button type="button" className={buttonClass('secondary', 'sm')} title="Next translated line nobody has marked checked" onClick={() => void ctl.moveFlagged(1, 'unreviewed')}>
-                Next line to check ›
-              </button>
-            )}
-          </div>
-        )}
+        {!searching && <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} onMove={(d, k) => void ctl.moveFlagged(d, k)} />}
         <p className="review-status" role="status">
           {status}
         </p>
