@@ -24,7 +24,7 @@ import functools
 import os
 import sys
 
-NOT_DOWNLOADED_MESSAGE = ("This model is not downloaded yet. Ask the owner of the main PC "
+NOT_DOWNLOADED_MESSAGE = ("This model is not downloaded yet. Ask the PC owner "
                           "to download it first.")
 
 # huggingface_hub, transformers and datasets read these; ModelScope and

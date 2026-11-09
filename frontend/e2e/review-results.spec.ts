@@ -295,6 +295,6 @@ test('compare without permission to read lines: a plain note, no error banner', 
   await expect(rows(page)).toHaveCount(4)
   const v = await open(page, 'Compare versions')
   await v.getByRole('button', { name: 'Show differences' }).click()
-  await expect(v.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(v.getByText('Seeing line text needs permission to read lines. Ask the PC owner.')).toBeVisible()
   await expect(v.getByRole('alert')).toHaveCount(0)
 })

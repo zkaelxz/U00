@@ -159,6 +159,6 @@ test('line search without permission to read lines: a plain note, no error banne
   await page.getByRole('radio', { name: 'Lines' }).check()
   await page.getByLabel('Search all lines').fill('anything')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
-  await expect(page.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(page.getByText('Seeing line text needs permission to read lines. Ask the PC owner.')).toBeVisible()
   await expect(page.locator('.line-hits').getByRole('alert')).toHaveCount(0)
 })

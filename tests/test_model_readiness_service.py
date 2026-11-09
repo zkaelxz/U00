@@ -22,7 +22,7 @@ from services import model_readiness_service as mrs
 from lib.errors import ConflictError, ForbiddenError
 from tests.test_api_household_listener import _admin_client, _admin_session, _h, _household_client
 
-MESSAGE = "This model is not downloaded yet. Ask the owner of the main PC to download it first."
+MESSAGE = "This model is not downloaded yet. Ask the PC owner to download it first."
 
 
 @pytest.fixture
