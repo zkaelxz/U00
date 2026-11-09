@@ -614,6 +614,28 @@ def settle_overlaps(segments: list) -> list:
     return segments
 
 
+# Whisper's word end times stop before the sound does, so the 0.2 s pad of
+# tighten_to_words leaves a typical line cut about 0.3 s short.
+SPEECH_END_MAX_EXTEND = 0.5
+
+
+def extend_ends_to_speech(segments: list, spans, max_extend: float = SPEECH_END_MAX_EXTEND) -> list:
+    """Lengthens each segment's end to where the speech it ends in stops, by at most
+    max_extend and never past the next segment's start. `spans` are sorted
+    (start, end) speech spans in seconds; a segment that ends in silence is left alone."""
+    for i, seg in enumerate(segments):
+        end = seg["end"]
+        probe = end - 0.1
+        span = next((sp for sp in spans if sp[0] <= probe <= sp[1] + 0.05), None)
+        if span is None:
+            continue
+        limit = segments[i + 1]["start"] if i + 1 < len(segments) else float("inf")
+        new_end = min(span[1], end + max_extend, limit)
+        if new_end > end:
+            seg["end"] = new_end
+    return segments
+
+
 MIN_SEGMENT_SECONDS = 0.5
 
 
