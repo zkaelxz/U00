@@ -126,7 +126,7 @@ export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit
 
   return (
     <div className="table-scroll">
-      <table data-testid={`${testId}-proposals`}>
+      <table className="glossary-proposals-table" data-testid={`${testId}-proposals`}>
         <thead>
           <tr>
             <th />
