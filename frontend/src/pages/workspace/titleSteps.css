@@ -12,7 +12,7 @@
 }
 .title-step.is-done .title-step-dot { background: #1f9d63; color: #fff; }
 .title-step.is-current .title-step-dot { background: var(--accent, #1f6fe0); color: #fff; }
-.title-step-title { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
+.title-step-title { margin: 0; font-size: var(--text-md); overflow-wrap: anywhere; }
 .title-step-note { margin: 0.1rem 0 0; overflow-wrap: anywhere; }
 .title-step-action { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; justify-content: flex-end; }
 @media (max-width: 480px) {
