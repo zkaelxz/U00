@@ -116,8 +116,8 @@ OLLAMA_MODELS = {
 # of the default and out of every fallback so a local-only setup never
 # starts sending text off the PC without the owner picking one.
 OLLAMA_CLOUD_MODELS = {
-    "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
-    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
+    "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; billed per token (about 1 cent per 200-line title)",
+    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; billed per token",
 }
 
 

@@ -143,7 +143,8 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     unlimited. See the model sizes in `OLLAMA_MODELS` for what fits a 12 GB card.
     The `OLLAMA_CLOUD_MODELS` tags (`gemma4:31b-cloud`, `gemma4:cloud`) are Ollama's hosted
     models, reached through the same local server after `ollama signin` (the owner's
-    account): the subtitle text is processed on Ollama's servers and free use is capped.
+    account): the subtitle text is processed on Ollama's servers and billed per token
+    (priced in `PRICING_PER_MILLION_TOKENS`, so the spend caps count them).
     They are never a default or fallback, are skipped by the GPU/headroom checks
     (`ollama_touches_local_gpu`, which also decides whether a job takes the GPU queue slot), and a 429 becomes `OllamaCloudLimitError`, which the normal
     backoff retries. A signed-in member who saved their own Ollama key has their cloud calls

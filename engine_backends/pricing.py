@@ -141,6 +141,10 @@ PRICING_PER_MILLION_TOKENS = {
     "gpt-5-mini": {"input": 0.25, "output": 2.0},
     "gpt-5-nano": {"input": 0.05, "output": 0.40},
     "gpt-5": {"input": 1.25, "output": 10.0},
+    # Ollama cloud list prices (ollama.com/pricing, 2026-11-09); free use ended, so
+    # these tags are billed per token and must count toward the spend caps.
+    "gemma4:31b-cloud": {"input": 0.14, "output": 0.40},
+    "gemma4:cloud": {"input": 0.14, "output": 0.40},
 }
 
 

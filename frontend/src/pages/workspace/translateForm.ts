@@ -546,7 +546,7 @@ export function cloudModelNotice(
 ): string | null {
   if (!model || !engine?.cloud_models?.includes(model)) return null
   return 'This is a cloud model: the subtitle text is sent off this PC to Ollama\'s servers. '
-    + 'Free use has limits; if you hit them, Ollama\'s message is shown and the run can be resumed later.'
+    + 'It is billed per token by Ollama and counts toward your monthly cap; if Ollama refuses a request, its message is shown and the run can be resumed later.'
 }
 
 // The guidance text for a style key ('' when the server sent none).
