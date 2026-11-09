@@ -147,7 +147,7 @@ test('a 403 try: no lines.read gets the plain note, otherwise the paid-engine re
   await openReview(page)
   const offer = row(page, 0).getByTestId('line-stronger')
   await offer.getByRole('button', { name: /^Try with DeepSeek \(/ }).click()
-  await expect(offer.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(offer.getByText('Seeing line text needs permission to read lines. Ask the PC owner.')).toBeVisible()
   await expect(offer.getByRole('alert')).toHaveCount(0)
 
   await page.unroute(/\/api\/auth\/me$/)

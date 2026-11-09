@@ -747,12 +747,10 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "segment_splitting.py::split_long_segments": 116,
     "db/schema.py::_create_library_tables": 115,
     "db/schema.py::_create_series_tables": 107,
-    "translation_guide.py::extract_glossary_from_novel": 105,
     "scanlate_inpaint.py::_build_lama_generator": 105,
     "epub_io.py::export_epub": 105,
     "services/title_restructure_service.py::_move_novel": 104,
     "sources/adapters/kuaikan.py::_decode_nuxt_state": 103,
-    "sources/preflight.py::preflight": 102,
     "services/drama_restore_service.py::copy_drama": 102,
     "installer/service.py::Services.set_port": 101,
 }

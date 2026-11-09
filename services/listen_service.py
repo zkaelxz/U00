@@ -148,14 +148,6 @@ def config_blocker(characters):
     return None
 
 
-def require_engine_dependency(tts_engine: str) -> None:
-    """DependencyUnavailableError when ffmpeg or the engine's package is
-    missing, so every caller fails with the same text."""
-    missing = _missing_engine_dependency(tts_engine)
-    if missing:
-        raise DependencyUnavailableError(missing)
-
-
 def require_can_generate(tts_engine: str, characters, narrate_original: bool = False,
                          source_language: str = "zh") -> None:
     """Refuses a run that cannot work, in this order: a removed or unknown

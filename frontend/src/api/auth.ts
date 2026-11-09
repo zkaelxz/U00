@@ -54,7 +54,7 @@ type LoginErrorCode = 'denied' | 'not_allowed' | 'expired' | 'provider_error'
 const LOGIN_ERRORS: Record<LoginErrorCode, string> = {
   denied: 'Sign-in was cancelled. You can try again.',
   not_allowed:
-    "That Google account isn't on this household's list. Ask the person who runs Baihe on the PC to add it.",
+    "That Google account isn't on this household's list. Ask the PC owner to add it.",
   expired: 'The sign-in took too long and expired. Please try again.',
   provider_error: "Google sign-in didn't work just now. Please try again in a moment.",
 }

@@ -106,7 +106,7 @@ export function checkedText(at: number | null, nowSec: number = Date.now() / 100
 }
 
 const FOLLOW_FORBIDDEN =
-  "This account can't do that. Following channels needs the “import from a link” permission, and a paid engine in a channel's options also needs “paid engines”. Ask the owner of the main PC."
+  "This account can't do that. Following channels needs the “import from a link” permission, and a paid engine in a channel's options also needs “paid engines”. Ask the PC owner."
 
 /** Plain text for a failed follow request. */
 export function describeFollowError(err: unknown): string {
