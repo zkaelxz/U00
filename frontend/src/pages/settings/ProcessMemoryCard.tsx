@@ -22,7 +22,7 @@ export function ProcessMemoryCard({ openSignal = 0 }: { openSignal?: number }) {
   const pc = usePcOnly()
   const [data, setData] = useState<ProcessMemory | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(true)
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -36,9 +36,16 @@ export function ProcessMemoryCard({ openSignal = 0 }: { openSignal?: number }) {
     }
   }, [])
 
+  // First read starts with busy already true, so the effect sets no state before its await.
   useEffect(() => {
-    if (pc !== 'remote') void load()
-  }, [load, pc])
+    if (pc === 'remote') return
+    let live = true
+    getProcessMemory()
+      .then((d) => live && setData(d))
+      .catch((e) => live && setError(e))
+      .finally(() => live && setBusy(false))
+    return () => { live = false }
+  }, [pc])
 
   if (pc === 'remote') return null
   const gap = data ? gpuGapNote(data) : ''
