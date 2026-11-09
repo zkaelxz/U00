@@ -29,6 +29,7 @@ import { NameReportPanel } from './NameReportPanel'
 import { VtuberNames } from './VtuberNames'
 import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
+import { revealForm } from './revealForm'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
 import { scanBanner, scanSummary, sourceToShow } from './glossaryScan'
@@ -74,6 +75,10 @@ function TermEditor({ initial, catalogues, onSave, onCancel }: {
 }) {
   const [f, setF] = useState(initial)
   const [problem, setProblem] = useState<string | null>(null)
+  const formRef = useRef<HTMLFieldSetElement>(null)
+  // The form renders below the whole term table, so on a long glossary clicking Edit changed
+  // nothing the user could see; bring it into view and focus it.
+  useEffect(() => revealForm(formRef.current), [])
   const set = <K extends keyof TermForm>(k: K, v: TermForm[K]) => setF((s) => ({ ...s, [k]: v }))
   const submit = () => {
     if (!f.term_original.trim() || !f.term_translation.trim()) {
@@ -83,7 +88,7 @@ function TermEditor({ initial, catalogues, onSave, onCancel }: {
     onSave(f)
   }
   return (
-    <fieldset className="term-form">
+    <fieldset className="term-form" ref={formRef}>
       <legend>{f.id ? 'Edit term' : 'Add term'}</legend>
       <Field label="Original"><input value={f.term_original} onChange={(e) => set('term_original', e.target.value)} /></Field>
       <Field label="Translation"><input value={f.term_translation} onChange={(e) => set('term_translation', e.target.value)} /></Field>
