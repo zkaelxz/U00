@@ -457,6 +457,10 @@ def acting_user_id():
     return user_id(holder.get("principal")) if holder else None
 
 
+# Paid calls made in an API request are logged for its signed-in user.
+db.set_spender_lookup(acting_user_id)
+
+
 def acting_principal():
     """The principal of the API request (or queue start) this code runs
     for, or None: the local owner, auth off, or a background thread. A job

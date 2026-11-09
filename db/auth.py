@@ -18,7 +18,7 @@ import db
 # ---------------------------------------------------------------------------
 
 _USER_WRITABLE = ("google_sub", "email", "display_name", "is_admin", "is_active",
-                  "share_by_default")
+                  "share_by_default", "monthly_paid_cap_usd")
 
 
 def auth_create_user(email: str, display_name: str = "", is_admin: bool = False) -> int:
