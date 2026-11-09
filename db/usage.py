@@ -252,6 +252,20 @@ def get_usage_summary(drama_id: int | None = None, visible_to: int | None = None
     return dict(row)
 
 
+def get_spend_for_dramas(drama_ids) -> float:
+    """Everything logged against these titles, ever (chunked under SQLite's variable limit)."""
+    ids = list(dict.fromkeys(int(i) for i in drama_ids))
+    total = 0.0
+    with contextlib.closing(db.get_conn()) as conn:
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            marks = ",".join("?" * len(chunk))
+            total += float(conn.execute(
+                f"SELECT COALESCE(SUM(estimated_cost_usd), 0) FROM usage_log WHERE drama_id IN ({marks})",
+                chunk).fetchone()[0] or 0.0)
+    return total
+
+
 def get_usage_by_drama(visible_to: int | None = None):
     """Per-drama cost breakdown, joined with drama titles, for the dashboard.
     Includes translation_engine so the dashboard can show "$0.00 (free)"

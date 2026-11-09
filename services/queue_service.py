@@ -35,7 +35,7 @@ from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
-from services import (auth_service, jobs_service, quick_video_service,
+from services import (auth_service, export_service, jobs_service, series_auto_service, quick_video_service,
                       model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
                       transcribe_options_service, translate_run_service, translate_thinking_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
@@ -125,6 +125,7 @@ def _clean_item(raw) -> Optional[dict]:
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
             "chain": raw["chain"] if isinstance(raw.get("chain"), str) and raw["chain"] else None,
+            "auto_series": raw["auto_series"] if type(raw.get("auto_series")) is int else None,
             "settings": _clean_settings(raw.get("settings"), raw["step"]),
             # Items saved before "at_pc" was recorded count as away from the PC:
             # "override" is also true for an admin on the admin listener who
@@ -401,7 +402,8 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
     return settings
 
 
-def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: Optional[str] = None) -> None:
+def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: Optional[str] = None,
+                  auto_series: Optional[int] = None) -> None:
     """Appends `entries` (step, settings) in order, all or none, under one lock."""
     with _lock:
         doc = _load()
@@ -418,7 +420,8 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: O
                 "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": uid,
                 "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
-                "chain": chain, "settings": settings, "started_at": None, "finished_at": None})
+                "chain": chain, "auto_series": auto_series, "settings": settings,
+                "started_at": None, "finished_at": None})
             doc["next_id"] += 1
         _save(doc)
     _wake.set()
@@ -448,6 +451,37 @@ def add_all_steps(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) ->
     """Appends Transcribe, Translate and Export for one title, in that order. Nothing starts here."""
     _add_steps(principal, drama_id, STEPS, holds_paid, at_pc)
     return get_queue(principal)
+
+
+def add_auto_episode(series_id: int, drama_id: int, by: dict) -> None:
+    """Appends the four-stage run of one episode for the series auto-pipeline,
+    as the account that switched it on (`by`: user_id, override, at_pc). The
+    adder's permissions are checked as for a click, so an episode they could
+    not run themselves (a paid engine they may not use) is refused here."""
+    principal = _run_principal({"user_id": by.get("user_id"), "override": bool(by.get("override"))})
+    at_pc = bool(by.get("at_pc"))
+    holds_paid = _holds(principal, "engines.paid")
+    for step in STEPS:
+        _check_addable(principal, drama_id, step, holds_paid, at_pc, None, True)
+    _append_items(principal, drama_id, [(step, {}) for step in STEPS], at_pc, auto_series=series_id)
+
+
+def auto_items(series_id: int) -> list:
+    """The queue items the series auto-pipeline added, oldest first (read-only)."""
+    with _lock:
+        return [dict(i) for i in _load()["items"] if i.get("auto_series") == series_id]
+
+
+def remove_waiting_auto_items(series_id: int) -> int:
+    """Drops the series auto-pipeline's items that have not started; returns how many."""
+    with _lock:
+        doc = _load()
+        keep = [i for i in doc["items"] if not (i.get("auto_series") == series_id and i["status"] == WAITING)]
+        removed = len(doc["items"]) - len(keep)
+        if removed:
+            doc["items"] = keep
+            _save(doc)
+    return removed
 
 
 def add_bulk(principal, drama_ids: list, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
@@ -639,7 +673,8 @@ def _translate_run_args(drama: dict) -> dict:
     return {"engine": _translate_engine(drama), "style_note": style_note, "locale": locale}
 
 
-def _start_translate(principal, drama: dict, settings: Optional[dict] = None) -> str:
+def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
+                     auto_series: Optional[int] = None) -> str:
     args = _translate_run_args(drama)
     holds_paid = _holds(principal, "engines.paid")
     if args["engine"] not in engine_registry.FREE_ENGINES and not holds_paid:
@@ -650,13 +685,19 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None) ->
     if settings and not _holds(principal, "lines.edit"):
         raise ForbiddenError("This item changes the step's settings, which needs permission to edit lines.")
     saved = _queued_model_and_batch(drama, args["engine"])
-    _check_translate_spend(drama["id"], settings.get("model", saved[0]), settings.get("batch_size", saved[1]))
+    paid = args["engine"] not in engine_registry.FREE_ENGINES
+    # Raises when the series switch is off or its ceiling is spent. The run gets what is left as its own
+    # per-job cap: 0 would mean "no cap" to the cost resolver, which ceiling_left never returns.
+    left = series_auto_service.ceiling_left(auto_series) if auto_series is not None and paid else None
+    _check_translate_spend(drama["id"], settings.get("model", saved[0]), settings.get("batch_size", saved[1]),
+                           series_left=left)
     own = {k: settings[k] for k in ("style_preset", "batch_size") if k in settings}
     return translate_thinking_service.start_with_thinking(
         translate_run_service.start_translate_run, drama["id"], None, False,
         model=settings.get("model"), style_note=args["style_note"],
         locale=settings.get("locale", args["locale"]), record_run=not settings, **own,
-        allow_paid_summary=holds_paid and settings_service.get_monthly_cap_usd() > 0)["job_id"]
+        allow_paid_summary=holds_paid and settings_service.get_monthly_cap_usd() > 0,
+        **({"job_cost_cap_usd": left} if left is not None else {}))["job_id"]
 
 
 def _start_item(item: dict) -> Optional[str]:
@@ -675,6 +716,8 @@ def _start_item(item: dict) -> Optional[str]:
     needed = "lines.read" if item["step"] == "export" else "jobs.start"
     if not _holds(principal, needed):
         raise ForbiddenError("The account that added this item can no longer do this step.")
+    if item.get("auto_series") is not None:
+        series_auto_service.require_on(item["auto_series"])
     token = ownership_service.bind_request()
     # The runner thread outlives this item: the adder's offline mark is set
     # for this start only.
@@ -692,7 +735,9 @@ def _start_item(item: dict) -> Optional[str]:
                 run_diarize=transcribe_options_service.run_start(drama)["run_diarize"])
             return _start_transcribe(principal, drama, item.get("settings") or {})
         if item["step"] == "translate":
-            return _start_translate(principal, drama, item.get("settings") or {})
+            return _start_translate(principal, drama, item.get("settings") or {}, item.get("auto_series"))
+        if item.get("auto_series") is not None:
+            export_service.run_auto_qc_flagging(drama["id"])
         run_export(drama, item.get("settings") or {})
         return None
     finally:
@@ -867,6 +912,7 @@ def _loop() -> None:
             tick()
         except Exception as exc:
             _log.warning("Job queue tick failed: %s", engine_shared.redact_secrets(str(exc)))
+        series_auto_service.scan()
         _wake.wait(POLL_SECONDS)
         _wake.clear()
 

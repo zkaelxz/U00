@@ -233,6 +233,9 @@ def _migrate_series_and_character_columns(conn):
     if "shared_group_id" not in series_cols:
         # The shared glossary group this series inherits terms from (NULL: none).
         db._safe_alter(conn, "ALTER TABLE series ADD COLUMN shared_group_id INTEGER")
+    if "auto_pipeline" not in series_cols:
+        # JSON state of the series auto-pipeline (services/series_auto_service.py); NULL: never switched on.
+        db._safe_alter(conn, "ALTER TABLE series ADD COLUMN auto_pipeline TEXT")
     preset_cols = {r[1] for r in conn.execute("PRAGMA table_info(presets)").fetchall()}
     for col, coltype in (("options_json", "TEXT"), ("is_default", "INTEGER DEFAULT 0")):
         if col not in preset_cols:

@@ -334,21 +334,29 @@ def _position(lines, ln, page_size: int, only: str) -> dict:
 
 
 def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int | None = None,
-                     page_size: int = 40, only: str = "all") -> dict:
+                     page_size: int = 40, only: str = "all", kind: str = "flagged") -> dict:
     """The nearest flagged line after (forward) or before `from_line_id`,
     across every page (review parity R08). With no `from_line_id`: the
     first (forward) or last flagged line. Returns {line_id, idx, page,
     page_all}: `page` in the `only` view (None when the filter hides the
     line), `page_all` with no filter; every field None when there's no
-    such line."""
+    such line. `kind="unreviewed"` steps through translated lines nobody
+    has checked instead (the "next line to check" button)."""
     _check_view(page_size, only)
+    if kind not in ("flagged", "unreviewed"):
+        raise InvalidInputError(f"Unknown kind {kind!r}; use flagged or unreviewed.")
     ownership_service.require_drama(drama_id)
     lines = db.load_line_texts(drama_id)
     if from_line_id is None:
         ref = -1 if forward else float("inf")
     else:
         ref = _find_line(lines, from_line_id).idx
-    idx = adjacent_flagged_idx(lines, ref, forward)
+    if kind == "unreviewed":
+        ordered = lines if forward else reversed(lines)
+        idx = next((ln.idx for ln in ordered
+                    if _is_unreviewed(ln) and (ln.idx > ref if forward else ln.idx < ref)), None)
+    else:
+        idx = adjacent_flagged_idx(lines, ref, forward)
     if idx is None:
         return {"line_id": None, "idx": None, "page": None, "page_all": None}
     return _position(lines, next(ln for ln in lines if ln.idx == idx), page_size, only)
