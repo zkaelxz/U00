@@ -394,6 +394,17 @@ class TestJob:
                                    {"line_id": ids[3], "number": 4, "reason": "audio_slice"}]
         assert isolated_db.drama_dir(did) not in str(res)
 
+    def test_a_caption_or_credit_is_not_proposed(self, isolated_db, fake_asr):
+        did, ids = _drama(isolated_db)
+        fake_asr["heard"][2.0] = "A few moments later"
+        fake_asr["heard"][4.0] = "字幕by小明"
+        _out, job = _run(did, ids)
+        assert job["status"] == "done"
+        res = svc.get_retranscribe_many_result(did)
+        assert [p["line_id"] for p in res["proposals"]] == [ids[0], ids[3]]
+        assert res["failures"] == [{"line_id": ids[1], "number": 2, "reason": "empty"},
+                                   {"line_id": ids[2], "number": 3, "reason": "empty"}]
+
     def test_model_download_failure_stops_the_run_and_is_redacted(
             self, isolated_db, fake_asr, monkeypatch):
         def boom(*a, **k):

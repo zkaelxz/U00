@@ -15,6 +15,7 @@ import whisper_models
 import db
 import ollama_unload
 from line_alignment import join_segment_texts
+from whisper_hallucination import is_stock_phrase
 from services import difficult_audio_service, gpu_process_job
 from engine_backends.shared import redact_secrets
 
@@ -263,7 +264,8 @@ def apply_retranscribe_many_outcome(job_id, outcome, drama_id, bases):
             failures.append({**fail, "reason": "line_gone"})
         elif heard.get("failed_reason"):
             failures.append({**fail, "reason": heard["failed_reason"]})
-        elif not proposed:
+        elif not proposed or is_stock_phrase(proposed):
+            # A caption or credit is Whisper's fill, not the stretch's speech.
             failures.append({**fail, "reason": "empty"})
         elif proposed == base["zh"]:
             unchanged += 1

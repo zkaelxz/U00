@@ -72,6 +72,31 @@ class TestBuildAutoInitialPrompt:
         assert transcribe_service.get_transcribe_config(did)["auto_initial_prompt"] == "苏杉。"
 
 
+class TestDifficultAudioPrompt:
+    """Whisper echoes the name hint as junk lines on hard audio, so Difficult audio sends a neutral sentence."""
+
+    def test_difficult_audio_uses_a_neutral_prompt_not_the_names(self, isolated_db):
+        did = _drama_with_glossary(isolated_db)
+        isolated_db.update_drama(did, difficult_audio=1)
+        assert transcribe_service._resolve_initial_prompt(did, "", "") == "以下是普通話的句子。"
+        assert transcribe_service.get_transcribe_config(did)["auto_initial_prompt"] == "以下是普通話的句子。"
+
+    def test_typed_names_and_explicit_prompt_still_apply(self, isolated_db):
+        did = _drama_with_glossary(isolated_db)
+        isolated_db.update_drama(did, difficult_audio=1)
+        assert transcribe_service._resolve_initial_prompt(did, "", "沈清疑") == "苏杉、沈清疑。"
+        assert transcribe_service._resolve_initial_prompt(did, "我的提示", "") == "我的提示"
+
+    def test_other_languages_get_no_prompt(self, isolated_db):
+        did = _drama_with_glossary(isolated_db)
+        isolated_db.update_drama(did, difficult_audio=1, source_language="ja")
+        assert transcribe_service._resolve_initial_prompt(did, "", "") == ""
+
+    def test_without_difficult_audio_the_names_are_sent(self, isolated_db):
+        did = _drama_with_glossary(isolated_db)
+        assert transcribe_service._resolve_initial_prompt(did, "", "") == "苏杉。"
+
+
 def _audio_drama(db):
     did = _drama_with_glossary(db)
     db.update_drama(did, transcript_mode="whisper", audio_filename="audio.wav")

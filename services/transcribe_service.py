@@ -113,6 +113,21 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     return prompt
 
 
+# Whisper echoes a name list back as junk lines over real speech on hard audio, so Difficult
+# audio primes it with a plain sentence instead. Only Mandarin was measured; other languages
+# get no prompt rather than a guessed one.
+_NEUTRAL_PROMPTS = {"zh": "以下是普通話的句子。"}
+
+
+def _auto_prompt_for_run(drama_id: int, extra_names: str = "") -> str:
+    """The automatic prompt a run uses: the name hint, except that a title with Difficult audio
+    on and no typed names gets a neutral sentence. Names the user typed still apply."""
+    drama = ownership_service.require_drama(drama_id)
+    if drama.get("difficult_audio") and not (extra_names or "").strip():
+        return _NEUTRAL_PROMPTS.get(drama.get("source_language") or "zh", "")
+    return build_auto_initial_prompt(drama_id, extra_names)
+
+
 def _resolve_initial_prompt(drama_id: int, initial_prompt, extra_names) -> str:
     """A non-empty initial_prompt is an explicit full override; otherwise the
     automatic prompt plus the typed extra names."""
@@ -120,7 +135,7 @@ def _resolve_initial_prompt(drama_id: int, initial_prompt, extra_names) -> str:
         raise InvalidInputError("initial_prompt and extra_names must be text.")
     if initial_prompt.strip():
         return initial_prompt
-    return build_auto_initial_prompt(drama_id, extra_names)
+    return _auto_prompt_for_run(drama_id, extra_names)
 
 
 def get_transcribe_config(drama_id: int) -> dict:
@@ -177,7 +192,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "hardsub_ocr_backend": drama.get("hardsub_ocr_backend")
                                or default_hardsub_backend(source["source_language"]),
         "hardsub_interval_sec": drama.get("hardsub_interval_sec") or 1.0,
-        "auto_initial_prompt": build_auto_initial_prompt(drama_id),
+        "auto_initial_prompt": _auto_prompt_for_run(drama_id),
         "source_language": source["source_language"],
         "chinese_script": source["chinese_script"],
         "run_start": run_start(drama),
