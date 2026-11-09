@@ -196,7 +196,7 @@ test.describe('hover never repaints or reflows', () => {
 test('Live Advanced: Fast captions keeps its natural width with one short line', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/#/live')
-  await page.getByText('Advanced').click()
+  await page.getByRole('main').getByText('Advanced').click()
   const button = page.getByTestId('live-fast-captions')
   const box = await button.boundingBox()
   expect(box!.width).toBeLessThan(220)

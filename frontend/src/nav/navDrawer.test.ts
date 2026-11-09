@@ -44,7 +44,7 @@ describe('NavDrawer', () => {
     expect(button).toContain('aria-label="Menu"')
     expect(button).toContain('aria-expanded="false"')
     expect(button).toContain('aria-controls="nav-drawer"')
-    const html = renderToStaticMarkup(createElement(NavDrawer, { route: library, context: ctx, open: false, onOpenChange: () => {} }))
+    const html = renderToStaticMarkup(createElement(NavDrawer, { route: library, context: ctx, open: false, onOpenChange: () => {}, viewMode: 'advanced', onViewMode: () => {} }))
     expect(html).toContain('<dialog id="nav-drawer"')
     expect(html).not.toContain('<a ')
   })
