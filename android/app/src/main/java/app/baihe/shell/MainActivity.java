@@ -41,8 +41,8 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         // Only Baihe's own origin loads here. Google blocks sign-in inside an embedded WebView and
-        // credentials must not be typed into a view this app controls, so every other
-        // address (shared links, sign-in redirects) opens in the system browser.
+        // credentials must not be typed into a view this app controls, so Google addresses
+        // and sign-in redirects open in the system browser; other sites open in Baihe Grab.
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -62,6 +62,13 @@ public class MainActivity extends Activity {
                 String scheme = request.getUrl().getScheme();
                 if ("http".equals(scheme) || "https".equals(scheme)) {
                     try {
+                        if (ServerAddress.opensInGrab(url)) {
+                            // Grab's browser can grab the pages once the site is confirmed.
+                            startActivity(new Intent(MainActivity.this, GrabActivity.class)
+                                    .setAction(Intent.ACTION_SEND).setType("text/plain")
+                                    .putExtra(Intent.EXTRA_TEXT, url));
+                            return true;
+                        }
                         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                     } catch (RuntimeException e) {
                         // No browser installed: nothing safe to do but stay on the current page.

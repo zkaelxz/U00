@@ -188,4 +188,24 @@ public class GrabLogicTest {
         assertTrue(SharedImages.fitsTotal(0, SharedImages.MAX_TOTAL_BASE64_CHARS));
         assertFalse(SharedImages.fitsTotal(SharedImages.MAX_TOTAL_BASE64_CHARS, 1));
     }
+
+    @Test
+    public void nextChapterStaysOnTheSameSite() {
+        String here = "https://www.site.example/c/1";
+        assertEquals("https://site.example/c/2", ServerAddress.nextChapterUrl(here, "https://site.example/c/2"));
+        assertNull(ServerAddress.nextChapterUrl(here, "https://other.example/c/2"));
+        assertNull(ServerAddress.nextChapterUrl(here, "https://site.example/c/1"));
+        assertNull(ServerAddress.nextChapterUrl(here, "javascript:alert(1)"));
+        assertNull(ServerAddress.nextChapterUrl(here, "https://u:p@site.example/c/2"));
+        assertNull(ServerAddress.nextChapterUrl(here, ""));
+        assertNull(ServerAddress.nextChapterUrl("", "https://site.example/c/2"));
+    }
+
+    @Test
+    public void linksFromTheShellOpenInGrabExceptGoogle() {
+        assertTrue(ServerAddress.opensInGrab("https://comic.example/c/1"));
+        assertFalse(ServerAddress.opensInGrab("https://accounts.google.com/o/oauth2"));
+        assertFalse(ServerAddress.opensInGrab("file:///sdcard/x"));
+        assertFalse(ServerAddress.opensInGrab("intent://x#Intent;end"));
+    }
 }
