@@ -108,6 +108,10 @@ def _app_rows() -> dict:
         for key in list(getattr(aligner, "_aligner_model_cache", {})):
             models.append({"name": "Qwen3 forced aligner", "kind": "Alignment",
                            "device": _device_label(key)})
+        ocr_module = sys.modules.get("ocr")
+        for name, device in (ocr_module.loaded_gpu_models() if ocr_module else []):
+            models.append({"name": name, "kind": "Text reading (OCR)",
+                           "device": _device_label(device)})
     except Exception:
         return {"state": "unavailable", "models": []}
     return {"state": "ok", "models": models}

@@ -586,8 +586,17 @@ def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: 
     return brief
 
 
-def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
-             detect_backend: str, art_captions: bool = False):
+def _run_job(*args, **kwargs):
+    try:
+        return _run_job_pages(*args, **kwargs)
+    finally:
+        # The run's OCR models would otherwise sit on the GPU until the app exits.
+        import ocr
+        ocr.release_models()
+
+
+def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
+                   detect_backend: str, art_captions: bool = False):
     import scanlate_detect
     scanlate_detect.forget_ml_failure()
     drama = db.get_drama(drama_id) or {}

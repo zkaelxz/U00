@@ -175,6 +175,19 @@ def test_free_drops_models_when_idle(monkeypatch):
     assert calls == [1]
 
 
+def test_ocr_models_are_listed_and_freed(monkeypatch):
+    import ocr
+    fake_model = types.SimpleNamespace(device="cuda:0")
+    monkeypatch.setitem(ocr.__dict__, "_qwen3_vl_models", {"qwen3_vl_4b": (object(), fake_model)})
+    monkeypatch.setitem(ocr.__dict__, "_paddle_vl_manga_model", fake_model)
+    rows = svc._app_rows()["models"]
+    assert [(r["name"], r["device"]) for r in rows] == [
+        ("Qwen3-VL (4b)", "GPU"), ("PaddleOCR-VL for manga", "GPU")]
+    whisper_models.release_gpu_models()
+    assert svc._app_rows()["models"] == []
+    assert "_paddle_vl_manga_model" not in ocr.__dict__
+
+
 def _client(auth="off"):
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
