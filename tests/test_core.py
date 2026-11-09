@@ -666,6 +666,13 @@ class TestStockPhraseFilter:
         segments = [self._seg(0, 2, "real line"), self._seg(40, 42, "Thanks for watching")]
         assert filter_hallucinated_segments(segments) == [segments[0]]
 
+    def test_a_chinese_thanks_for_watching_between_speech_or_inside_a_sentence_is_kept(self):
+        near = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "感谢观看"), self._seg(4.5, 6, "another line")]
+        assert filter_hallucinated_segments(near) == near
+        inside = [self._seg(0, 2, "real line"), self._seg(30, 33, "感谢观看我们的节目，我们下次见"),
+                  self._seg(60, 62, "another line")]
+        assert filter_hallucinated_segments(inside) == inside
+
     def test_a_stock_phrase_inside_dialogue_is_kept(self):
         segments = [self._seg(0, 2, "real line"), self._seg(2.5, 4, "Thanks for watching"),
                     self._seg(4.5, 6, "another line")]
@@ -677,7 +684,7 @@ class TestStockPhraseFilter:
         assert filter_hallucinated_segments(segments) == segments
 
     def test_the_traditional_and_by_credit_wordings_are_stock_phrases(self):
-        for text in ("請不吝點贊 訂閱 轉發 打賞支持明鏡與點點欄目", "字幕by索兰娅"):
+        for text in ("請不吝點贊 訂閱 轉發 打賞支持明鏡與點點欄目", "字幕by索兰娅", "感谢观看", "謝謝觀看。"):
             segments = [self._seg(0, 2, "real line"), self._seg(30, 32, text), self._seg(60, 62, "another line")]
             assert filter_hallucinated_segments(segments) == [segments[0], segments[2]], text
 

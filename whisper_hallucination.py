@@ -14,6 +14,7 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
     r"amaraorg.{0,8}",
     r"thanks?youforwatching",
     r"thanksforwatching",
+    r"(?:感谢|感謝|谢谢|謝謝)(?:您的?)?(?:观看|觀看)",
     r"字幕由.{0,30}提供",
     r"由amaraorg社[群區区]提供的?字幕",
     r"[请請]不吝[点點][赞贊讚].*",
