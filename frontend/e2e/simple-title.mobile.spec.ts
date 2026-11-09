@@ -56,3 +56,20 @@ test('choosing Simple then reloading keeps Simple', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
 })
+
+test('with lines the phone shows the bar, the steps and long lines wrapped, with no sideways scroll', async ({ page }) => {
+  const long = '这是一句很长很长的中文台词，用来确认在窄屏幕上整句都会换行显示，而不是被截断成省略号。'.repeat(2)
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: { ...progress, untranslated_count: 4 } }))
+  await page.route('**/api/review/dramas/1/lines?*', (route) => route.fulfill({
+    json: { total: 10, page: 1, page_size: 8, lines: [{ id: 1, idx: 1, zh: long, en: 'A long line that has to wrap on a phone and still be readable in full.', start: 1, end: 2, speaker: null, reviewed: false }] },
+  }))
+  await page.goto('/#/drama/1')
+  await chooseSimple(page)
+  await expect(page.getByRole('progressbar', { name: 'Lines translated' })).toBeVisible()
+  const orig = page.locator('.title-line-orig').first()
+  await expect(orig).toBeVisible()
+  const fits = await orig.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)
+  expect(fits, 'the original line wraps inside its box').toBe(true)
+  await expectTall(page.getByRole('link', { name: 'Open all 10 lines' }), 'Open all lines')
+  await expectNoSidewaysScroll(page)
+})

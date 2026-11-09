@@ -197,3 +197,27 @@ test('Simple lists the steps with the current one marked and its notes', async (
   await expect(steps.locator('[aria-current="step"]')).toContainText('4 of 10 lines left')
   await expect(steps).toContainText('10 lines')
 })
+
+test('with lines the title opens on a progress bar and the first lines, with the steps beside them', async ({ page }) => {
+  const line = (id: number, zh: string, en: string) => ({ id, idx: id, zh, en, start: id, end: id + 1, speaker: null, reviewed: false })
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 4) }))
+  await page.route('**/api/review/dramas/1/lines?*', (route) => route.fulfill({
+    json: { total: 10, page: 1, page_size: 8, lines: [line(1, '你好，今天过得怎么样？', 'Hello, how was your day?'), line(2, '还没翻译的一行', '')] },
+  }))
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+  const bar = page.getByRole('progressbar', { name: 'Lines translated' })
+  await expect(bar).toHaveAttribute('aria-valuenow', '6')
+  await expect(page.getByText('6 of 10 lines translated')).toBeVisible()
+  const lines = page.getByRole('region', { name: 'First lines' })
+  await expect(lines.getByText('Hello, how was your day?')).toBeVisible()
+  await expect(lines.getByText('Not translated yet')).toBeVisible()
+  await expect(lines.getByRole('link', { name: 'Open all 10 lines' })).toHaveAttribute('href', '#/drama/1/review')
+
+  // Wide window: the steps sit in a column beside the lines; the bar is above both.
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const steps = (await page.getByRole('list', { name: 'Steps' }).boundingBox())!
+  const first = (await lines.boundingBox())!
+  expect(steps.x).toBeGreaterThan(first.x + first.width - 1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
