@@ -29,7 +29,7 @@ async function expectTall(loc: Locator, what: string) {
 // In Full on a phone the switch lives in the Title actions sheet, which keeps the sticky strip one row.
 async function chooseSimple(page: Page) {
   await page.getByRole('button', { name: 'Title actions' }).tap()
-  await page.getByRole('radio', { name: 'Simple' }).check({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
 }
 
 test('Simple fits a phone: switch and five actions visible, tall enough to tap, no sideways scroll', async ({ page }) => {
@@ -54,5 +54,5 @@ test('choosing Simple then reloading keeps Simple', async ({ page }) => {
   await page.reload()
   await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  await expect(page.getByRole('radio', { name: 'Simple' })).toBeChecked()
+  await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
 })

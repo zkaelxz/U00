@@ -12,6 +12,8 @@ import type { Route } from '../router'
 import { routeHref } from '../router'
 import type { NavContext } from './navItems'
 import { Icon, NavGroups } from './navLinks'
+import { ViewModeSwitch } from './ViewModeSwitch'
+import type { ViewMode } from './viewMode'
 import './navDrawer.css'
 
 const DRAWER_ID = 'nav-drawer'
@@ -31,7 +33,7 @@ export function MenuButton({ open, onOpen }: { open: boolean; onOpen: () => void
 
 export const NAV_DRAWER_ID = DRAWER_ID
 
-export function NavDrawer({ route, context, open, onOpenChange }: { route: Route; context: NavContext; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function NavDrawer({ route, context, open, onOpenChange, viewMode, onViewMode }: { route: Route; context: NavContext; open: boolean; onOpenChange: (open: boolean) => void; viewMode: ViewMode; onViewMode: (m: ViewMode) => void }) {
   const setOpen = onOpenChange
   const dialog = useModalDialog(open)
 
@@ -75,6 +77,7 @@ export function NavDrawer({ route, context, open, onOpenChange }: { route: Route
             </div>
             <NavGroups route={route} context={context} onNavigate={() => setOpen(false)} />
             <div className="nav-drawer-foot">
+              <ViewModeSwitch mode={viewMode} onChange={onViewMode} />
               <button type="button" onClick={() => { setOpen(false); openReportDialog() }}>Report a problem</button>
               <div className="nav-drawer-theme">
                 <span>Theme</span>
