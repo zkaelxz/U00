@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { api, ApiError, hasStatus } from '../api/client'
-import { deleteDrama, openDramaFolder } from '../api/library'
+import { deleteDrama, duplicateDrama, openDramaFolder } from '../api/library'
 import type { DramaDetail } from '../api/types'
 import { engineLabel } from '../labels'
 import type { DramaDeleteResult } from '../types/library'
@@ -33,6 +33,20 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
   const [typed, setTyped] = useState('')
   const [deleteError, setDeleteError] = useState<unknown>(null)
   const [moreSummary, setMoreSummary] = useState(false)
+  const [copying, setCopying] = useState(false)
+  const [copyError, setCopyError] = useState<unknown>(null)
+
+  const copy = () => {
+    setCopying(true)
+    setCopyError(null)
+    duplicateDrama(dramaId).then(
+      (d) => window.location.assign(workspaceHref(d.id)),
+      (e: unknown) => {
+        setCopyError(e)
+        setCopying(false)
+      },
+    )
+  }
 
   const remove = () => {
     deleteDrama(dramaId).then(
@@ -100,7 +114,12 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
         <ButtonLink variant="primary" href={workspaceHref(dramaId)}>Open workspace</ButtonLink>
         <ButtonLink href={readHref(drama)}>Read</ButtonLink>
         <OpenFolderButton open={() => openDramaFolder(dramaId)} title="Show this title's files on the PC" />
+        <button type="button" className={buttonClass()} disabled={copying} onClick={copy}
+          title="Make a separate copy with its own files and lines, so test runs don't change this title">
+          {copying ? 'Copying…' : 'Make test copy'}
+        </button>
       </div>
+      <ErrorBanner error={copyError} />
       <div className="drama-detail-danger">
         {onDeleted && !confirming && (
           <button type="button" className={buttonClass('danger', 'sm')} onClick={() => setConfirming(true)}>
