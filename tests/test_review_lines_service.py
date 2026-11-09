@@ -341,6 +341,36 @@ class TestAdjacentFlaggedIdx:
         assert svc.adjacent_flagged_idx(lines, ref_idx=9, forward=False) is None
 
 
+class TestAdjacentUnreviewed:
+    def _seeded(self, db):
+        lines = _flag_lines(6)
+        lines[1].reviewed = True
+        lines[3].en = ""
+        lines[4].reviewed = True
+        return _seed(db, lines)
+
+    def test_steps_over_checked_and_untranslated_lines(self, isolated_db):
+        did = self._seeded(isolated_db)
+        ids = {ln.idx: ln.id for ln in isolated_db.load_line_texts(did)}
+        first = svc.adjacent_flagged(did, True, None, 40, "all", "unreviewed")
+        assert first["idx"] == 0
+        nxt = svc.adjacent_flagged(did, True, ids[0], 40, "all", "unreviewed")
+        assert nxt["idx"] == 2
+        nxt = svc.adjacent_flagged(did, True, ids[2], 40, "all", "unreviewed")
+        assert nxt["idx"] == 5
+
+    def test_backward_and_end(self, isolated_db):
+        did = self._seeded(isolated_db)
+        ids = {ln.idx: ln.id for ln in isolated_db.load_line_texts(did)}
+        assert svc.adjacent_flagged(did, False, ids[5], 40, "all", "unreviewed")["idx"] == 2
+        assert svc.adjacent_flagged(did, True, ids[5], 40, "all", "unreviewed")["line_id"] is None
+
+    def test_unknown_kind_is_refused(self, isolated_db):
+        did = self._seeded(isolated_db)
+        with pytest.raises(InvalidInputError):
+            svc.adjacent_flagged(did, True, None, 40, "all", "bogus")
+
+
 SFX_LINES = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A"),
              Line(idx=1, start=1.0, end=2.0, zh="砰", en="door slams", sfx=True, speaker="A")]
 
