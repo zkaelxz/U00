@@ -7,9 +7,11 @@ A series joins at most one group. Its effective glossary is the group's terms
 overlaid by its own, the series winning on the same source text
 (db.list_effective_glossary_terms, which every consumer reads). Leaving a group
 or deleting it never touches a series' own terms. Groups are visible by name to
-every signed-in reader; only the creator, or an admin at the PC, changes one
-(ownership_service.can_edit_shared_group); joining and leaving need the series
-to be editable.
+every signed-in reader; only the creator, or an admin at the PC, changes a
+group's terms (ownership_service.can_edit_shared_group); its creator or any
+admin, away too, may delete it. Deactivating a member unlinks their groups from
+every series (db.detach_shared_glossary_owner_groups). Joining and leaving need
+the series to be editable.
 
 No FastAPI import.
 """
@@ -64,7 +66,13 @@ def create_group(principal, name) -> dict:
 
 
 def delete_group(principal, group_id) -> dict:
-    group = _editable_group(principal, group_id)
+    """Its creator or any admin (at the PC or away) deletes a group; an admin
+    needs no admin_override here because the group is household-wide, not one
+    member's private work."""
+    group = _group(group_id)
+    if not (principal is None or principal.get("is_admin") or principal.get("is_local_owner")
+            or ownership_service.can_edit_shared_group(principal, group)):
+        raise NotFoundError("Shared glossary not found.")
     db.delete_shared_glossary_group(group["id"])
     return {"deleted": True, "group_id": group["id"], "series_unlinked": group["series_count"]}
 

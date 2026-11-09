@@ -606,7 +606,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/setup/readiness` | library.read |
 | `GET /api/shared-glossaries` | library.read |
 | `POST /api/shared-glossaries` | lines.edit |
-| `POST /api/shared-glossaries/{group_id}/delete` | local_only() |
+| `POST /api/shared-glossaries/{group_id}/delete` | lines.edit |
 | `GET /api/shared-glossaries/{group_id}/terms` | library.read |
 | `POST /api/shared-glossaries/{group_id}/terms` | lines.edit |
 | `POST /api/shared-glossaries/{group_id}/terms/{term_id}/delete` | lines.edit |
