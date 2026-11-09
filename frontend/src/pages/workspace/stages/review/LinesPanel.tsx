@@ -16,6 +16,7 @@ import { LineActionsSheet, type SheetState } from './LineActionsSheet'
 import { useLineSelectionContext } from './LineSelectionContext'
 import { SelectionBar } from './SelectionBar'
 import { selectionContext } from './selectionActions'
+import { useSimple } from '../../StageContext'
 import { LineRow, type EditState, type RowIssue } from './LineRow'
 import { LinesEmpty } from './LinesEmpty'
 import { buildLinesNavigation } from './linesNavigation'
@@ -93,6 +94,7 @@ const STATUS_MS = 8000
 
 export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
+  const simple = useSimple()
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
   const isShort = useMediaQuery(SHORT)
   const collapsed = useScrollCollapse(isPhone)
@@ -486,6 +488,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               timingSnap={timingByLine.get(l.id) ?? null}
               issue={issue?.lineId === l.id ? issue : null}
               actions={actions}
+              simple={simple}
               searchHit={searching}
               jumped={jumpedId === l.id}
               focusRetranscribe={retranscribeFocusId === l.id}
