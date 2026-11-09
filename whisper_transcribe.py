@@ -9,7 +9,7 @@ import os
 import re
 
 import whisper_models
-from segment_splitting import _word_dicts, settle_overlaps, tighten_to_words
+from segment_splitting import _word_dicts, extend_ends_to_speech, settle_overlaps, tighten_to_words
 from whisper_hallucination import (STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments,
                                    is_stock_phrase)
 
@@ -149,6 +149,21 @@ def _spoken_end(seg: dict) -> float:
     carries the padding tighten_to_words adds, which can reach into the next line's first word."""
     words = seg.get("words")
     return words[-1]["end"] if words else seg["end"]
+
+
+def _extend_to_speech_end(result: list, audio_path: str) -> list:
+    """Lines end where Whisper's last word does, which is early; stretch them to the speech
+    the detector hears. Without the audio or the detector the lines keep their times."""
+    try:
+        from faster_whisper import decode_audio
+        import vad_segments
+        audio = decode_audio(audio_path, sampling_rate=16000)
+        spans = [(s.start_s, s.end_s) for s in vad_segments.speech_spans(
+            audio, 16000, threshold=0.4, min_silence_ms=150, pad_ms=0)]
+    except Exception:
+        # Timing polish only: a missing decoder or detector must not fail the transcription.
+        return result
+    return extend_ends_to_speech(result, spans)
 
 
 def _progress_reporter(progress_cb, resume: "_Resume", duration: float):
@@ -537,6 +552,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             on_kept=resume.keep if resume.on_unit and not fast_mode else None)
         result = resume.merged(result)
         settle_overlaps(result)
+        _extend_to_speech_end(result, audio_path)
         if not fast_mode:
             result = _rehear_sparse(m, audio_path, kwargs, result, prompt_keys)
         for seg in result:

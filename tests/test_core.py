@@ -2411,6 +2411,22 @@ class TestSanitizeSegmentTimes:
         assert all(s["end"] >= s["start"] for s in out)
 
 
+class TestExtendEndsToSpeech:
+    def test_a_line_ending_inside_speech_grows_to_where_the_speech_stops(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 5.0, "end": 6.0, "text": "b"}]
+        out = segment_splitting.extend_ends_to_speech(segs, [(1.0, 2.3), (5.0, 6.2)])
+        assert [round(s["end"], 2) for s in out] == [2.3, 6.2]
+
+    def test_growth_is_capped_and_never_passes_the_next_line(self):
+        segs = [{"start": 0.0, "end": 1.0, "text": "a"}, {"start": 1.2, "end": 3.0, "text": "b"}]
+        out = segment_splitting.extend_ends_to_speech(segs, [(0.0, 9.0)])
+        assert out[0]["end"] == 1.2 and out[1]["end"] == 3.5
+
+    def test_a_line_ending_in_silence_keeps_its_end(self):
+        segs = [{"start": 1.0, "end": 2.5, "text": "a"}]
+        assert segment_splitting.extend_ends_to_speech(segs, [(1.0, 1.8)])[0]["end"] == 2.5
+
+
 def test_segment_texts_join_without_spaces_next_to_cjk_and_with_them_between_words():
     from line_alignment import join_segment_texts
 
