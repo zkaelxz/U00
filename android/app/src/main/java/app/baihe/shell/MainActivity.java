@@ -10,6 +10,8 @@ import android.net.Uri;
 import android.webkit.WebResourceRequest;
 import android.os.Bundle;
 import android.text.InputType;
+import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -28,6 +30,8 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private boolean updateChecked;
+    private View customView;
+    private WebChromeClient.CustomViewCallback customViewCallback;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -66,7 +70,26 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        web.setWebChromeClient(new WebChromeClient());
+        // Without these two callbacks WebView silently refuses requestFullscreen() and the
+        // player's full-screen button, which Chrome handles itself.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                if (customView != null) {
+                    callback.onCustomViewHidden();
+                    return;
+                }
+                customView = view;
+                customViewCallback = callback;
+                setContentView(view);
+                hideSystemBars(view);
+            }
+
+            @Override
+            public void onHideCustomView() {
+                exitCustomView();
+            }
+        });
         setContentView(web);
         open(getIntent());
     }
@@ -79,8 +102,33 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (web.canGoBack()) web.goBack();
+        if (customView != null) exitCustomView();
+        else if (web.canGoBack()) web.goBack();
         else super.onBackPressed();
+    }
+
+    @SuppressWarnings("deprecation")
+    private void hideSystemBars(View view) {
+        // The flag form works on API 26; WindowInsetsController needs 30.
+        view.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULL_SCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+    }
+
+    private void exitCustomView() {
+        if (customView == null) return;
+        View view = customView;
+        WebChromeClient.CustomViewCallback callback = customViewCallback;
+        customView = null;
+        customViewCallback = null;
+        ViewGroup parent = (ViewGroup) view.getParent();
+        if (parent != null) parent.removeView(view);
+        setContentView(web);
+        web.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        callback.onCustomViewHidden();
     }
 
     private void open(Intent intent) {
