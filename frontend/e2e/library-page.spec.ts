@@ -162,3 +162,21 @@ test('line search without permission to read lines: a plain note, no error banne
   await expect(page.getByText('Seeing line text needs permission to read lines. Ask the PC owner.')).toBeVisible()
   await expect(page.locator('.line-hits').getByRole('alert')).toHaveCount(0)
 })
+
+test('pasting a link in the start box opens New title with it filled in; titles wrap instead of being cut', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Start' })).toBeDisabled()
+  await page.getByLabel('Paste a link to start a title').fill('https://example.com/watch?v=abc')
+  await page.getByRole('button', { name: 'Start' }).click()
+  const sheet = page.getByRole('dialog', { name: 'New title' })
+  await expect(sheet.getByLabel(/^Link/)).toHaveValue('https://example.com/watch?v=abc')
+  await page.keyboard.press('Escape')
+
+  // A long title must wrap in the Continue card, never end in an ellipsis.
+  const style = await page.locator('.continue-title').first().evaluate((el) => {
+    const s = getComputedStyle(el)
+    return { whiteSpace: s.whiteSpace, textOverflow: s.textOverflow }
+  })
+  expect(style.whiteSpace).not.toBe('nowrap')
+  expect(style.textOverflow).not.toBe('ellipsis')
+})

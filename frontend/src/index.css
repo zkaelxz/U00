@@ -892,7 +892,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
 .continue-text { display: grid; min-width: 0; }
-.continue-title { font-weight: var(--weight-bold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.continue-title { font-weight: var(--weight-bold); overflow-wrap: anywhere; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
 @media (max-width: 640px) {
   .continue-card { padding: var(--space-3); }
@@ -937,7 +937,7 @@ a.drama-card-title::after { content: ''; position: absolute; inset: 0; z-index: 
 a.drama-card-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .drama-card:has(a.drama-card-title:focus-visible) { outline: 2px solid var(--accent); box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
-.drama-card-orig, .drama-card-type { margin: 0; color: var(--muted); font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drama-card-orig, .drama-card-type { margin: 0; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .drama-card-type { font-size: var(--text-sm); }
 .drama-card .pill-row { margin-top: var(--space-1); }
 /* Only the status pill is filled, so a card's state is the first thing the eye finds; language and tags stay outlined. */
@@ -1068,3 +1068,8 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   /* The sheet scrolls, so Create and Cancel stay in reach however long the form is. */
   .create-form .sheet-actions { position: sticky; bottom: 0; z-index: 1; padding-block: var(--space-2); background: var(--bg); border-top: 1px solid var(--border); }
 }
+
+.library-start { display: grid; gap: var(--space-2); }
+.library-start label { font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.library-start-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.library-start-row input { flex: 1 1 14rem; min-width: 0; }
