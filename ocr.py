@@ -692,6 +692,47 @@ def extract_text_manga_ocr(image_path: str) -> str:
         return globals()["_manga_ocr_instance"](image_path)
 
 
+def loaded_gpu_models() -> list:
+    """The GPU-capable OCR models this process holds, as (name, device) pairs.
+    Reads the caches as they are and loads nothing."""
+    out = []
+    with _MODEL_LOCK:
+        for backend in globals().get("_qwen3_vl_models", {}):
+            out.append((f"Qwen3-VL ({backend.removeprefix('qwen3_vl_')})", "cuda"))
+        model = globals().get("_paddle_vl_manga_model")
+        if model is not None:
+            out.append(("PaddleOCR-VL for manga", str(getattr(model, "device", "cpu"))))
+        if "_manga_ocr_instance" in globals():
+            out.append(("Manga OCR", "cuda" if _manga_ocr_on_gpu() else "cpu"))
+    return out
+
+
+def _manga_ocr_on_gpu() -> bool:
+    model = getattr(globals().get("_manga_ocr_instance"), "model", None)
+    return str(getattr(model, "device", "cpu")).startswith("cuda")
+
+
+def release_models(empty_cuda: bool = True) -> None:
+    """Drops the cached Qwen3-VL, PaddleOCR-VL and Manga OCR models and hands
+    CUDA's memory back. They otherwise stay for the life of the process, with
+    no other place that lists or frees them. They reload on next use.
+    `empty_cuda=False` for a caller that empties CUDA's cache itself afterwards."""
+    import gc
+    import sys
+    with _MODEL_LOCK:
+        globals().get("_qwen3_vl_models", {}).clear()
+        for name in ("_paddle_vl_manga_model", "_paddle_vl_manga_processor", "_manga_ocr_instance"):
+            globals().pop(name, None)
+    gc.collect()
+    torch = sys.modules.get("torch")
+    if empty_cuda and torch is not None:
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass  # a broken CUDA install must not fail the job that just finished
+
+
 MANGA_OCR_REPO = "kha-white/manga-ocr-base"
 
 
