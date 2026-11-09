@@ -5,7 +5,7 @@ import type { ReviewLine } from '../../../../types/review'
 import type { ResplitResult } from '../../../../types/restructure'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, sourceTextLang } from './reviewDraft'
-import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
+import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
 import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -70,6 +70,13 @@ describe('active line', () => {
     expect(stepFrom(lines, 1, -1, both)).toEqual({ page: 'prev' })
     expect(stepFrom(lines, 2, 1, { next: false, prev: true })).toBeNull()
     expect(stepFrom(lines, 99, -1, both)).toEqual({ id: 2 })
+  })
+  it('finds the next and previous translated line nobody has checked', () => {
+    const lines = [mk(1, { en: 'a', reviewed: true }), mk(2, { en: 'b' }), mk(3, { en: '' }), mk(4, { en: 'd' })]
+    expect(nextUnreviewedId(lines, -1, 1)).toBe(2)
+    expect(nextUnreviewedId(lines, 1, 1)).toBe(4)
+    expect(nextUnreviewedId(lines, 3, 1)).toBeNull()
+    expect(nextUnreviewedId(lines, 3, -1)).toBe(2)
   })
   it('finds the next and previous flagged line', () => {
     const lines = [mk(1, { flag: 'a' }), mk(2), mk(3, { flag: 'b' })]
