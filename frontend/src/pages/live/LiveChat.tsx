@@ -3,7 +3,7 @@
  * translation beneath it, newest first. A message with nothing to translate
  * (emotes, numbers, a repeat) shows as written.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
@@ -24,21 +24,12 @@ export function ReadChatField({ checked, disabled, onChange }: { checked: boolea
 /** The panel for a session that reads chat; only mounted for one, so the chat is polled only then. */
 export function LiveChatSection({ sessionId, running, language, delay = 0 }: { sessionId: string; running: boolean; language: string; delay?: number }) {
   const view = useLiveChat(sessionId, running)
-  // When this browser first saw each message: the clock the picture-delay hold starts from.
-  const seenAt = useRef(new Map<number, number>())
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), TICK_MS)
     return () => clearInterval(t)
   }, [])
-  const stamp = Date.now()
-  for (const m of view.messages) if (!seenAt.current.has(m.id)) seenAt.current.set(m.id, stamp)
-  if (seenAt.current.size > view.messages.length) {
-    const kept = new Set(view.messages.map((m) => m.id))
-    for (const id of seenAt.current.keys()) if (!kept.has(id)) seenAt.current.delete(id)
-  }
-  // Max with the stamp: the tick state can be older than a message that arrived since.
-  const due = chatDue(view.messages, seenAt.current, delay, Math.max(now, stamp), view.baseline)
+  const due = chatDue(view.messages, view.seenAt ?? new Map(), delay, now, view.baseline)
   return <LiveChat view={{ ...view, messages: due }} language={language} />
 }
 
