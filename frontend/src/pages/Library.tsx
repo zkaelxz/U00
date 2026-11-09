@@ -413,7 +413,8 @@ export default function LibraryPage() {
         </p>
       )}
 
-      {canCreate && (
+      {/* Not on a phone: the row would push the first title card off the first screen, and New title opens the same Link field. */}
+      {canCreate && !phone && (
         <LibraryStartBox
           onStart={(link) => {
             setDraft({ form: { ...(draft?.form ?? formForLink(link)), source_url: link }, extras: draft?.extras ?? NO_EXTRAS })
