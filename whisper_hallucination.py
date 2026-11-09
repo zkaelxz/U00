@@ -25,6 +25,7 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
     r"(?:中文)?字幕志愿者.{0,20}",
     r".{0,20}明[镜鏡][与與][点點][点點][栏欄]目",
     r"字幕by.{0,20}",
+    r"afewmomentslater",
     r"(?:优优独播剧场|中文字幕)?yo(?:yo)?televisionseriesexclusive",
     r"(?:ぜひ)?チャンネル登録.{0,20}",
     r"구독과?좋아요.{0,20}",
