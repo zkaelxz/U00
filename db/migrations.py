@@ -434,6 +434,10 @@ def _migrate_ownership_columns(conn):
         ("users", "share_by_default", "INTEGER DEFAULT 0"),
         ("translate_history", "user_id", "INTEGER"),
         ("job_records", "owner_user_id", "INTEGER"),
+        # Who a paid call was for (NULL: the PC owner, or work no account started).
+        ("usage_log", "user_id", "INTEGER"),
+        # A member's own monthly limit for paid engines (NULL: none).
+        ("users", "monthly_paid_cap_usd", "REAL"),
     ):
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         if col not in cols:

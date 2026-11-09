@@ -43,6 +43,8 @@ interface NavItem {
   pcOnly: boolean
   /** Shown only while Developer Mode is on. */
   developerMode: boolean
+  /** An admin or system page: listed only in the Advanced view. */
+  advanced: boolean
   /** Hidden while this feature switch is off (lib/features.py). */
   feature: FeatureName | null
   /** A live count shown beside the label; the surface that renders the item supplies the number. */
@@ -54,9 +56,9 @@ interface NavItem {
 function item(
   label: string,
   target: Route,
-  over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'pcOnly' | 'developerMode' | 'rail' | 'badge' | 'feature'>> = {},
+  over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'pcOnly' | 'developerMode' | 'advanced' | 'rail' | 'badge' | 'feature'>> = {},
 ): NavItem {
-  return { label, target, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, rail: null, badge: null, feature: null, ...over }
+  return { label, target, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, advanced: false, rail: null, badge: null, feature: null, ...over }
 }
 
 // Order is the on-screen order within each rail group.
@@ -67,6 +69,7 @@ export const NAV_ITEMS: NavItem[] = [
   }),
   item('Library tools', { name: 'library-tools' }, {
     requires: 'library.read',
+    advanced: true,
     rail: { group: 'library', active: ['library-tools', 'manga', 'manga-series', 'manga-read'] },
   }),
   // Creating a title is what the run does first, so the item needs the same permission as the Library's New title.
@@ -92,28 +95,33 @@ export const NAV_ITEMS: NavItem[] = [
   item('Settings', { name: 'settings' }, { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
   item('People and access', { name: 'admin' }, {
     requires: 'admin.users.read',
+    advanced: true,
     hideWithoutPermission: true,
     rail: { group: 'system', active: ['admin'] },
   }),
   item('Diagnostics', { name: 'diagnostics' }, {
     requires: 'admin.diagnostics',
+    advanced: true,
     hideWithoutPermission: true,
     rail: { group: 'system', active: ['diagnostics'] },
   }),
   item('Benchmark Lab', { name: 'benchmark' }, {
     requires: 'admin.diagnostics',
+    advanced: true,
     hideWithoutPermission: true,
     developerMode: true,
     rail: { group: 'system', active: ['benchmark'] },
   }),
   // The Assistant's routes are local_only(); the page also waits for Developer Mode.
-  item('Assistant', { name: 'assistant' }, { pcOnly: true, developerMode: true, rail: { group: 'system', active: ['assistant'] } }),
+  item('Assistant', { name: 'assistant' }, { pcOnly: true, developerMode: true, advanced: true, rail: { group: 'system', active: ['assistant'] } }),
 ]
 
 export interface NavContext {
   session: SessionState
   pcMode: PcMode
   developerMode: boolean
+  /** The Simple view: admin and system pages are left out. Absent means everything is listed. */
+  simple?: boolean
   /** Switched-off areas; absent means all on. */
   features?: Features
   /** Ids (`navId`) this person chose to hide; locked items are never hidden whatever is listed. */
@@ -136,6 +144,7 @@ function isAllowed(i: NavItem, ctx: NavContext): boolean {
   // 'unknown' hides PC-only items: they wait for /api/meta rather than showing optimistically.
   if (i.pcOnly && ctx.pcMode !== 'local') return false
   if (i.developerMode && !ctx.developerMode) return false
+  if (i.advanced && ctx.simple) return false
   if (i.feature && !featureOn(i.feature, ctx.features)) return false
   return true
 }

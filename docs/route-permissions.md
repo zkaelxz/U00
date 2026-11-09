@@ -11,6 +11,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
+| `POST /api/admin/users/{user_id}/paid-limit` | admin.users |
 | `DELETE /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
 | `POST /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-admin` | admin.users |
@@ -588,6 +589,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/settings/keys/{engine}/clear` | local_only() |
 | `GET /api/settings/loaded-models` | admin.settings |
 | `POST /api/settings/loaded-models/free-app-models` | local_only() |
+| `GET /api/settings/loaded-models/processes` | local_only() |
 | `POST /api/settings/month-counter/reset` | local_only() |
 | `POST /api/settings/month-counter/undo` | local_only() |
 | `GET /api/settings/notifications` | admin.settings |

@@ -341,6 +341,35 @@ class TestAdjacentFlaggedIdx:
         assert svc.adjacent_flagged_idx(lines, ref_idx=9, forward=False) is None
 
 
+class TestRiskView:
+    def _seed_risk(self, db):
+        lines = _flag_lines(6)
+        lines[0].flag = "reading_speed"                      # low weight
+        lines[1].flag = "factual_detail"                     # high weight
+        lines[2].confidence = 0.2                            # very unsure, no flag
+        lines[3].flag = "factual_detail"
+        lines[3].reviewed = True                             # checked: never ranked
+        lines[4].confidence = 0.9                            # confident: not ranked
+        lines[5].flag = "factual_detail"
+        lines[5].en = ""                                     # untranslated: not ranked
+        return _seed(db, lines)
+
+    def test_orders_by_combined_score_and_leaves_clean_lines_out(self, isolated_db):
+        did = self._seed_risk(isolated_db)
+        page = svc.list_review_lines(did, only="risk")
+        assert [ln["idx"] for ln in page["lines"]] == [1, 2, 0]
+        assert page["total"] == 3 and page["risk_count"] == 3
+
+    def test_a_flag_and_low_confidence_add_up(self, isolated_db):
+        lines = _flag_lines(3)
+        lines[0].flag = "factual_detail"
+        lines[1].flag = "factual_detail"
+        lines[1].confidence = 0.1
+        did = _seed(isolated_db, lines)
+        page = svc.list_review_lines(did, only="risk")
+        assert [ln["idx"] for ln in page["lines"]] == [1, 0]
+
+
 class TestAdjacentUnreviewed:
     def _seeded(self, db):
         lines = _flag_lines(6)

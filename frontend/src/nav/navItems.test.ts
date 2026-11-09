@@ -71,6 +71,16 @@ describe('nav registry per persona', () => {
     expect(labels(ctx)).toEqual(ALL)
   })
 
+  it('Simple leaves the admin and system pages out of the menu, Advanced lists them', () => {
+    const owner = personas['owner at the PC']
+    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Make subtitles', 'Quick translate', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings'])
+    expect(labels({ ...owner, simple: false })).toEqual(labels(owner))
+    const dev: NavContext = { ...owner, developerMode: true }
+    expect(labels({ ...dev, simple: true })).not.toEqual(expect.arrayContaining(['Benchmark Lab']))
+    expect(labels({ ...dev, simple: true })).not.toContain('Assistant')
+    expect(labels({ ...dev, simple: false })).toEqual(expect.arrayContaining(['Benchmark Lab', 'Assistant']))
+  })
+
   it('a hidden item drops out, but Library and Settings are locked in', () => {
     const owner = personas['owner at the PC']
     expect(labels({ ...owner, hidden: ['live', 'library', 'settings'] })).not.toContain('Live')

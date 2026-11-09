@@ -9,10 +9,14 @@ import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
 import { canSignOut, gateView, menuUser, recheckSession, sessionExpired, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
+import { usePersistedState } from './hooks/usePersistedState'
+import { ViewModeSwitch } from './nav/ViewModeSwitch'
+import { VIEW_MODE_PREF, asViewMode } from './nav/viewMode'
 import { useDeveloperMode } from './pages/assistant/developerMode'
 import { HelpTip } from './components/HelpTip'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
+import { PaidLimitBanner } from './components/PaidLimitBanner'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
 import LibraryPage from './pages/Library'
@@ -202,6 +206,8 @@ export default function App() {
   const pcMode = usePcOnly()
   const features = useFeatures()
   const [hidden] = useHiddenNav(session)
+  const [storedMode, storeMode] = usePersistedState<string>(VIEW_MODE_PREF, '')
+  const viewMode = asViewMode(storedMode)
   const popOut = isPopOutWindow()
   // A pop-out has no side nav, drawer or phone bar: its header carries the page switcher instead, at every width.
   const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`) && !popOut
@@ -230,7 +236,7 @@ export default function App() {
   const signedOut = sessionExpired(session)
   if (view === 'login' && !signedOut) return <LoginPage configured={signInConfigured} />
   const user = menuUser(session)
-  const navContext = { session, pcMode, developerMode, hidden, features }
+  const navContext = { session, pcMode, developerMode, hidden, features, simple: viewMode === 'simple' }
   // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
   const phoneBar = !wide && !popOut && !BOUNDED_ROUTES.has(route.name)
   // Left is the original layout and adds nothing; on a phone only the bar can move, and only to the top.
@@ -245,6 +251,7 @@ export default function App() {
 
   const headerEnd = (
     <div className="header-end">
+      {(wide || popOut) && <ViewModeSwitch mode={viewMode} onChange={storeMode} />}
       <CommandPalette route={route} context={navContext} />
       <JobsMenu />
       <NotificationBell />
@@ -299,6 +306,7 @@ export default function App() {
   const content = (
     <>
       <RemoteHealthBanner />
+      <PaidLimitBanner />
       <RouteErrorBoundary>
         <Suspense fallback={null}>
           {BOUNDED_ROUTES.has(route.name) ? <div className="app-bounded">{routes}</div> : routes}
@@ -340,7 +348,7 @@ export default function App() {
           )}
           <main id="main-content" ref={mainRef} tabIndex={-1} className="app-content">{content}</main>
         </div>
-        {!wide && !popOut && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} />}
+        {!wide && !popOut && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} viewMode={viewMode} onViewMode={storeMode} />}
         <GlobalShortcuts route={route} />
         {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
       </div>
