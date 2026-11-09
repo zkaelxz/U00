@@ -1,4 +1,5 @@
 """Tests for services/title_copy_service.py: an independent copy of a title."""
+import contextlib
 import os
 
 import pytest
@@ -40,6 +41,26 @@ def test_copy_has_own_rows_and_files(isolated_db):
     new_file = os.path.join(db.DRAMAS_DIR, str(new_id), "a.mp3")
     assert open(new_file, "rb").read() == b"audio-bytes"
     assert not os.path.samefile(new_file, os.path.join(db.DRAMAS_DIR, str(did), "a.mp3"))
+
+
+def test_copy_carries_comic_text_boxes(isolated_db):
+    did, _ = _source(isolated_db)
+    with contextlib.closing(db.get_conn()) as conn:
+        for idx in range(2):
+            cur = conn.execute("INSERT INTO pages (drama_id, idx, filename) VALUES (?, ?, ?)",
+                               (did, idx, f"p{idx}.png"))
+            conn.execute("INSERT INTO bubbles (page_id, idx, x, y, w, h, source_text, translated_text, skip) "
+                         "VALUES (?, 0, 1, 2, 3, 4, ?, ?, ?)", (cur.lastrowid, f"原{idx}", f"en{idx}", idx))
+        conn.commit()
+    new_id = tcs.duplicate_title(did)["id"]
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute("SELECT p.idx, b.source_text, b.translated_text, b.skip, b.w FROM bubbles b "
+                            "JOIN pages p ON p.id = b.page_id WHERE p.drama_id = ? ORDER BY p.idx",
+                            (new_id,)).fetchall()
+        original = conn.execute("SELECT COUNT(*) FROM bubbles b JOIN pages p ON p.id = b.page_id "
+                                "WHERE p.drama_id = ?", (did,)).fetchone()[0]
+    assert [tuple(r) for r in rows] == [(0, "原0", "en0", 0, 3), (1, "原1", "en1", 1, 3)]
+    assert original == 2
 
 
 def test_editing_the_copy_leaves_the_original(isolated_db):
