@@ -17,6 +17,7 @@ __all__ = [
     "TempCleanResult",
     "DramaSummary",
     "DramaDetail",
+    "DramaSeriesUpdate",
     "DramaListResponse",
     "ExportReadiness",
     "FlagActionResult",
@@ -289,6 +290,14 @@ class DramaCreateRequest(BaseModel):
         if not (self.title_en.strip() or self.title_zh.strip() or self.source_url.strip()):
             raise ValueError("A title or a link is required.")
         return self
+
+
+class DramaSeriesUpdate(BaseModel):
+    """Put a title in a series and nothing else: `series_id` (0 takes it out
+    of its series) or `new_series_name`, exactly one."""
+    model_config = ConfigDict(extra="forbid")
+    series_id: Optional[int] = Field(default=None, ge=0, le=2147483647)
+    new_series_name: Optional[str] = Field(default=None, max_length=300)
 
 
 class DramaMetadataUpdate(BaseModel):

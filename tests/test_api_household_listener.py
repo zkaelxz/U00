@@ -551,6 +551,24 @@ class TestAdminOverrideIsPcOnly:
         assert h.post("/api/dramas", headers=_h(ms),
                       json={"source_language": "zh", "title_en": "No"}).status_code == 403
 
+    def test_admin_files_a_title_in_a_series_from_away_but_not_other_metadata(self, isolated_db):
+        s = _admin_session()
+        h = _household_client()
+        did = db.create_drama(title_en="T", source_language="zh", owner_user_id=None)
+        r = h.post(f"/api/dramas/{did}/series", headers=_h(s), json={"new_series_name": "From the phone"})
+        assert r.status_code == 200 and r.json()["series_id"]
+        sid = r.json()["series_id"]
+        assert h.post(f"/api/dramas/{did}/series", headers=_h(s), json={"series_id": 0}).json()["series_id"] is None
+        assert h.post(f"/api/dramas/{did}/series", headers=_h(s), json={"series_id": sid}).status_code == 200
+        assert h.post(f"/api/dramas/{did}/series", headers=_h(s), json={}).status_code == 422
+        assert h.post(f"/api/dramas/{did}/series", headers=_h(s),
+                      json={"series_id": sid, "title_en": "x"}).status_code == 422
+        assert h.post(f"/api/dramas/{did}/metadata", headers=_h(s), json={"studio": "x"}).status_code == 403
+        member = auth_service.add_user("kid@example.com")
+        auth_service.activate_user(member["id"])
+        ms = auth_service.create_session(member["id"], "pytest", "127.0.0.1")
+        assert h.post(f"/api/dramas/{did}/series", headers=_h(ms), json={"series_id": 0}).status_code == 403
+
     @pytest.mark.parametrize("where", ["admin", "single_port"])
     def test_pc_and_single_port_unchanged(self, isolated_db, where):
         s, private = self._world()
