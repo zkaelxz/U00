@@ -160,7 +160,6 @@ def _eligible(root: str, cfg: dict, now: float) -> Optional[tuple]:
         _status["message"] = f"The inbox folder can't be read: {exc.strerror or 'error'}."
         return None
     names = set()
-    limit = media_upload_service.max_upload_bytes()
     ready = None
     for entry in entries:
         name = entry.name
@@ -173,7 +172,7 @@ def _eligible(root: str, cfg: dict, now: float) -> Optional[tuple]:
         except OSError:
             continue
         path = plain_file_in(root, name)
-        if path is None or info.st_size <= 0 or info.st_size > limit:
+        if path is None or info.st_size <= 0:
             continue
         names.add(name)
         if _fingerprint(name, info.st_size) in cfg["seen"]:
