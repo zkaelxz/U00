@@ -587,6 +587,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/settings/keys/{engine}/clear` | local_only() |
 | `GET /api/settings/loaded-models` | admin.settings |
 | `POST /api/settings/loaded-models/free-app-models` | local_only() |
+| `GET /api/settings/loaded-models/processes` | local_only() |
 | `POST /api/settings/month-counter/reset` | local_only() |
 | `POST /api/settings/month-counter/undo` | local_only() |
 | `GET /api/settings/notifications` | admin.settings |
