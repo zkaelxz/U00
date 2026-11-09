@@ -77,6 +77,21 @@ function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
   return <span className={cue.translation === 'failed' ? 'live-en warn' : 'live-en'}>{cue.translated}</span>
 }
 
+/** Kept out of LivePage so that component stays under the length ceiling in componentLength.test.ts. */
+function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiting: boolean }) {
+  return (
+    <ol className="live-cues" aria-label="Live lines, newest first">
+      {cues.map((c) => (
+        <li key={c.id}>
+          <span className="live-ts">{fmtTs(c.start)}</span>
+          <span className="live-src" lang={lang}>{c.text}</span>
+          <TranslationText cue={c} waiting={waiting} />
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 export default function LivePage() {
   const pc = usePcOnly()
   // Only the options this browser changed, so the rest follow the server's defaults.
@@ -459,17 +474,7 @@ export default function LivePage() {
               </ul>
             )}
             {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
-            {feed.length > 0 && (
-              <ol className="live-cues" aria-label="Live lines, newest first">
-                {feed.map((c) => (
-                  <li key={c.id}>
-                    <span className="live-ts">{fmtTs(c.start)}</span>
-                    <span className="live-src" lang={session.status?.source_language ?? form.source_language}>{c.text}</span>
-                    <TranslationText cue={c} waiting={active} />
-                  </li>
-                ))}
-              </ol>
-            )}
+            {feed.length > 0 && <CueFeed cues={feed} lang={session.status?.source_language ?? form.source_language} waiting={active} />}
             {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
           </div>
           </div>
