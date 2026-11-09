@@ -46,13 +46,32 @@ const STUB = () => {
   } })
 }
 
-test('the control is hidden where the API is missing', async ({ page }) => {
+test('without the API, Pop out floats the player inside the page, resizable, and the size is remembered', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined })
   })
   await page.goto('/#/drama/3/review')
-  await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Pop out' })).toHaveCount(0)
+  await page.locator('.review-player-panel').evaluate((el) => ((el as HTMLElement).dataset.mark = 'same'))
+  await page.getByRole('button', { name: 'Pop out' }).click()
+  const floatBox = page.getByRole('group', { name: 'Floating player' })
+  await expect(floatBox.locator('.review-player-panel[data-mark="same"]')).toBeVisible()
+  const width = async () => (await floatBox.boundingBox())!.width
+  const before = await width()
+
+  await floatBox.getByRole('button', { name: 'Larger player' }).click()
+  await expect.poll(width).toBeGreaterThan(before)
+  const larger = await width()
+  // The corner handle resizes from the keyboard too.
+  await floatBox.getByRole('slider', { name: 'Player size' }).press('ArrowRight')
+  await expect.poll(width).toBeLessThan(larger)
+
+  await page.reload()
+  await page.getByRole('button', { name: 'Pop out' }).click()
+  await expect.poll(async () => Math.round(await width())).toBe(Math.round(larger - 40))
+
+  await floatBox.getByRole('button', { name: 'Return player' }).click()
+  await expect(floatBox).toHaveCount(0)
+  await expect(page.locator('.review-player-panel')).toBeVisible()
 })
 
 test('pop out moves the player into the floating window and Return puts it back', async ({ page }) => {
