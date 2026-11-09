@@ -53,7 +53,7 @@ def test_every_table_is_classified(isolated_db):
             rule = lub.USER_BACKUP_TABLES[t][0]
             cols = set(_cols(conn, t))
             if "drama_id" in cols:
-                assert rule in ("drama", "profile_drama", "series_character", "empty"), t
+                assert rule in ("drama", "drama_spend", "profile_drama", "series_character", "empty"), t
             if "profile_id" in cols:
                 assert rule in ("profile_drama", "empty"), t
             if "series_id" in cols and t != "dramas":
@@ -61,7 +61,7 @@ def test_every_table_is_classified(isolated_db):
             if "page_id" in cols:
                 assert rule in ("page", "empty"), t
             if cols & {"user_id", "owner_user_id"} and t not in ("dramas", "series"):
-                assert rule in ("user", "empty"), t
+                assert rule in ("user", "drama_spend", "empty"), t
             if rule == "keep":
                 assert not cols & {"drama_id", "series_id", "user_id", "owner_user_id",
                                    "line_id", "page_id", "profile_id"}, t
@@ -407,8 +407,10 @@ def test_the_filter_keeps_and_drops_exactly_by_rule(isolated_db, tmp_path):
                 assert count == 0, t
             elif rule == "keep":
                 assert count == 1, t
-            elif rule in ("drama", "profile_drama") and t in drama_tables:
+            elif rule in ("drama", "drama_spend", "profile_drama") and t in drama_tables:
                 assert {r[0] for r in conn.execute(f'SELECT drama_id FROM "{t}"')} == mine, t
+        # Who spent it is an id from this install, so it does not travel.
+        assert {r[0] for r in conn.execute("SELECT user_id FROM usage_log")} == {None}
         assert sorted(r[0] for r in conn.execute("SELECT id FROM dramas")) == sorted(mine)
         assert {r[0] for r in conn.execute("SELECT owner_user_id FROM dramas")} == {None}
         assert [tuple(r) for r in conn.execute("SELECT id, owner_user_id FROM series")] == [(sa, None)]
