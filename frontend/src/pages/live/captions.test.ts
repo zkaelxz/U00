@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { LiveCue } from '../../types/live'
-import { HOLD_MAX_S, HOLD_MIN_S, captionAt } from './captions'
+import { HOLD_MAX_S, HOLD_MIN_S, captionAt, chatDue } from './captions'
 
 const cue = (id: number, start: number, translation: LiveCue['translation'] = 'done', end = start + 2): LiveCue => ({
   id, start, end, text: `src${id}`, translated: translation === 'done' ? `en${id}` : '', translation,
@@ -75,5 +75,22 @@ describe('captionAt', () => {
     // Origin 1_013_000 - 2_500; with a 20 s delay line 1 is due at 1_010_500 + 22_500.
     expect(captionAt(cues, seen, 20, 1_033_000 - 100)?.id).toBe(0)
     expect(captionAt(cues, seen, 20, 1_033_000 + 100)?.id).toBe(1)
+  })
+})
+
+describe('chatDue', () => {
+  const msgs = [{ id: 1 }, { id: 2 }, { id: 3 }]
+  const seen = new Map([[1, 1000], [2, 5000], [3, 9000]])
+  it('holds each message back by the picture delay from when it was first seen', () => {
+    expect(chatDue(msgs, seen, 10, 10_999)).toEqual([])
+    expect(chatDue(msgs, seen, 10, 11_000)).toEqual([{ id: 1 }])
+    expect(chatDue(msgs, seen, 10, 19_000)).toEqual(msgs)
+  })
+  it('shows everything at once with no delay, and treats a negative delay as none', () => {
+    expect(chatDue(msgs, seen, 0, 9000)).toEqual(msgs)
+    expect(chatDue(msgs, seen, -5, 9000)).toEqual(msgs)
+  })
+  it('does not hold back what was there when the panel opened', () => {
+    expect(chatDue(msgs, seen, 10, 2000, 2)).toEqual([{ id: 1 }, { id: 2 }])
   })
 })

@@ -25,7 +25,13 @@ const PROBE_BACK_S = 30
 /** Below this a step back is too small to tell an obeyed seek from playback drift. */
 const PROBE_MIN_STEP_S = 5
 
-export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; delay: number; captions?: (effectiveDelay: number) => ReactNode }) {
+export function StreamEmbed({ stream, delay, captions, onPictureDelay }: {
+  stream: StreamRef
+  delay: number
+  captions?: (effectiveDelay: number) => ReactNode
+  /** Reports the picture's real delay so the chat panel can wait as long. */
+  onPictureDelay?: (seconds: number) => void
+}) {
   const frame = useRef<HTMLIFrameElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const delayRef = useRef(delay)
@@ -37,6 +43,7 @@ export function StreamEmbed({ stream, delay, captions }: { stream: StreamRef; de
   // Seconds the picture really plays behind live; the captions wait that long, not the slider's figure.
   const [pictureDelay, setPictureDelay] = useState(0)
   const captionNode = captions?.(pictureDelay)
+  useEffect(() => onPictureDelay?.(pictureDelay), [pictureDelay, onPictureDelay])
   const key = stream.kind === 'twitch-channel' ? stream.name : stream.id
   // With captions on, the player's own full-screen button is hidden so the one that keeps them
   // is the only one (a phone user reaches for the player's). Fixed at mount: changing the

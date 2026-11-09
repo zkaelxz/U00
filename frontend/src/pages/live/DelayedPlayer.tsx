@@ -13,11 +13,13 @@ import {
   LOAD_FAILED_NOTE, MAX_RELOADS, PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, pictureDelayWithoutWindow, placement, playerSrc, stallAction,
 } from './playerLogic'
 
-export function DelayedPlayer({ sessionId, ready, delay, captions }: {
+export function DelayedPlayer({ sessionId, ready, delay, captions, onPictureDelay }: {
   sessionId: string
   ready: boolean
   delay: number
   captions?: (effectiveDelay: number) => ReactNode
+  /** Reports the picture's real delay so the chat panel can wait as long. */
+  onPictureDelay?: (seconds: number) => void
 }) {
   const video = useRef<HTMLVideoElement>(null)
   const box = useRef<HTMLDivElement>(null)
@@ -31,6 +33,7 @@ export function DelayedPlayer({ sessionId, ready, delay, captions }: {
   // Bumped to throw the player away and start it again after an error it could not recover from.
   const [attempt, setAttempt] = useState(0)
   const captionNode = captions?.(pictureDelay)
+  useEffect(() => onPictureDelay?.(pictureDelay), [pictureDelay, onPictureDelay])
   const ownFullscreen = !!captionNode && canFullscreenWithCaptions()
 
   useEffect(() => {
