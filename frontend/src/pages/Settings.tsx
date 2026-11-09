@@ -35,6 +35,7 @@ import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionDevicesCard } from './settings/ExtensionDevicesCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { LanguagePacksCard } from './settings/LanguagePacksCard'
+import { InboxCard } from './settings/InboxCard'
 import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
@@ -341,6 +342,7 @@ export default function SettingsPage() {
           <>
             {shown('jellyfin') && <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>}
             {shown('web-search') && <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>}
+            {shown('inbox') && <SettingsCard id="inbox"><InboxCard /></SettingsCard>}
             {shown('extension') && <SettingsCard id="extension"><ExtensionSection /></SettingsCard>}
           </>
         ))}
