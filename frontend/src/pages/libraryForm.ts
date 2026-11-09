@@ -1,3 +1,4 @@
+import { browserStorage, readPref } from '../hooks/usePersistedState'
 import type { DramaCreateRequest, DramaDeleteResult } from '../types/library'
 
 // Caps mirror api/schemas/library.py DramaCreateRequest.
@@ -116,4 +117,16 @@ export function groupHistory<T extends { drama_id: number }>(rows: T[]): History
     else out.push({ entry: row, count: 1 })
   }
   return out
+}
+
+/** A blank New title form with the link filled in and the last language and type chosen, as CreateForm would start it. */
+export function formForLink(link: string): DramaCreateRequest {
+  const language = readPref(browserStorage(), 'library.newDrama.language', 'zh')
+  const type = readPref(browserStorage(), 'library.newDrama.mediaType', 'audio_drama')
+  return {
+    source_language: SOURCE_LANGUAGES.includes(language) ? language : 'zh',
+    media_type: MEDIA_TYPES.includes(type) ? type : 'audio_drama',
+    title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '', summary: '',
+    source_url: link,
+  }
 }
