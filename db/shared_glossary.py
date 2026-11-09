@@ -47,6 +47,18 @@ def delete_group(group_id: int) -> None:
         conn.commit()
 
 
+def detach_owner_groups(owner_user_id: int) -> int:
+    """Unlinks every series from the groups this user created and returns how
+    many series were unlinked. The groups and their terms stay, so the PC can
+    still read or delete them."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE series SET shared_group_id = NULL WHERE shared_group_id IN "
+            "(SELECT id FROM shared_glossary_groups WHERE owner_user_id = ?)", (owner_user_id,))
+        conn.commit()
+        return cur.rowcount
+
+
 def get_series_group_id(series_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute("SELECT shared_group_id FROM series WHERE id = ?", (series_id,)).fetchone()

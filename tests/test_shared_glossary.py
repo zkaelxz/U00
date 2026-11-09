@@ -83,7 +83,6 @@ def test_only_creator_or_override_changes_a_group(isolated_db):
     gid = svc.create_group(_p(a), "Mine")["id"]
     svc.save_term(_p(a), gid, {"term_original": "x", "term_translation": "y"})
     for call in (lambda: svc.save_term(_p(b), gid, {"term_original": "z", "term_translation": "y"}),
-                 lambda: svc.delete_group(_p(b), gid),
                  lambda: svc.delete_term(_p(b), gid, 1)):
         with pytest.raises(NotFoundError):
             call()
@@ -133,3 +132,30 @@ def test_routes_join_view_and_leave(isolated_db):
     left = c.post(f"/api/series/{sid}/shared-glossary", json={"group_id": None}).json()
     assert left["group"] is None and [t["term_original"] for t in left["terms"]] == ["own"]
     assert c.post(f"/api/series/{sid}/shared-glossary", json={"group_id": 999}).status_code == 404
+
+
+def test_creator_or_admin_deletes_a_group_but_another_member_cannot(isolated_db):
+    a, b = db.auth_create_user("a@example.com"), db.auth_create_user("b@example.com")
+    gid = svc.create_group(_p(a), "Mine")["id"]
+    with pytest.raises(NotFoundError):
+        svc.delete_group(_p(b), gid)
+    assert svc.list_groups(_p(b))["items"][0]["id"] == gid
+    admin_away = {"user_id": None, "is_admin": True, "is_local_owner": False, "admin_override": False}
+    other = svc.create_group(_p(b), "Other")["id"]
+    assert svc.delete_group(admin_away, other)["deleted"] is True
+    assert svc.delete_group(_p(a), gid)["deleted"] is True
+    assert svc.list_groups(LOCAL)["items"] == []
+
+
+def test_deactivating_a_member_unlinks_their_groups_only(isolated_db):
+    from services import auth_service
+    a, b = db.auth_create_user("a@example.com"), db.auth_create_user("b@example.com")
+    ga, gb = svc.create_group(_p(a), "A")["id"], svc.create_group(_p(b), "B")["id"]
+    s1, s2 = db.get_or_create_series("One"), db.get_or_create_series("Two")
+    db.set_series_shared_group(s1, ga)
+    db.set_series_shared_group(s2, gb)
+    auth_service.deactivate_user(a)
+    assert db.get_series_shared_group_id(s1) is None
+    assert db.get_series_shared_group_id(s2) == gb
+    assert {g["id"] for g in svc.list_groups(LOCAL)["items"]} == {ga, gb}
+
