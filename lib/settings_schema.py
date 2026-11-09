@@ -278,6 +278,7 @@ SETTINGS = (
     _own("voice_detector", "choice", "auto", choices="voice_detectors", label="Voice detector",
          tab="system", section="Transcription experiments"),
     _own("transcribe_speed", "json", {}),
+    _own("inbox", "json", {}),
     _own("monthly_spend_reset_at", "text", None),
 
     # --- Timing and splitting (one Settings card, three groups)

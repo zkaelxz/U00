@@ -4337,6 +4337,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The watch folder's settings and last result */
+        get: operations["get_inbox_api_inbox_get"];
+        put?: never;
+        /** Change the watch folder's settings */
+        post: operations["set_inbox_api_inbox_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jellyfin/config": {
         parameters: {
             query?: never;
@@ -19132,6 +19150,52 @@ export interface components {
             source_id: number;
             /** Title */
             title: string;
+        };
+        /** InboxState */
+        InboxState: {
+            /** Folder Name */
+            folder_name: string;
+            /** Folder Set */
+            folder_set: boolean;
+            /** Imported */
+            imported: number;
+            /** Last Title Id */
+            last_title_id: number | null;
+            /** Message */
+            message: string;
+            /** Move */
+            move: boolean;
+            /** On */
+            on: boolean;
+            /** Series Id */
+            series_id: number | null;
+            /**
+             * Source Language
+             * @enum {string}
+             */
+            source_language: "zh" | "ja" | "ko";
+        };
+        /** InboxUpdate */
+        InboxUpdate: {
+            /**
+             * Move
+             * @default false
+             */
+            move?: boolean;
+            /** On */
+            on: boolean;
+            /**
+             * Path
+             * @default
+             */
+            path?: string;
+            /** Series Id */
+            series_id?: number | null;
+            /**
+             * Source Language
+             * @enum {string}
+             */
+            source_language: "zh" | "ja" | "ko";
         };
         /**
          * JellyfinConfig
@@ -42823,6 +42887,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    get_inbox_api_inbox_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_inbox_api_inbox_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InboxUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

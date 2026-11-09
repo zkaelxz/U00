@@ -56,6 +56,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     cards: [
       { id: 'jellyfin' },
       { id: 'web-search' },
+      { id: 'inbox' },
       { id: 'extension' },
     ],
   },
@@ -77,7 +78,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
   'notifications', 'auto-backup', 'save-folder', 'app-updates',
-  'jellyfin', 'web-search', 'extension',
+  'jellyfin', 'web-search', 'inbox', 'extension',
   'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
 
@@ -117,6 +118,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),
   e('web-search', 'Web search', 'search lookup'),
+  e('inbox', 'Watch folder', 'inbox drop files folder import automatically audio video'),
   e('extension', 'Browser extension', 'bridge capture'),
 
   e('performance', 'Jobs and GPU', 'performance gpu use gpu limit jobs at once parallel free local-model memory unload ollama graphics'),

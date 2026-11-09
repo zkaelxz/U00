@@ -125,7 +125,7 @@
 	# user list and the audit log, and changing a member account, pass.
 	@pc_only {
 		path /api/system/* /api/admin/*
-		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/*
+		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/* /api/inbox
 		path /api/diagnostics /api/diagnostics/* /api/library/admin/*
 		path /api/assistant/* /api/backups/* /api/benchmark/* /api/models/*
 		path /api/data-usage /api/data-usage/*

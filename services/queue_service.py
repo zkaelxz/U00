@@ -35,7 +35,7 @@ from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
-from services import (auth_service, export_service, jobs_service, series_auto_service, quick_video_service,
+from services import (auth_service, export_service, inbox_service, jobs_service, series_auto_service, quick_video_service,
                       model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
                       transcribe_options_service, translate_run_service, translate_thinking_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
@@ -913,6 +913,7 @@ def _loop() -> None:
         except Exception as exc:
             _log.warning("Job queue tick failed: %s", engine_shared.redact_secrets(str(exc)))
         series_auto_service.scan()
+        inbox_service.scan()
         _wake.wait(POLL_SECONDS)
         _wake.clear()
 
