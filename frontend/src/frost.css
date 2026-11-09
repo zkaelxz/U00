@@ -62,13 +62,13 @@
   --wash-2: #e6d9a8;
 }
 
+/* No background-attachment: fixed: a fixed wash is a suspected cause of stale tiled graphics below the page in Edge/Chrome app-mode full screen. */
 /* Two off-centre blobs at 60%: the four-corner wash competed with the content, and the corners are where the nav and header sit. */
 body {
   background:
     radial-gradient(640px 520px at 78% 14%, color-mix(in srgb, var(--wash-2) 60%, transparent), transparent 70%),
     radial-gradient(620px 520px at 18% 82%, color-mix(in srgb, var(--wash-1) 60%, transparent), transparent 70%),
     var(--bg);
-  background-attachment: fixed;
 }
 
 /* Panels. Glass stays on what floats (sheets, the nav rail, popovers); a panel that sits on the page is a top hairline like a .card, and a title tile keeps only a hairline outline so the tiles still read as separate things. */
