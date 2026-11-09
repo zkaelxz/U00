@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { Tabs, type TabInfo } from '../../../../components/Tabs'
 import { tabButtonId, tabPanelId } from '../../../../components/tabIds'
 import { browserStorage } from '../../../../hooks/usePersistedState'
 import { useRoute } from '../../../../router'
+import { useSimple } from '../../StageContext'
 import {
   REVIEW_TOOLS_TABS, readLastTab, seedFirstCard, writeLastTab, type ReviewToolsTab,
 } from './reviewToolsTabs'
@@ -56,21 +57,28 @@ interface Props {
 // The tools under the line list as one tab level. A tab's panel mounts the first
 // time it is shown and then stays, so open folds and drafts survive a switch.
 export function ReviewTools({ dramaId, status, panels, attention = {}, request = null }: Props) {
+  // Simple shows the two tabs a reviewer uses every time; a link or remembered choice for another tab opens Check.
+  const simple = useSimple()
+  const shown = useMemo(() => (simple ? REVIEW_TOOLS_TABS.filter((t) => t.id === 'check' || t.id === 'fix') : REVIEW_TOOLS_TABS), [simple])
+  const allowed = useCallback((t: ReviewToolsTab) => shown.some((x) => x.id === t), [shown])
   const route = useRoute()
   const linked = route.name === 'drama' && route.id === dramaId ? route.tools : undefined
   const [tab, setTabState] = useState<ReviewToolsTab>(() => {
-    const first = linked ?? readLastTab(browserStorage(), dramaId)
+    const wanted = linked ?? readLastTab(browserStorage(), dramaId)
+    const first = allowed(wanted) ? wanted : 'check'
     seedFirstCard(browserStorage(), first)
     return first
   })
   const [visited, setVisited] = useState<ReadonlySet<ReviewToolsTab>>(() => new Set([tab]))
 
   const select = useCallback((t: ReviewToolsTab) => {
+    // A link or request for a tool Simple leaves out keeps the tab that is open.
+    if (!allowed(t)) return
     seedFirstCard(browserStorage(), t)
     setTabState(t)
     setVisited((v) => (v.has(t) ? v : new Set(v).add(t)))
     writeLastTab(browserStorage(), dramaId, t)
-  }, [dramaId])
+  }, [dramaId, allowed])
 
   // A link's tab wins over the remembered one, also while the stage is already open.
   useEffect(() => {
@@ -84,12 +92,12 @@ export function ReviewTools({ dramaId, status, panels, attention = {}, request =
     }
   }, [request, select])
 
-  const tabs: TabInfo<ReviewToolsTab>[] = REVIEW_TOOLS_TABS.map((t) => ({ ...t, attention: attention[t.id] }))
+  const tabs: TabInfo<ReviewToolsTab>[] = shown.map((t) => ({ ...t, attention: attention[t.id] }))
   return (
     <section className="review-toolbox" aria-label="Checks and tools">
       {status}
       <Tabs label="Review tools" idPrefix={ID_PREFIX} tabs={tabs} active={tab} onSelect={select} keepRow />
-      {REVIEW_TOOLS_TABS.map(({ id }) => (
+      {shown.map(({ id }) => (
         <div
           key={id}
           id={tabPanelId(ID_PREFIX, id)}
