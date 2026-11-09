@@ -452,7 +452,7 @@ test('series instructions follow a series assigned here, so Save never writes th
   })
   await withExportLines(page)
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
-  await page.route('**/api/dramas/1/metadata', (route) => {
+  await page.route('**/api/dramas/1/series', (route) => {
     seriesId = 7
     return route.fulfill({ json: {} })
   })

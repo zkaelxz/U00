@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { hasStatus } from '../../../api/client'
-import { updateDramaMetadata } from '../../../api/library'
+import { setDramaSeries, updateDramaMetadata } from '../../../api/library'
 import { listAllSeries, type SeriesListItem } from '../../../api/series'
 import { updateSourceConfig } from '../../../api/source'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -106,7 +106,10 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
     const sent = form
     setBusy(true)
     const writes: Promise<unknown>[] = []
-    if (Object.keys(payload.metadata).length) writes.push(updateDramaMetadata(dramaId, payload.metadata))
+    // The series pair goes to its own route so a phone can still change it.
+    const { series_id, new_series_name, ...rest } = payload.metadata
+    if (Object.keys(rest).length) writes.push(updateDramaMetadata(dramaId, rest))
+    if (series_id !== undefined || new_series_name !== undefined) writes.push(setDramaSeries(dramaId, { series_id, new_series_name }))
     if (payload.sourceLanguage) writes.push(updateSourceConfig(dramaId, { source_language: payload.sourceLanguage }))
     Promise.all(writes).then(
       () => {

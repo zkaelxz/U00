@@ -293,6 +293,14 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     return library_service.get_library_drama(drama_id)
 
 
+def set_drama_series(drama_id, *, principal=None, series_id=None, new_series_name=None) -> dict:
+    """The series half of `update_drama_metadata`, with the same checks."""
+    if (series_id is None) == (new_series_name is None):
+        raise InvalidInputError("Pass series_id or new_series_name.")
+    return update_drama_metadata(drama_id, principal=principal, series_id=series_id,
+                                 new_series_name=new_series_name)
+
+
 def _checked_metadata_value(key, value, drama_id, principal):
     """`value` as update_drama_metadata stores it, or InvalidInputError."""
     if key in _TEXT_FIELDS:

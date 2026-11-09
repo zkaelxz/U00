@@ -12,7 +12,8 @@ async function stubDrama(page: Page, patch: Record<string, unknown>) {
   const state = { current: { ...drama, ...patch } as Record<string, unknown> }
   await page.route('**/api/library/dramas/2', (r) => r.fulfill({ json: state.current }))
   const bodies: Record<string, unknown>[] = []
-  await page.route('**/api/dramas/2/metadata', (r) => {
+  // Series changes have their own route so a phone can still make them.
+  await page.route(/\/api\/dramas\/2\/(metadata|series)$/, (r) => {
     const body = r.request().postDataJSON() as Record<string, unknown>
     bodies.push(body)
     const next = { ...state.current, ...body }

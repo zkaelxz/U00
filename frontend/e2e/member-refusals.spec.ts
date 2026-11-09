@@ -83,7 +83,7 @@ test('Translate: editing the drama (create series) is refused plainly', async ({
   await gotoTranslate(page, 'glossary', DRAMA)
   await page.getByRole('button', { name: /^Create series/ }).click()
   await expect(refusal(page)).toBeVisible()
-  expect(refused).toEqual([`POST /api/dramas/${DRAMA}/metadata`])
+  expect(refused).toEqual([`POST /api/dramas/${DRAMA}/series`])
 })
 
 test('Export: Mark as exported and the media job starts are refused plainly', async ({ page }) => {

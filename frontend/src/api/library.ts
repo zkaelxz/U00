@@ -54,6 +54,11 @@ export const createDrama = (body: DramaCreateRequest, f?: Fetch) =>
 export const updateDramaMetadata = (id: number, body: DramaMetadataUpdate, f?: Fetch) =>
   postJson<DramaDetail>(`/api/dramas/${id}/metadata`, body, f)
 
+// Series only, so an admin can use it from away (library.create); the metadata
+// update above needs admin.library, which the remote listener drops.
+export const setDramaSeries = (id: number, body: Pick<DramaMetadataUpdate, 'series_id' | 'new_series_name'>, f?: Fetch) =>
+  postJson<DramaDetail>(`/api/dramas/${id}/series`, body, f)
+
 // PC only: the source link as imported or typed, query included (the
 // drama detail's source_url is the cleaned form).
 export const getSourceLink = (id: number, f?: Fetch) =>

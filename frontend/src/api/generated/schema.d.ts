@@ -3307,6 +3307,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/{drama_id}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a drama in a series, or take it out (series only) */
+        post: operations["post_drama_series_api_dramas__drama_id__series_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}/source-link": {
         parameters: {
             query?: never;
@@ -17539,6 +17556,17 @@ export interface components {
             locale: string | null;
             /** Style Preset */
             style_preset: string | null;
+        };
+        /**
+         * DramaSeriesUpdate
+         * @description Put a title in a series and nothing else: `series_id` (0 takes it out
+         *     of its series) or `new_series_name`, exactly one.
+         */
+        DramaSeriesUpdate: {
+            /** New Series Name */
+            new_series_name?: string | null;
+            /** Series Id */
+            series_id?: number | null;
         };
         /**
          * DramaSourceLink
@@ -39528,6 +39556,59 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_drama_series_api_dramas__drama_id__series_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DramaSeriesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DramaDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

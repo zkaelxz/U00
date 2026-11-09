@@ -98,7 +98,7 @@ test('Edit details can take a title out of its series (series_id 0)', async ({ p
   await page.route('**/api/library/dramas/2', (r) =>
     r.fulfill({ json: { ...drama, series_id: inSeries ? 7 : null } }),
   )
-  await page.route('**/api/dramas/2/metadata', (r) => {
+  await page.route('**/api/dramas/2/series', (r) => {
     bodies.push(r.request().postDataJSON())
     inSeries = false
     return r.fulfill({ json: { ...drama, series_id: null } })
