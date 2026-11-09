@@ -452,7 +452,7 @@ def load_audio_16k(audio_path):
     return decode_audio(audio_path, sampling_rate=16000)
 
 
-def _span_groups(transcribed, tuning, long_windows, flag_estimated) -> dict:
+def _span_groups(transcribed, tuning, flag_estimated) -> dict:
     """{span index: its lines}: each span's text split into lines, then the
     hallucination filter, which runs after splitting because a loop shows up
     as identical consecutive pieces."""
@@ -466,7 +466,7 @@ def _span_groups(transcribed, tuning, long_windows, flag_estimated) -> dict:
                 [{**seg, "text": text}], flag_estimated=flag_estimated,
                 max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
                 floors=tuning.floors,
-                rules=sentence_split_rules(tuning) if long_windows else None))
+                rules=sentence_split_rules(tuning)))
     pieces = filter_hallucinated_segments(pieces, tuning.repeat_min_repeats,
                                           tuning.stock_isolation_sec)
     groups = {}
@@ -633,7 +633,7 @@ class Qwen3ASRVadBackend:
 
         # The aligner replaces the estimated times, so only an unrefined run
         # needs them marked as guesses.
-        groups = _span_groups(transcribed, tuning, long_windows, flag_estimated=not refine_timing)
+        groups = _span_groups(transcribed, tuning, flag_estimated=not refine_timing)
         if refine_timing and groups:
             try:
                 return _refine_span_groups(
@@ -649,7 +649,7 @@ class Qwen3ASRVadBackend:
                 if on_notice:
                     on_notice(f"Line timing was not refined "
                               f"({forced_align.refine_failure_reason(exc)})")
-                groups = _span_groups(transcribed, tuning, long_windows, flag_estimated=True)
+                groups = _span_groups(transcribed, tuning, flag_estimated=True)
         return [p for group in groups.values() for p in group]
 
     def _transcribe_mixed(self, audio_path, language, spans, windows, use_gpu, progress_cb,
