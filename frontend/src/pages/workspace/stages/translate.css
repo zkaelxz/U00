@@ -110,6 +110,7 @@
   .stage-translate .card-table tr.card-main { padding: var(--space-3) 0 0; border-top: 1px solid var(--border); }
   .stage-translate .card-table tbody > tr.card-main:first-child { border-top: 0; padding-top: 0; }
   .stage-translate .card-table tr.card-extra { display: block; padding: var(--space-2) 0 var(--space-3); }
+  .stage-translate .card-table tr.term-edit-row td { display: block; flex: 1 1 100%; min-width: 0; }
   .stage-translate .card-table td[data-label]::before { content: attr(data-label); display: block; color: var(--muted); font-size: var(--text-sm); }
   .stage-translate .card-table input:not([type='checkbox']), .stage-translate .card-table select { width: 100%; }
   .stage-translate .card-table .card-title { flex: 1 1 100%; font-weight: var(--weight-bold); }
@@ -144,3 +145,4 @@
   .translate-switches > .field-item:has(+ .muted) { grid-column: 1 / -1; }
   .translate-switches > .muted { grid-column: 1 / -1; }
 }
+.stage-translate .term-edit-row td { padding: var(--space-2) 0 var(--space-3); }
