@@ -10,7 +10,8 @@ import { hasStatus } from '../../api/client'
 import { CHAT_KEPT, POLL_MS, chatReadFrom, getLiveChat, mergeChat } from '../../api/live'
 import type { LiveChatMessage } from '../../types/live'
 
-export type ChatView = { state: string; message: string; messages: LiveChatMessage[] }
+/** `baseline`: the newest message id in the first read, i.e. what was there before this panel opened. */
+export type ChatView = { state: string; message: string; messages: LiveChatMessage[]; baseline?: number }
 
 const EMPTY: ChatView = { state: 'connecting', message: '', messages: [] }
 // Chat states after which nothing more arrives.
@@ -30,6 +31,7 @@ export function useLiveChat(sessionId: string | null, running: boolean): ChatVie
     let timer: ReturnType<typeof setTimeout> | undefined
     let kept: LiveChatMessage[] = []
     let nextId = 0
+    let baseline: number | undefined
     const tick = async () => {
       // The read after the session ends is the last: pending messages are not left waiting.
       const wasRunning = runningRef.current
@@ -39,7 +41,8 @@ export function useLiveChat(sessionId: string | null, running: boolean): ChatVie
         if (!alive) return
         kept = mergeChat(kept, page.messages).slice(-CHAT_KEPT)
         nextId = Math.max(nextId, page.next_id)
-        setShown({ id: sessionId, view: { state: page.state, message: page.message, messages: kept } })
+        baseline ??= page.next_id
+        setShown({ id: sessionId, view: { state: page.state, message: page.message, messages: kept, baseline } })
         if (FINAL.has(page.state)) again = false
       } catch (err) {
         // A restart (404) or a refusal ends it; a single blip is retried.

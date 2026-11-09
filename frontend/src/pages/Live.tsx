@@ -214,6 +214,8 @@ export default function LivePage() {
   useEffect(() => setAutoValue(null), [sessionId])
   const steadyValue = steadyDelay(autoValue, estimate)
   if (steadyValue !== autoValue) setAutoValue(steadyValue)
+  // What the player reports it really runs behind live; the chat panel waits that long.
+  const [pictureDelay, setPictureDelay] = useState(0)
   const delay = delayAuto ? (autoValue ?? estimate) : videoDelay
 
   return (
@@ -418,10 +420,10 @@ export default function LivePage() {
               {(streamRef || ownPlayer) && showVideo && (
                 <>
                   {ownPlayer ? (
-                    <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay}
+                    <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay} onPictureDelay={setPictureDelay}
                       captions={captionsOn ? (d) => <LiveCaptions key={session.id} cues={session.cues} delay={d} chunkSeconds={session.status?.segment_seconds} /> : undefined} />
                   ) : streamRef && (
-                    <StreamEmbed stream={streamRef} delay={delay}
+                    <StreamEmbed stream={streamRef} delay={delay} onPictureDelay={setPictureDelay}
                       captions={captionsOn ? (d) => <LiveCaptions key={session.id} cues={session.cues} delay={d} chunkSeconds={session.status?.segment_seconds} /> : undefined} />
                   )}
                   {(ownPlayer || (streamRef && canDelay(streamRef))) && (
@@ -472,7 +474,8 @@ export default function LivePage() {
           </div>
           </div>
         )}
-        {session?.status?.chat === true && <LiveChatSection sessionId={session.id} running={active} language={session.status.source_language ?? form.source_language} />}
+        {session?.status?.chat === true && <LiveChatSection sessionId={session.id} running={active} language={session.status.source_language ?? form.source_language}
+          delay={showVideo && (streamRef || ownPlayer) ? pictureDelay : 0} />}
       </div>
     </PageShell>
   )

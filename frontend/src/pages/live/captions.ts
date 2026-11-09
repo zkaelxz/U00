@@ -75,6 +75,18 @@ function captionWindow(cue: LiveCue, origin: number, delayS: number, arrivedAt: 
   return [from, from + hold * 1000]
 }
 
+/**
+ * The chat messages to show now. Chat is read live while the picture plays `delayS` behind
+ * it, so a message waits that long after this browser first saw it. Ids up to `baseline`
+ * were already there when the panel opened (a reload), and are not held back.
+ */
+export function chatDue<T extends { id: number }>(
+  messages: T[], seenAt: ReadonlyMap<number, number>, delayS: number, now: number, baseline = 0,
+): T[] {
+  const wait = Math.max(0, delayS) * 1000
+  return messages.filter((m) => m.id <= baseline || (seenAt.get(m.id) ?? now) + wait <= now)
+}
+
 /** The caption to draw now: the newest cue that is due and not yet cleared. */
 export function captionAt(
   cues: LiveCue[], arrivedAt: ReadonlyMap<number, number>, delayS: number, now: number, spanS = DEFAULT_REPLAY_SPAN_S,
