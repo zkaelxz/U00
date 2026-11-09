@@ -22,6 +22,14 @@
 .glossary-proposal-edit { display: grid; gap: var(--space-2); margin-top: var(--space-2); min-width: 0; }
 .glossary-proposal-edit input, .glossary-proposal-edit select { width: 100%; min-width: 0; }
 .glossary-proposal-selects { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); min-width: 0; }
+/* The page-wide overflow-wrap: anywhere lets every column shrink to one letter, so the table sizes columns by
+   content and scrolls sideways instead. */
+.glossary-proposals-table { min-width: 64rem; }
+.glossary-proposals-table th, .glossary-proposals-table td { overflow-wrap: normal; }
+.glossary-proposals-table th { white-space: nowrap; }
+.glossary-proposals-table td:nth-child(2) { min-width: 8rem; }
+.glossary-proposals-table td:nth-child(3) input { min-width: 14rem; }
+.glossary-proposals-table td.novel-glossary-reason { min-width: 14rem; overflow-wrap: break-word; }
 /* Review glossary before translating (GlossaryReview.tsx, in the Translate run panel). */
 .glossary-review { margin-top: var(--space-3); }
 .glossary-review > h3 { margin: 0 0 var(--space-2); }
