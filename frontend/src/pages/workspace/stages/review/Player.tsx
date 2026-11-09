@@ -12,6 +12,8 @@ import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
 import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
+import { FloatingFrame } from './FloatingFrame'
+import { FLOAT_DEFAULT_WIDTH } from './floatLogic'
 
 export interface PlayerHandle {
   // Seek to the line's start and stop at its end (or repeat it with Loop line).
@@ -131,10 +133,15 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   }, [rate])
   useEffect(() => applyRate(media.current), [applyRate])
 
+  // Browsers without Document Picture-in-Picture get a box inside the page instead.
+  const [boxed, setBoxed] = useState(false)
+  const [boxHost, setBoxHost] = useState<HTMLElement | null>(null)
+  const [boxWidth, setBoxWidth] = usePersistedState('review.floatWidth', FLOAT_DEFAULT_WIDTH)
   const place = useCallback(() => {
-    const target = panelHost === undefined ? slotRef.current : panelHost
+    // Until the box has mounted its body the panel stays where it is, so the video keeps playing.
+    const target = boxed ? boxHost : panelHost === undefined ? slotRef.current : panelHost
     if (target && panelBox.parentNode !== target) target.appendChild(panelBox)
-  }, [panelHost, panelBox])
+  }, [panelHost, panelBox, boxed, boxHost])
   const pop = usePopOut(panelBox, place)
   const floating = pop.active
 
@@ -415,7 +422,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
 
   // Kept mounted while folded away, so the sound and the strip above still work.
   const panel = (
-    <div className="review-player-panel" hidden={!open && !floating}>
+    <div className="review-player-panel" hidden={!open && !floating && !boxed}>
       <div
         ref={frameRef}
         data-testid="player-frame"
@@ -585,11 +592,14 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide player' : 'Show player'}
         </button>
-        {pop.supported && (
-          <button type="button" className={buttonClass('ghost', 'sm')} onClick={floating ? pop.close : () => void pop.open()} title="Keep the player in a small window that stays on top">
-            {floating ? 'Return player' : 'Pop out'}
-          </button>
-        )}
+        <button
+          type="button"
+          className={buttonClass('ghost', 'sm')}
+          onClick={pop.supported ? (floating ? pop.close : () => void pop.open()) : () => setBoxed(!boxed)}
+          title={pop.supported ? 'Keep the player in a small window that stays on top' : 'Keep the player floating over the page; drag to move, resize from its corner'}
+        >
+          {floating || boxed ? 'Return player' : 'Pop out'}
+        </button>
         {trailing}
       </div>
       {failed && (
@@ -599,6 +609,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       )}
       <div className="review-player-slot" ref={slotRef} />
       {createPortal(panel, panelBox)}
+      {boxed && <FloatingFrame width={boxWidth} onWidth={setBoxWidth} onReturn={() => setBoxed(false)} hostRef={setBoxHost} />}
       {kind === 'audio' && (
         <audio
           ref={(el) => {
