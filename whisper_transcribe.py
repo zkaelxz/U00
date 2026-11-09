@@ -10,7 +10,8 @@ import re
 
 import whisper_models
 from segment_splitting import _word_dicts, settle_overlaps, tighten_to_words
-from whisper_hallucination import STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments
+from whisper_hallucination import (STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments,
+                                   is_stock_phrase)
 
 
 
@@ -72,7 +73,10 @@ def _is_sparse(seg: dict) -> bool:
     # Judged on the span Whisper opened: a skipped stretch is invisible once the
     # few words it did write have narrowed the segment to their own times.
     length = _span(seg)[1] - _span(seg)[0]
-    return length >= SPARSE_SEGMENT_MIN_SEC and _letters(seg["text"]) / length < SPARSE_MAX_CHARS_PER_SEC
+    if length < SPARSE_SEGMENT_MIN_SEC:
+        return False
+    # A stock credit stretched over this long is Whisper's fill over speech it did not write.
+    return is_stock_phrase(seg["text"]) or _letters(seg["text"]) / length < SPARSE_MAX_CHARS_PER_SEC
 
 
 # faster-whisper's own cut-off for "this decode is a repetition loop" (compression_ratio_threshold).
@@ -246,7 +250,9 @@ def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys:
     retry = {k: v for k, v in kwargs.items() if k != "vad_parameters"}
     retry.update(vad_filter=False, clip_timestamps=[t for s in sparse for t in _span(s)])
     heard, _info = model.transcribe(audio_path, **retry)
-    heard = _segment_dicts(heard, prompt_keys)
+    # Re-decoding without the detector is where Whisper most often writes a credit over
+    # speech, so a stock phrase it returns here is never taken as the stretch's text.
+    heard = [h for h in _segment_dicts(heard, prompt_keys) if not is_stock_phrase(h["text"])]
     # A segment heard at the shared edge of two touching sparse stretches fits
     # both windows; it belongs to the one it overlaps most, so it is kept once.
     owned = {id(sp): [] for sp in sparse}
@@ -260,7 +266,8 @@ def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys:
     for seg in segments:
         if id(seg) in owned:
             inside = owned[id(seg)]
-            if _letters("".join(h["text"] for h in inside)) > _letters(seg["text"]):
+            heard_letters = _letters("".join(h["text"] for h in inside))
+            if is_stock_phrase(seg["text"]) or heard_letters > _letters(seg["text"]):
                 result.extend(inside)
                 continue
         result.append(seg)
