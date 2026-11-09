@@ -13,6 +13,7 @@ import { OpenFolderButton } from './OpenFolderButton'
 import { readHref, workspaceHref } from './libraryView'
 import { buttonClass } from './uiClasses'
 import { useCancellableEffect } from '../hooks/useCancellableEffect'
+import { useHolds } from '../hooks/useHolds'
 
 function credit(name: string | null, romanized: string | null) {
   if (!name) return null
@@ -34,6 +35,8 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
   const [deleteError, setDeleteError] = useState<unknown>(null)
   const [moreSummary, setMoreSummary] = useState(false)
   const [copying, setCopying] = useState(false)
+  // The copy route needs library.create, which members don't hold.
+  const canCopy = useHolds('library.create')
   const [copyError, setCopyError] = useState<unknown>(null)
 
   const copy = () => {
@@ -114,10 +117,12 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
         <ButtonLink variant="primary" href={workspaceHref(dramaId)}>Open workspace</ButtonLink>
         <ButtonLink href={readHref(drama)}>Read</ButtonLink>
         <OpenFolderButton open={() => openDramaFolder(dramaId)} title="Show this title's files on the PC" />
-        <button type="button" className={buttonClass()} disabled={copying} onClick={copy}
-          title="Make a separate copy with its own files and lines, so test runs don't change this title">
-          {copying ? 'Copying…' : 'Make test copy'}
-        </button>
+        {canCopy && (
+          <button type="button" className={buttonClass()} disabled={copying} onClick={copy}
+            title="Make a separate copy with its own files and lines, so test runs don't change this title">
+            {copying ? 'Copying…' : 'Make test copy'}
+          </button>
+        )}
       </div>
       <ErrorBanner error={copyError} />
       <div className="drama-detail-danger">
