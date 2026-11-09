@@ -244,6 +244,9 @@ def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False,
     _revoke_device_tokens(user_id, actor_id)
     from services import member_key_service   # it imports this module
     member_key_service.remove(user_id, actor_id=actor_id)
+    # A shared glossary group would otherwise keep shaping other people's
+    # series with terms nobody who made them can still change.
+    db.detach_shared_glossary_owner_groups(user_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.deactivate", f"user {user_id}")
     return get_user(user_id)

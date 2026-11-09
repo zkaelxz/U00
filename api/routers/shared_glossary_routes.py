@@ -4,7 +4,7 @@ services/shared_glossary_service.py.
 
     GET  /api/shared-glossaries                              library.read  every group (name, counts)
     POST /api/shared-glossaries                              lines.edit    create a group
-    POST /api/shared-glossaries/{group_id}/delete            PC only       its creator or an admin
+    POST /api/shared-glossaries/{group_id}/delete            lines.edit    its creator or any admin
     GET  /api/shared-glossaries/{group_id}/terms             library.read
     POST /api/shared-glossaries/{group_id}/terms             lines.edit    its creator or an admin
     POST /api/shared-glossaries/{group_id}/terms/{term_id}/delete  lines.edit  its creator or an admin
@@ -17,7 +17,7 @@ from typing import List
 
 from fastapi import APIRouter, Path, Request
 
-from api.auth import local_only, require_permission
+from api.auth import require_permission
 from api.schemas import (SharedGlossaryTerm, SharedGlossaryTermWrite, SharedGlossaryCreateRequest,
                          SharedGlossaryDeleteResult, SharedGlossaryGroup, SharedGlossaryGroupList,
                          SharedGlossaryTermDeleteResult, error_responses)
@@ -42,7 +42,7 @@ def create_group(body: SharedGlossaryCreateRequest, request: Request):
     return svc.create_group(request.state.principal, body.name)
 
 
-@router.post("/{group_id}/delete", dependencies=[local_only()],
+@router.post("/{group_id}/delete", dependencies=[require_permission("lines.edit")],
              response_model=SharedGlossaryDeleteResult, responses=_ERRS,
              summary="Delete a group and its terms; series that joined it keep their own terms")
 def delete_group(request: Request, group_id: int = Path(ge=1, le=_MAX_ID)):
