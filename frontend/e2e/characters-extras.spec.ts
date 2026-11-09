@@ -224,6 +224,6 @@ test('characters without permission to read lines: a plain note, no error banner
   await page.goto('/#/drama/1/translate')
   await openSection(page, 'Characters')
   const region = page.getByRole('region', { name: 'Characters' })
-  await expect(region.getByText('Seeing line text needs permission to read lines. Ask the owner of the main PC.')).toBeVisible()
+  await expect(region.getByText('Seeing line text needs permission to read lines. Ask the PC owner.')).toBeVisible()
   await expect(region.getByRole('alert')).toHaveCount(0)
 })

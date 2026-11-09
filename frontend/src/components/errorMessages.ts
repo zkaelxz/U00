@@ -8,7 +8,7 @@ import { capFirst, engineLabel } from '../labels'
 // it is written for people, and anything path- or key-like is dropped.
 // Who is reading the error decides whether "see Diagnostics" or "ask the PC owner" is useful.
 // Unknown (/me not answered, auth off) reads as an admin, as useHolds does: the server still refuses.
-export const ASK_PC_OWNER = 'Ask the person who runs Baihe on the PC.'
+export const ASK_PC_OWNER = 'Ask the PC owner.'
 
 function canOpenDiagnostics(): boolean {
   const s = getSession()
@@ -20,7 +20,7 @@ const DEPENDENCY_MEMBER = `A tool or package this needs is not installed or not 
 
 export function couldNotReachBaihe(): string {
   if (getPcMode() === 'remote' || !canOpenDiagnostics()) {
-    return `Could not reach Baihe. Check your connection, or ask the person who runs Baihe on the PC.`
+    return `Could not reach Baihe. Check your connection, or ask the PC owner.`
   }
   return 'Could not reach Baihe. Make sure it is still running on this PC.'
 }
@@ -38,7 +38,7 @@ const GENERIC: Record<string, string> = {
   job_failed: 'The job failed.',
   internal_error: 'Something went wrong inside Baihe. Details are in the app log.',
   forbidden: 'Not allowed from this device or account.',
-  model_not_downloaded: 'This model is not downloaded yet. Ask the owner of the main PC to download it first.',
+  model_not_downloaded: 'This model is not downloaded yet. Ask the PC owner to download it first.',
   unauthenticated: SESSION_ENDED,
   rate_limited: 'Too many requests. Wait a moment and try again.',
   timeout:
@@ -62,7 +62,7 @@ export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
 
 // A call that returns line text refused with 403: the account may use the
 // panel but not read lines, so it gets a plain note, not an error banner.
-export const LINES_READ_FORBIDDEN = 'Seeing line text needs permission to read lines. Ask the owner of the main PC.'
+export const LINES_READ_FORBIDDEN = 'Seeing line text needs permission to read lines. Ask the PC owner.'
 
 // api/auth.PAID_LIMIT_REASON: a 403 for a member whose own monthly paid-engine limit is used up.
 export const PAID_LIMIT_REASON = 'paid_limit_reached'

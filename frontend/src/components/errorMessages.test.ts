@@ -129,7 +129,7 @@ describe('describeError for a model that is not downloaded', () => {
   const err = new ApiError(403, { code: 'model_not_downloaded', message: 'x' })
 
   it('shows the plain sentence, also where a 403 would read as PC-only', () => {
-    const want = 'This model is not downloaded yet. Ask the owner of the main PC to download it first.'
+    const want = 'This model is not downloaded yet. Ask the PC owner to download it first.'
     expect(describeError(err).title).toBe(want)
     expect(describeError(err, { pcOnly: true }).title).toBe(want)
   })

@@ -238,7 +238,7 @@ export function NameReportPanel({ onClose }: { onClose: () => void }) {
       {noRead && <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>}
       <ErrorBanner error={noRead ? null : run.error} onDismiss={run.clearError} />
       {isForbidden(error)
-        ? <p className="muted" role="status">Your account cannot do that here. Ask the owner of the main PC.</p>
+        ? <p className="muted" role="status">Your account cannot do that here. Ask the PC owner.</p>
         : <ErrorBanner error={error} onDismiss={() => setError(null)} />}
       <div className="actions">
         <button

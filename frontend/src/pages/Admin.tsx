@@ -28,7 +28,7 @@ export default function AdminPage() {
         </div>
       ) : (
         <p className="muted">
-          Only an admin can see this page. Ask the person who runs Baihe on the PC.{' '}
+          Only an admin can see this page. Ask the PC owner.{' '}
           <a href={routeHref({ name: 'library' })}>Back to Library</a>
         </p>
       )}

@@ -341,7 +341,7 @@ export function advancedSummary(form: LiveForm, opts: LiveFormOptions = LIVE_FOR
 
 // A 403 on start: from another device this needs a permission the owner grants.
 export const LIVE_FORBIDDEN =
-  "This account can't start live capture. It needs the “import from a link” permission, and a paid engine also needs “paid engines”. Ask the owner of the main PC, or pick a free engine."
+  "This account can't start live capture. It needs the “import from a link” permission, and a paid engine also needs “paid engines”. Ask the PC owner, or pick a free engine."
 // The server's text for a missing permission. Any other 403 names its own reason (the delayed
 // player is PC-only, a cloud model needs a key), which this account's permissions won't fix.
 const MISSING_PERMISSION = 'Not allowed.'
