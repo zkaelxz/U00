@@ -1,4 +1,4 @@
-"""services/title_copy_service.py -- Copies a title (row, media files, lines, speakers, comic pages) into an independent test copy."""
+"""services/title_copy_service.py -- Copies a title (row, media files, lines, speakers, comic pages and text boxes) into an independent test copy."""
 
 import contextlib
 import logging
@@ -62,6 +62,22 @@ def _copy_rows(conn, source_id: int, new_id: int) -> None:
         conn.execute(f"INSERT INTO {table} (drama_id, {names}) "
                      f"SELECT ?, {names} FROM {table} WHERE drama_id = ? ORDER BY id",
                      (new_id, source_id))
+    _copy_bubbles(conn, source_id, new_id)
+
+
+def _copy_bubbles(conn, source_id: int, new_id: int) -> None:
+    """Bubbles hang off page ids, which are new in the copy, so each page's
+    bubbles are re-attached by the page's position among its title's pages."""
+    old_pages = [r[0] for r in conn.execute(
+        "SELECT id FROM pages WHERE drama_id = ? ORDER BY id", (source_id,))]
+    new_pages = [r[0] for r in conn.execute(
+        "SELECT id FROM pages WHERE drama_id = ? ORDER BY id", (new_id,))]
+    cols = [c for c in _columns(conn, "bubbles") if c not in ("id", "page_id")]
+    names = ", ".join(cols)
+    for old, new in zip(old_pages, new_pages):
+        conn.execute(f"INSERT INTO bubbles (page_id, {names}) "
+                     f"SELECT ?, {names} FROM bubbles WHERE page_id = ? ORDER BY id",
+                     (new, old))
 
 
 def _copy_folder(source_id: int, new_id: int) -> None:
@@ -78,7 +94,7 @@ def _copy_folder(source_id: int, new_id: int) -> None:
 
 def duplicate_title(source_id: int, principal=None) -> dict:
     """Makes "<name> (copy)" tagged "Test copy" with its own copy of the
-    original's files, lines, speakers and pages, in the original's series.
+    original's files, lines, speakers, comic pages and their text boxes, in the original's series.
     Refused while a job is running on the original. The copy starts with no
     jobs, and the original is only read. On any failure the copy is removed."""
     ownership_service.require_visible(principal, "drama", source_id)

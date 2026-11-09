@@ -78,3 +78,19 @@ def test_failed_copy_leaves_no_title(isolated_db, monkeypatch):
 def test_missing_title(isolated_db):
     with pytest.raises(NotFoundError):
         tcs.duplicate_title(999)
+
+
+def test_copy_keeps_comic_text_boxes_on_the_matching_pages(isolated_db):
+    did = db.create_drama(title_en="Comic", source_language="ja")
+    first = db.create_page(did, 0, "p0.png", 100, 200)
+    second = db.create_page(did, 1, "p1.png", 100, 200)
+    db.save_bubbles(first, [{"x": 1, "y": 2, "w": 3, "h": 4, "source_text": "こんにちは",
+                             "translated_text": "Hello", "font_size": 20}])
+    db.save_bubbles(second, [{"x": 5, "y": 6, "w": 7, "h": 8, "source_text": "さよなら",
+                              "translated_text": "Bye", "skip": True}])
+    new_id = tcs.duplicate_title(did)["id"]
+    new_pages = db.list_pages(new_id)
+    texts = [[(b["source_text"], b["translated_text"], b["skip"]) for b in db.load_bubbles(p["id"])]
+             for p in new_pages]
+    assert texts == [[("こんにちは", "Hello", 0)], [("さよなら", "Bye", 1)]]
+    assert [len(db.load_bubbles(p)) for p in (first, second)] == [1, 1]
