@@ -127,6 +127,11 @@ function EstimateView({ e }: { e: TranslateRunEstimate }) {
 }
 
 // One line naming only the Advanced values that differ from their defaults.
+// What the Simple view says in place of the four dropdowns.
+function runSummaryLine(...parts: string[]): string {
+  return parts.filter(Boolean).join(' · ')
+}
+
 function advancedSummary(f: RunForm, base: RunForm, reviewFirst: boolean): string {
   const parts: string[] = []
   if (reviewFirst) parts.push('review glossary first')
@@ -273,6 +278,8 @@ function RunPanel({
     saveToggle, bySentence, saveBySentence, bySentenceSaved, savedNote,
   } = form
   // reviewing counts presses (0 = closed) so each press extracts afresh.
+  // Simple keeps the engine, model, style and variant out of sight behind one summary line.
+  const [changing, setChanging] = useState(false)
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
@@ -316,6 +323,8 @@ function RunPanel({
   const engineBatch = defaultBatchSize(config, f)
   const batchOverridden = batchOverride(config, f)
   const guidance = styleGuidance(config, f.style_preset)
+  const effEngineLabel = effEngine ? engineLabel(effEngine) : ''
+  const styleLabel = config.style_presets.find((p) => p.key === f.style_preset)?.label ?? ''
   const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
   const gate = useEngineGate(config.engines, effEngine, config.ollama_reachable)
   // "Re-translate existing…" unmounts itself; hand focus to the confirm box that replaces it.
@@ -421,7 +430,21 @@ function RunPanel({
   return (
     <section className="panel" aria-label="Translate run">
       <h2>Translate</h2>
-      {!folded && basics}
+      {simple && !folded ? (
+        <div className="translate-summary">
+          <p data-testid="translate-summary">{runSummaryLine(effEngineLabel, f.model, styleLabel, humanize('locale', f.locale))}</p>
+          <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={changing} onClick={() => setChanging((v) => !v)}>
+            {changing ? 'Done' : 'Change'}
+          </button>
+        </div>
+      ) : null}
+      {simple && !folded && changing && (
+        <>
+          {basics}
+          <div className="translate-go">{estimateControls}</div>
+        </>
+      )}
+      {!folded && !simple && basics}
       {cloudModelNotice(engine, f.model) && (
         <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
       )}
@@ -472,7 +495,7 @@ function RunPanel({
             {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
           </p>
         )}
-        {!folded && estimateControls}
+        {!folded && !simple && estimateControls}
       </div>
       {f.force && (
         <label className="inline stage-ack">
