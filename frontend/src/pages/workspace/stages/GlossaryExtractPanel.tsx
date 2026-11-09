@@ -224,7 +224,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       {reasons}
       {active && status && (
         <p className="actions" role="status" data-testid={`${text.testId}-running`}>
-          <span>{extractionProgressText(source, status.status, status.progress)}</span>
+          <span>{extractionProgressText(source, status.status, status.progress, status.message)}</span>
           <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status || !status.run_id} onClick={cancel}>
             Cancel
           </button>

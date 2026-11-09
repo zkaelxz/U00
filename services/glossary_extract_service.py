@@ -514,9 +514,12 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
                             source_language, known_terms):
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
-    background_jobs.update_progress(job_id, 0.1, f"Scanning {len(source_lines)} lines...")
+    # One request covers the whole sample, so there is no real progress to report. The ticker keeps
+    # the elapsed time fresh and lifts the stall flag to the no-progress allowance instead of
+    # showing a healthy slow model as stuck after five minutes.
     try:
-        with _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
+        with background_jobs.stage_ticker(job_id, f"Scanning {len(source_lines)} lines...", frac=0.1), \
+                _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
             proposals = tguide.extract_terms_llm(
                 source_lines, engine, source_language=source_language, known_terms=known_terms,
                 usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extract_terms"))

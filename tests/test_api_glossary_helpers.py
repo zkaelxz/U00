@@ -134,6 +134,19 @@ class TestLinesGlossaryService:
         assert status["status"] == "done" and len(status["result"]["proposals"]) == 3
         assert SECRET not in repr(status)
 
+    def test_slow_call_shows_elapsed_and_is_not_flagged_as_progress_stalled(self, isolated_db, monkeypatch, fake_engine):
+        import threading
+        did, _ = _lines_drama(isolated_db)
+        release = threading.Event()
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: release.wait(5) and [])
+        out = gs.start_lines_glossary_run(did)
+        time.sleep(0.3)
+        live = background_jobs.get_status(out["job_id"])
+        release.set()
+        wait_for_job(out["job_id"], timeout=4.0)
+        assert "elapsed" in live["message"] and "Scanning 2 lines" in live["message"]
+        assert live["can_report_progress"] is False
+
     def test_cancel_ends_a_hung_engine_call(self, isolated_db, monkeypatch, fake_engine):
         import threading
         did, _ = _lines_drama(isolated_db)
