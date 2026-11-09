@@ -100,6 +100,13 @@ export function nextFlaggedId(lines: ReviewLine[], fromIndex: number, delta: 1 |
   return null
 }
 
+/** Next/previous translated, unchecked line in search results after `fromIndex` (-1 = from the edge). */
+export function nextUnreviewedId(lines: ReviewLine[], fromIndex: number, delta: 1 | -1): number | null {
+  const start = fromIndex === -1 ? (delta > 0 ? 0 : lines.length - 1) : fromIndex + delta
+  for (let j = start; j >= 0 && j < lines.length; j += delta) if (isUnreviewed(lines[j])) return lines[j].id
+  return null
+}
+
 /**
  * Where previous/next flagged looks (R08). A page of the "all" or "flagged"
  * view holds every flagged line near the start row, so it is searched first,

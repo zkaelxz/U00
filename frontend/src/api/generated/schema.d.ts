@@ -7809,7 +7809,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The nearest flagged line before/after a line, across pages */
+        /** The nearest flagged (or unreviewed) line before/after a line, across pages */
         get: operations["get_review_flagged_adjacent_api_review_dramas__drama_id__flagged_adjacent_get"];
         put?: never;
         post?: never;
@@ -53450,6 +53450,7 @@ export interface operations {
                 from_line_id?: number | null;
                 page_size?: number;
                 only?: string;
+                kind?: "flagged" | "unreviewed";
             };
             header?: never;
             path: {
