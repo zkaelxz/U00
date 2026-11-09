@@ -18,7 +18,7 @@ const FRESH: SetupReadiness = {
   key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false,
   ollama_reachable: false, ollama_model_pulled: false,
   whisper_cached_tiny: false, whisper_cached_base: false, whisper_cached_small: false, whisper_cached_medium: false,
-  whisper_cached_large_v3_turbo: false, whisper_cached_large_v3: false,
+  whisper_cached_large_v3_turbo: false, whisper_cached_large_v3: false, whisper_cached_ja_15b: false,
 }
 const READY: SetupReadiness = Object.fromEntries(Object.keys(FRESH).map((k) => [k, true])) as unknown as SetupReadiness
 
@@ -227,6 +227,11 @@ describe('Export, Live, Reader and Review needs', () => {
     expect(liveWhisperSize(r, 'medium', true)).toEqual({ reason: null, download: true })
     expect(liveWhisperSize(r, 'medium', false).reason).toContain('main PC')
     expect(liveWhisperSize({ ...r, faster_whisper: false }, 'medium', true).reason).toContain('Whisper')
+  })
+
+  it('knows whether the Japanese Live model is on the PC', () => {
+    expect(liveWhisperSize({ ...READY, whisper_cached_ja_15b: false }, 'ja-1.5b', true)).toEqual({ reason: null, download: true })
+    expect(liveWhisperSize({ ...READY, whisper_cached_ja_15b: true }, 'ja-1.5b', false)).toEqual({ reason: null, download: false })
   })
 
   it('names the word splitter for the title language', () => {

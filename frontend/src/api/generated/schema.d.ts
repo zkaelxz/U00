@@ -20926,6 +20926,12 @@ export interface components {
             segment_range: number[];
             /** Thinking Switch Engines */
             thinking_switch_engines: string[];
+            /** Whisper Exclusions */
+            whisper_exclusions: {
+                [key: string]: {
+                    [key: string]: string;
+                };
+            };
             /** Whisper Sizes */
             whisper_sizes: string[];
         };
@@ -26644,6 +26650,8 @@ export interface components {
             uroman: boolean;
             /** Whisper Cached Base */
             whisper_cached_base: boolean;
+            /** Whisper Cached Ja 15B */
+            whisper_cached_ja_15b: boolean;
             /** Whisper Cached Large V3 */
             whisper_cached_large_v3: boolean;
             /** Whisper Cached Large V3 Turbo */
