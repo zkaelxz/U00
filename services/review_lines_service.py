@@ -48,7 +48,7 @@ _REPEAT_OPS = {_sre.MAX_REPEAT, _sre.MIN_REPEAT} | (
 _SLOW_PATTERN_MESSAGE = ("This pattern could take too long to run. Avoid repeating a group "
                          "that itself repeats, has alternatives (|) or refers back to a group, "
                          f"and use at most {MAX_OPEN_REPEATS} open-ended repeats (+, *, {{n,}}).")
-_ONLY_VALUES = ("all", "flagged", "untranslated", "unreviewed", "shaky")
+_ONLY_VALUES = ("all", "flagged", "untranslated", "unreviewed", "shaky", "risk")
 # Below this, Whisper's own confidence (whisper_transcribe.segment_confidence) puts a line in the
 # "shaky" view. Typical clean speech scores well above it; picked to list the worst few percent
 # of a title rather than most of it.
@@ -92,6 +92,31 @@ def _is_shaky(ln) -> bool:
     return ln.confidence is not None and ln.confidence < SHAKY_BELOW and not ln.reviewed
 
 
+# How much a flag says "a person must look" for the risk order. Content-changing flags
+# outrank timing ones because a wrong meaning ships silently, while timing is visible on play.
+_RISK_FLAG_WEIGHT = {
+    "factual_detail": 3, "source_mismatch": 3, "engines_disagree": 3, "content_blocked": 3,
+    "source_changed": 3, "bulk_source_changed": 3, "uncertain_translation": 3,
+    "name_uncertain": 2, "glossary_missing": 2, "pronoun_check": 2, "source_suspect": 2,
+    "ambiguous_reference": 2, "slang_idiom": 2, "language_uncertain": 2, "gap_untranscribed": 2,
+    "timing_drift": 2,
+    "timing_uncertain": 1, "timing_overlap": 1, "reading_speed": 1,
+}
+_RISK_UNKNOWN_FLAG = 2
+_RISK_CONFIDENCE_BELOW = 0.8  # wider than SHAKY_BELOW: a middling score still adds a little
+
+
+def _risk_score(ln) -> float:
+    """Rough 'how likely a person must fix this' from signals already stored on the line.
+    0 means nothing is known against it; a reviewed or untranslated line is never ranked."""
+    if ln.reviewed or not (ln.en or "").strip():
+        return 0.0
+    score = float(_RISK_FLAG_WEIGHT.get(ln.flag, _RISK_UNKNOWN_FLAG)) if ln.flag else 0.0
+    if ln.confidence is not None and ln.confidence < _RISK_CONFIDENCE_BELOW:
+        score += 3 * (_RISK_CONFIDENCE_BELOW - ln.confidence) / _RISK_CONFIDENCE_BELOW
+    return score
+
+
 def _find_line(lines, line_id):
     for ln in lines:
         if ln.id == line_id:
@@ -108,7 +133,8 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
                       only: str = "all") -> dict:
     """One page of lines, optionally only flagged, only untranslated, only
     unreviewed (translated but not marked checked) or only shaky (Whisper was unsure
-    and nobody has checked since), least confident first. The counts are
+    and nobody has checked since), least confident first, or `risk`: unchecked lines
+    with a flag or low confidence, most worrying first. The counts are
     always over the whole drama, not the filtered view. An out-of-range
     page returns an empty `lines` list rather than an error."""
     if only not in _ONLY_VALUES:
@@ -125,6 +151,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     untranslated = sum(1 for ln in texts if _is_untranslated(ln))
     unreviewed = sum(1 for ln in texts if _is_unreviewed(ln))
     shaky = sum(1 for ln in texts if _is_shaky(ln))
+    risky = sum(1 for ln in texts if _risk_score(ln) > 0)
     visible = _visible(texts, only)
     start = (page - 1) * page_size
     # A second read: a save landing between the two can leave this page a
@@ -138,7 +165,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
         "lines": [line_dict(ln) for ln in shown],
         "page": page, "page_size": page_size, "total": len(visible),
         "flagged_count": flagged, "untranslated_count": untranslated,
-        "unreviewed_count": unreviewed, "shaky_count": shaky,
+        "unreviewed_count": unreviewed, "shaky_count": shaky, "risk_count": risky,
     }
 
 
@@ -310,6 +337,10 @@ def _visible(lines, only: str) -> list:
         return [ln for ln in lines if _is_untranslated(ln)]
     if only == "unreviewed":
         return [ln for ln in lines if _is_unreviewed(ln)]
+    if only == "risk":
+        scored = [(_risk_score(ln), ln) for ln in lines]
+        # sorted() is stable, so equal scores stay in line order.
+        return [ln for score, ln in sorted((x for x in scored if x[0] > 0), key=lambda x: -x[0])]
     if only == "shaky":
         return sorted((ln for ln in lines if _is_shaky(ln)), key=lambda ln: ln.confidence)
     return lines
@@ -334,21 +365,29 @@ def _position(lines, ln, page_size: int, only: str) -> dict:
 
 
 def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int | None = None,
-                     page_size: int = 40, only: str = "all") -> dict:
+                     page_size: int = 40, only: str = "all", kind: str = "flagged") -> dict:
     """The nearest flagged line after (forward) or before `from_line_id`,
     across every page (review parity R08). With no `from_line_id`: the
     first (forward) or last flagged line. Returns {line_id, idx, page,
     page_all}: `page` in the `only` view (None when the filter hides the
     line), `page_all` with no filter; every field None when there's no
-    such line."""
+    such line. `kind="unreviewed"` steps through translated lines nobody
+    has checked instead (the "next line to check" button)."""
     _check_view(page_size, only)
+    if kind not in ("flagged", "unreviewed"):
+        raise InvalidInputError(f"Unknown kind {kind!r}; use flagged or unreviewed.")
     ownership_service.require_drama(drama_id)
     lines = db.load_line_texts(drama_id)
     if from_line_id is None:
         ref = -1 if forward else float("inf")
     else:
         ref = _find_line(lines, from_line_id).idx
-    idx = adjacent_flagged_idx(lines, ref, forward)
+    if kind == "unreviewed":
+        ordered = lines if forward else reversed(lines)
+        idx = next((ln.idx for ln in ordered
+                    if _is_unreviewed(ln) and (ln.idx > ref if forward else ln.idx < ref)), None)
+    else:
+        idx = adjacent_flagged_idx(lines, ref, forward)
     if idx is None:
         return {"line_id": None, "idx": None, "page": None, "page_all": None}
     return _position(lines, next(ln for ln in lines if ln.idx == idx), page_size, only)

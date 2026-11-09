@@ -201,9 +201,11 @@ export const flaggedAdjacent = (
   pageSize: number,
   only: LineFilter,
   f?: Fetch,
+  kind: 'flagged' | 'unreviewed' = 'flagged',
 ) =>
   getJson<FlaggedPosition>(
     `${review(id)}/flagged-adjacent?direction=${direction}&page_size=${pageSize}&only=${only}` +
+      (kind === 'flagged' ? '' : `&kind=${kind}`) +
       (fromLineId !== null ? `&from_line_id=${fromLineId}` : ''),
     f,
   )

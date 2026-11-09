@@ -64,6 +64,9 @@ export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
 // panel but not read lines, so it gets a plain note, not an error banner.
 export const LINES_READ_FORBIDDEN = 'Seeing line text needs permission to read lines. Ask the owner of the main PC.'
 
+// api/auth.PAID_LIMIT_REASON: a 403 for a member whose own monthly paid-engine limit is used up.
+export const PAID_LIMIT_REASON = 'paid_limit_reached'
+
 // A model refusal is a 403 too, but its sentence says what to do, so it is
 // not read as "this device or account may not".
 export const MODEL_NOT_DOWNLOADED = 'model_not_downloaded'
@@ -102,7 +105,12 @@ export interface DescribeOptions {
 export const MISSING_PACKAGE_TITLE = "A package this needs isn't installed. Install it in Diagnostics."
 const MISSING_PACKAGE_MEMBER = `A package this needs isn't installed. ${ASK_PC_OWNER}`
 
-const SERVER_TEXT_CODES = ['not_found', 'conflict', 'unsupported_operation', 'dependency_unavailable']
+const SERVER_TEXT_CODES = ['not_found', 'conflict', 'unsupported_operation', 'dependency_unavailable', 'application_error']
+
+// With the server's reason shown, the generic "Nothing was changed unless stated otherwise" would
+// contradict a reason that says something was left behind, so the heading claims nothing.
+const APPLICATION_ERROR_WITH_REASON = 'The action failed.'
+const READ_APPLICATION_ERROR_WITH_REASON = 'Could not load this.'
 
 const SENSITIVE =
   /(?:[A-Za-z]:\\|\\\\|\/(?:home|Users|tmp|var|etc|root|opt|mnt)\/|\bsk-[\w-]{6,}|\bBearer\s+\S+|(?:api[_-]?key|token|secret)\s*[=:])/i
@@ -174,6 +182,10 @@ export function describeError(
   const refusalText =
     opts.reasonAsTitle && OPT_IN_SERVER_TEXT_CODES.includes(code) && e?.message ? safeDetail(e.message) : null
   const isRead = e?.method === 'GET' || e?.method === 'HEAD'
+  // A member whose own paid-engine limit is used up: the server's sentence says what to do.
+  const paidLimitText = code === 'forbidden' && reason === PAID_LIMIT_REASON ? safeDetail(e?.message ?? '') : null
+  const applicationReason =
+    code === 'application_error' && typeof e?.message === 'string' ? safeDetail(withoutExceptionNames(e.message)) : null
   const jobText = code === JOB_FAILED && typeof e?.message === 'string' ? safeDetail(e.message.replace(EXCEPTION_PREFIX, '')) : null
   // 422 sentences (InvalidInputError) and 429 wait times are fixed server
   // text written for people; safeDetail still drops anything path- or key-like.
@@ -189,6 +201,7 @@ export function describeError(
     opts.pcOnly && code !== MODEL_NOT_DOWNLOADED && (code === 'forbidden' || e?.status === 403)
       ? PC_ONLY_FORBIDDEN
       : ((jobText ? capFirst(jobText) : null) ??
+        paidLimitText ??
         ollamaText ??
         addressText ??
         engineText ??
@@ -196,6 +209,7 @@ export function describeError(
         (missingPackage ? (canOpenDiagnostics() ? MISSING_PACKAGE_TITLE : MISSING_PACKAGE_MEMBER) : null) ??
         refusalText ??
         serverTitle ??
+        (applicationReason ? (isRead ? READ_APPLICATION_ERROR_WITH_REASON : APPLICATION_ERROR_WITH_REASON) : null) ??
         (isRead ? READ_GENERIC[code] : undefined) ??
         (code === 'dependency_unavailable' ? (canOpenDiagnostics() ? DEPENDENCY_ADMIN : DEPENDENCY_MEMBER) : undefined) ??
         (code === 'network_error' ? couldNotReachBaihe() : undefined) ??
@@ -203,7 +217,12 @@ export function describeError(
         (isRead ? READ_GENERIC.application_error : GENERIC.application_error))
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const rawDetail = e?.message && showServer && !ollamaText && !addressText && !engineText && !missingKey && !refusalText && !serverTitle ? safeDetail(e.message) : null
+  const rawDetail =
+    code === 'application_error'
+      ? applicationReason
+      : e?.message && showServer && !ollamaText && !addressText && !engineText && !missingKey && !refusalText && !serverTitle
+        ? safeDetail(e.message)
+        : null
   // The server's sentence may itself send the reader to Diagnostics, which a member cannot open.
   const detail = rawDetail && (canOpenDiagnostics() || !/Diagnostics/.test(rawDetail)) ? capFirst(rawDetail) : null
   return { title, detail }

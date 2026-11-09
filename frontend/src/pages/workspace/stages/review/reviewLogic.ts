@@ -100,6 +100,13 @@ export function nextFlaggedId(lines: ReviewLine[], fromIndex: number, delta: 1 |
   return null
 }
 
+/** Next/previous translated, unchecked line in search results after `fromIndex` (-1 = from the edge). */
+export function nextUnreviewedId(lines: ReviewLine[], fromIndex: number, delta: 1 | -1): number | null {
+  const start = fromIndex === -1 ? (delta > 0 ? 0 : lines.length - 1) : fromIndex + delta
+  for (let j = start; j >= 0 && j < lines.length; j += delta) if (isUnreviewed(lines[j])) return lines[j].id
+  return null
+}
+
 /**
  * Where previous/next flagged looks (R08). A page of the "all" or "flagged"
  * view holds every flagged line near the start row, so it is searched first,
@@ -353,6 +360,7 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'flagged') return short ? `⚑${n}` : `Flagged${n}`
   if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
   if (filter === 'shaky') return short ? `Shaky${n}` : `Least confident${n}`
+  if (filter === 'risk') return short ? `Risk${n}` : `Riskiest${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
 }
 
@@ -364,12 +372,18 @@ const SHAKY_BELOW = 0.6
 export const isShaky = (line: Pick<ReviewLine, 'confidence' | 'reviewed'>) =>
   line.confidence != null && line.confidence < SHAKY_BELOW && !line.reviewed
 
+/** Mirrors review_lines_service._risk_score > 0: any flag, or confidence under 0.8, on a translated unchecked line. */
+const RISK_CONFIDENCE_BELOW = 0.8
+const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence'>) =>
+  isUnreviewed(line) && (!!line.flag || (line.confidence != null && line.confidence < RISK_CONFIDENCE_BELOW))
+
 /** Whether the server's filter (review_lines_service._visible) still lists this line. */
 export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
   if (filter === 'flagged') return !!line.flag
   if (filter === 'untranslated') return !!line.zh.trim() && !line.en.trim()
   if (filter === 'unreviewed') return isUnreviewed(line)
   if (filter === 'shaky') return isShaky(line)
+  if (filter === 'risk') return isRisky(line)
   return true
 }
 
@@ -379,6 +393,7 @@ export function emptyMessage(filter: LineFilter, term: string): string {
   if (filter === 'untranslated') return 'Every line has English.'
   if (filter === 'unreviewed') return 'Every translated line is checked.'
   if (filter === 'shaky') return 'No unchecked lines Whisper was unsure of.'
+  if (filter === 'risk') return 'No unchecked line has a flag or low confidence.'
   return 'No lines yet. Transcribe on Media first.'
 }
 

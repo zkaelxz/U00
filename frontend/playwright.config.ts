@@ -15,9 +15,18 @@ const prebuilt = !!process.env.E2E_PREBUILT
 
 // A browser with no saved choice starts with the labelled rail on a wide screen. The specs were written for the floating pill, so
 // they start from a saved "float" choice; first-launch.spec.ts clears it to see what a newcomer sees.
+// They also start from the Full title view and the Advanced menu, which the specs were written against; simple-title.spec.ts and view-mode.spec.ts clear them to see the defaults.
 const floatingNav = (port: number) => ({
   cookies: [],
-  origins: [{ origin: `http://127.0.0.1:${port}`, localStorage: [{ name: 'baihe.navDock', value: 'float' }] }],
+  origins: [{
+    origin: `http://127.0.0.1:${port}`,
+    localStorage: [
+      { name: 'baihe.navDock', value: 'float' },
+      { name: 'baihe.pref.title.view', value: '"full"' },
+      { name: 'baihe.pref.title.view.comic', value: '"full"' },
+      { name: 'baihe.pref.ui.mode', value: '"advanced"' },
+    ],
+  }],
 })
 
 export default defineConfig({
@@ -58,6 +67,7 @@ export default defineConfig({
       testMatch: /mobile\.spec\.ts/,
       use: {
         browserName: 'chromium',
+        storageState: floatingNav(WEB_PORT),
         viewport: { width: 390, height: 844 },
         deviceScaleFactor: 3,
         hasTouch: true,

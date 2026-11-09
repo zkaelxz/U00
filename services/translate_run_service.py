@@ -43,7 +43,7 @@ from engine_backends import local as engine_local
 from engine_backends import fallback as engine_fallback
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
-from services import (bulk_submit_service, engine_routing_service,
+from services import (auth_service, bulk_submit_service, engine_routing_service,
                       novel_files_service, ownership_service, profile_service,
                       run_settings_service, settings_service, translate_service,
                       translate_run_options, workspace_job_service)
@@ -79,6 +79,7 @@ def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False) -> N
         None, monthly, db.get_month_spend() if monthly else 0.0)
     if refusal:
         raise UnsupportedOperationError(refusal)
+    auth_service.refuse_if_paid_limit_reached(db.current_spender())
 
 
 # Claude replies are capped at 4000 output tokens; past this the JSON reply risks

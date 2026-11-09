@@ -1,4 +1,5 @@
 import { fetchBody, getJson, postJson, type Fetch } from './client'
+import type { components } from './generated/schema'
 import { pcOnlyFetch } from './pcOnly'
 
 // The Series page (api/routers/series_routes.py): list, page, rename,
@@ -209,3 +210,15 @@ export interface SeriesConsistencyReport {
 
 export const getConsistencyReport = (id: number, f?: Fetch) =>
   getJson<SeriesConsistencyReport>(`/api/series/${id}/consistency-report`, f)
+
+export type SeriesAutoRun = components['schemas']['SeriesAutoRunState']
+
+export const getSeriesAutoRun = (id: number, f?: Fetch) => getJson<SeriesAutoRun>(`/api/series/${id}/auto-run`, f)
+export const turnOnSeriesAutoRun = (id: number, ceilingUsd: number, f?: Fetch) =>
+  postJson<SeriesAutoRun>(`/api/series/${id}/auto-run/on`, { ceiling_usd: ceilingUsd }, f)
+export const turnOffSeriesAutoRun = (id: number, f?: Fetch) =>
+  postJson<SeriesAutoRun>(`/api/series/${id}/auto-run/off`, undefined, f)
+export const setSeriesAutoRunCeiling = (id: number, ceilingUsd: number, f?: Fetch) =>
+  postJson<SeriesAutoRun>(`/api/series/${id}/auto-run/ceiling`, { ceiling_usd: ceilingUsd }, f)
+export const continueSeriesAutoRun = (id: number, f?: Fetch) =>
+  postJson<SeriesAutoRun>(`/api/series/${id}/auto-run/continue`, undefined, f)

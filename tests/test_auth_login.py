@@ -197,7 +197,7 @@ class TestHappyPath:
                       "user": {"id": user["id"], "email": "kid@example.com", "display_name": "",
                                "is_admin": False, "is_local_owner": False},
                       "permissions": sorted(auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS),
-                      "own_ollama_key": False}
+                      "own_ollama_key": False, "paid_limit_reached": False}
         # The code exchange carried our client id, secret and redirect URI.
         ex = fake.exchanges[-1]
         assert (ex["client_id"], ex["client_secret"], ex["redirect_uri"]) == (
@@ -568,7 +568,7 @@ class TestSessionsAndCookies:
         assert r.headers["pragma"] == "no-cache"
         assert r.json() == {"auth_enabled": True, "signed_in": False, "sign_in_configured": True,
                             "zone": "internet", "user": None, "permissions": [],
-                            "own_ollama_key": False}
+                            "own_ollama_key": False, "paid_limit_reached": False}
         local = _client(app, base="http://127.0.0.1:8600", peer=("127.0.0.1", 5000))
         assert local.get("/api/auth/me").json()["zone"] == "pc"
 

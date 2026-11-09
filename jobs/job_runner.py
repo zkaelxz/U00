@@ -131,7 +131,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
         logger.info(f"job {job_id} started")
         _timing = _timing_start(job_id)
         try:
-            with db.job_line_fields(job_id, _line_fields(run)):
+            with db.job_line_fields(job_id, _line_fields(run)), \
+                    db.spending_for((run or {}).get("owner_user_id"), job_id):
                 target(*args, **kwargs)
             _description = _owner = _reason = None
             _with_errors = False

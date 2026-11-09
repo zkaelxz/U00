@@ -3,6 +3,7 @@ re-costing, the per-drama and library totals, and the standalone translate
 tool's history. The tables are created by db.init_db."""
 
 import contextlib
+import contextvars
 import datetime
 from lib import clock
 from typing import List
@@ -17,30 +18,85 @@ import db
 # Called with each logged cost. A higher layer registers here because db
 # cannot import it (job_timing_service counts spend toward a job's stage).
 _spend_listeners = []
+# Called with (user_id, job_id or None) after a costed row is logged for an
+# account, so the per-member monthly limit can stop the job that crossed it.
+_member_spend_listeners = []
+# Who the spending is for. A background job sets it for its run (it is copied
+# into the worker threads that run engine calls); outside a job the API
+# request's signed-in user is asked for through _spender_lookup.
+_spender = contextvars.ContextVar("baihe_spender", default=(None, None))
+_spender_lookup = None
 
 
 def on_spend(listener):
     _spend_listeners.append(listener)
 
 
+def on_member_spend(listener):
+    _member_spend_listeners.append(listener)
+
+
+def set_spender_lookup(lookup) -> None:
+    """Registers the request-time lookup (services.ownership_service.acting_user_id)."""
+    global _spender_lookup
+    _spender_lookup = lookup
+
+
+@contextlib.contextmanager
+def spending_for(user_id, job_id=None):
+    """Rows logged inside the block are this user's (None: the PC owner),
+    spent by job `job_id` when it is one."""
+    token = _spender.set((user_id, job_id))
+    try:
+        yield
+    finally:
+        _spender.reset(token)
+
+
+def run_spending_for(user_id, target, *args, **kwargs):
+    """target(*args, **kwargs) inside spending_for(user_id); top-level so a
+    functools.partial of it crosses into a process job."""
+    with db.spending_for(user_id):
+        return target(*args, **kwargs)
+
+
+def current_spender():
+    user_id = _spender.get()[0]
+    if user_id is None and _spender_lookup is not None:
+        try:
+            user_id = _spender_lookup()
+        except Exception:
+            user_id = None
+    return user_id if isinstance(user_id, int) and not isinstance(user_id, bool) else None
+
+
 def log_usage(drama_id: int | None, engine: str, model: str, operation: str,
               input_tokens: int = 0, output_tokens: int = 0, estimated_cost_usd: float = 0.0,
               cache_read_tokens: int = 0):
     """input_tokens is the whole prompt; cache_read_tokens is the part of
-    it a provider served from its prompt cache."""
+    it a provider served from its prompt cache. The row records who the
+    spending is for (current_spender), None for the PC owner or unknown."""
+    user_id, job_id = db.current_spender(), _spender.get()[1]
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("""
             INSERT INTO usage_log (drama_id, engine, model, operation, input_tokens,
-                                    output_tokens, estimated_cost_usd, created_at, cache_read_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    output_tokens, estimated_cost_usd, created_at, cache_read_tokens,
+                                    user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (drama_id, engine, model, operation, input_tokens, output_tokens,
-              estimated_cost_usd, clock.utcnow().isoformat(), cache_read_tokens or 0))
+              estimated_cost_usd, clock.utcnow().isoformat(), cache_read_tokens or 0, user_id))
         conn.commit()
     for listener in _spend_listeners:
         try:
             listener(estimated_cost_usd)
         except Exception:
             pass
+    if user_id is not None and estimated_cost_usd:
+        for listener in _member_spend_listeners:
+            try:
+                listener(user_id, job_id)
+            except Exception:
+                pass
 
 
 MONTHLY_SPEND_RESET_KEY = "monthly_spend_reset_at"
@@ -67,19 +123,44 @@ def get_month_spend_reset_at(now: datetime.datetime | None = None):
     return when.isoformat() if month_start <= when <= now else None
 
 
+def _month_start(now, since_reset: bool) -> str:
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    if since_reset:
+        start = db.get_month_spend_reset_at(now) or start
+    return start
+
+
 def get_month_spend(now: datetime.datetime | None = None, since_reset: bool = True) -> float:
     """Estimated spend logged so far in the current calendar month (UTC),
     across the whole library. By default only rows at or after an active
     reset count: this is what the monthly cap is checked against.
     `since_reset=False` is the full month, for stats and display."""
     now = now or clock.utcnow()
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-    if since_reset:
-        start = db.get_month_spend_reset_at(now) or start
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log WHERE created_at >= ?",
-            (start,)).fetchone()
+            (_month_start(now, since_reset),)).fetchone()
+    return float(row["spent"])
+
+
+def get_month_spend_by_user(now: datetime.datetime | None = None) -> dict:
+    """{user_id: spend} this month, counted like get_month_spend (from an
+    active reset), for the rows logged for a member."""
+    now = now or clock.utcnow()
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT user_id, COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log "
+            "WHERE created_at >= ? AND user_id IS NOT NULL GROUP BY user_id",
+            (_month_start(now, True),)).fetchall()
+    return {r["user_id"]: float(r["spent"]) for r in rows}
+
+
+def get_user_month_spend(user_id: int, now: datetime.datetime | None = None) -> float:
+    now = now or clock.utcnow()
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log "
+            "WHERE created_at >= ? AND user_id = ?", (_month_start(now, True), user_id)).fetchone()
     return float(row["spent"])
 
 
@@ -169,6 +250,20 @@ def get_usage_summary(drama_id: int | None = None, visible_to: int | None = None
                 FROM usage_log
             """).fetchone()
     return dict(row)
+
+
+def get_spend_for_dramas(drama_ids) -> float:
+    """Everything logged against these titles, ever (chunked under SQLite's variable limit)."""
+    ids = list(dict.fromkeys(int(i) for i in drama_ids))
+    total = 0.0
+    with contextlib.closing(db.get_conn()) as conn:
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            marks = ",".join("?" * len(chunk))
+            total += float(conn.execute(
+                f"SELECT COALESCE(SUM(estimated_cost_usd), 0) FROM usage_log WHERE drama_id IN ({marks})",
+                chunk).fetchone()[0] or 0.0)
+    return total
 
 
 def get_usage_by_drama(visible_to: int | None = None):

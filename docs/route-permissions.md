@@ -11,6 +11,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
+| `POST /api/admin/users/{user_id}/paid-limit` | admin.users |
 | `DELETE /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
 | `POST /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
 | `POST /api/admin/users/{user_id}/revoke-admin` | admin.users |
@@ -552,6 +553,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/scanlate/dramas/{drama_id}/view-prefs` | lines.edit |
 | `GET /api/series` | library.read |
 | `GET /api/series/{series_id}` | library.read |
+| `GET /api/series/{series_id}/auto-run` | library.read |
+| `POST /api/series/{series_id}/auto-run/ceiling` | jobs.start |
+| `POST /api/series/{series_id}/auto-run/continue` | jobs.start |
+| `POST /api/series/{series_id}/auto-run/off` | jobs.start |
+| `POST /api/series/{series_id}/auto-run/on` | jobs.start |
 | `GET /api/series/{series_id}/consistency-report` | lines.read |
 | `POST /api/series/{series_id}/copy-terms` | lines.edit |
 | `GET /api/series/{series_id}/copy-terms-preview` | library.read |

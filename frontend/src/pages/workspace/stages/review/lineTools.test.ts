@@ -50,6 +50,12 @@ describe('per-line tool api', () => {
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ entry_id: 11, expected_en: 'Old text' })
   })
 
+  it('asks for the next unchecked line with kind=unreviewed', async () => {
+    const calls: { url: string }[] = []
+    await review.flaggedAdjacent(2, 'next', 7, 40, 'all', fakeFetch(200, {}, calls), 'unreviewed')
+    expect(calls[0].url).toBe('/api/review/dramas/2/flagged-adjacent?direction=next&page_size=40&only=all&kind=unreviewed&from_line_id=7')
+  })
+
   it('asks for the nearest flagged line with the view it is in', async () => {
     const calls: { url: string }[] = []
     await review.flaggedAdjacent(2, 'next', 7, 40, 'untranslated', fakeFetch(200, {}, calls))
