@@ -336,7 +336,8 @@ whispered title of 40 lines, one 4.6-minute window of 87 lines), so treat it as 
 - Title 59 (whispered, 172 s): CER 0.352 and identical on three runs, against 0.42 to 0.99 for large-v3
   default; 11 of 40 lines missed (mostly short fillers such as 嗯); median start error 0.10 s. 12 to 15 s a run.
 - Title 56 window (a drunk call): CER 0.294 against 0.41 to 0.57 for large-v3. The reference started from
-  Breeze's draft, which flatters it.
+  Breeze's draft, but every Chinese line was re-edited and cross-checked by the owner against her own
+  transcription, so any flattery is small, not removed.
 - Clear speech (titles 41 and 44): no difference from large-v3 or Qwen3-ASR.
 - It still writes a stock credit line or "Thank you." over some quiet stretches.
 
