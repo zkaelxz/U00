@@ -510,7 +510,7 @@ describe('cloud model notice', () => {
   const engine = { cloud_models: ['gemma4:31b-cloud'] }
   it('warns in plain words only for a cloud model', () => {
     expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/off this PC/)
-    expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/limits/)
+    expect(cloudModelNotice(engine, 'gemma4:31b-cloud')).toMatch(/billed per token/)
   })
   it('follows the server flag for a cloud tag that is not built in', () => {
     expect(cloudModelNotice({ cloud_models: ['gpt-oss:120b-cloud'] }, 'gpt-oss:120b-cloud')).toMatch(/off this PC/)
