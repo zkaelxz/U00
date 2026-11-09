@@ -62,6 +62,19 @@ def _copy_rows(conn, source_id: int, new_id: int) -> None:
         conn.execute(f"INSERT INTO {table} (drama_id, {names}) "
                      f"SELECT ?, {names} FROM {table} WHERE drama_id = ? ORDER BY id",
                      (new_id, source_id))
+    _copy_bubbles(conn, source_id, new_id)
+
+
+def _copy_bubbles(conn, source_id: int, new_id: int) -> None:
+    """Bubbles hang off page ids, which are new in the copy, so each old page
+    is paired with its new one by position (both lists are ordered by id)."""
+    old_pages = [r[0] for r in conn.execute("SELECT id FROM pages WHERE drama_id = ? ORDER BY id", (source_id,))]
+    new_pages = [r[0] for r in conn.execute("SELECT id FROM pages WHERE drama_id = ? ORDER BY id", (new_id,))]
+    cols = [c for c in _columns(conn, "bubbles") if c not in ("id", "page_id")]
+    names = ", ".join(cols)
+    for old, new in zip(old_pages, new_pages):
+        conn.execute(f"INSERT INTO bubbles (page_id, {names}) "
+                     f"SELECT ?, {names} FROM bubbles WHERE page_id = ? ORDER BY id", (new, old))
 
 
 def _copy_folder(source_id: int, new_id: int) -> None:
