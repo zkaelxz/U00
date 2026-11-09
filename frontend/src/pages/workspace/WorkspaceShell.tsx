@@ -89,7 +89,6 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // A Simple page's buttons open these stages; the stage tab strip would drop a Simple reader into the full workspace.
   // Kept out of the branch condition: inline, it makes React Compiler skip the ctx memo below.
   const slimStage = !!kind && opensSimpleStage(kind, active)
-  const hasReview = !!kind && trimsStages(kind)
   const chooseView = (v: TitleView) => store(v)
   const linked = parseRoute(window.location.hash)
   const comicNotice = comic && isLineStageForComic(active) && !(linked.name === 'drama' && linked.id === id && isCastTab(linked.tab))
@@ -160,7 +159,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     return kind === 'novel' ? <NovelTitlePage id={id} drama={drama} onView={chooseView} /> : <SimpleTitlePage id={id} drama={drama} comic={kind === 'comic'} onView={chooseView} />
   }
   if (stage !== null && drama && twoViews && view === 'simple' && slimStage) {
-    return <SimpleStagePage id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} hasReview={hasReview} onView={chooseView} />
+    return <SimpleStagePage id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} onView={chooseView} />
   }
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>

@@ -16,7 +16,7 @@ import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 
 // A stage opened from a Simple title page: the stage under a slim header, without the stage tab strip.
-export function SimpleStagePage({ id, title, error, refetch, drama, simple, stage, hasReview, onView }: {
+export function SimpleStagePage({ id, title, error, refetch, drama, simple, stage, onView }: {
   id: number
   title: string
   error: unknown
@@ -24,14 +24,13 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   drama: DramaDetail
   simple: boolean
   stage: StageId | null
-  // Review is only linked from audio and video titles.
-  hasReview: boolean
   onView: (v: TitleView) => void
 }) {
   const ctx = useMemo<StageContextValue>(
     () => ({ dramaId: id, drama, refetchDrama: refetch, onJobDone: refetch, simple }),
     [id, drama, refetch, simple],
   )
+  // `simple` is true only for audio and video, the only kinds whose Simple pages link to Review.
   const Stage = stage ? STAGE_COMPONENTS[stage] : null
   return (
     <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
@@ -48,7 +47,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
         )}
       </header>
-      <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => hasReview || s !== 'review')} active={stage} />
+      <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => simple || s !== 'review')} active={stage} />
       <ErrorBanner error={error} />
       <StageContext.Provider value={ctx}>
         {Stage && <Stage />}
