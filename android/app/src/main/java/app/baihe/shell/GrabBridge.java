@@ -16,7 +16,7 @@ import java.util.List;
  */
 final class GrabBridge {
     interface Listener {
-        void onBegin(List<String> titles, int count);
+        void onBegin(List<String> titles, int count, JSONArray chapters, String next);
 
         void onDone(List<PageImage> images, int unreadable, boolean truncated);
     }
@@ -68,7 +68,9 @@ final class GrabBridge {
                 String title = array.optString(i, "");
                 if (!title.isEmpty()) titles.add(title.length() > 300 ? title.substring(0, 300) : title);
             }
-            listener.onBegin(titles, info.optInt("count", 0));
+            JSONArray chapters = info.optJSONArray("chapters");
+            listener.onBegin(titles, info.optInt("count", 0),
+                    chapters == null ? new JSONArray() : chapters, info.optString("next", ""));
         } catch (Exception e) {
             synchronized (this) {
                 nonce = null;
