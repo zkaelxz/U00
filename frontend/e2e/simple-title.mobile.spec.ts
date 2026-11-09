@@ -9,7 +9,7 @@ const progress = {
   flagged_count: 0, has_audio: false, has_dub_track: false, exported: false, stages: [],
 }
 
-const actions = ['Transcribe and translate', 'Add media', 'Glossary', 'Review', 'Export']
+const actions = ['Add media', 'Redo', 'Translate', 'Glossary', 'Review', 'Export']
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress }))
@@ -32,10 +32,10 @@ async function chooseSimple(page: Page) {
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
 }
 
-test('Simple fits a phone: switch and five actions visible, tall enough to tap, no sideways scroll', async ({ page }) => {
+test('Simple fits a phone: switch and the step actions visible, tall enough to tap, no sideways scroll', async ({ page }) => {
   await page.goto('/#/drama/1')
   await chooseSimple(page)
-  await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toBeVisible()
 
   // The radios are visually hidden; the visible control is their label.
   for (const name of ['Simple', 'Full']) {
@@ -52,7 +52,7 @@ test('choosing Simple then reloading keeps Simple', async ({ page }) => {
   await chooseSimple(page)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   await page.reload()
-  await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
 })
