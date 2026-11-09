@@ -11,8 +11,8 @@ export const hasSimpleView = (kind: TitleKind): boolean => kind === 'audio' || k
 export const titleViewPref = (kind: TitleKind): string =>
   kind === 'novel' ? `${TITLE_VIEW_PREF}.novel` : kind === 'comic' ? `${TITLE_VIEW_PREF}.comic` : TITLE_VIEW_PREF
 
-// What a viewer who never touched the switch sees: the novel page was always the novel's landing page, and the rest keep today's workspace.
-export const defaultTitleView = (kind: TitleKind): TitleView => (kind === 'novel' ? 'simple' : 'full')
+// What a viewer who never touched the switch sees: the page with the next step and no stage tabs, wherever the kind has one.
+export const defaultTitleView = (kind: TitleKind): TitleView => (hasSimpleView(kind) ? 'simple' : 'full')
 
 // Stages leave out their advanced controls in Simple only where the stage is the same for every title of the kind (audio and video).
 export const trimsStages = (kind: TitleKind): boolean => kind === 'audio' || kind === 'video'

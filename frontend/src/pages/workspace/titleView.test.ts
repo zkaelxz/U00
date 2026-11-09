@@ -24,9 +24,9 @@ describe('title view', () => {
     expect(hasSimpleView('subtitle')).toBe(false)
   })
 
-  it('lands a novel on its page and keeps one saved choice per group of kinds', () => {
-    expect(defaultTitleView('novel')).toBe('simple')
-    for (const k of ['audio', 'video', 'comic'] as const) expect(defaultTitleView(k)).toBe('full')
+  it('lands every kind with a Simple page on it and keeps one saved choice per group of kinds', () => {
+    for (const k of ['audio', 'video', 'novel', 'comic'] as const) expect(defaultTitleView(k)).toBe('simple')
+    expect(defaultTitleView('subtitle')).toBe('full')
     expect(asTitleView('', 'simple')).toBe('simple')
     expect(asTitleView('full', 'simple')).toBe('full')
     expect(new Set([titleViewPref('audio'), titleViewPref('video'), titleViewPref('novel'), titleViewPref('comic')]).size).toBe(3)
