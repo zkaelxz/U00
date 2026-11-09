@@ -7877,7 +7877,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed/shaky */
+        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed/shaky/risk */
         get: operations["get_review_lines_api_review_dramas__drama_id__lines_get"];
         put?: never;
         post?: never;
@@ -24623,6 +24623,12 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+            /**
+             * Risk Count
+             * @description Unchecked translated lines with a flag or low confidence (the `risk` filter), in the whole drama.
+             * @default 0
+             */
+            risk_count: number;
             /**
              * Shaky Count
              * @description Unchecked lines Whisper was unsure of (the `shaky` filter), in the whole drama.
