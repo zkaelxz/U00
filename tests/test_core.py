@@ -551,6 +551,10 @@ class TestFilterHallucinatedSegments:
         assert [s["text"] for s in result] == ["有"] * 9
         assert all(s.get("flag") == "text_uncertain" for s in result)
 
+    def test_a_lowered_repeat_limit_still_collapses_a_one_character_run(self):
+        segments = [self._seg(i, i + 0.5, "嗯") for i in range(3)]
+        assert filter_hallucinated_segments(segments, min_repeat_count=3) == [segments[0]]
+
     def test_a_one_character_run_of_ten_is_a_loop(self):
         segments = [self._seg(i, i + 1, "有。") for i in range(10)]
         assert filter_hallucinated_segments(segments) == [segments[0]]
