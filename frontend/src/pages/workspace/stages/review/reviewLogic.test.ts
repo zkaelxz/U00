@@ -174,6 +174,7 @@ describe('labels', () => {
     expect(chipLabel('unreviewed', 3, true)).toBe('Unrev. 3')
     expect(chipLabel('unreviewed', 3, false)).toBe('Unreviewed 3')
     expect(chipLabel('shaky', 2, false)).toBe('Least confident 2')
+    expect(chipLabel('risk', 3, false)).toBe('Riskiest 3')
     expect(emptyMessage('shaky', '')).toBe('No unchecked lines Whisper was unsure of.')
     expect(emptyMessage('unreviewed', '')).toBe('Every translated line is checked.')
     expect(emptyMessage('flagged', '')).toBe('No flagged lines. Nice.')
@@ -493,6 +494,12 @@ describe('inFilter', () => {
     expect(inFilter({ ...base, confidence: 0.9 }, 'shaky')).toBe(false)
     expect(inFilter({ ...base, confidence: 0.3, reviewed: true }, 'shaky')).toBe(false)
     expect(inFilter(base, 'shaky')).toBe(false)
+    // Risk: an unchecked translated line with a flag or a middling-to-low score.
+    expect(inFilter({ ...base, en: 'Hi', flag: 'name_uncertain' }, 'risk')).toBe(true)
+    expect(inFilter({ ...base, en: 'Hi', confidence: 0.7 }, 'risk')).toBe(true)
+    expect(inFilter({ ...base, en: 'Hi', confidence: 0.9 }, 'risk')).toBe(false)
+    expect(inFilter({ ...base, en: 'Hi', flag: 'name_uncertain', reviewed: true }, 'risk')).toBe(false)
+    expect(inFilter({ ...base, flag: 'name_uncertain', en: '' }, 'risk')).toBe(false)
   })
 })
 
