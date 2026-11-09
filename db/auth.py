@@ -290,6 +290,28 @@ def set_series_defaults(series_id: int, settings_json) -> bool:
         return cur.rowcount > 0
 
 
+def get_series_auto_pipeline(series_id: int) -> str | None:
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute("SELECT auto_pipeline FROM series WHERE id = ?", (series_id,)).fetchone()
+    return row[0] if row else None
+
+
+def set_series_auto_pipeline(series_id: int, state_json: str | None) -> bool:
+    """Stores the auto-pipeline state (series_auto_service owns its shape).
+    False for an unknown series."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("UPDATE series SET auto_pipeline = ? WHERE id = ?", (state_json, series_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def list_series_auto_pipelines() -> list:
+    """[(series_id, state_json)] for every series that has ever stored a state."""
+    with contextlib.closing(db.get_conn()) as conn:
+        return [(r[0], r[1]) for r in conn.execute(
+            "SELECT id, auto_pipeline FROM series WHERE auto_pipeline IS NOT NULL ORDER BY id")]
+
+
 def set_series_speaker_mode(series_id: int, mode: str | None) -> bool:
     """Stores a series' speaker mode (series_service validates it; None means
     auto). False for an unknown series."""

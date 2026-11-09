@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
-__all__ = ["SeriesListItem", "SeriesListResponse", "SeriesTitle", "SeriesPage",
+__all__ = ["SeriesAutoRunState", "SeriesAutoRunOn", "SeriesAutoRunCeiling", "SeriesListItem", "SeriesListResponse", "SeriesTitle", "SeriesPage",
            "SeriesRenameRequest", "SeriesRenameResult", "SeriesDeletePreview",
            "SeriesDeleteRequest", "SeriesDeleteResult", "SeriesCopyTermsRequest",
            "SeriesCopyTermsPreview", "SeriesCopyTermsResult", "SeriesDefaultsField",
@@ -190,6 +190,29 @@ class SeriesSpeakerModeRequest(BaseModel):
 class SeriesSpeakerModeResult(BaseModel):
     series_id: int
     speaker_mode: Literal["auto", "solo"]
+
+
+class SeriesAutoRunState(BaseModel):
+    series_id: int
+    on: bool
+    ceiling_usd: float = Field(description="What the auto-run may spend on its episodes in all.")
+    spent_usd: float
+    left_usd: float
+    reviewed: bool = Field(description="The first episode was checked and Continue pressed.")
+    hold: str = Field(description="Why it is waiting for the owner; empty when it is going.")
+    hold_kind: Literal["", "review", "stopped", "ceiling", "queue"]
+    current_drama_id: Optional[int] = None
+    episodes_run: int
+
+
+class SeriesAutoRunOn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ceiling_usd: float = Field(gt=0, le=1000, description="Required: a paid run always starts from a figure the owner saw.")
+
+
+class SeriesAutoRunCeiling(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ceiling_usd: float = Field(gt=0, le=1000)
 
 
 class ConsistencyTitleLines(BaseModel):

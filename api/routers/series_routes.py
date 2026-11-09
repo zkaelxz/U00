@@ -17,6 +17,11 @@ services/series_service.py.
     POST /api/series/{series_id}/defaults               lines.edit    editable series
     GET  /api/series/{series_id}/defaults/apply-preview library.read  editable series
     POST /api/series/{series_id}/defaults/apply         lines.edit    editable series
+    GET  /api/series/{series_id}/auto-run               library.read  auto-pipeline state and spend
+    POST /api/series/{series_id}/auto-run/on            jobs.start    editable series; ceiling required
+    POST /api/series/{series_id}/auto-run/off           jobs.start    editable series
+    POST /api/series/{series_id}/auto-run/ceiling       jobs.start    editable series
+    POST /api/series/{series_id}/auto-run/continue      jobs.start    editable series
 
 `require_permission`'s path guard answers 404 for a `{series_id}` the
 caller can't see (and, for a POST, 403 for one they may not change); the
@@ -32,8 +37,8 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from api.auth import local_only, require_permission
-from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
+from api.auth import is_at_pc, local_only, require_permission
+from api.schemas import (SeriesAutoRunCeiling, SeriesAutoRunOn, SeriesAutoRunState, SeriesCopyTermsPreview, SeriesCopyTermsRequest,
                          SeriesConsistencyReport, SeriesCopyTermsResult, SeriesDefaults, SeriesDefaultsApplyRequest,
                          SeriesDefaultsApplyResult, SeriesDefaultsPreview, SeriesDefaultsUpdate,
                          SeriesDeletePreview, SeriesDeleteRequest, SeriesDeleteResult,
@@ -43,6 +48,7 @@ from api.schemas import (SeriesCopyTermsPreview, SeriesCopyTermsRequest,
                          SeriesTmxImportRequest, SeriesTmxImportResult, error_responses)
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
+from services import series_auto_service
 from services import series_consistency_service
 from services import series_defaults_service as defaults_svc
 from services import series_service as svc
@@ -203,3 +209,39 @@ async def import_tmx(request: Request, series_id: int = _id()):
     except ValidationError:
         raise InvalidInputError("Send a JSON object with a tmx text.") from None
     return await run_in_threadpool(tm_service.import_tmx, request.state.principal, series_id, body.tmx)
+
+
+@router.get("/{series_id}/auto-run", dependencies=[require_permission("library.read")],
+            response_model=SeriesAutoRunState, responses=_ERRS,
+            summary="Whether new episodes run on their own, what they may spend and why it is waiting")
+def get_auto_run(request: Request, series_id: int = _id()):
+    return series_auto_service.get_state(request.state.principal, series_id)
+
+
+@router.post("/{series_id}/auto-run/on", dependencies=[require_permission("jobs.start")],
+             response_model=SeriesAutoRunState, responses=_ERRS,
+             summary="Run each new episode through the queue as the caller, inside a spending ceiling")
+def auto_run_on(body: SeriesAutoRunOn, request: Request, series_id: int = _id()):
+    return series_auto_service.switch_on(request.state.principal, series_id, body.ceiling_usd,
+                                         is_at_pc(request))
+
+
+@router.post("/{series_id}/auto-run/off", dependencies=[require_permission("jobs.start")],
+             response_model=SeriesAutoRunState, responses=_ERRS,
+             summary="Stop queueing episodes and withdraw the ones that have not started")
+def auto_run_off(request: Request, series_id: int = _id()):
+    return series_auto_service.switch_off(request.state.principal, series_id)
+
+
+@router.post("/{series_id}/auto-run/ceiling", dependencies=[require_permission("jobs.start")],
+             response_model=SeriesAutoRunState, responses=_ERRS,
+             summary="Change what the auto-run may spend in all")
+def auto_run_ceiling(body: SeriesAutoRunCeiling, request: Request, series_id: int = _id()):
+    return series_auto_service.set_ceiling(request.state.principal, series_id, body.ceiling_usd)
+
+
+@router.post("/{series_id}/auto-run/continue", dependencies=[require_permission("jobs.start")],
+             response_model=SeriesAutoRunState, responses=_ERRS,
+             summary="Go on after the first-episode review, a stop or a raised ceiling")
+def auto_run_continue(request: Request, series_id: int = _id()):
+    return series_auto_service.resume(request.state.principal, series_id)

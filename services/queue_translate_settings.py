@@ -136,17 +136,25 @@ def _row(label: str, value) -> dict:
     return {"label": label, "value": str(value), "engine": None}
 
 
-def _check_translate_spend(drama_id: int, model=None, batch_size=None) -> None:
+def _check_translate_spend(drama_id: int, model=None, batch_size=None, series_left=None) -> None:
     """The unattended twin of the Translate stage's estimate: refuse before
     any paid call when this month's cap is used up or the estimate is above
-    what is left of it. The run itself still enforces the cap as it goes."""
+    what is left of it. The run itself still enforces the cap as it goes.
+
+    series_left: what a series auto-run may still spend. It stands in for the
+    monthly cap being set (the run's own ceiling is the unattended limit), and
+    the estimate must fit it; a monthly cap that is set still applies."""
     est = translate_run_service.estimate_translate_cost(
         drama_id, model=model, batch_size=batch_size)
     if not est["cap_applies"]:
         return
     # Like the scheduled model re-evaluation: unattended paid work needs a ceiling.
-    if settings_service.get_monthly_cap_usd() <= 0:
+    if series_left is None and settings_service.get_monthly_cap_usd() <= 0:
         raise UnsupportedOperationError(_NO_CAP)
+    if series_left is not None and (est["estimated_usd"] or 0) > series_left:
+        raise UnsupportedOperationError(
+            f"The estimate (${est['estimated_usd']:.2f}) is above what is left of this series' "
+            f"spending ceiling (${series_left:.2f}).")
     if est["monthly_refusal"]:
         _cap, refusal = pricing.resolve_cost_cap(
             None, settings_service.get_monthly_cap_usd(), db.get_month_spend())

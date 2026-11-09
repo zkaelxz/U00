@@ -184,3 +184,21 @@ class TestConsistencyReport:
         assert body["series_id"] == world["saga"] and body["summary"]["terms_checked"] == 1
         assert c.get(f"/api/series/{world['secret']}/consistency-report",
                      headers=world["a"]).status_code == 404
+
+
+def test_auto_run_routes_validate_the_ceiling_and_round_trip(isolated_db):
+    sid = db.get_or_create_series("Auto Show")
+    c = loopback_client(_app("off"))
+    base = f"/api/series/{sid}/auto-run"
+    assert c.get(base).json()["on"] is False
+    assert c.post(f"{base}/on", json={}).status_code == 422
+    assert c.post(f"{base}/on", json={"ceiling_usd": 0}).status_code == 422
+    on = c.post(f"{base}/on", json={"ceiling_usd": 2.5}).json()
+    assert on["on"] is True and on["ceiling_usd"] == 2.5 and on["spent_usd"] == 0
+    assert c.post(f"{base}/on", json={"ceiling_usd": 2.5}).status_code == 409
+    assert c.post(f"{base}/ceiling", json={"ceiling_usd": 4}).json()["ceiling_usd"] == 4
+    # Body-less posts carry the JSON content type, as the frontend's postJson sends them.
+    json_type = {"Content-Type": "application/json"}
+    assert c.post(f"{base}/continue", headers=json_type).status_code == 409
+    assert c.post(f"{base}/off", headers=json_type).json()["on"] is False
+    assert c.get("/api/series/999999/auto-run").status_code == 404

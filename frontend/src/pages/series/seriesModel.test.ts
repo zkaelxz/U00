@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SeriesDefaultsField, SeriesDeletePreview, SeriesListItem } from '../../api/series'
 import {
-  copyPreviewText, copyResultText, copySources, defaultsForm, defaultsPreviewText, deleteBlocked, deleteLines, isSeriesTab,
+  ceilingProblem, money, copyPreviewText, copyResultText, copySources, defaultsForm, defaultsPreviewText, deleteBlocked, deleteLines, isSeriesTab,
   renameProblem, settingsFromForm, shownValue,
 } from './seriesModel'
 
@@ -89,5 +89,17 @@ describe('series page model', () => {
       .toBe('Nothing to change: every title already matches.')
     expect(defaultsPreviewText({ ...p, title_count: 0, changed_titles: 0, fields_changed: 0 })).toBe('This series has no titles yet.')
     expect([shownValue(null), shownValue(true), shownValue(false), shownValue(5)]).toEqual(['app default', 'on', 'off', '5'])
+  })
+})
+
+describe('auto-run ceiling', () => {
+  it('accepts a positive amount up to the server limit and refuses the rest', () => {
+    expect(ceilingProblem('1')).toBeNull()
+    expect(ceilingProblem('0.50')).toBeNull()
+    for (const bad of ['', ' ', '0', '-2', 'abc', '1001']) expect(ceilingProblem(bad)).not.toBeNull()
+  })
+
+  it('shows money with cents', () => {
+    expect(money(0.5)).toBe('$0.50')
   })
 })
