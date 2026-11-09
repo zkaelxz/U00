@@ -9,13 +9,14 @@ import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
 import { JobPill } from './JobPill'
 import { STAGE_COMPONENTS } from './stageRegistry'
-import type { StageId } from './stages'
+import { STAGE_IDS, type StageId } from './stages'
 import { StageContext, type StageContextValue } from './StageContext'
+import { SimpleStepNav } from './SimpleStepNav'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 
 // A stage opened from a Simple title page: the stage under a slim header, without the stage tab strip.
-export function SimpleStagePage({ id, title, error, refetch, drama, simple, stage, onView }: {
+export function SimpleStagePage({ id, title, error, refetch, drama, simple, stage, hasReview, onView }: {
   id: number
   title: string
   error: unknown
@@ -23,6 +24,8 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   drama: DramaDetail
   simple: boolean
   stage: StageId | null
+  // Review is only linked from audio and video titles.
+  hasReview: boolean
   onView: (v: TitleView) => void
 }) {
   const ctx = useMemo<StageContextValue>(
@@ -45,6 +48,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
         )}
       </header>
+      <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => hasReview || s !== 'review')} active={stage} />
       <ErrorBanner error={error} />
       <StageContext.Provider value={ctx}>
         {Stage && <Stage />}

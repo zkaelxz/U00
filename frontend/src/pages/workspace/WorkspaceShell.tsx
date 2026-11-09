@@ -159,7 +159,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     return kind === 'novel' ? <NovelTitlePage id={id} drama={drama} onView={chooseView} /> : <SimpleTitlePage id={id} drama={drama} comic={kind === 'comic'} onView={chooseView} />
   }
   if (stage !== null && drama && twoViews && view === 'simple' && slimStage) {
-    return <SimpleStagePage id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} onView={chooseView} />
+    return <SimpleStagePage id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} hasReview={!!kind && trimsStages(kind)} onView={chooseView} />
   }
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
