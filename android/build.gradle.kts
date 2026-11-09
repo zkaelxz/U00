@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.application") version "9.5.0" apply false
+    id("com.android.application") version "9.5.1" apply false
 }
 
 // The Android Gradle Plugin pulls these onto the build classpath at older
