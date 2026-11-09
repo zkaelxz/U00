@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { updateDramaMetadata } from '../../../api/library'
+import { setDramaSeries } from '../../../api/library'
 import { listAllSeries, type SeriesListItem } from '../../../api/series'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
@@ -14,7 +14,7 @@ import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 // The series picker inside the glossary box. Glossary terms
 // belong to a series, so a drama with none gets a one-tap "Create series"
 // (named after the drama) plus the same picker Edit details uses; both
-// write through POST /api/dramas/{id}/metadata.
+// write through POST /api/dramas/{id}/series.
 export function SeriesAssign() {
   const { dramaId, drama, refetchDrama } = useStage()
   const current = drama.series_id == null ? '' : String(drama.series_id)
@@ -48,7 +48,7 @@ export function SeriesAssign() {
     setProblem(bad)
     if (bad) return
     setBusy(true)
-    updateDramaMetadata(dramaId, seriesUpdate(c, n)).then(
+    setDramaSeries(dramaId, seriesUpdate(c, n)).then(
       () => {
         setBusy(false)
         setError(null)

@@ -35,6 +35,7 @@ from api.auth import is_at_pc, local_only, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
+                         DramaSeriesUpdate,
                          DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
@@ -72,6 +73,19 @@ def post_drama(payload: DramaCreateRequest, request: Request):
 def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
                         drama_id: int = Path(ge=1)):
     return to_detail(drama_service.update_drama_metadata(
+        drama_id, principal=request.state.principal,
+        **payload.model_dump(exclude_unset=True)))
+
+
+# Its own right (the one that creates a title) rather than admin.library, so
+# a phone can file a title in a series without being able to edit the rest.
+@router.post("/{drama_id}/series", dependencies=[require_permission("library.create")],
+             response_model=DramaDetail,
+             summary="Put a drama in a series, or take it out (series only)",
+             responses=error_responses(404, 409, 422))
+def post_drama_series(payload: DramaSeriesUpdate, request: Request,
+                      drama_id: int = Path(ge=1)):
+    return to_detail(drama_service.set_drama_series(
         drama_id, principal=request.state.principal,
         **payload.model_dump(exclude_unset=True)))
 
