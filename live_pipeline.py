@@ -8,6 +8,7 @@ is full), never Whisper time or audio. docs/user-guide-subtitles.md (Live) descr
 figures for the owner."""
 import collections
 import contextlib
+import contextvars
 import statistics
 import threading
 import time
@@ -262,9 +263,12 @@ class TranslationWorker:
         self._queue = collections.deque()
         self._closing = self._abandoned = False
         # Context variables do not cross threads: a member's own Ollama key
-        # comes along explicitly, so their cloud model doesn't use the PC's account.
+        # comes along explicitly, so their cloud model doesn't use the PC's account,
+        # and the copied context keeps the session's paid calls logged for its starter.
         from engine_backends.local import carry_member_cloud_key, member_cloud_key
-        self._thread = threading.Thread(target=carry_member_cloud_key(self._run, member_cloud_key()),
+        context = contextvars.copy_context()
+        carried = carry_member_cloud_key(self._run, member_cloud_key())
+        self._thread = threading.Thread(target=lambda: context.run(carried),
                                         daemon=True, name="live-translate")
         self._thread.start()
 

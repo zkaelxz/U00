@@ -13,6 +13,7 @@ import { useDeveloperMode } from './pages/assistant/developerMode'
 import { HelpTip } from './components/HelpTip'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
+import { PaidLimitBanner } from './components/PaidLimitBanner'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
 import LibraryPage from './pages/Library'
@@ -299,6 +300,7 @@ export default function App() {
   const content = (
     <>
       <RemoteHealthBanner />
+      <PaidLimitBanner />
       <RouteErrorBoundary>
         <Suspense fallback={null}>
           {BOUNDED_ROUTES.has(route.name) ? <div className="app-bounded">{routes}</div> : routes}

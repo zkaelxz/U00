@@ -8,6 +8,7 @@ or once the server has begun its clean stop.
 """
 
 import contextlib
+import functools
 
 import db
 import gpu_probe
@@ -270,11 +271,14 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     return True
 
 
-def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method):
+def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_user_id=None):
     """(target, on_done, the CPU retry plan); the CPU run starts the same
     wrapped target."""
     target = _with_member_key(target)
     on_done = on_done and _with_member_key(on_done)
+    # A process doesn't inherit the parent's context, so its spending is tagged explicitly.
+    target = functools.partial(db.run_spending_for, owner_user_id, target)
+    on_done = on_done and functools.partial(db.run_spending_for, owner_user_id, on_done)
     if model_offline.active():
         target = model_offline.for_process(target)
         # on_done may start the next stage's job (transcription -> speakers).
@@ -362,7 +366,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     """
     line_fields = db.check_line_fields(line_fields)
     owner_user_id = _acting_user_id()
-    target, on_done, cpu_retry = _wrap_process_hooks(target, on_done, cpu_retry_args, start_method)
+    target, on_done, cpu_retry = _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_user_id)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:

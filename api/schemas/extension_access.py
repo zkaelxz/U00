@@ -27,6 +27,7 @@ __all__ = [
     "MemberKeyStatus",
     "MemberKeySaveRequest",
     "MemberKeyRemoved",
+    "MemberPaidLimitRequest",
     "NotificationChannel",
     "NotificationOutcome",
     "NotificationStatus",
@@ -148,6 +149,12 @@ class MemberKeySaveRequest(BaseModel):
 class MemberKeyRemoved(BaseModel):
     user_id: int
     removed: bool
+
+
+class MemberPaidLimitRequest(BaseModel):
+    """A member's own monthly limit for paid engines; null clears it."""
+    model_config = ConfigDict(extra="forbid")
+    monthly_cap_usd: Optional[float] = Field(..., gt=0, le=100000, strict=True)
 
 # --- Job notifications (Discord / ntfy) ---------------------------------------
 NotificationChannel = Literal["discord", "ntfy"]

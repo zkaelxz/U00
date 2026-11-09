@@ -194,6 +194,8 @@ def require_permission(*permissions: str):
             return request.state.principal
         principal = _authenticate(request)
         if not set(permissions) <= set(principal["permissions"]):
+            if "engines.paid" in permissions:
+                _refuse_if_paid_limit_reached(principal)
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = principal
         ownership_service.note_acting_principal(principal)
@@ -380,6 +382,17 @@ def is_at_pc(request: Request) -> bool:
     return not is_auth_enabled(request.app) or is_local_request(request)
 
 
+PAID_LIMIT_REASON = "paid_limit_reached"
+
+
+def _refuse_if_paid_limit_reached(principal) -> None:
+    """A member who holds `engines.paid` but has used up their own monthly
+    limit (the session's permissions leave it out) is told so, not "not allowed"."""
+    user_id = (principal or {}).get("user_id")
+    if auth_service.paid_engines_held_back(user_id):
+        raise ForbiddenError(auth_service.PAID_LIMIT_MESSAGE, details={"reason": PAID_LIMIT_REASON})
+
+
 def require_engines_allowed(request: Request, *engine_names, model=None):
     """Raises 403 unless the caller holds `engines.paid` or every named
     engine is in `engine_backends.engine_registry.FREE_ENGINES`. A missing name (None:
@@ -390,6 +403,7 @@ def require_engines_allowed(request: Request, *engine_names, model=None):
     if not holds(request, "engines.paid"):
         from engine_backends.engine_registry import FREE_ENGINES
         if any(not name or name not in FREE_ENGINES for name in engine_names):
+            _refuse_if_paid_limit_reached(getattr(request.state, "principal", None))
             raise ForbiddenError(_PAID_ENGINE_403)
     require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
 
@@ -427,6 +441,7 @@ def require_paid_engines(request: Request):
     """Raises 403 unless the caller holds `engines.paid` (for a cloud
     service that isn't a translate engine, e.g. Groq transcription)."""
     if not holds(request, "engines.paid"):
+        _refuse_if_paid_limit_reached(getattr(request.state, "principal", None))
         raise ForbiddenError(_GENERIC_403)
 
 

@@ -146,12 +146,37 @@ const ACTIONS: Record<string, string> = {
   'user.bind_google': 'Google account linked',
   'permission.grant': 'Permission granted',
   'permission.revoke': 'Permission removed',
+  'user.paid_limit': 'Paid-engine limit changed',
   'upload.away': 'Upload from away',
   'remote_uploads.on': 'Uploads from away turned on',
   'remote_uploads.off': 'Uploads from away turned off',
   'library.restore': 'Library restored',
   'library.restore_drama': 'Title restored from backup',
   'audit.prune': 'Old activity cleared',
+}
+
+const dollars = (usd: number) => `$${usd.toFixed(2)}`
+
+/** This month's paid-engine spending on a People row, with the member's own limit when set. */
+export function paidSpendText(u: AdminUser): string {
+  const spent = u.month_paid_spend_usd ?? 0
+  const cap = u.monthly_paid_cap_usd ?? null
+  if (cap !== null) {
+    const over = spent >= cap ? ' (limit reached, so paid engines are off for them)' : ''
+    return `Paid engines this month: ${dollars(spent)} of their ${dollars(cap)} limit${over}`
+  }
+  return spent > 0 ? `Paid engines this month: ${dollars(spent)}` : 'No paid-engine spending this month'
+}
+
+// services/auth_service.MAX_MEMBER_PAID_CAP_USD
+export const MAX_PAID_LIMIT_USD = 100000
+
+/** The limit typed on a People row: a positive dollar amount, else null. */
+export function parsePaidLimit(text: string): number | null {
+  const t = text.trim().replace(/^\$/, '')
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null
+  const n = Number(t)
+  return n > 0 && n <= MAX_PAID_LIMIT_USD ? n : null
 }
 
 /** A plain label for an audit action; unknown ones are shown as stored. */

@@ -112,6 +112,9 @@ class MeResponse(BaseModel):
     user: Optional[MeUser] = None
     permissions: List[str]
     own_ollama_key: bool = False
+    # The member's own monthly limit for paid engines is used up, so
+    # `engines.paid` is left out of `permissions` until it is raised or the month ends.
+    paid_limit_reached: bool = False
 
 
 class LogoutResponse(BaseModel):
@@ -263,6 +266,7 @@ def me(request: Request):
             display = auth_service.get_user(principal["user_id"])["display_name"]
             body.update(signed_in=True, permissions=sorted(principal["permissions"]),
                         own_ollama_key=member_key_service.has_usable_key(principal["user_id"]),
+                        paid_limit_reached=auth_service.paid_engines_held_back(principal["user_id"]),
                         user={"id": principal["user_id"], "email": principal["email"],
                               "display_name": display, "is_admin": principal["is_admin"],
                               "is_local_owner": False})

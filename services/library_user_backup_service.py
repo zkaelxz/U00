@@ -41,6 +41,8 @@ log = logging.getLogger(__name__)
 #   page: rows of a kept page only; series: rows of a kept series only
 #   series_character: kept drama and kept series character only
 #   user: rows of the owner only, user column cleared
+#   drama_spend: rows of a kept drama only, user column cleared (who spent
+#       it is an id from this install, meaningless in the target one)
 #   profile_drama: rows of a kept drama on the default profile only
 #   profiles: the default profile only (the one reader data uses)
 #   style_scope: the learned style of a kept series only
@@ -52,7 +54,7 @@ USER_BACKUP_TABLES = {
     "lines": ("drama", ""), "characters": ("drama", ""), "pages": ("drama", ""),
     "translation_notes": ("drama", ""), "line_emotions": ("drama", ""),
     "consistency_issues": ("drama", ""), "vocab_lookups": ("drama", ""),
-    "usage_log": ("drama", ""), "line_history": ("drama", ""),
+    "usage_log": ("drama_spend", ""), "line_history": ("drama", ""),
     "progress": ("profile_drama", "other household profiles' reading stays behind"),
     "personal_notes": ("profile_drama", "other household profiles' notes stay behind"),
     "reading_history": ("profile_drama", "other household profiles' history stays behind"),
@@ -152,7 +154,7 @@ def _user_backup_filter(path: str, owner_id) -> list:
 _IN_DRAMAS = "drama_id IN (SELECT id FROM temp.keep_dramas)"
 _IN_SERIES = "series_id IN (SELECT id FROM temp.keep_series)"
 # The column a rule filters on; a table without it has no row to keep.
-_RULE_COLUMN = {"drama": "drama_id", "series_character": "drama_id", "page": "page_id",
+_RULE_COLUMN = {"drama": "drama_id", "drama_spend": "drama_id", "series_character": "drama_id", "page": "page_id",
                 "series": "series_id", "user": "user_id", "profile_drama": "profile_id"}
 
 
@@ -186,6 +188,10 @@ def _filter_by_own_rule(conn, t: str, rule: str, owner_id, default_profile):
         conn.execute(f'UPDATE "{t}" SET owner_user_id = NULL')
     elif rule in ("drama", "series"):
         _keep_only(conn, t, _IN_DRAMAS if rule == "drama" else _IN_SERIES)
+    elif rule == "drama_spend":
+        _keep_only(conn, t, _IN_DRAMAS)
+        if "user_id" in _cols(conn, t):
+            conn.execute(f'UPDATE "{t}" SET user_id = NULL')
     elif rule == "user":
         _keep_only(conn, t, "user_id IS ?", (owner_id,))
         conn.execute(f'UPDATE "{t}" SET user_id = NULL')

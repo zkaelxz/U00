@@ -10,6 +10,7 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
     DELETE /api/admin/users/{user_id}/ollama-key     remove their own Ollama key (never read it)
     POST /api/admin/users/{user_id}/permissions/{permission}    give a member one right
     DELETE /api/admin/users/{user_id}/permissions/{permission}  take it away
+    POST /api/admin/users/{user_id}/paid-limit       set or clear a member's monthly paid-engine limit
     GET  /api/admin/audit                            newest first, paged
 
 The two reads are `admin.users.read`, the writes `admin.users` (both held
@@ -34,7 +35,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 
 from api.admin_users_schemas import AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage
-from api.schemas import MemberKeyRemoved
+from api.schemas import MemberKeyRemoved, MemberPaidLimitRequest
 from api.auth import is_local_request, principal_user_id, require_permission
 from api.no_store import mark_no_store
 from services import auth_service, member_key_service
@@ -111,6 +112,15 @@ def revoke_user_permission(request: Request, response: Response, user_id: int = 
                            permission: str = _Permission):
     mark_no_store(response)
     return auth_service.admin_set_permission(user_id, permission, False,
+                                             actor_id=principal_user_id(request))
+
+
+@router.post("/users/{user_id}/paid-limit", dependencies=_ADMIN, response_model=AdminUser,
+             summary="Set or clear a member's own monthly limit for paid engines")
+def set_user_paid_limit(body: MemberPaidLimitRequest, request: Request, response: Response,
+                        user_id: int = _UserId):
+    mark_no_store(response)
+    return auth_service.admin_set_paid_limit(user_id, body.monthly_cap_usd,
                                              actor_id=principal_user_id(request))
 
 

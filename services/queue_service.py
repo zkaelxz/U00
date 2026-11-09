@@ -638,7 +638,7 @@ def _run_principal(item: dict):
         raise ForbiddenError("The account that added this item can no longer start jobs.")
     return {"user_id": row["id"], "email": row["email"], "is_admin": bool(row["is_admin"]),
             "admin_override": bool(row["is_admin"]) and item["override"],
-            "permissions": auth_service.effective_permissions(row["id"])}
+            "permissions": auth_service.working_permissions(row["id"])}
 
 
 def _holds(principal, permission: str) -> bool:

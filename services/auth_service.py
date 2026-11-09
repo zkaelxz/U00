@@ -33,7 +33,8 @@ from typing import Any
 import db
 from lib.device_label import device_label
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
-                                     NotFoundError, RateLimitedError, UnauthenticatedError)
+                                     NotFoundError, RateLimitedError, UnauthenticatedError,
+                                     UnsupportedOperationError)
 
 # One catalogue, one place. Household defaults are granted to a newly
 # allowlisted user; the opt-in list exists but is granted only explicitly.
@@ -77,6 +78,8 @@ ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION, CREATE_PERMISSIO
 ADMIN_FLAG_PERMISSIONS = ADMIN_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
 PERMISSIONS = (HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
                + ADMIN_ONLY_PERMISSIONS)
+PAID_PERMISSION = "engines.paid"
+MAX_MEMBER_PAID_CAP_USD = 100000.0
 
 # library.db tables that hold who may sign in, what they may do and members'
 # own API keys. A library restore never takes them from the upload: it keeps the live
@@ -267,7 +270,8 @@ def admin_list_users(actor_id=None, now: float | None = None) -> list:
     user agent)."""
     now = time.time() if now is None else now
     with_key = _users_with_own_key()
-    return [_admin_view(u, actor_id, now, with_key) for u in list_users()]
+    spend = db.get_month_spend_by_user()
+    return [_admin_view(u, actor_id, now, with_key, spend) for u in list_users()]
 
 
 def _users_with_own_key() -> set:
@@ -275,12 +279,18 @@ def _users_with_own_key() -> set:
     return member_key_service.user_ids_with_key()
 
 
-def _admin_view(user: dict, actor_id, now: float, with_key: set | None = None) -> dict:
+def _admin_view(user: dict, actor_id, now: float, with_key: set | None = None,
+                spend: dict | None = None) -> dict:
     if with_key is None:
         with_key = _users_with_own_key()
+    if spend is None:
+        spend = db.get_month_spend_by_user()
+    cap = (db.auth_get_user(user["id"]) or {}).get("monthly_paid_cap_usd")
     return dict(user, active_sessions=_live_session_count(user["id"], now),
                 is_self=actor_id is not None and user["id"] == actor_id,
-                has_own_ollama_key=user["id"] in with_key)
+                has_own_ollama_key=user["id"] in with_key,
+                month_paid_spend_usd=round(spend.get(user["id"], 0.0), 6),
+                monthly_paid_cap_usd=None if user["is_admin"] or cap is None else float(cap))
 
 
 # No "a/b/c" in the text: the API error handler's path redaction would
@@ -387,6 +397,29 @@ def admin_set_permission(user_id: int, permission: str, granted: bool, actor_id=
     return _admin_view(get_user(user_id), actor_id, time.time())
 
 
+def admin_set_paid_limit(user_id: int, monthly_cap_usd, actor_id=None) -> dict:
+    """The People screen's monthly limit for a member's paid-engine spending
+    (None clears it); returns the admin_list_users row. A member's paid calls
+    run on the PC's keys, so this is the owner's brake per person, under the
+    library-wide monthly cap. Only on a member account: an admin has none
+    (409), which also rules out the caller's own account."""
+    row = _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("You can't set your own limit.")
+    if row["is_admin"]:
+        raise ConflictError("Admins have no limit of their own; the monthly cap in Settings applies.")
+    if monthly_cap_usd is not None:
+        if isinstance(monthly_cap_usd, bool) or not isinstance(monthly_cap_usd, (int, float)) \
+                or not 0 < monthly_cap_usd <= MAX_MEMBER_PAID_CAP_USD:
+            raise InvalidInputError(f"Enter a limit above $0 and at most ${MAX_MEMBER_PAID_CAP_USD:,.0f}, "
+                                    "or clear it.")
+        monthly_cap_usd = float(monthly_cap_usd)
+    db.auth_update_user(user_id, monthly_paid_cap_usd=monthly_cap_usd)
+    write_audit(actor_id, "user.paid_limit",
+                f"user {user_id}: " + ("none" if monthly_cap_usd is None else f"${monthly_cap_usd:.2f}"))
+    return _admin_view(get_user(user_id), actor_id, time.time())
+
+
 def grant_admin_local(email: str) -> dict:
     """Behind `python -m api grant-admin`, the recovery path: creates or
     activates the user as admin. Admin rights come from the is_admin flag
@@ -460,6 +493,45 @@ def effective_permissions(user_id: int) -> list:
             if p in PERMISSIONS and p not in ADMIN_FLAG_PERMISSIONS]
 
 
+def paid_limit_reached(user_id) -> bool:
+    """A member whose own monthly limit for paid engines is used up (spend
+    counted like the library-wide cap, from an active reset)."""
+    row = db.auth_get_user(user_id) if isinstance(user_id, int) else None
+    if not row or row["is_admin"] or row.get("monthly_paid_cap_usd") is None:
+        return False
+    return db.get_user_month_spend(user_id) >= float(row["monthly_paid_cap_usd"])
+
+
+PAID_LIMIT_MESSAGE = ("You've used this month's limit for paid engines, so they're off for you "
+                      "until next month or until the PC owner raises your limit. Free engines "
+                      "such as Ollama still work.")
+
+
+def refuse_if_paid_limit_reached(user_id) -> None:
+    """For paid work about to spend on a member's behalf (and before each
+    paid call of a running job): refused once their own limit is used up."""
+    if paid_limit_reached(user_id):
+        raise UnsupportedOperationError(PAID_LIMIT_MESSAGE)
+
+
+def paid_engines_held_back(user_id) -> bool:
+    """The member was given `engines.paid` but their own limit is used up,
+    so working_permissions leaves it out for now."""
+    return (isinstance(user_id, int) and PAID_PERMISSION in effective_permissions(user_id)
+            and paid_limit_reached(user_id))
+
+
+def working_permissions(user_id: int) -> list:
+    """effective_permissions for doing work (a session, a device token, a
+    queued item): `engines.paid` is held back while the member's own monthly
+    limit is used up, so no paid work starts for them. The People screen
+    still shows the right as given (effective_permissions)."""
+    perms = effective_permissions(user_id)
+    if PAID_PERMISSION in perms and paid_limit_reached(user_id):
+        perms = [p for p in perms if p != PAID_PERMISSION]
+    return perms
+
+
 def member_principal(user_id: int):
     """A least-privilege principal for work done later on a user's behalf
     with no request (the scheduled chapter check acting on a link the user
@@ -473,7 +545,8 @@ def member_principal(user_id: int):
     return {"user_id": row["id"], "email": row["email"], "is_admin": False,
             "is_local_owner": False, "admin_override": False,
             "permissions": [p for p in db.auth_get_permissions(row["id"])
-                            if p in PERMISSIONS and p not in ADMIN_FLAG_PERMISSIONS]}
+                            if p in PERMISSIONS and p not in ADMIN_FLAG_PERMISSIONS
+                            and not (p == PAID_PERMISSION and paid_limit_reached(row["id"]))]}
 
 
 def grant_permission(user_id: int, permission: str, actor_id=None) -> dict:
@@ -647,7 +720,7 @@ def resolve_session(token, now: float | None = None,
             # Acting on items only an admin can see; api.auth.listener_principal
             # clears it on the household listener.
             "admin_override": bool(user["is_admin"]),
-            "permissions": effective_permissions(user["id"])}
+            "permissions": working_permissions(user["id"])}
 
 
 def verify_csrf(session_token, csrf_token, now: float | None = None) -> bool:
