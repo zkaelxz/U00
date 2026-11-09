@@ -28,6 +28,7 @@ Raw and translated text side by side, for proofing and language learning.
 ### Library
 
 - **Baihe unreachable**: the Library says so once, with Retry, and reloads itself within a few seconds of Baihe answering again; a page you have not opened yet in that tab shows the same "Could not reach Baihe" text and reloads when Baihe is back, instead of the browser's error page.
+- **Start box** at the top on a computer (for anyone who can add titles; on a phone, New title has the same Link field): paste a link, press **Start**, and the New title sheet opens with the link already in its Link field. Long titles on the Continue shelf, the cards, the title page header and the side menu wrap onto a second line instead of being cut off with "…".
 - **Continue shelf** with cover art and progress; a title on that shelf shows **Continue** instead of **Read** on its Library card; reading history (clearable); the shelf's heading, tiles and More/Less button line up with even padding.
 - **Cards** show a line-progress bar ("12 left" or "40 translated") and a Translate or Review button for the title's next step, beside Open.
 - **Metadata**: cover, genre, publication status, chapter count, custom tags, private notes, reading/listening time estimates.

@@ -73,6 +73,8 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 .rail-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The open title sits one step in under Library; no stage rows, the strip in the page stays the only stage navigation. */
 :is(.app-rail, .nav-drawer) nav a.rail-title { margin-left: var(--space-4); min-height: 32px; font-size: var(--text-sm); }
+/* A long title wraps in the open rail instead of being cut; the row grows with it. */
+:is(.app-rail, .nav-drawer) nav a.rail-title .rail-label { white-space: normal; overflow-wrap: anywhere; }
 .rail-title-mark { flex: none; width: 18px; text-align: center; }
 
 /* At rest the dock is icons only: labels stay in the DOM as the accessible names (and each link carries a title). */

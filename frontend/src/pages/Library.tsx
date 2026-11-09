@@ -35,7 +35,7 @@ import { useAdminJob } from './libraryAdmin/useAdminJob'
 import type { DramaCreateRequest } from '../types/library'
 import { mediaKind } from './workspace/detailsForm'
 import {
-  DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile,
+  DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile, formForLink,
   createProblemField, deleteNotice, validateCreate, type CreateExtras,
 } from './libraryForm'
 import { GetStarted } from './libraryParity/GetStarted'
@@ -48,6 +48,7 @@ import { skippedNote } from './workspace/translateForm'
 import { SERIES_HELP } from '../helpText'
 import { NewTitleLink } from './NewTitleLink'
 import { createdFromLinkNote } from './linkFill'
+import { LibraryStartBox } from './LibraryStartBox'
 
 
 
@@ -410,6 +411,16 @@ export default function LibraryPage() {
         <p className="muted" data-testid="member-empty-note">
           No titles yet. Add some from <a href="#/sources">Sources</a> or <a href="#/discover">Discover</a>.
         </p>
+      )}
+
+      {/* Not on a phone: the row would push the first title card off the first screen, and New title opens the same Link field. */}
+      {canCreate && !phone && (
+        <LibraryStartBox
+          onStart={(link) => {
+            setDraft({ form: { ...(draft?.form ?? formForLink(link)), source_url: link }, extras: draft?.extras ?? NO_EXTRAS })
+            setCreating(true)
+          }}
+        />
       )}
 
       <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
