@@ -116,7 +116,8 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .ws-strip { margin-bottom: var(--space-3); }
   /* Kept to their own width: stretched full width, Read outranked each stage's own primary action. */
   .sheet-body .ws-actions a.btn, .sheet-body .ws-actions a.ws-source-add, .sheet-body .ws-actions .btn { justify-content: center; min-height: 44px; }
-  .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); }
+  /* Two lines at most so the sticky strip stays short; the side menu shows the whole title. */
+  .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }
   /* On the Simple page the switch takes its own row so the title keeps room; in Full it sits in the Title actions sheet to keep the sticky strip one row. */

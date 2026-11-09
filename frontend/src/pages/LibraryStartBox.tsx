@@ -15,7 +15,7 @@ export function LibraryStartBox({ onStart }: { onStart: (link: string) => void }
   }
   return (
     <form className="library-start" onSubmit={submit} aria-label="Start from a link">
-      <label htmlFor="library-start-link">Paste a link to start a title</label>
+      <label htmlFor="library-start-link" className="visually-hidden">Paste a link to start a title</label>
       <div className="library-start-row">
         <input
           id="library-start-link"
@@ -23,7 +23,7 @@ export function LibraryStartBox({ onStart }: { onStart: (link: string) => void }
           inputMode="url"
           value={link}
           maxLength={MAX_URL_LEN}
-          placeholder="https://"
+          placeholder="Paste a link to start a title"
           onChange={(e) => setLink(e.target.value)}
         />
         <button type="submit" className={buttonClass('secondary')} disabled={!link.trim()}>Start</button>
