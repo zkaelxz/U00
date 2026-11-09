@@ -8,10 +8,12 @@ import { JobPill } from './JobPill'
 import { ButtonLink } from '../../components/Button'
 import { routeHref } from '../../router'
 import { ComicChapterList } from './ComicChapterList'
+import { TitleLines, TitleProgress } from './TitleLines'
 import { TitleSteps } from './TitleSteps'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { episodeRows, type EpisodeInput, type TitleView } from './titleView'
 import './stages/novelChapters.css'
+import './titleLines.css'
 
 // Audio and video titles in the Simple view: the actions people reach for first and the episodes, with no stepper.
 // The stage routes are unchanged and the Full view is one switch away.
@@ -85,6 +87,7 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
     return lineCount === null || comic ? rows.map((r) => ({ ...r, state: '' })) : rows
   }, [comic, siblings, id, drama.title_en, drama.title_zh, drama.episode_number, lineCount, translatedCount])
 
+  const hasLines = !comic && (lineCount ?? 0) > 0
   const loadingSeries = seriesId != null && !seriesDone
   const stage = (s: string, tab?: 'add' | 'transcribe' | 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
@@ -110,20 +113,24 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
           <ButtonLink href={stage('export')}>Export</ButtonLink>
         </div>
       ) : (
-        <>
-          <TitleSteps
-            id={id}
-            audioReady={audioReady}
-            lineCount={lineCount}
-            translatedCount={translatedCount}
-            exported={exported}
-            flowOn={flowOn}
-            onFlowProgress={() => { setFlowOn(true); setTick((t) => t + 1) }}
-          />
-          <div className="actions">
-            <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
+        <div className={hasLines ? 'title-studio' : undefined}>
+          {hasLines && <TitleProgress total={lineCount ?? 0} translated={translatedCount} />}
+          <div className="title-studio-side">
+            <TitleSteps
+              id={id}
+              audioReady={audioReady}
+              lineCount={lineCount}
+              translatedCount={translatedCount}
+              exported={exported}
+              flowOn={flowOn}
+              onFlowProgress={() => { setFlowOn(true); setTick((t) => t + 1) }}
+            />
+            <div className="actions">
+              <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
+            </div>
           </div>
-        </>
+          {hasLines && <TitleLines id={id} total={lineCount ?? 0} />}
+        </div>
       )}
       {comic && <ComicChapterList id={id} />}
       {/* A comic's own chapters are listed above; its series list names the other titles, so the two headings differ. */}
