@@ -21,6 +21,10 @@ class AdminUser(BaseModel):
     active_sessions: int
     is_self: bool
     has_own_ollama_key: bool = False
+    # Logged paid-engine spending for this account this month (counted like the
+    # monthly cap), and a member's own monthly limit (None: none; always None for an admin).
+    month_paid_spend_usd: float = 0.0
+    monthly_paid_cap_usd: Optional[float] = None
 
 
 class AdminUserList(BaseModel):

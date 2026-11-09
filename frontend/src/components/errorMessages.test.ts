@@ -4,7 +4,7 @@ import { ApiError } from '../api/client'
 import { resetPcModeForTests } from '../api/pcOnly'
 import { resetSessionForTests } from '../hooks/useSession'
 import {
-  ASK_PC_OWNER, couldNotReachBaihe, describeError, isForbidden, JOB_FAILED, keyWritesRefused, summarizeEngineFailure,
+  ASK_PC_OWNER, couldNotReachBaihe, describeError, isForbidden, JOB_FAILED, keyWritesRefused, PAID_LIMIT_REASON, summarizeEngineFailure,
 } from './errorMessages'
 
 
@@ -169,13 +169,38 @@ describe('describeError shows the real reason', () => {
   })
 
   it('a failed read says it could not load; a failed write keeps the nothing-changed text', () => {
-    expect(describeError(api(400, 'application_error', 'x', 'GET')).title).toMatch(/^Could not load/)
+    expect(describeError(api(400, 'application_error', '', 'GET')).title).toMatch(/^Could not load/)
     expect(describeError(api(500, 'internal_error', 'Traceback /home/kae', 'GET')).title).toMatch(/^Could not load/)
     expect(describeError(api(500, 'internal_error', 'x', 'GET')).detail).toBeNull()
-    expect(describeError(api(400, 'application_error', 'x', 'POST')).title).toMatch(/^The action failed\. Nothing was changed/)
+    expect(describeError(api(400, 'application_error', '', 'POST')).title).toMatch(/^The action failed\. Nothing was changed/)
     expect(describeError(api(500, 'internal_error', 'x', 'POST')).title).toMatch(/^Something went wrong inside Baihe/)
     // A caller that did not record the method is treated as a write, as before.
-    expect(describeError(api(400, 'application_error', 'x')).title).toMatch(/^The action failed/)
+    expect(describeError(api(400, 'application_error', '')).title).toMatch(/^The action failed/)
+  })
+
+  it("a failed action shows the server's reason and stops claiming nothing changed", () => {
+    const leftBehind =
+      "The title was not restored, but some of its files could not be cleaned up and are still in the library's dramas folder."
+    expect(describeError(api(500, 'application_error', leftBehind, 'POST'))).toEqual({
+      title: 'The action failed.',
+      detail: leftBehind,
+    })
+    expect(describeError(api(500, 'application_error', 'That folder could not be read.', 'GET'))).toEqual({
+      title: 'Could not load this.',
+      detail: 'That folder could not be read.',
+    })
+    expect(describeError(api(500, 'application_error', 'RuntimeError: The engine could not be started.', 'POST')).detail).toBe(
+      'The engine could not be started.',
+    )
+  })
+
+  it('a failed action whose server text is path- or key-like keeps the generic text and no detail', () => {
+    for (const msg of ['Could not open C:\\Users\\kae\\x.db', 'key sk-abcdef123456 refused', 'x'.repeat(201)]) {
+      expect(describeError(api(500, 'application_error', msg, 'POST'))).toEqual({
+        title: 'The action failed. Nothing was changed unless stated otherwise.',
+        detail: null,
+      })
+    }
   })
 
   it('a network failure and a timeout read differently for reads and writes', () => {
@@ -225,6 +250,14 @@ describe('error text by who is reading', () => {
     resetPcModeForTests('remote')
     expect(couldNotReachBaihe()).toMatch(/Check your connection/)
     expect(couldNotReachBaihe()).not.toMatch(/API/)
+  })
+
+  it('a member over their own paid-engine limit sees the server\'s sentence', () => {
+    resetSessionForTests(me([]))
+    const msg = "You've used this month's limit for paid engines, so they're off for you until next month."
+    expect(describeError(new ApiError(403, {
+      code: 'forbidden', message: msg, details: { reason: PAID_LIMIT_REASON },
+    }, 'POST')).title).toBe(msg)
   })
 
   it('a refusal by permission keeps its generic text for everyone', () => {

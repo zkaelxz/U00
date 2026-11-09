@@ -29,6 +29,10 @@ export const setUserPermission = (id: number, permission: string, granted: boole
   return granted ? postJson<AdminUser>(url, undefined, f) : deleteJson<AdminUser>(url, f)
 }
 
+/** A member's own monthly limit for paid engines, in USD; null clears it. */
+export const setUserPaidLimit = (id: number, monthlyCapUsd: number | null, f?: Fetch) =>
+  postJson<AdminUser>(`${BASE}/users/${id}/paid-limit`, { monthly_cap_usd: monthlyCapUsd }, f)
+
 /** "?limit=50&action=..." with empty filters left out. */
 export function auditQuery(q: AuditQuery = {}): string {
   const p = new URLSearchParams()
