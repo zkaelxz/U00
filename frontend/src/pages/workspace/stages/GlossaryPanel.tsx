@@ -129,6 +129,50 @@ function TermEditor({ initial, catalogues, onSave, onCancel }: {
   )
 }
 
+// The edit form opens under its own row: below the table it was off-screen on a long glossary.
+function TermRow({ t, checked, editing, catalogues, onToggle, onEdit, onSave, onCancel, onSimilar, onSuggest }: {
+  t: GlossaryTerm
+  checked: boolean
+  editing: TermForm | null
+  catalogues: GlossaryCatalogues | null
+  onToggle: () => void
+  onEdit: () => void
+  onSave: (f: TermForm) => void
+  onCancel: () => void
+  onSimilar: () => void
+  onSuggest: () => void
+}) {
+  return (
+    <>
+              <tr role="row" className="card-main">
+                <td role="cell" className="card-check">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${t.term_original}`}
+                    checked={checked}
+                    onChange={onToggle}
+                  />
+                </td>
+                <td role="cell" data-label="Original" className="card-title">{t.term_original}</td>
+                <td role="cell" data-label="Translation" className="card-wide">{t.term_translation}</td>
+                <td role="cell" data-label="Aliases" className="card-meta">{t.aliases.join(', ')}</td>
+                <td role="cell" data-label="Banned" className="card-meta">{t.banned_translations.join(', ')}</td>
+                <td role="cell" data-label="Exact" className="card-meta">{t.enforce_exact ? 'Yes' : 'No'}</td>
+                <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={onEdit}>Edit</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={onSimilar}>Find similar</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} title="Ask the engine how this name may have been written, then check it against the lines" onClick={onSuggest}>Suggest spellings</button></td>
+              </tr>
+              {editing && (
+                <tr role="row" className="term-edit-row">
+                  <td role="cell" colSpan={7}>
+                    <TermEditor initial={editing} catalogues={catalogues} onSave={onSave} onCancel={onCancel} />
+                  </td>
+                </tr>
+              )}
+    </>
+  )
+}
+
 // What the Translate stage hands over so the Re-translate tab can use the run form's settings.
 interface RetranslateProps {
   f: RunForm
@@ -389,27 +433,22 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           </thead>
           <tbody>
             {terms.map((t) => (
-              <tr key={t.id} role="row" className="card-main">
-                <td role="cell" className="card-check">
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${t.term_original}`}
-                    checked={selected.has(t.id)}
-                    onChange={() => {
-                      setConfirming(false)
-                      setSelected((cur) => toggleId(cur, t.id))
-                    }}
-                  />
-                </td>
-                <td role="cell" data-label="Original" className="card-title">{t.term_original}</td>
-                <td role="cell" data-label="Translation" className="card-wide">{t.term_translation}</td>
-                <td role="cell" data-label="Aliases" className="card-meta">{t.aliases.join(', ')}</td>
-                <td role="cell" data-label="Banned" className="card-meta">{t.banned_translations.join(', ')}</td>
-                <td role="cell" data-label="Exact" className="card-meta">{t.enforce_exact ? 'Yes' : 'No'}</td>
-                <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={() => openNames(() => setSimilarFor(similarFor === t.id ? null : t.id))}>Find similar</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} title="Ask the engine how this name may have been written, then check it against the lines" onClick={() => openNames(() => setSuggestFor(suggestFor === t.id ? null : t.id))}>Suggest spellings</button></td>
-              </tr>
+              <TermRow
+                key={t.id}
+                t={t}
+                checked={selected.has(t.id)}
+                editing={editing?.id === t.id ? editing : null}
+                catalogues={catalogues}
+                onToggle={() => {
+                  setConfirming(false)
+                  setSelected((cur) => toggleId(cur, t.id))
+                }}
+                onEdit={() => setEditing(toForm(t))}
+                onSave={save}
+                onCancel={() => setEditing(null)}
+                onSimilar={() => openNames(() => setSimilarFor(similarFor === t.id ? null : t.id))}
+                onSuggest={() => openNames(() => setSuggestFor(suggestFor === t.id ? null : t.id))}
+              />
             ))}
           </tbody>
         </table></div>
@@ -439,15 +478,15 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           <ErrorBanner error={deleteFailure} onDismiss={() => setDeleteFailure(null)} />
         </div>
       )}
-      {editing ? (
+      {editing && editing.id === undefined ? (
         <TermEditor
-          key={editing.id ?? 'new'}
+          key="new"
           initial={editing}
           catalogues={catalogues}
           onSave={save}
           onCancel={() => setEditing(null)}
         />
-      ) : !showStart && (
+      ) : !editing && !showStart && (
         <div className="actions">
           <button
             type="button"
