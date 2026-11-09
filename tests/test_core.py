@@ -545,6 +545,20 @@ class TestFilterHallucinatedSegments:
         for count in (0, 1):
             assert filter_hallucinated_segments(segments, min_repeat_count=count) == segments
 
+    def test_a_one_character_answer_said_back_to_back_is_kept_and_flagged(self):
+        segments = [self._seg(i * 0.6, i * 0.6 + 0.6, "有") for i in range(9)]
+        result = filter_hallucinated_segments(segments)
+        assert [s["text"] for s in result] == ["有"] * 9
+        assert all(s.get("flag") == "text_uncertain" for s in result)
+
+    def test_a_lowered_repeat_limit_still_collapses_a_one_character_run(self):
+        segments = [self._seg(i, i + 0.5, "嗯") for i in range(3)]
+        assert filter_hallucinated_segments(segments, min_repeat_count=3) == [segments[0]]
+
+    def test_a_one_character_run_of_ten_is_a_loop(self):
+        segments = [self._seg(i, i + 1, "有。") for i in range(10)]
+        assert filter_hallucinated_segments(segments) == [segments[0]]
+
     def test_repeats_that_differ_only_in_punctuation_collapse(self):
         segments = [self._seg(i, i + 1, text) for i, text in
                     enumerate(["好的。", "好的", "好的！", "好的,"])] + [self._seg(4, 5, "再见")]

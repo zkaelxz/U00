@@ -50,6 +50,13 @@ LOOP_MAX_PHRASE_CHARS = 12
 # A short chant ("no no no no", "Go! Go! Go! Go!", "はい。はい。はい。はい。") is
 # four copies of a 1-3 letter word: real speech. A stuck decoder runs on.
 LOOP_MIN_PHRASE_RUN_CHARS = 12
+# The same bar for separate segments: a one-character answer ("有", "没有") said back to
+# back is ordinary dialogue and Whisper tiles it as one segment per copy, so only a longer
+# run is a stuck decoder. Shorter runs stay and the chatter screen flags them for review.
+# A limit lowered below the default is the user asking for shorter runs to collapse, so it
+# applies to single characters too.
+DEFAULT_REPEAT_COUNT = 4
+REPEAT_MIN_RUN_SINGLE_CHAR = LOOP_MIN_REPEATS_SINGLE_CHAR
 _LOOP_RES = (
     re.compile(r"(.)\1{%d,}" % (LOOP_MIN_REPEATS_SINGLE_CHAR - 1), re.S),
     re.compile(r"(.{2,%d}?)\1{%d,}" % (LOOP_MAX_PHRASE_CHARS, LOOP_MIN_REPEATS_PHRASE - 1), re.S),
@@ -240,7 +247,7 @@ def _without_phrase_loop(seg):
     return {k: v for k, v in seg.items() if k != "words"} | {"text": text}
 
 
-def filter_hallucinated_segments(segments, min_repeat_count: int = 4,
+def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEAT_COUNT,
                                  stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC):
     """
     Whisper is well known to loop a short phrase across MANY separate
@@ -295,7 +302,10 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4,
         while j < n and norm != "" and _norm(segments[j]["text"]) == norm:
             j += 1
         # A count under 2 would collapse every ordinary line; it means "off".
-        if min_repeat_count >= 2 and (j - i) >= min_repeat_count:
+        needed = min_repeat_count
+        if needed >= DEFAULT_REPEAT_COUNT and len(_CJK_CHAR_RE.findall(segments[i]["text"])) == len(norm) == 1:
+            needed = max(needed, REPEAT_MIN_RUN_SINGLE_CHAR)
+        if min_repeat_count >= 2 and (j - i) >= needed:
             out.append(segments[i])
         else:
             out.extend(segments[i:j])
