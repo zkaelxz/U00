@@ -124,7 +124,7 @@ TYPESET_SMALLEST_PX = 8
 TYPESET_COMFORT_PX = 13
 # Space between lines, and between the text and a balloon's outline.
 TYPESET_LINE_GAP_PX = 4
-TYPESET_OUTLINE_MARGIN_PX = 4
+TYPESET_OUTLINE_MARGIN_PX = 2
 
 # --- Cleanup (scanlate_inpaint) ---
 # A balloon whose paper (gray levels, among the lighter half of its pixels)
