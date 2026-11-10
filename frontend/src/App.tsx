@@ -247,10 +247,9 @@ export default function App() {
     if (sourcesOff) window.location.replace(routeHref({ name: 'library' }))
   }, [sourcesOff])
 
-  const profileWait = view === 'app' && !profile.loaded && pcMode === 'unknown'
   const picking = view === 'app' && !!profile.status?.pin_set && !pickedHere
   // The key changes when the page behind these screens appears, so the title is set once <main> exists.
-  useDocumentTitle(mainRef, `${view}:${route.name}:${profileWait || picking ? 'gate' : 'page'}`)
+  useDocumentTitle(mainRef, `${view}:${route.name}:${picking ? 'gate' : 'page'}`)
 
   if (view === 'connecting') {
     return (
@@ -259,14 +258,8 @@ export default function App() {
       </p>
     )
   }
-  if (profileWait) {
-    return (
-      <p className="muted connecting" role="status">
-        Connecting…
-      </p>
-    )
-  }
-  // With a PIN set, every new tab on the PC asks who is using Baihe first.
+  // With a PIN set, every new tab on the PC asks who is using Baihe first. The server is already
+  // on Guest until then, so the lists behind this screen never show a private title.
   if (picking) {
     return (
       <Suspense fallback={null}>
