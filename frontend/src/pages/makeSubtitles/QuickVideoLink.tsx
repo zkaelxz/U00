@@ -14,10 +14,10 @@ import { HelpTip } from '../../components/HelpTip'
 import { withoutExceptionNames } from '../../components/errorMessages'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
-import { engineLabel } from '../../labels'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { QuickVideoRun, QuickVideoSettings, QuickVideoStep } from '../../types/quickVideo'
+import { settingText } from './makeSubtitlesFlow'
 
 const POLL_MS = 3000
 // Eight finished runs pushed the form nearly two screens down on a phone.
@@ -28,9 +28,6 @@ const STEP_NOW: Record<QuickVideoStep, string> = {
 const STEP_NAME: Record<QuickVideoStep, string> = {
   download: 'Download', transcribe: 'Transcribe', translate: 'Translate', export: 'Export',
 }
-
-export const settingText = (r: { label: string; value: string; engine?: string | null }): string =>
-  `${r.label}: ${r.engine ? `${engineLabel(r.engine)}, ` : ''}${r.value}`
 
 export const runText = (run: QuickVideoRun): string =>
   run.state === 'done' ? 'Done'

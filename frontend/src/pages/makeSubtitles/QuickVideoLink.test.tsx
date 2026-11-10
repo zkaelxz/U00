@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { QuickVideoRun } from '../../types/quickVideo'
-import { canDeleteWatched, runText, settingText, visibleRuns } from './QuickVideoLink'
+import { canDeleteWatched, runText, visibleRuns } from './QuickVideoLink'
+import { settingText } from './makeSubtitlesFlow'
 
 const run = (o: Partial<QuickVideoRun>): QuickVideoRun => ({
   drama_id: 1, title: 'T', watch_once: false, state: 'running', step: 'download', reason: null, ...o,
