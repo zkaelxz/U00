@@ -9,9 +9,9 @@ import { toSrt, toText, type SaveContent } from './sessionExport'
 /** Saves every line the page has received, not only the newest ones the feed shows. */
 export function SaveSession({ cues }: { cues: LiveCue[] }) {
   const [content, setContent] = useState<SaveContent>('both')
-  const stamp = new Date().toISOString().slice(0, 10)
   const save = (kind: 'srt' | 'txt') => {
     const body = kind === 'srt' ? toSrt(cues, content) : toText(cues, content)
+    const stamp = new Date().toISOString().slice(0, 10)
     if (body) downloadText(body, `live-session-${stamp}.${kind}`, kind === 'srt' ? 'application/x-subrip' : 'text/plain')
   }
   return (
