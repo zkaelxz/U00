@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { getSeriesPage } from '../../api/series'
-import { getTranscribeConfig, getWorkflowProgress } from '../../api/workspace'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
 import { JobPill } from './JobPill'
@@ -10,6 +9,7 @@ import { routeHref } from '../../router'
 import { ComicChapterList } from './ComicChapterList'
 import { TitleLines, TitleProgress } from './TitleLines'
 import { TitleSteps } from './TitleSteps'
+import { useTitleProgress } from './useTitleProgress'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { episodeRows, type EpisodeInput, type TitleView } from './titleView'
 import './stages/novelChapters.css'
@@ -18,44 +18,11 @@ import './titleLines.css'
 // Audio and video titles in the Simple view: the actions people reach for first and the episodes, with no stepper.
 // The stage routes are unchanged and the Full view is one switch away.
 export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: number; drama: DramaDetail; comic?: boolean; onView: (v: TitleView) => void }) {
-  // Unknown until answered; with no lines yet, the main button starts at Transcribe.
-  const [lineCount, setLineCount] = useState<number | null>(null)
-  const [translatedCount, setTranslatedCount] = useState(0)
-  const [exported, setExported] = useState(false)
-  // Audio or video already attached: only then can one button transcribe.
-  const [audioReady, setAudioReady] = useState(false)
-  const [tick, setTick] = useState(0)
-  // Once started the flow keeps its button even after lines exist, or the progress text would vanish mid-run.
-  const [flowOn, setFlowOn] = useState(false)
+  const { lineCount, translatedCount, exported, audioReady, flowOn, onFlowProgress } = useTitleProgress(id, comic)
   const [siblings, setSiblings] = useState<EpisodeInput[] | null>(null)
   // A series page that has not answered yet must not show this title as the only episode.
   const [seriesDone, setSeriesDone] = useState(false)
   const title = drama.title_en || drama.title_zh || `Title #${id}`
-
-  useEffect(() => {
-    let cancelled = false
-    getWorkflowProgress(id).then(
-      (p) => {
-        if (cancelled) return
-        setLineCount(p.line_count)
-        setTranslatedCount(p.line_count - p.untranslated_count)
-        setExported(p.exported)
-      },
-      () => !cancelled && setLineCount(null),
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [id, tick])
-
-  useEffect(() => {
-    if (comic) return
-    let cancelled = false
-    getTranscribeConfig(id).then((c) => !cancelled && setAudioReady(c.audio_available), () => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [id, comic])
 
   // A title in a series lists its episodes; a failed or missing series page leaves just this title, which is still correct.
   const seriesId = drama.series_id
@@ -123,7 +90,7 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
               translatedCount={translatedCount}
               exported={exported}
               flowOn={flowOn}
-              onFlowProgress={() => { setFlowOn(true); setTick((t) => t + 1) }}
+              onFlowProgress={onFlowProgress}
             />
             <div className="actions">
               <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
