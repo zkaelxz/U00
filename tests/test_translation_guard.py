@@ -480,3 +480,25 @@ class TestEchoedLabel:
         translate_pipeline.translate_lines_with_engine(
             lines, Echo(), NOVEL, batch_size=1, character_names={"c1": "Tong Chu"})
         assert lines[0].en == "He said fine."
+
+
+class TestFirstAlternative:
+    def test_a_list_of_alternatives_is_cut_to_the_first(self):
+        from engine_backends.shared import keep_first_alternative
+        assert keep_first_alternative("Strange. Or: Weird. Or: Odd. Or: Unusual.") == "Strange."
+        assert keep_first_alternative("That's odd! Alternatively: How strange.") == "That's odd!"
+
+    def test_ordinary_dialogue_with_or_is_kept(self):
+        from engine_backends.shared import keep_first_alternative
+        for text in ("Stay or go.", "Is it this? Or that?", "Or: so he said.", "Fine."):
+            assert keep_first_alternative(text) == text
+
+    def test_the_pipeline_saves_only_the_first_alternative(self):
+        lines = [Line(idx=0, start=0, end=1, zh="奇怪", id=301)]
+
+        class Listy(Scripted):
+            def translate_batch(self, zh_lines, context):
+                self.calls.append(list(context["line_ids"]))
+                return ["Strange. Or: Weird. Or: Odd. Or: Unusual."]
+        translate_pipeline.translate_lines_with_engine(lines, Listy(), NOVEL, batch_size=1)
+        assert lines[0].en == "Strange."

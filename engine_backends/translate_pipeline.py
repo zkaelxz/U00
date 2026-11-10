@@ -28,6 +28,7 @@ from .shared import (
     call_with_backoff,
     keep_answers_across_retries,
     is_english_line,
+    keep_first_alternative,
     strip_echoed_label,
     tagged_line_languages,
     redact_secrets,
@@ -524,7 +525,7 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = strip_echoed_label(self.character_names.get(ln.speaker), tr)
+                ln.en = keep_first_alternative(strip_echoed_label(self.character_names.get(ln.speaker), tr))
                 source_change.clear_for_new_english(ln)
                 self.translated.append(ln)
                 fresh.append(ln)
