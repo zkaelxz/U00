@@ -13,3 +13,8 @@
 .title-line { display: grid; gap: var(--space-1); }
 .title-line-orig { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .title-line-en { font-size: var(--text-md); overflow-wrap: anywhere; }
+/* An open step sits in the first column beside the same steps column the title page has, and may shrink below its content. */
+.title-studio-main { min-width: 0; }
+@media (min-width: 900px) {
+  .title-studio-stage .title-studio-side { grid-row: 1; }
+}

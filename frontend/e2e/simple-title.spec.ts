@@ -46,6 +46,8 @@ test('the choice is remembered, and a link that names a stage still opens that s
   // The stage opens on a slim page: no stage tabs, a way back to the title page, and Full brings the tabs back.
   await expect(page.getByRole('link', { name: 'Back to title page' })).toHaveAttribute('href', '#/drama/3')
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  // The steps column stays beside the open stage, as on the title page.
+  await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible()
   await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
 })
@@ -223,19 +225,19 @@ test('with lines the title opens on a progress bar and the first lines, with the
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('Simple stage pages link to the title page and the other stages, so no switching back to Full is needed', async ({ page }) => {
+test('an audio or video Simple stage keeps the title page steps beside it, so no switching back to Full is needed', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 4) }))
   await page.goto('/#/drama/1')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/1/translate')
-  const nav = page.getByRole('navigation', { name: 'Title steps' })
-  await expect(nav.getByRole('link')).toHaveText(['Steps', 'Media', 'Translate', 'Review', 'Export'])
-  await expect(nav.getByRole('link', { name: 'Translate' })).toHaveAttribute('aria-current', 'page')
+  const steps = page.getByRole('list', { name: 'Steps' })
+  await expect(steps.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '#/drama/1/review')
+  await expect(page.getByRole('navigation', { name: 'Title steps' })).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  await nav.getByRole('link', { name: 'Review' }).click()
+  await steps.getByRole('link', { name: 'Review' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/review$/)
-  await expect(page.getByRole('navigation', { name: 'Title steps' }).getByRole('link', { name: 'Review' })).toHaveAttribute('aria-current', 'page')
-  await page.getByRole('navigation', { name: 'Title steps' }).getByRole('link', { name: 'Steps' }).click()
+  await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible()
+  await page.getByRole('link', { name: 'Back to title page' }).click()
   await expect(page).toHaveURL(/#\/drama\/1$/)
 })
 
