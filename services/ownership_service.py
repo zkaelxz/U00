@@ -48,6 +48,7 @@ import sqlite3
 import db
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError)
+from services import pc_profile_service
 
 HOUSEHOLD_SHARE_KEY = "household.share_by_default"
 _DRAMA_IN_SERIES_MESSAGE = "Make the whole series private instead"
@@ -60,9 +61,12 @@ _KINDS = ("drama", "series")
 
 
 def _sees_everything(principal) -> bool:
-    if principal is None:            # auth off
-        return True
-    return bool(principal.get("is_local_owner") or principal.get("is_admin"))
+    if principal is None or principal.get("is_local_owner"):
+        # The PC window on its Guest profile lists only what a member could
+        # see; routes still treat it as the owner (cosmetic hiding, see
+        # docs/remote-access-ownership.md).
+        return not pc_profile_service.guest_active()
+    return bool(principal.get("is_admin"))
 
 
 def may_override(principal) -> bool:

@@ -13,6 +13,10 @@ __all__ = [
     "MonthCounterResetResult",
     "HealthResponse",
     "MetaResponse",
+    "PcProfileStatus",
+    "PcProfileSavedStatus",
+    "PcProfilePinRequest",
+    "PcProfileSetPinRequest",
     "DependencyStatus",
     "FileCompleteness",
     "GpuStatus",
@@ -53,6 +57,28 @@ __all__ = [
 
 class HealthResponse(BaseModel):
     status: str = Field(description="`ok` whenever the server can answer at all.")
+
+
+class PcProfileStatus(BaseModel):
+    pin_set: bool = Field(description="A PIN exists, so the PC window opens on Guest.")
+    guest: bool = Field(description="The PC window is on Guest now: private titles are hidden.")
+
+
+class PcProfileSavedStatus(PcProfileStatus):
+    hidden: int = Field(0, description="How many titles or series were marked private.")
+
+
+class PcProfilePinRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pin: StrictStr = Field(max_length=64)
+
+
+class PcProfileSetPinRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_pin: StrictStr = Field(max_length=64)
+    hide_existing: StrictBool = Field(False, description="Also mark every title and series made "
+                                      "at the PC private.")
+    current_pin: Optional[StrictStr] = Field(None, max_length=64)
 
 
 class MetaResponse(BaseModel):
