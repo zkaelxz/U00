@@ -2,6 +2,7 @@
 // after a reload, and the wording of what is still needed. Pure of React.
 import { engineShortName } from '../../api/translate'
 import type { PreflightRow } from '../preflight/preflightModel'
+import { engineLabel } from '../../labels'
 import { isVideoFile } from '../workspace/sourceForm'
 
 export const STEPS = ['upload', 'transcribe', 'translate', 'export'] as const
@@ -143,3 +144,7 @@ export function blockerText(hasFile: boolean, blockers: PreflightRow[], engine: 
 /** The percent to show for a job's progress (0..1), or null before it reports one. */
 export const percentText = (progress: number | null | undefined): string | null =>
   typeof progress === 'number' ? `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%` : null
+
+/** One row of the One-Click Translate settings, the engine named by its label. */
+export const settingText = (r: { label: string; value: string; engine?: string | null }): string =>
+  `${r.label}: ${r.engine ? `${engineLabel(r.engine)}, ` : ''}${r.value}`
