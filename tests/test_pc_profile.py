@@ -112,13 +112,14 @@ def test_the_pin_is_stored_hashed():
 
 
 def test_routes(client):
-    assert client.get("/api/pc-profile").json() == {"pin_set": False, "guest": False}
+    assert client.get("/api/meta").json()["pc_profile"] == {"pin_set": False, "guest": False}
     r = client.post("/api/pc-profile/pin", json={"new_pin": "432100"})
     assert r.status_code == 200 and r.json() == {"pin_set": True, "guest": False, "hidden": 0}
     assert client.post("/api/pc-profile/lock", headers={"X-Baihe-Local": "1"}).json()["guest"] is True
     assert client.post("/api/pc-profile/unlock", json={"pin": "000000"}).status_code == 403
     assert client.post("/api/pc-profile/unlock", json={"pin": "432100"}).json()["guest"] is False
     assert client.post("/api/pc-profile/clear", json={"pin": "432100"}).json()["pin_set"] is False
+    assert client.get("/api/meta").json()["pc_profile"] == {"pin_set": False, "guest": False}
 
 
 def test_turning_on_can_hide_every_title_made_so_far():
@@ -198,7 +199,9 @@ def test_routes_are_refused_when_sign_in_is_on(isolated_db):
     from api.api_config import ApiSettings
     from api.server import create_app
     app = create_app(ApiSettings(auth_mode="on", serve_frontend=False))
-    assert TestClient(app, raise_server_exceptions=False).get("/api/pc-profile").status_code in (401, 403, 404)
+    c = TestClient(app, raise_server_exceptions=False)
+    assert c.post("/api/pc-profile/lock", headers={"X-Baihe-Local": "1"}).status_code in (401, 403, 404)
+    assert c.get("/api/meta").json().get("pc_profile") is None
 
 
 def test_guest_changes_nothing_for_signed_in_people_on_the_household_listener():

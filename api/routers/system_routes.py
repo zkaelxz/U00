@@ -37,8 +37,12 @@ def meta(request: Request):
     settings = request.app.state.settings
     # Public, so the household listener doesn't tell other devices its mode.
     environment = "" if getattr(settings, "is_household", True) else settings.environment
+    # Only the PC window with sign-in off has profiles; anywhere else the
+    # field stays null so a remote device learns nothing about the PIN.
+    profile = (PcProfileStatus(**pc_profile_service.status())
+               if local and not is_auth_enabled(request.app) else None)
     return MetaResponse(app="Baihe Studio", api_version=API_VERSION,
-                        environment=environment, local=local,
+                        environment=environment, local=local, pc_profile=profile,
                         features=features.status(settings.features_off))
 
 
@@ -60,12 +64,6 @@ def _profiles_available(request: Request):
     # sign-in-off PC window (the installer sets BAIHE_API_AUTH=off).
     if is_auth_enabled(request.app):
         raise NotFoundError("Not found.")
-
-
-@router.get("/pc-profile", dependencies=[local_only(), Depends(_profiles_available)], response_model=PcProfileStatus,
-            summary="Which profile the PC window is on")
-def pc_profile_status():
-    return PcProfileStatus(**pc_profile_service.status())
 
 
 @router.post("/pc-profile/unlock", dependencies=[local_only(), Depends(_profiles_available)], response_model=PcProfileStatus,

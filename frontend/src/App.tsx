@@ -227,7 +227,7 @@ export default function App() {
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const features = useFeatures()
-  const profile = usePcProfile(pcMode, view === 'app')
+  const profile = usePcProfile()
   const [pickedHere, setPickedHere] = useState(profilePicked)
   const [hidden] = useHiddenNav(session)
   const [storedMode, storeMode] = usePersistedState<string>(VIEW_MODE_PREF, '')
@@ -247,7 +247,10 @@ export default function App() {
     if (sourcesOff) window.location.replace(routeHref({ name: 'library' }))
   }, [sourcesOff])
 
-  useDocumentTitle(mainRef, `${view}:${route.name}`)
+  const profileWait = view === 'app' && !profile.loaded && pcMode === 'unknown'
+  const picking = view === 'app' && !!profile.status?.pin_set && !pickedHere
+  // The key changes when the page behind these screens appears, so the title is set once <main> exists.
+  useDocumentTitle(mainRef, `${view}:${route.name}:${profileWait || picking ? 'gate' : 'page'}`)
 
   if (view === 'connecting') {
     return (
@@ -256,7 +259,7 @@ export default function App() {
       </p>
     )
   }
-  if (view === 'app' && !profile.loaded) {
+  if (profileWait) {
     return (
       <p className="muted connecting" role="status">
         Connecting…
@@ -264,10 +267,10 @@ export default function App() {
     )
   }
   // With a PIN set, every new tab on the PC asks who is using Baihe first.
-  if (view === 'app' && profile.status?.pin_set && !pickedHere) {
+  if (picking) {
     return (
       <Suspense fallback={null}>
-        <PcProfilePicker onDone={() => { setPickedHere(true); void profile.refresh().then(() => window.location.reload()) }} />
+        <PcProfilePicker onDone={() => { setPickedHere(true); window.location.reload() }} />
       </Suspense>
     )
   }

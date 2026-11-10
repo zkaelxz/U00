@@ -3,20 +3,22 @@
  * leaves private titles out of every list until the Owner enters the PIN.
  * It hides titles from view, it does not lock the files or the data.
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
+import { setPcProfileStatus } from '../../api/pcOnly'
 import {
-  clearPcProfilePin, getPcProfile, PIN_HINT, setPcProfilePin, validPin, type PcProfileStatus,
+  clearPcProfilePin, PIN_HINT, setPcProfilePin, validPin, type PcProfileStatus,
 } from '../../api/pcProfile'
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
+import { usePcProfile } from '../../hooks/usePcProfile'
 
 export const PC_PROFILE_TITLE = 'PC profiles'
 
 export function PcProfileCard() {
-  const [status, setStatus] = useState<PcProfileStatus | null>(null)
+  const { status } = usePcProfile()
   const [error, setError] = useState<unknown>(null)
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -25,10 +27,7 @@ export function PcProfileCard() {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
-  useEffect(() => {
-    getPcProfile().then(setStatus, () => setStatus(null))
-  }, [])
-  // Not the PC, or an older server: nothing to offer.
+  // Not the PC window with sign-in off, or an older server: nothing to offer.
   if (!status) return null
 
   const run = async (work: () => Promise<PcProfileStatus & { hidden?: number }>, done: (r: { hidden?: number }) => string) => {
@@ -37,7 +36,7 @@ export function PcProfileCard() {
     setError(null)
     try {
       const result = await work()
-      setStatus(result)
+      setPcProfileStatus({ pin_set: result.pin_set, guest: result.guest })
       setCurrent('')
       setNext('')
       setTouched(false)

@@ -6648,23 +6648,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/pc-profile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Which profile the PC window is on */
-        get: operations["pc_profile_status_api_pc_profile_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/pc-profile/clear": {
         parameters: {
             query?: never;
@@ -21677,6 +21660,8 @@ export interface components {
              * @description True when this request would pass a PC-only (local_only) route: the viewer is at the PC. A UI hint only; those routes still enforce it.
              */
             local: boolean;
+            /** @description The PC window's Owner/Guest state; null unless this request is the PC window with sign-in off (the only place profiles apply). */
+            pc_profile: components["schemas"]["PcProfileStatus"] | null;
         };
         /** ModelCandidate */
         ModelCandidate: {
@@ -49775,26 +49760,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LncrawlStatus"];
-                };
-            };
-        };
-    };
-    pc_profile_status_api_pc_profile_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PcProfileStatus"];
                 };
             };
         };
