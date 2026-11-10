@@ -60,6 +60,8 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
     # setting is kept by type, so a new one is covered without being listed here.
     # "jellyfin", "comic_save" and "web_search" are those services' SETTING keys.
     "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.on_at",
+    # This PC window's Guest PIN belongs to the PC, not to the library a backup came from.
+    "pc_profile_pin", "pc_profile_pin.blocked_until",
     *(setting.store_key for setting in settings_schema.SETTINGS
       if setting.store == "db" and setting.type == "path"),
     *(settings_schema.BY_KEY[key].store_key for key in ("cookies_browser", "max_upload_mb")))

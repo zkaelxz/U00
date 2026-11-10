@@ -21,7 +21,7 @@ export function PcProfileCard() {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [touched, setTouched] = useState(false)
-  const [hideAll, setHideAll] = useState(true)
+  const [hideAll, setHideAll] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
@@ -66,7 +66,7 @@ export function PcProfileCard() {
       <div className="settings-group" data-testid="pc-profile">
         <p className="settings-note">
           Set a PIN and this PC opens on Guest, which leaves out every title you marked private.
-          Choose Owner and enter the PIN to see them again. This hides titles from view; it does not lock the files.
+          Choose Owner and enter the PIN to see them again. This hides titles from view; it does not lock the files, and Guest keeps the owner's other powers. Only for this PC window with sign-in off.
         </p>
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {guest ? (
@@ -87,7 +87,7 @@ export function PcProfileCard() {
             {!status.pin_set && (
               <label className="checkbox-row">
                 <input type="checkbox" checked={hideAll} onChange={(e) => setHideAll(e.target.checked)} />
-                Also hide all my current titles from Guest
+                Also mark all my current titles private (household members stop seeing them too)
               </label>
             )}
             <div className="settings-actions">

@@ -11,24 +11,24 @@ function stubFetch(body: unknown) {
 }
 
 describe('pc profile api', () => {
-  it('accepts only 4 to 12 ASCII digits as a PIN', () => {
-    for (const ok of ['1234', '123456789012']) expect(validPin(ok)).toBe(true)
-    for (const bad of ['', '123', 'abcd', '12 34', '1234567890123']) expect(validPin(bad)).toBe(false)
+  it('accepts only 6 to 12 ASCII digits as a PIN', () => {
+    for (const ok of ['123456', '123456789012']) expect(validPin(ok)).toBe(true)
+    for (const bad of ['', '12345', 'abcdef', '12 3456', '1234567890123']) expect(validPin(bad)).toBe(false)
   })
 
   it('sends the PIN in the body of a PC-only POST, never in the URL', async () => {
     const f = stubFetch({ pin_set: true, guest: false })
-    await unlockPcProfile('4321')
+    await unlockPcProfile('432100')
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('/api/pc-profile/unlock')
-    expect(JSON.parse(String(init.body))).toEqual({ pin: '4321' })
+    expect(JSON.parse(String(init.body))).toEqual({ pin: '432100' })
     expect(new Headers(init.headers).get('X-Baihe-Local')).toBe('1')
   })
 
   it('sends the current PIN only when there is one', async () => {
     const f = stubFetch({ pin_set: true, guest: false })
-    await setPcProfilePin('1111')
+    await setPcProfilePin('111111')
     const [, init] = f.mock.calls[0] as unknown as [string, RequestInit]
-    expect(JSON.parse(String(init.body))).toEqual({ new_pin: '1111', current_pin: null, hide_existing: false })
+    expect(JSON.parse(String(init.body))).toEqual({ new_pin: '111111', current_pin: null, hide_existing: false })
   })
 })

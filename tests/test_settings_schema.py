@@ -27,6 +27,7 @@ STATE_KEYS = {
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
     "pc_profile_pin": "salted hash of the PC window profile PIN, set on the PC-profiles card (services/pc_profile_service.py), never shown",
+    "pc_profile_pin.blocked_until": "wall-clock end of the PC window PIN pause, so a restart does not reset it (services/pc_profile_service.py)",
     "quick_video.profile_id": "the profile Quick video translate uses, chosen in Settings (services/quick_video_service.py)",
     "quick_video.runs": "recent Quick video translate runs and the watch-once titles to remove (services/quick_video_service.py)",
     "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",

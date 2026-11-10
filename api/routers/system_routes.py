@@ -12,7 +12,7 @@ with a one-time token (services/shutdown_service.py); otherwise it is a 404.
 
 from typing import Optional
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Depends, Header, Request
 from api.auth import is_auth_enabled, is_local_request, local_only, public_route
 from api.schemas import (API_VERSION, HealthResponse, MetaResponse, PcProfilePinRequest,
                          PcProfileSavedStatus, PcProfileSetPinRequest, PcProfileStatus, ShutdownResponse)
@@ -54,32 +54,40 @@ def shutdown(x_baihe_shutdown_token: Optional[str] = Header(default=None)):
     return ShutdownResponse(**shutdown_service.request_shutdown())
 
 
-@router.get("/pc-profile", dependencies=[local_only()], response_model=PcProfileStatus,
+def _profiles_available(request: Request):
+    # With single-port sign-in the PC owner is a signed-in account and Guest
+    # would hide nothing, so the feature is offered only to the .exe's
+    # sign-in-off PC window (the installer sets BAIHE_API_AUTH=off).
+    if is_auth_enabled(request.app):
+        raise NotFoundError("Not found.")
+
+
+@router.get("/pc-profile", dependencies=[local_only(), Depends(_profiles_available)], response_model=PcProfileStatus,
             summary="Which profile the PC window is on")
 def pc_profile_status():
     return PcProfileStatus(**pc_profile_service.status())
 
 
-@router.post("/pc-profile/unlock", dependencies=[local_only()], response_model=PcProfileStatus,
+@router.post("/pc-profile/unlock", dependencies=[local_only(), Depends(_profiles_available)], response_model=PcProfileStatus,
              summary="Switch the PC window to Kae with the PIN")
 def pc_profile_unlock(body: PcProfilePinRequest):
     return PcProfileStatus(**pc_profile_service.unlock(body.pin))
 
 
-@router.post("/pc-profile/lock", dependencies=[local_only()], response_model=PcProfileStatus,
+@router.post("/pc-profile/lock", dependencies=[local_only(), Depends(_profiles_available)], response_model=PcProfileStatus,
              summary="Switch the PC window back to Guest")
 def pc_profile_lock():
     return PcProfileStatus(**pc_profile_service.lock())
 
 
-@router.post("/pc-profile/pin", dependencies=[local_only()], response_model=PcProfileSavedStatus,
+@router.post("/pc-profile/pin", dependencies=[local_only(), Depends(_profiles_available)], response_model=PcProfileSavedStatus,
             summary="Set or change the profile PIN")
 def pc_profile_set_pin(body: PcProfileSetPinRequest):
     return PcProfileSavedStatus(**pc_profile_service.set_pin(
         body.new_pin, body.current_pin, body.hide_existing))
 
 
-@router.post("/pc-profile/clear", dependencies=[local_only()], response_model=PcProfileStatus,
+@router.post("/pc-profile/clear", dependencies=[local_only(), Depends(_profiles_available)], response_model=PcProfileStatus,
              summary="Turn profiles off (needs the PIN)")
 def pc_profile_clear(body: PcProfilePinRequest):
     return PcProfileStatus(**pc_profile_service.clear_pin(body.pin))

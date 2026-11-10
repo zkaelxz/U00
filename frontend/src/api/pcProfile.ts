@@ -44,6 +44,6 @@ export function rememberProfilePicked(picked: boolean): void {
 }
 
 export function validPin(pin: string): boolean {
-  return /^[0-9]{4,12}$/.test(pin)
+  return /^[0-9]{6,12}$/.test(pin)
 }
-export const PIN_HINT = 'Use 4 to 12 digits.'
+export const PIN_HINT = 'Use 6 to 12 digits.'
