@@ -400,12 +400,29 @@ def _put_back(old_dir, library_dir: str, failed_dir: str | None = None) -> None:
     from lib.errors import ServiceError
     try:
         if failed_dir:
-            os.rename(library_dir, failed_dir)
+            _rename_dir(library_dir, failed_dir)
         if old_dir:
             os.rename(old_dir, library_dir)
     except OSError as e:
         logging.getLogger(__name__).exception("Restore: the previous library was not put back")
         raise ServiceError(RESTORE_NOT_PUT_BACK) from e
+
+
+def _rename_dir(src: str, dst: str, attempts: int = 5) -> None:
+    """os.rename for the live library folder. Windows refuses (PermissionError)
+    while a file inside is open, and the app's own log file is one: it is
+    closed first, and the rename retried because another thread logging in
+    between reopens it."""
+    import applog
+    for attempt in range(attempts):
+        applog.release_log_file()
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.2)
 
 
 def _remove_entry(path: str):
@@ -496,7 +513,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             old_dir = None
             if os.path.exists(library_dir):
                 old_dir = f"{library_dir}{db.PRE_RESTORE_MARKER}{int(time.time())}"
-                os.rename(library_dir, old_dir)
+                _rename_dir(library_dir, old_dir)
             try:
                 os.rename(staging_dir, library_dir)
             except Exception:
