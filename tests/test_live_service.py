@@ -111,6 +111,27 @@ def test_bad_options_rejected(live, kw):
         _start(**kw)
 
 
+def test_the_japanese_model_is_for_japanese_streams_only(live):
+    seen = []
+    live_translate_run = live_translate.run_live_job
+    try:
+        live_translate.run_live_job = lambda job_id, url, out_dir, seg, lang, size, *a, **k: seen.append((lang, size))
+        sid = _start(whisper_size="ja-1.5b", source_language="ja")
+        assert _terminal(sid)
+    finally:
+        live_translate.run_live_job = live_translate_run
+    assert seen == [("ja", "ja-1.5b")]
+    for language in ("zh", "ko"):
+        with pytest.raises(InvalidInputError, match="Japanese"):
+            _start(whisper_size="ja-1.5b", source_language=language)
+
+
+def test_form_options_carry_the_language_rules():
+    options = live_service.form_options()
+    assert "ja-1.5b" in options["whisper_sizes"]
+    assert set(options["whisper_exclusions"]["ja-1.5b"]) == {"zh", "ko"}
+
+
 def test_missing_key_is_dependency_error(live, monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: None)
     with pytest.raises(DependencyUnavailableError):

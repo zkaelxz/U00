@@ -83,6 +83,7 @@ def test_whisper_cache_flags_cover_each_live_size(monkeypatch, bare_pc):
     assert {k: v for k, v in body.items() if k.startswith("whisper_cached_")} == {
         "whisper_cached_tiny": False, "whisper_cached_base": False, "whisper_cached_small": True,
         "whisper_cached_medium": False, "whisper_cached_large_v3_turbo": True, "whisper_cached_large_v3": False,
+        "whisper_cached_ja_15b": False,
     }
     assert {svc.whisper_cached_flag(s) for s in whisper_models.LIVE_WHISPER_SIZES} <= set(body)
 
@@ -237,3 +238,10 @@ def test_route_fields_match_the_service(isolated_db, bare_pc):
     client = TestClient(_app(), base_url=REMOTE, raise_server_exceptions=False)
     r = client.get("/api/setup/readiness", headers=_headers(_member()))
     assert set(r.json()) == set(svc.get_readiness())
+
+
+def test_the_japanese_live_model_has_a_valid_cached_flag():
+    from api.schemas import SetupReadiness
+    flag = svc.whisper_cached_flag("ja-1.5b")
+    assert flag == "whisper_cached_ja_15b"
+    assert flag in SetupReadiness.model_fields

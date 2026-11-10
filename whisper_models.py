@@ -98,7 +98,7 @@ class LanguageRule:
 # fits every language. An exclusion needs evidence in docs/asr-experiments.md, so a model
 # the docs do not show to be worse for a language stays selectable there. Adding a model
 # (an anime-whisper, say) is one WHISPER_MODELS label plus, if it is language-bound, one
-# entry here. Live's own list (LIVE_WHISPER_SIZES) is separate and not gated by this.
+# entry here. Live offers its own list (LIVE_WHISPER_SIZES) but Start applies these rules too.
 WHISPER_LANGUAGE_RULES = {
     # "medium about 1.9 points worse" than turbo on Japanese, and slower (RTF 0.84 vs 0.56).
     # Korean and Chinese showed no clear gap, so it stays selectable there.
@@ -150,7 +150,9 @@ def whisper_language_exclusions() -> dict:
 # Live's choices. small stays its default: Live has to keep up with the stream
 # on a CPU, and turbo takes about 1.5x small's time on the repo's CPU test.
 # large-v3 is for a GPU: it ran 0.4-1.4 s per 8-20 s chunk on an RTX 4080.
-LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3")
+# ja-1.5b is last and Japanese-only (WHISPER_LANGUAGE_RULES): it scored best on Japanese read
+# speech (docs/asr-experiments.md), but needs a GPU to keep up.
+LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3", "ja-1.5b")
 
 
 

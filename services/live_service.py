@@ -190,6 +190,7 @@ def form_options() -> dict:
     return {
         "languages": [{"code": c, "label": LANGUAGE_NAMES[c]} for c in SOURCE_LANGUAGES],
         "whisper_sizes": list(WHISPER_SIZES),
+        "whisper_exclusions": whisper_models.whisper_language_exclusions(),
         "segment_range": list(SEGMENT_RANGE),
         "overlap_range": list(OVERLAP_RANGE),
         "max_minutes_range": list(MAX_MINUTES_RANGE),
@@ -442,6 +443,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         raise InvalidInputError(f"source_language must be one of {', '.join(SOURCE_LANGUAGES)}.")
     if whisper_size not in WHISPER_SIZES:
         raise InvalidInputError(f"whisper_size must be one of {', '.join(WHISPER_SIZES)}.")
+    language_problem = whisper_models.whisper_model_language_problem(whisper_size, source_language)
+    if language_problem:
+        raise InvalidInputError(language_problem)
     segment_seconds = int(_num("segment_seconds", segment_seconds, *SEGMENT_RANGE))
     overlap_seconds = _num("overlap_seconds", overlap_seconds, *OVERLAP_RANGE)
     overlap_seconds = min(overlap_seconds, segment_seconds / 2)
