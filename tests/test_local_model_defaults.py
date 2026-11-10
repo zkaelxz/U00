@@ -145,7 +145,7 @@ class TestGemma4Models:
         assert not any(t.startswith("gemma4:e") for t in engine_local.OLLAMA_MODELS)
 
     def test_default_and_existing_choices_are_unchanged(self):
-        assert list(engine_local.OLLAMA_MODELS) == ["gemma4:12b", "gemma4:26b"]
+        assert list(engine_local.OLLAMA_MODELS) == ["gemma4:12b", "gemma4:26b", "translategemma:12b"]
         assert engine_local.OllamaEngine().model == "gemma4:12b"
 
     def test_service_lists_the_tags_for_the_picker(self, isolated_db):
