@@ -328,12 +328,14 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
 
 
 def glossary_csv(drama_id: int) -> str:
-    """"Export glossary as CSV": the
-    series glossary as CSV text; just the header row when there is none.
-    A cell that a spreadsheet would run as a formula is prefixed with '."""
+    """"Export glossary as CSV": the series glossary as CSV text, with the
+    shared group's terms folded in (the series' own term wins on the same
+    original), so one file carries everything the series translates with;
+    just the header row when there is none. A cell that a spreadsheet would
+    run as a formula is prefixed with '."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
-    terms = db.list_glossary_terms(sid) if sid else []
+    terms = db.list_effective_glossary_terms(sid) if sid else []
     return glossary_to_csv([{k: _csv_safe(v) for k, v in t.items()} for t in terms])
 
 
