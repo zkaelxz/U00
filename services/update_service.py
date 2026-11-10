@@ -289,10 +289,11 @@ def _read_capped(resp, cap) -> bytes:
                                    make_deadline_error=_too_slow)
 
 
-def read_small(url, cap) -> bytes:
+def read_small(url, cap, accept="application/octet-stream") -> bytes:
     """A small GitHub API answer or text asset, for callers outside this module
-    that need the same host allowlist, redirect checks and size cap."""
-    return _read_capped(_open(url, API_HOSTS | DOWNLOAD_HOSTS, "application/octet-stream"), cap)
+    that need the same host allowlist, redirect checks and size cap. The API's JSON
+    endpoints answer HTTP 415 to the default asset Accept, so they pass their own."""
+    return _read_capped(_open(url, API_HOSTS | DOWNLOAD_HOSTS, accept), cap)
 
 
 def copy_problem(exc):

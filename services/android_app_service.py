@@ -70,7 +70,8 @@ def fetch_latest() -> dict:
         repo = gh.releases_repo()
         try:
             release = json.loads(gh.read_small(
-                f"https://api.github.com/repos/{repo}/releases/tags/{RELEASE_TAG}", _MAX_RELEASE_JSON_BYTES))
+                f"https://api.github.com/repos/{repo}/releases/tags/{RELEASE_TAG}", _MAX_RELEASE_JSON_BYTES,
+                accept="application/vnd.github+json"))
         except ServiceError as exc:
             if getattr(exc, "details", None) == {"http_status": 404}:
                 raise NotFoundError("No phone-app build has been published yet. On GitHub, open "
