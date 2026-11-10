@@ -6648,6 +6648,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pc-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which profile the PC window is on */
+        get: operations["pc_profile_status_api_pc_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pc-profile/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn profiles off (needs the PIN) */
+        post: operations["pc_profile_clear_api_pc_profile_clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pc-profile/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch the PC window back to Guest */
+        post: operations["pc_profile_lock_api_pc_profile_lock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pc-profile/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set or change the profile PIN */
+        post: operations["pc_profile_set_pin_api_pc_profile_pin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pc-profile/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch the PC window to Kae with the PIN */
+        post: operations["pc_profile_unlock_api_pc_profile_unlock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue": {
         parameters: {
             query?: never;
@@ -22384,6 +22469,56 @@ export interface components {
             size_bytes: number;
             /** Vram Bytes */
             vram_bytes: number;
+        };
+        /** PcProfilePinRequest */
+        PcProfilePinRequest: {
+            /** Pin */
+            pin: string;
+        };
+        /** PcProfileSavedStatus */
+        PcProfileSavedStatus: {
+            /**
+             * Guest
+             * @description The PC window is on Guest now: private titles are hidden.
+             */
+            guest: boolean;
+            /**
+             * Hidden
+             * @description How many titles or series were marked private.
+             * @default 0
+             */
+            hidden: number;
+            /**
+             * Pin Set
+             * @description A PIN exists, so the PC window opens on Guest.
+             */
+            pin_set: boolean;
+        };
+        /** PcProfileSetPinRequest */
+        PcProfileSetPinRequest: {
+            /** Current Pin */
+            current_pin?: string | null;
+            /**
+             * Hide Existing
+             * @description Also mark every title and series made at the PC private.
+             * @default false
+             */
+            hide_existing?: boolean;
+            /** New Pin */
+            new_pin: string;
+        };
+        /** PcProfileStatus */
+        PcProfileStatus: {
+            /**
+             * Guest
+             * @description The PC window is on Guest now: private titles are hidden.
+             */
+            guest: boolean;
+            /**
+             * Pin Set
+             * @description A PIN exists, so the PC window opens on Guest.
+             */
+            pin_set: boolean;
         };
         /** PendingInstallChange */
         PendingInstallChange: {
@@ -49640,6 +49775,145 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LncrawlStatus"];
+                };
+            };
+        };
+    };
+    pc_profile_status_api_pc_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileStatus"];
+                };
+            };
+        };
+    };
+    pc_profile_clear_api_pc_profile_clear_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PcProfilePinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pc_profile_lock_api_pc_profile_lock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileStatus"];
+                };
+            };
+        };
+    };
+    pc_profile_set_pin_api_pc_profile_pin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PcProfileSetPinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileSavedStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pc_profile_unlock_api_pc_profile_unlock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PcProfilePinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
