@@ -562,6 +562,13 @@ class TestModelOverrides:
         item = self._default_item("deepseek")
         assert item["candidates"] == ["deepseek-v4-pro"]
 
+    def test_ollama_default_can_be_switched_to_another_picker_model(self, isolated_db):
+        item = self._default_item("ollama")
+        assert item["candidates"] == ["gemma4:26b", "translategemma:12b"]
+        svc.set_model_override("default", "ollama", item["model"], "translategemma:12b")
+        assert engine_registry.get_engine("ollama", None).model == "translategemma:12b"
+
+
 def test_an_oversized_model_list_is_refused(monkeypatch):
 
     class Big(FakeResp):
