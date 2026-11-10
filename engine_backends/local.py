@@ -97,7 +97,7 @@ def _refuses_schema(exc) -> bool:
 
 
 # Local Ollama models offered in the picker. gemma4:12b is the default: it fits
-# a 12 GB GPU fully, while the 26b tag offloads to the CPU and run slower.
+# a 12 GB GPU fully, while the 26b tag offloads to the CPU and runs slower.
 # A title or preset that saved another tag (an old Qwen one, say) keeps it and
 # still runs if Ollama has it; it is just no longer offered here.
 OLLAMA_DEFAULT_MODEL = "gemma4:12b"
@@ -106,6 +106,7 @@ OLLAMA_DEFAULT_MODEL = "gemma4:12b"
 OLLAMA_MODELS = {
     "gemma4:12b": "Gemma 4 12B -- recommended default, about 8 GB, fits fully on a 12 GB GPU; too big for 8 GB",
     "gemma4:26b": "Gemma 4 26B (MoE) -- about 16-19 GB, won't fit a 12 GB GPU; offloads to the CPU and runs slower",
+    "translategemma:12b": "TranslateGemma 12B -- translation-only model, suggested for Japanese and Korean, about 8 GB",
 }
 
 

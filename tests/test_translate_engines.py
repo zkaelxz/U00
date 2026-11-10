@@ -1754,7 +1754,7 @@ class TestFreeEngineLabelling:
 
     def test_note_models_match_the_model_lists(self):
         assert "claude-sonnet-5-5" in engine_pricing.CLAUDE_MODELS and "claude-opus-5-5" in engine_pricing.CLAUDE_MODELS
-        assert all(m.startswith("gemma4") for m in engine_local.OLLAMA_MODELS)
+        assert all(m.startswith(("gemma4", "translategemma")) for m in engine_local.OLLAMA_MODELS)
 
     def test_gemini_label_is_plain_by_default(self):
         assert engine_registry.engine_picker_label("gemini") == engine_registry.ENGINE_NOTES["gemini"]
