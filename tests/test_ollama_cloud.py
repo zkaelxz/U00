@@ -174,8 +174,8 @@ def test_gpu_seam_skips_cloud_only():
     assert not engine_local.ollama_touches_local_gpu("claude", "claude-sonnet-5-5")
 
 
-def test_cost_is_zero_not_a_made_up_price():
-    engine = engine_local.OllamaEngine(model=CLOUD)
+def test_local_model_costs_nothing():
+    engine = engine_local.OllamaEngine(model="gemma4:12b")
     assert pricing.estimate_cost_for_engine(engine, 100_000, 50_000) == 0.0
 
 
@@ -278,3 +278,9 @@ def test_cloud_tag_gate_unit():
         api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", "gemma4:12b"), ("claude", None))
     with patch.object(api_auth, "holds", return_value=True):
         api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))
+
+
+def test_cloud_models_are_priced_so_the_spend_cap_counts_them():
+    for tag in engine_local.OLLAMA_CLOUD_MODELS:
+        assert pricing.estimate_cost(tag, 1_000_000, 1_000_000) == pytest.approx(0.54)
+    assert pricing.estimate_cost("gemma4:12b", 1_000_000, 1_000_000) == 0.0
