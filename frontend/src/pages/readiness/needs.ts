@@ -316,6 +316,15 @@ export function liveWhisperSize(r: SetupReadiness | null, size: string, atMainPc
   return { reason: null, download: true }
 }
 
+/** The note after a Live Whisper size in the picker. A size excluded for the title's language says so
+ *  generally: the exclusion can be either way (ja-1.5b is Japanese only, medium is not recommended
+ *  for Japanese), so the full reason is shown under the picker instead. */
+export function liveWhisperOptionNote(wrongLanguage: boolean, size: { reason: string | null; download: boolean }): string {
+  if (wrongLanguage) return ' (not for this language)'
+  if (size.reason) return ' (not available)'
+  return size.download ? ' (downloads first)' : ''
+}
+
 /** Looking up a page's words splits it into words first: Chinese through jieba, Japanese through Sudachi, Korean through Kiwi. */
 export function wordSplitterNeed(r: SetupReadiness | null, language: string): Need | null {
   if (!r) return null
