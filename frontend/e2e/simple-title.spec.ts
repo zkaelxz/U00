@@ -260,3 +260,16 @@ test('Simple Review keeps Check and Fix and the Replace button; Full keeps every
   for (const name of ['Compact rows', 'Shortcuts']) await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
   await expect(page.getByLabel('Go to line number')).toBeVisible()
 })
+
+test('Simple Transcribe leaves the Advanced options out and Full keeps them', async ({ page }) => {
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+  await page.goto('/#/drama/1/source?tab=transcribe')
+  await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Advanced options' })).toHaveCount(0)
+
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
+  await page.goto('/#/drama/1/source?tab=transcribe')
+  await expect(page.getByRole('heading', { name: 'Advanced options' })).toBeVisible()
+})

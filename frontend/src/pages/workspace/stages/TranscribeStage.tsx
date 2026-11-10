@@ -46,7 +46,7 @@ import { PreflightCard } from '../../preflight/PreflightCard'
 import { NeedRows, type ListedNeed } from '../../readiness/NeedRows'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
 import { QWEN3_BACKENDS, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
-import { useStage } from '../StageContext'
+import { useSimple, useStage } from '../StageContext'
 import type { MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { AutoTune } from './AutoTune'
@@ -120,6 +120,7 @@ export default function TranscribeStage({
   tab, goTab, transcriptMode, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, showRawNovel = true, onJobStarted, onSendFailed, retryRef,
 }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
+  const simple = useSimple()
   const developerMode = useDeveloperMode()
   const pc = usePcOnly()
   const { readiness, refresh: refreshReadiness } = useReadiness()
@@ -685,7 +686,8 @@ export default function TranscribeStage({
         )}
       </MediaTabPanel>
       <MediaTabPanel id="tools" shownOn="transcribe" active={tab}>
-        {cf && (
+        {/* Simple leaves the tuning out, but a highlighted field must stay reachable. */}
+        {cf && !(simple && !fieldProblem) && (
           <TranscribeAdvanced
             dramaId={dramaId}
             cf={cf}
