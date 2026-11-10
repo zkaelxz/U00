@@ -332,6 +332,10 @@ def _candidates(engine: str, current: str, replacement) -> list:
     listed = (_cached_check().get("engines") or {}).get(engine) or {}
     pool = [replacement] + sorted(m for m in (listed.get("models") or []) if isinstance(m, str)) \
         if listed.get("ok") else [replacement]
+    if engine == "ollama":
+        # Ollama has no provider check, so its picker is the only list: without it
+        # an owner whose PC can't run the default has nothing to switch to.
+        pool += list(local.OLLAMA_MODELS)
     out = []
     for m in pool:
         if m and m != current and m not in out and _override_error(engine, m) is None:
