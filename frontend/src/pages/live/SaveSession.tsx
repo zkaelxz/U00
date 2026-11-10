@@ -4,7 +4,7 @@ import { downloadText } from '../../components/downloadBlob'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { LiveCue } from '../../types/live'
-import { toSrt, toText, type SaveContent } from './saveSession'
+import { toSrt, toText, type SaveContent } from './sessionExport'
 
 /** Saves every line the page has received, not only the newest ones the feed shows. */
 export function SaveSession({ cues }: { cues: LiveCue[] }) {

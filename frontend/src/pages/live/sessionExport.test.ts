@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { LiveCue } from '../../types/live'
-import { toSrt, toText } from './saveSession'
+import { toSrt, toText } from './sessionExport'
 
 const cue = (id: number, start: number, end: number, translation: LiveCue['translation'] = 'done', translated = `en${id}`): LiveCue =>
   ({ id, start, end, text: `src${id}`, translated, translation })
