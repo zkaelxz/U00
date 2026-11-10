@@ -1,3 +1,4 @@
+import { seedLines } from './compareSelectedHelpers'
 import { expect, test } from './fixtures'
 
 // Audio and video titles have a Simple view (#/drama/1, no stage) beside today's workspace; the choice is
@@ -220,4 +221,42 @@ test('with lines the title opens on a progress bar and the first lines, with the
   const first = (await lines.boundingBox())!
   expect(steps.x).toBeGreaterThan(first.x + first.width - 1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('Simple stage pages link to the title page and the other stages, so no switching back to Full is needed', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 4) }))
+  await page.goto('/#/drama/1')
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+  await page.goto('/#/drama/1/translate')
+  const nav = page.getByRole('navigation', { name: 'Title steps' })
+  await expect(nav.getByRole('link')).toHaveText(['Steps', 'Media', 'Translate', 'Review', 'Export'])
+  await expect(nav.getByRole('link', { name: 'Translate' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  await nav.getByRole('link', { name: 'Review' }).click()
+  await expect(page).toHaveURL(/#\/drama\/1\/review$/)
+  await expect(page.getByRole('navigation', { name: 'Title steps' }).getByRole('link', { name: 'Review' })).toHaveAttribute('aria-current', 'page')
+  await page.getByRole('navigation', { name: 'Title steps' }).getByRole('link', { name: 'Steps' }).click()
+  await expect(page).toHaveURL(/#\/drama\/1$/)
+})
+
+test('Simple Review keeps Check and Fix and the Replace button; Full keeps every tool tab and the row-density, Go to and Shortcuts controls', async ({ page }) => {
+  seedLines(3)
+  await page.goto('/#/drama/3')
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+  await page.goto('/#/drama/3/review')
+  const tabs = page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')
+  await expect(tabs).toHaveText(['Check', 'Fix'])
+  await expect(page.getByRole('button', { name: 'Replace…' })).toBeVisible()
+  for (const name of ['Compact rows', 'Shortcuts']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Go to line number')).toHaveCount(0)
+  // A link naming a tool that Simple leaves out opens Check instead of an empty page.
+  await page.goto('/#/drama/3/review?tools=history')
+  await expect(page.getByRole('tab', { name: 'Check' })).toHaveAttribute('aria-selected', 'true')
+
+  await page.goto('/#/drama/3')
+  await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
+  await page.goto('/#/drama/3/review')
+  await expect(tabs).toHaveText(['Check', 'Fix', 'Coverage', 'Voices', 'Restructure', 'History', 'Extras'])
+  for (const name of ['Compact rows', 'Shortcuts']) await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
+  await expect(page.getByLabel('Go to line number')).toBeVisible()
 })

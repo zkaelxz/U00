@@ -36,6 +36,8 @@ REVISIONS = {
     "TransWithAI/whisper-ja-1.5B-ct2": "1527314b14da5bdf0d14e7328649d4fa26840188",
     "kotoba-tech/kotoba-whisper-v2.0-faster": "f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc",
     "quantumcookie/anime-whisper-ct2-fp16": "8ad0b0053dd0af6e108eea290e6f50a3aea49008",
+    # Chinese (Taiwanese Mandarin) CTranslate2 build offered as whisper_models.PINNED_CT2_REPOS.
+    "phate334/Breeze-ASR-25-ct2": "ac4ec98cf46e00218e29e704b3181a2d7bd94f77",
     # Qwen3-ASR and the forced aligner (qwen3_native).
     "Qwen/Qwen3-ASR-0.6B-hf": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c",
     "Qwen/Qwen3-ASR-1.7B-hf": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3",
