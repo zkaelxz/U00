@@ -362,11 +362,7 @@ export default function LivePage() {
               </Field>
             </div>
             {opts.whisper_sizes.map((w) => {
-              const reason = whisperExclusionReason(opts.whisper_exclusions, w, form.source_language)
-              return reason ? <p key={w} className="muted" data-testid="live-whisper-language-reason">{w}: {reason}</p> : null
-            })}
-            {opts.whisper_sizes.map((w) => {
-              const reason = liveWhisperSize(readiness, w, pc !== 'remote').reason
+              const reason = whisperExclusionReason(opts.whisper_exclusions, w, form.source_language) ?? liveWhisperSize(readiness, w, pc !== 'remote').reason
               return reason ? <p key={w} className="muted" data-testid="live-whisper-reason">{w}: {reason}</p> : null
             })}
             <label className="live-check">
