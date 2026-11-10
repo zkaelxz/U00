@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 import model_pins
+import scanlate_tuning
 
 
 _LAMA_ML_REPO = "mayocream/lama-manga"
@@ -379,6 +380,31 @@ def _resolve_inpaint_backend(backend: str) -> str:
     return backend
 
 
+def _flatten_plain_paper(roi, inpainted, mask, inside):
+    """`inpainted` with the inside of a plain white balloon set to its paper
+    colour. The lettering mask misses the faint halo a JPEG leaves round each
+    stroke, and inpainting only repaints the mask, so that halo showed as a
+    ghost under the English. A balloon whose paper varies (tone, a gradient)
+    is returned as it is, as is one too small to measure. The outline's own
+    edge is kept out by eroding the inside first."""
+    import cv2
+    core = cv2.erode(inside.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+    paper = core & (mask == 0)
+    if int(paper.sum()) < 50:
+        return inpainted
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    values = gray[paper]
+    # The halo is darker than the paper, so the typical value is the median;
+    # the spread is taken round it over the lighter half to ignore that halo.
+    median = float(np.median(values))
+    light = values[values >= median]
+    if float(light.std()) > scanlate_tuning.INPAINT_FLAT_PAPER_STD:
+        return inpainted
+    out = inpainted.copy()
+    out[core] = np.median(roi[paper], axis=0).astype(inpainted.dtype)
+    return out
+
+
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
                     backend: str = "auto", hf_token: str | None = None, image=None, inside=None,
                     spare_art: bool = False):
@@ -456,6 +482,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
 
     if inpainted_roi is None:
         inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
+    if inside is not None and not background_is_dark(gray_roi):
+        inpainted_roi = _flatten_plain_paper(roi, inpainted_roi, mask, keep)
     img[y:y + bh, x:x + bw] = inpainted_roi
 
     if out_path:
