@@ -22977,7 +22977,10 @@ export interface components {
             /** Value */
             value: string;
         };
-        /** QueueSettingRow */
+        /**
+         * QueueSettingRow
+         * @description One "label: value" line of a step's settings, shown by the Queue and by Quick video translate.
+         */
         QueueSettingRow: {
             /** Engine */
             engine: string | null;
@@ -23069,6 +23072,11 @@ export interface components {
             profile_id: number | null;
             /** Profiles */
             profiles: components["schemas"]["QuickVideoProfile"][];
+            /**
+             * Summary
+             * @default []
+             */
+            summary: components["schemas"]["QueueSettingRow"][];
         };
         /** QuickVideoSettingsSet */
         QuickVideoSettingsSet: {

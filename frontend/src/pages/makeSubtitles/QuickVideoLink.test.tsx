@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { QuickVideoRun } from '../../types/quickVideo'
 import { canDeleteWatched, runText, visibleRuns } from './QuickVideoLink'
+import { settingText } from './makeSubtitlesFlow'
 
 const run = (o: Partial<QuickVideoRun>): QuickVideoRun => ({
   drama_id: 1, title: 'T', watch_once: false, state: 'running', step: 'download', reason: null, ...o,
@@ -30,5 +31,9 @@ describe('Quick video translate run text', () => {
     const runs = Array.from({ length: 8 }, (_, i) => run({ drama_id: i, state: i === 6 ? 'running' : 'done' }))
     expect(visibleRuns(runs, false).map((r) => r.drama_id)).toEqual([0, 1, 2, 6])
     expect(visibleRuns(runs, true)).toHaveLength(8)
+  })
+  it('words a setting row, naming the engine by its label', () => {
+    expect(settingText({ label: 'Batch size', value: '30' })).toBe('Batch size: 30')
+    expect(settingText({ label: 'Engine and model', value: 'translategemma:4b', engine: 'ollama' })).toMatch(/^Engine and model: .+, translategemma:4b$/)
   })
 })

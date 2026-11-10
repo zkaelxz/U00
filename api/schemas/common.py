@@ -19,6 +19,7 @@ __all__ = [
     "LibraryPreset",
     "TimingPreferences",
     "TimingPreferencesUpdate",
+    "QueueSettingRow",
 ]
 
 
@@ -183,3 +184,11 @@ class TimingPreferencesUpdate(BaseModel):
     sentence_group_max_lines: Optional[StrictInt] = None
     sentence_group_max_chars: Optional[StrictInt] = None
     sentence_group_max_seconds: Optional[Union[StrictInt, StrictFloat]] = None
+
+
+class QueueSettingRow(BaseModel):
+    """One \"label: value\" line of a step's settings, shown by the Queue and by Quick video translate."""
+    label: str
+    value: str
+    # Set on the engine row: its id, which the page words.
+    engine: Optional[str] = None
