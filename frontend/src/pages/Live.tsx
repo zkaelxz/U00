@@ -42,6 +42,7 @@ import { NeedsInstall } from './readiness/NeedsInstall'
 import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
+import { SaveSession } from './live/SaveSession'
 import { LiveChatSection, ReadChatField } from './live/LiveChat'
 import { DelayedPlayer } from './live/DelayedPlayer'
 import { useLiveSession } from './live/useLiveSession'
@@ -476,6 +477,7 @@ export default function LivePage() {
             {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
             {feed.length > 0 && <CueFeed cues={feed} lang={session.status?.source_language ?? form.source_language} waiting={active} />}
             {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
+            {total > 0 && <SaveSession cues={session.cues} />}
           </div>
           </div>
         )}
