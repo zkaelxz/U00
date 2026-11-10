@@ -22,8 +22,8 @@ class TestOllamaDefaults:
         assert engine_registry.builtin_default_model("ollama") == "gemma4:12b"
         assert list(engine_local.OLLAMA_MODELS)[0] == "gemma4:12b"
 
-    def test_qwen_is_not_offered_but_a_saved_tag_still_builds_an_engine(self):
-        assert not any(t.startswith("qwen") for t in engine_local.OLLAMA_MODELS)
+    def test_only_qwen3_8b_is_offered_and_other_saved_tags_still_build_an_engine(self):
+        assert [t for t in engine_local.OLLAMA_MODELS if t.startswith("qwen")] == ["qwen3:8b"]
         for tag in ("qwen3:8b", "qwen2.5:14b"):
             assert engine_registry.get_engine("ollama", None, tag).model == tag
 
@@ -145,7 +145,7 @@ class TestGemma4Models:
         assert not any(t.startswith("gemma4:e") for t in engine_local.OLLAMA_MODELS)
 
     def test_default_and_existing_choices_are_unchanged(self):
-        assert list(engine_local.OLLAMA_MODELS) == ["gemma4:12b", "gemma4:26b", "translategemma:12b"]
+        assert list(engine_local.OLLAMA_MODELS) == ["gemma4:12b", "gemma4:26b", "translategemma:12b", "qwen3:8b"]
         assert engine_local.OllamaEngine().model == "gemma4:12b"
 
     def test_service_lists_the_tags_for_the_picker(self, isolated_db):

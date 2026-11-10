@@ -107,6 +107,7 @@ OLLAMA_MODELS = {
     "gemma4:12b": "Gemma 4 12B -- recommended default, about 8 GB, fits fully on a 12 GB GPU; too big for 8 GB",
     "gemma4:26b": "Gemma 4 26B (MoE) -- about 16-19 GB, won't fit a 12 GB GPU; offloads to the CPU and runs slower",
     "translategemma:12b": "TranslateGemma 12B -- translation-only model, suggested for Japanese and Korean, about 8 GB",
+    "qwen3:8b": "Qwen 3 8B -- small, about 5 GB; runs on older Ollama versions that can't load Gemma 4",
 }
 
 
