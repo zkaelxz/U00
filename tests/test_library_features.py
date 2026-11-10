@@ -843,6 +843,36 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         assert os.path.exists(os.path.join(tmp_path_str, "dramas", "new_drama.txt"))
         assert not os.path.exists(marker)
 
+    def test_restore_works_while_the_app_log_file_is_open(self, tmp_path_str, monkeypatch):
+        """Windows refuses to rename a folder with an open file inside, and the
+        app's own log file is one: the restore has to close it first."""
+        import applog
+        import db
+        from services import library_restore_service as lrs
+
+        monkeypatch.setattr(db, "LIBRARY_DIR", tmp_path_str)
+        applog.get_logger().info("opens logs/app.log")
+        real_rename = os.rename
+
+        import logging
+
+        def log_is_open():
+            return bool(logging.getLogger("baihe").handlers)
+
+        def strict_rename(src, dst, *a, **kw):
+            if os.path.abspath(src) == os.path.abspath(tmp_path_str) and log_is_open():
+                raise PermissionError(5, "Access is denied")
+            return real_rename(src, dst, *a, **kw)
+
+        monkeypatch.setattr(os, "rename", strict_rename)
+        monkeypatch.setattr(lrs.time, "sleep", lambda _s: None)
+        lrs.restore_library_backup(
+            self._make_zip_bytes({"library.db": self._db_bytes(), "dramas/new.txt": "x"}),
+            tmp_path_str)
+
+        assert os.path.exists(os.path.join(tmp_path_str, "dramas", "new.txt"))
+        applog.release_log_file()
+
     def test_restoring_into_a_library_dir_that_does_not_exist_yet_works(self, tmp_path_str):
         from services import library_restore_service as lrs
 
