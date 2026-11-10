@@ -5,6 +5,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
+from api.schemas.queue import QueueSettingRow
+
 __all__ = ["QuickVideoProfile", "QuickVideoSettings", "QuickVideoSettingsSet", "QuickVideoStart",
            "QuickVideoStarted", "QuickVideoRun", "QuickVideoRuns"]
 
@@ -19,6 +21,8 @@ class QuickVideoProfile(BaseModel):
 class QuickVideoSettings(BaseModel):
     profile_id: Optional[int] = None
     profiles: List[QuickVideoProfile]
+    # What a run with the chosen profile will use, resolved with the defaults the run falls back to.
+    summary: List[QueueSettingRow] = []
 
 
 class QuickVideoSettingsSet(BaseModel):

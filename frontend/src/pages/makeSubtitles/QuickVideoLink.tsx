@@ -10,9 +10,11 @@ import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { HelpTip } from '../../components/HelpTip'
 import { withoutExceptionNames } from '../../components/errorMessages'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
+import { engineLabel } from '../../labels'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { QuickVideoRun, QuickVideoSettings, QuickVideoStep } from '../../types/quickVideo'
@@ -26,6 +28,9 @@ const STEP_NOW: Record<QuickVideoStep, string> = {
 const STEP_NAME: Record<QuickVideoStep, string> = {
   download: 'Download', transcribe: 'Transcribe', translate: 'Translate', export: 'Export',
 }
+
+export const settingText = (r: { label: string; value: string; engine?: string | null }): string =>
+  `${r.label}: ${r.engine ? `${engineLabel(r.engine)}, ` : ''}${r.value}`
 
 export const runText = (run: QuickVideoRun): string =>
   run.state === 'done' ? 'Done'
@@ -56,6 +61,9 @@ export function QuickVideoLink() {
     return undefined
   }, [pc, refresh])
   const profile = settings?.profiles.find((p) => p.id === settings.profile_id) ?? null
+  const summary = settings?.summary ?? []
+  // The native tooltip on the button itself; the (i) beside it is the same text for touch and keyboard.
+  const summaryText = summary.map(settingText).join('\n')
   const running = runs.some((r) => r.state === 'running')
   useEffect(() => {
     if (!running) return undefined
@@ -89,9 +97,25 @@ export function QuickVideoLink() {
       </label>
       {profile && <p className="muted">Profile: {profile.name}</p>}
       <div className="actions">
-        <button type="button" className={buttonClass('primary')} disabled={busy || !url.trim() || !profile} onClick={go}>
+        <button
+          type="button"
+          className={buttonClass('primary')}
+          disabled={busy || !url.trim() || !profile}
+          title={summaryText || undefined}
+          aria-describedby={summary.length ? 'quick-video-settings' : undefined}
+          onClick={go}
+        >
           One-Click Translate
         </button>
+        {summary.length > 0 && (
+          <HelpTip label="One-Click Translate settings" id="quick-video-settings">
+            <strong>Uses profile {profile?.name}:</strong>
+            <ul style={{ margin: '0.25rem 0', paddingLeft: '1.1rem', lineHeight: 1.35 }}>
+              {summary.map((row) => <li key={row.label}>{settingText(row)}</li>)}
+            </ul>
+            Change these in Settings &gt; Quick video translate.
+          </HelpTip>
+        )}
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <ul className="stack">

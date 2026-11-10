@@ -23069,6 +23069,11 @@ export interface components {
             profile_id: number | null;
             /** Profiles */
             profiles: components["schemas"]["QuickVideoProfile"][];
+            /**
+             * Summary
+             * @default []
+             */
+            summary: components["schemas"]["QueueSettingRow"][];
         };
         /** QuickVideoSettingsSet */
         QuickVideoSettingsSet: {
