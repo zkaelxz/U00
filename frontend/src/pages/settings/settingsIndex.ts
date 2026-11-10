@@ -48,6 +48,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
       { id: 'devices' },
       { id: 'extension-devices' },
       { id: 'ollama-key' },
+      { id: 'pc-profiles' },
     ],
   },
   {
@@ -78,7 +79,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
   'notifications', 'auto-backup', 'save-folder', 'app-updates',
-  'jellyfin', 'web-search', 'inbox', 'extension',
+  'jellyfin', 'web-search', 'inbox', 'extension', 'pc-profiles',
   'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
 
@@ -115,6 +116,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('devices', 'Signed-in devices', 'sessions sign out'),
   e('extension-devices', 'Extension tokens per computer', 'browser extension devices token pair'),
   e('ollama-key', 'Your Ollama key', 'ollama cloud api key account quota own'),
+  e('pc-profiles', 'PC profiles', 'guest owner pin hide private titles brothers lock'),
 
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),
   e('web-search', 'Web search', 'search lookup'),
