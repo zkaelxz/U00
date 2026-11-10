@@ -124,7 +124,7 @@
 	# matched by one of these three matchers. Of /api/admin/*, only reading the
 	# user list and the audit log, and changing a member account, pass.
 	@pc_only {
-		path /api/system/* /api/admin/*
+		path /api/system/* /api/admin/* /api/pc-profile /api/pc-profile/*
 		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/* /api/inbox
 		path /api/diagnostics /api/diagnostics/* /api/library/admin/*
 		path /api/assistant/* /api/backups/* /api/benchmark/* /api/models/*

@@ -24,7 +24,7 @@ import zlib
 from jobs import job_launch, job_runner
 import db
 from engine_backends import echo
-from services import assistant_settings_service, auth_service
+from services import assistant_settings_service, auth_service, pc_profile_service
 from services import library_restore_service as lrs
 from services.library_admin_service import (RESTORE_CONFIRM_TEXT, any_job_running, has_disk_room,
                                             require_confirm)
@@ -197,6 +197,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                                "left in place.") from e
         # The restored database decides Developer Mode, which the echo engine follows.
         echo.set_enabled(assistant_settings_service.developer_mode_enabled())
+        pc_profile_service.forget_cached_pin()
         auth_service.write_audit(actor_id, "library.restore",
                                  f"library restored from backup; sessions revoked: {revoked}; "
                                  + lrs.account_counts(outcome))
