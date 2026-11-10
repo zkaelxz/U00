@@ -453,10 +453,46 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) ->
 _LOOSE_TEXT_LABEL = "text_free"
 
 
-def _fragments_of_one_region(a: dict, b: dict) -> bool:
+def _columns_of_one_balloon(gray, a: dict, b: dict) -> bool:
+    """Whether two boxes of one class, close side by side or one above the
+    other, are lettering inside the same balloon. The detector sometimes draws
+    one box per column of a vertical balloon, so the balloon would be read,
+    translated and lettered twice, the halves in the wrong order and over each
+    other. The test is the page itself: the balloon found around the pair is
+    the interior both boxes mostly lie inside (_balloon_interior), which two
+    separate balloons never give."""
+    gap_x = max(a["x"], b["x"]) - min(a["x"] + a["w"], b["x"] + b["w"])
+    gap_y = max(a["y"], b["y"]) - min(a["y"] + a["h"], b["y"] + b["h"])
+    if gap_x > 0 and gap_y > 0:
+        return False
+    gap, narrow = (gap_x, min(a["w"], b["w"])) if gap_x > 0 else (gap_y, min(a["h"], b["h"]))
+    if gap > scanlate_tuning.BALLOON_COLUMN_GAP * narrow:
+        return False
+    x0, y0 = max(0, min(a["x"], b["x"])), max(0, min(a["y"], b["y"]))
+    x1 = min(gray.shape[1], max(a["x"] + a["w"], b["x"] + b["w"]))
+    y1 = min(gray.shape[0], max(a["y"] + a["h"], b["y"] + b["h"]))
+    if x1 <= x0 or y1 <= y0:
+        return False
+    found = _balloon_interior(gray[y0:y1, x0:x1])
+    if found is None:
+        return False
+    inside = found[0]
+    for box in (a, b):
+        bx0, by0 = max(box["x"], x0) - x0, max(box["y"], y0) - y0
+        bx1, by1 = min(box["x"] + box["w"], x1) - x0, min(box["y"] + box["h"], y1) - y0
+        if bx1 <= bx0 or by1 <= by0:
+            return False
+        if inside[by0:by1, bx0:bx1].mean() < scanlate_tuning.BALLOON_COLUMN_INSIDE:
+            return False
+    return True
+
+
+def _fragments_of_one_region(a: dict, b: dict, gray=None) -> bool:
     if a.get("label") != b.get("label"):
         return False
     if _contained_share(a, b) >= scanlate_tuning.FRAGMENT_OVERLAP:
+        return True
+    if gray is not None and a.get("label") != _LOOSE_TEXT_LABEL and _columns_of_one_balloon(gray, a, b):
         return True
     # Lettering outside balloons has no outline between its pieces; balloons
     # side by side are separate however close.
@@ -477,14 +513,15 @@ def _fragments_of_one_region(a: dict, b: dict) -> bool:
     return short > 0 and shared_y >= share_limit * short and gap_x <= gap_limit * short
 
 
-def merge_fragment_boxes(boxes: list) -> list:
+def merge_fragment_boxes(boxes: list, gray=None) -> list:
     """One box per balloon or title: boxes of the same class that overlap
     heavily (stacked duplicates on one balloon) or sit in a tight line (a
     vertical title the detector cut into one box per character) become the
     box around them all. dedupe_overlapping_boxes() only joins different
     classes, so same-class fragments came through as separate regions, each
     OCR'd, translated and lettered over the others. The merged box keeps the
-    best-ranked fragment's other fields."""
+    best-ranked fragment's other fields. `gray`: the page in grayscale, which
+    lets the columns of one vertical balloon be joined (_columns_of_one_balloon)."""
     n = len(boxes)
     parent = list(range(n))
 
@@ -496,7 +533,7 @@ def merge_fragment_boxes(boxes: list) -> list:
 
     for i in range(n):
         for j in range(i + 1, n):
-            if _fragments_of_one_region(boxes[i], boxes[j]):
+            if _fragments_of_one_region(boxes[i], boxes[j], gray):
                 parent[find(i)] = find(j)
 
     clusters = {}
@@ -941,7 +978,11 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
         hull = np.zeros_like(filled)
         cv2.fillPoly(hull, [cv2.convexHull(np.vstack(contours))], 1)
         filled = filled | ((hull > 0) & (depth > thickness + 1)).astype(np.uint8)
-    else:
+    elif filled.mean() >= scanlate_tuning.BALLOON_FILLS_BOX:
         # No paper outside the balloon in the box: the box lies within it.
         filled = np.ones_like(filled)
+    # Otherwise the balloon sits on dark art or tone, so no paper surrounds
+    # it, yet part of the box is not balloon: only its interior is cleared.
+    # Clearing the whole box wiped the outline and the art along it into a
+    # white block.
     return _to_box_mask(box, area, filled)

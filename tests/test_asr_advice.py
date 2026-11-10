@@ -29,6 +29,7 @@ def _ids(notes):
     (dict(backend="anime_whisper"), {}, "anime_whisper_scope", "tip", None),
     (dict(backend="anime_whisper", language="ko"), {}, "anime_whisper_language", "blocked", {"asr_backend_choice": "whisper"}),
     (dict(model="kotoba-v2", language="zh"), {}, "ja_model_language", "blocked", {"whisper_size": "large-v3"}),
+    (dict(model="breeze-asr-25", language="ja"), {}, "zh_model_language", "blocked", {"whisper_size": "large-v3"}),
     (dict(model="medium"), {}, "weak_whisper_size", "warn", {"whisper_size": "large-v3"}),
     (dict(model="small"), {}, "weak_whisper_size", "warn", {"whisper_size": "large-v3"}),
     (dict(), {"separate_vocals_first": True}, "separate_vocals", "warn", {"separate_vocals_first": False}),

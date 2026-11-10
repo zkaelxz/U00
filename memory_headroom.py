@@ -42,6 +42,8 @@ _WHISPER_MB = {
     "ja-1.5b": (4200, 3300),
     # An estimate from the 1.5 GB model.bin (large-v3 encoder, 2-layer decoder), not a measurement.
     "kotoba-v2": (2600, 2000),
+    # An estimate from large-v2's size (the 3.1 GB float16 model.bin), not a measurement.
+    "breeze-asr-25": (4800, 3800),
     # An estimate from the 1.5 GB float16 model.bin plus activations, not a measurement.
     "anime-whisper": (2200, 1600),
 }
@@ -310,16 +312,42 @@ def _ollama_size_mb_if_not_loaded(base_url: str, model: str):
     return None
 
 
+def _ollama_ram_need_mb(base_url: str, need_mb: float) -> float:
+    """RAM a not-yet-loaded Ollama model will take. Ollama fills the GPU first
+    and puts the rest in RAM, so that is the part that doesn't fit the free
+    VRAM. A resident model with nothing on the GPU means this Ollama cannot
+    use the card at all (an unsupported CUDA build, say), so the whole model
+    lands in RAM however much VRAM is free."""
+    try:
+        resident = _ollama_json(f"{base_url}/api/ps").get("models") or []
+    except Exception:
+        resident = []
+    for entry in resident:
+        if isinstance(entry, dict) and (entry.get("size") or 0) > 0 and not entry.get("size_vram"):
+            return need_mb
+    reading = read_memory_mb("vram", at_load=True)
+    if reading is None:
+        return 0.0  # unreadable VRAM: a guess must not stop a job that might fit
+    return max(0.0, need_mb - reading[1])
+
+
 def check_ollama(base_url: str, model: str) -> None:
     """Before a translation on a local Ollama model: a model Ollama has not
-    loaded yet takes about its download size plus context cache. Ollama
-    decides its own GPU/CPU split, so only the VRAM reserve is checked: it
-    fills the GPU first."""
-    if reserved_mb("vram") <= 0 or _is_cloud_tag(model) or not _is_loopback(base_url):
+    loaded yet takes about its download size plus context cache, in VRAM and
+    in whatever part Ollama has to keep in RAM."""
+    vram_kept, ram_kept = reserved_mb("vram") > 0, reserved_mb("ram") > 0
+    if not (vram_kept or ram_kept) or _is_cloud_tag(model) or not _is_loopback(base_url):
         return
-    size_mb = _ollama_size_mb_if_not_loaded(base_url.rstrip("/"), model)
-    if size_mb:
-        check_need(f"the Ollama model {model}", size_mb * 1.1 + 512, "vram")
+    base_url = base_url.rstrip("/")
+    size_mb = _ollama_size_mb_if_not_loaded(base_url, model)
+    if not size_mb:
+        return
+    need_mb = size_mb * 1.1 + 512
+    label = f"the Ollama model {model}"
+    if vram_kept:
+        check_need(label, need_mb, "vram")
+    if ram_kept:
+        check_need(label, _ollama_ram_need_mb(base_url, need_mb), "ram")
 
 
 def status() -> dict:

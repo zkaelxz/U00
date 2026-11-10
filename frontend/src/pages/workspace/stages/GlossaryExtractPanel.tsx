@@ -224,7 +224,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       {reasons}
       {active && status && (
         <p className="actions" role="status" data-testid={`${text.testId}-running`}>
-          <span>{extractionProgressText(source, status.status, status.progress)}</span>
+          <span>{extractionProgressText(source, status.status, status.progress, status.message)}</span>
           <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status || !status.run_id} onClick={cancel}>
             Cancel
           </button>
@@ -242,7 +242,9 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       )}
       {status?.status === 'error' && (
         <p className="error" role="alert">
-          {safeDetail(status.message) ?? 'Extraction failed. Details are in the app log.'}
+          {safeDetail(status.message) ?? 'Extraction failed. Details are in the app log.'}{' '}
+          This uses the title's saved engine, not the one picked for a single run. Change it by choosing a tier or profile under Style on the{' '}
+          <a href={`#/drama/${dramaId}/translate`}>Translate tab</a>.
         </p>
       )}
       {status?.status === 'cancelled' && <p className="muted">Extraction was cancelled.</p>}

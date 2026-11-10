@@ -300,6 +300,7 @@ export function gpuOnText(useGpu: boolean, r: SetupReadiness | null): string {
 const LIVE_SIZE_FLAGS: Record<string, keyof SetupReadiness> = {
   tiny: 'whisper_cached_tiny', base: 'whisper_cached_base', small: 'whisper_cached_small', medium: 'whisper_cached_medium',
   'large-v3-turbo': 'whisper_cached_large_v3_turbo', 'large-v3': 'whisper_cached_large_v3',
+  'ja-1.5b': 'whisper_cached_ja_15b',
 }
 
 /**
@@ -313,6 +314,15 @@ export function liveWhisperSize(r: SetupReadiness | null, size: string, atMainPc
   if (!r.faster_whisper) return { reason: 'Needs Whisper, which is not installed.', download: false }
   if (!atMainPc) return { reason: 'Not downloaded yet. Download it from the main PC first.', download: false }
   return { reason: null, download: true }
+}
+
+/** The note after a Live Whisper size in the picker. A size excluded for the title's language says so
+ *  generally: the exclusion can be either way (ja-1.5b is Japanese only, medium is not recommended
+ *  for Japanese), so the full reason is shown under the picker instead. */
+export function liveWhisperOptionNote(wrongLanguage: boolean, size: { reason: string | null; download: boolean }): string {
+  if (wrongLanguage) return ' (not for this language)'
+  if (size.reason) return ' (not available)'
+  return size.download ? ' (downloads first)' : ''
 }
 
 /** Looking up a page's words splits it into words first: Chinese through jieba, Japanese through Sudachi, Korean through Kiwi. */

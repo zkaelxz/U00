@@ -37,9 +37,13 @@ import { SideNav } from './nav/SideNav'
 import { useHeaderHeight } from './nav/useHeaderHeight'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
+import { usePcProfile } from './hooks/usePcProfile'
+import { lockPcProfile, profilePicked, rememberProfilePicked } from './api/pcProfile'
+import { buttonClass } from './components/uiClasses'
 import { routeHref, useRoute } from './router'
 
 // Each page is its own chunk, so the first load downloads only the shell and the Library.
+const PcProfilePicker = lazy(() => import('./pages/PcProfilePicker'))
 const AdminPage = lazy(() => import('./pages/Admin'))
 const AssistantPage = lazy(() => import('./pages/Assistant'))
 const ComicPage = lazy(() => import('./pages/Comic'))
@@ -198,6 +202,24 @@ function skipToContent(e: React.MouseEvent) {
 // are held to the 1200px column by .app-bounded.
 const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'comic-edit', 'manga-read'])
 
+// Locks the PC window back to Guest and asks again, so a title stays hidden after the owner walks away.
+function ProfileSwitch({ guest }: { guest: boolean }) {
+  const switchProfile = async () => {
+    try {
+      await lockPcProfile()
+    } catch {
+      return
+    }
+    rememberProfilePicked(false)
+    window.location.reload()
+  }
+  return (
+    <button type="button" className={buttonClass()} data-testid="profile-switch" onClick={() => void switchProfile()}>
+      {guest ? 'Guest · Switch profile' : 'Owner · Switch profile'}
+    </button>
+  )
+}
+
 export default function App() {
   const route = useRoute()
   const session = useSession()
@@ -205,6 +227,8 @@ export default function App() {
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const features = useFeatures()
+  const profile = usePcProfile()
+  const [pickedHere, setPickedHere] = useState(profilePicked)
   const [hidden] = useHiddenNav(session)
   const [storedMode, storeMode] = usePersistedState<string>(VIEW_MODE_PREF, '')
   const viewMode = asViewMode(storedMode)
@@ -223,13 +247,24 @@ export default function App() {
     if (sourcesOff) window.location.replace(routeHref({ name: 'library' }))
   }, [sourcesOff])
 
-  useDocumentTitle(mainRef, `${view}:${route.name}`)
+  const picking = view === 'app' && !!profile.status?.pin_set && !pickedHere
+  // The key changes when the page behind these screens appears, so the title is set once <main> exists.
+  useDocumentTitle(mainRef, `${view}:${route.name}:${picking ? 'gate' : 'page'}`)
 
   if (view === 'connecting') {
     return (
       <p className="muted connecting" role="status">
         Connecting…
       </p>
+    )
+  }
+  // With a PIN set, every new tab on the PC asks who is using Baihe first. The server is already
+  // on Guest until then, so the lists behind this screen never show a private title.
+  if (picking) {
+    return (
+      <Suspense fallback={null}>
+        <PcProfilePicker onDone={() => { setPickedHere(true); window.location.reload() }} />
+      </Suspense>
     )
   }
   const signInConfigured = session.status !== 'ready' || session.me.sign_in_configured
@@ -259,6 +294,7 @@ export default function App() {
       {(wide || popOut) && <KeyboardHelpButton />}
       {(wide || popOut) && <ThemeMenu />}
       <ApiStatus />
+      {profile.status?.pin_set && <ProfileSwitch guest={profile.status.guest} />}
       {canSignOut(session) && <UserMenu user={user} />}
     </div>
   )

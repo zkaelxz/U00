@@ -28,6 +28,8 @@ WHISPER_MODELS = {
                 "its licence is not declared"),
     "kotoba-v2": ("Japanese (kotoba-whisper v2.0) -- opt-in, about 1.5 GB, about 6x faster than "
                   "large-v3 on Japanese; line timing only"),
+    "breeze-asr-25": ("Chinese (Breeze-ASR-25, Taiwanese Mandarin) -- opt-in, about 3 GB; steadier than "
+                      "large-v3 on the whispered clips we tested"),
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
 
@@ -42,7 +44,11 @@ HIDDEN_WHISPER_SIZES = ("tiny", "base", "small", "medium")
 PINNED_CT2_REPOS = {
     key: (repo, model_pins.revision(repo)) for key, repo in (
         ("ja-1.5b", "TransWithAI/whisper-ja-1.5B-ct2"),
-        ("kotoba-v2", "kotoba-tech/kotoba-whisper-v2.0-faster"))
+        ("kotoba-v2", "kotoba-tech/kotoba-whisper-v2.0-faster"),
+        # A community CTranslate2 conversion of MediaTek-Research/Breeze-ASR-25 (Apache-2.0, a
+        # whisper-large-v2 fine-tune). Its model.bin has the same sha256 as the two other public
+        # conversions and as one made from the original weights on the owner's PC.
+        ("breeze-asr-25", "phate334/Breeze-ASR-25-ct2"))
 }
 
 # anime-whisper (litagin/anime-whisper) is NOT a key of WHISPER_MODELS or PINNED_CT2_REPOS:
@@ -64,7 +70,7 @@ ANIME_WHISPER_MANIFEST = "baihe-manifest.json"
 
 # Approximate download sizes in GB. A member can start these downloads, so free space
 # is checked first rather than letting a full drive fail partway through.
-_DOWNLOAD_GB = {ANIME_WHISPER_KEY: 1.5, "ja-1.5b": 3, "kotoba-v2": 1.5}
+_DOWNLOAD_GB = {ANIME_WHISPER_KEY: 1.5, "ja-1.5b": 3, "kotoba-v2": 1.5, "breeze-asr-25": 3.1}
 _DOWNLOAD_MARGIN_BYTES = 256 * 1024 ** 2
 
 # Models that must not be asked for word timestamps. kotoba's CTranslate2 config copies
@@ -92,7 +98,7 @@ class LanguageRule:
 # fits every language. An exclusion needs evidence in docs/asr-experiments.md, so a model
 # the docs do not show to be worse for a language stays selectable there. Adding a model
 # (an anime-whisper, say) is one WHISPER_MODELS label plus, if it is language-bound, one
-# entry here. Live's own list (LIVE_WHISPER_SIZES) is separate and not gated by this.
+# entry here. Live offers its own list (LIVE_WHISPER_SIZES) but Start applies these rules too.
 WHISPER_LANGUAGE_RULES = {
     # "medium about 1.9 points worse" than turbo on Japanese, and slower (RTF 0.84 vs 0.56).
     # Korean and Chinese showed no clear gap, so it stays selectable there.
@@ -106,6 +112,9 @@ WHISPER_LANGUAGE_RULES = {
     "kotoba-v2": LanguageRule(
         only_for=("ja",),
         reason="The kotoba-whisper v2.0 model was trained on Japanese only and is only for Japanese titles."),
+    "breeze-asr-25": LanguageRule(
+        only_for=("zh",),
+        reason="Breeze-ASR-25 is a Taiwanese Mandarin model and is only for Chinese titles."),
 }
 
 
@@ -141,7 +150,9 @@ def whisper_language_exclusions() -> dict:
 # Live's choices. small stays its default: Live has to keep up with the stream
 # on a CPU, and turbo takes about 1.5x small's time on the repo's CPU test.
 # large-v3 is for a GPU: it ran 0.4-1.4 s per 8-20 s chunk on an RTX 4080.
-LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3")
+# ja-1.5b is last and Japanese-only (WHISPER_LANGUAGE_RULES): it scored best on Japanese read
+# speech (docs/asr-experiments.md), but needs a GPU to keep up.
+LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3", "ja-1.5b")
 
 
 

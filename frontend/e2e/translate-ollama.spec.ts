@@ -97,7 +97,7 @@ test('a cloud model is labelled and explains that text leaves the PC; local mode
   await expect(run.getByTestId('cloud-model-notice')).toHaveCount(0)
   await model.selectOption('gemma4:31b-cloud')
   await expect(run.getByTestId('cloud-model-notice')).toContainText('sent off this PC')
-  await expect(run.getByTestId('cloud-model-notice')).toContainText('limits')
+  await expect(run.getByTestId('cloud-model-notice')).toContainText('billed per token')
   await model.selectOption('gemma4:12b')
   await expect(run.getByTestId('cloud-model-notice')).toHaveCount(0)
 })

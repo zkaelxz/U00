@@ -19,7 +19,7 @@ import translation_memory
 from core import SOURCE_LANGUAGES, Line
 from engine_backends import paid_calls, pricing
 from engine_backends.temperature import MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_ENGINES
-from services import transcribe_options_service
+from services import ownership_service, transcribe_options_service
 from services.benchmark_case_service import redact
 from lib.errors import InvalidInputError
 
@@ -261,7 +261,7 @@ def option_choices() -> dict:
     from services import translate_service
     engines = translate_service.list_engines()
     return {"style_presets": [{"key": k, "label": v["label"]} for k, v in tguide.STYLE_PRESETS.items()],
-            "series": [{"id": s["id"], "name": s["name"]} for s in db.list_series()],
+            "series": [{"id": s["id"], "name": s["name"]} for s in db.list_series(visible_to=ownership_service.visible_to_filter(None))],
             "defaults": {**engine_registry.default_translate_options(), "reflect": False,
                          "style_preset": DEFAULT_STYLE_PRESET, "memory_examples": False},
             "temperature_engines": list(TEMPERATURE_ENGINES),

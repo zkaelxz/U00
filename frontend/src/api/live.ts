@@ -30,11 +30,12 @@ export const LIVE_LANGUAGES = [
   { code: 'ja', label: 'Japanese' },
   { code: 'ko', label: 'Korean' },
 ]
-export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3-turbo', 'large-v3']
+const JAPANESE_ONLY = 'The whisper-ja 1.5B model is a Japanese fine-tune and is only for Japanese titles.'
+export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3-turbo', 'large-v3', 'ja-1.5b']
 // Figures from the 5-minute Chinese streamer test in docs/asr-experiments.md
 // (CPU) and the graphics-memory estimate in memory_headroom.py.
 export const WHISPER_HELP =
-  'The default, small, keeps up with the stream on most PCs. large-v3-turbo is slower but more accurate: on our Chinese stream test it made about 16 character errors per 100 against small\'s 23, and took about 1.5 times as long. It needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and a 1.6 GB download the first time. medium is slower and less accurate than turbo on that test. tiny and base are faster still but rougher. large-v3 is the most accurate (about 3 GB download) and needs a GPU: on an RTX 4080 it took under 1 s for an 8 to 12 s chunk.'
+  'The default, small, keeps up with the stream on most PCs. large-v3-turbo is slower but more accurate: on our Chinese stream test it made about 16 character errors per 100 against small\'s 23, and took about 1.5 times as long. It needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and a 1.6 GB download the first time. medium is slower and less accurate than turbo on that test. tiny and base are faster still but rougher. large-v3 is the most accurate (about 3 GB download) and needs a GPU: on an RTX 4080 it took under 1 s for an 8 to 12 s chunk. ja-1.5b (whisper-ja, about 3 GB download, Japanese streams only, needs a GPU) made the fewest errors on Japanese read speech in our test; its licence is not declared, so use it for personal work.'
 export const SEGMENT_RANGE: [number, number] = [3, 60]
 export const OVERLAP_RANGE: [number, number] = [0, 8]
 export const MAX_MINUTES_RANGE: [number, number] = [1, 240]
@@ -117,6 +118,8 @@ export const BALANCED_CAPTIONS: Partial<LiveOptions> = {
 export const LIVE_FORM_FALLBACK: LiveFormOptions = {
   languages: LIVE_LANGUAGES,
   whisper_sizes: WHISPER_SIZES,
+  // The server's table (whisper_models.WHISPER_LANGUAGE_RULES) replaces this as soon as /api/live/options answers.
+  whisper_exclusions: { 'ja-1.5b': { zh: JAPANESE_ONLY, ko: JAPANESE_ONLY } },
   segment_range: SEGMENT_RANGE,
   overlap_range: OVERLAP_RANGE,
   max_minutes_range: MAX_MINUTES_RANGE,

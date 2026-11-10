@@ -434,6 +434,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/novel/dramas/{drama_id}/reference/text` | media.upload |
 | `GET /api/novel/dramas/{drama_id}/status` | library.read |
 | `GET /api/novel/lncrawl` | local_only() |
+| `POST /api/pc-profile/clear` | local_only() |
+| `POST /api/pc-profile/lock` | local_only() |
+| `POST /api/pc-profile/pin` | local_only() |
+| `POST /api/pc-profile/unlock` | local_only() |
 | `GET /api/queue` | jobs.start |
 | `POST /api/queue/clear-finished` | jobs.start |
 | `POST /api/queue/items` | jobs.start |

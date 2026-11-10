@@ -97,7 +97,7 @@ def _refuses_schema(exc) -> bool:
 
 
 # Local Ollama models offered in the picker. gemma4:12b is the default: it fits
-# a 12 GB GPU fully, while the 26b/31b tags offload to the CPU and run slower.
+# a 12 GB GPU fully, while the 26b tag offloads to the CPU and runs slower.
 # A title or preset that saved another tag (an old Qwen one, say) keeps it and
 # still runs if Ollama has it; it is just no longer offered here.
 OLLAMA_DEFAULT_MODEL = "gemma4:12b"
@@ -106,7 +106,8 @@ OLLAMA_DEFAULT_MODEL = "gemma4:12b"
 OLLAMA_MODELS = {
     "gemma4:12b": "Gemma 4 12B -- recommended default, about 8 GB, fits fully on a 12 GB GPU; too big for 8 GB",
     "gemma4:26b": "Gemma 4 26B (MoE) -- about 16-19 GB, won't fit a 12 GB GPU; offloads to the CPU and runs slower",
-    "gemma4:31b": "Gemma 4 31B -- about 19-20 GB, won't fit a 12 GB GPU; offloads to the CPU and runs much slower",
+    "translategemma:12b": "TranslateGemma 12B -- translation-only model, suggested for Japanese and Korean, about 8 GB",
+    "qwen3:8b": "Qwen 3 8B -- small, about 5 GB; runs on older Ollama versions that can't load Gemma 4",
 }
 
 
@@ -116,8 +117,8 @@ OLLAMA_MODELS = {
 # of the default and out of every fallback so a local-only setup never
 # starts sending text off the PC without the owner picking one.
 OLLAMA_CLOUD_MODELS = {
-    "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
-    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
+    "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; billed per token (about 1 cent per 200-line title)",
+    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; billed per token",
 }
 
 
