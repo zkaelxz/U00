@@ -40,6 +40,7 @@ import { followOptions } from '../api/liveFollows'
 import { useDeveloperMode } from './assistant/developerMode'
 import { NeedsInstall } from './readiness/NeedsInstall'
 import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
+import { whisperExclusionReason } from './workspace/sourceForm'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
 import { LiveChatSection, ReadChatField } from './live/LiveChat'
@@ -115,6 +116,11 @@ export default function LivePage() {
   const form: LiveForm = { ...formDefaults(opts), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
+  // A Japanese-only model must not stay selected for another language: Start would refuse it.
+  const changeLanguage = (language: string) => {
+    const excluded = whisperExclusionReason(opts.whisper_exclusions, form.whisper_size, language)
+    setPrefs({ ...prefs, source_language: language, ...(excluded ? { whisper_size: opts.defaults.whisper_size } : {}) })
+  }
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
   const [titles, setTitles] = useState<{ id: number; name: string; series_id: number | null }[] | null>(null)
@@ -253,7 +259,7 @@ export default function LivePage() {
           </Field>
           <div className="field-row">
             <Field label="Language">
-              <select value={form.source_language} disabled={active || busy} onChange={(e) => setOpt('source_language', e.target.value)}>
+              <select value={form.source_language} disabled={active || busy} onChange={(e) => changeLanguage(e.target.value)}>
                 {opts.languages.map((l) => (
                   <option key={l.code} value={l.code}>
                     {l.label}
@@ -333,9 +339,10 @@ export default function LivePage() {
                 <select value={form.whisper_size} disabled={active || busy} onChange={(e) => setOpt('whisper_size', e.target.value)}>
                   {opts.whisper_sizes.map((w) => {
                     const size = liveWhisperSize(readiness, w, pc !== 'remote')
+                    const wrongLanguage = !!whisperExclusionReason(opts.whisper_exclusions, w, form.source_language)
                     return (
-                      <option key={w} value={w} disabled={!!size.reason && w !== form.whisper_size}>
-                        {w}{size.reason ? ' (not available)' : size.download ? ' (downloads first)' : ''}
+                      <option key={w} value={w} disabled={wrongLanguage || (!!size.reason && w !== form.whisper_size)}>
+                        {w}{wrongLanguage ? ' (Japanese only)' : size.reason ? ' (not available)' : size.download ? ' (downloads first)' : ''}
                       </option>
                     )
                   })}

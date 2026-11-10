@@ -14,7 +14,7 @@ table) is in `archive/asr-experiments-history.md`.
 | Option | Where | Default | Notes |
 |---|---|---|---|
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
-| Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
+| Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace) and Live, Japanese only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
 | Chinese Whisper model `breeze-asr-25` | per title (Workspace), Chinese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "Breeze-ASR-25 in the app" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
 | ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (see "anime-whisper in the app"). |
