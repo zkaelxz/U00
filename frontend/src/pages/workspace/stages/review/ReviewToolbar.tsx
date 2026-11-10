@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { buttonClass } from '../../../../components/uiClasses'
+import { useSimple } from '../../StageContext'
 import type { LineFilter } from '../../../../types/review'
 import { gapChipLabel, gapStepText } from './gapModel'
 import { chipLabel, parseJump } from './reviewLogic'
@@ -133,6 +134,8 @@ export function Pager({ page, pages, onPage, labelled }: { page: number; pages: 
 // type, pager, Go to #, Replace… and the shortcut list; the player strip sits
 // under it when the drama has media.
 export function ReviewToolbar({ searchRef, ...p }: Props) {
+  // Simple keeps Replace; row density, Go to # and the shortcut list are for people who live in this screen.
+  const simple = useSimple()
   const [searchOpen, setSearchOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [goTo, setGoTo] = useState('')
@@ -189,10 +192,10 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
       <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
         Replace…
       </button>
-      <button type="button" className={buttonClass('ghost', 'sm')} aria-pressed={p.compact} onClick={() => p.onCompact(!p.compact)}>
+      {!simple && <button type="button" className={buttonClass('ghost', 'sm')} aria-pressed={p.compact} onClick={() => p.onCompact(!p.compact)}>
         Compact rows
-      </button>
-      <form
+      </button>}
+      {!simple && <form
         className="review-goto"
         onSubmit={(e) => {
           e.preventDefault()
@@ -204,10 +207,10 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
           <span>Go to #</span>
           <input inputMode="numeric" aria-label="Go to line number" value={goTo} onChange={(e) => setGoTo(e.target.value)} />
         </label>
-      </form>
-      <button type="button" className={buttonClass('ghost', 'sm')} aria-haspopup="dialog" onClick={p.onKeys}>
+      </form>}
+      {!simple && <button type="button" className={buttonClass('ghost', 'sm')} aria-haspopup="dialog" onClick={p.onKeys}>
         Shortcuts
-      </button>
+      </button>}
     </div>
   )
   const count =
