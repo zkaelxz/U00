@@ -1,20 +1,24 @@
 # Releases
 
-## Beta until the owner ends it (owner decision, 2026-10-11)
+## Stable releases (owner decision, 2026-11-10)
 
-Baihe is in beta. Tag versions `0.x.y-beta.N` (for example `v0.1.0-beta.1`): a
-version with a `-` is published as a GitHub pre-release and sorts below the
-final release (`0.1.0-beta.2` is newer than `0.1.0-beta.1`, and `0.1.0` is
-newer than any `0.1.0-beta.N`). Settings → App updates ignores pre-releases by
-default. A beta install gets the next beta by turning on "Include pre-releases"
-in the same card: checks then offer a pre-release only if it sorts above the installed version, and the
-download is still checked against its `.sha256`. Drafts are never offered.
-Otherwise update by running the newer Setup `.exe` by hand and checking it
-against its `.sha256`.
+Baihe no longer ships betas. Tag plain versions `v0.x.y` (for example
+`v0.1.1`): the workflow publishes them as a normal GitHub release, and
+Settings → App updates offers them without "Include pre-releases". A tag with
+a `-` (`v0.1.1-beta.2`) is still published as a pre-release and sorts below
+its final version, so installs that ran a beta (the V100 PC was on
+`0.1.1-beta.2`) update to `0.1.1` through the normal check. Drafts are never
+offered. The "Include pre-releases" switch stays for anyone who wants a
+pre-release by hand.
 
-Stable (a plain `v0.x.y` tag) is released only when the owner says so. There is no checklist or date that triggers it.
+A release is tagged when the owner says so; no checklist or date triggers it.
 
-Beta limits, not promised for stable: the browser-tier sources are unverified against the live sites.
+Known limits that still apply:
+- The installer is not Authenticode code-signed, so Windows SmartScreen warns
+  on first run. The `.sig` files are release signatures for the in-app update
+  check only.
+- Browser-tier sources are unverified against the live sites, and the
+  Bilibili Manga reader is untested.
 
 ## Windows installer (end users)
 
