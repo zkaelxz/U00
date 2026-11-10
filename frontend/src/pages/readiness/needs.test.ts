@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SetupReadiness } from '../../types/setup'
 import {
-  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
   browserTierNeed, mlDetectorNeed, notifyNeed, ocrBackendNeed, trafilaturaNeed,
   scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
@@ -340,5 +340,16 @@ describe('gpuOnText', () => {
     expect(gpuOnText(true, null)).toBe('GPU on')
     expect(gpuOnText(true, { ...READY, gpu_found: true })).toBe('GPU on')
     expect(gpuOnText(true, { ...READY, gpu_found: false })).toBe('GPU on, none found')
+  })
+})
+
+describe('liveWhisperOptionNote', () => {
+  it('does not call a size Japanese only just because it is excluded for the language', () => {
+    expect(liveWhisperOptionNote(true, { reason: null, download: false })).toBe(' (not for this language)')
+  })
+  it('keeps the availability notes for sizes that fit the language', () => {
+    expect(liveWhisperOptionNote(false, { reason: 'x', download: false })).toBe(' (not available)')
+    expect(liveWhisperOptionNote(false, { reason: null, download: true })).toBe(' (downloads first)')
+    expect(liveWhisperOptionNote(false, { reason: null, download: false })).toBe('')
   })
 })
