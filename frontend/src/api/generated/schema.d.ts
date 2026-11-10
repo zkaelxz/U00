@@ -22977,7 +22977,10 @@ export interface components {
             /** Value */
             value: string;
         };
-        /** QueueSettingRow */
+        /**
+         * QueueSettingRow
+         * @description One "label: value" line of a step's settings, shown by the Queue and by Quick video translate.
+         */
         QueueSettingRow: {
             /** Engine */
             engine: string | null;

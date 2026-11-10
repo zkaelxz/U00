@@ -61,8 +61,9 @@ def describe_profile(preset: dict) -> list:
     if not model or (engine == "ollama" and local.is_ollama_cloud_model(model)) or preset.get("translation_engine") != engine:
         model = engine_registry.effective_default_model(engine)
     defaults = engine_registry.default_translate_options(engine, model)
-    style = translation_guide.STYLE_PRESETS[preset.get("style_preset") if preset.get("style_preset") in translation_guide.STYLE_PRESETS else "audio_drama"]
-    language = options.get("quick_source_language")
+    style_key = preset.get("style_preset")
+    style = translation_guide.STYLE_PRESETS[style_key if style_key in translation_guide.STYLE_PRESETS else "audio_drama"]
+    language = options.get("quick_source_language") or ""
     packs = options.get("quick_language_packs") or []
     spend = [name for key, name in (("reflect", "Reflect"), ("bulk", "Bulk"), ("thinking", "Thinking")) if options.get(key)]
     recognizer = options.get("asr_backend_choice") or (f"Whisper {options['whisper_size']}" if options.get("whisper_size") else None)
@@ -87,8 +88,9 @@ def describe_profile(preset: dict) -> list:
 def get_settings() -> dict:
     """The saved profile choice and the profiles to pick from. A profile that was deleted reads as no choice."""
     chosen = db.get_app_setting(PROFILE_KEY)
-    return {"profile_id": chosen if _preset(chosen) else None,
-            "summary": describe_profile(_preset(chosen)) if _preset(chosen) else [],
+    preset = _preset(chosen)
+    return {"profile_id": chosen if preset else None,
+            "summary": describe_profile(preset) if preset else [],
             "profiles": [{"id": p["id"], "name": p["name"],
                           "ready": bool(profile_service.stored_options(p).get("quick_source_language"))}
                          for p in _presets()]}

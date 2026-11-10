@@ -5,7 +5,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from api.schemas.queue import QueueSettingRow
+from api.schemas.common import QueueSettingRow
 
 __all__ = ["QuickVideoProfile", "QuickVideoSettings", "QuickVideoSettingsSet", "QuickVideoStart",
            "QuickVideoStarted", "QuickVideoRun", "QuickVideoRuns"]
