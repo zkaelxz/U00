@@ -260,6 +260,14 @@ describe('error text by who is reading', () => {
     }, 'POST')).title).toBe(msg)
   })
 
+  it('a PIN form shows the server sentence for a wrong PIN instead of the generic refusal', () => {
+    const wrong = new ApiError(403, { code: 'forbidden', message: 'That PIN is not right.' }, 'POST')
+    expect(describeError(wrong, { pinText: true }).title).toBe('That PIN is not right.')
+    expect(describeError(wrong).title).toBe('Not allowed from this device or account.')
+    const bare = new ApiError(403, { code: 'forbidden', message: 'Not allowed.' }, 'POST')
+    expect(describeError(bare, { pinText: true }).title).toBe('Not allowed from this device or account.')
+  })
+
   it('a refusal by permission keeps its generic text for everyone', () => {
     resetSessionForTests(me([]))
     expect(describeError(new ApiError(403, { code: 'forbidden', message: 'admin.diagnostics' }, 'GET')).title).toBe(

@@ -54,7 +54,7 @@ export default function PcProfilePicker({ onDone }: { onDone: () => void }) {
     <main className="login-page" data-testid="pc-profile-picker">
       <div className="login-card">
         <h1>Who's using Baihe?</h1>
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pinText: true }} />
         {asking ? (
           <form className="diag-stack" onSubmit={(e) => { e.preventDefault(); void chooseOwner() }}>
             <Field label="PIN">

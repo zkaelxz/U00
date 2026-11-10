@@ -56,6 +56,8 @@ const READ_GENERIC: Record<string, string> = {
 
 // FastAPI's own 422 body carries this placeholder instead of a reason.
 const PLACEHOLDER_INVALID = 'The request is invalid.'
+// The server's bare 403 body, which says nothing a PIN form could use.
+const GENERIC_FORBIDDEN_SERVER_TEXT = 'Not allowed.'
 
 // A PC-only call refused with 403 (the viewer is not at the main PC).
 export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
@@ -99,6 +101,9 @@ export interface DescribeOptions {
   // Refusals whose server sentence is the whole answer ("There is no dub track for this title.")
   // show it as the heading instead of the generic validation text.
   reasonAsTitle?: boolean
+  // PIN forms: a 403 here means "That PIN is not right.", so show the server's sentence
+  // instead of the generic "Not allowed from this device or account."
+  pinText?: boolean
 }
 
 // A package the server named in `details` (fixed text; no path or traceback): install it, don't add a key.
@@ -194,7 +199,8 @@ export function describeError(
     serverMsg &&
     serverMsg !== PLACEHOLDER_INVALID &&
     ((e?.status === 422 && OPT_IN_SERVER_TEXT_CODES.includes(code)) || code === 'rate_limited' ||
-      STORAGE_CODES.includes(code))
+      STORAGE_CODES.includes(code) ||
+      (opts.pinText && code === 'forbidden' && serverMsg !== GENERIC_FORBIDDEN_SERVER_TEXT))
       ? capFirst(serverMsg)
       : null
   const title =

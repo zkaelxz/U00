@@ -67,7 +67,7 @@ export function PcProfileCard() {
           Set a PIN and this PC opens on Guest, which leaves out every title you marked private.
           Choose Owner and enter the PIN to see them again. The PIN is 6 to 12 digits. This hides titles from view; it does not lock the files, and Guest keeps the owner's other powers. Only for this PC window with sign-in off.
         </p>
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pinText: true }} />
         {guest ? (
           <p className="muted">Switch to Owner (top right) to change the PIN.</p>
         ) : (
