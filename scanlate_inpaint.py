@@ -308,10 +308,13 @@ def _drop_marks_running_off_edge(mask) -> None:
 
 _ART_FILL_CONTEXT_PX = 60
 # Outlined lettering is white or pale; bright pixels that are strongly coloured
-# are artwork (flames, glare), and painting them out would blank the art. Measured
-# on four crops of a Korean title: lettering 0.01-0.12, a box that took in flames 0.26.
-_ART_FILL_MAX_SATURATED_SHARE = 0.18
+# are artwork (flames, glare) and stay out of the lettering mask, so painting the
+# lettering out cannot blank the art round it.
 _ART_FILL_SATURATION = 120
+# Median saturation from which a box counts as coloured art. Its flat-tone fill
+# would show as a smudge on that texture, and its median brightness can read as
+# light even though the lettering is pale outlined text, so LaMa gets the mask.
+_COLOURED_ART_MEDIAN_SATURATION = 100
 
 
 def _fill_enclosed_holes(mask):
@@ -326,13 +329,27 @@ def _fill_enclosed_holes(mask):
     return cv2.bitwise_or(mask, cv2.bitwise_not(padded[1:-1, 1:-1]))
 
 
-def _dark_art_lettering_mask(gray_roi):
+def _pale_pixels(crop):
+    """Bool array: bright, weakly coloured pixels of a BGR crop, i.e. the pale
+    outline and glow of lettering rather than the artwork."""
+    import cv2
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    saturation = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1]
+    return (gray > 150) & (saturation <= _ART_FILL_SATURATION)
+
+
+def is_coloured_art(crop) -> bool:
+    import cv2
+    return float(np.median(cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1])) > _COLOURED_ART_MEDIAN_SATURATION
+
+
+def _dark_art_lettering_mask(crop):
     """uint8 mask (255 = erase) of outlined lettering over dark art. The bright
     outline is the only part a brightness cut-off finds, so the fill inside
     each letter is recovered by flooding from the corner and everything within
     a few pixels is taken too, which removes the glow round the strokes."""
     import cv2
-    _, core = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY)
+    core = _pale_pixels(crop).astype(np.uint8) * 255
     core = cv2.dilate(core, np.ones((3, 3), np.uint8), iterations=2)
     core = _fill_enclosed_holes(core)
     core = cv2.morphologyEx(core, cv2.MORPH_CLOSE,
@@ -342,20 +359,15 @@ def _dark_art_lettering_mask(gray_roi):
 
 def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     """The box's crop with its lettering replaced by the colours of the art
-    round it, or None when its bright pixels are mostly coloured, i.e. artwork.
+    round it, or None when it holds no pale lettering.
     TELEA and LaMa both pull the stroke glow into the fill and leave a grey
     smudge on dark art; averaging only pixels well clear of the lettering
     gives the art's own tone."""
     import cv2
     crop = img[y:y + bh, x:x + bw]
-    gray_roi = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    bright = gray_roi > 150
-    if bright.any():
-        saturation = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1]
-        coloured = np.count_nonzero(bright & (saturation > _ART_FILL_SATURATION))
-        if coloured / np.count_nonzero(bright) > _ART_FILL_MAX_SATURATED_SHARE:
-            return None
-    mask_box = _dark_art_lettering_mask(gray_roi)
+    if not _pale_pixels(crop).any():
+        return None
+    mask_box = _dark_art_lettering_mask(crop)
     ih, iw = img.shape[:2]
     x0, y0 = max(0, x - _ART_FILL_CONTEXT_PX), max(0, y - _ART_FILL_CONTEXT_PX)
     x1, y1 = min(iw, x + bw + _ART_FILL_CONTEXT_PX), min(ih, y + bh + _ART_FILL_CONTEXT_PX)
@@ -379,9 +391,30 @@ def _resolve_inpaint_backend(backend: str) -> str:
     return backend
 
 
+def _try_ml_inpaint(roi, mask, hf_token, backend):
+    """(inpainted crop, None) from LaMa, or (None, InpaintModelUnavailable) when
+    it can't run, so the caller finishes with OpenCV and still raises the error."""
+    try:
+        return _run_ml_inpaint(roi, mask, hf_token=hf_token, allow_download=backend == "ml"), None
+    except ImportError as exc:
+        error = InpaintModelUnavailable(
+            "ML inpainting needs extra packages:\n"
+            "    pip install torch safetensors huggingface_hub\n\n"
+            "Falling back to plain OpenCV inpainting for this bubble."
+        )
+        error.__cause__ = exc
+    except Exception as exc:
+        error = InpaintModelUnavailable(
+            f"LaMa-manga inpainting failed: {type(exc).__name__}: {exc}\n\n"
+            "Falling back to plain OpenCV inpainting for this bubble."
+        )
+        error.__cause__ = exc
+    return None, error
+
+
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
                     backend: str = "auto", hf_token: str | None = None, image=None, inside=None,
-                    spare_art: bool = False):
+                    spare_art: bool = False, on_art: bool = False):
     """Removes text within `box` so the translated text has a clean
     background. Returns the path to the (possibly newly-created) cleaned
     image; if out_path is None, overwrites nothing and returns an image
@@ -409,7 +442,14 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     spare_art: for a balloon whose outline wasn't found (`inside` is None),
     leave dark marks that run off the box edge. Lettering sits inside the
     balloon, so a large mark touching the edge is the art the balloon is
-    drawn over, and erasing it smears white across the box."""
+    drawn over, and erasing it smears white across the box.
+
+    on_art: the region is a sign, lettering on the artwork rather than in a
+    balloon or box: pale lettering on dark or coloured art is painted out with
+    the art's own tone or a full lettering mask, since an outline-only mask
+    left the letters' fill and glow behind as ghost text. A dark box that is a
+    balloon or narration panel must not take the colours round it, so only
+    signs opt in."""
     import cv2
     img = image if image is not None else cv2.imread(image_path)
     h, w = img.shape[:2]
@@ -432,27 +472,15 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         _drop_marks_running_off_edge(mask)
 
     inpainted_roi = None
-    if inside is None and spare_art and background_is_dark(gray_roi):
+    if inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
+        # An outline-only mask left the letters' fill and glow behind as ghosts.
+        mask = _dark_art_lettering_mask(roi)
+    elif inside is None and (spare_art or on_art) and background_is_dark(gray_roi):
         inpainted_roi = _dark_art_fill(img, x, y, bw, bh)
     resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
     fallback_error = None
     if resolved == "ml":
-        try:
-            inpainted_roi = _run_ml_inpaint(roi, mask, hf_token=hf_token,
-                                            allow_download=backend == "ml")
-        except ImportError as exc:
-            fallback_error = InpaintModelUnavailable(
-                "ML inpainting needs extra packages:\n"
-                "    pip install torch safetensors huggingface_hub\n\n"
-                "Falling back to plain OpenCV inpainting for this bubble."
-            )
-            fallback_error.__cause__ = exc
-        except Exception as exc:
-            fallback_error = InpaintModelUnavailable(
-                f"LaMa-manga inpainting failed: {type(exc).__name__}: {exc}\n\n"
-                "Falling back to plain OpenCV inpainting for this bubble."
-            )
-            fallback_error.__cause__ = exc
+        inpainted_roi, fallback_error = _try_ml_inpaint(roi, mask, hf_token, backend)
 
     if inpainted_roi is None:
         inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)

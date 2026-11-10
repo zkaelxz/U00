@@ -25,7 +25,7 @@ from scanlate_watermark import is_site_mark_region, logo_box
 # picks OpenCV without raising, so nothing else would tell the person why
 # faint ghosts of the original lettering show under the English.
 LAMA_MISSING_NOTE = ("The LaMa-manga cleanup model is not installed, so the original text was "
-                     "erased with plain OpenCV and may show through.")
+                     "erased with plain OpenCV and may show through. Download it in Diagnostics > Models.")
 
 # One of these three, matching sample_text_style()'s "suggested_style"
 # output exactly -- a bubble's auto-detected (or manually overridden)
@@ -507,7 +507,8 @@ def erase_lettering(image_path: str, b: dict, page, gray) -> None:
     if gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
         inside = bubble_erase_mask(image_path, b, image=gray)
     shape_fitted = gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS
-    inpaint_region(image_path, b, image=page, inside=inside, spare_art=shape_fitted)
+    inpaint_region(image_path, b, image=page, inside=inside, spare_art=shape_fitted,
+                   on_art=b.get("kind") == "sign")
 
 
 def sample_text_style(image_path: str, box, image=None) -> dict:

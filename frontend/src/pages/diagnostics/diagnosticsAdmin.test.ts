@@ -288,6 +288,7 @@ describe('model downloads', () => {
     expect(MODEL_DOWNLOAD_IDS['Qwen3-ASR']).toBe('qwen3_asr')
     expect(MODEL_DOWNLOAD_IDS['SenseVoice (FunASR)']).toBe('sensevoice')
     expect(MODEL_DOWNLOAD_IDS['manga-ocr']).toBe('manga_ocr')
+    expect(MODEL_DOWNLOAD_IDS['LaMa-manga']).toBe('lama_manga')
     expect(MODEL_DOWNLOAD_IDS['Whisper (faster-whisper)']).toBeUndefined()
   })
 
