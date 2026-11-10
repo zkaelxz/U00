@@ -15,6 +15,7 @@ table) is in `archive/asr-experiments-history.md`.
 |---|---|---|---|
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
 | Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace) and Live, Japanese only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
+| Chinese Whisper model `breeze-asr-25` | per title (Workspace), Chinese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "Breeze-ASR-25 in the app" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
 | ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (see "anime-whisper in the app"). |
 | Qwen3-ASR batch size | Settings > Performance and advanced > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
@@ -166,6 +167,7 @@ The notes the Transcribe form and a finished run's details show, from `services/
 | `whisper_missing` | blocked | Whisper is not installed, so this run cannot start. |
 | `anime_whisper_language` | blocked | Anime-whisper is for Japanese only. |
 | `ja_model_language` | blocked | This Whisper model is for Japanese only. |
+| `zh_model_language` | blocked | Breeze-ASR-25 is for Chinese only. |
 | `qwen_long_audio` | warn | Qwen3 ASR on long audio gives no word timings, fewer lines and "Timing uncertain · Split evenly" flags. Use Whisper. |
 | `forced_align_needs_transcript` | warn | Qwen3 forced alignment needs a transcript to line up; without one it is not used. |
 | `ja_15b_needs_gpu` | warn | Whisper ja-1.5B needs a GPU and is meant for anime and games. |
@@ -242,6 +244,7 @@ document shows it worse; Live's own size list is separate and not gated. Today:
 | `medium` | Japanese | "medium about 1.9 points worse" than turbo, and slower (RTF 0.84 vs 0.56), in the model table above. Korean and Chinese showed no clear gap, so it stays there. |
 | `ja-1.5b` | Chinese, Korean | A Japanese fine-tune, only for Japanese titles. |
 | `kotoba-v2` | Chinese, Korean | Trained on Japanese speech only (ReazonSpeech), so only for Japanese titles. |
+| `breeze-asr-25` | Japanese, Korean | A Taiwanese Mandarin fine-tune of whisper-large-v2, so only for Chinese titles. |
 
 Adding a model is a `WHISPER_MODELS` label plus, if it is language-bound, one
 `LanguageRule`. `ja-1.5b` is never the default.
@@ -315,6 +318,28 @@ not in Live (its size list waits for a benchmark).
 | Timing | segment timestamps only: `whisper_models.WORD_TIMESTAMP_UNSUPPORTED` makes `core.transcribe_for_timing` and the mixed-language runner pass `word_timestamps=False`. The stock `config.json` carries large-v3's `alignment_heads` (decoder layers 7-19) on a 2-layer decoder, which is what crashes word timestamps. The pipeline then refines the segment times with the Qwen3 forced aligner (`forced_align.refine_whisper_segments`); if it is not installed, errors, or the run is mixed-language, the segment times are kept, no line is flagged, and the job reports "Line timing was not refined (reason)" as a partial result. |
 
 No benchmark of `kotoba-v2` in this app exists yet; the speed and accuracy claims above are the model card's.
+
+#### Breeze-ASR-25 in the app
+
+`breeze-asr-25` is MediaTek Research's Taiwanese Mandarin fine-tune of whisper-large-v2 (Apache-2.0). Opt-in for
+Chinese titles only (`WHISPER_LANGUAGE_RULES`), never the default, not in Live.
+
+| | |
+|---|---|
+| Repository | `phate334/Breeze-ASR-25-ct2`, pinned in `whisper_models.PINNED_CT2_REPOS` at `ac4ec98cf46e00218e29e704b3181a2d7bd94f77` |
+| Size | `model.bin` 3.09 GB, float16 (`memory_headroom` estimate is large-v2's, not measured) |
+| Provenance | a community conversion, not MediaTek's. Its `model.bin` has the same sha256 (`32110e9b…ed38`) as a second public conversion and as one made on the owner's PC with `ct2-transformers-converter --quantization float16` from the official weights; `config.json`, `tokenizer.json`, `vocabulary.json` and `preprocessor_config.json` match that PC copy byte for byte. |
+| File-set rule | the same as `ja-1.5b` (`lib/ct2_repo.py`) |
+
+Measured 2026-11-09 on the owner's 3080 Ti PC with the title's own settings, against hand-corrected lines (one
+whispered title of 40 lines, one 4.6-minute window of 87 lines), so treat it as a lead, not a proven gain:
+- Title 59 (whispered, 172 s): CER 0.352 and identical on three runs, against 0.42 to 0.99 for large-v3
+  default; 11 of 40 lines missed (mostly short fillers such as 嗯); median start error 0.10 s. 12 to 15 s a run.
+- Title 56 window (a drunk call): CER 0.294 against 0.41 to 0.57 for large-v3. The reference started from
+  Breeze's draft, but every Chinese line was re-edited and cross-checked by the owner against her own
+  transcription, so any flattery is small, not removed.
+- Clear speech (titles 41 and 44): no difference from large-v3 or Qwen3-ASR.
+- It still writes a stock credit line or "Thank you." over some quiet stretches.
 
 #### Trying a Japanese fine-tune
 
