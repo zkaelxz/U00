@@ -42,6 +42,8 @@ _WHISPER_MB = {
     "ja-1.5b": (4200, 3300),
     # An estimate from the 1.5 GB model.bin (large-v3 encoder, 2-layer decoder), not a measurement.
     "kotoba-v2": (2600, 2000),
+    # An estimate from large-v2's size (the 3.1 GB float16 model.bin), not a measurement.
+    "breeze-asr-25": (4800, 3800),
     # An estimate from the 1.5 GB float16 model.bin plus activations, not a measurement.
     "anime-whisper": (2200, 1600),
 }

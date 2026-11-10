@@ -74,6 +74,7 @@ const WHISPER_LABELS: Record<string, string> = {
   'large-v3-turbo': 'Faster',
   'ja-1.5b': 'Japanese only: whisper-ja 1.5B, anime and games, opt-in, about 3 GB, needs a GPU',
   'kotoba-v2': 'Japanese only: kotoba-whisper v2.0, opt-in, about 1.5 GB, fast; line timing only',
+  'breeze-asr-25': 'Chinese only: Breeze-ASR-25 (Taiwanese Mandarin), opt-in, about 3 GB',
 }
 // Download sizes, mirrored from services/transcribe_pipeline._MODEL_DOWNLOAD_SIZES for the two models the picker offers.
 const WHISPER_DOWNLOAD: Record<string, string> = { 'large-v3': 'about 3 GB', 'large-v3-turbo': 'about 1.6 GB' }
