@@ -27,6 +27,7 @@ text in a table before final render -- the Scanlate page in the web app.
 """
 
 import os
+import re
 
 import numpy as np
 from memory_headroom import HeadroomError
@@ -230,7 +231,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     except BubbleModelUnavailable as exc:
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
-    boxes = merge_fragment_boxes(boxes)
+    boxes = merge_fragment_boxes(boxes, gray)
 
     captions = None
     if not boxes:
@@ -258,6 +259,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         except Exception:
             b["source_text"] = ""
             ocr_failed += 1
+        if _is_thought_dots(b["source_text"], source_language):
+            continue
         b["language"] = detect_script_language(b["source_text"], b["language"])
         # Classical-CV style guess (see sample_text_style()), reviewable
         # per bubble before render.
@@ -268,6 +271,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b.update(translated_text="", font_size=suggest_font_size(gray, b), skip=False,
                  include_sfx=False)
         bubbles.append(b)
+    for order, b in enumerate(bubbles):
+        b["reading_order"] = order
     reclassify_wordy_sfx(bubbles)
     flag_site_marks(bubbles)
     _note_skipped_sfx(bubbles, notes)
@@ -281,6 +286,18 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("error", f"OCR failed on {ocr_failed} of {len(bubbles)} regions. Check "
                                "that the OCR backend is installed (Diagnostics)."))
     return bubbles, notes
+
+
+# The small circles that trail a thought balloon's tail are read as the letters
+# o and O or the digit 0; a script that has none of them in its lettering has
+# no text there to translate.
+_THOUGHT_DOTS = re.compile(r"[oO0°○◦.·・\s]+")
+
+
+def _is_thought_dots(text: str, source_language: str) -> bool:
+    text = text.strip()
+    return (source_language in ("ja", "zh", "ko") and bool(text)
+            and any(c in "oO0" for c in text) and bool(_THOUGHT_DOTS.fullmatch(text)))
 
 
 def suggest_font_size(gray, region: dict) -> int:

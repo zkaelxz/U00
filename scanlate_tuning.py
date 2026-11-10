@@ -57,6 +57,15 @@ FRAGMENT_OVERLAP = 0.4
 FRAGMENT_ALIGNED = 0.6
 FRAGMENT_GAP = 0.3
 
+# Two boxes touching or this close (as a share of the narrower one's width, or
+# height when stacked) are the columns of one balloon when this share of each
+# lies inside the one balloon found around them.
+BALLOON_COLUMN_GAP = 0.6
+BALLOON_COLUMN_INSIDE = 0.7
+# A balloon interior covering this share of its box means the box lies within
+# the balloon (there is no outline in it to spare).
+BALLOON_FILLS_BOX = 0.9
+
 # --- Region kinds (scanlate_detect.classify_text_regions) ---
 # A box at least this share light (gray above the level) is a balloon or a
 # caption box rather than lettering on the art.
@@ -95,6 +104,9 @@ OCR_DENOISE_BACKENDS = ("paddle",)
 OCR_DENOISE_MIN_NOISE = 3.0
 
 # --- Typesetting (scanlate_render) ---
+# A column or line of the source lettering thinner than this share of the
+# thickest is punctuation, not a glyph row, and is left out of its size.
+LETTERING_RUN_OF_LARGEST = 0.6
 # The English starts at the source lettering's size (column width or line
 # height) times this, kept within START_MIN..START_MAX, and shrinks until it
 # fits, down to SMALLEST; DEFAULT when the lettering can't be measured.
@@ -113,6 +125,11 @@ TYPESET_COMFORT_PX = 13
 # Space between lines, and between the text and a balloon's outline.
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
+
+# --- Cleanup (scanlate_inpaint) ---
+# A balloon whose paper (gray levels, among the lighter half of its pixels)
+# varies by no more than this is flat white, and is repainted in one colour.
+INPAINT_FLAT_PAPER_STD = 6.0
 
 # --- OCR line layout (ocr_layout) ---
 # A line thinner than this share of a larger line beside it is furigana. Ruby

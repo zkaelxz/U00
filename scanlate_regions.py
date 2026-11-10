@@ -140,7 +140,12 @@ def lettering_size(gray, box: dict, orientation: str | None):
         return None
     profile = letters.any(axis=0) if orientation == "vertical" else letters.any(axis=1)
     runs = [r for r in _runs(profile, bridge=3) if r >= 6]
-    return float(np.median(runs)) if runs else None
+    if not runs:
+        return None
+    # An ellipsis or a punctuation mark is a thin run beside the glyph columns;
+    # counting it pulled the median down and the English started too small.
+    runs = [r for r in runs if r >= scanlate_tuning.LETTERING_RUN_OF_LARGEST * max(runs)]
+    return float(np.median(runs))
 
 
 def lettering_fill(gray, box: dict):
