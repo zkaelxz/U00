@@ -65,7 +65,7 @@ export function PcProfileCard() {
       <div className="settings-group" data-testid="pc-profile">
         <p className="settings-note">
           Set a PIN and this PC opens on Guest, which leaves out every title you marked private.
-          Choose Owner and enter the PIN to see them again. This hides titles from view; it does not lock the files, and Guest keeps the owner's other powers. Only for this PC window with sign-in off.
+          Choose Owner and enter the PIN to see them again. The PIN is 6 to 12 digits. This hides titles from view; it does not lock the files, and Guest keeps the owner's other powers. Only for this PC window with sign-in off.
         </p>
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {guest ? (
@@ -78,7 +78,7 @@ export function PcProfileCard() {
                   onChange={(e) => setCurrent(e.target.value)} />
               </Field>
             )}
-            <Field label={status.pin_set ? 'New PIN' : 'PIN'} help={PIN_HINT}
+            <Field label={status.pin_set ? 'New PIN' : 'PIN'}
               error={touched && !validPin(next) ? PIN_HINT : null}>
               <input type="password" inputMode="numeric" autoComplete="off" maxLength={12} value={next}
                 onChange={(e) => setNext(e.target.value)} />
