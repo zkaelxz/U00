@@ -39,7 +39,7 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { followOptions } from '../api/liveFollows'
 import { useDeveloperMode } from './assistant/developerMode'
 import { NeedsInstall } from './readiness/NeedsInstall'
-import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
+import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize } from './readiness/needs'
 import { whisperExclusionReason } from './workspace/sourceForm'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
@@ -342,7 +342,7 @@ export default function LivePage() {
                     const wrongLanguage = !!whisperExclusionReason(opts.whisper_exclusions, w, form.source_language)
                     return (
                       <option key={w} value={w} disabled={wrongLanguage || (!!size.reason && w !== form.whisper_size)}>
-                        {w}{wrongLanguage ? ' (Japanese only)' : size.reason ? ' (not available)' : size.download ? ' (downloads first)' : ''}
+                        {w}{liveWhisperOptionNote(wrongLanguage, size)}
                       </option>
                     )
                   })}
@@ -361,6 +361,10 @@ export default function LivePage() {
                   onChange={(e) => setOpt('max_minutes', e.target.valueAsNumber)} />
               </Field>
             </div>
+            {opts.whisper_sizes.map((w) => {
+              const reason = whisperExclusionReason(opts.whisper_exclusions, w, form.source_language)
+              return reason ? <p key={w} className="muted" data-testid="live-whisper-language-reason">{w}: {reason}</p> : null
+            })}
             {opts.whisper_sizes.map((w) => {
               const reason = liveWhisperSize(readiness, w, pc !== 'remote').reason
               return reason ? <p key={w} className="muted" data-testid="live-whisper-reason">{w}: {reason}</p> : null
