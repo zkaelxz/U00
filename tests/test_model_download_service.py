@@ -48,7 +48,7 @@ def test_lists_each_model_with_whether_it_is_on_disk(client, models):
     state["sensevoice"] = True
     body = client.get("/api/diagnostics/model-downloads").json()
     assert {m["id"]: m["downloaded"] for m in body["models"]} == {
-        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False}
+        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "lama_manga": False}
     assert body["models"][0]["job_id"] == "model_download_qwen3_asr"
 
 
