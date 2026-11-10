@@ -34,7 +34,10 @@ from lib.errors import (
 # ---------------------------------------------------------------------------
 
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"
-_EXTRACT_FAILED = "Glossary extraction failed."
+def _extract_failed(engine_name: str) -> str:
+    """Names the engine because it is the title's saved one, which is not the engine
+    picked on the Translate form for a single run."""
+    return f"Glossary extraction failed (engine: {engine_name})."
 
 
 def novel_glossary_job_id(drama_id: int) -> str:
@@ -167,7 +170,7 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
     except Exception as exc:
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
+            _extract_failed(engine_name) + " " + engine_shared.redact_secrets(str(exc))) from None
     background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms, src_text),
                                         "run_id": run_id, **paid_job_service.stop_fields(limits)})
 
@@ -514,9 +517,12 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
                             source_language, known_terms):
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
-    background_jobs.update_progress(job_id, 0.1, f"Scanning {len(source_lines)} lines...")
+    # One request covers the whole sample, so there is no real progress to report. The ticker keeps
+    # the elapsed time fresh and lifts the stall flag to the no-progress allowance instead of
+    # showing a healthy slow model as stuck after five minutes.
     try:
-        with _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
+        with background_jobs.stage_ticker(job_id, f"Scanning {len(source_lines)} lines...", frac=0.1), \
+                _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
             proposals = tguide.extract_terms_llm(
                 source_lines, engine, source_language=source_language, known_terms=known_terms,
                 usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extract_terms"))
@@ -524,7 +530,7 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
+            _extract_failed(engine_name) + " " + engine_shared.redact_secrets(str(exc))) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
     # `renderings` is the novel path's cross-window tally; a single call has no

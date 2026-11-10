@@ -43,6 +43,9 @@ describe('glossary extraction helpers', () => {
     expect(extractionProgressText('novel', 'running', 0.42)).toBe('Reading the novel… 42%')
     expect(extractionProgressText('lines', 'running', 0.1)).toBe('Scanning the transcript…')
     expect(extractionProgressText('lines', 'queued', 0)).toBe('Waiting to start…')
+    expect(extractionProgressText('lines', 'running', 0.1, 'Scanning 87 lines (elapsed 3m 05s).')).toBe(
+      'Scanning 87 lines (elapsed 3m 05s).',
+    )
   })
 
   it('review uses the novel when attached, else the lines', () => {
