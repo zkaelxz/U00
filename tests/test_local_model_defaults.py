@@ -119,7 +119,7 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     assert loaded_models["emptied"]
 
 
-GEMMA_TAGS = ["gemma4:12b", "gemma4:26b", "gemma4:31b"]
+GEMMA_TAGS = ["gemma4:12b", "gemma4:26b"]
 
 
 class _OllamaReply(StreamedBody):
@@ -145,7 +145,7 @@ class TestGemma4Models:
         assert not any(t.startswith("gemma4:e") for t in engine_local.OLLAMA_MODELS)
 
     def test_default_and_existing_choices_are_unchanged(self):
-        assert list(engine_local.OLLAMA_MODELS) == ["gemma4:12b", "gemma4:26b", "gemma4:31b"]
+        assert list(engine_local.OLLAMA_MODELS) == ["gemma4:12b", "gemma4:26b"]
         assert engine_local.OllamaEngine().model == "gemma4:12b"
 
     def test_service_lists_the_tags_for_the_picker(self, isolated_db):
