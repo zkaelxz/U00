@@ -91,5 +91,15 @@ def reading_order(lines: list[OcrLine], vertical: bool) -> list[OcrLine]:
     return ordered
 
 
+def looks_vertical(lines: list[OcrLine]) -> bool:
+    """Whether most lines are columns: clearly taller than wide. The caller's
+    orientation guess is a coarse one for a squarish balloon (two short
+    columns), and reading those left to right swaps them, so the boxes the
+    engine reported get the last word. One-character lines say nothing."""
+    tall = sum(1 for ln in lines if ln.y1 - ln.y0 >= 1.5 * (ln.x1 - ln.x0))
+    return tall * 2 > len(lines)
+
+
 def layout_text(lines: list[OcrLine], vertical: bool) -> str:
+    vertical = vertical or looks_vertical(lines)
     return "\n".join(line.text for line in reading_order(drop_furigana(lines, vertical), vertical))
