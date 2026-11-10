@@ -52,6 +52,10 @@ MODEL_ENGINE_REGISTRY = [
     {"name": "PaddleOCR", "kind": "package", "package": "paddleocr",
      "url": "https://github.com/PaddlePaddle/PaddleOCR",
      "help": "An alternate OCR backend for reading text out of manga/manhua page images."},
+    {"name": "LaMa-manga", "kind": "repo", "repo_ids": ["mayocream/lama-manga"],
+     "url": "https://huggingface.co/mayocream/lama-manga",
+     "help": "The model Scanlate uses to erase the original text from a page (about 200 MB). "
+             "Without it the text is erased with plain OpenCV, which can leave ghosts."},
     {"name": "audio-separator", "kind": "package", "package": "audio-separator",
      "url": "https://github.com/nomadkaraoke/python-audio-separator",
      "help": "Strips background music out of the audio track before transcription, so dialogue "

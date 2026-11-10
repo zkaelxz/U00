@@ -370,6 +370,23 @@ def test_outlined_lettering_on_dark_art_is_erased_to_the_art_tone():
     assert abs(float(erased.mean()) - 30) < 15
 
 
+def test_a_sign_region_on_dark_art_is_painted_out_without_spare_art():
+    page = _outlined_red_lettering_on_dark_art()
+    box = {"x": 70, "y": 120, "w": 460, "h": 140}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="cv", on_art=True)
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert int(erased.max()) < 90
+
+
+def test_a_sign_with_pale_lettering_on_coloured_art_is_erased_without_blanking_the_art():
+    page = np.full((300, 400, 3), (30, 110, 230), np.uint8)
+    cv2.putText(page, "HELLO", (60, 160), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 8)
+    box = {"x": 40, "y": 90, "w": 320, "h": 100}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="cv", on_art=True)
+    assert int(page[90:190, 40:360].min(axis=2).max()) < 150
+    assert abs(int(page[250, 20, 0]) - 30) < 5
+
+
 def test_a_box_full_of_coloured_bright_art_is_not_painted_out_as_lettering():
     page = np.full((300, 400, 3), (15, 20, 45), np.uint8)
     page[40:260, 60:340] = (0, 140, 255)
