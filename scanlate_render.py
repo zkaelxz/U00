@@ -25,7 +25,9 @@ from scanlate_watermark import is_site_mark_region, logo_box
 # picks OpenCV without raising, so nothing else would tell the person why
 # faint ghosts of the original lettering show under the English.
 LAMA_MISSING_NOTE = ("The LaMa-manga cleanup model is not installed, so the original text was "
-                     "erased with plain OpenCV and may show through. Download it in Diagnostics > Models.")
+                     "erased with plain OpenCV and may show through. To install it, open Diagnostics, then "
+                     "Models, and press Download next to LaMa-manga (at the PC; about 200 MB), "
+                     "then redo the page.")
 
 # One of these three, matching sample_text_style()'s "suggested_style"
 # output exactly -- a bubble's auto-detected (or manually overridden)
