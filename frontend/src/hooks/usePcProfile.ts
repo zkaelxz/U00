@@ -10,22 +10,25 @@ import type { PcMode } from '../api/pcOnly'
 
 export function usePcProfile(pc: PcMode, enabled: boolean) {
   const [status, setStatus] = useState<PcProfileStatus | null>(null)
-  const [loaded, setLoaded] = useState(false)
-
-  const refresh = useCallback(async () => {
-    try {
-      setStatus(await getPcProfile())
-    } catch {
-      setStatus(null)
-    } finally {
-      setLoaded(true)
-    }
-  }, [])
+  const [fetched, setFetched] = useState(false)
+  const [reads, setReads] = useState(0)
+  const wanted = enabled && pc !== 'remote'
 
   useEffect(() => {
-    if (enabled && pc !== 'remote') void refresh()
-    else setLoaded(true)
-  }, [enabled, pc, refresh])
+    if (!wanted) return
+    let stale = false
+    getPcProfile()
+      .then((next) => !stale && setStatus(next), () => !stale && setStatus(null))
+      .finally(() => !stale && setFetched(true))
+    return () => {
+      stale = true
+    }
+  }, [wanted, reads])
 
-  return { status, loaded, refresh }
+  const refresh = useCallback(() => {
+    setReads((n) => n + 1)
+    return Promise.resolve()
+  }, [])
+
+  return { status, loaded: !wanted || fetched, refresh }
 }
