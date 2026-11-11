@@ -425,7 +425,7 @@ def test_a_new_run_waits_while_a_cancelled_requests_provider_call_is_still_runni
 
 
 def test_a_saved_retired_gpt5_model_still_passes_the_model_check(isolated_db):
-    translate_run_service._require_offered_model("openai", "gpt-5-mini")
-    translate_run_service._require_offered_model("openai", "gpt-6-luna")
+    svc._require_offered_model("openai", "gpt-5-mini")
+    svc._require_offered_model("openai", "gpt-6-luna")
     with pytest.raises(InvalidInputError):
-        translate_run_service._require_offered_model("openai", "gpt-4")
+        svc._require_offered_model("openai", "gpt-4")
