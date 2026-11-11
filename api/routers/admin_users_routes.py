@@ -3,6 +3,7 @@ api/routers/admin_users_routes.py -- user administration and the read-only
 audit log view. Thin: the rules live in `services/auth_service.py`.
 
     GET  /api/admin/users                            list users
+    POST /api/admin/users                            add a person (PC only)
     POST /api/admin/users/{user_id}/deactivate       block + end their sessions
     POST /api/admin/users/{user_id}/activate         unblock
     POST /api/admin/users/{user_id}/revoke-sessions  sign them out everywhere
@@ -27,7 +28,9 @@ The rights toggles change only an active member account (409 on an admin,
 which holds every right through the flag, and so on the caller's own), and
 only the member permissions the list returns as `member_permissions`; they
 never make or unmake an admin. Unknown user: 404. The service audits every
-write. Nothing here creates users or edits or deletes audit rows.
+write. Adding a person is PC-only on every listener (403 from away): the
+new account can sign in from the internet. It never makes an admin.
+Nothing here edits or deletes audit rows.
 """
 
 from typing import Optional
@@ -35,7 +38,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 
 from api.admin_users_schemas import AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage
-from api.schemas import MemberKeyRemoved, MemberPaidLimitRequest
+from api.schemas import AdminAddUserRequest, MemberKeyRemoved, MemberPaidLimitRequest
 from api.auth import is_local_request, principal_user_id, require_permission
 from api.no_store import mark_no_store
 from services import auth_service, member_key_service
@@ -55,6 +58,16 @@ def list_users(request: Request, response: Response):
     mark_no_store(response)
     return {"users": auth_service.admin_list_users(principal_user_id(request)),
             "member_permissions": list(auth_service.MEMBER_PERMISSIONS)}
+
+
+@router.post("/users", dependencies=_ADMIN, response_model=AdminUser,
+             summary="Add a person with the household rights (PC only)")
+def add_user(body: AdminAddUserRequest, request: Request, response: Response):
+    mark_no_store(response)
+    return auth_service.admin_add_user(body.email, body.display_name,
+                                       extension_send=body.extension_send,
+                                       actor_id=principal_user_id(request),
+                                       at_pc=is_local_request(request))
 
 
 @router.post("/users/{user_id}/deactivate", dependencies=_ADMIN, response_model=AdminUser,

@@ -356,6 +356,43 @@ test('People: rights toggles on active member rows give and take one right', asy
   expect(unmocked).toEqual([])
 })
 
+test('People: on the PC, adds a person; away from the PC there is no form', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'])
+  const added = user({ id: 5, email: 'pc2@example.com', display_name: 'Second PC', has_google_binding: false,
+    active_sessions: 0, permissions: ['library.read', 'extension.send'] })
+  let users = [ME_ADMIN, KID]
+  const bodies: unknown[] = []
+  await page.route('**/api/admin/users', (r) => {
+    if (r.request().method() === 'POST') {
+      bodies.push(r.request().postDataJSON())
+      users = [ME_ADMIN, KID, added]
+      return r.fulfill({ json: added })
+    }
+    return r.fulfill({ json: { users, member_permissions: RIGHTS } })
+  })
+  await page.goto('/#/admin')
+  await openSection(page, /^People/)
+  const form = page.getByRole('form', { name: 'Add a person' })
+  const submit = form.getByRole('button', { name: 'Add person' })
+  await expect(submit).toBeDisabled()
+  await form.getByLabel('Email').fill('PC2@example.com')
+  await form.getByLabel('Name (optional)').fill('Second PC')
+  await form.getByRole('checkbox', { name: 'Also allow the browser extension' }).check()
+  await submit.click()
+  await expect(page.getByTestId('admin-users')).toContainText('pc2@example.com was added.')
+  await expect(page.getByRole('list', { name: 'People' }).locator(':scope > li')).toHaveCount(3)
+  await expect(form.getByLabel('Email')).toHaveValue('')
+  expect(bodies).toEqual([{ email: 'PC2@example.com', display_name: 'Second PC', extension_send: true }])
+  expect(unmocked).toEqual([])
+
+  await mockPage(page, ['admin.users.read', 'admin.users'], false)
+  await page.reload()
+  await openSection(page, /^People/)
+  await expect(page.getByRole('list', { name: 'People' }).locator(':scope > li')).toHaveCount(3)
+  await expect(page.getByRole('form', { name: 'Add a person' })).toHaveCount(0)
+})
+
 test('People: without admin.users the rights are shown but cannot be changed', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, ['library.read', 'admin.users.read'], false)
