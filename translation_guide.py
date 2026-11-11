@@ -792,6 +792,9 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
             "suggested translation following that policy. If a name is MEANINGFUL (its "
             "characters spell out something thematic, or it's a pun), note that in the reason "
             "-- worth a translation note even when the name stays pinyin.\n\n"
+            "suggested_translation is only the English name or term itself, never a description of "
+            "a person or thing (not \"the woman in the long green skirt\"), and never contains "
+            "Chinese, Japanese or Korean characters.\n\n"
             f"{_PERSON_PRONOUN_INSTRUCTION}\n\n"
             'Return ONLY a JSON array: [{"term": "...", "suggested_translation": "...", '
             '"category": "...", "policy": "...", "reason": "brief justification"}]. '
@@ -838,19 +841,29 @@ def draft_novel_style_instructions(novel_text: str, engine, source_language: str
         f"Below are excerpts from a {lang_name} web novel that will be translated into English. "
         "Write the style instruction a translator should follow for THIS novel: genre, tone, "
         "narrative point of view and tense, the register of narration versus dialogue, how to "
-        "treat the author's slang, humour and recurring phrases, and what to leave untranslated.\n\n"
+        "treat the author's slang, humour and recurring phrases.\n\n"
         "The person wants: English that reads like a published novelist or a skilled fanfiction "
         "author wrote it, not a literal translation; the author's voice and slang kept; no "
         "explanations or invented detail, and no detail lost; units, names and terms of address "
         "kept consistent.\n\n"
         "Write 5-8 short imperative sentences specific to what you see in the excerpts. Do not "
-        "quote or summarise the plot. Return ONLY JSON: {\"instructions\": \"...\"}. "
+        "quote or summarise the plot. Write in English only and never tell the translator to keep "
+        "any Chinese, Japanese or Korean character as written: every word of the translation is English. Return ONLY JSON: {\"instructions\": \"...\"}. "
         f"No preamble, no markdown fences.\n\nExcerpts:\n{sample}")
     text = call_llm_json(engine, prompt, max_tokens=800, fallback=None, usage_cb=usage_cb)
     data = extract_first_json_value(text) if text else None
     if isinstance(data, dict) and isinstance(data.get("instructions"), str):
-        return data["instructions"].strip()[:STYLE_DRAFT_MAX_CHARS]
+        return _without_source_script(data["instructions"].strip())[:STYLE_DRAFT_MAX_CHARS]
     return ""
+
+
+def _without_source_script(text: str) -> str:
+    """Drops any sentence that carries CJK characters: a draft line such as
+    "keep 凹 literal" was once copied into the translated prose, and the person
+    reviewing the draft would not see why it mattered."""
+    from engine_backends.translation_guard import novel_script_leak
+    sentences = re.split(r"(?<=[.!?。！？])\s+", text)
+    return " ".join(x for x in sentences if not novel_script_leak(x))
 
 
 # ---------------------------------------------------------------------------

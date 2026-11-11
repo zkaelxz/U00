@@ -486,4 +486,8 @@ def build_batch_user_message(context: dict, numbered: str) -> str:
     # bulk request, which numbers the raw source before it gets here.
     numbered = pronoun_neutral_texts(context, [numbered])[0]
     from .glossary_check import required_note
+    if context.get("script_correction"):
+        note = ("CORRECTION: your earlier translation of the lines below left Chinese, Japanese or Korean "
+                "characters in the English. Write every word in English, translating or romanising any "
+                "term, even where the style notes say to keep it as written.\n\n") + note
     return required_note(context) + note + (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered
