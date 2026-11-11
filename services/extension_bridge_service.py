@@ -109,6 +109,21 @@ def run_text(payload, principal=None) -> dict:
                                 user_id=_user_id(principal), member=principal is not None)
 
 
+def _record_run_notes(result: dict) -> None:
+    """Keeps on a newly saved page what the capture said about it, so a page that came back with
+    no text (an OCR miss, or art with no lettering) can be told apart from one never reached."""
+    from services import scanlate_pages_service as pages_svc
+    import db
+    page_id = result.get("page_id")
+    if not (result.get("stored") and page_id) or result.get("already_stored"):
+        return
+    notes = [(n[0], n[-1]) for n in result.get("notes") or []]
+    if not result.get("regions"):
+        notes.append(("warning", "No text was found on this page when the extension saved it."))
+    if notes:
+        db.update_page(int(page_id), run_notes=pages_svc.notes_to_json(notes))
+
+
 def _typeset_stored_page(result: dict, drama_id, member: bool) -> None:
     """Cleans and typesets a page the capture just saved, so Typeset is already on when the
     title opens. A page that already has a typeset image is left alone: it was drawn from
@@ -215,6 +230,7 @@ def run_images(payload, images, principal=None) -> dict:
                 stopped = page_capture_checks.page_failure_message(e)
                 break
             continue
+        _record_run_notes(result)
         if typeset:
             _typeset_stored_page(result, drama_id, member=principal is not None)
         result["key"] = image["key"]

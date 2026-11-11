@@ -98,3 +98,11 @@ def test_regions_say_which_boxes_the_preview_must_not_paint_over_and_which_staye
     ])
     assert [r["untranslated"] for r in regions] == [False, True, True, False, False]
     assert [r["left_alone"] for r in regions] == [False, False, False, True, True]
+
+
+def test_a_saved_page_with_no_text_keeps_a_note_saying_so(token, drama, monkeypatch):
+    import scanlate
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
+    page = _send(token, drama).payload["pages"][0]
+    notes = db.get_page(page["page_id"])["run_notes"]
+    assert "No text was found" in notes
