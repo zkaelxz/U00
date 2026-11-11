@@ -209,7 +209,11 @@ def logo_box(region: dict, page_width: int, page_height: int) -> dict:
     bottom = min(page_height, region["y"] + region["h"] + _LOGO_MARGIN_PX)
     top = max(0, bottom - max(side, region["h"] + 2 * _LOGO_MARGIN_PX))
     if _lacks_site_name_line(region):
-        bottom = min(page_height, bottom + region["h"])
+        # The site-name line and the logo OCR never reads lie under and around
+        # the one line it did read.
+        left = max(0, region["x"] - int(2.5 * region["h"]))
+        right = min(page_width, region["x"] + region["w"] + region["h"])
+        bottom = min(page_height, bottom + 3 * region["h"])
     return {"x": left, "y": top, "w": right - left, "h": bottom - top}
 
 
