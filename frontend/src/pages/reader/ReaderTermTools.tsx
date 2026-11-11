@@ -4,11 +4,13 @@
  * panel a text selection opens. Both write through the same glossary and
  * find-and-replace routes Translate and Review use.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 
 import { applyFindReplace, previewFindReplace } from '../../api/review'
-import { getGlossaryCatalogues, saveGlossaryTerm, deleteGlossaryTerms } from '../../api/translateStage'
+import { getGlossaryCatalogues, getGlossaryTerms, saveGlossaryTerm, deleteGlossaryTerms } from '../../api/translateStage'
 import { Field } from '../../components/Field'
+import { Sheet } from '../../components/Sheet'
+import { useLatest } from '../../hooks/useLatest'
 import { buttonClass } from '../../components/uiClasses'
 import type { ReviewMatch } from '../../types/review'
 import type { GlossaryTerm } from '../../types/translateStage'
@@ -165,5 +167,60 @@ export function ReplaceEverywhere({ dramaId, selected, onClose, onApplied, onAdd
       <ActionError action={preview} />
       <ActionError action={apply} />
     </form>
+  )
+}
+
+/** Listens for taps and selections reported by the Reader's frame and shows the matching tool above the text. */
+export function ReaderTermPanels({ dramaId, editMode, frameRef, terms, onTermsLoaded, onPageChanged }: {
+  dramaId: number
+  editMode: boolean
+  frameRef: RefObject<HTMLIFrameElement | null>
+  terms: GlossaryTerm[]
+  onTermsLoaded: (terms: GlossaryTerm[]) => void
+  onPageChanged: () => void
+}) {
+  const [draft, setDraft] = useState<TermDraft | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const termsRef = useLatest(terms)
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      // The frame is sandboxed to an opaque origin, so its window is the only way to know it sent this.
+      if (!editMode || e.source !== frameRef.current?.contentWindow) return
+      const m = e.data as { baiheReader?: string; termId?: unknown; text?: unknown }
+      if (m?.baiheReader === 'term' && typeof m.termId === 'number') {
+        const t = termsRef.current.find((x) => x.id === m.termId)
+        if (t) setDraft({ id: t.id, term_original: t.term_original, term_translation: t.term_translation, category: t.category, notes: t.notes })
+      } else if (m?.baiheReader === 'select' && typeof m.text === 'string' && m.text.length <= 200) {
+        setSelected(m.text)
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [editMode, frameRef, termsRef])
+  if (!editMode) return null
+  return (
+    <>
+      <Sheet open={draft !== null} title="Edit term" onClose={() => setDraft(null)}>
+        {draft && (
+          <TermEditor key={draft.id ?? `new-${draft.term_translation}`} dramaId={dramaId} draft={draft}
+            onClose={() => setDraft(null)}
+            onChanged={() => {
+              getGlossaryTerms(dramaId).then(onTermsLoaded, () => {})
+              onPageChanged()
+            }} />
+        )}
+      </Sheet>
+      {selected && !draft && (
+        <ReplaceEverywhere key={selected} dramaId={dramaId} selected={selected} onClose={() => setSelected(null)}
+          onApplied={onPageChanged}
+          onAddTerm={(text) => {
+            setSelected(null)
+            setDraft({ term_original: '', term_translation: text, category: 'other', notes: '' })
+          }} />
+      )}
+      {!draft && !selected && (
+        <p className="muted">Tap a highlighted name or term to edit it. Select text to replace it everywhere.</p>
+      )}
+    </>
   )
 }

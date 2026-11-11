@@ -16,11 +16,9 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
-import { Sheet } from '../components/Sheet'
 import { buttonClass } from '../components/uiClasses'
 import { SourceLink } from './discover/ExternalLink'
 import { useDelayedSave } from '../hooks/useDelayedSave'
-import { useLatest } from '../hooks/useLatest'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { Breadcrumbs } from '../nav/BreadcrumbNav'
@@ -39,7 +37,7 @@ import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
 import { ListenWatch } from './reader/ListenWatch'
-import { ReplaceEverywhere, TermEditor, type TermDraft } from './reader/ReaderTermTools'
+import { ReaderTermPanels } from './reader/ReaderTermTools'
 import { lineEditPatch } from './reader/readerLineEdit'
 import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
 import { useSession } from '../hooks/useSession'
@@ -314,28 +312,6 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     return () => window.removeEventListener('message', onMessage)
   }, [editMode, page, save.busy])
 
-  const [termDraft, setTermDraft] = useState<TermDraft | null>(null)
-  const [selected, setSelected] = useState<string | null>(null)
-  const termsRef = useLatest(terms)
-  useEffect(() => {
-    const onMessage = (e: MessageEvent) => {
-      if (!editMode || e.source !== frameRef.current?.contentWindow) return
-      const m = e.data as { baiheReader?: string; termId?: unknown; text?: unknown }
-      if (m?.baiheReader === 'term' && typeof m.termId === 'number') {
-        const t = termsRef.current.find((x) => x.id === m.termId)
-        if (t) setTermDraft({ id: t.id, term_original: t.term_original, term_translation: t.term_translation, category: t.category, notes: t.notes })
-      } else if (m?.baiheReader === 'select' && typeof m.text === 'string' && m.text.length <= 200) {
-        setSelected(m.text)
-      }
-    }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [editMode, termsRef])
-  const reloadTerms = () => {
-    getGlossaryTerms(id).then(setTerms, () => {})
-    setPageTick((n) => n + 1)
-  }
-
   const overviewReady = overview !== null
   // Read inside the page effect without re-running it when the shown page changes.
   const shownRef = useRef<number | null>(null)
@@ -530,23 +506,8 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               <ActionError action={save} />
             </form>
           )}
-          <Sheet open={editMode && termDraft !== null} title="Edit term" onClose={() => setTermDraft(null)}>
-            {termDraft && (
-              <TermEditor key={termDraft.id ?? `new-${termDraft.term_translation}`} dramaId={id} draft={termDraft}
-                onClose={() => setTermDraft(null)} onChanged={reloadTerms} />
-            )}
-          </Sheet>
-          {editMode && selected && !termDraft && (
-            <ReplaceEverywhere key={selected} dramaId={id} selected={selected} onClose={() => setSelected(null)}
-              onApplied={() => setPageTick((n) => n + 1)}
-              onAddTerm={(text) => {
-                setSelected(null)
-                setTermDraft({ term_original: '', term_translation: text, category: 'other', notes: '' })
-              }} />
-          )}
-          {editMode && !termDraft && !selected && (
-            <p className="muted">Tap a highlighted name or term to edit it. Select text to replace it everywhere.</p>
-          )}
+          <ReaderTermPanels dramaId={id} editMode={editMode} frameRef={frameRef} terms={terms}
+            onTermsLoaded={setTerms} onPageChanged={() => setPageTick((n) => n + 1)} />
           {data && pageSrc && !(stale && pageError !== null) && (
             <iframe
               ref={frameRef}
