@@ -1282,3 +1282,28 @@ def test_render_paints_out_a_skipped_site_stamp(tmp_path):
     done = cv2.imread(out)
     assert done[100:180, 20:150].mean() < 200        # no longer white
     assert (done[0:15] == img[0:15]).all()            # the art away from it is untouched
+
+
+class TestSiblingBalloonsShareAFitRatio:
+    def test_a_roomy_balloon_follows_a_cramped_one_of_similar_lettering(self):
+        caps = scanlate_render.sibling_size_caps([(32, 32), (26, 22)])
+        assert caps == [27, 26]
+
+    def test_lettering_much_larger_or_smaller_is_left_alone(self):
+        assert scanlate_render.sibling_size_caps([(40, 40), (26, 22), (18, 18)]) == [40, 26, 18]
+
+    def test_a_very_cramped_neighbour_costs_a_balloon_at_most_a_quarter(self):
+        assert scanlate_render.sibling_size_caps([(30, 30), (30, 8)]) == [22, 30]
+
+    def test_a_lone_balloon_keeps_its_start(self):
+        assert scanlate_render.sibling_size_caps([(24, 24)]) == [24]
+
+
+class TestRenderReportsTheDrawnSize:
+    def test_the_report_carries_the_fitted_size(self):
+        from PIL import Image
+        img = Image.new("RGB", (80, 60), "white")
+        report = {}
+        scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
+                                           "of text that must shrink", font_size=40, report=report)
+        assert 8 <= report["size"] < 40

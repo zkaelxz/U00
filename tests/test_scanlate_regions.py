@@ -389,8 +389,12 @@ class TestSfxSkipByDefault:
         inpainted, drawn = [], []
         monkeypatch.setattr(scanlate_render, "inpaint_region",
                             lambda path, box, out_path=None, **kw: inpainted.append(box) or out_path)
-        monkeypatch.setattr(scanlate_render, "render_text_in_box",
-                            lambda img, box, text, **kw: drawn.append(text) or img)
+        def draw(img, box, text, report=None, **kw):
+            # A fitting pass (report given) only measures; it draws nothing on the page.
+            if report is None:
+                drawn.append(text)
+            return img
+        monkeypatch.setattr(scanlate_render, "render_text_in_box", draw)
         _, skipped_blank = scanlate_render.process_page(bubble_page, bubbles, str(tmp_path / "out.png"))
         return inpainted, drawn, skipped_blank
 
