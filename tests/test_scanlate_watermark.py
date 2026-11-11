@@ -129,3 +129,22 @@ def test_a_tall_webtoon_strip_does_not_open_a_deep_margin():
     regions = [reply, number]
     assert wm.flag_page_numbers(regions, 800, 12000) == 1
     assert [r["skip"] for r in regions] == [False, True]
+
+
+def test_stamp_fragments_ocr_split_out_of_a_narration_box_are_cut_from_it():
+    narration = "얻고야 말겠다는 짐승의눈빛까지\n미12보7\n뉴토\n지닌이 남자"
+    regions = [_r(narration)]
+    assert wm.flag_site_marks(regions) == 0
+    assert not regions[0]["skip"]
+    assert regions[0]["source_text"] == "얻고야 말겠다는 짐승의눈빛까지\n지닌이 남자"
+
+
+def test_a_site_promo_is_skipped_rather_than_translated_as_dialogue():
+    regions = [_r("가장빠른웹툰 미리보기? 구글검색뉴로 그래. 바로이곳—")]
+    assert wm.flag_site_marks(regions) == 1
+    assert regions[0]["skip"]
+
+
+def test_a_lone_cut_short_stamp_word_is_not_a_mark_without_company():
+    regions = [_r("뉴토")]
+    assert wm.flag_site_marks(regions) == 0
