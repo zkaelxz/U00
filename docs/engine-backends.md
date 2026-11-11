@@ -185,8 +185,8 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
   (`model_overrides.defaults` / `.tiers` app settings, written only from
   Diagnostics) wins via `effective_default_model`; `WORKFLOW_TIERS` (draft,
   standard, release) are fixed starting points. `OpenAIEngine` additionally
-  refuses any model that is not in `OPENAI_MODELS` or on OpenAI's own listed
-  GPT-5+ extras, because an unpriced model would slip past the cost caps.
+  refuses any model that is not in `OPENAI_MODELS` (the retired GPT-5 ids run as the default) or on OpenAI's own listed
+  GPT-6+ extras, because an unpriced model would slip past the cost caps.
 
 ### Pictures
 

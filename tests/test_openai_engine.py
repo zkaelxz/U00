@@ -90,13 +90,13 @@ def test_key_can_be_saved_through_the_settings_writer(tmp_path, monkeypatch):
 
 def test_request_has_key_only_in_authorization_header(posts):
     posts.replies.append(_ok('{"1": "Hello"}'))
-    engine = engine_registry.get_engine("openai", KEY, "gpt-5-mini")
+    engine = engine_registry.get_engine("openai", KEY, "gpt-6-luna")
     assert engine.translate_batch(["你好"], {"source_language": "zh", "target_language": "en"}) == ["Hello"]
     call = posts[0]
     assert call["headers"]["Authorization"] == f"Bearer {KEY}"
     assert call["url"] == pricing.OPENAI_CHAT_URL and KEY not in call["url"]
     assert KEY not in json.dumps(call["json"])
-    assert call["json"]["model"] == "gpt-5-mini"
+    assert call["json"]["model"] == "gpt-6-luna"
     assert [m["role"] for m in call["json"]["messages"]] == ["system", "user"]
     assert call["timeout"] and call["timeout"] > 0
     assert engine.last_usage == {"input_tokens": 10, "output_tokens": 5,
@@ -148,8 +148,10 @@ def test_call_llm_json_path_uses_the_header_and_reports_usage(posts):
 
 
 def test_cost_estimate_uses_the_price_table_and_unlisted_models_use_the_ceiling_or_highest_rate():
-    listed = pricing.estimate_cost("gpt-5-mini", 1_000_000, 1_000_000)
-    assert listed == pytest.approx(0.25 + 2.0)
+    listed = pricing.estimate_cost("gpt-6-luna", 1_000_000, 1_000_000)
+    assert listed == pytest.approx(0.10 + 0.50)
+    assert pricing.estimate_cost("gpt-6.1-terra", 1_000_000, 1_000_000) == pytest.approx(1.0 + 5.0)
+    assert pricing.estimate_cost("gpt-6.1-sol", 1_000_000, 1_000_000) == pytest.approx(2.0 + 10.0)
     # An unpriced GPT-5+ id gets the explicit ceiling (newer releases can cost
     # more than gpt-5); any other unpriced gpt- id gets the family's highest rate.
     assert pricing.estimate_cost("gpt-9-future", 1_000_000, 0) == pytest.approx(
@@ -191,21 +193,31 @@ def test_every_offered_model_is_priced_and_accepted():
         assert engine_registry.get_engine("openai", KEY, model).model == model
 
 
+def test_retired_gpt5_ids_run_as_the_default_model_and_are_never_offered(isolated_db):
+    _listed_by_openai(["gpt-5-mini", "gpt-5", "gpt-5.4-mini", "gpt-6-luna"])
+    for model in pricing.OPENAI_RETIRED_MODELS:
+        assert model not in pricing.OPENAI_MODELS
+        assert model not in pricing.PRICING_PER_MILLION_TOKENS
+        assert engine_registry.get_engine("openai", KEY, model).model == "gpt-6-luna"
+    assert list(pricing.OPENAI_MODELS)[0] == "gpt-6-luna"
+    assert pricing.openai_listed_extra_models() == []
+
+
 def _listed_by_openai(models):
     db.set_app_setting(pricing.PROVIDER_CHECK_CACHE_KEY, json.dumps(
         {"checked_at": "2026-10-01T00:00:00", "engines": {"openai": {"ok": True, "models": models}}}))
 
 
 def test_a_gpt5_or_later_model_openai_listed_is_accepted_and_costed_at_the_ceiling_above_every_built_in_rate(isolated_db):
-    _listed_by_openai(["gpt-6-luna", "gpt-4", "o3", "gpt-5-codex", "gpt-5-pro"])
-    assert pricing.openai_listed_extra_models() == ["gpt-6-luna"]
-    assert engine_registry.get_engine("openai", KEY, "gpt-6-luna").model == "gpt-6-luna"
+    _listed_by_openai(["gpt-6-luna", "gpt-6-mars", "gpt-5-mini", "gpt-5.4-mini", "gpt-4", "o3", "gpt-5-codex", "gpt-5-pro"])
+    assert pricing.openai_listed_extra_models() == ["gpt-6-mars"]
+    assert engine_registry.get_engine("openai", KEY, "gpt-6-mars").model == "gpt-6-mars"
     ceiling = pricing.OPENAI_EXTRA_MODEL_CEILING
     for m in pricing.OPENAI_MODELS:
         assert ceiling["input"] > pricing.PRICING_PER_MILLION_TOKENS[m]["input"]
         assert ceiling["output"] > pricing.PRICING_PER_MILLION_TOKENS[m]["output"]
-    assert pricing.estimate_cost("gpt-6-luna", 0, 1_000_000) == pytest.approx(ceiling["output"])
-    assert pricing.estimate_cost("gpt-6-luna", 1_000_000, 0) == pytest.approx(ceiling["input"])
+    assert pricing.estimate_cost("gpt-6-mars", 0, 1_000_000) == pytest.approx(ceiling["output"])
+    assert pricing.estimate_cost("gpt-6-mars", 1_000_000, 0) == pytest.approx(ceiling["input"])
 
 
 def test_a_malformed_provider_cache_adds_nothing_instead_of_crashing(isolated_db):

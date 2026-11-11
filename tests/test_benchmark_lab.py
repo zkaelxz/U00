@@ -358,10 +358,10 @@ class TestEstimateAndCap:
     def test_reasoning_model_estimate_is_larger_and_flagged(self, isolated_db, paid_engine, paid_openai):
         svc.create_case("c", "你好" * 50, "Hello")
         plain = svc.estimate("translation", [{"engine": "claude"}])
-        reasoning = svc.estimate("translation", [{"engine": "openai", "model": "gpt-5-mini"}])
+        reasoning = svc.estimate("translation", [{"engine": "openai", "model": "gpt-6-luna"}])
         assert reasoning["configs"][0]["estimate_uncertain"] and reasoning["estimate_uncertain"]
         assert not plain["estimate_uncertain"] and not plain["configs"][0]["estimate_uncertain"]
-        probe = type("P", (), {"model": "gpt-5-mini", "free_tier": False})()
+        probe = type("P", (), {"model": "gpt-6-luna", "free_tier": False})()
         tokens_in, tokens_out = pricing.estimate_translation_tokens(["你好" * 50])
         assert reasoning["estimated_cost_usd"] == pytest.approx(
             pricing.estimate_cost_for_engine(
@@ -369,9 +369,9 @@ class TestEstimateAndCap:
 
     def test_cap_refusal_uses_the_larger_reasoning_estimate(self, isolated_db, paid_openai, monkeypatch):
         svc.create_case("c", "你好" * 100, "Hello")
-        cfg = {"engine": "openai", "model": "gpt-5-mini"}
+        cfg = {"engine": "openai", "model": "gpt-6-luna"}
         one_x = pricing.estimate_cost_for_engine(
-            type("P", (), {"model": "gpt-5-mini", "free_tier": False})(),
+            type("P", (), {"model": "gpt-6-luna", "free_tier": False})(),
             *pricing.estimate_translation_tokens(["你好" * 100]))
         monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: one_x * 1.5)
         assert svc.estimate("translation", [cfg])["estimate_above_cap"]
