@@ -163,25 +163,25 @@ class TestApi:
 
 
 def test_the_default_model_is_the_same_in_the_builtin_and_the_app(isolated_db):
-    assert engine_registry.builtin_default_model("ollama") == "gemma4:12b"
-    assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
+    assert engine_registry.builtin_default_model("ollama") == "translategemma:27b"
+    assert engine_registry.effective_default_model("ollama") == "translategemma:27b"
 
 
 class TestOllamaDefaultAgrees:
-    """One built-in Ollama default (gemma4:12b) across every surface that shows it."""
+    """One built-in Ollama default (translategemma:27b) across every surface that shows it."""
 
     def test_every_surface_names_the_same_default(self, isolated_db):
         from services import model_registry_service, model_reeval_service, settings_service
-        assert local.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
-        assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
-        assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
+        assert local.OLLAMA_DEFAULT_MODEL == "translategemma:27b"
+        assert engine_registry.effective_default_model("ollama") == "translategemma:27b"
+        assert engine_registry.effective_default_model("ollama") == "translategemma:27b"
         settings_service.set_settings({"default_engine": "ollama"})
-        assert model_reeval_service.get_production()["model"] == "gemma4:12b"
+        assert model_reeval_service.get_production()["model"] == "translategemma:27b"
         row = next(r for r in model_registry_service.configured_models()
                    if r["engine"] == "ollama" and r["kind"] == "default")
-        assert row["model"] == row["builtin_model"] == "gemma4:12b"
+        assert row["model"] == row["builtin_model"] == "translategemma:27b"
         ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
-        assert ollama["models"] == ["gemma4:12b", "gemma4:26b", "translategemma:12b", "qwen3:8b",
+        assert ollama["models"] == ["translategemma:27b", "translategemma:12b",
                                     "gemma4:31b-cloud", "gemma4:cloud"]
 
     def test_no_diagnostics_entry_for_the_removed_engine(self):

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import { LIVE_DEFAULT_MODEL } from '../../api/live'
 import type { SetupReadiness } from '../../types/setup'
 import {
   ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
-  browserTierNeed, mlDetectorNeed, notifyNeed, ocrBackendNeed, trafilaturaNeed,
+  browserTierNeed, mlDetectorNeed, notifyNeed, ollamaNeed, ocrBackendNeed, trafilaturaNeed,
   scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
@@ -351,5 +352,12 @@ describe('liveWhisperOptionNote', () => {
     expect(liveWhisperOptionNote(false, { reason: 'x', download: false })).toBe(' (not available)')
     expect(liveWhisperOptionNote(false, { reason: null, download: true })).toBe(' (downloads first)')
     expect(liveWhisperOptionNote(false, { reason: null, download: false })).toBe('')
+  })
+})
+
+describe('ollamaNeed', () => {
+  it('names the model to pull when Ollama runs without it', () => {
+    const need = ollamaNeed({ ...FRESH, ollama_reachable: true, ollama_model_pulled: false })
+    expect(need?.reason).toContain(`ollama pull ${LIVE_DEFAULT_MODEL}`)
   })
 })

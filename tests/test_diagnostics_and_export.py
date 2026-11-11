@@ -430,9 +430,9 @@ class TestModelEngineVersions:
 
     def test_ollama_tag_appended_only_when_given(self):
         assert not any(v["name"].startswith("Ollama") for v in diagnostics_report.get_model_engine_versions())
-        versions = diagnostics_report.get_model_engine_versions("qwen3:8b")
+        versions = diagnostics_report.get_model_engine_versions("translategemma:12b")
         row = next(v for v in versions if v["name"].startswith("Ollama"))
-        assert row["version"] == "qwen3:8b"
+        assert row["version"] == "translategemma:12b"
 
     def test_makes_no_network_call(self, monkeypatch):
         def boom(*a, **k):
@@ -440,7 +440,7 @@ class TestModelEngineVersions:
         monkeypatch.setattr("requests.get", boom)
         monkeypatch.setattr("requests.post", boom)
         monkeypatch.setattr(http, "pinned_get", boom)
-        diagnostics_report.get_model_engine_versions("qwen3:8b")  # must not raise
+        diagnostics_report.get_model_engine_versions("translategemma:12b")  # must not raise
 
     def test_installed_is_a_real_boolean_not_a_string_match(self):
         """Step 18 item 2: the render step branches on a real boolean this
@@ -454,7 +454,7 @@ class TestModelEngineVersions:
         assert rows["pyannote diarization model"]["installed"] is True
 
     def test_ollama_row_is_installed(self):
-        rows = {v["name"]: v for v in diagnostics_report.get_model_engine_versions("qwen3:8b")}
+        rows = {v["name"]: v for v in diagnostics_report.get_model_engine_versions("translategemma:12b")}
         assert rows["Ollama (active tag)"]["installed"] is True
 
 

@@ -213,7 +213,7 @@ class TestTimeouts:
     @pytest.mark.parametrize("model,slow", [
         ("gemma4:26b", True), ("gemma4:31b", True), ("qwen3:32b", True),
         ("qwen3:30b-a3b", True), ("hf.co/x/Qwen2.5-32B-Instruct-GGUF:Q4_K_M", True),
-        ("gemma4:12b", False), ("qwen3:8b", False), ("gemma4:e4b", False), ("llama3.1", False),
+        ("gemma4:12b", False), ("translategemma:12b", False), ("gemma4:e4b", False), ("llama3.1", False),
         ("gemma4:31b-cloud", False),
     ])
     def test_timeout_follows_model_size(self, model, slow):

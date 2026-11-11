@@ -202,16 +202,16 @@ class TestRunRecordsWhatItRan:
 
         class Reply:
             status = 200
-            body = json.dumps({"models": [{"name": "qwen3:8b", "digest": "abc123"}]})
+            body = json.dumps({"models": [{"name": "translategemma:12b", "digest": "abc123"}]})
         monkeypatch.setattr(http, "get", lambda url, **kw: Reply())
-        assert cases_svc.model_identity("translation", {"engine": "ollama", "model": "qwen3:8b"}) == {
-            "model": "qwen3:8b", "digest": "abc123"}
+        assert cases_svc.model_identity("translation", {"engine": "ollama", "model": "translategemma:12b"}) == {
+            "model": "translategemma:12b", "digest": "abc123"}
 
         def dead(url, **kw):
             raise OSError("refused")
         monkeypatch.setattr(http, "get", dead)
-        assert cases_svc.model_identity("translation", {"engine": "ollama", "model": "qwen3:8b"}) == {
-            "model": "qwen3:8b", "digest": None}
+        assert cases_svc.model_identity("translation", {"engine": "ollama", "model": "translategemma:12b"}) == {
+            "model": "translategemma:12b", "digest": None}
 
 
 @pytest.fixture

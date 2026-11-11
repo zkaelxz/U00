@@ -51,7 +51,7 @@ export const POLL_MS = 2000
 /** The picture sizes the delayed player can record (live_player.HEIGHTS). */
 export const PLAYER_HEIGHTS = [360, 480, 720, 1080]
 export const LIVE_DEFAULT_ENGINE = 'ollama'
-export const LIVE_DEFAULT_MODEL = 'gemma4:12b'
+export const LIVE_DEFAULT_MODEL = 'translategemma:27b'
 // Engines whose request can switch thinking off (engine_backends/thinking.py).
 export const THINKING_SWITCH_ENGINES = ['deepseek', 'ollama']
 
