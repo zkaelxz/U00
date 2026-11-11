@@ -338,21 +338,49 @@ def _drop_marks_running_off_edge(mask) -> None:
 # A mark this large in both directions yet this hollow is a frame or ornament
 # round the lettering, not the lettering itself.
 _FRAME_MIN_SPAN = 0.35
-_FRAME_MAX_FILL = 0.25
+_FRAME_MAX_FILL = 0.15
 
 
-def _drop_hollow_frames(mask) -> None:
+def _drop_hollow_frames(mask, gray_roi) -> None:
     """Clears, in place, the mask components that span much of the crop in both
-    directions but are mostly empty: a caption frame's border and ornaments.
-    Lettering lines are small in one direction or dense, so they stay. Erasing a
-    frame left a pale patch with the lettering's ghost where the frame had been."""
+    directions but hold little ink: a caption frame's border and ornaments, and
+    the line art they touch. Lettering lines are small in one direction or
+    dense. The ink is counted from the gray crop, not the mask, because the
+    mask's halo grows a thin frame into something that looks solid. Erasing a
+    frame left a pale patch with the lettering's ghost where it had been."""
     import cv2
+    paper = float(np.median(gray_roi))
+    ink = gray_roi < int(min(max(150, paper * _LETTERING_CUTOFF_OF_PAPER), 240))
     count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), connectivity=8)
     rh, rw = mask.shape[:2]
     for i in range(1, count):
-        x, y, w, h, area = stats[i]
-        if w >= _FRAME_MIN_SPAN * rw and h >= _FRAME_MIN_SPAN * rh and area <= _FRAME_MAX_FILL * w * h:
-            mask[labels == i] = 0
+        x, y, w, h, _area = stats[i]
+        if w >= _FRAME_MIN_SPAN * rw and h >= _FRAME_MIN_SPAN * rh:
+            if (ink & (labels == i)).sum() <= _FRAME_MAX_FILL * w * h:
+                mask[labels == i] = 0
+                _restore_glyphs(mask, ink & (labels == i))
+
+
+_FRAME_GLYPH_MAX_SPAN = 0.12
+_FRAME_GLYPH_MIN_SPAN = 8
+_FRAME_GLYPH_MIN_FILL = 0.25
+
+
+def _restore_glyphs(mask, ink) -> None:
+    """Puts back, in place, the small ink marks of a dropped frame component:
+    lettering that touches the frame or a watermark shares its component, and
+    leaving it out left the original letters showing under the English."""
+    import cv2
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(ink.astype(np.uint8), connectivity=8)
+    limit = _FRAME_GLYPH_MAX_SPAN * min(mask.shape[:2])
+    keep = np.zeros(mask.shape, np.uint8)
+    for i in range(1, count):
+        w, h, area = (stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT],
+                      stats[i, cv2.CC_STAT_AREA])
+        # A glyph is compact; the art's stray line fragments are thin or sparse.
+        if _FRAME_GLYPH_MIN_SPAN <= min(w, h) and max(w, h) <= limit and area >= _FRAME_GLYPH_MIN_FILL * w * h:
+            keep[labels == i] = 255
+    mask[cv2.dilate(keep, np.ones((3, 3), np.uint8), iterations=3) > 0] = 255
 
 
 _ART_FILL_CONTEXT_PX = 60
@@ -486,6 +514,56 @@ def _flatten_plain_paper(roi, inpainted, mask, inside):
     return out
 
 
+_AROUND_LETTERING_GROW_PX = 15
+# Pixels this much darker than the paper or lighter are the halo; darker ones are art.
+_AROUND_LETTERING_HALO_DEPTH = 40
+
+
+_AROUND_LETTERING_MIN_INK_FILL = 0.15
+
+
+def _keep_dense_marks(mask, gray):
+    """`mask` without its sparse components: a line of lettering is dense with
+    ink, a few strokes of the art round it are not, and whitening those would
+    leave a pale patch in the picture."""
+    import cv2
+    ink = gray < int(min(max(150, float(np.median(gray)) * _LETTERING_CUTOFF_OF_PAPER), 240))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), connectivity=8)
+    out = np.zeros_like(mask)
+    for i in range(1, count):
+        w, h = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
+        if (ink & (labels == i)).sum() >= _AROUND_LETTERING_MIN_INK_FILL * w * h:
+            out[labels == i] = mask[labels == i]
+    return out
+
+
+def _flatten_around_lettering(roi, inpainted, mask):
+    """`inpainted` with the pale halo round masked lettering set to the paper
+    colour, for lettering on flat paper that has no balloon outline to measure
+    (a caption frame on a sign region). The mask misses the faint halo a JPEG
+    leaves round each stroke, and it showed as a smudge of ghost text under the
+    English. The lettering itself is set to the paper colour too, because the
+    model repaints a flat row of lettering with a faint copy of it. Paper that
+    varies, or too little of it to measure, is returned as it is, and pixels
+    darker than the halo and outside the mask (the frame, the art) are kept."""
+    import cv2
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    mask = _keep_dense_marks(mask, gray)
+    near = cv2.dilate((mask > 0).astype(np.uint8), cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_AROUND_LETTERING_GROW_PX, _AROUND_LETTERING_GROW_PX))).astype(bool)
+    ring = near & (mask == 0)
+    if int(ring.sum()) < 50:
+        return inpainted
+    median = float(np.median(gray[ring]))
+    light = gray[ring][gray[ring] >= median]
+    if float(light.std()) > scanlate_tuning.INPAINT_FLAT_PAPER_STD:
+        return inpainted
+    out = inpainted.copy()
+    halo = near & ((gray >= median - _AROUND_LETTERING_HALO_DEPTH) | (mask > 0))
+    out[halo] = np.median(roi[ring & (gray >= median - 5)], axis=0).astype(inpainted.dtype)
+    return out
+
+
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
                     backend: str = "auto", hf_token: str | None = None, image=None, inside=None,
                     spare_art: bool = False, on_art: bool = False):
@@ -545,7 +623,7 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     elif spare_art:
         _drop_marks_running_off_edge(mask)
     elif on_art:
-        _drop_hollow_frames(mask)
+        _drop_hollow_frames(mask, gray_roi)
 
     inpainted_roi = None
     if inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
@@ -562,6 +640,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
     if inside is not None and not background_is_dark(gray_roi):
         inpainted_roi = _flatten_plain_paper(roi, inpainted_roi, mask, keep)
+    elif inside is None and on_art and not background_is_dark(gray_roi) and mask.any():
+        inpainted_roi = _flatten_around_lettering(roi, inpainted_roi, mask)
     img[y:y + bh, x:x + bw] = inpainted_roi
 
     if out_path:

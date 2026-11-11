@@ -1153,6 +1153,34 @@ class TestHollowFrames:
         assert page[120:160, 120:280].max() > 200
 
 
+class TestFlattenAroundLettering:
+    def _page(self):
+        roi = np.full((120, 240, 3), 250, np.uint8)
+        roi[40:70, 40:200] = 60          # a dense line of lettering
+        roi[5:110, 5] = 30               # a frame line far from it
+        mask = np.zeros((120, 240), np.uint8)
+        mask[38:72, 38:202] = 255
+        return roi, mask
+
+    def test_the_ghost_a_model_leaves_where_lettering_was_is_set_to_paper(self):
+        roi, mask = self._page()
+        ghost = roi.copy()
+        ghost[40:70, 40:200] = 232       # faint copy of the lettering
+        out = scanlate_inpaint._flatten_around_lettering(roi, ghost, mask)
+        assert (out[40:70, 40:200] == 250).all()
+        assert (out[5:110, 5] == 30).all()
+
+    def test_a_sparse_mark_is_left_alone(self):
+        roi = np.full((120, 240, 3), 250, np.uint8)
+        roi[10:110, 100] = 40            # one thin line of art
+        mask = np.zeros((120, 240), np.uint8)
+        mask[10:110, 97:104] = 255
+        ghost = roi.copy()
+        ghost[10:110, 97:104] = 200
+        out = scanlate_inpaint._flatten_around_lettering(roi, ghost, mask)
+        assert (out == ghost).all()
+
+
 class TestLetteringMask:
     def test_pale_gray_strokes_are_masked_and_the_mask_grows_past_a_hard_stroke(self):
         roi = np.full((60, 120), 250, np.uint8)
