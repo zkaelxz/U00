@@ -271,15 +271,16 @@ def _engines(**usable):
             for n, ok in usable.items()]
 
 
-def test_default_engine_is_the_cheapest_usable_when_none_was_saved(isolated_db):
+def test_default_engine_is_openai_when_it_can_run_and_none_was_saved(isolated_db):
     from services import scanlate_pages_service as svc
-    assert svc.default_engine(_engines(claude=True, openai=True, deepseek=True)) == "deepseek"
-    assert svc.default_engine(_engines(claude=True, deepseek=True, ollama=True)) == "ollama"
-
-
-def test_openai_is_the_automatic_default_only_when_it_is_the_only_usable_engine(isolated_db):
-    from services import scanlate_pages_service as svc
+    assert svc.default_engine(_engines(claude=True, openai=True, deepseek=True)) == "openai"
     assert svc.default_engine(_engines(claude=False, openai=True, deepseek=False)) == "openai"
+
+
+def test_default_engine_is_the_cheapest_usable_without_an_openai_key(isolated_db):
+    from services import scanlate_pages_service as svc
+    assert svc.default_engine(_engines(claude=True, openai=False, deepseek=True)) == "deepseek"
+    assert svc.default_engine(_engines(claude=True, deepseek=True, ollama=True)) == "ollama"
 
 
 def test_default_engine_honours_a_usable_saved_choice(isolated_db):
@@ -291,7 +292,7 @@ def test_default_engine_honours_a_usable_saved_choice(isolated_db):
 def test_default_engine_ignores_a_saved_choice_that_cannot_run(isolated_db):
     from services import scanlate_pages_service as svc, settings_service
     settings_service.set_settings({"default_engine": "claude"})
-    assert svc.default_engine(_engines(claude=False, openai=True, deepseek=True)) == "deepseek"
+    assert svc.default_engine(_engines(claude=False, openai=True, deepseek=True)) == "openai"
 
 
 def test_default_engine_is_the_settings_default_when_nothing_can_run(isolated_db):
