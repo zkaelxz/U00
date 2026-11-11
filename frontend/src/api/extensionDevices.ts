@@ -20,5 +20,9 @@ export const revokeMyDeviceToken = (id: number, f?: Fetch) =>
 
 export const listAllDeviceTokens = (f?: Fetch) => getJson<AdminDeviceTokenList>(ADMIN, f)
 
+/** PC only: the owner adds a device for an admin account (the only admin unless `userId` names one). */
+export const createAdminDeviceToken = (label: string, expiresInDays: number | null, f?: Fetch) =>
+  postJson<DeviceTokenCreated>(ADMIN, { label, expires_in_days: expiresInDays }, f)
+
 export const revokeAnyDeviceToken = (id: number, f?: Fetch) =>
   postJson<DeviceTokenRevoked>(`${ADMIN}/${id}/revoke`, undefined, f)

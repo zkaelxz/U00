@@ -246,6 +246,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/text` | device_token (extension.send) |
 | `POST /api/ext-bridge/title` | device_token (extension.send) |
 | `GET /api/extension/devices` | local_only() |
+| `POST /api/extension/devices` | local_only() |
 | `POST /api/extension/devices/{device_token_id}/revoke` | local_only() |
 | `POST /api/extension/enabled` | local_only() |
 | `GET /api/extension/engine` | admin.settings |

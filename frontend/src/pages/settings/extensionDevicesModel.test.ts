@@ -5,6 +5,7 @@ import type { SessionState } from '../../hooks/useSession'
 import type { DeviceToken } from '../../types/extensionDevices'
 import {
   ADMIN_TOKENS_PC_ONLY,
+  ADMIN_DEVICE_NOTE,
   DEVICES_NOTE,
   activeCount,
   adminTokensBlock,
@@ -81,5 +82,10 @@ describe('extension devices helpers', () => {
   it('says revoking a device stops that computer', () => {
     expect(DEVICES_NOTE).toMatch(/Revoking a token stops that computer at once/)
     expect(DEVICES_NOTE).not.toMatch(/record for now|does not check/)
+  })
+
+  it('tells the owner at the PC what an admin account\'s device can do', () => {
+    expect(ADMIN_DEVICE_NOTE).toMatch(/ordinary member rights, never admin rights/)
+    expect(ADMIN_DEVICE_NOTE).toMatch(/revoke it at any time/)
   })
 })

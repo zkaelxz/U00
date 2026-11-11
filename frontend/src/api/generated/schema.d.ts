@@ -3760,7 +3760,8 @@ export interface paths {
         /** PC only: every browser-extension device */
         get: operations["admin_list_api_extension_devices_get"];
         put?: never;
-        post?: never;
+        /** PC only: add an extension device for an admin account (token shown once) */
+        post: operations["admin_create_api_extension_devices_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11945,6 +11946,18 @@ export interface components {
             user_id: number;
             /** User Name */
             user_name: string;
+        };
+        /** AdminDeviceTokenCreateRequest */
+        AdminDeviceTokenCreateRequest: {
+            /**
+             * Expires In Days
+             * @default 90
+             */
+            expires_in_days?: number | null;
+            /** Label */
+            label: string;
+            /** User Id */
+            user_id?: number | null;
         };
         /** AdminDeviceTokenList */
         AdminDeviceTokenList: {
@@ -41196,6 +41209,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminDeviceTokenList"];
+                };
+            };
+        };
+    };
+    admin_create_api_extension_devices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminDeviceTokenCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceTokenCreated"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
