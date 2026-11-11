@@ -17,6 +17,7 @@ import type {
   GlossaryAffectedRunStarted,
   GlossaryCatalogues,
   GlossaryInstructions,
+  InstructionsDraft,
   GlossaryBulkDeleteResult,
   GlossaryImportBody,
   GlossaryImportResult,
@@ -149,6 +150,8 @@ export const getGlossaryCatalogues = (f?: Fetch) =>
   getJson<GlossaryCatalogues>('/api/glossary/catalogues', f)
 export const getInstructions = (id: number, f?: Fetch) =>
   getJson<GlossaryInstructions>(`/api/glossary/dramas/${id}/instructions`, f)
+export const draftInstructions = (id: number, f?: Fetch) =>
+  postJson<InstructionsDraft>(`/api/glossary/dramas/${id}/instructions/draft`, {}, f)
 export const saveInstructions = (id: number, scope: 'project' | 'series', text: string, f?: Fetch) =>
   postJson<GlossaryInstructions>(`/api/glossary/dramas/${id}/instructions/${scope}`, { text }, f)
 

@@ -311,6 +311,32 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     return {"job_id": job_id, "engine": engine_name, "paired": bool(en_text)}
 
 
+def draft_project_instructions(drama_id: int, engine_name: Optional[str] = None) -> dict:
+    """One call that drafts this novel's style instruction from a sample of its
+    raw text, for the person to review in the Instruction tab. Nothing is saved:
+    the draft only fills the box. Paid-engine spend like a glossary run; the
+    engine is the title's stored one, checked by the route's gate (ConflictError
+    if it changed since). {"instructions": str, "engine": str}."""
+    drama = _drama(drama_id)
+    src = _read_drama_file(drama_id, RAW_NOVEL_FILENAME, capped=False)
+    if not src.strip():
+        src = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
+    if not src.strip():
+        raise UnsupportedOperationError("Attach a novel to this title first.")
+    engine_name, engine = _glossary_engine(drama, engine_name)
+    from services import settings_service, translate_run_service
+    translate_run_service.refuse_when_cap_spent(engine_name,
+                                                bool(settings_service.get("gemini_free_tier")))
+    try:
+        text = tguide.draft_novel_style_instructions(
+            src, engine, drama.get("source_language") or "zh",
+            usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "style_draft"))
+    except Exception as exc:
+        raise RuntimeError(f"Style draft failed (engine: {engine_name}). "
+                           + engine_shared.redact_secrets(str(exc))) from None
+    return {"instructions": text, "engine": engine_name}
+
+
 _PROPOSAL_FIELDS = ("term", "suggested_translation", "category", "policy", "reason",
                     "already_in_glossary", "occurrences", "alternatives", "confidence")
 

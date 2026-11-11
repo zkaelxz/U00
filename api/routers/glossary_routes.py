@@ -31,7 +31,7 @@ from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSave
                          GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
-                         GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
+                         GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate, InstructionsDraft,
                          GlossaryNameClusters, GlossaryVariants, NameFixPreview, NameFixRequest,
                          NameFixResult,
                          NameConsistency, NameReportMarkRequest, NameReportMarkResult,
@@ -265,6 +265,15 @@ def post_project_instructions(payload: GlossaryInstructionsUpdate, drama_id: int
              responses=error_responses(400, 404, 422))
 def post_series_instructions(payload: GlossaryInstructionsUpdate, drama_id: int = Path(ge=1)):
     return glossary_service.set_series_instructions(drama_id, payload.text)
+
+
+@router.post("/dramas/{drama_id}/instructions/draft", dependencies=[require_permission("jobs.start")], response_model=InstructionsDraft,
+             summary="Draft this novel's style instruction from a sample of its text (not saved)",
+             responses=error_responses(400, 403, 404, 409, 503))
+def post_draft_instructions(request: Request, drama_id: int = Path(ge=1)):
+    engine_name = glossary_service.novel_glossary_engine(drama_id)
+    require_engines_allowed(request, engine_name)
+    return glossary_service.draft_project_instructions(drama_id, engine_name=engine_name)
 
 
 # --- Glossary from the attached novel -------------------------
