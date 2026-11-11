@@ -25354,6 +25354,8 @@ export interface components {
             ocr_backend: string;
             /** Ocr Backend Installed */
             ocr_backend_installed: boolean;
+            /** Art Captions Available */
+            art_captions_available: boolean;
             /** Page Count */
             page_count: number;
             /** Pages Rendered */
