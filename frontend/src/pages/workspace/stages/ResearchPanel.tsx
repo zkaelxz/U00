@@ -30,12 +30,12 @@ const MODE_HELP: Record<ResearchMode, string> = {
   verify: 'Checks the values already filled in.',
 }
 const MODEL_LABELS: Record<string, string> = {
-  'gemini-2.5-flash-lite': 'Gemini Flash-Lite',
-  'gemini-2.5-flash': 'Gemini Flash',
+  'gemini-3.5-flash-lite': 'Gemini 3.5 Flash-Lite',
+  'gemini-3.8-flash': 'Gemini 3.8 Flash',
 }
 
 const RESEARCH_DRAFT_STAGE = 'research'
-const DEFAULT_FORM = { mode: 'quick' as ResearchMode, model: 'gemini-2.5-flash-lite', allowPaid: false }
+const DEFAULT_FORM = { mode: 'quick' as ResearchMode, model: 'gemini-3.5-flash-lite', allowPaid: false }
 
 function Choice({ name, label, value, options, onChange }: {
   name: string; label: string; value: ResearchChoice
@@ -142,7 +142,7 @@ export function ResearchPanel() {
   }
 
   const needsPaid = !!budget && isPaidLookup(budget, model)
-  const blocked = !budget || !budget.key_configured || (needsPaid && (!allowPaid || budget.free_tier_key))
+  const blocked = !budget || !budget.key_configured || budget.free_tier_key || (needsPaid && !allowPaid)
 
   return (
         <div className="source-panel research-panel">
@@ -163,13 +163,13 @@ export function ResearchPanel() {
           </Field>
           <Field label="Model" help="Flash-Lite is cheaper; Flash is stronger. The app never switches models on its own.">
             <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {(budget?.models ?? ['gemini-2.5-flash-lite', 'gemini-2.5-flash']).map((m) => (
+              {(budget?.models ?? ['gemini-3.5-flash-lite', 'gemini-3.8-flash']).map((m) => (
                 <option key={m} value={m}>{MODEL_LABELS[m] ?? m}</option>
               ))}
             </select>
           </Field>
           {needsPaid && !budget?.free_tier_key && (
-            <Field label="Allow paid searches" help="Today's free searches are used up. A paid search costs about $0.035 plus tokens, and still respects your monthly cap.">
+            <Field label="Allow paid searches" help="Today's free searches are used up. A paid search costs about $0.014 plus tokens, and still respects your monthly cap.">
               <Toggle checked={allowPaid} onChange={setAllowPaid} />
             </Field>
           )}
