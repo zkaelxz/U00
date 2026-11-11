@@ -708,6 +708,15 @@ def _merge_novel_entries(all_terms: dict, entries) -> None:
         all_terms[e["term"]] = e
 
 
+# The note rides with the term into every translation prompt, so a character
+# keeps one gender instead of the model guessing from the name.
+_PERSON_PRONOUN_INSTRUCTION = (
+    "For every person_name, start the reason with the character's pronouns as the "
+    "text shows them (she/her, he/him or they/them), taken from the written 她/他, "
+    "titles and kinship terms, never guessed from the name; write \"unclear\" if the "
+    "excerpt does not say.")
+
+
 def extract_glossary_from_novel(novel_text: str, engine, source_language: str = "zh",
                                  english_translation: str = "", known_terms=None,
                                  progress_cb=None, usage_cb=None, response_cache=None,
@@ -782,6 +791,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
             "suggested translation following that policy. If a name is MEANINGFUL (its "
             "characters spell out something thematic, or it's a pun), note that in the reason "
             "-- worth a translation note even when the name stays pinyin.\n\n"
+            f"{_PERSON_PRONOUN_INSTRUCTION}\n\n"
             'Return ONLY a JSON array: [{"term": "...", "suggested_translation": "...", '
             '"category": "...", "policy": "...", "reason": "brief justification"}]. '
             f"No preamble, no markdown fences.{known_block}{conventions_block}{paired}\n\n"
