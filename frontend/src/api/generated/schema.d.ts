@@ -26194,6 +26194,11 @@ export interface components {
              * @default 0.35
              */
             asmr_stop_threshold: number;
+            /**
+             * Claude Reasoning
+             * @default default
+             */
+            claude_reasoning: string;
             /** Cookies Browser */
             cookies_browser: string | null;
             /** Cookies File */
@@ -26264,6 +26269,11 @@ export interface components {
             ocr_prefer_paddle_vl_manga: boolean;
             /** Ollama Num Ctx Override */
             ollama_num_ctx_override: number;
+            /**
+             * Openai Reasoning
+             * @default default
+             */
+            openai_reasoning: string;
             /**
              * Quick Split Seconds
              * @default 12
@@ -26549,6 +26559,8 @@ export interface components {
             asmr_stop_threshold?: number | null;
             /** Bulk Auto Resume */
             bulk_auto_resume?: boolean | null;
+            /** Claude Reasoning */
+            claude_reasoning?: string | null;
             /** Cookies Browser */
             cookies_browser?: string | null;
             /** Cookies File */
@@ -26595,6 +26607,8 @@ export interface components {
             offer_provider_models?: boolean | null;
             /** Ollama Num Ctx Override */
             ollama_num_ctx_override?: number | null;
+            /** Openai Reasoning */
+            openai_reasoning?: string | null;
             /** Quick Split Seconds */
             quick_split_seconds?: number | null;
             /** Qwen Context Pad Seconds */

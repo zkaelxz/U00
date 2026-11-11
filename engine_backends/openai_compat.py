@@ -4,7 +4,7 @@ from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_model_or_default, op
 from .prompts import build_batch_user_message, build_stable_system_text
 from .local import strip_ollama_thinking
 from .temperature import temperature_of
-from .thinking import deepseek_extra_body
+from .thinking import deepseek_extra_body, openai_reasoning_params
 from .shared import (
     ContentModerationBlocked,
     SDK_REQUEST_TIMEOUT,
@@ -155,7 +155,7 @@ class OpenAIEngine:
             return self.chat([
                 {"role": "system", "content": system_text},
                 {"role": "user", "content": build_batch_user_message(context, numbered)},
-            ])
+            ], extra=openai_reasoning_params(self.model, context))
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="openai",

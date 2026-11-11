@@ -221,6 +221,11 @@ stop_before_batch: checked only between batches, never during a request:
 a batch already sent is finished and kept (cancel_check_cb is the one that
 abandons a request in flight).
 
+reasoning: "less" (the saved choice `claude_reasoning` / `openai_reasoning`, read through
+`settings_service.reasoning_override(engine_name)`) sends `thinking: {"type": "between_tools"}` to
+claude-sonnet-5-5 (it refuses "disabled") and `reasoning_effort: "low"` to gpt-6-luna
+(`engine_backends/thinking.py`); every other model ignores it. Only the Workspace translate job and
+the bulk submit pass it, so Compare, the stronger-engine retry and Live keep the provider default.
 thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
 answering; None = the title's remembered choice, else off. Its reasoning is
 never saved with a line.

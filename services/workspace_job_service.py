@@ -131,6 +131,12 @@ def _month_cap_check(engine_choice, engine):
     return spent
 
 
+def _saved_translate_options(engine_choice) -> dict:
+    """The saved Settings choices a translate run passes to the pipeline."""
+    return {"check_replies": settings_service.reply_guard_override(),
+            "reasoning": settings_service.reasoning_override(engine_choice)}
+
+
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
                        style_guidelines, engine_choice, style_preset, context_window=6,
@@ -203,7 +209,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
-        check_replies=settings_service.reply_guard_override(),
+        **_saved_translate_options(engine_choice),
         thinking=thinking, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes,

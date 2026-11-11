@@ -67,6 +67,8 @@ export interface SettingsPreferences extends TimingPreferences {
   episode_brief: boolean // read the whole episode once before translating it in batches
   scanlate_chapter_brief: boolean // read the whole comic chapter once before translating its pages
   translate_reply_guard: string // auto | on | off
+  claude_reasoning: string // default | less
+  openai_reasoning: string // default | less
   translate_alignment_check: boolean // flag lines whose English doesn't match the source (bge-m3 via Ollama)
   episode_summary_engine: string
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies

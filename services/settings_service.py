@@ -422,6 +422,14 @@ def _voice_detector_choices() -> tuple:
 REPLY_GUARD_MODES = ("auto", "on", "off")
 
 
+def reasoning_override(engine_name):
+    """"less" when the saved choice asks this engine's Translate runs to reason less, else
+    None (the provider's default). Callers read it here so the root translate modules never
+    read settings."""
+    key = {"claude": "claude_reasoning", "openai": "openai_reasoning"}.get(engine_name)
+    return "less" if key and get(key) == "less" else None
+
+
 def reply_guard_override():
     """The translate reply guard as the pipeline's `check_replies` argument:
     None leaves the choice to the engine and model (auto), else forced on or off.
@@ -455,6 +463,7 @@ _SCHEMA_CHOICES = {
     "voice_detectors": _voice_detector_choices,
     "speaker_models": _speaker_model_choices,
     "reply_guard_modes": lambda: REPLY_GUARD_MODES,
+    "reasoning_modes": lambda: __import__("engine_backends.thinking", fromlist=["x"]).REASONING_MODES,
 }
 
 

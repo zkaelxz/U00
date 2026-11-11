@@ -305,3 +305,15 @@ def test_error_response_text_is_redacted_on_the_exception(monkeypatch):
         shared.post_json("https://x.test", {}, timeout=5)
     assert "sk-abcdefghijklmnop0123456789" not in exc.value.response.text
     assert "[REDACTED]" in exc.value.response.text
+
+
+@pytest.mark.parametrize("model,reasoning,sent", [
+    ("gpt-6-luna", None, None),
+    ("gpt-6-luna", "less", "low"),
+    ("gpt-6.1-terra", "less", None),
+])
+def test_luna_asks_for_low_reasoning_only_when_the_run_says_less(posts, model, reasoning, sent):
+    posts.replies.append(_ok('{"1": "Hello"}'))
+    engine = engine_registry.get_engine("openai", KEY, model)
+    engine.translate_batch(["你好"], {"source_language": "zh", "target_language": "en", "reasoning": reasoning})
+    assert posts[0]["json"].get("reasoning_effort") == sent

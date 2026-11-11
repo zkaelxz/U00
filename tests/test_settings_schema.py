@@ -465,3 +465,16 @@ def test_tracked_sees_untracked_files(tmp_path):
     (tmp_path / "ignored.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
     assert _tracked("*.py", root=tmp_path) == ["new_module.py"]
+
+
+def test_reasoning_settings_default_to_the_providers_default_and_name_the_engine(isolated_db):
+    assert settings_service.reasoning_override("claude") is None
+    assert settings_service.reasoning_override("openai") is None
+    settings_service.set_settings({"claude_reasoning": "less"})
+    assert settings_service.reasoning_override("claude") == "less"
+    assert settings_service.reasoning_override("openai") is None
+    assert settings_service.reasoning_override("deepseek") is None
+    settings_service.set_settings({"openai_reasoning": "less"})
+    assert settings_service.reasoning_override("openai") == "less"
+    with pytest.raises(InvalidInputError):
+        settings_service.set_settings({"openai_reasoning": "none"})
