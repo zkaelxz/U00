@@ -187,3 +187,13 @@ def test_the_first_skip_reason_is_named():
 def test_a_fully_accounted_capture_reports_nothing_missing():
     counts = {"translated": 3, "cached": 0, "alreadyStored": 0, "skipped": 0, "failed": 0}
     assert "not sent" not in tally(3, counts, "", [])
+
+
+def test_the_typeset_image_rides_with_a_page_s_regions_so_the_cache_and_redraws_carry_it():
+    expression = """(() => {
+        const out = window.__baihe.regionsByKey({ pages: [
+            { key: "a", regions: [{ x: 1 }], typeset_image: "data:image/jpeg;base64,AAAA" },
+            { key: "b", regions: [{ x: 2 }] }] });
+        return [out.get("a").typesetImage, out.get("b").typesetImage, out.get("a").length];
+    })()"""
+    assert _node("content_expression", expression) == ["data:image/jpeg;base64,AAAA", "", 1]

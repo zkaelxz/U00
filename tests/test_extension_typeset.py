@@ -106,3 +106,52 @@ def test_a_saved_page_with_no_text_keeps_a_note_saying_so(token, drama, monkeypa
     page = _send(token, drama).payload["pages"][0]
     notes = db.get_page(page["page_id"])["run_notes"]
     assert "No text was found" in notes
+
+
+def _writing_render(monkeypatch, size=(300, 500)):
+    """A render that leaves a real typeset PNG in the drama folder, as the renderer does."""
+    import os
+    from PIL import Image
+
+    def fake(drama_id, page_id, notes=None, cancel_check=None):
+        folder = os.path.join(db.drama_dir(drama_id), "pages")
+        os.makedirs(folder, exist_ok=True)
+        Image.new("RGB", size, (200, 30, 30)).save(os.path.join(folder, f"typeset_id{page_id}.png"))
+        db.update_page(page_id, rendered_filename=f"pages/typeset_id{page_id}.png")
+        return {"rendered": True, "blank": 0}
+
+    monkeypatch.setattr(render_svc, "render_page", fake)
+
+
+def test_the_typeset_page_comes_back_as_a_jpeg_to_draw_over_the_reader(token, fake_pipeline, drama,
+                                                                       monkeypatch):
+    import base64
+    import io
+    from PIL import Image
+    _writing_render(monkeypatch)
+    page = _send(token, drama, typeset=True).payload["pages"][0]
+    head, _, data = page["typeset_image"].partition(",")
+    assert head == "data:image/jpeg;base64"
+    assert Image.open(io.BytesIO(base64.b64decode(data))).size == (300, 500)
+
+
+def test_an_oversized_typeset_page_stays_in_the_library_but_is_not_sent_back(
+        token, fake_pipeline, drama, monkeypatch):
+    from services import extension_bridge_service
+    _writing_render(monkeypatch)
+    monkeypatch.setattr(extension_bridge_service, "PREVIEW_MAX_BYTES", 10)
+    page = _send(token, drama, typeset=True).payload["pages"][0]
+    assert page["typeset"] is True and "typeset_image" not in page
+    assert db.get_page(page["page_id"])["rendered_filename"]
+
+
+def test_a_recapture_of_a_typeset_page_still_sends_its_image(token, fake_pipeline, drama, monkeypatch):
+    _writing_render(monkeypatch)
+    _send(token, drama, typeset=True)
+    again = _send(token, drama, typeset=True).payload["pages"][0]
+    assert again["already_stored"] is True and again["typeset_image"].startswith("data:image/jpeg")
+
+
+def test_no_image_is_sent_when_typeset_is_off(token, fake_pipeline, drama, monkeypatch):
+    _writing_render(monkeypatch)
+    assert "typeset_image" not in _send(token, drama).payload["pages"][0]

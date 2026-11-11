@@ -124,31 +124,70 @@ def _record_run_notes(result: dict) -> None:
         db.update_page(int(page_id), run_notes=pages_svc.notes_to_json(notes))
 
 
+# A typeset page is sent back to be drawn over the reader's own image, so it goes as a JPEG:
+# a long strip is a few hundred KB that way, where its PNG is megabytes, and a chapter of
+# twelve pages per request stays a reasonable size. Over the cap the page is still typeset
+# in the library and the extension falls back to its boxes.
+PREVIEW_MAX_BYTES = 1_500_000
+
+
+def _typeset_preview(drama_id: int, page: dict) -> str:
+    """The page's typeset image as a data: URL, or "" when it cannot be sent."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    from services import comic_view_service
+    found = comic_view_service.safe_file(drama_id, page.get("rendered_filename"))
+    if found is None:
+        return ""
+    with Image.open(found[0]) as image:
+        buffer = io.BytesIO()
+        image.convert("RGB").save(buffer, format="JPEG", quality=85)
+    if buffer.tell() > PREVIEW_MAX_BYTES:
+        return ""
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
 def _typeset_stored_page(result: dict, drama_id, member: bool) -> None:
     """Cleans and typesets a page the capture just saved, so Typeset is already on when the
-    title opens. A page that already has a typeset image is left alone: it was drawn from
-    the same regions, and a re-capture must not redo work or replace what was fixed in
-    Scanlate. A failure keeps the saved page and its text and says so in the notes."""
+    title opens, and attaches the result for the extension to draw. A page that already has a
+    typeset image is left alone: it was drawn from the same regions, and a re-capture must not
+    redo work or replace what was fixed in Scanlate. A failure keeps the saved page and its
+    text and says so in the notes."""
     import db
     from services import scanlate_render_service as render_svc
     page_id = result.get("page_id")
     if not (result.get("stored") and page_id and drama_id):
         return
     page = db.get_page(int(page_id), int(drama_id))
-    if page is None or page.get("rendered_filename"):
-        result["typeset"] = bool(page)
+    if page is None:
         return
     notes = []
-    try:
-        result["typeset"] = bool(render_svc.render_page(int(drama_id), int(page_id), notes)["rendered"])
-    except Exception as e:
-        page_capture_checks.log_page_failure(e)
-        result["typeset"] = False
-        # The detail (a path, a model name) stays in the log; only the PC's owner sees it.
-        result.setdefault("notes", []).append(
-            ["warning", "typeset failed: " + ("the page was kept" if member else
-             f"{type(e).__name__}; the page was kept")])
-        return
+    if not page.get("rendered_filename"):
+        try:
+            rendered = bool(render_svc.render_page(int(drama_id), int(page_id), notes)["rendered"])
+        except Exception as e:
+            page_capture_checks.log_page_failure(e)
+            result["typeset"] = False
+            # The detail (a path, a model name) stays in the log; only the PC's owner sees it.
+            result.setdefault("notes", []).append(
+                ["warning", "typeset failed: " + ("the page was kept" if member else
+                 f"{type(e).__name__}; the page was kept")])
+            return
+        result["typeset"] = rendered
+        page = db.get_page(int(page_id), int(drama_id)) or page
+    else:
+        result["typeset"] = True
+    if result["typeset"]:
+        try:
+            preview = _typeset_preview(int(drama_id), page)
+        except Exception as e:
+            page_capture_checks.log_page_failure(e)
+            preview = ""
+        if preview:
+            result["typeset_image"] = preview
     result.setdefault("notes", []).extend([n[0], n[-1]] for n in notes if not member)
 
 

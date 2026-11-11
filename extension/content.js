@@ -430,6 +430,8 @@
                    white-space: pre-wrap; word-break: break-word; }
       .baihe-box[data-kind="narration"] { border-radius: 2px; }
       .baihe-box { background: rgba(255,255,255,0.98); }
+      .baihe-typeset { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                       pointer-events: none; }
       .baihe-box.baihe-untranslated { outline: 2px dashed #c0392b; outline-offset: -2px; }
       .baihe-box.baihe-bold { font-weight: 700; }
       .baihe-box.baihe-showing-original { background: rgba(255,244,214,0.96);
@@ -483,9 +485,21 @@
 
   function drawOverlay(el, regions) {
     const entry = layerFor(el);
-    entry.regions = regions;
     entry.naturalWidth = elementSize(el).width;
     entry.layer.textContent = "";
+    if (regions.typesetImage) {
+      // Baihe's own cleaned and typeset page replaces the preview boxes: it erases the lettering,
+      // fits the text to each balloon's real shape and leaves sound effects alone.
+      const image = document.createElement("img");
+      image.className = "baihe-typeset";
+      image.src = regions.typesetImage;
+      image.alt = "";
+      entry.regions = [];
+      entry.layer.appendChild(image);
+      positionOverlay(el);
+      return;
+    }
+    entry.regions = regions;
     for (const region of regions) {
       if (!region.translated_text && !region.source_text) continue;
       // Sound effects and skipped regions keep their original lettering, as in the typeset page.
@@ -964,7 +978,12 @@
 
   function regionsByKey(data) {
     const byKey = new Map();
-    for (const page of data.pages || []) byKey.set(page.key, page.regions || []);
+    for (const page of data.pages || []) {
+      const regions = page.regions || [];
+      // Rides on the array so every place that caches or redraws a page's regions carries it too.
+      regions.typesetImage = typeof page.typeset_image === "string" ? page.typeset_image : "";
+      byKey.set(page.key, regions);
+    }
     return byKey;
   }
 
@@ -1672,5 +1691,5 @@
                      translatePageText, collectPageText, mainContentBlock,
                      isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox };
+                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox, regionsByKey };
 })();
