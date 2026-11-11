@@ -152,10 +152,12 @@ def create_token_at_pc(label, expires_in_days: int | None = DEFAULT_EXPIRY_DAYS,
         if len(admins) != 1:
             raise InvalidInputError("There is more than one admin account; say which one." if admins
                                     else "There is no active admin account to add a device for.")
-        user_id = admins[0]["id"]
-    elif user_id not in {u["id"] for u in admins}:
+        account_id: int = admins[0]["id"]
+    elif user_id in {u["id"] for u in admins}:
+        account_id = user_id
+    else:
         raise NotFoundError("Not found.")
-    return _mint(user_id, label, expires_in_days, ip, now, session_principal=None)
+    return _mint(account_id, label, expires_in_days, ip, now, session_principal=None)
 
 
 def _mint(user_id: int, label, expires_in_days, ip: str, now, session_principal) -> dict:
