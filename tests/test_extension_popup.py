@@ -207,3 +207,27 @@ def test_pages_saved_without_text_or_without_english_are_told_apart_in_the_closi
     text = _node("content_expression", expression)
     assert "2 saved with no text found" in text
     assert "3 saved with text read but no English back (translation failed (the engine did not answer))" in text
+
+
+def test_cancel_is_in_the_always_visible_area_not_on_the_chapter_tab():
+    html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
+    chapter = html[html.index('id="panel-chapter"'):html.index("</section>", html.index('id="panel-chapter"'))]
+    assert 'id="cancelCapture"' not in chapter
+    assert html.index('id="status"') < html.index('id="cancelCapture"')
+
+
+def test_a_cancel_stops_sending_between_requests_and_keeps_what_was_sent():
+    expression = """(async () => {
+        let cancelled = false;
+        const sent = [];
+        const items = Array.from({ length: 30 }, (_, i) => ({ i }));
+        const outcome = await window.__baihe.sendInBatches(
+            items,
+            async (batch) => { sent.push(batch.length); return { ok: true, data: {} }; },
+            () => { cancelled = true; },
+            12,
+            () => cancelled);
+        return { sent, cancelled: outcome.cancelled, done: outcome.done };
+    })()"""
+    out = _node("content_expression", expression)
+    assert out == {"sent": [12], "cancelled": True, "done": 12}

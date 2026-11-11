@@ -92,6 +92,7 @@
     observer: null,
     // The running chapter capture ({cancelled, text}), or null.
     capture: null,
+    visible: null,
   };
 
   // -- collecting ------------------------------------------------------
@@ -911,12 +912,15 @@
   // the background's {ok, data|error, status}; `onBatch(batch, data)`
   // handles each successful reply and may return true to stop the run.
   // Stops at the first hard error.
-  async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST) {
+  async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST,
+                               isCancelled = () => false) {
     let done = 0;
     let sentAny = false;
     let retriedLimit = false;
     let size = limit;
     while (done < items.length) {
+      // Checked between requests: one already sent finishes and is kept.
+      if (isCancelled()) return { sentAny, limit: size, failure: null, cancelled: true, done };
       const batch = items.slice(done, done + size);
       const range = { from: done + 1, to: done + batch.length, total: items.length };
       const response = await send(batch, range) ||
@@ -987,11 +991,31 @@
     return byKey;
   }
 
-  async function translateVisible({ dramaId, store, all }) {
+  async function translateVisible(options) {
     // A capture sends the same pages itself; running both would save a page twice.
     if (state.capture) {
       return { ok: false, error: "A chapter capture is running on this page; wait for it or cancel it first." };
     }
+    if (state.visible) {
+      return { ok: false, error: "This page is already being translated; wait for it or cancel it first." };
+    }
+    const run = { cancelled: false, text: "Reading pages…", startedAt: Date.now() };
+    state.visible = run;
+    let done = { failed: true, text: "Translating the page's images stopped unexpectedly." };
+    try {
+      const result = await translateVisibleRun(options, run);
+      done = result.ok
+        ? { failed: false, text: (result.data.stopped && result.data.stopped.message) || "Finished." }
+        : { failed: true, text: result.error };
+      return result;
+    } finally {
+      state.visible = null;
+      // A popup reopened mid-run waits for this to hide its Cancel button.
+      try { chrome.runtime.sendMessage({ type: "captureDone", ...done }).catch(() => {}); } catch (e) { /* popup closed */ }
+    }
+  }
+
+  async function translateVisibleRun({ dramaId, store, all }, run) {
     if (looksLikeChallengePage()) {
       return {
         ok: false, code: "CHALLENGE_DETECTED",
@@ -1061,7 +1085,8 @@
     let drawn = 0;
     let serverStop = "";
     const outcome = await sendInBatches(images, async (batch, range) => {
-      reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
+      run.text = `Translating ${range.from}-${range.to} of ${range.total}...`;
+      reportProgress(run.text, (range.from - 1) / range.total);
       // A deliberate single send is the image the person pointed at, so
       // the server's page filter shouldn't second-guess it. The server
       // applies the filter to each request on its own, so a batch is
@@ -1092,7 +1117,7 @@
       totals.alreadyStored += Number.isFinite(data.alreadyStored) ? data.alreadyStored : 0;
       if (data.stopped) serverStop = String(data.stopped);
       return !!data.stopped;
-    });
+    }, undefined, () => run.cancelled);
 
     if (outcome.sentAny) watchForPageChanges();
     const data = { pages, skipped, failed: failedPages, ...totals, drawn,
@@ -1113,6 +1138,11 @@
     }
     if (serverStop) {
       data.stopped = { reason: serverStop, message: `Stopped early: ${serverStop}` };
+    }
+    if (outcome.cancelled) {
+      data.stopped = { reason: "cancelled",
+                       message: `Cancelled after ${pages.length + skipped.length + failedPages.length} ` +
+                                `of ${images.length} pages; the pages already saved are kept.` };
     }
     return { ok: true, data };
   }
@@ -1569,7 +1599,7 @@
           if (!firstSkip && (data.skipped || []).length) firstSkip = data.skipped[0].reason || "";
           if (data.stopped) serverStop = String(data.stopped);
           return !!data.stopped;
-        }, limit);
+        }, limit, () => run.cancelled);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
         if (outcome.failure) return outcome.failure.reason;
@@ -1647,8 +1677,9 @@
   }
 
   function cancelCapture() {
-    if (!state.capture) return false;
-    state.capture.cancelled = true;
+    const running = state.capture || state.visible;
+    if (!running) return false;
+    running.cancelled = true;
     return true;
   }
 
@@ -1686,6 +1717,8 @@
               translated: state.active.size,
               overlaysVisible: state.overlaysVisible,
               capture: state.capture ? { running: true, text: state.capture.text } : null,
+              // The popup shows Cancel for either kind of run, on any tab, and again when reopened.
+              visibleRun: state.visible ? { running: true, text: state.visible.text } : null,
               textPage: isTextPage(),
               hasSelection: !!selectedText(),
               // The page's own host. The popup uses this to key "which

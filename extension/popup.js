@@ -340,7 +340,9 @@ function summarizeCapture(data, { store, dramaId }) {
                 (saving && data.stored !== undefined && data.stored < pages);
   const stopped = data.stopped && data.stopped.message;
   if (stopped) parts.push(stopped);
-  const bad = problems.length > 0 || short || !!stopped || notes.some((n) => n[0] === "error");
+  // A cancel is the person's own choice, not a problem to colour red.
+  const stoppedBad = !!stopped && data.stopped.reason !== "cancelled";
+  const bad = problems.length > 0 || short || stoppedBad || notes.some((n) => n[0] === "error");
   return {
     text: parts.join(" · ") + (notes.length ? ` — ${notes[0][1]}` : ""),
     bad,
@@ -408,6 +410,7 @@ async function run(all) {
   // Claimed before any await: a second click lands while activeTab() is pending.
   if (pageRunInFlight || captureInFlight) return;
   pageRunInFlight = true;
+  els.cancelCapture.hidden = false;
   // A capture started now would send the same pages a second time.
   els.captureChapter.disabled = true;
   els.captureFromHere.disabled = true;
@@ -459,6 +462,7 @@ async function run(all) {
     say(`Couldn't run on this page (${e.message}).`, true);
   } finally {
     pageRunInFlight = false;
+    els.cancelCapture.hidden = true;
     els.captureChapter.disabled = false;
     els.captureFromHere.disabled = false;
   }
@@ -548,7 +552,7 @@ async function syncCaptureUi() {
   try {
     const tab = await activeTab();
     const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
-    const capture = status && status.ok && status.data.capture;
+    const capture = status && status.ok && (status.data.capture || status.data.visibleRun);
     if (capture) {
       showCapturing(true);
       say(capture.text);
@@ -561,7 +565,7 @@ chrome.runtime.onMessage.addListener((message) => {
   showCapturing(false);
   // A popup that was closed during the run never saw the result; one that
   // started it says it itself, with the saved-destination detail.
-  if (!captureInFlight && message.text) say(message.text, !!message.failed);
+  if (!captureInFlight && !pageRunInFlight && message.text) say(message.text, !!message.failed);
 });
 
 async function runText() {

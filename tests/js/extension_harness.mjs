@@ -619,7 +619,7 @@ function popupExpression(expression) {
   return JSON.parse(sandbox.__out);
 }
 
-function contentExpression(expression) {
+async function contentExpression(expression) {
   const noop = () => {};
   const el = () => ({ addEventListener: noop, appendChild: noop, style: {}, classList: { add: noop, remove: noop } });
   const window = { addEventListener: noop, location: { href: "https://s/c" } };
@@ -637,7 +637,7 @@ function contentExpression(expression) {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(read("content.js"), sandbox);
-  return vm.runInContext(`JSON.stringify(${expression})`, sandbox);
+  return JSON.stringify(await vm.runInContext(expression, sandbox));
 }
 
 async function batching(scenarioJson) {
@@ -684,7 +684,7 @@ const [kind, scenario] = process.argv.slice(2);
 const handlers = {
   content, background, popup, novel,
   popup_expression: async (e) => popupExpression(e),
-  content_expression: async (e) => JSON.parse(contentExpression(e)),
+  content_expression: async (e) => JSON.parse(await contentExpression(e)),
   batching,
 };
 const result = await handlers[kind](scenario);
