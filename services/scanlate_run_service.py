@@ -280,6 +280,24 @@ def _page_image(drama_id: int, page_id: int, engine_name: str):
     return data, mime, sent_width / width
 
 
+# Measured on 16 comic pages: with the picture, Haiku 5.5 reads dialogue as well
+# as Sonnet 5.5 at about a fifteenth of the cost.
+PAGE_IMAGE_CLAUDE_MODEL = "claude-haiku-5-5"
+
+
+def _picture_engine(engine, engine_name: str):
+    """The engine that reads a page's picture: the chosen Claude engine is swapped
+    for Haiku 5.5 here only, so text-only translation keeps the model the user
+    picked. Any other engine, or a Haiku that can't be built, is used as chosen."""
+    if engine_name != "claude" or getattr(engine, "model", None) == PAGE_IMAGE_CLAUDE_MODEL:
+        return engine
+    try:
+        return llm_tasks.bound_batches(engine_registry.get_engine(
+            "claude", translate_service.resolve_api_key("claude"), model=PAGE_IMAGE_CLAUDE_MODEL))
+    except Exception:
+        return engine
+
+
 def _translate_with_image(by_key: dict, page_image, engine, drama: dict, context: str, usage_cb,
                           glossary, character_notes: str, chapter_brief: str, notes: list):
     """(result, new_context) of the page-with-image request, or (None, context)
@@ -326,8 +344,10 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
 
     result, new_context = None, context
     if page_image is not None and len(keyed) <= scanlate_translate.REGIONS_PER_CALL:
+        picture_engine = _picture_engine(engine, engine_name)
         result, new_context = _translate_with_image(
-            by_key, page_image, engine, drama, context, usage_cb, glossary, character_notes,
+            by_key, page_image, picture_engine, drama, context,
+            paid_calls.usage_logger(drama_id, engine_name, picture_engine, "scanlate_translate"), glossary, character_notes,
             chapter_brief, notes)
     try:
         if result is None:

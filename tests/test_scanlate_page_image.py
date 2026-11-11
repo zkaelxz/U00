@@ -139,3 +139,30 @@ def test_a_missing_page_file_means_a_text_only_translation(isolated_db, monkeypa
     pid = db.create_page(did, 0, "pages/gone.png", 120, 80)
     patch_setting(monkeypatch, "scanlate_page_image", True)
     assert run_svc._page_image(did, pid, "claude") is None
+
+
+def test_a_claude_engine_reads_the_picture_as_haiku_and_logs_that_model(monkeypatch):
+    built = {}
+
+    class _Haiku(_Engine):
+        model = "claude-haiku-5-5"
+
+    def get_engine(name, key, model=None, **kw):
+        built.update(name=name, model=model)
+        return _Haiku()
+
+    monkeypatch.setattr(run_svc.engine_registry, "get_engine", get_engine)
+    monkeypatch.setattr(run_svc.translate_service, "resolve_api_key", lambda n: "k")
+    assert run_svc._picture_engine(_Engine(), "claude").model == "claude-haiku-5-5"
+    assert built == {"name": "claude", "model": "claude-haiku-5-5"}
+    other = _Engine()
+    assert run_svc._picture_engine(other, "gemini") is other
+
+
+def test_the_chosen_engine_is_kept_when_haiku_cannot_be_built(monkeypatch):
+    def boom(*a, **kw):
+        raise RuntimeError("no key")
+
+    monkeypatch.setattr(run_svc.engine_registry, "get_engine", boom)
+    engine = _Engine()
+    assert run_svc._picture_engine(engine, "claude") is engine
