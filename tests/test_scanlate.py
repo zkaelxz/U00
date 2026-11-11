@@ -1140,6 +1140,22 @@ class TestMlFailureMemoryOnlyCoversTheModelLoad:
         assert "/home/kae" not in str(again.value) and again.value.__cause__ is None
 
 
+class TestEnglishTextSkipped:
+    def test_english_lettering_in_the_art_is_skipped_but_source_text_is_not(self):
+        regions = [{"source_text": "CHOOL\n(H\nCHILD", "skip": False},
+                   {"source_text": "执行", "skip": False},
+                   {"source_text": "OK 알겠어", "skip": False},
+                   {"source_text": "88", "skip": False},
+                   {"source_text": "", "skip": False}]
+        assert scanlate.flag_english_text(regions, "zh") == 1
+        assert [r["skip"] for r in regions] == [True, False, False, False, False]
+
+    def test_an_english_source_page_is_left_alone(self):
+        regions = [{"source_text": "Hello there", "skip": False}]
+        assert scanlate.flag_english_text(regions, "en") == 0
+        assert regions[0]["skip"] is False
+
+
 class TestHollowFrames:
     def test_a_sign_erase_keeps_the_frame_round_the_lettering_and_erases_the_lettering(self):
         import cv2

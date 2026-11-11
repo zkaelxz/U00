@@ -275,6 +275,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b["reading_order"] = order
     reclassify_wordy_sfx(bubbles)
     flag_site_marks(bubbles)
+    flag_english_text(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
     if art_captions:
         bubbles += (captions if captions is not None
@@ -292,6 +293,27 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
 # o and O or the digit 0; a script that has none of them in its lettering has
 # no text there to translate.
 _THOUGHT_DOTS = re.compile(r"[oO0°○◦.·・\s]+")
+
+
+_SOURCE_SCRIPT = re.compile("[\u1100-\u11ff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+_ENGLISH_MIN_LETTERS = 4
+
+
+def flag_english_text(regions: list, source_language: str) -> int:
+    """Sets skip on a region of a Chinese, Japanese or Korean page whose text has
+    no source-script character and at least a few Latin letters: it is already
+    English (a shirt's "SCHOOL CHILD" in the art), and translating it only
+    painted a blur over the drawing. Returns how many it flagged."""
+    if source_language not in ("ja", "zh", "ko"):
+        return 0
+    flagged = 0
+    for region in regions:
+        text = region.get("source_text") or ""
+        if (not region.get("skip") and not _SOURCE_SCRIPT.search(text)
+                and sum(c.isascii() and c.isalpha() for c in text) >= _ENGLISH_MIN_LETTERS):
+            region["skip"] = True
+            flagged += 1
+    return flagged
 
 
 def _is_thought_dots(text: str, source_language: str) -> bool:
