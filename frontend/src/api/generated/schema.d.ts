@@ -25334,6 +25334,8 @@ export interface components {
         };
         /** ScanlateConfig */
         ScanlateConfig: {
+            /** Art Captions Available */
+            art_captions_available: boolean;
             /** Default Engine */
             default_engine: string;
             /** Detect Backends */
@@ -25354,8 +25356,6 @@ export interface components {
             ocr_backend: string;
             /** Ocr Backend Installed */
             ocr_backend_installed: boolean;
-            /** Art Captions Available */
-            art_captions_available: boolean;
             /** Page Count */
             page_count: number;
             /** Pages Rendered */
