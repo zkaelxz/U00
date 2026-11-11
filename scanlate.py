@@ -38,7 +38,8 @@ from scanlate_detect import (
     merge_fragment_boxes, page_gray, split_webtoon_strip,
 )
 import scanlate_tuning
-from scanlate_regions import (analyze_page_regions, detect_script_language, strip_stray_sfx_mark, lettering_fill,
+from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
+                              split_separate_lettering, strip_stray_sfx_mark,
                               lettering_size, reclassify_wordy_sfx,
                               region_excluded_from_auto)
 from scanlate_render import sample_text_style
@@ -232,6 +233,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
     boxes = merge_fragment_boxes(boxes, gray)
+    if gray is not None:
+        boxes = [part for box in boxes for part in split_separate_lettering(gray, box)]
 
     captions = None
     if not boxes:
@@ -276,6 +279,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b["reading_order"] = order
     reclassify_wordy_sfx(bubbles)
     flag_site_marks(bubbles)
+    flag_english_text(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
     if art_captions:
         bubbles += (captions if captions is not None
@@ -293,6 +297,27 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
 # o and O or the digit 0; a script that has none of them in its lettering has
 # no text there to translate.
 _THOUGHT_DOTS = re.compile(r"[oO0°○◦.·・\s]+")
+
+
+_SOURCE_SCRIPT = re.compile("[\u1100-\u11ff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+_ENGLISH_MIN_LETTERS = 4
+
+
+def flag_english_text(regions: list, source_language: str) -> int:
+    """Sets skip on a region of a Chinese, Japanese or Korean page whose text has
+    no source-script character and at least a few Latin letters: it is already
+    English (a shirt's "SCHOOL CHILD" in the art), and translating it only
+    painted a blur over the drawing. Returns how many it flagged."""
+    if source_language not in ("ja", "zh", "ko"):
+        return 0
+    flagged = 0
+    for region in regions:
+        text = region.get("source_text") or ""
+        if (not region.get("skip") and not _SOURCE_SCRIPT.search(text)
+                and sum(c.isascii() and c.isalpha() for c in text) >= _ENGLISH_MIN_LETTERS):
+            region["skip"] = True
+            flagged += 1
+    return flagged
 
 
 def _is_thought_dots(text: str, source_language: str) -> bool:

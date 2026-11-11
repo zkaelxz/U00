@@ -621,3 +621,31 @@ class TestStrayMarkBeforeSoundEffect:
     ])
     def test_only_a_leading_mark_on_an_effect_is_dropped(self, text, kind, expected):
         assert scanlate_regions.strip_stray_sfx_mark(text, kind) == expected
+
+def _glyph_page(blocks, size=(700, 800)):
+    cv2 = pytest.importorskip("cv2")
+    page = np.full(size, 250, np.uint8)
+    for bx, by in blocks:
+        for row in range(2):
+            for col in range(6):
+                cv2.rectangle(page, (bx + col * 30, by + row * 40),
+                              (bx + col * 30 + 22, by + row * 40 + 26), 40, -1)
+    return page
+
+
+def test_two_blocks_of_lettering_far_apart_become_two_regions_inside_the_box():
+    page = _glyph_page([(60, 60), (420, 480)])
+    box = {"x": 0, "y": 0, "w": 800, "h": 700, "kind": "sign"}
+    parts = scanlate_regions.split_separate_lettering(page, box)
+    assert len(parts) == 2
+    assert parts[0]["x"] < 160 and parts[0]["y"] < 160 and parts[1]["x"] > 300 and parts[1]["y"] > 400
+    assert all(0 <= p["x"] and p["x"] + p["w"] <= 800 and p["y"] + p["h"] <= 700 for p in parts)
+
+
+def test_one_block_of_lettering_and_a_small_box_stay_one_region():
+    page = _glyph_page([(300, 300)])
+    box = {"x": 0, "y": 0, "w": 800, "h": 700}
+    assert scanlate_regions.split_separate_lettering(page, box) == [box]
+    two = _glyph_page([(20, 20), (150, 120)], size=(260, 400))
+    small = {"x": 0, "y": 0, "w": 400, "h": 260}
+    assert scanlate_regions.split_separate_lettering(two, small) == [small]
