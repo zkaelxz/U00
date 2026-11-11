@@ -21,6 +21,7 @@ from api.auth import (is_at_pc, is_local_request, local_only, require_cloud_mode
 from api.schemas import (LiveChatPage, LiveFormOptions, LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary, error_responses)
 from lib.errors import ForbiddenError
+from lib.storage_errors import require_readable
 from services import live_service, model_readiness_service
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -107,5 +108,7 @@ _PLAYER_FILE = Path(pattern=r"^(?:(?:master|video|audio)\.m3u8|[va]_\d{6}\.ts)$"
 def get_player_file(request: Request, session_id: str = _SID, name: str = _PLAYER_FILE):
     path = live_service.player_file(session_id, name, principal=request.state.principal)
     kind = "application/vnd.apple.mpegurl" if name.endswith(".m3u8") else "video/mp2t"
+    # A segment ffmpeg is still writing can be locked; without this the refusal comes after the 200 headers, as a 500.
+    require_readable(path)
     # No store: the segments are deleted as the window moves on.
     return FileResponse(path, media_type=kind, headers={"Cache-Control": "no-store"})
