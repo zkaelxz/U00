@@ -368,7 +368,7 @@ backward. 0 disables this.
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
 7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS` (default `OLLAMA_DEFAULT_MODEL`,
-   `translategemma:12b`); the API also accepts any tag typed by hand, and a title
+   `translategemma:27b`); the API also accepts any tag typed by hand, and a title
    or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
    (tags such as `gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
    `<think>` blocks in a reply are stripped before parsing; a separate

@@ -172,7 +172,7 @@ describe('sessions', () => {
       .toBe('Capturing audio: waiting for chunk 2 (10 s of stream each) · 0 lines')
     expect(statusLine({ status: 'running', message: 'Chunk 1: transcribing with Whisper small (GPU)' }, 1))
       .toBe('Chunk 1: transcribing with Whisper small (GPU) · 1 line')
-    const slow = 'Chunk 1: translating with translategemma:12b (Ollama) Still waiting on Ollama after 75 s: it may be loading the model.'
+    const slow = 'Chunk 1: translating with translategemma:27b (Ollama) Still waiting on Ollama after 75 s: it may be loading the model.'
     expect(statusLine({ status: 'running', message: slow }, 1)).toBe(`${slow} · 1 line`)
     const cancelling = 'Cancelling... Whisper is still transcribing chunk 1 and cannot be interrupted mid-chunk; it stops when that finishes (the previous chunk took about 12 s).'
     expect(statusLine({ status: 'running', message: cancelling }, 1)).toBe(`${cancelling} · 1 line`)
@@ -218,9 +218,9 @@ describe('requests', () => {
   it('asks the server about its own default model when none is chosen', async () => {
     const f = ok({ ok: true, model: 'm', message: null })
     await checkOllama('', f)
-    await checkOllama('translategemma:12b', f)
+    await checkOllama('translategemma:27b', f)
     expect(f.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual([
-      '/api/live/ollama-check', '/api/live/ollama-check?model=translategemma%3A12b',
+      '/api/live/ollama-check', '/api/live/ollama-check?model=translategemma%3A27b',
     ])
   })
 
@@ -238,7 +238,7 @@ describe('requests', () => {
 
 describe('default engine and model', () => {
   const engines = [{ name: 'deepseek' }, { name: 'ollama' }, { name: 'claude' }]
-  it('starts on Ollama with translategemma:12b when nothing was chosen', () => {
+  it('starts on Ollama with translategemma:27b when nothing was chosen', () => {
     expect(pickEngine(engines, '')).toBe('ollama')
     expect(resolveModel({ name: 'ollama', models: ['llama3.1:8b', LIVE_DEFAULT_MODEL] }, '')).toEqual({ model: LIVE_DEFAULT_MODEL, fellBack: false })
   })
@@ -257,7 +257,7 @@ describe('default engine and model', () => {
 })
 
 describe('model choice', () => {
-  const ollama = { name: 'ollama', models: ['llama3.1:8b', 'translategemma:12b'] }
+  const ollama = { name: 'ollama', models: ['llama3.1:8b', 'translategemma:27b'] }
   it('keeps an offered model and sends it', () => {
     expect(resolveModel(ollama, 'llama3.1:8b')).toEqual({ model: 'llama3.1:8b', fellBack: false })
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', engine: 'ollama', model: 'llama3.1:8b' }).model).toBe('llama3.1:8b')
@@ -268,11 +268,11 @@ describe('model choice', () => {
   })
   it('drops a remembered model the engine no longer offers, or one with no list', () => {
     expect(resolveModel(ollama, 'gone:1b')).toEqual({ model: LIVE_DEFAULT_MODEL, fellBack: true })
-    expect(resolveModel({ name: 'deepseek', models: null }, 'translategemma:12b')).toEqual({ model: '', fellBack: true })
-    expect(resolveModel(undefined, 'translategemma:12b')).toEqual({ model: '', fellBack: true })
+    expect(resolveModel({ name: 'deepseek', models: null }, 'translategemma:27b')).toEqual({ model: '', fellBack: true })
+    expect(resolveModel(undefined, 'translategemma:27b')).toEqual({ model: '', fellBack: true })
   })
   it('shows the model in the status line', () => {
-    expect(statusLine({ status: 'running', message: 'Listening', model: 'translategemma:12b' }, 1)).toBe('Listening · 1 line · translategemma:12b')
+    expect(statusLine({ status: 'running', message: 'Listening', model: 'translategemma:27b' }, 1)).toBe('Listening · 1 line · translategemma:27b')
   })
 })
 
@@ -308,7 +308,7 @@ describe('server form options', () => {
     whisper_sizes: ['small', 'medium'],
     segment_range: [5, 30] as [number, number],
     player_heights: [720],
-    default_model: 'translategemma:12b',
+    default_model: 'translategemma:27b',
     defaults: { ...LIVE_FORM_FALLBACK.defaults, whisper_size: 'medium', segment_seconds: 10, player_height: 720 },
   }
 
@@ -325,8 +325,8 @@ describe('server form options', () => {
   })
 
   it("the server's default model is the one a dropped choice lands on", () => {
-    expect(resolveModel({ name: 'ollama', models: ['llama3.1:8b', 'translategemma:12b'] }, '', server)).toEqual({ model: 'translategemma:12b', fellBack: false })
-    expect(resolveModel({ name: 'ollama', models: ['translategemma:12b'] }, 'gone:1b', server)).toEqual({ model: 'translategemma:12b', fellBack: true })
+    expect(resolveModel({ name: 'ollama', models: ['llama3.1:8b', 'translategemma:27b'] }, '', server)).toEqual({ model: 'translategemma:27b', fellBack: false })
+    expect(resolveModel({ name: 'ollama', models: ['translategemma:27b'] }, 'gone:1b', server)).toEqual({ model: 'translategemma:27b', fellBack: true })
     expect(resolveModel({ name: 'ollama', models: ['llama3.1:8b'] }, '', { ...server, default_model: null })).toEqual({ model: '', fellBack: false })
   })
 
