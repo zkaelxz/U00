@@ -38,7 +38,7 @@ from scanlate_detect import (
     merge_fragment_boxes, page_gray, split_webtoon_strip,
 )
 import scanlate_tuning
-from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
+from scanlate_regions import (analyze_page_regions, detect_script_language, strip_stray_sfx_mark, lettering_fill,
                               lettering_size, reclassify_wordy_sfx,
                               region_excluded_from_auto)
 from scanlate_render import sample_text_style
@@ -261,6 +261,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
             ocr_failed += 1
         if _is_thought_dots(b["source_text"], source_language):
             continue
+        b["source_text"] = strip_stray_sfx_mark(b["source_text"], b.get("kind"))
         b["language"] = detect_script_language(b["source_text"], b["language"])
         # Classical-CV style guess (see sample_text_style()), reviewable
         # per bubble before render.

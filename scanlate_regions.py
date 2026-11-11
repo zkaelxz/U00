@@ -9,6 +9,8 @@ regions the automated inpaint-and-replace pass leaves alone.
 from dataclasses import dataclass, asdict
 from typing import Optional
 
+import re
+
 import numpy as np
 
 import scanlate_tuning
@@ -66,6 +68,20 @@ def reclassify_wordy_sfx(regions: list) -> int:
             region["kind"] = "sign"
             changed += 1
     return changed
+
+
+_STRAY_LEADING_MARK = re.compile(
+    r"^[0OoＯ０]\s?(?=[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af])")
+
+
+def strip_stray_sfx_mark(text: str, kind: str) -> str:
+    """Drops a lone "0"/"O" glued to the front of a CJK sound effect. OCR
+    reads the round start of a stroke or a speck of screentone as one, and a
+    short effect has nothing around it to outvote the error. Only effects
+    are touched: in a sentence a leading digit can be real."""
+    if kind != "sfx":
+        return text
+    return _STRAY_LEADING_MARK.sub("", text or "", count=1)
 
 
 def detect_script_language(text: str, fallback: str) -> str:
