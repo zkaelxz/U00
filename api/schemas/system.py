@@ -278,6 +278,8 @@ class SettingsPreferences(TimingPreferences):
     scanlate_chapter_brief: bool = True
     episode_brief: bool = True
     translate_reply_guard: str = "auto"
+    claude_reasoning: str = "default"
+    openai_reasoning: str = "default"
     translate_alignment_check: bool = False
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
@@ -380,6 +382,8 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     scanlate_chapter_brief: Optional[StrictBool] = None
     episode_brief: Optional[StrictBool] = None
     translate_reply_guard: Optional[StrictStr] = Field(None, max_length=40)
+    claude_reasoning: Optional[StrictStr] = Field(None, max_length=40)
+    openai_reasoning: Optional[StrictStr] = Field(None, max_length=40)
     translate_alignment_check: Optional[StrictBool] = None
     episode_summary_engine: Optional[StrictStr] = Field(None, max_length=40)
     monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None

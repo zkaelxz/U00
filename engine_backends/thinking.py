@@ -20,6 +20,30 @@ DEEPSEEK_THINKING_BODY = {"thinking": {"type": "enabled"}}
 _think_refused = set()
 
 
+# The "less" reasoning option of Claude and OpenAI translation runs (Settings > Translation).
+# Only the models it was measured on take it: Sonnet 5.5 refuses {"type": "disabled"} and names
+# "between_tools" as the way to switch thinking off, and Luna is the one GPT model whose request
+# was tried with reasoning_effort. Any other model keeps its own default, so an untried model
+# can't answer with a 400.
+REASONING_MODES = ("default", "less")
+CLAUDE_LESS_THINKING_MODELS = ("claude-sonnet-5-5",)
+OPENAI_LOW_EFFORT_MODELS = ("gpt-6-luna",)
+
+
+def claude_thinking_params(model: str, context: dict) -> dict:
+    """Extra Messages API params for a "less" run, else none."""
+    if context.get("reasoning") == "less" and model in CLAUDE_LESS_THINKING_MODELS:
+        return {"thinking": {"type": "between_tools"}}
+    return {}
+
+
+def openai_reasoning_params(model: str, context: dict) -> dict:
+    """Extra Chat Completions fields for a "less" run, else none."""
+    if context.get("reasoning") == "less" and model in OPENAI_LOW_EFFORT_MODELS:
+        return {"reasoning_effort": "low"}
+    return {}
+
+
 def title_thinking(drama_meta) -> bool:
     """Whether a run for this title asks the model to think. Read from the
     database rather than the caller's drama dict, which can predate the choice

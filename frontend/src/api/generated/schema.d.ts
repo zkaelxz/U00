@@ -26460,6 +26460,16 @@ export interface components {
              * @default auto
              */
             translate_reply_guard: string;
+            /**
+             * Claude Reasoning
+             * @default default
+             */
+            claude_reasoning: string;
+            /**
+             * Openai Reasoning
+             * @default default
+             */
+            openai_reasoning: string;
             /** Whisper Model Path */
             whisper_model_path: string;
             /**
@@ -26677,6 +26687,10 @@ export interface components {
             translate_alignment_check?: boolean | null;
             /** Translate Reply Guard */
             translate_reply_guard?: string | null;
+            /** Claude Reasoning */
+            claude_reasoning?: string | null;
+            /** Openai Reasoning */
+            openai_reasoning?: string | null;
             /** Unload Ollama Before Transcribe */
             unload_ollama_before_transcribe?: boolean | null;
             /** Use Gpu */

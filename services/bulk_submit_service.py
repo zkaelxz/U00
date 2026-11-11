@@ -47,7 +47,8 @@ def bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referenc
             db.list_series_characters(series_id) if series_id else [])
         context = translate_pipeline.build_translation_context(
             engine, drama, style_note=style_note, novel_reference=novel_reference, locale=locale,
-            glossary_terms=glossary_terms, style_guidelines=style_guidelines)
+            glossary_terms=glossary_terms, style_guidelines=style_guidelines,
+            reasoning=settings_service.reasoning_override(engine_name))
         return bulk_translate.submit_bulk_translation(
             drama_id, lines, engine, engine_name, context,
             translate_args={"glossary_terms": glossary_terms, "style_preset": style_preset},
