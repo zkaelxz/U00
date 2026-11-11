@@ -195,7 +195,11 @@ def default_engine(engines: list | None = None) -> str:
             free_tier=name == "gemini" and gemini_free)
         return estimate_cost_for_engine(stand_in, 1_000_000, 1_000_000)
 
-    return min(usable, key=price, default=chosen)
+    # OpenAI's new default (Luna) is cheaper than DeepSeek but has no measured
+    # translation quality yet, so it is only the automatic pick when it is the
+    # one engine that can run.
+    ranked = [n for n in usable if n != "openai"] or usable
+    return min(ranked, key=price, default=chosen)
 
 
 def get_config(drama_id: int) -> dict:
