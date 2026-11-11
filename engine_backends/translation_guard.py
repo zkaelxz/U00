@@ -288,3 +288,16 @@ def converted_to_imperial(source: str, english: str) -> bool:
     the source into feet, miles, pounds or Fahrenheit is flagged."""
     return bool(_IMPERIAL_IN_ENGLISH.search(english or "") and _MEASURE_IN_SOURCE.search(source or "")
                 and not _IMPERIAL_IN_SOURCE.search(source or ""))
+
+
+# A model that has seen the prompt's "[Name]" speaker rule sometimes invents the
+# prefix itself on a source line that has none; only such a prefix is removed, so
+# a source that really opens with a bracketed label keeps its own.
+_INVENTED_TAG = re.compile(r"^\s*\[[^\[\]\n]{1,40}\]\s+(?=\S)")
+
+
+def strip_invented_speaker_tag(source: str, english: str) -> str:
+    if (source or "").lstrip().startswith(("[", "【", "［")):
+        return english
+    return _INVENTED_TAG.sub("", english or "", count=1)
+
