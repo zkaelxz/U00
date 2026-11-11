@@ -147,3 +147,26 @@ def test_a_word_that_already_has_a_hyphen_breaks_there_and_is_not_cut_again():
 def test_an_own_hyphen_whose_head_does_not_fit_falls_back_to_a_new_split():
     head, tail = scanlate_render._hyphen_split("Alma-diel.", lambda head: len(head) <= 4)
     assert head.endswith("-") and head + tail != "Alma-diel."
+
+
+def test_a_short_word_is_never_cut_even_when_a_cut_would_fit():
+    assert scanlate_render._hyphen_split("Humans…", lambda head: True) is None
+    assert scanlate_render._hyphen_split("Humanity", lambda head: len(head) <= 6) is not None
+
+
+def test_a_narrow_balloon_shrinks_a_six_letter_word_instead_of_cutting_it(monkeypatch):
+    mask = np.ones((107, 40), dtype=bool)
+    img = Image.new("RGB", (120, 140), "white")
+    box = {"x": 10, "y": 10, "w": 40, "h": 107}
+    seen = []
+    real = scanlate_render._layout_at_size
+
+    def spy(draw, words, mask_, mh, font, hyphenate):
+        out = real(draw, words, mask_, mh, font, hyphenate)
+        if out is not None:
+            seen.append([ln for ln, *_ in out[1]])
+        return out
+
+    monkeypatch.setattr(scanlate_render, "_layout_at_size", spy)
+    scanlate_render.render_text_in_box(img, box, "Humans…", font_size=18, mask=mask)
+    assert seen and all(not ln.endswith("-") for lines in seen for ln in lines), seen

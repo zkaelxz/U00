@@ -156,6 +156,7 @@ _SPLIT_JOIN_SPAN = 0.12          # lettering closer than this is one block
 _SPLIT_MIN_GLYPHS = 4
 _SPLIT_MIN_BOX_SIDE = 300
 _SPLIT_PAD_SPAN = 0.08
+_SPLIT_ROW_GAP = 1.5             # of the taller mark's height, between letters of a line
 
 
 def split_separate_lettering(gray, box: dict) -> list:
@@ -183,12 +184,16 @@ def split_separate_lettering(gray, box: dict) -> list:
                and stats[i, cv2.CC_STAT_AREA] >= 0.25 * stats[i, cv2.CC_STAT_WIDTH] * stats[i, cv2.CC_STAT_HEIGHT]]
     if not compact:
         return [box]
-    # Lettering is one size; an ornament's curl is larger, a speck smaller.
+    # Lettering is one size; an ornament's curl is larger, a speck smaller. The
+    # median is no judge on a frame with many small curls or a stamp, though, so
+    # marks standing in a row of like marks are letters whatever their size.
+    in_rows = set(_in_a_row(stats, compact))
     typical = float(np.median([stats[i, cv2.CC_STAT_HEIGHT] for i in compact]))
     glyphs = np.zeros(ink.shape, np.uint8)
     for i in compact:
-        if 0.6 * typical <= stats[i, cv2.CC_STAT_HEIGHT] <= 1.6 * typical:
+        if i in in_rows or 0.6 * typical <= stats[i, cv2.CC_STAT_HEIGHT] <= 1.6 * typical:
             glyphs[labels == i] = 1
+    typical = float(np.median([stats[i, cv2.CC_STAT_HEIGHT] for i in in_rows or compact]))
     join = max(3, int(_SPLIT_JOIN_SPAN * side)) | 1
     blocks = cv2.dilate(glyphs, np.ones((join, join), np.uint8))
     count, block_labels, block_stats, _ = cv2.connectedComponentsWithStats(blocks, connectivity=8)
@@ -200,6 +205,7 @@ def split_separate_lettering(gray, box: dict) -> list:
                 found.append((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
     if len(found) < 2:
         return [box]
+    found = [_with_dashes(f, stats, limit, typical) for f in found]
     pad = int(_SPLIT_PAD_SPAN * side)
     out = []
     for fx0, fy0, fx1, fy1 in found:
@@ -207,6 +213,52 @@ def split_separate_lettering(gray, box: dict) -> list:
         nx1, ny1 = min(roi.shape[1], fx1 + pad), min(roi.shape[0], fy1 + pad)
         out.append(dict(box, x=x0 + nx0, y=y0 + ny0, w=nx1 - nx0, h=ny1 - ny0))
     return out
+
+
+def _with_dashes(block: tuple, stats, limit: float, reach: float) -> tuple:
+    """`block` grown over the dash, full stop or ellipsis dot ("바로 이곳—", "그래.")
+    standing at the end of its line: too small to count as a letter, but still ink
+    the render must paint out, or it is left floating beside the English."""
+    import cv2
+    x0, y0, x1, y1 = block
+    for i in range(1, len(stats)):
+        x, y, w, h = (int(stats[i, cv2.CC_STAT_LEFT]), int(stats[i, cv2.CC_STAT_TOP]),
+                      int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT]))
+        dash = min(w, h) < _SPLIT_GLYPH_MIN_PX <= max(w, h) <= limit and max(w, h) >= 2 * min(w, h)
+        thin = dash or max(w, h) < _SPLIT_GLYPH_MIN_PX + 2
+        on_the_line = y0 <= y + h / 2.0 <= y1
+        near = x - x1 <= reach and x0 - (x + w) <= reach
+        if thin and on_the_line and near and (x + w > x1 or x < x0):
+            x0, x1 = min(x0, x), max(x1, x + w)
+    return (x0, y0, x1, y1)
+
+
+def _in_a_row(stats, candidates: list) -> list:
+    """The candidate marks that have a neighbour of like height on their own line,
+    close by: letters. The curls of a corner ornament are alone, or far from the
+    next one across the frame. Taking the median height over every mark let the
+    many small curls decide the size of lettering, so a caption's letters were
+    dropped as too tall and the ornaments kept as text."""
+    import cv2
+
+    def box(i):
+        return (int(stats[i, cv2.CC_STAT_LEFT]), int(stats[i, cv2.CC_STAT_TOP]),
+                int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT]))
+
+    kept = []
+    for i in candidates:
+        x, y, w, h = box(i)
+        for j in candidates:
+            if j == i:
+                continue
+            x2, y2, w2, h2 = box(j)
+            shared = min(y + h, y2 + h2) - max(y, y2)
+            gap = max(x2 - (x + w), x - (x2 + w2), 0)
+            if (shared >= 0.5 * min(h, h2) and 0.5 <= h / float(h2) <= 2.0
+                    and gap <= _SPLIT_ROW_GAP * max(h, h2)):
+                kept.append(i)
+                break
+    return kept
 
 
 def _runs(profile, bridge: int) -> list:

@@ -153,3 +153,21 @@ def test_a_lone_cut_short_stamp_word_is_not_a_mark_without_company():
 def test_a_promo_whose_ocr_misreads_a_stroke_is_still_a_site_ad():
     regions = [_r("가장 빠른 웹튼 미리보7")]
     assert wm.flag_site_marks(regions) == 1
+
+
+@pytest.mark.parametrize("text", ["가장른 미리보가", "가장 빠른 웹툰 미리", "웹툰 미리보기", "가장 빠른 웹툰 미12보7"])
+def test_a_first_line_of_the_promo_read_with_missing_letters_is_still_a_site_mark(text):
+    assert wm.looks_like_site_mark(text)
+
+
+@pytest.mark.parametrize("text", ["미리 보고 싶었어", "미리보기", "가장 큰 웹소설"])
+def test_ordinary_speech_with_a_word_of_the_promo_is_not_a_site_mark(text):
+    assert not wm.looks_like_site_mark(text)
+
+
+def test_the_logo_box_of_a_promo_first_line_alone_reaches_down_over_the_site_name_line():
+    first_line = wm.logo_box(_r("가장른 미리보가", x=622, y=500, w=154, h=26, skip=True), 803, 1275)
+    both = wm.logo_box(_r("가장 빠른 웹툰 미리보기\n구글검색 뉴토끼", x=622, y=500, w=154, h=60, skip=True), 803, 1275)
+    assert first_line["y"] + first_line["h"] >= 500 + 26 * 3
+    assert first_line["x"] <= 622 - 26 * 2 and first_line["x"] + first_line["w"] >= 776
+    assert both["y"] + both["h"] == 500 + 60 + 8

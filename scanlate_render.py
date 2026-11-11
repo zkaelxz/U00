@@ -120,6 +120,11 @@ def _mask_band_span(mask, top: int, bottom: int):
 _DIGRAPHS = {"th", "ch", "sh", "ph", "wh", "ck", "gh", "ng"}
 
 
+# A shorter word is never cut: "Hum-ans" reads worse than the same word set a
+# size smaller, and a six-letter word has only that one place to break.
+_MIN_HYPHENATED_LETTERS = 7
+
+
 def _cut_rank(word: str, cut: int) -> int:
     """How natural a syllable break is before word[cut]: 0 between two consonants
     ("nick-name", "sun-set"), 1 after a vowel before a consonant ("house-work"),
@@ -149,6 +154,8 @@ def _hyphen_split(word: str, fits):
         if fits(word[:cut]):
             return word[:cut], word[cut:]
 
+    if letters(word) < _MIN_HYPHENATED_LETTERS:
+        return None
     fitting = [cut for cut in range(len(word) - 3, 2, -1)
                if letters(word[:cut]) >= 3 and letters(word[cut:]) >= 3 and fits(word[:cut] + "-")]
     # Among the few longest heads, the most syllable-like break wins; the longest
