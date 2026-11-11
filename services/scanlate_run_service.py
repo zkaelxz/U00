@@ -47,10 +47,11 @@ from engine_backends import engine_registry
 from engine_backends import shared as engine_shared
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import TranslateRunStopped
+from engine_backends.vision import VISION_ENGINES
 from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
 from lib import cancellable_lock
 from memory_headroom import HeadroomError
-from services import comic_chapters_service
+from services import comic_chapters_service, image_text_service, page_import_limits
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import paid_job_service, settings_service, translate_service
@@ -260,13 +261,76 @@ def load_translation_guide(drama: dict) -> tuple:
             tguide.build_character_guidance(db.list_series_characters(series_id)))
 
 
+def _page_image(drama_id: int, page_id: int, engine_name: str):
+    """(bytes, mime, scale) of the page as it is sent with its regions, or None
+    when the setting is off, the engine takes no pictures, or the file can't be
+    prepared; the page is then translated from its text alone. `scale` maps a
+    region's box from the stored page to the sent picture, which is cut down
+    to the provider's size limit."""
+    if not settings_service.get("scanlate_page_image") or engine_name not in VISION_ENGINES:
+        return None
+    try:
+        page = db.get_page(page_id, drama_id=drama_id) or {}
+        with open(render_svc.original_path(drama_id, page), "rb") as handle:
+            content = handle.read()
+        _fmt, width, _height = page_import_limits.check_image(content)
+        data, mime, sent_width, _sent_height = image_text_service.prepare_picture(content)
+    except Exception:
+        return None
+    return data, mime, sent_width / width
+
+
+# Measured on 16 comic pages: with the picture, Haiku 5.5 reads dialogue as well
+# as Sonnet 5.5 at about a fifteenth of the cost.
+PAGE_IMAGE_CLAUDE_MODEL = "claude-haiku-5-5"
+
+
+def _picture_engine(engine, engine_name: str):
+    """The engine that reads a page's picture: the chosen Claude engine is swapped
+    for Haiku 5.5 here only, so text-only translation keeps the model the user
+    picked. Any other engine, or a Haiku that can't be built, is used as chosen."""
+    if engine_name != "claude" or getattr(engine, "model", None) == PAGE_IMAGE_CLAUDE_MODEL:
+        return engine
+    try:
+        return llm_tasks.bound_batches(engine_registry.get_engine(
+            "claude", translate_service.resolve_api_key("claude"), model=PAGE_IMAGE_CLAUDE_MODEL))
+    except Exception:
+        return engine
+
+
+def _translate_with_image(by_key: dict, page_image, engine, drama: dict, context: str, usage_cb,
+                          glossary, character_notes: str, chapter_brief: str, notes: list):
+    """(result, new_context) of the page-with-image request, or (None, context)
+    after a note when it failed or its answer could not be matched by id, so
+    the caller translates the page from its text instead."""
+    import scanlate_translate
+    data, mime, scale = page_image
+    regions = [{"id": key, "text": b["source_text"],
+                "box": {name: round(b[name] * scale) for name in ("x", "y", "w", "h")}}
+               for key, b in by_key.items()]
+    try:
+        return scanlate_translate.translate_regions_with_image(
+            regions, data, mime, engine, drama, previous_context=context, usage_cb=usage_cb,
+            glossary_terms=glossary, character_notes=character_notes, chapter_brief=chapter_brief)
+    except (HeadroomError, LLMTaskTimeout, TranslateRunStopped):
+        raise
+    except Exception as exc:
+        reason = f"{type(exc).__name__}: {engine_shared.redact_secrets(str(exc))}"
+        notes.append(("info", f"Reading this page's picture failed ({reason}); it was translated "
+                              "from its text alone."))
+        return None, context
+
+
 def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, context: str,
-               drama_id: int, notes: list, character_notes: str = "", chapter_brief: str = ""):
+               drama_id: int, notes: list, character_notes: str = "", chapter_brief: str = "",
+               page_image=None):
     """Translates the eligible regions in place. Each region is sent under
     an explicit key and its answer is applied through a key -> region map
     built here, never by the position of the answer. Returns (ok, context):
     ok is False when a translation was wanted but not applied (the notes
-    say why); context is the new rolling context, or None if none."""
+    say why); context is the new rolling context, or None if none.
+    `page_image` is _page_image's result: the page is then sent with its
+    regions, and the text-only request below is the fallback when that fails."""
     import scanlate_regions
     import scanlate_translate
     by_key = {str(i): b for i, b in enumerate(bubbles)
@@ -278,11 +342,19 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
 
     usage_cb = paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate")
 
+    result, new_context = None, context
+    if page_image is not None and len(keyed) <= scanlate_translate.REGIONS_PER_CALL:
+        picture_engine = _picture_engine(engine, engine_name)
+        result, new_context = _translate_with_image(
+            by_key, page_image, picture_engine, drama, context,
+            paid_calls.usage_logger(drama_id, engine_name, picture_engine, "scanlate_translate"), glossary, character_notes,
+            chapter_brief, notes)
     try:
-        result, new_context = scanlate_translate.translate_regions_by_id(
-            keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
-            glossary_terms=glossary, character_notes=character_notes,
-            chapter_brief=chapter_brief)
+        if result is None:
+            result, new_context = scanlate_translate.translate_regions_by_id(
+                keyed, engine, drama, previous_context=context, usage_cb=usage_cb,
+                glossary_terms=glossary, character_notes=character_notes,
+                chapter_brief=chapter_brief)
     except (HeadroomError, LLMTaskTimeout, TranslateRunStopped):
         # The Ollama check refuses on every page, and a timed-out request is
         # still running and would refuse the next page's call: stop the job once.
@@ -473,7 +545,8 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if bubbles and not _ocr_lost_text(existing, detect_notes):
         translated_ok, new_context = _translate(
             bubbles, engine, engine_name, drama, guide[0],
-            _translation_context(drama_id, page_id), drama_id, notes, guide[1], chapter_brief)
+            _translation_context(drama_id, page_id), drama_id, notes, guide[1], chapter_brief,
+            page_image=_page_image(drama_id, page_id, engine_name))
     ai_seconds = time.monotonic() - ai_started
     if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
         notes.append(("warning", "Redo did not produce a complete result for this page (no "

@@ -276,6 +276,7 @@ class SettingsPreferences(TimingPreferences):
     default_style_note: str
     scene_aware_batches: bool
     scanlate_chapter_brief: bool = True
+    scanlate_page_image: bool = True
     episode_brief: bool = True
     translate_reply_guard: str = "auto"
     claude_reasoning: str = "default"
@@ -380,6 +381,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
     scene_aware_batches: Optional[StrictBool] = None
     scanlate_chapter_brief: Optional[StrictBool] = None
+    scanlate_page_image: Optional[StrictBool] = None
     episode_brief: Optional[StrictBool] = None
     translate_reply_guard: Optional[StrictStr] = Field(None, max_length=40)
     claude_reasoning: Optional[StrictStr] = Field(None, max_length=40)

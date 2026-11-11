@@ -31,6 +31,9 @@ _SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "newtojuso", 
 _SAME_SPOT = 0.08            # of the page's width / height, centre to centre
 _EDGE_BAND = 0.18            # of the page's width / height from each edge
 _MIN_REPEAT_CHARS = 3
+# What must be left of a region once its stamp lines are dropped for it to be
+# lettering that happens to share a box with the stamp, not the stamp itself.
+_MIN_LETTERING_CHARS = 6
 
 _STRIP = re.compile(r"[\W_]+", re.UNICODE)
 
@@ -46,6 +49,10 @@ def looks_like_site_mark(text: str) -> bool:
         return True
     squashed = _normal(text)
     return any(name in squashed for name in _SITE_NAMES)
+
+
+def _without_mark_lines(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not looks_like_site_mark(line))
 
 
 def _centre(region: dict, width: float, height: float):
@@ -72,12 +79,22 @@ def flag_site_marks(regions: list, earlier_pages: Sequence[list] = (), width: in
     translated nor painted over. A region is one when its text is an address or
     a known site name, or when it sits in the page's edge band with the same
     text and place as a region on one of `earlier_pages` (each a list of
-    regions from a page of the same size). Returns how many were flagged."""
+    regions from a page of the same size). A region that also holds real lettering
+    keeps it: only the stamp's lines are cut from its text. Returns how many
+    were flagged."""
     flagged = 0
     for region in regions:
         if region.get("skip") or not (region.get("source_text") or "").strip():
             continue
         mark = looks_like_site_mark(region["source_text"])
+        if mark:
+            # A caption box near the stamp can take its lines into one region.
+            # Skipping that region would drop the caption with the stamp, so
+            # only the stamp's own lines are removed from its text.
+            lettering = _without_mark_lines(region["source_text"])
+            if len(_normal(lettering)) >= _MIN_LETTERING_CHARS:
+                region["source_text"] = lettering
+                mark = False
         if (not mark and width > 0 and height > 0
                 and len(_normal(region["source_text"])) >= _MIN_REPEAT_CHARS):
             centre = _centre(region, width, height)

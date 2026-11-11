@@ -66,6 +66,7 @@ export interface SettingsPreferences extends TimingPreferences {
   scene_aware_batches: boolean // translate batches start at scene breaks
   episode_brief: boolean // read the whole episode once before translating it in batches
   scanlate_chapter_brief: boolean // read the whole comic chapter once before translating its pages
+  scanlate_page_image: boolean // send each comic page's picture with its OCR text when translating
   translate_reply_guard: string // auto | on | off
   claude_reasoning: string // default | less
   openai_reasoning: string // default | less
