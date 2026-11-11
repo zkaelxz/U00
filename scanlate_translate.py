@@ -26,10 +26,14 @@ _MAX_TOKENS_PER_CALL = 8192
 
 # Small models turned an author credit (村田雄介) into "Village Field Hiroki" and
 # "ひらひらしてる" into "fluffy": names were glossed word by word, and a figurative
-# phrase was rendered by its parts.
+# phrase was rendered by its parts. A text-only call also called a girl "he" because
+# the source dropped the pronoun and the picture was not sent.
 _NAMES_NOTE = (" A person's name, including an author or artist credit, is romanised "
                "(Murata Yusuke), never translated word by word. Render an idiom or "
-               "figurative phrase by what it means in this scene, not by its parts.")
+               "figurative phrase by what it means in this scene, not by its parts. The "
+               "source often drops who is meant: you cannot see the page, so never guess "
+               "he or she. Use the name, \"you\" or \"they\" unless the text or the context "
+               "gives the gender.")
 
 
 def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
