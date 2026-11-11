@@ -514,28 +514,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
             scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
-        masks = [(bubble_shape_mask(image_path, b, image=gray,
-                                    margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
-                  if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
-                 for b in to_render]
-
-        def draw(target, b, shape_mask, size, report=None):
-            render_text_in_box(target, b, b["translated_text"], font_size=size,
-                               font_path=font_path,
-                               font_category=b.get("font_category") or "regular",
-                               custom_fonts=custom_fonts, mask=shape_mask,
-                               fill=_text_fill(target, b), report=report)
-
-        starts = [b.get("font_size", 18) for b in to_render]
-        scratch = pil_img.copy()
-        fitted = []
-        for b, m, start in zip(to_render, masks, starts):
-            rep = {}
-            draw(scratch, b, m, start, rep)
-            fitted.append(rep.get("size", start))
-        sizes = sibling_size_caps(list(zip(starts, fitted)))
-        for b, m, size in zip(to_render, masks, sizes):
-            draw(pil_img, b, m, size)
+        _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts)
         for b in bubbles:
             if scanlate_sfx.is_glossed(b):
                 scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
@@ -545,6 +524,34 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         if os.path.exists(result_path):
             os.remove(result_path)
     return out_path, skipped_blank
+
+
+def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
+                     font_path: str | None, custom_fonts: dict | None) -> None:
+    """Draws each balloon's text: a scratch pass finds the size each one fits at,
+    then the real pass draws with sibling balloons held to a shared ratio."""
+    masks = [(bubble_shape_mask(image_path, b, image=gray,
+                                margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
+              if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
+             for b in to_render]
+
+    def draw(target, b, shape_mask, size, report=None):
+        render_text_in_box(target, b, b["translated_text"], font_size=size,
+                           font_path=font_path,
+                           font_category=b.get("font_category") or "regular",
+                           custom_fonts=custom_fonts, mask=shape_mask,
+                           fill=_text_fill(target, b), report=report)
+
+    starts = [b.get("font_size", 18) for b in to_render]
+    scratch = pil_img.copy()
+    fitted = []
+    for b, m, start in zip(to_render, masks, starts):
+        rep = {}
+        draw(scratch, b, m, start, rep)
+        fitted.append(rep.get("size", start))
+    sizes = sibling_size_caps(list(zip(starts, fitted)))
+    for b, m, size in zip(to_render, masks, sizes):
+        draw(pil_img, b, m, size)
 
 
 def _erase_site_stamps(page, bubbles: list) -> None:
