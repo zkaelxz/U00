@@ -96,16 +96,18 @@ def _refuses_schema(exc) -> bool:
     return bool(_SCHEMA_REFUSAL_RE.search(getattr(exc, "body_text", None) or ""))
 
 
-# Local Ollama models offered in the picker. translategemma:12b is the default
-# because it loads on every Ollama version in use, including 0.24.0, which cannot
-# load the gemma4 architecture (newer Ollama needs an NVIDIA driver over 550).
+# Local Ollama models offered in the picker. translategemma:27b is the default
+# (about 17 GB: it fits a 24 GB or larger card, and 12b is the pick for smaller ones).
+# Both load on every Ollama version in use, including 0.24.0, which cannot load the
+# gemma4 architecture (newer Ollama needs an NVIDIA driver over 550).
 # A title or preset that saved another tag (an old Qwen one, say) keeps it and
 # still runs if Ollama has it; it is just no longer offered here.
-OLLAMA_DEFAULT_MODEL = "translategemma:12b"
+OLLAMA_DEFAULT_MODEL = "translategemma:27b"
 
 
 OLLAMA_MODELS = {
-    "translategemma:12b": "TranslateGemma 12B -- recommended default, translation-only model, about 8 GB; runs on older Ollama versions too",
+    "translategemma:27b": "TranslateGemma 27B -- recommended default, translation-only model, about 17 GB; needs a card with 24 GB or more",
+    "translategemma:12b": "TranslateGemma 12B -- translation-only model, about 8 GB; fits a 12 GB card",
 }
 
 
