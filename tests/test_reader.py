@@ -30,3 +30,42 @@ def test_editable_page_gives_each_line_its_own_edit_button():
     html = reader.build_reader_html(lines, "zh", {}, editable=True)
     assert 'data-line-id="100"' in html and 'onclick="editLine(101)"' in html
     assert 'class="edit-btn"' not in reader.build_reader_html(lines, "zh", {})
+
+
+def _term_page(en, terms, editable=True):
+    from types import SimpleNamespace as L
+    import reader
+    return reader.build_reader_html([L(idx=0, start=0, end=1, zh="你好", en=en, id=1)], "zh", {},
+                                    readings=False, editable=editable, terms=terms)
+
+
+_TERMS = [{"id": 3, "term_original": "姑姑", "term_translation": "Auntie", "category": "honorific"},
+          {"id": 4, "term_original": "沈清", "term_translation": "Shen Qing", "category": "person_name"}]
+
+
+def test_editable_page_marks_glossary_names_and_terms_by_kind():
+    page = _term_page("Auntie met Shen Qing.", _TERMS)
+    assert '<mark class="term term-term" data-term-id="3"' in page
+    assert '<mark class="term term-name" data-term-id="4"' in page
+
+
+def test_term_highlight_needs_whole_words_and_ignores_case():
+    page = _term_page("Auntiegram said auntie.", _TERMS)
+    assert page.count('data-term-id="3"') == 1
+    assert ">auntie</mark>" in page
+
+
+def test_term_highlight_keeps_the_line_text_escaped():
+    page = _term_page("<b>Auntie</b> & co", _TERMS)
+    assert "&lt;b&gt;" in page and "<b>Auntie" not in page
+
+
+def test_longer_term_wins_over_the_shorter_one_inside_it():
+    terms = _TERMS + [{"id": 9, "term_original": "王姑姑", "term_translation": "Auntie Wang", "category": "person_name"}]
+    page = _term_page("Auntie Wang came.", terms)
+    assert 'data-term-id="9"' in page and 'data-term-id="3"' not in page
+
+
+def test_read_only_page_has_no_highlights_or_term_script():
+    page = _term_page("Auntie", _TERMS, editable=False)
+    assert 'data-term-id=' not in page and "function termClick" not in page
