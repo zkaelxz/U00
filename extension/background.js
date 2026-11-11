@@ -33,13 +33,15 @@ const AUTO_TITLE_DEFAULTS = { create: true, fill: true, series: true };
 
 async function settings() {
   const stored = await chrome.storage.local.get(
-    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle"]);
+    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle", "typeset"]);
   return {
     autoTitle: { ...AUTO_TITLE_DEFAULTS, ...(stored.autoTitle || {}) },
     token: stored.token || "",
     serverUrl: stored.serverUrl || "",
     dramaBySite: stored.dramaBySite || {},
     overlay: stored.overlay !== false,
+    // Off by default: clean-and-typeset costs seconds per page, so a person turns it on.
+    typeset: stored.typeset === true,
     textDirection: stored.textDirection || { source: "zh", target: "en" },
   };
 }
@@ -168,6 +170,11 @@ async function setAutoTitle({ options }) {
   return { ok: true, data: next };
 }
 
+async function setTypeset({ on }) {
+  await chrome.storage.local.set({ typeset: on === true });
+  return { ok: true, data: { typeset: on === true } };
+}
+
 async function saveNovelText({ dramaId, heading, text, source, url }) {
   if (!dramaId) return { ok: false, error: "Pick a novel title to save into." };
   if (!text) return { ok: false, error: "No text was captured on this page." };
@@ -230,6 +237,7 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
     return { ok: false, error: "No page images were found on this page." };
   }
   const cap = await batchCap();
+  const { typeset } = await settings();
   const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
   const batches = planBatches(images, cap, filterPages !== false ? 2 : 1);
@@ -243,6 +251,8 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
         source_url: sourceUrl || "",
         store: store !== false,
         filter_pages: filterPages !== false,
+        // Only sent when on, so an older app never sees the key.
+        ...(typeset && store !== false ? { typeset: true } : {}),
       },
     });
     // The app refuses a whole filtered batch with 422 when none of it looks
@@ -441,6 +451,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "resolveTitle":
           respond(await resolveTitle(message));
+          break;
+        case "setTypeset":
+          respond(await setTypeset(message));
           break;
         case "setAutoTitle":
           respond(await setAutoTitle(message));

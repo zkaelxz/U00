@@ -109,12 +109,41 @@ def run_text(payload, principal=None) -> dict:
                                 user_id=_user_id(principal), member=principal is not None)
 
 
+def _typeset_stored_page(result: dict, drama_id, member: bool) -> None:
+    """Cleans and typesets a page the capture just saved, so Typeset is already on when the
+    title opens. A page that already has a typeset image is left alone: it was drawn from
+    the same regions, and a re-capture must not redo work or replace what was fixed in
+    Scanlate. A failure keeps the saved page and its text and says so in the notes."""
+    import db
+    from services import scanlate_render_service as render_svc
+    page_id = result.get("page_id")
+    if not (result.get("stored") and page_id and drama_id):
+        return
+    page = db.get_page(int(page_id), int(drama_id))
+    if page is None or page.get("rendered_filename"):
+        result["typeset"] = bool(page)
+        return
+    notes = []
+    try:
+        result["typeset"] = bool(render_svc.render_page(int(drama_id), int(page_id), notes)["rendered"])
+    except Exception as e:
+        page_capture_checks.log_page_failure(e)
+        result["typeset"] = False
+        # The detail (a path, a model name) stays in the log; only the PC's owner sees it.
+        result.setdefault("notes", []).append(
+            ["warning", "typeset failed: " + ("the page was kept" if member else
+             f"{type(e).__name__}; the page was kept")])
+        return
+    result.setdefault("notes", []).extend([n[0], n[-1]] for n in notes if not member)
+
+
 def run_images(payload, images, principal=None) -> dict:
     """principal None is the PC's own token (the local owner); a device
     token passes its member, who may only send into a title they can edit."""
     import base64
     drama_id = payload.get("drama_id")
     store = bool(payload.get("store", True))
+    typeset = store and payload.get("typeset") is True
     require_drama_access(principal, drama_id)
     source_url = str(payload.get("source_url") or "")
     source_language = str(payload.get("source_language") or "")
@@ -186,6 +215,8 @@ def run_images(payload, images, principal=None) -> dict:
                 stopped = page_capture_checks.page_failure_message(e)
                 break
             continue
+        if typeset:
+            _typeset_stored_page(result, drama_id, member=principal is not None)
         result["key"] = image["key"]
         result["url"] = image["url"]
         results.append(result)

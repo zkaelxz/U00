@@ -20,6 +20,8 @@ const els = {
   novelSection: document.getElementById("novelSection"),
   saveNovel: document.getElementById("saveNovel"),
   dramaTitle: document.getElementById("dramaTitle"),
+  typeset: document.getElementById("typeset"),
+  progress: document.getElementById("progress"),
   autoCreate: document.getElementById("autoCreate"),
   autoFill: document.getElementById("autoFill"),
   autoSeries: document.getElementById("autoSeries"),
@@ -369,6 +371,7 @@ async function load() {
   else if (Number.isInteger(data.app_port)) APP_URL = `http://127.0.0.1:${data.app_port}`;
   els.drama.length = 1;
   auto = { ...auto, ...(settings.autoTitle || {}) };
+  els.typeset.checked = settings.typeset === true;
   showAutoOptions();
   const tab = await activeTab();
   const site = siteOf(tab && tab.url);
@@ -463,13 +466,19 @@ async function run(all) {
 
 // Interim status from a long translateVisible run in the page.
 chrome.runtime.onMessage.addListener((message) => {
-  if (message && message.type === "progress" && message.text) say(message.text);
+  if (message && message.type === "progress" && message.text) {
+    say(message.text);
+    const fraction = Number.isFinite(message.fraction) ? message.fraction : null;
+    els.progress.hidden = fraction === null;
+    if (fraction !== null) els.progress.value = fraction;
+  }
 });
 
 // Scrolls the reader and translates every page it mounts. The work runs in
 // the page, so it carries on if this popup closes; the page shows its own
 // progress and Cancel for that case.
 function showCapturing(running) {
+  if (!running) els.progress.hidden = true;
   els.cancelCapture.hidden = !running;
   els.captureChapter.disabled = running;
   els.captureFromHere.disabled = running;
@@ -629,6 +638,8 @@ els.drama.addEventListener("change", () => {
 els.autoCreate.addEventListener("change", () => saveAutoOption("create", els.autoCreate.checked));
 els.autoFill.addEventListener("change", () => saveAutoOption("fill", els.autoFill.checked));
 els.autoSeries.addEventListener("change", () => saveAutoOption("series", els.autoSeries.checked));
+els.typeset.addEventListener("change", () =>
+  chrome.runtime.sendMessage({ type: "setTypeset", on: els.typeset.checked }));
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
 els.captureChapter.addEventListener("click", () => runCapture(false));

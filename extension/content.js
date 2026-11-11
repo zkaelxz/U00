@@ -434,6 +434,7 @@
                                           font-style: italic; }
       .baihe-hidden { display: none !important; }
       .baihe-capture-chip { display: flex; align-items: center; gap: 10px; }
+      .baihe-capture-chip progress { width: 90px; height: 6px; }
       .baihe-capture-chip button { font: inherit; cursor: pointer; background: rgba(255,255,255,0.18);
                                    color: #fff; border: none; border-radius: 5px; padding: 3px 9px; }
       .baihe-toast { position: fixed; bottom: 18px; right: 18px; z-index: 2147483600;
@@ -904,9 +905,9 @@
 
   // The popup shows this while a long chapter is in flight. It is only
   // ever a hint, so a popup that has closed (or no listener) is ignored.
-  function reportProgress(text) {
+  function reportProgress(text, fraction = null) {
     try {
-      chrome.runtime.sendMessage({ type: "progress", text }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "progress", text, fraction }).catch(() => {});
     } catch (e) { /* nobody is listening */ }
   }
 
@@ -1266,6 +1267,14 @@
     return `${el.currentSrc || el.src}|${width}x${height}`;
   }
 
+  function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const seconds = String(total % 60).padStart(2, "0");
+    return total >= 3600
+      ? `${Math.floor(total / 3600)}:${String(Math.floor(total / 60) % 60).padStart(2, "0")}:${seconds}`
+      : `${Math.floor(total / 60)}:${seconds}`;
+  }
+
   function showCaptureChip(run) {
     ensureStyles();
     const chip = document.createElement("div");
@@ -1278,9 +1287,21 @@
       run.cancelled = true;
       label.textContent = "Stopping…";
     });
-    chip.append(label, cancel);
+    const bar = document.createElement("progress");
+    bar.max = 1;
+    bar.hidden = true;
+    chip.append(label, bar, cancel);
     document.documentElement.appendChild(chip);
-    return { chip, set: (text) => { if (!run.cancelled) label.textContent = text; } };
+    return {
+      chip,
+      // A null fraction (the reader shows no page counter) hides the bar rather than guessing.
+      set: (text, fraction = null) => {
+        if (run.cancelled) return;
+        label.textContent = text;
+        bar.hidden = fraction === null;
+        if (fraction !== null) bar.value = fraction;
+      },
+    };
   }
 
   async function captureChapter({ dramaId, store, fromHere }) {
@@ -1294,9 +1315,11 @@
                "then try again.",
       };
     }
-    const run = { cancelled: false, text: "Starting…" };
+    const run = { cancelled: false, text: "Starting…", startedAt: Date.now(), tick: null };
     state.capture = run;
     const ui = showCaptureChip(run);
+    // A batch can take a minute (more with typeset on), so the clock keeps moving between reports.
+    const ticker = setInterval(() => { if (run.tick) run.tick(); }, 1000);
     const scroller = makeScroller();
     const startTop = scroller.top();
     // A popup reopened mid-run waits for this, so every exit path sends it.
@@ -1308,6 +1331,7 @@
         : { failed: true, text: result.error };
       return result;
     } finally {
+      clearInterval(ticker);
       scroller.to(startTop);
       ui.chip.remove();
       state.capture = null;
@@ -1357,13 +1381,20 @@
     const unreadableAs = unreadableLog();
     let failure = "";
 
+    let line = "";
+    let fraction = null;
+    const emit = () => {
+      run.text = `${line} · ${formatElapsed(Date.now() - run.startedAt)}`;
+      ui.set(run.text, fraction);
+      reportProgress(run.text, fraction);
+    };
+    run.tick = emit;
     const report = (suffix = "") => {
       const counter = readerCounter();
-      const base = counter ? `Page ${counter.current} of ${counter.total}`
-                           : `${seen.size} page${seen.size === 1 ? "" : "s"} found`;
-      run.text = base + suffix;
-      ui.set(run.text);
-      reportProgress(run.text);
+      line = (counter ? `Page ${counter.current} of ${counter.total}`
+                      : `${seen.size} page${seen.size === 1 ? "" : "s"} found`) + suffix;
+      fraction = counter ? counter.current / counter.total : null;
+      emit();
     };
 
     // New pages among the currently mounted elements, in DOM order. Reads
@@ -1520,7 +1551,8 @@
         : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
     const tally = captureTally(seen.size, counts, firstFailure, unreadablePages);
-    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}.`;
+    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}. ` +
+                    `Took ${formatElapsed(Date.now() - run.startedAt)}.`;
     reportProgress(message);
     // A failure text can name the server's address, which a page's own scripts could read from the DOM.
     if (CAPTURE_STOP_MESSAGES[reason]) toast(message, 8000);

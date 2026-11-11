@@ -1,0 +1,86 @@
+"""The extension's "Clean and typeset" choice: a page the capture saves gets Scanlate's
+render run on it, so Typeset is already on when the title opens. The render is mocked
+except in one test that needs OpenCV."""
+import pytest
+
+import db
+import page_server
+from services import scanlate_render_service as render_svc
+
+from tests.test_page_server import _b64, _png_bytes, _post, fake_pipeline  # noqa: F401
+from tests.test_page_server import token, _reset_module_state  # noqa: F401
+
+
+@pytest.fixture
+def drama(isolated_db, monkeypatch):
+    # Any engine object will do: the translate step is faked by fake_pipeline.
+    monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+    return db.create_drama(title_en="Typeset me", media_type="manhua", source_language="zh")
+
+
+def _send(token, drama_id, **extra):
+    return _post(token, {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
+                         "drama_id": drama_id, "store": True, **extra})
+
+
+def _recording_render(monkeypatch, result=None):
+    calls = []
+
+    def fake(drama_id, page_id, notes=None, cancel_check=None):
+        calls.append((drama_id, page_id))
+        return result or {"rendered": True, "blank": 0}
+
+    monkeypatch.setattr(render_svc, "render_page", fake)
+    return calls
+
+
+def test_a_page_is_not_typeset_unless_asked(token, fake_pipeline, drama, monkeypatch):
+    calls = _recording_render(monkeypatch)
+    page = _send(token, drama).payload["pages"][0]
+    assert calls == [] and "typeset" not in page
+
+
+def test_a_saved_page_is_typeset_when_asked(token, fake_pipeline, drama, monkeypatch):
+    calls = _recording_render(monkeypatch)
+    handler = _send(token, drama, typeset=True)
+    page = handler.payload["pages"][0]
+    assert handler.status == 200
+    assert calls == [(drama, page["page_id"])] and page["typeset"] is True
+
+
+def test_nothing_is_typeset_when_the_page_is_not_saved(token, fake_pipeline, drama, monkeypatch):
+    calls = _recording_render(monkeypatch)
+    page = _post(token, {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
+                         "drama_id": drama, "store": False, "typeset": True}).payload["pages"][0]
+    assert calls == [] and "typeset" not in page
+
+
+def test_a_failed_render_keeps_the_page_and_its_text(token, fake_pipeline, drama, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("C:\\secret\\model.pt missing")
+
+    monkeypatch.setattr(render_svc, "render_page", broken)
+    page = _send(token, drama, typeset=True).payload["pages"][0]
+    assert page["typeset"] is False and page["stored"] is True
+    assert db.load_bubbles(page["page_id"])[0]["translated_text"] == "the translation"
+    assert any("typeset failed" in n[1] for n in page["notes"])
+
+
+def test_a_page_already_typeset_is_not_drawn_again(token, fake_pipeline, drama, monkeypatch):
+    first = _send(token, drama).payload["pages"][0]
+    db.update_page(first["page_id"], rendered_filename="pages/typeset_id1.png")
+    calls = _recording_render(monkeypatch)
+    again = _send(token, drama, typeset=True).payload["pages"][0]
+    assert again["page_id"] == first["page_id"] and calls == []
+
+
+def test_a_page_with_no_text_reports_it_was_not_typeset(token, fake_pipeline, drama, monkeypatch):
+    _recording_render(monkeypatch, {"rendered": False, "blank": 0})
+    assert _send(token, drama, typeset=True).payload["pages"][0]["typeset"] is False
+
+
+def test_the_real_render_writes_the_typeset_image(token, fake_pipeline, drama):
+    pytest.importorskip("cv2")
+    page = _send(token, drama, typeset=True).payload["pages"][0]
+    row = db.get_page(page["page_id"])
+    assert page["typeset"] is True and row["rendered_filename"]
