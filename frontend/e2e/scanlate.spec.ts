@@ -26,7 +26,7 @@ test('translate all pages, follow the job, then read the typeset pages', async (
 
   await panel.getByRole('button', { name: 'Translate all pages' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done · Pages: 3 translated\./)
-  expect(s.runs).toEqual([{ mode: 'missing', engine: 'ollama', detect_backend: 'auto' }])
+  expect(s.runs).toEqual([{ mode: 'missing', engine: 'ollama', detect_backend: 'auto', art_captions: false }])
   // The viewer reloaded: typeset images are available now.
   await expect(typeset).toBeEnabled()
   await expect.poll(() => s.images.some((i) => i.endsWith(':rendered'))).toBe(true)

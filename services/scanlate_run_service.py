@@ -474,6 +474,7 @@ def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list) -> Non
     # cost a query per page of a long chapter.
     earlier_regions = [db.load_bubbles(pid) for pid in earlier[-_STAMP_LOOKBACK_PAGES:]]
     scanlate_watermark.flag_site_marks(bubbles, earlier_regions, width, height)
+    scanlate_watermark.flag_edge_fragments(bubbles, width, height)
 
 
 def _rerender(drama_id: int, page_id: int, jid: str) -> None:

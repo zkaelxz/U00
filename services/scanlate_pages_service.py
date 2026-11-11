@@ -229,6 +229,9 @@ def get_config(drama_id: int) -> dict:
         "ocr_backend": ocr_backend,
         "ocr_backend_installed": ocr_backend_installed(
             ocr_backend, str(settings_service.get("tesseract_cmd")) or None),
+        # Captions on the art need PaddleOCR and the LaMa model; the panel turns
+        # them on by default only when both are here.
+        "art_captions_available": ocr_backend_installed("paddle") and lama_cached,
         "page_count": len(pages),
         "pages_with_regions": sum(1 for p in pages if p["id"] in with_regions),
         "pages_rendered": sum(1 for p in pages if p.get("rendered_filename")),
