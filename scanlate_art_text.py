@@ -28,10 +28,6 @@ _EDGE_PX = 24
 # Fewer than this many letters or characters is a speck the detector read as a
 # glyph ("0", "4", one stray kanji), never a caption worth painting over.
 _MIN_CAPTION_CHARS = 3
-# A page with almost no coloured pixels is black-and-white manga, where screentone
-# and hatching read as lettering far more often than a caption exists.
-_COLOUR_SATURATION = 40
-_MIN_COLOUR_SHARE = 0.02
 
 
 def _overlap(a: dict, b: dict) -> float:
@@ -96,14 +92,6 @@ def split_by_source_share(text: str, upper_src: str, lower_src: str):
     return " ".join(words[:cut]), " ".join(words[cut:])
 
 
-def is_colour_page(page) -> bool:
-    """True when at least a few percent of the page's pixels are saturated."""
-    import cv2
-    small = cv2.resize(page, (0, 0), fx=0.25, fy=0.25) if min(page.shape[:2]) > 400 else page
-    saturation = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[..., 1]
-    return float((saturation > _COLOUR_SATURATION).mean()) >= _MIN_COLOUR_SHARE
-
-
 def _is_caption_text(text: str) -> bool:
     """False for a speck ("0", "4") and for Latin-only text, which is already
     English (a jacket's printed words) and is only damaged by being painted over."""
@@ -121,8 +109,6 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
     import ocr
     from scanlate_detect import decode_page
     page = image if image is not None else decode_page(image_path)
-    if not is_colour_page(page):
-        return []
     h, w = page.shape[:2]
     scale = min(1.0, _DETECT_LIMIT_SIDE / float(max(h, w)))
     lines = []

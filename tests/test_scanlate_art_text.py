@@ -92,11 +92,6 @@ class TestFindArtCaptions:
         found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy())
         assert [c["source_text"] for c in found] == ["魔王来了"]
 
-    def test_a_black_and_white_page_gets_no_captions(self, monkeypatch):
-        self._fake(monkeypatch, [("魔王来了", 0.9, (10, 10, 200, 60))])
-        grey = np.full((300, 400, 3), 128, np.uint8)
-        assert art.find_art_captions("p.png", "zh", [], image=grey) == []
-
     def test_tall_pages_are_detected_at_a_capped_size(self, monkeypatch):
         seen = self._fake(monkeypatch, [])
         art.find_art_captions("p.png", "zh", [], image=np.full((2560, 1280, 3), (200, 80, 40), np.uint8))
