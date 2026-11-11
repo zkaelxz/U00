@@ -23,6 +23,7 @@ from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import load_json_reply
 from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
 from engine_backends.llm_tasks import call_llm_json
+from engine_backends.shared import extract_first_json_value
 from engine_backends.shared import parse_json_array
 
 
@@ -804,6 +805,42 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         if progress_cb:
             progress_cb((i + 1) / total)
     return list(all_terms.values())
+
+
+STYLE_DRAFT_SAMPLE_CHARS = 6000
+STYLE_DRAFT_MAX_CHARS = 1500
+
+
+def draft_novel_style_instructions(novel_text: str, engine, source_language: str = "zh",
+                                   usage_cb=None) -> str:
+    """One call: reads a sample of the raw novel and drafts the title's style
+    instruction (genre, tone, point of view, register, how to treat slang and
+    the author's voice) for the person to edit and approve. Never saved here.
+    "" when the engine can't follow a prompt, the text is empty or the reply is
+    not the expected JSON, so a failed draft just leaves the box empty."""
+    if not getattr(engine, "supports_reference", False):
+        return ""
+    sample = "\n\n".join(_sample_across_text(novel_text, STYLE_DRAFT_SAMPLE_CHARS, 3))
+    if not sample.strip():
+        return ""
+    lang_name = LANGUAGE_NAMES.get(source_language, "Chinese")
+    prompt = (
+        f"Below are excerpts from a {lang_name} web novel that will be translated into English. "
+        "Write the style instruction a translator should follow for THIS novel: genre, tone, "
+        "narrative point of view and tense, the register of narration versus dialogue, how to "
+        "treat the author's slang, humour and recurring phrases, and what to leave untranslated.\n\n"
+        "The person wants: English that reads like a published novelist or a skilled fanfiction "
+        "author wrote it, not a literal translation; the author's voice and slang kept; no "
+        "explanations or invented detail, and no detail lost; units, names and terms of address "
+        "kept consistent.\n\n"
+        "Write 5-8 short imperative sentences specific to what you see in the excerpts. Do not "
+        "quote or summarise the plot. Return ONLY JSON: {\"instructions\": \"...\"}. "
+        f"No preamble, no markdown fences.\n\nExcerpts:\n{sample}")
+    text = call_llm_json(engine, prompt, max_tokens=800, fallback=None, usage_cb=usage_cb)
+    data = extract_first_json_value(text) if text else None
+    if isinstance(data, dict) and isinstance(data.get("instructions"), str):
+        return data["instructions"].strip()[:STYLE_DRAFT_MAX_CHARS]
+    return ""
 
 
 # ---------------------------------------------------------------------------
