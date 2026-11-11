@@ -374,7 +374,7 @@ def test_default_batch_size_accepts_an_engine_instance(isolated_db):
 def test_config_offers_a_batch_default_per_engine_and_model(isolated_db):
     table = svc.get_translate_config(_drama())["batch_size_defaults"]
     assert table["claude"]["claude-sonnet-5-5"] == 60 and table["claude"][""] == 60
-    assert table["claude"]["claude-haiku-4-5-20251001"] == 30
+    assert "claude-haiku-4-5-20251001" not in table["claude"]
     assert table["gemini"]["gemini-pro-latest"] == 60
     assert table["gemini"]["gemini-flash-lite-latest"] == 30
 

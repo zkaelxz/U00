@@ -19,7 +19,6 @@ import re
 CLAUDE_MODELS = {
     "claude-sonnet-5-5": "Sonnet 5.5 -- balanced quality and cost (recommended default)",
     "claude-opus-5-5": "Opus 5.5 -- highest quality",
-    "claude-haiku-4-5-20251001": "Haiku 4.5 -- fastest and cheapest, lower nuance",
     # Kept selectable so a saved preset, title or promoted benchmark model that
     # names one of these still runs instead of being refused as "not offered".
     "claude-sonnet-5": "Sonnet 5 -- previous generation",
