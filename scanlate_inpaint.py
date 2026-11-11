@@ -23,6 +23,14 @@ _ML_MAX_PIXELS = 3_000_000
 
 # Dark-on-light lettering is every pixel under this share of the paper's gray.
 _LETTERING_CUTOFF_OF_PAPER = 0.8
+# The halo a stroke leaves is only slightly darker than the paper, so it is
+# taken from a looser cut-off, and only where it touches lettering already
+# masked: elsewhere it would be the art's own shading.
+_LETTERING_HALO_OF_PAPER = 0.9
+_LETTERING_HALO_GROW_ITERATIONS = 2
+_LETTERING_FINAL_GROW_ITERATIONS = 2
+# A halo that more than doubles the mask is shading, not lettering.
+_LETTERING_HALO_MAX_GROWTH = 2.5
 
 # Set when the checkpoint is present but unusable (corrupt, wrong shape), so one
 # bad ~200 MB file is not re-read for every region of every page.
@@ -278,7 +286,9 @@ def _lettering_mask(gray_roi):
     its anti-aliased edge: a fixed gray cut-off left the pale strokes and the
     halo round each stroke behind as ghost text under the English. The cut-off
     follows the paper's own brightness, so lettering on tinted paper is caught
-    too."""
+    too. On paper (not light lettering on a dark balloon) the pale halo round
+    each stroke is added too: a 3x3 dilation left it, and on ornate narration
+    panels it showed as ghost Korean under the English."""
     import cv2
     if background_is_dark(gray_roi):
         # Light lettering on a dark balloon: masking the dark pixels would
@@ -288,7 +298,25 @@ def _lettering_mask(gray_roi):
         paper = float(np.median(gray_roi))
         cutoff = int(min(max(150, paper * _LETTERING_CUTOFF_OF_PAPER), 240))
         _, mask = cv2.threshold(gray_roi, cutoff, 255, cv2.THRESH_BINARY_INV)
+        return _with_halo(gray_roi, paper, cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2))
     return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2)
+
+
+def _with_halo(gray_roi, paper: float, core_mask):
+    """`core_mask` plus the connected pixels a little darker than the paper that
+    touch it, grown a little; `core_mask` itself when that would more than
+    double it."""
+    import cv2
+    kernel = np.ones((3, 3), np.uint8)
+    _, halo = cv2.threshold(gray_roi, int(min(paper * _LETTERING_HALO_OF_PAPER, 245)), 255,
+                            cv2.THRESH_BINARY_INV)
+    halo = cv2.dilate(halo, kernel, iterations=_LETTERING_HALO_GROW_ITERATIONS)
+    _, labels = cv2.connectedComponents((halo > 0).astype(np.uint8), connectivity=8)
+    touched = np.unique(labels[core_mask > 0])
+    grown = np.isin(labels, touched[touched > 0]) | (core_mask > 0)
+    if grown.sum() > _LETTERING_HALO_MAX_GROWTH * max(int((core_mask > 0).sum()), 1):
+        return core_mask
+    return cv2.dilate(grown.astype(np.uint8) * 255, kernel, iterations=_LETTERING_FINAL_GROW_ITERATIONS)
 
 
 _ART_MIN_EDGE_MARK_SHARE = 0.08
