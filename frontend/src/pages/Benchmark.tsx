@@ -33,6 +33,7 @@ import { ArenaView, type ArenaTarget } from './benchmark/ArenaView'
 import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
 import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
+import { ModelSummaryCard } from './benchmark/ModelSummaryCard'
 import { RunsCard } from './benchmark/RunsCard'
 import { SweepCard } from './benchmark/SweepCard'
 import { TranslateSweepCard } from './benchmark/TranslateSweepCard'
@@ -262,6 +263,7 @@ function BenchmarkContent({ compare }: { compare?: string }) {
       ))}
       {panel('runs', (
         <>
+      {runs && <ModelSummaryCard runs={runs} />}
       {runs && (
         <RunsCard
           runs={runs}
