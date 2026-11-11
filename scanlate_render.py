@@ -336,7 +336,10 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         # could never shrink the text when no system font is installed.
         font = (ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
                 else ImageFont.load_default(sz))
-        lines = _wrap_words(draw, text, font, box["w"] - 8, hyphenate)
+        # A line break the translation carries (a table of contents, a list)
+        # stays one; only each line is wrapped to the box.
+        lines = [wrapped for part in text.split("\n")
+                 for wrapped in _wrap_words(draw, part, font, box["w"] - 8, hyphenate)]
         line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         return font, lines, line_height
 
