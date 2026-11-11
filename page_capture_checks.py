@@ -27,8 +27,9 @@ def regions_for_response(bubbles):
             # Lettering Scanlate leaves alone (a sound effect, a hand-skipped region): the
             # preview must not paint over what the typeset page would keep.
             "left_alone": bool(b.get("skip")) or scanlate_regions.region_excluded_from_auto(b),
-            # The model returned the text unchanged or part-way: still source-script letters.
-            "untranslated": bool(translated) and en_cleanup.has_cjk_letters(translated),
+            # No English came back, or the model left source-script letters in it.
+            "untranslated": (not translated and bool((b.get("source_text") or "").strip()))
+                            or en_cleanup.has_cjk_letters(translated),
         })
     return regions
 

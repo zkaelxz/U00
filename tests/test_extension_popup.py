@@ -169,3 +169,21 @@ def test_text_shrinks_until_it_fits_the_box_but_not_below_a_legible_size():
 def test_speech_balloons_are_round_and_narration_stays_a_box():
     assert _place({"x": 10, "y": 10, "w": 200, "h": 100})["borderRadius"] == "50%"
     assert _place({"x": 10, "y": 10, "w": 200, "h": 100}, kind="narration")["borderRadius"] == ""
+
+
+def test_a_capture_that_ends_short_says_which_pages_were_skipped_and_how_many_got_no_answer():
+    counts = {"translated": 85, "cached": 0, "alreadyStored": 0, "skipped": 3, "failed": 0}
+    text = tally(89, counts, "", [])
+    assert "3 skipped as not a page (no reason was given)" in text and "1 not sent or not answered" in text
+
+
+def test_the_first_skip_reason_is_named():
+    counts = {"translated": 2, "cached": 0, "alreadyStored": 0, "skipped": 1, "failed": 0}
+    expression = ('window.__baihe.captureTally(3, ' + json.dumps(counts) +
+                  ', "", [], "looks like an ad banner")')
+    assert "1 skipped as not a page (looks like an ad banner)" in _node("content_expression", expression)
+
+
+def test_a_fully_accounted_capture_reports_nothing_missing():
+    counts = {"translated": 3, "cached": 0, "alreadyStored": 0, "skipped": 0, "failed": 0}
+    assert "not sent" not in tally(3, counts, "", [])

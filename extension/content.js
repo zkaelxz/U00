@@ -1374,13 +1374,17 @@
 
   // The closing line of a chapter capture: every page found is either
   // counted in it or named as unreadable, so a shortfall is never silent.
-  function captureTally(found, counts, firstFailure, unreadablePages) {
+  function captureTally(found, counts, firstFailure, unreadablePages, firstSkip = "") {
     const tally = [`${found} page${found === 1 ? "" : "s"} found`];
     if (counts.translated) tally.push(`${counts.translated} translated`);
     if (counts.cached) tally.push(`${counts.cached} already done`);
     if (counts.alreadyStored) tally.push(`${counts.alreadyStored} already in library`);
-    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
+    if (counts.skipped) {
+      tally.push(`${counts.skipped} skipped as not a page (${firstSkip || "no reason was given"})`);
+    }
     if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
+    // An image identical to an earlier page (a repeated credit card, a banner) is sent once.
+    if (counts.duplicates) tally.push(`${counts.duplicates} identical to a page already read`);
     if (counts.unverified) tally.push(`${counts.unverified} read from the page's source image, not checked against what is drawn`);
     if (unreadablePages.length) {
       const named = unreadablePages.slice(0, 3)
@@ -1388,6 +1392,12 @@
       const more = unreadablePages.length > 3 ? `; and ${unreadablePages.length - 3} more` : "";
       tally.push(`${unreadablePages.length} unreadable (${named}${more})`);
     }
+    // Every page found must land in one bucket above; the rest were never answered for (a stop
+    // part-way, a cancel, or a reply that left a page out), and saying so keeps a short count from
+    // looking like a complete one.
+    const accounted = counts.translated + counts.cached + counts.alreadyStored + counts.skipped +
+                      counts.failed + unreadablePages.length;
+    if (found > accounted) tally.push(`${found - accounted} not sent or not answered`);
     return tally.join(", ");
   }
 
@@ -1397,8 +1407,9 @@
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0 };
+    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0, duplicates: 0 };
     let firstFailure = "";
+    let firstSkip = "";
     let serverStop = "";
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
@@ -1464,6 +1475,7 @@
         if (key !== null) handled.set(el, key);
         const cached = state.cache.get(extracted.hash);
         if (seen.has(extracted.hash)) {
+          counts.duplicates += 1;
           if (cached && el.isConnected) drawOverlay(el, cached);
           continue;
         }
@@ -1515,6 +1527,7 @@
           counts.skipped += (data.skipped || []).length;
           counts.failed += (data.failed || []).length;
           if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
+          if (!firstSkip && (data.skipped || []).length) firstSkip = data.skipped[0].reason || "";
           if (data.stopped) serverStop = String(data.stopped);
           return !!data.stopped;
         }, limit);
@@ -1583,7 +1596,7 @@
         ? unreadableResult(unreadable, needAccess)
         : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
-    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages);
+    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip);
     const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}. ` +
                     `Took ${formatElapsed(Date.now() - run.startedAt)}.`;
     reportProgress(message);

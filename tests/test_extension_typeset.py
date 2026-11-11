@@ -96,5 +96,5 @@ def test_regions_say_which_boxes_the_preview_must_not_paint_over_and_which_staye
         {**box, "kind": "sfx", "translated_text": "Thud"},
         {**box, "skip": True, "translated_text": "Hi"},
     ])
-    assert [r["untranslated"] for r in regions] == [False, True, False, False, False]
+    assert [r["untranslated"] for r in regions] == [False, True, True, False, False]
     assert [r["left_alone"] for r in regions] == [False, False, False, True, True]
