@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_art_text
+import scanlate_sfx
 import scanlate_tuning
 from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import (
@@ -490,6 +491,9 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                                 font_category=b.get("font_category") or "regular",
                                 custom_fonts=custom_fonts, mask=shape_mask,
                                 fill=_text_fill(pil_img, b))
+        for b in bubbles:
+            if scanlate_sfx.is_glossed(b):
+                scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
         pil_img.save(result_path, "PNG")
         os.replace(result_path, out_path)
     finally:
