@@ -103,3 +103,29 @@ def test_edge_fragments_need_the_page_size():
     regions = [_r("x", x=0, y=0, w=5, h=5)]
     assert wm.flag_edge_fragments(regions, 0, 0) == 0
     assert regions[0]["skip"] is False
+
+
+def test_a_page_number_in_the_margin_is_skipped_but_dialogue_is_not():
+    # the "88" read as おお on a 884x1253 page: x=766 y=1155 w=31 h=26
+    number = _r("おお", x=766, y=1155, w=31, h=26)
+    top_number = _r("17", x=40, y=20, w=30, h=24)
+    small_reply_in_panel = _r("えっ", x=300, y=600, w=31, h=26)
+    long_line_in_margin = _r("ありがとうございます", x=100, y=1160, w=40, h=26)
+    big_balloon_low = _r("ん", x=300, y=1150, w=120, h=90)
+    regions = [number, top_number, small_reply_in_panel, long_line_in_margin, big_balloon_low]
+    assert wm.flag_page_numbers(regions, 884, 1253) == 2
+    assert [r["skip"] for r in regions] == [True, True, False, False, False]
+
+
+def test_page_numbers_need_the_page_size():
+    regions = [_r("12", x=10, y=10, w=20, h=20)]
+    assert wm.flag_page_numbers(regions, 0, 0) == 0
+
+
+def test_a_tall_webtoon_strip_does_not_open_a_deep_margin():
+    # 800x12000: a short reply 300px from the top is inside the 8% band by height alone
+    reply = _r("えっ", x=300, y=300, w=30, h=24)
+    number = _r("42", x=380, y=11940, w=30, h=24)
+    regions = [reply, number]
+    assert wm.flag_page_numbers(regions, 800, 12000) == 1
+    assert [r["skip"] for r in regions] == [False, True]
