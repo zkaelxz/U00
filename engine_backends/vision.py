@@ -48,7 +48,14 @@ def read_image_text(engine, image: bytes, mime: str, language: str = "", on_done
     ends, with zero counts when it failed. The deadline can abandon a request
     that is still running and billed, so the caller logs from here rather than
     after this function returns."""
-    prompt = build_prompt(language)
+    return ask_about_image(engine, build_prompt(language), image, mime, on_done=on_done)
+
+
+def ask_about_image(engine, prompt: str, image: bytes, mime: str,
+                    max_tokens: int = MAX_REPLY_TOKENS, on_done=None) -> tuple:
+    """(text, usage) for one request that sends `prompt` with `image`. The
+    caller sets max_tokens: a page translation needs far more than a subtitle
+    read. Raises and calls on_done exactly as read_image_text does."""
     data = base64.b64encode(image).decode("ascii")
     name = getattr(engine, "name", type(engine).__name__)
     if name not in VISION_ENGINES:
@@ -57,7 +64,7 @@ def read_image_text(engine, image: bytes, mime: str, language: str = "", on_done
     def run():
         usage = {}
         try:
-            text, usage = _dispatch(engine, prompt, data, mime)
+            text, usage = _dispatch(engine, prompt, data, mime, max_tokens)
             return text, usage
         finally:
             if on_done is not None:
@@ -66,22 +73,22 @@ def read_image_text(engine, image: bytes, mime: str, language: str = "", on_done
     return _bounded(run, engine)
 
 
-def _dispatch(engine, prompt: str, data: str, mime: str) -> tuple:
+def _dispatch(engine, prompt: str, data: str, mime: str, max_tokens: int) -> tuple:
     client = getattr(engine, "client", None)
     if client is not None and hasattr(client, "messages"):
-        return _claude(engine, client, prompt, data, mime)
+        return _claude(engine, client, prompt, data, mime, max_tokens)
     if isinstance(engine, GeminiEngine):
-        return _gemini(engine, prompt, data, mime)
+        return _gemini(engine, prompt, data, mime, max_tokens)
     if isinstance(engine, OpenAIEngine):
-        return _openai(engine, prompt, data, mime)
+        return _openai(engine, prompt, data, mime, max_tokens)
     if isinstance(engine, OllamaEngine):
-        return _ollama(engine, prompt, data)
+        return _ollama(engine, prompt, data, max_tokens)
     raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't read pictures.")
 
 
-def _claude(engine, client, prompt, data, mime):
+def _claude(engine, client, prompt, data, mime, max_tokens):
     resp = call_with_backoff(lambda: client.messages.create(
-        model=engine.model, max_tokens=MAX_REPLY_TOKENS,
+        model=engine.model, max_tokens=max_tokens,
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": mime, "data": data}},
             {"type": "text", "text": prompt}]}]))
@@ -91,32 +98,33 @@ def _claude(engine, client, prompt, data, mime):
              "output_tokens": getattr(usage, "output_tokens", 0) or 0})
 
 
-def _gemini(engine, prompt, data, mime):
+def _gemini(engine, prompt, data, mime, max_tokens):
     body = {"contents": [{"parts": [{"inlineData": {"mimeType": mime, "data": data}},
                                     {"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": MAX_REPLY_TOKENS}}
+            "generationConfig": {"maxOutputTokens": max_tokens}}
     reply, usage = call_with_backoff(lambda: engine.generate(body, post=post_json))
     counts = {"input_tokens": usage["input_tokens"], "output_tokens": usage["output_tokens"]}
     text, _finish_reason = gemini_reply(reply)
     return text, counts
 
 
-def _openai(engine, prompt, data, mime):
+def _openai(engine, prompt, data, mime, max_tokens):
     counted = {}
     text = call_with_backoff(lambda: engine.chat(
         [{"role": "user", "content": [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}]}],
         usage_cb=lambda i, o, *_: counted.update(input_tokens=i, output_tokens=o),
-        extra={"max_completion_tokens": OPENAI_MAX_COMPLETION_TOKENS, "reasoning_effort": "low"}))
+        extra={"max_completion_tokens": max_tokens + OPENAI_MAX_COMPLETION_TOKENS - MAX_REPLY_TOKENS,
+               "reasoning_effort": "low"}))
     return str(text), {"input_tokens": counted.get("input_tokens", 0),
                        "output_tokens": counted.get("output_tokens", 0)}
 
 
-def _ollama(engine, prompt, data):
+def _ollama(engine, prompt, data, max_tokens):
     payload = {"model": engine.model, "stream": False,
                "messages": [{"role": "user", "content": prompt, "images": [data]}],
-               "options": {"num_ctx": engine.num_ctx_for(4096), "num_predict": MAX_REPLY_TOKENS}}
+               "options": {"num_ctx": engine.num_ctx_for(4096), "num_predict": max_tokens}}
     reply = ollama_chat_with_think(_ollama_chat, engine.base_url, payload, False)
     return (strip_ollama_thinking((reply.get("message") or {}).get("content") or "").strip(),
             {"input_tokens": reply.get("prompt_eval_count") or 0,

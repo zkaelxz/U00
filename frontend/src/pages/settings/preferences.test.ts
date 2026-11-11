@@ -17,6 +17,7 @@ const saved: SettingsPreferences = {
   default_style_note: '',
   scene_aware_batches: true,
   scanlate_chapter_brief: true,
+  scanlate_page_image: true,
   episode_brief: true,
   translate_reply_guard: 'auto',
   translate_alignment_check: false,
