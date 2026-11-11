@@ -168,6 +168,10 @@ export function paidSpendText(u: AdminUser): string {
   return spent > 0 ? `Paid engines this month: ${dollars(spent)}` : 'No paid-engine spending this month'
 }
 
+// api/schemas/extension_access.AdminAddUserRequest
+export const MAX_EMAIL_CHARS = 254
+export const MAX_DISPLAY_NAME_CHARS = 100
+
 // services/auth_service.MAX_MEMBER_PAID_CAP_USD
 export const MAX_PAID_LIMIT_USD = 100000
 
