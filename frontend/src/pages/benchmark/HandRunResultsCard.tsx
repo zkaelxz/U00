@@ -27,7 +27,7 @@ function HandRunTable({ test }: { test: HandRunTest }) {
   const showSpeedRank = test.rows.some((r) => r.seconds !== undefined)
   return (
     <section>
-      <h4>{test.title}</h4>
+      <h3>{test.title}</h3>
       <p className="muted">{test.note} Source: {test.source}.</p>
       <div className="table-scroll">
         <table className="bench-table" aria-label={`Hand-run results: ${test.title}`}>
