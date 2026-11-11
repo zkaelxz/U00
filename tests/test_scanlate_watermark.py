@@ -88,3 +88,18 @@ def test_a_region_that_is_only_the_stamp_is_still_skipped():
     regions = [_r("구글검색\n뉴토끼")]
     assert wm.flag_site_marks(regions) == 1
     assert regions[0]["skip"]
+
+
+def test_a_tiny_region_flush_against_the_edge_is_skipped():
+    corner = _r("間宮村", x=0, y=0, w=43, h=33)
+    small_inside = _r("えっ", x=300, y=400, w=43, h=33)
+    big_on_edge = _r("セリフ", x=0, y=300, w=90, h=200)
+    regions = [corner, small_inside, big_on_edge]
+    assert wm.flag_edge_fragments(regions, 884, 1253) == 1
+    assert [r["skip"] for r in regions] == [True, False, False]
+
+
+def test_edge_fragments_need_the_page_size():
+    regions = [_r("x", x=0, y=0, w=5, h=5)]
+    assert wm.flag_edge_fragments(regions, 0, 0) == 0
+    assert regions[0]["skip"] is False

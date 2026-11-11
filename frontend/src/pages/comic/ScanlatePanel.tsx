@@ -92,8 +92,10 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
   )
   const [files, setFiles] = useState<File[]>([])
   const [slice, setSlice] = useState(draft.slice ?? true)
-  // Not remembered: it adds seconds per caption, so each visit starts with it off.
-  const [artCaptions, setArtCaptions] = useState(false)
+  // Not remembered. null = untouched: on when PaddleOCR and the LaMa model are here
+  // (otherwise the art lettering and the source site's watermark stay on the page).
+  const [artCaptionsChoice, setArtCaptions] = useState<boolean | null>(null)
+  const artCaptions = artCaptionsChoice ?? config?.art_captions_available ?? false
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -177,7 +179,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
         confirm: mode === 'all' ? true : undefined,
         engine,
         detect_backend: detector,
-        art_captions: artCaptions || undefined,
+        art_captions: artCaptions,
       })
       setJobKind('run')
       setJobId(r.job_id)

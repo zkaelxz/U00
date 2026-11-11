@@ -41,6 +41,7 @@ function config(over: Partial<ScanlateConfig> = {}): ScanlateConfig {
     lama_weights_cached: true,
     ocr_backend: 'manga_ocr',
     ocr_backend_installed: false,
+    art_captions_available: false,
     page_count: 4,
     pages_with_regions: 2,
     pages_rendered: 1,

@@ -39,6 +39,7 @@ class ScanlateConfig(BaseModel):
     lama_weights_cached: bool
     ocr_backend: str
     ocr_backend_installed: bool
+    art_captions_available: bool
     page_count: int
     pages_with_regions: int
     pages_rendered: int
