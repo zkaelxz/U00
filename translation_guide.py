@@ -17,6 +17,7 @@ depend on context only a person reading the story can settle.
 
 import difflib
 import re
+import unicodedata
 from core import LANGUAGE_NAMES
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES, alias_note, confirmed_aliases
 from engine_backends.run_limits import TranslateRunStopped
@@ -713,6 +714,27 @@ def _merge_novel_entries(all_terms: dict, entries) -> None:
 
 
 _PRONOUN_LEAD = re.compile(r"^\s*(she/her|he/him|they/them)", re.IGNORECASE)
+_EVIDENCE_MIN_MATCH = 0.75
+_EVIDENCE_MIN_RUN = 0.5
+
+
+def _quote_is_in(quote: str, text: str) -> bool:
+    """Whether a model's quote comes from `text`. Models re-type a line with a
+    full-width comma turned ASCII or a traditional character swapped for its
+    simplified twin, so a quote counts when punctuation and spacing are ignored
+    and three quarters of its characters are found in order in the text, half of
+    them in one unbroken run; an invented line shares far less than that with
+    the excerpt."""
+    def squeeze(value: str) -> str:
+        return "".join(ch for ch in unicodedata.normalize("NFKC", value) if ch.isalnum())
+    quote, text = squeeze(quote), squeeze(text)
+    if not quote:
+        return False
+    if quote in text:
+        return True
+    matcher = difflib.SequenceMatcher(None, quote, text, autojunk=False)
+    sizes = [b.size for b in matcher.get_matching_blocks()]
+    return sum(sizes) / len(quote) >= _EVIDENCE_MIN_MATCH and max(sizes) / len(quote) >= _EVIDENCE_MIN_RUN
 
 
 def _clean_window_entries(entries, window_text: str) -> list:
@@ -732,8 +754,8 @@ def _clean_window_entries(entries, window_text: str) -> list:
         e["term"] = term.strip()
         reason = str(e.get("reason") or "")
         evidence = e.get("evidence")
-        if _PRONOUN_LEAD.match(reason) and not (isinstance(evidence, str) and evidence.strip()
-                                                 and evidence.strip() in window_text):
+        if _PRONOUN_LEAD.match(reason) and not (isinstance(evidence, str)
+                                                 and _quote_is_in(evidence, window_text)):
             e["reason"] = _PRONOUN_LEAD.sub("unclear", reason, count=1)
         alt = e.get("alt")
         e["extra_renderings"] = [alt.strip()] if isinstance(alt, str) and alt.strip() else []

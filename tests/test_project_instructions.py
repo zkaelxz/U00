@@ -161,6 +161,14 @@ class TestNovelGlossaryReplyCleaning:
         assert kept[1]["reason"] == "unclear"
         assert kept[2]["reason"] == "unclear"
 
+    def test_a_quote_retyped_with_a_variant_character_or_ascii_punctuation_still_counts(self):
+        import translation_guide as tguide
+        window = "陳詩這才回神，揚起笑臉。馮怡說：“随她去吧，只要她開心就好。”"
+        assert tguide._quote_is_in("陳詩這才回神,揚起笑臉", window)
+        assert tguide._quote_is_in("隨她去吧，只要她開心就好", window)
+        assert not tguide._quote_is_in("陳詩用歡快的語調喊了她的名字然後去睡覺", window)
+        assert not tguide._quote_is_in("", window)
+
     def test_an_ambiguity_alternative_joins_the_renderings(self):
         import translation_guide as tguide
         merged = {}
