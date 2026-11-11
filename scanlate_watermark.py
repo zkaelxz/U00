@@ -132,6 +132,43 @@ def flag_edge_fragments(regions: list, width: int, height: int) -> int:
     return flagged
 
 
+_NUMBER_MAX_WIDTH = 0.05      # of the page's width
+_NUMBER_MAX_HEIGHT = 0.03     # of the page's height
+_NUMBER_BAND = 0.08           # of the page's height, from the top or bottom edge
+# A webtoon strip is far taller than wide, so the height fractions alone would
+# open a margin thousands of pixels deep: both are also capped by the width.
+_NUMBER_MAX_HEIGHT_PER_WIDTH = 0.06
+_NUMBER_BAND_PER_WIDTH = 0.12
+_NUMBER_MAX_CHARS = 3
+
+
+def flag_page_numbers(regions: list, width: int, height: int) -> int:
+    """Sets skip on a page number: a few characters in a tiny box inside the
+    top or bottom margin. An italic "88" in a corner was read as the sound
+    "おお" and typeset as "Wow", and OCR does the same with other numerals. A
+    region this small and this short in the margin is never dialogue, because
+    balloons sit inside the panels. Returns how many were flagged."""
+    if width <= 0 or height <= 0:
+        return 0
+    max_h = min(height * _NUMBER_MAX_HEIGHT, width * _NUMBER_MAX_HEIGHT_PER_WIDTH)
+    band = min(height * _NUMBER_BAND, width * _NUMBER_BAND_PER_WIDTH)
+    flagged = 0
+    for region in regions:
+        if region.get("skip"):
+            continue
+        text = _normal(region.get("source_text"))
+        if not text or len(text) > _NUMBER_MAX_CHARS:
+            continue
+        x, y, w, h = (int(region.get(k) or 0) for k in ("x", "y", "w", "h"))
+        if w > width * _NUMBER_MAX_WIDTH or h > max_h:
+            continue
+        centre_y = y + h / 2
+        if centre_y < band or centre_y > height - band:
+            region["skip"] = True
+            flagged += 1
+    return flagged
+
+
 def is_site_mark_region(region: dict) -> bool:
     """A skipped region whose text is a site's stamp: the one skipped kind the
     render paints out, because the stamp is not part of the art."""
