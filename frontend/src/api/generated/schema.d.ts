@@ -26752,8 +26752,6 @@ export interface components {
             browser_found: boolean;
             /** Cv2 */
             cv2: boolean;
-            /** Demucs */
-            demucs: boolean;
             /** Ebooklib */
             ebooklib: boolean;
             /** Faster Whisper */

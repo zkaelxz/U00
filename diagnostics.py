@@ -87,13 +87,12 @@ OPTIONAL_DEPENDENCIES = {
                                    "pasted URL (falls back to a simpler built-in extractor)",
                     "feature"),
     "audio-separator": ("audio_separator",
-                        "background-music removal before transcription (Mel-Band RoFormer; "
-                        "falls back to Demucs)", "feature"),
+                        "background-music removal before transcription (Mel-Band RoFormer)",
+                        "feature"),
     "audioread": ("audioread", "background-music removal (audio-separator imports it without "
                                "declaring it)", "feature"),
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
-    "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     # Windows ships these DLLs inside GPU PyTorch; these wheels are the fallback the
     # Diagnostics "CUDA runtime for GPU Whisper" row installs (cuda_runtime_path.py).
     "nvidia-cublas-cu12": ("nvidia.cublas", "Whisper on the GPU (CUDA 12 cuBLAS, when GPU PyTorch "
@@ -178,12 +177,12 @@ APPROX_DOWNLOAD_MB = {
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
     "genanki": 1, "ebooklib": 1, "plyer": 1,
     "lightnovel-crawler": 30,
-    "playwright": 40, "trafilatura": 5, "audio-separator": 30, "audioread": 1, "funasr": 5, "demucs": 1,
+    "playwright": 40, "trafilatura": 5, "audio-separator": 30, "audioread": 1, "funasr": 5,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "nagisa": 22, "soynlp": 1,
     "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
     "nvidia-cublas-cu12": 470, "nvidia-cudnn-cu12": 700,
 }
-PULLS_TORCH = {"pyannote-audio", "manga-ocr", "audio-separator", "funasr", "demucs", "torchaudio"}
+PULLS_TORCH = {"pyannote-audio", "manga-ocr", "audio-separator", "funasr", "torchaudio"}
 
 
 def approx_download_mb(name: str):
@@ -236,7 +235,7 @@ INSTALL_TASKS = [
      "optional": ["nvidia-cublas-cu12", "nvidia-cudnn-cu12"]},
     {"id": "music_removal", "group": "Audio", "label": "Remove background music",
      "help": "Clean the audio before transcribing so dialogue is easier to hear.",
-     "packages": ["demucs", "audio-separator", "audioread", "torch", "soundfile", "numpy"],
+     "packages": ["audio-separator", "audioread", "torch", "soundfile", "numpy"],
      "recommended": ["audio-separator", "audioread"]},
     {"id": "speakers", "group": "Audio", "label": "Speaker detection",
      "help": "Split and label lines by who is speaking (needs a Hugging Face token).",
@@ -579,8 +578,8 @@ def delete_hf_cache_revision(revision: str, cache_dir: str | None = None) -> boo
 
 def model_folder(kind: str) -> str:
     """The other model download folders, outside the Hugging Face cache:
-    "torch" is torch.hub's checkpoints folder under TORCH_HOME (demucs
-    weights; resolved like torch.hub.get_dir(), without importing torch),
+    "torch" is torch.hub's checkpoints folder under TORCH_HOME (the MMS
+    forced-alignment weights; resolved like torch.hub.get_dir(), without importing torch),
     "audio_separator" the Mel-Band RoFormer model folder
     (BAIHE_AUDIO_SEP_MODEL_DIR). Both follow portable mode's redirects."""
     if kind == "torch":

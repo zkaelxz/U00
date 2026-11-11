@@ -59,15 +59,11 @@ function ffmpegNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
-export function separationNeed(r: SetupReadiness | null, backend: string): Need | null {
-  if (!r) return null
-  const separator = backend === 'demucs' ? r.demucs : backend === 'audio_separator' ? r.audio_separator : r.audio_separator || r.demucs
-  if (separator) return null
-  const missing = backend === 'demucs' ? ['demucs'] : backend === 'audio_separator' ? ['audio-separator'] : ['audio-separator']
-  const what = backend === 'demucs' ? 'Demucs' : backend === 'audio_separator' ? 'audio-separator' : 'audio-separator (or Demucs)'
+export function separationNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.audio_separator) return null
   return {
-    id: 'separation', label: 'Vocal separation', action: 'diagnostics', packages: missing,
-    reason: `Separating vocals first needs ${what}, which isn't installed.`,
+    id: 'separation', label: 'Vocal separation', action: 'diagnostics', packages: ['audio-separator'],
+    reason: "Separating vocals first needs audio-separator, which isn't installed.",
   }
 }
 
@@ -380,7 +376,6 @@ export function qwen3Warning(forAlignment = false): string {
 export interface TranscribeNeedsForm {
   backend: string
   separateVocals: boolean
-  separationBackend: string
   alignmentMethod: string
   realignLong: boolean
   useGroq: boolean
@@ -416,7 +411,7 @@ export interface TranscribeNeeds {
 export function transcribeNeeds(r: SetupReadiness | null, f: TranscribeNeedsForm): TranscribeNeeds {
   return {
     whisper: usesLocalWhisper(f) ? whisperNeed(r) : null,
-    separation: separationNeed(r, f.separationBackend),
+    separation: separationNeed(r),
     qwen3: qwen3Need(r),
     qwenAlign: qwenAlignNeed(r, f.language),
     realign: realignNeed(r),

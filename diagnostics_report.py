@@ -60,9 +60,6 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/nomadkaraoke/python-audio-separator",
      "help": "Strips background music out of the audio track before transcription, so dialogue "
              "is easier to hear and transcribe."},
-    {"name": "Demucs", "kind": "package", "package": "demucs",
-     "url": "https://github.com/facebookresearch/demucs",
-     "help": "A fallback background-music remover, used when audio-separator isn't installed."},
 ]
 
 
