@@ -99,8 +99,10 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
 
 def _placed_regions(bubbles: list) -> list:
     import scanlate_regions
-    return [b for b in bubbles if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
-            and (b.get("translated_text") or "").strip()]
+    import scanlate_sfx
+    return [b for b in bubbles if scanlate_sfx.is_glossed(b) or (
+        not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
+        and (b.get("translated_text") or "").strip())]
 
 
 def _drop_stale_typeset(drama_id: int, page: dict):

@@ -306,7 +306,8 @@ def _translate_with_image(by_key: dict, page_image, engine, drama: dict, context
     import scanlate_translate
     data, mime, scale = page_image
     regions = [{"id": key, "text": b["source_text"],
-                "box": {name: round(b[name] * scale) for name in ("x", "y", "w", "h")}}
+                "box": {name: round(b[name] * scale) for name in ("x", "y", "w", "h")},
+                **({"sound_effect": True} if b.get("kind") == "sfx" else {})}
                for key, b in by_key.items()]
     try:
         return scanlate_translate.translate_regions_with_image(
@@ -333,8 +334,12 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     regions, and the text-only request below is the fallback when that fails."""
     import scanlate_regions
     import scanlate_translate
+    # A sound effect is translated only to be glossed beside the art, so it is
+    # asked for only when the person turned that on.
+    gloss_sfx = bool(settings_service.get("scanlate_sfx_gloss"))
     by_key = {str(i): b for i, b in enumerate(bubbles)
-              if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
+              if not b.get("skip")
+              and (gloss_sfx or not scanlate_regions.region_excluded_from_auto(b))
               and (b.get("source_text") or "").strip()}
     if not by_key:
         return True, None

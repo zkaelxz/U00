@@ -15,6 +15,7 @@ const PREFS = {
   scene_aware_batches: true,
   scanlate_chapter_brief: true,
   scanlate_page_image: true,
+  scanlate_sfx_gloss: false,
   episode_brief: true,
   translate_reply_guard: 'auto',
   claude_reasoning: 'default',

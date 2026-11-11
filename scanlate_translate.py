@@ -181,10 +181,16 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
     if chapter_brief:
         reference += ("\n\nBrief of the whole chapter (who is speaking, names and what "
                       f"happens), for consistency across pages: {chapter_brief}")
+    if any(r.get("sound_effect") for r in regions):
+        # The answer is set small beside the art, so a sentence would not fit.
+        reference += ("\n\nRegions marked sound_effect are onomatopoeia that stay on the art: "
+                      "answer each with one short English sound word (for example \"thud\"), "
+                      "not a sentence.")
     context_block = f"\n\nContext from previous pages: {previous_context}" if previous_context else ""
     payload = json.dumps(
         [{"id": r["id"], "text": r["text"],
-          "box": [r["box"]["x"], r["box"]["y"], r["box"]["w"], r["box"]["h"]]} for r in regions],
+          "box": [r["box"]["x"], r["box"]["y"], r["box"]["w"], r["box"]["h"]],
+          **({"sound_effect": True} if r.get("sound_effect") else {})} for r in regions],
         ensure_ascii=False)
     # The OCR text is kept in the request as a cheap anchor (boxes in x, y,
     # width, height), but the picture is what the model is told to trust: OCR
