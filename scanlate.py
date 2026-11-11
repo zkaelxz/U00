@@ -307,11 +307,14 @@ def suggest_font_size(gray, region: dict) -> int:
     the balloon. Short lettering in a much larger balloon starts bigger (up to
     TYPESET_GROW_MAX), because the render only ever shrinks and would otherwise
     leave a few small words floating in the balloon.
-    TYPESET_DEFAULT_FONT_PX when no lettering is measurable."""
+    When no lettering is measurable (pale ink that the dark-ink threshold
+    misses, say), the default grows with the box's short side, so a large
+    balloon is not left with one small line of English."""
     t = scanlate_tuning
     size = lettering_size(gray, region, region.get("orientation")) if gray is not None else None
     if not size:
-        return t.TYPESET_DEFAULT_FONT_PX
+        by_box = round(min(region["w"], region["h"]) * t.TYPESET_UNMEASURED_PER_BOX_SIDE)
+        return int(min(max(t.TYPESET_DEFAULT_FONT_PX, by_box), t.TYPESET_START_MAX_PX))
     size *= t.TYPESET_FONT_PER_SOURCE_PX
     fill = lettering_fill(gray, region)
     if fill and fill < t.TYPESET_GROW_BELOW_FILL:
