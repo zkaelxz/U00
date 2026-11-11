@@ -128,3 +128,16 @@ def test_ellipsis_column_does_not_shrink_the_measured_lettering_size():
     gray[160:176, 28:37] = 0      # its ellipsis: a 9 px run
     box = {"x": 0, "y": 0, "w": 80, "h": 200}
     assert scanlate_regions.lettering_size(gray, box, "vertical") >= 20
+
+
+def test_a_sky_that_fades_behind_the_lettering_is_not_whitened_into_a_box():
+    gray = np.full((140, 200), 254, np.uint8)
+    gray[:50, :90] = 238                              # cloud: darker, far from the letters
+    gray[60:110, 110:180] = 20
+    roi = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    mask = scanlate_inpaint._lettering_mask(gray)
+    inpainted = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
+    out = scanlate_inpaint._flatten_plain_paper(roi, inpainted, mask, np.ones(gray.shape, bool))
+    assert out is inpainted
+    assert cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)[10:40, 10:80].max() < 245
+

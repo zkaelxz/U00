@@ -284,6 +284,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     flag_katakana_effects(bubbles)
     flag_site_marks(bubbles)
     flag_english_text(bubbles, source_language)
+    flag_bare_numbers(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
     if art_captions:
         bubbles += (captions if captions is not None
@@ -319,6 +320,24 @@ def flag_english_text(regions: list, source_language: str) -> int:
         text = region.get("source_text") or ""
         if (not region.get("skip") and not _SOURCE_SCRIPT.search(text)
                 and sum(c.isascii() and c.isalpha() for c in text) >= _ENGLISH_MIN_LETTERS):
+            region["skip"] = True
+            flagged += 1
+    return flagged
+
+
+_BARE_NUMBER = re.compile(r"(?=.*[0-9０-９])[0-9０-９\s.,:;!?！？…%％/\-–—]+")
+
+
+def flag_bare_numbers(regions: list, source_language: str) -> int:
+    """Sets skip on a region whose whole text is a number. It reads the same in
+    English, so translating it changes nothing, and OCR of a face or a pattern in
+    the art ("610" over a character's face) gave such a number its own region that
+    was then painted over the drawing. Returns how many it flagged."""
+    if source_language not in ("ja", "zh", "ko"):
+        return 0
+    flagged = 0
+    for region in regions:
+        if not region.get("skip") and _BARE_NUMBER.fullmatch((region.get("source_text") or "").strip()):
             region["skip"] = True
             flagged += 1
     return flagged

@@ -509,9 +509,28 @@ def _flatten_plain_paper(roi, inpainted, mask, inside):
     light = values[values >= median]
     if float(light.std()) > scanlate_tuning.INPAINT_FLAT_PAPER_STD:
         return inpainted
+    if _shaded_away_from_lettering(gray, mask, paper, median):
+        return inpainted
     out = inpainted.copy()
     out[core] = np.median(roi[paper], axis=0).astype(inpainted.dtype)
     return out
+
+
+_HALO_REACH_PX = 13
+
+
+def _shaded_away_from_lettering(gray, mask, paper, median: float) -> bool:
+    """True when the paper beyond the halo of the lettering has patches clearly
+    darker than its median: a gradient, cloud or tone that flattening would turn
+    into a white block. The halo itself is darker by design, so it is left out."""
+    import cv2
+    near = cv2.dilate((mask > 0).astype(np.uint8), cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_HALO_REACH_PX, _HALO_REACH_PX))).astype(bool)
+    far = gray[paper & ~near]
+    if far.size < 50:
+        return False
+    shaded = float((far < median - scanlate_tuning.INPAINT_FLAT_PAPER_SHADE_DEPTH).mean())
+    return shaded > scanlate_tuning.INPAINT_FLAT_PAPER_MAX_SHADED
 
 
 _AROUND_LETTERING_GROW_PX = 15

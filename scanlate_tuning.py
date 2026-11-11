@@ -139,6 +139,12 @@ TYPESET_OUTLINE_MARGIN_PX = 2
 # A balloon whose paper (gray levels, among the lighter half of its pixels)
 # varies by no more than this is flat white, and is repainted in one colour.
 INPAINT_FLAT_PAPER_STD = 6.0
+# Paper further than the halo from any lettering that is darker than the rest by
+# more than SHADE_DEPTH, in more than this share of its pixels, is sky, cloud or
+# tone, not paper: whitening it printed a hard-edged white box. Real balloons
+# measured 0 to 0.01 there, a sky 0.15.
+INPAINT_FLAT_PAPER_MAX_SHADED = 0.05
+INPAINT_FLAT_PAPER_SHADE_DEPTH = 6
 
 # --- OCR line layout (ocr_layout) ---
 # A line thinner than this share of a larger line beside it is furigana. Ruby
