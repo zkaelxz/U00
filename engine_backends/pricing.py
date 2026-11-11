@@ -39,6 +39,9 @@ GEMINI_MODELS = {
     # priced at ai.google.dev in September 2026, but there's no CJK-specific
     # quality benchmark for it yet, so no quality claim is made here.
     "gemini-3.1-flash-lite": "3.1 Flash-Lite -- cheaper, lighter tier (no quality claim yet)",
+    # Opt-in only: in one small zh->en test it came closest to Sonnet on idioms and
+    # tone, but it thinks before answering, so it costs more and is slower.
+    "gemini-3.8-flash": "3.8 Flash -- close to Sonnet on idioms and tone in a small test; slower, costs more (thinks first)",
 }
 
 # OpenAI's Chat Completions endpoint, the one place its address is set.
@@ -145,7 +148,7 @@ PRICING_PER_MILLION_TOKENS = {
     "gemini-flash-latest": {"input": 0.75, "output": 3.75},
     "gemini-pro-latest": {"input": 2.0, "output": 12.0},
     "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
-    # Pinned ids the source-research lookup uses (not offered for translation).
+    # Pinned ids: the research lookup uses both; 3.8 Flash is also offered for translation.
     "gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50},
     "gemini-3.8-flash": {"input": 0.75, "output": 3.75},
     # OpenAI standard-tier list prices, read from developers.openai.com/api/docs/pricing

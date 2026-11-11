@@ -181,9 +181,14 @@ class GeminiEngine:
             "systemInstruction": {"parts": [{"text": build_stable_system_text(context)}]},
             "contents": [{"parts": [{"text": build_batch_user_message(context, numbered)}]}],
         }
+        generation = {}
         temperature = temperature_of(context, "gemini")
         if temperature is not None:
-            body["generationConfig"] = {"temperature": temperature}
+            generation["temperature"] = temperature
+        if self.model in LOW_THINKING_MODELS:
+            generation["thinkingConfig"] = {"thinkingLevel": "low"}
+        if generation:
+            body["generationConfig"] = generation
         return body
 
     @staticmethod
@@ -300,6 +305,11 @@ GEMINI_FREE_TIER_LIMITS = {
 }
 GEMINI_FREE_TIER_DEFAULT_LIMITS = {"rpm": 10, "rpd": 250}
 GEMINI_FREE_TIER_TPM = 250_000
+
+# 3.8 Flash thinks before answering by default (about 6x the cost and 5x the time on
+# the zh->en tricky lines). "low" gave 0 thinking tokens and no visible quality drop;
+# thinkingBudget: 0 is ignored by this model and "minimal" was not confirmed.
+LOW_THINKING_MODELS = {"gemini-3.8-flash"}
 
 # Removed from the free tier entirely in April 2026 -- a free-tier key can no
 # longer reach it at all, regardless of RPM/RPD/TPM standing.
