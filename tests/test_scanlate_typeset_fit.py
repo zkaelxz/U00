@@ -128,3 +128,22 @@ def test_rect_layout_keeps_the_line_breaks_of_the_translation():
     # Three short lines stack; run together they would sit on one row band.
     bands = 1 + int((np.diff(rows) > 3).sum())
     assert bands == 3
+
+
+def test_a_compound_breaks_between_its_two_consonants_not_after_a_stray_vowel():
+    assert scanlate_render._hyphen_split("nickname", lambda head: len(head) <= 7) == ("nick-", "name")
+
+
+def test_a_digraph_is_not_cut():
+    head, tail = scanlate_render._hyphen_split("something", lambda head: len(head) <= 5)
+    assert not (head.endswith("t-") and tail.startswith("h"))
+
+
+def test_a_word_that_already_has_a_hyphen_breaks_there_and_is_not_cut_again():
+    assert scanlate_render._hyphen_split("Alma-diel.", lambda head: len(head) <= 6) == ("Alma-", "diel.")
+    assert scanlate_render._hyphen_split("Amae-san.", lambda head: len(head) <= 5) == ("Amae-", "san.")
+
+
+def test_an_own_hyphen_whose_head_does_not_fit_falls_back_to_a_new_split():
+    head, tail = scanlate_render._hyphen_split("Alma-diel.", lambda head: len(head) <= 4)
+    assert head.endswith("-") and head + tail != "Alma-diel."

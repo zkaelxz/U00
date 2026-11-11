@@ -117,21 +117,44 @@ def _mask_band_span(mask, top: int, bottom: int):
     return best
 
 
+_DIGRAPHS = {"th", "ch", "sh", "ph", "wh", "ck", "gh", "ng"}
+
+
+def _cut_rank(word: str, cut: int) -> int:
+    """How natural a syllable break is before word[cut]: 0 between two consonants
+    ("nick-name", "sun-set"), 1 after a vowel before a consonant ("house-work"),
+    2 anywhere else. A digraph ("th", "ck") is never cut."""
+    before, after = word[cut - 1].lower(), word[cut].lower()
+    if not after.isalpha() or not before.isalpha():
+        return 2
+    if before + after in _DIGRAPHS:
+        return 2
+    if before not in "aeiouy" and after not in "aeiouy":
+        return 0
+    return 1 if before in "aeiouy" else 2
+
+
 def _hyphen_split(word: str, fits):
     """(head + "-", tail) with the longest head that `fits`, or None when no
-    split leaves at least three letters on each side. Punctuation does not
-    count as a letter, so "Housework?" splits "House-work?", never "Housewo-rk?"."""
+    split leaves at least three letters on each side. A hyphen the word already
+    has ("Alma-diel") is the break when its head fits, so the word is not also
+    cut again. Punctuation does not count as a letter, so "Housework?" splits
+    "House-work?", never "Housewo-rk?"."""
     def letters(part):
         return sum(c.isalpha() for c in part)
 
+    own = [i + 1 for i, c in enumerate(word)
+           if c == "-" and letters(word[:i]) >= 2 and letters(word[i + 1:]) >= 2]
+    for cut in reversed(own):
+        if fits(word[:cut]):
+            return word[:cut], word[cut:]
+
     fitting = [cut for cut in range(len(word) - 3, 2, -1)
                if letters(word[:cut]) >= 3 and letters(word[cut:]) >= 3 and fits(word[:cut] + "-")]
-    # Among the few longest heads, one that ends on a vowel before a consonant
-    # reads as a syllable break ("House-work", not "Housew-ork").
-    natural = next((cut for cut in fitting[:4]
-                    if word[cut - 1].lower() in "aeiouy" and word[cut].isalpha()
-                    and word[cut].lower() not in "aeiouy"), None)
-    cut = natural if natural is not None else (fitting[0] if fitting else None)
+    # Among the few longest heads, the most syllable-like break wins; the longest
+    # fitting head is the fallback when none reads as one.
+    best = min(fitting[:4], key=lambda cut: (_cut_rank(word, cut), -cut), default=None)
+    cut = best if best is not None and _cut_rank(word, best) < 2 else (fitting[0] if fitting else None)
     return (word[:cut] + "-", word[cut:]) if cut is not None else None
 
 
