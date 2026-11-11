@@ -610,7 +610,7 @@ class TestSkippedSfxNote:
 
 
 def _glyph_page(blocks, size=(700, 800)):
-    import cv2
+    cv2 = pytest.importorskip("cv2")
     page = np.full(size, 250, np.uint8)
     for bx, by in blocks:
         for row in range(2):
