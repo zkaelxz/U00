@@ -20,6 +20,8 @@ const saved: SettingsPreferences = {
   scanlate_page_image: true,
   episode_brief: true,
   translate_reply_guard: 'auto',
+  claude_reasoning: 'default',
+  openai_reasoning: 'default',
   translate_alignment_check: false,
   episode_summary_engine: 'ollama',
   max_upload_mb: 20480,

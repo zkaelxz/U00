@@ -53,6 +53,16 @@ def test_gemini_puts_it_in_the_generation_config_only_when_set():
     assert engine.build_request_body(_ctx(temperature=0.3), "1. x")["generationConfig"] == {"temperature": 0.3}
 
 
+def test_gemini_3_8_flash_runs_on_low_thinking_and_keeps_a_set_temperature():
+    engine = engine_gemini.GeminiEngine("key", model="gemini-3.8-flash")
+    assert engine.build_request_body(_ctx(), "1. x")["generationConfig"] == {
+        "thinkingConfig": {"thinkingLevel": "low"}}
+    assert engine.build_request_body(_ctx(temperature=0.3), "1. x")["generationConfig"] == {
+        "temperature": 0.3, "thinkingConfig": {"thinkingLevel": "low"}}
+    other = engine_gemini.GeminiEngine("key", model="gemini-3.1-flash-lite")
+    assert "generationConfig" not in other.build_request_body(_ctx(), "1. x")
+
+
 def test_ollama_puts_it_in_the_options_only_when_set(monkeypatch):
     bodies = []
 
@@ -71,3 +81,13 @@ def test_claude_requests_never_carry_one(monkeypatch):
     monkeypatch.setattr("engine_backends.claude.make_anthropic_client", lambda key: object())
     params = engine_claude.ClaudeEngine("key").build_request_params(_ctx(temperature=0.3), "1. x")
     assert "temperature" not in params
+
+
+def test_claude_sonnet_55_reasons_less_only_when_asked(monkeypatch):
+    monkeypatch.setattr("engine_backends.claude.make_anthropic_client", lambda key: object())
+    sonnet = engine_claude.ClaudeEngine("key", "claude-sonnet-5-5")
+    assert "thinking" not in sonnet.build_request_params(_ctx(), "1. x")
+    assert sonnet.build_request_params(_ctx(reasoning="less"), "1. x")["thinking"] == {"type": "between_tools"}
+    # An untried model keeps its own default instead of risking a 400.
+    other = engine_claude.ClaudeEngine("key", "claude-opus-5-5")
+    assert "thinking" not in other.build_request_params(_ctx(reasoning="less"), "1. x")
