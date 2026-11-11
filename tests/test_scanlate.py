@@ -1140,6 +1140,19 @@ class TestMlFailureMemoryOnlyCoversTheModelLoad:
         assert "/home/kae" not in str(again.value) and again.value.__cause__ is None
 
 
+class TestHollowFrames:
+    def test_a_sign_erase_keeps_the_frame_round_the_lettering_and_erases_the_lettering(self):
+        import cv2
+        img = np.full((300, 400, 3), 250, np.uint8)
+        cv2.rectangle(img, (20, 20), (380, 280), (120, 40, 40), 3)   # caption frame
+        cv2.rectangle(img, (120, 120), (280, 160), (0, 0, 0), -1)    # lettering block
+        box = {"x": 10, "y": 10, "w": 380, "h": 280, "kind": "sign"}
+        page = img.copy()
+        scanlate_inpaint.inpaint_region("unused", box, image=page, backend="cv", on_art=True)
+        assert (page[20, 100] == img[20, 100]).all() and (page[150, 20] == img[150, 20]).all()
+        assert page[120:160, 120:280].max() > 200
+
+
 class TestLetteringMask:
     def test_pale_gray_strokes_are_masked_and_the_mask_grows_past_a_hard_stroke(self):
         roi = np.full((60, 120), 250, np.uint8)
