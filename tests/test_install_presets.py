@@ -150,9 +150,10 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     scan = next(t for t in out["tasks"] if t["id"] == "scanlate")
     assert "pypdf" in scan["packages"]
     assert "pypdf" in scan["to_install"]
-    # paddleocr 3.x doesn't pull in paddlepaddle, and zh/ko pages default to paddle.
-    assert {"paddleocr", "paddlepaddle"} <= set(scan["to_install"])
-    assert scan["roles"]["paddleocr"] == scan["roles"]["paddlepaddle"] == "recommended"
+    # PaddleOCR would downgrade numpy and OpenCV below Baihe's floors, so it is never part
+    # of the recommended set.
+    assert not {"paddleocr", "paddlepaddle"} & set(scan["to_install"])
+    assert scan["roles"]["paddleocr"] == scan["roles"]["paddlepaddle"] == "optional"
     assert scan["approx_mb"] == sum(diagnostics.approx_download_mb(n) for n in scan["to_install"])
     cv2 = out["packages"]["cv2"]
     assert cv2["dist"] == "opencv-python" and cv2["installable"] is True
