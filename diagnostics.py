@@ -286,9 +286,11 @@ INSTALL_TASKS = [
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "paddleocr", "paddlepaddle", "pypdf",
                   "transformers", "torch", "safetensors", "huggingface_hub", "sentencepiece"],
-     "recommended": ["manga_ocr", "paddleocr", "paddlepaddle", "pypdf", "transformers", "torch",
+     "recommended": ["manga_ocr", "pypdf", "transformers", "torch",
                      "safetensors", "huggingface_hub"],
-     "optional": ["sentencepiece"]},
+     # PaddleOCR pins numpy and OpenCV below what Baihe needs, so a recommended install
+     # that included it was always blocked; RapidOCR covers Chinese and Korean.
+     "optional": ["paddleocr", "paddlepaddle", "sentencepiece"]},
     {"id": "ocr_rapidocr", "group": "Scanlate", "label": "RapidOCR (Chinese, Japanese, Korean text)",
      "help": "Light OCR for pages and captions that runs without PaddlePaddle.",
      "packages": ["rapidocr", "onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "PyYAML"]},
