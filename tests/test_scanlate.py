@@ -1190,6 +1190,25 @@ class TestEnglishTextSkipped:
         assert regions[0]["skip"] is False
 
 
+class TestBareNumbersSkipped:
+    def test_a_region_that_is_only_a_number_is_skipped(self):
+        regions = [{"source_text": "610", "skip": False}, {"source_text": "１００！", "skip": False},
+                   {"source_text": "3-2", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "zh") == 3
+        assert all(r["skip"] for r in regions)
+
+    def test_numbers_inside_a_sentence_and_empty_text_are_left_alone(self):
+        regions = [{"source_text": "第3拳", "skip": False}, {"source_text": "我有100个", "skip": False},
+                   {"source_text": "", "skip": False}, {"source_text": "...", "skip": False},
+                   {"source_text": "610", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "zh") == 1
+        assert [r["skip"] for r in regions] == [False, False, False, False, True]
+
+    def test_an_english_source_page_is_left_alone(self):
+        regions = [{"source_text": "610", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "en") == 0
+
+
 class TestHollowFrames:
     def test_a_sign_erase_keeps_the_frame_round_the_lettering_and_erases_the_lettering(self):
         import cv2
