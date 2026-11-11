@@ -429,6 +429,8 @@
                    line-height: 1.12; pointer-events: auto; cursor: help;
                    white-space: pre-wrap; word-break: break-word; }
       .baihe-box[data-kind="narration"] { border-radius: 2px; }
+      .baihe-box { background: rgba(255,255,255,0.98); }
+      .baihe-box.baihe-untranslated { outline: 2px dashed #c0392b; outline-offset: -2px; }
       .baihe-box.baihe-bold { font-weight: 700; }
       .baihe-box.baihe-showing-original { background: rgba(255,244,214,0.96);
                                           font-style: italic; }
@@ -486,9 +488,12 @@
     entry.layer.textContent = "";
     for (const region of regions) {
       if (!region.translated_text && !region.source_text) continue;
+      // Sound effects and skipped regions keep their original lettering, as in the typeset page.
+      if (region.left_alone) continue;
       const box = document.createElement("div");
       box.className = "baihe-box" +
-        (region.font_category === "bold" ? " baihe-bold" : "");
+        (region.font_category === "bold" ? " baihe-bold" : "") +
+        (region.untranslated ? " baihe-untranslated" : "");
       box.dataset.kind = region.kind || "bubble";
       box.dataset.translated = region.translated_text || "";
       box.dataset.original = region.source_text || "";
@@ -527,16 +532,44 @@
     layer.style.height = `${rect.height}px`;
     layer.classList.toggle("baihe-hidden", !state.overlaysVisible);
     const boxes = layer.children;
-    for (let i = 0; i < boxes.length && i < entry.regions.length; i += 1) {
-      const region = entry.regions[i];
-      const box = boxes[i];
-      box.style.left = `${region.x * scaleX}px`;
-      box.style.top = `${region.y * scaleY}px`;
-      box.style.width = `${region.w * scaleX}px`;
-      box.style.height = `${region.h * scaleY}px`;
-      // Font size follows the box, so a zoomed page keeps readable text
-      // instead of overflowing its bubble.
-      box.style.fontSize = `${Math.max(8, Math.min(region.h * scaleY * 0.32, 22))}px`;
+    const visible = entry.regions.filter((r) => (r.translated_text || r.source_text) && !r.left_alone);
+    for (let i = 0; i < boxes.length && i < visible.length; i += 1) {
+      placeBox(boxes[i], visible[i], scaleX, scaleY, rect.width, rect.height);
+    }
+  }
+
+  // A box the page is cropped around (the edge of the image) would clip its text, so it is
+  // kept inside the page; the text is then shrunk until it fits what is left.
+  function placeBox(box, region, scaleX, scaleY, maxW, maxH) {
+    const left = Math.max(0, region.x * scaleX);
+    const top = Math.max(0, region.y * scaleY);
+    const width = Math.max(1, Math.min(region.w * scaleX, maxW - left));
+    const height = Math.max(1, Math.min(region.h * scaleY, maxH - top));
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    // An ellipse only has about 70% of its bounding box to write in; narration stays a rounded box.
+    const round = box.dataset.kind === "bubble" || box.dataset.kind === "thought";
+    box.style.borderRadius = round ? "50%" : "";
+    const inset = round ? 0.15 : 0;
+    box.style.padding = `${Math.max(2, height * inset)}px ${Math.max(2, width * inset)}px`;
+    // Scrolling repositions every box; measuring text on each scroll would stall the page, so
+    // the fit is redone only when the box's size changed.
+    const sizeKey = `${Math.round(width)}x${Math.round(height)}`;
+    if (box.dataset.fitted !== sizeKey) {
+      box.dataset.fitted = sizeKey;
+      fitText(box, Math.max(8, Math.min(region.h * scaleY * 0.32, 22)));
+    }
+  }
+
+  // Largest size, down to a legible floor, at which the whole text sits inside the box.
+  function fitText(box, start) {
+    let size = start;
+    box.style.fontSize = `${size}px`;
+    while (size > 7 && (box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1)) {
+      size -= 1;
+      box.style.fontSize = `${size}px`;
     }
   }
 
@@ -1626,5 +1659,5 @@
                      translatePageText, collectPageText, mainContentBlock,
                      isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture, captureTally, unreadableLog };
+                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox };
 })();

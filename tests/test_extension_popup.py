@@ -139,3 +139,33 @@ def test_two_failed_pages_on_one_recycled_canvas_are_both_counted():
                 log.isNew(canvas, canvasSignature(canvas, 4))];
     })()"""
     assert _node("content_expression", expression) == [True, False, True]
+
+
+def _place(region, kind="bubble", natural=(800, 1200), shown=(400, 600), text_height_per_px=5):
+    """placeBox on a fake box whose text needs text_height_per_px * fontSize of height."""
+    expression = f"""(() => {{
+        const box = {{ dataset: {{ kind: {json.dumps(kind)} }}, style: {{}}, clientHeight: 0, clientWidth: 0,
+          get scrollHeight() {{ return {text_height_per_px} * parseFloat(this.style.fontSize); }},
+          get scrollWidth() {{ return 0; }} }};
+        // clientHeight follows the box height set by placeBox
+        Object.defineProperty(box, "clientHeight", {{ get() {{ return parseFloat(this.style.height); }} }});
+        window.__baihe.placeBox(box, {json.dumps(region)}, {shown[0] / natural[0]}, {shown[1] / natural[1]}, {shown[0]}, {shown[1]});
+        return box.style;
+    }})()"""
+    return _node("content_expression", expression)
+
+
+def test_a_box_hanging_off_the_left_of_the_page_is_kept_inside_it():
+    style = _place({"x": -60, "y": 100, "w": 200, "h": 100})
+    assert style["left"] == "0px" and float(style["width"][:-2]) <= 400
+
+
+def test_text_shrinks_until_it_fits_the_box_but_not_below_a_legible_size():
+    fits = _place({"x": 100, "y": 100, "w": 400, "h": 400})
+    cramped = _place({"x": 100, "y": 100, "w": 40, "h": 20})
+    assert float(fits["fontSize"][:-2]) > float(cramped["fontSize"][:-2]) >= 7
+
+
+def test_speech_balloons_are_round_and_narration_stays_a_box():
+    assert _place({"x": 10, "y": 10, "w": 200, "h": 100})["borderRadius"] == "50%"
+    assert _place({"x": 10, "y": 10, "w": 200, "h": 100}, kind="narration")["borderRadius"] == ""

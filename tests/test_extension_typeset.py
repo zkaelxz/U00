@@ -84,3 +84,17 @@ def test_the_real_render_writes_the_typeset_image(token, fake_pipeline, drama):
     page = _send(token, drama, typeset=True).payload["pages"][0]
     row = db.get_page(page["page_id"])
     assert page["typeset"] is True and row["rendered_filename"]
+
+
+def test_regions_say_which_boxes_the_preview_must_not_paint_over_and_which_stayed_untranslated():
+    import page_capture_checks as checks
+    box = {"x": 1, "y": 2, "w": 3, "h": 4, "source_text": "술만", "kind": "bubble"}
+    regions = checks.regions_for_response([
+        {**box, "translated_text": "Only when drunk"},
+        {**box, "translated_text": "술만마시면"},
+        {**box, "translated_text": ""},
+        {**box, "kind": "sfx", "translated_text": "Thud"},
+        {**box, "skip": True, "translated_text": "Hi"},
+    ])
+    assert [r["untranslated"] for r in regions] == [False, True, False, False, False]
+    assert [r["left_alone"] for r in regions] == [False, False, False, True, True]

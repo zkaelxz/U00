@@ -350,7 +350,8 @@ class TestTranslatingAPage:
         assert page["regions"] == [{
             "x": 11, "y": 22, "w": 33, "h": 44,
             "source_text": "原文", "translated_text": "",
-            "kind": "bubble", "font_category": "regular", "reading_order": 0}]
+            "kind": "bubble", "font_category": "regular", "reading_order": 0,
+            "left_alone": False, "untranslated": False}]
         assert page["key"] == "img-1"
 
     def test_with_no_engine_configured_the_source_text_still_comes_back(self, token,

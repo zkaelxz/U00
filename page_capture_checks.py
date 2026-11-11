@@ -4,6 +4,9 @@ page lookup for re-captures, and the fixed failure messages."""
 
 import os
 
+import en_cleanup
+import scanlate_regions
+
 
 def regions_for_response(bubbles):
     """Boxes exactly as the pipeline produced them: `x/y/w/h` in absolute
@@ -12,6 +15,7 @@ def regions_for_response(bubbles):
     so nothing here is normalised or rounded to a different basis."""
     regions = []
     for b in bubbles:
+        translated = (b.get("translated_text") or "").strip()
         regions.append({
             "x": int(b.get("x", 0)), "y": int(b.get("y", 0)),
             "w": int(b.get("w", 0)), "h": int(b.get("h", 0)),
@@ -20,6 +24,11 @@ def regions_for_response(bubbles):
             "kind": b.get("kind") or "bubble",
             "font_category": b.get("font_category") or "regular",
             "reading_order": int(b.get("reading_order", 0)),
+            # Lettering Scanlate leaves alone (a sound effect, a hand-skipped region): the
+            # preview must not paint over what the typeset page would keep.
+            "left_alone": bool(b.get("skip")) or scanlate_regions.region_excluded_from_auto(b),
+            # The model returned the text unchanged or part-way: still source-script letters.
+            "untranslated": bool(translated) and en_cleanup.has_cjk_letters(translated),
         })
     return regions
 
