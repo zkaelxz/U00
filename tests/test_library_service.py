@@ -199,6 +199,9 @@ class TestListSeriesWithDramas:
 
     def test_query_count_does_not_grow_with_series(self, isolated_db, monkeypatch):
         self._build(isolated_db, 2)
+        # The first call also reads the PC-profile PIN, which is then cached for
+        # the process; without this warm-up the count depends on test order.
+        library_service.list_series_with_dramas()
         few = self._count_queries(isolated_db, monkeypatch)
         for i in range(2, 8):
             sid = isolated_db.create_series(f"S{i}")
