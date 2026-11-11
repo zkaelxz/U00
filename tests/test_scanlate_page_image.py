@@ -182,3 +182,31 @@ def test_the_prompt_asks_for_an_empty_answer_for_a_watermark_not_a_note(monkeypa
         regions, b"x", "image/png", _Engine(), {"source_language": "ko"})
     assert got == {"0": "", "1": "Hello."}
     assert 'answer "" (an empty string)' in sent["prompt"]
+
+
+def test_both_prompts_ask_for_natural_dialogue_and_only_the_blind_one_forbids_guessing_gender(monkeypatch):
+    sent = {}
+
+    def ask(engine, prompt, image, mime, max_tokens=0, on_done=None):
+        sent["picture"] = prompt
+        return _answer({"0": "Hello."})
+
+    monkeypatch.setattr(vision, "ask_about_image", ask)
+    scanlate_translate.translate_regions_with_image(
+        [{"id": "0", "text": "안녕", "box": {"x": 1, "y": 2, "w": 3, "h": 4}}], b"x", "image/png",
+        _Engine(), {"source_language": "ko"})
+
+    from engine_backends import llm_tasks
+
+    def call(engine, prompt, **kw):
+        sent["text_only"] = prompt
+        return json.dumps({"translations": {"0": "Hello."}, "context_summary": "x"})
+
+    monkeypatch.setattr(llm_tasks, "call_llm_json", call)
+    scanlate_translate.translate_regions_by_id({"0": "안녕"}, _Engine(), {"source_language": "ko"})
+
+    for key in ("picture", "text_only"):
+        assert "word-for-word gloss" in sent[key] and "drop nothing" in sent[key]
+        assert "romanised" in sent[key]
+    assert "never guess he or she" in sent["text_only"]
+    assert "never guess he or she" not in sent["picture"]
