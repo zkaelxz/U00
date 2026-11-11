@@ -760,9 +760,12 @@ _APP_UPDATE_APPLYING = ("The app-only update is being applied. Wait for Baihe St
                         "restart, then try again.")
 
 
-NO_DESKTOP_FOR_SETUP = ("Baihe is running as a background service with no desktop, so Setup can't open "
-                        "here. Run {name} from the library's updates folder on this PC yourself, or use "
-                        "the app-only update if it is offered.")
+# With no desktop Setup runs without a window; it still stops and restarts the service, so Baihe goes away
+# and comes back on its own (exit code 100 or 101 and the install log say what failed).
+SILENT_SETUP_ARGS = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
+NO_DESKTOP_FOR_SETUP = ("Baihe is running as a background service with no desktop and without administrator "
+                        "rights, so Setup can't ask for them here. Run {name} from the library's updates "
+                        "folder on this PC yourself, or use the app-only update if it is offered.")
 
 
 def _verified_name() -> str:
@@ -789,9 +792,10 @@ def install() -> dict:
     if not _is_installed():
         raise UnsupportedOperationError("Updates are for the installed app. A source checkout "
                                         "updates with git.")
-    if not desktop_session.has_desktop():
-        # A boot service runs in Session 0: Setup's window would open on no desktop and wait
-        # forever, leaving "starting or open" stuck and the button unusable.
+    silent = not desktop_session.has_desktop()
+    if silent and not desktop_session.is_elevated():
+        # Setup's service step asks for administrator rights through the Windows prompt, which
+        # would open on a desktop nobody sees and wait forever, so there is nothing safe to run.
         raise UnsupportedOperationError(NO_DESKTOP_FOR_SETUP.format(name=_verified_name()))
     # Checked and set under one lock: a second click can't start a second Setup,
     # and a download can't start (and delete the file) while this one copies it.
@@ -809,13 +813,13 @@ def install() -> dict:
         # calls setup_busy(), so holding both here could deadlock.
         if app_update_service.apply_busy():
             raise ConflictError(_APP_UPDATE_APPLYING)
-        return _install(verified)
+        return _install(verified, silent)
     finally:
         with _lock:
             _installing = False
 
 
-def _install(verified) -> dict:
+def _install(verified, silent: bool = False) -> dict:
     global _verified, _setup
     # The option may have been switched off since the download; same rule as download().
     if not is_newer(verified["version"], current_version(), include_prereleases()):
@@ -855,7 +859,7 @@ def _install(verified) -> dict:
     try:
         # The server's job lets a child out only for the length of this call.
         with process_guard.breakaway_allowed():
-            setup = subprocess.Popen([copy], cwd=folder, env=_setup_env(),
+            setup = subprocess.Popen([copy, *SILENT_SETUP_ARGS] if silent else [copy], cwd=folder, env=_setup_env(),
                                      creationflags=_CREATE_BREAKAWAY_FROM_JOB
                                      | _CREATE_NEW_PROCESS_GROUP, close_fds=True)
         with _lock:
@@ -866,4 +870,4 @@ def _install(verified) -> dict:
             f"Windows didn't let Baihe start Setup. Run {verified['name']} from the library's "
             "updates folder yourself.") from None
     return {"launched": True, "installer_name": verified["name"],
-            "version": verified["version"]}
+            "version": verified["version"], "silent": silent}

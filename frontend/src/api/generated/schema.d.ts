@@ -30046,6 +30046,12 @@ export interface components {
             installer_name: string;
             /** Launched */
             launched: boolean;
+            /**
+             * Silent
+             * @description Setup runs without a window (Baihe has no desktop): it restarts Baihe by itself when it is done.
+             * @default false
+             */
+            silent: boolean;
             /** Version */
             version: string;
         };

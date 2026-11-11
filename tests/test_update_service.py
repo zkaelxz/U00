@@ -633,14 +633,26 @@ def test_install_refused_off_windows(verified, monkeypatch):
     assert FakePopen.calls == []
 
 
-def test_install_refused_without_a_desktop_instead_of_hanging_in_session_0(verified, monkeypatch):
+def test_install_refused_without_a_desktop_or_admin_rights(verified, monkeypatch):
+    # Setup's service step would raise a permission prompt nobody can see and wait forever.
     monkeypatch.setattr(us, "_is_windows", lambda: True)
     monkeypatch.setattr(us.desktop_session, "has_desktop", lambda: False)
+    monkeypatch.setattr(us.desktop_session, "is_elevated", lambda: False)
     with pytest.raises(UnsupportedOperationError, match="no desktop") as exc:
         us.install()
     assert NAME in str(exc.value)
     assert FakePopen.calls == []
     assert us.setup_busy() is False
+
+
+def test_install_without_a_desktop_but_with_admin_rights_runs_setup_without_a_window(verified, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    monkeypatch.setattr(us.desktop_session, "has_desktop", lambda: False)
+    monkeypatch.setattr(us.desktop_session, "is_elevated", lambda: True)
+    out = us.install()
+    assert out == {"launched": True, "installer_name": NAME, "version": "0.2.0", "silent": True}
+    (args, _kw), = FakePopen.calls
+    assert args[1:] == ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
 
 
 def test_install_refused_when_not_verified(http, monkeypatch):
@@ -704,7 +716,7 @@ def test_install_starts_a_private_copy_with_fixed_args_outside_the_job(verified,
         monkeypatch.setenv(name, value)
     assert us.status()["can_install"] is True
     out = us.install()
-    assert out == {"launched": True, "installer_name": NAME, "version": "0.2.0"}
+    assert out == {"launched": True, "installer_name": NAME, "version": "0.2.0", "silent": False}
     (args, kw), = FakePopen.calls
     (folder,) = _setup_copies()
     copy = os.path.join(us.tempfile.gettempdir(), folder, NAME)

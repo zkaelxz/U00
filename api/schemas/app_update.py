@@ -101,6 +101,8 @@ class UpdateInstallResponse(BaseModel):
     launched: bool
     installer_name: str
     version: str
+    silent: bool = Field(default=False, description="Setup runs without a window (Baihe has no desktop): "
+                                                    "it restarts Baihe by itself when it is done.")
 
 
 class AppUpdateApplyResponse(BaseModel):

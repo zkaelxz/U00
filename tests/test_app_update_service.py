@@ -406,7 +406,7 @@ def test_full_setup_replaces_a_queued_app_update(env, monkeypatch):
     monkeypatch.setattr(us, "_setup", None)
     monkeypatch.setattr(us, "_verified", verified)
     started = []
-    monkeypatch.setattr(us, "_install", lambda v: started.append(v) or {"launched": True})
+    monkeypatch.setattr(us, "_install", lambda v, silent=False: started.append(v) or {"launched": True})
     app_swap.write_journal(env["root"], app_swap.QUEUED, "0.1.0", "0.2.0", "0.1.0")
     assert us.install() == {"launched": True}
     assert started == [verified]

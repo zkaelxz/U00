@@ -25,7 +25,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
-  APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, PRERELEASES_HELP, SERVICE_AUTO_APPLY_HELP, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
+  APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, PRERELEASES_HELP, SERVICE_AUTO_APPLY_HELP, HASH_NOTE, INSTALL_NOTE, SILENT_INSTALL_NOTE, SMARTSCREEN_NOTE,
   PHONE_APP_NOTE, appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
   downloadLine, installTarget, isDownloading, phoneAppLine, signatureLine, versionLine,
 } from './updateModel'
@@ -53,6 +53,7 @@ function AppUpdatesControls() {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [launched, setLaunched] = useState<string | null>(null)
+  const [silentSetup, setSilentSetup] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [phoneLine, setPhoneLine] = useState<string | null>(null)
 
@@ -83,6 +84,7 @@ function AppUpdatesControls() {
     try {
       const r = await installUpdate()
       setLaunched(`${r.installer_name}, version ${r.version}`)
+      setSilentSetup(r.silent)
     } catch (e) {
       setError(e)
       // A refused install may have dropped the verified download.
@@ -175,7 +177,7 @@ function AppUpdatesControls() {
           {status.can_apply_app && !restarting && <p className="muted">{APP_APPLY_NOTE}</p>}
           {status.installed && <p className="muted" data-testid="update-signature-line">{signatureLine(status)}</p>}
           {launched && (
-            <p role="status">Setup is open ({launched}). {INSTALL_NOTE}</p>
+            <p role="status">{silentSetup ? `Setup is running in the background (${launched}). ${SILENT_INSTALL_NOTE}` : `Setup is open (${launched}). ${INSTALL_NOTE}`}</p>
           )}
           {status.update_available && status.notes && (
             <details>
