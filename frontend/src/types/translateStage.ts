@@ -166,6 +166,7 @@ export type GlossaryImportResult = Schemas['GlossaryImportResult']
 export type GlossaryBulkDeleteResult = Schemas['GlossaryBulkDeleteResult']
 
 export type GlossaryInstructions = Schemas['GlossaryInstructions']
+export type InstructionsDraft = Schemas['InstructionsDraft']
 
 export type GlossaryCatalogues = Schemas['GlossaryCatalogues']
 

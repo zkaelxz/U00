@@ -21,6 +21,7 @@ __all__ = [
     "GlossaryBulkDeleteResult",
     "GlossaryInstructions",
     "GlossaryInstructionsUpdate",
+    "InstructionsDraft",
     "GlossaryCatalogueOption",
     "GlossaryTermPolicyOption",
     "GlossaryWorkflowTier",
@@ -221,6 +222,11 @@ class GlossaryInstructionsUpdate(BaseModel):
     model_config = {"extra": "forbid"}
 
     text: str
+
+
+class InstructionsDraft(BaseModel):
+    instructions: str
+    engine: str
 
 
 class GlossaryCatalogueOption(BaseModel):

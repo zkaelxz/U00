@@ -31,4 +31,10 @@ describe('InstructionsForm', () => {
     expect(html).toContain('- names: pinyin')
     expect(html).not.toContain('Term conventions:')
   })
+
+  it('offers a draft from the novel next to Save', () => {
+    const html = renderToStaticMarkup(<InstructionsForm id={1} saved="" onSaved={() => undefined} />)
+    expect(html).toContain('Draft from novel')
+    expect(html).toContain('Save')
+  })
 })
