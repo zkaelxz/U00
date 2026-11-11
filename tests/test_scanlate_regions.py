@@ -668,3 +668,27 @@ class TestKatakanaEffects:
     def test_a_region_the_person_included_is_left_alone(self):
         region = {"kind": "bubble", "source_text": "ゴゴゴ", "include_sfx": True}
         assert scanlate_regions.flag_katakana_effects([region]) == 0
+
+
+def test_a_block_cut_from_a_frame_that_reads_as_nothing_is_not_a_region(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    page = _glyph_page([(60, 60), (420, 480)])
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, page)
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+    monkeypatch.setattr(scanlate, "ocr_box_region",
+                        lambda p, b, *a, **kw: "こんにちは" if b["x"] < 200 else "")
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert [b["source_text"] for b in bubbles] == ["こんにちは"]
+
+
+def test_a_box_that_was_not_split_keeps_its_empty_region_for_hand_entry(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, _glyph_page([(300, 300)]))
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+    monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **kw: "")
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert len(bubbles) == 1

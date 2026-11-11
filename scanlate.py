@@ -233,8 +233,15 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
     boxes = merge_fragment_boxes(boxes, gray)
+    split_parts = set()
     if gray is not None:
-        boxes = [part for box in boxes for part in split_separate_lettering(gray, box)]
+        pieces = []
+        for box in boxes:
+            parts = split_separate_lettering(gray, box)
+            if len(parts) > 1:
+                split_parts.update((p["x"], p["y"], p["w"], p["h"]) for p in parts)
+            pieces.extend(parts)
+        boxes = pieces
 
     captions = None
     if not boxes:
@@ -263,6 +270,10 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
             b["source_text"] = ""
             ocr_failed += 1
         if _is_thought_dots(b["source_text"], source_language):
+            continue
+        # A block cut out of a frame that reads as nothing is a curl of its
+        # ornament, not lettering; it would only be an empty row to review.
+        if (b["x"], b["y"], b["w"], b["h"]) in split_parts and not b["source_text"].strip():
             continue
         b["source_text"] = strip_stray_sfx_mark(b["source_text"], b.get("kind"))
         b["language"] = detect_script_language(b["source_text"], b["language"])
