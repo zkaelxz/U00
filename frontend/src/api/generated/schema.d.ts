@@ -26384,6 +26384,11 @@ export interface components {
              * @default true
              */
             scanlate_page_image: boolean;
+            /**
+             * Scanlate Sfx Gloss
+             * @default false
+             */
+            scanlate_sfx_gloss: boolean;
             /** Scene Aware Batches */
             scene_aware_batches: boolean;
             /**
@@ -26660,6 +26665,8 @@ export interface components {
             scanlate_chapter_brief?: boolean | null;
             /** Scanlate Page Image */
             scanlate_page_image?: boolean | null;
+            /** Scanlate Sfx Gloss */
+            scanlate_sfx_gloss?: boolean | null;
             /** Scene Aware Batches */
             scene_aware_batches?: boolean | null;
             /** Scene Break Gap Seconds */
