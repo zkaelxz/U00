@@ -8,7 +8,7 @@ Part of the [user guide](user-guide.md).
 
 | Engine | Cost | Notes |
 |---|---|---|
-| `claude` | Paid per token (API key from console.anthropic.com, billed separately from a Claude.ai subscription) | Best tone and character voice; novel reference with prompt caching. Model picker in Workspace > Translate (Sonnet 5.5 default, Opus 5.5, Haiku 4.5, plus older Sonnet and Opus kept for saved presets); see `CLAUDE_MODELS` in `engine_backends/pricing.py`. |
+| `claude` | Paid per token (API key from console.anthropic.com, billed separately from a Claude.ai subscription) | Best tone and character voice; novel reference with prompt caching. Model picker in Workspace > Translate (Sonnet 5.5 default, Opus 5.5, plus older Sonnet and Opus kept for saved presets); see `CLAUDE_MODELS` in `engine_backends/pricing.py`. |
 | `deepseek` | Paid, far cheaper than Claude | Strong on Chinese; a good default for context-aware, glossary-aware work. |
 | `gemini` | Paid, cheap (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
 | `openai` | Paid per token; `BAIHE_OPENAI_KEY` | GPT models (default `gpt-6-luna`; also `gpt-6.1-terra` and `gpt-6.1-sol`) over Chat Completions; a saved `gpt-5`, `gpt-5-mini` or `gpt-5-nano` runs as `gpt-6-luna`. Newer GPT-6+ models appear in the picker after Diagnostics > Models > Model status with "Also offer models … that this app doesn't know yet" ticked, costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS`. |
