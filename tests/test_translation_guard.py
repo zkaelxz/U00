@@ -502,3 +502,45 @@ class TestFirstAlternative:
                 return ["Strange. Or: Weird. Or: Odd. Or: Unusual."]
         translate_pipeline.translate_lines_with_engine(lines, Listy(), NOVEL, batch_size=1)
         assert lines[0].en == "Strange."
+
+
+class TestNovelImperialUnits:
+    def test_metric_source_turned_imperial_is_detected(self):
+        assert guard.converted_to_imperial("气温三十五度", "It was ninety-five degrees Fahrenheit")
+        assert guard.converted_to_imperial("他身高一米八", "He stood 6 feet tall")
+
+    def test_source_that_uses_imperial_or_plain_english_is_not(self):
+        assert not guard.converted_to_imperial("他身高六英尺", "He stood 6 feet tall")
+        assert not guard.converted_to_imperial("他身高一米八", "He stood 1.8 metres tall")
+
+    def test_novel_line_is_flagged_and_subtitle_is_not(self):
+        sources = ["他身高一米八，站在门口一动不动"]
+
+        class Eng(Scripted):
+            def translate_batch(self, zh_lines, context):
+                return ["He stood six feet tall in the doorway, not moving at all."]
+
+        for meta, flagged in ((NOVEL, True), ({}, False)):
+            lines = [Line(idx=0, start=0, end=1, zh=sources[0], id=300)]
+            translate_pipeline.translate_lines_with_engine(lines, Eng(), meta, batch_size=1)
+            assert (lines[0].flag == FLAG) is flagged
+
+
+class TestNovelInventedSpeakerTag:
+    def test_tag_the_source_does_not_have_is_removed(self):
+        assert guard.strip_invented_speaker_tag("“下来吧。”", '[Tong Chu] "Come down."') == '"Come down."'
+
+    def test_source_with_its_own_bracket_or_plain_reply_is_kept(self):
+        assert guard.strip_invented_speaker_tag("[旁白] 下来", "[Narrator] Come down") == "[Narrator] Come down"
+        assert guard.strip_invented_speaker_tag("下来吧", "Come down [now]") == "Come down [now]"
+
+    def test_novel_run_removes_the_tag_and_subtitle_run_keeps_it(self):
+        class Eng(Scripted):
+            def translate_batch(self, zh_lines, context):
+                return ['[Tong Chu] "Come down," she said gently, standing beneath the tree.']
+
+        source = "“下来吧，”她站在树下，温和地说。"
+        for meta, expected in ((NOVEL, '"Come down,'), ({}, "[Tong Chu]")):
+            lines = [Line(idx=0, start=0, end=1, zh=source, id=400)]
+            translate_pipeline.translate_lines_with_engine(lines, Eng(), meta, batch_size=1)
+            assert lines[0].en.startswith(expected)
