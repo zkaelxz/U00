@@ -27,7 +27,7 @@ _SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "newtojuso", 
 
 # Reader-site ads read as dialogue once translated. "Fastest webtoon" and
 # "search on Google" are the ad's own phrases, rare in a story.
-_PROMO = re.compile(r"가장\s*빠른\s*웹툰|구글\s*검색")
+_PROMO = re.compile(r"가장\s*빠른\s*웹[툰튼]|구글\s*검색")
 
 # A stamp line by itself: the site's name cut short, or "미리보기" (preview)
 # with a digit read in for a stroke ("미12보7"). Matched only against a whole

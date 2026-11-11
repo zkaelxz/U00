@@ -148,3 +148,8 @@ def test_a_site_promo_is_skipped_rather_than_translated_as_dialogue():
 def test_a_lone_cut_short_stamp_word_is_not_a_mark_without_company():
     regions = [_r("뉴토")]
     assert wm.flag_site_marks(regions) == 0
+
+
+def test_a_promo_whose_ocr_misreads_a_stroke_is_still_a_site_ad():
+    regions = [_r("가장 빠른 웹튼 미리보7")]
+    assert wm.flag_site_marks(regions) == 1
