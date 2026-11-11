@@ -332,7 +332,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         if laid_out is not None:
             font, placed = laid_out
             if report is not None:
-                report["size"] = font.size
+                report["size"] = size
             for line, left, right, top in placed:
                 bbox = draw.textbbox((0, 0), line, font=font)
                 line_w = bbox[2] - bbox[0]
@@ -376,7 +376,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     # Nothing fit: the smallest size is what is drawn.
 
     if report is not None:
-        report["size"] = font.size
+        report["size"] = size
     total_h = line_height * len(lines)
     start_y = box["y"] + max(0, (box["h"] - total_h) // 2)
     for i, line in enumerate(lines):
