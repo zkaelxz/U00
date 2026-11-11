@@ -253,3 +253,37 @@ def test_cancel_says_so_at_once_aborts_the_request_in_flight_and_stays_cancelled
     assert out["labels"] == [out["text"]]
     assert [m for m in out["messages"] if m.startswith("abortSends")] == ["abortSends"]
     assert out["sends"] == 0 and out["outcome"] is True
+
+
+def _complete(found, entries, repeats=(), unreadable=(), counts=None, timing=None):
+    counts = counts or {"untranslatedLines": 0}
+    timing = timing or {"read": 0, "translate": 0, "typeset": 0, "pages": 0}
+    expression = ("window.__baihe.completenessLine(" + ", ".join(json.dumps(a) for a in (
+        found, list(entries), list(repeats), list(unreadable), counts, timing)) + ")")
+    return _node("content_expression", expression)
+
+
+def test_the_closing_line_names_every_page_that_is_not_saved_and_why():
+    entries = [{"position": 1, "status": "saved", "typeset": True},
+               {"position": 2, "status": "saved", "typeset": False, "noText": True},
+               {"position": 3, "status": "saved", "typeset": False, "noText": False},
+               {"position": 4, "status": "skipped", "reason": "looks like an ad banner"},
+               {"position": 5, "status": "failed", "reason": "the app stopped answering"},
+               {"position": 6, "status": "queued"}]
+    text = _complete(7, entries, repeats=[1], unreadable=[{"position": 7, "error": "blank"}],
+                     counts={"untranslatedLines": 2},
+                     timing={"read": 4, "translate": 10, "typeset": 2, "pages": 2})
+    assert text.startswith("Saved 3 of 7 pages; typeset 1 of 3; 3 missed: ")
+    assert "page 4 (skipped: looks like an ad banner)" in text
+    assert "page 5 (failed: the app stopped answering)" in text
+    assert "page 6 (never sent or no answer)" in text
+    assert "1 unreadable: page 7 (blank)" in text
+    assert "2 saved without a typeset image: page 2 (no text found), page 3 (typeset failed)" in text
+    assert "1 repeat of an earlier page left out" in text and "2 lines with no English" in text
+    assert "per page: read text 2.0s, translate 5.0s, typeset 1.0s" in text
+
+
+def test_a_clean_capture_says_all_saved_and_names_nothing_missing():
+    entries = [{"position": i, "status": "saved"} for i in range(1, 4)]
+    text = _complete(3, entries)
+    assert text == "Saved 3 of 3 pages"

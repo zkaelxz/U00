@@ -15,6 +15,7 @@ const els = {
   captureChapter: document.getElementById("captureChapter"),
   captureFromHere: document.getElementById("captureFromHere"),
   cancelCapture: document.getElementById("cancelCapture"),
+  retryMissed: document.getElementById("retryMissed"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
   novelSection: document.getElementById("novelSection"),
@@ -513,7 +514,8 @@ async function startCapture(fromHere) {
     if (!made) return;
     ({ dramaId, note: autoNote } = made);
   }
-  say("Starting…");
+  say("Looking for the chapter's pages…");
+  els.retryMissed.hidden = true;
   forgetPendingAccess();
   showCapturing(true);
   try {
@@ -538,6 +540,7 @@ async function startCapture(fromHere) {
       sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
     const line = destination ? `${message} ${destination}.` : message;
     say(autoNote ? `${autoNote} ${line}` : line, result.data.reason === "error" || result.data.failed > 0);
+    els.retryMissed.hidden = !(result.data.missedCount > 0);
     if (result.data.origins) offerSiteAccess(result.data, { kind: "capture", fromHere });
     if (store && dramaId && stored) showOpenLink(dramaId);
   } catch (e) {
@@ -655,6 +658,21 @@ els.cancelCapture.addEventListener("click", async () => {
     say("Cancelling…");
   } catch (e) {
     say(`Couldn't reach this page (${e.message}).`, true);
+  }
+});
+els.retryMissed.addEventListener("click", async () => {
+  const tab = await activeTab();
+  els.retryMissed.disabled = true;
+  say("Retrying the missed pages…");
+  try {
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "retryMissed" });
+    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    say(result.data.message, result.data.missedCount > 0);
+    els.retryMissed.hidden = !(result.data.missedCount > 0);
+  } catch (e) {
+    say(`Couldn't reach this page (${e.message}).`, true);
+  } finally {
+    els.retryMissed.disabled = false;
   }
 });
 els.translateText.addEventListener("click", runText);

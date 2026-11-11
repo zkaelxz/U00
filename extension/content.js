@@ -93,6 +93,7 @@
     // The running chapter capture ({cancelled, text}), or null.
     capture: null,
     visible: null,
+    missed: null,
   };
 
   // -- collecting ------------------------------------------------------
@@ -1454,13 +1455,65 @@
     return tally.join(", ");
   }
 
+  // The line that accounts for every page found: saved, typeset, and each one that is neither, by
+  // its place in the chapter and the reason, so a short count is never unexplained.
+  function completenessLine(found, entries, repeats, unreadable, counts, timing) {
+    const place = (list, why) => list.slice(0, 6).map((e) => `page ${e.position} (${why(e)})`).join(", ") +
+                                 (list.length > 6 ? `, and ${list.length - 6} more` : "");
+    const saved = entries.filter((e) => e.status === "saved" || e.status === "read").length;
+    const parts = [`Saved ${saved} of ${found} pages`];
+    const drawn = entries.filter((e) => e.typeset !== undefined);
+    if (drawn.length) parts.push(`typeset ${drawn.filter((e) => e.typeset === true).length} of ${drawn.length}`);
+    const missed = entries.filter((e) => e.status !== "saved" && e.status !== "read")
+                          .sort((a, b) => a.position - b.position);
+    const reasons = { skipped: (e) => `skipped: ${e.reason || "not judged a page"}`,
+                      failed: (e) => `failed: ${e.reason || "no reason given"}`,
+                      queued: () => "never sent or no answer" };
+    if (missed.length) parts.push(`${missed.length} missed: ${place(missed, (e) => reasons[e.status](e))}`);
+    if (unreadable.length) parts.push(`${unreadable.length} unreadable: ${place(unreadable, (u) => u.error)}`);
+    const plain = drawn.filter((e) => e.typeset === false);
+    if (plain.length) {
+      parts.push(`${plain.length} saved without a typeset image: ` +
+                 place(plain, (e) => (e.noText ? "no text found" : "typeset failed")));
+    }
+    if (repeats.length) parts.push(`${repeats.length} repeat${repeats.length === 1 ? "" : "s"} of an earlier page left out`);
+    if (counts.untranslatedLines) parts.push(`${counts.untranslatedLines} line${counts.untranslatedLines === 1 ? "" : "s"} with no English`);
+    if (timing.pages) {
+      const average = (total) => (total / timing.pages).toFixed(1);
+      parts.push(`per page: read text ${average(timing.read)}s, translate ${average(timing.translate)}s` +
+                 (timing.typeset ? `, typeset ${average(timing.typeset)}s` : ""));
+    }
+    return parts.join("; ");
+  }
+
+  // Sends the pages a finished capture could not save once more, without the page filter's judgement.
+  async function retryMissed() {
+    const missed = state.missed;
+    if (!missed || !missed.items.length) return { ok: false, error: "No missed pages to retry." };
+    if (state.capture || state.visible) return { ok: false, error: "Wait for the running capture to finish first." };
+    let saved = 0;
+    const outcome = await sendInBatches(missed.items, (items) =>
+      sendBatch(items, { dramaId: missed.dramaId, store: missed.store, filterPages: false }),
+    (items, data) => { saved += (data.pages || []).length; return !!data.stopped; });
+    const left = missed.items.length - saved;
+    state.missed = left > 0 && outcome.failure ? { ...missed, items: missed.items.slice(saved) } : null;
+    const why = outcome.failure ? ` (${outcome.failure.reason})` : "";
+    return { ok: true, data: { message: `Retried ${missed.items.length} missed pages: ${saved} saved, ${Math.max(0, left)} still missing${why}.`,
+                               missedCount: state.missed ? state.missed.items.length : 0 } };
+  }
+
   async function runCapture(run, ui, scroller, { dramaId, store, fromHere }) {
     // Hashes already handled this run (sent, cached, skipped or duplicate).
     // Distinct pages seen is also what the cap counts.
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0, duplicates: 0, noText: 0, noEnglish: 0 };
+    // Every distinct page met, by hash: where it sits, and what became of it. This is what lets the
+    // closing line say which pages are not saved, and why, instead of only how many.
+    const ledger = new Map();
+    const repeats = [];
+    const timing = { read: 0, translate: 0, typeset: 0, pages: 0 };
+    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0, duplicates: 0, noText: 0, noEnglish: 0, untranslatedLines: 0 };
     let firstFailure = "";
     let firstSkip = "";
     let firstEnglishProblem = "";
@@ -1489,6 +1542,8 @@
       reportProgress(run.text, fraction);
     };
     run.tick = emit;
+    line = fromHere ? "Looking for pages from here" : "Scrolling to the top to start";
+    emit();
     const report = (suffix = "") => {
       const counter = readerCounter();
       line = (counter ? `Page ${counter.current} of ${counter.total}`
@@ -1532,10 +1587,14 @@
         const cached = state.cache.get(extracted.hash);
         if (seen.has(extracted.hash)) {
           counts.duplicates += 1;
+          repeats.push(ledger.get(extracted.hash)?.position);
           if (cached && el.isConnected) drawOverlay(el, cached);
           continue;
         }
         seen.add(extracted.hash);
+        // A page answered earlier in this tab was saved by that run.
+        const entry = { position: seen.size, status: cached ? "saved" : "queued", item: null };
+        ledger.set(extracted.hash, entry);
         found += 1;
         if (extracted.unverified) counts.unverified += 1;
         if (cached) {
@@ -1544,8 +1603,9 @@
           continue;
         }
         seq += 1;
-        queue.push({ extracted, elements: [el], srcKey: drawTargetKey(el, extracted.hash), seq,
-                     order: { index: readerIndexOf(el), pos: scroller.positionOf(el) } });
+        entry.item = { extracted, elements: [el], srcKey: drawTargetKey(el, extracted.hash), seq,
+                       order: { index: readerIndexOf(el), pos: scroller.positionOf(el) } };
+        queue.push(entry.item);
       }
       return found;
     }
@@ -1553,54 +1613,84 @@
     // Sends queued pages in reading order, a batch at a time, through the
     // same sendInBatches the visible-pages path uses. Returns a failure
     // reason, or "".
+    const sendRange = async (items, range) => {
+      report(` — translating ${range.from}-${range.to} of ${range.total}`);
+      return sendBatch(items, { dramaId, store, filterPages: items.length > 1 });
+    };
+    const onBatch = async (items, data) => {
+      recordAnswers(data);
+      const byHash = regionsByKey(data);
+      for (const { extracted, elements, srcKey } of items) {
+        const regions = byHash.get(extracted.hash);
+        if (!regions) continue;
+        state.cache.set(extracted.hash, regions);
+        // A virtualised reader may have recycled the element for a
+        // later page while this batch was in flight; drawing then
+        // would put these bubbles on the wrong page.
+        for (const el of elements) {
+          if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
+            drawOverlay(el, regions);
+            counts.drawn += 1;
+          }
+        }
+      }
+      const reused = (data.pages || []).filter((p) => p.already_stored).length;
+      counts.translated += (data.pages || []).length - reused;
+      counts.alreadyStored += reused;
+      counts.stored += (data.pages || []).filter((p) => p.stored).length;
+      counts.skipped += (data.skipped || []).length;
+      counts.failed += (data.failed || []).length;
+      // A saved page is only "translated" in the line if English came back, so the three ways
+      // it can come back without it are told apart: no text read, no engine answer, or both.
+      for (const page of data.pages || []) {
+        const regions = page.regions || [];
+        if (!regions.length) {
+          counts.noText += 1;
+        } else if (regions.some((r) => r.untranslated)) {
+          counts.noEnglish += 1;
+          if (!firstEnglishProblem) {
+            const note = (page.notes || []).find((n) => /translat|engine|key/i.test(String(n[1])));
+            firstEnglishProblem = note ? String(note[1]) : "";
+          }
+        }
+      }
+      if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
+      if (!firstSkip && (data.skipped || []).length) firstSkip = data.skipped[0].reason || "";
+      if (data.stopped) serverStop = String(data.stopped);
+      return !!data.stopped;
+    };
+
+    // Records what each answered page became, so the closing line can account for every page.
+    function recordAnswers(data) {
+      for (const page of data.pages || []) {
+        const entry = ledger.get(page.key);
+        if (!entry) continue;
+        entry.status = page.stored || page.already_stored ? "saved" : "read";
+        entry.typeset = page.typeset;
+        entry.noText = !(page.regions || []).length;
+        entry.item = null;
+        counts.untranslatedLines += page.untranslated_lines || 0;
+        const seconds = page.seconds || {};
+        timing.read += seconds.read || 0;
+        timing.translate += seconds.translate || 0;
+        timing.typeset += seconds.typeset || 0;
+        timing.pages += 1;
+      }
+      for (const item of data.skipped || []) {
+        const entry = ledger.get(item.key);
+        if (entry) Object.assign(entry, { status: "skipped", reason: item.reason || "" });
+      }
+      for (const item of data.failed || []) {
+        const entry = ledger.get(item.key);
+        if (entry) Object.assign(entry, { status: "failed", reason: item.error || "" });
+      }
+    }
+
     async function flush(force) {
       while (!run.cancelled && (queue.length >= limit || (force && queue.length))) {
         queue.sort(byReadingOrder);
         const batch = queue.splice(0, limit);
-        const outcome = await sendInBatches(batch, async (items, range) => {
-          report(` — translating ${range.from}-${range.to} of ${range.total}`);
-          return sendBatch(items, { dramaId, store, filterPages: items.length > 1 });
-        }, async (items, data) => {
-          const byHash = regionsByKey(data);
-          for (const { extracted, elements, srcKey } of items) {
-            const regions = byHash.get(extracted.hash);
-            if (!regions) continue;
-            state.cache.set(extracted.hash, regions);
-            // A virtualised reader may have recycled the element for a
-            // later page while this batch was in flight; drawing then
-            // would put these bubbles on the wrong page.
-            for (const el of elements) {
-              if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
-                drawOverlay(el, regions);
-                counts.drawn += 1;
-              }
-            }
-          }
-          const reused = (data.pages || []).filter((p) => p.already_stored).length;
-          counts.translated += (data.pages || []).length - reused;
-          counts.alreadyStored += reused;
-          counts.stored += (data.pages || []).filter((p) => p.stored).length;
-          counts.skipped += (data.skipped || []).length;
-          counts.failed += (data.failed || []).length;
-          // A saved page is only "translated" in the line if English came back, so the three ways
-          // it can come back without it are told apart: no text read, no engine answer, or both.
-          for (const page of data.pages || []) {
-            const regions = page.regions || [];
-            if (!regions.length) {
-              counts.noText += 1;
-            } else if (regions.some((r) => r.untranslated)) {
-              counts.noEnglish += 1;
-              if (!firstEnglishProblem) {
-                const note = (page.notes || []).find((n) => /translat|engine|key/i.test(String(n[1])));
-                firstEnglishProblem = note ? String(note[1]) : "";
-              }
-            }
-          }
-          if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
-          if (!firstSkip && (data.skipped || []).length) firstSkip = data.skipped[0].reason || "";
-          if (data.stopped) serverStop = String(data.stopped);
-          return !!data.stopped;
-        }, limit, () => run.cancelled);
+        const outcome = await sendInBatches(batch, sendRange, onBatch, limit, () => run.cancelled);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
         if (outcome.cancelled || run.cancelled) return "";
@@ -1608,6 +1698,20 @@
         if (serverStop) return serverStop;
       }
       return "";
+    }
+
+    // One more try for pages that failed on delivery (a dropped connection, a busy app), without the
+    // page filter's judgement, before the closing line reports them as missed.
+    async function retryFailed() {
+      const again = [...ledger.values()].filter((e) => e.status === "failed" && e.item).map((e) => e.item);
+      if (!again.length || run.cancelled) return;
+      counts.failed = Math.max(0, counts.failed - again.length);
+      for (const item of again) ledger.get(item.extracted.hash).status = "queued";
+      await sendInBatches(again, async (items, range) => {
+        report(` — retrying ${range.from}-${range.to} of ${range.total} missed`);
+        return sendBatch(items, { dramaId, store, filterPages: false });
+      }, onBatch, limit, () => run.cancelled);
+      // Whatever is still unanswered stays queued; the closing line names it.
     }
 
     if (!fromHere) {
@@ -1659,6 +1763,8 @@
       failure = await flush(true);
       if (failure) reason = "error";
       else if (run.cancelled) reason = "cancelled";
+      else await retryFailed();
+      if (run.cancelled) reason = "cancelled";
     }
 
     if (!seen.size) {
@@ -1668,12 +1774,18 @@
         : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
     const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip, firstEnglishProblem);
-    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}. ` +
+    const entries = [...ledger.values()];
+    const complete = completenessLine(seen.size, entries, repeats, unreadablePages, counts, timing);
+    const missedItems = entries.filter((e) => e.status !== "saved" && e.status !== "read" && e.item)
+                               .map((e) => e.item);
+    state.missed = missedItems.length ? { items: missedItems, dramaId, store } : null;
+    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${complete} (${tally}). ` +
                     `Took ${formatElapsed(Date.now() - run.startedAt)}.`;
     reportProgress(message);
     // A failure text can name the server's address, which a page's own scripts could read from the DOM.
     if (CAPTURE_STOP_MESSAGES[reason]) toast(message, 8000);
     return { ok: true, data: { reason, message, found: seen.size, ...counts,
+                               missedCount: missedItems.length,
                                unreadable: unreadablePages, pages: [],
                                ...accessNeeded(needAccess) } };
   }
@@ -1708,6 +1820,9 @@
             break;
           case "captureChapter":
             respond(await captureChapter(message));
+            break;
+          case "retryMissed":
+            respond(await retryMissed());
             break;
           case "saveNovelText":
             respond(await saveNovelText(message));
@@ -1757,5 +1872,6 @@
                      translatePageText, collectPageText, mainContentBlock,
                      isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox, regionsByKey, requestCancel };
+                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox, regionsByKey, requestCancel,
+                     completenessLine };
 })();
