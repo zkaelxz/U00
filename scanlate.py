@@ -39,6 +39,7 @@ from scanlate_detect import (
 )
 import scanlate_tuning
 from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
+                              split_separate_lettering,
                               lettering_size, reclassify_wordy_sfx,
                               region_excluded_from_auto)
 from scanlate_render import sample_text_style
@@ -232,6 +233,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
     boxes = merge_fragment_boxes(boxes, gray)
+    if gray is not None:
+        boxes = [part for box in boxes for part in split_separate_lettering(gray, box)]
 
     captions = None
     if not boxes:

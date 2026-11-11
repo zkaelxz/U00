@@ -115,6 +115,65 @@ def _letter_ink(gray, box: dict):
     return np.isin(labels, keep)
 
 
+_SPLIT_GLYPH_MAX_SPAN = 0.12     # of the box's short side
+_SPLIT_GLYPH_MIN_PX = 8
+_SPLIT_JOIN_SPAN = 0.12          # lettering closer than this is one block
+_SPLIT_MIN_GLYPHS = 4
+_SPLIT_MIN_BOX_SIDE = 300
+_SPLIT_PAD_SPAN = 0.08
+
+
+def split_separate_lettering(gray, box: dict) -> list:
+    """The boxes for a large region whose lettering falls into separate blocks,
+    or [box] when it is one block. Two caption frames drawn close together are
+    detected as one region, and one translation was then fitted across both and
+    laid over their border. Each block of lettering, grown by a margin, becomes
+    a region of its own, kept inside `box`. Glyphs are the small compact marks;
+    frames and art are larger or sparser and do not count."""
+    import cv2
+    if min(box["w"], box["h"]) < _SPLIT_MIN_BOX_SIDE:
+        return [box]
+    h, w = gray.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    roi = gray[y0:min(h, y0 + box["h"]), x0:min(w, x0 + box["w"])]
+    if not roi.size:
+        return [box]
+    ink = (roi < int(min(max(150, float(np.median(roi)) * 0.8), 240))).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    side = min(roi.shape[:2])
+    limit = _SPLIT_GLYPH_MAX_SPAN * side
+    compact = [i for i in range(1, n)
+               if min(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= _SPLIT_GLYPH_MIN_PX
+               and max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) <= limit
+               and stats[i, cv2.CC_STAT_AREA] >= 0.25 * stats[i, cv2.CC_STAT_WIDTH] * stats[i, cv2.CC_STAT_HEIGHT]]
+    if not compact:
+        return [box]
+    # Lettering is one size; an ornament's curl is larger, a speck smaller.
+    typical = float(np.median([stats[i, cv2.CC_STAT_HEIGHT] for i in compact]))
+    glyphs = np.zeros(ink.shape, np.uint8)
+    for i in compact:
+        if 0.6 * typical <= stats[i, cv2.CC_STAT_HEIGHT] <= 1.6 * typical:
+            glyphs[labels == i] = 1
+    join = max(3, int(_SPLIT_JOIN_SPAN * side)) | 1
+    blocks = cv2.dilate(glyphs, np.ones((join, join), np.uint8))
+    count, block_labels, block_stats, _ = cv2.connectedComponentsWithStats(blocks, connectivity=8)
+    found = []
+    for i in range(1, count):
+        if int(glyphs[block_labels == i].sum()) >= 1:
+            ys, xs = np.nonzero((block_labels == i) & (glyphs > 0))
+            if len(xs) >= _SPLIT_MIN_GLYPHS * _SPLIT_GLYPH_MIN_PX ** 2 // 2:
+                found.append((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
+    if len(found) < 2:
+        return [box]
+    pad = int(_SPLIT_PAD_SPAN * side)
+    out = []
+    for fx0, fy0, fx1, fy1 in found:
+        nx0, ny0 = max(0, fx0 - pad), max(0, fy0 - pad)
+        nx1, ny1 = min(roi.shape[1], fx1 + pad), min(roi.shape[0], fy1 + pad)
+        out.append(dict(box, x=x0 + nx0, y=y0 + ny0, w=nx1 - nx0, h=ny1 - ny0))
+    return out
+
+
 def _runs(profile, bridge: int) -> list:
     """Lengths of the inked runs in a 1-D profile, joining runs split by
     fewer than `bridge` empty positions."""
