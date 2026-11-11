@@ -738,3 +738,35 @@ def test_a_box_that_was_not_split_keeps_its_empty_region_for_hand_entry(tmp_path
     monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **kw: "")
     bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
     assert len(bubbles) == 1
+
+
+def _two_lobe_balloon():
+    """One speech balloon drawn as two overlapping lobes, three lines of lettering in each, at the
+    size and position of a real Naver page where the detector gave the pair a single region."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((900, 690), 245, np.uint8)
+    for center, axes in (((220, 500), (175, 130)), ((430, 690), (170, 140))):
+        cv2.ellipse(page, center, axes, 0, 0, 360, 255, -1)
+        cv2.ellipse(page, center, axes, 0, 0, 360, 0, 3)
+    first = [(103, 458, 8), (165, 503, 4), (128, 550, 6)]
+    second = [(395, 640, 4), (330, 690, 7), (325, 735, 7)]
+    for left, top, glyphs in first + second:
+        for k in range(glyphs):
+            cv2.rectangle(page, (left + k * 31, top), (left + k * 31 + 24, top + 34), 30, -1)
+    return page
+
+
+def test_a_two_lobe_balloon_becomes_one_region_per_lobe():
+    page = _two_lobe_balloon()
+    box = {"x": 41, "y": 339, "w": 570, "h": 514, "kind": "bubble"}
+    parts = scanlate_regions.split_separate_lettering(page, box)
+    assert len(parts) == 2
+    upper, lower = sorted(parts, key=lambda p: p["y"])
+
+    def holds(part, left, top, right, bottom):
+        return (part["x"] <= left and part["y"] <= top and part["x"] + part["w"] >= right
+                and part["y"] + part["h"] >= bottom)
+
+    assert holds(upper, 103, 458, 340, 584) and holds(lower, 325, 640, 551, 769)
+    assert not holds(upper, 325, 640, 551, 769) and not holds(lower, 103, 458, 340, 584)
+    assert all(p["kind"] == "bubble" for p in parts)
