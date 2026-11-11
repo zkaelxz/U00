@@ -89,6 +89,20 @@ def reclassify_wordy_sfx(regions: list) -> int:
     return changed
 
 
+_STRAY_LEADING_MARK = re.compile(
+    r"^[0OoＯ０]\s?(?=[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af])")
+
+
+def strip_stray_sfx_mark(text: str, kind: str) -> str:
+    """Drops a lone "0"/"O" glued to the front of a CJK sound effect. OCR
+    reads the round start of a stroke or a speck of screentone as one, and a
+    short effect has nothing around it to outvote the error. Only effects
+    are touched: in a sentence a leading digit can be real."""
+    if kind != "sfx":
+        return text
+    return _STRAY_LEADING_MARK.sub("", text or "", count=1)
+
+
 def detect_script_language(text: str, fallback: str) -> str:
     """Best guess at a region's language from the script its OCR'd text is
     written in: any kana means Japanese, any Hangul means Korean. Han-only

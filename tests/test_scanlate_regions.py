@@ -609,6 +609,19 @@ class TestSkippedSfxNote:
         assert notes == []
 
 
+class TestStrayMarkBeforeSoundEffect:
+    @pytest.mark.parametrize("text,kind,expected", [
+        ("0啾", "sfx", "啾"),
+        ("0 啾 啾", "sfx", "啾 啾"),
+        ("Oドン", "sfx", "ドン"),
+        ("0啾", "sign", "0啾"),
+        ("0", "sfx", "0"),
+        ("Fzzt", "sfx", "Fzzt"),
+        ("啾0", "sfx", "啾0"),
+    ])
+    def test_only_a_leading_mark_on_an_effect_is_dropped(self, text, kind, expected):
+        assert scanlate_regions.strip_stray_sfx_mark(text, kind) == expected
+
 def _glyph_page(blocks, size=(700, 800)):
     cv2 = pytest.importorskip("cv2")
     page = np.full(size, 250, np.uint8)
