@@ -101,7 +101,7 @@ class TestOllamaCallIsAbortable:
         try:
             with pytest.raises(TranslationCancelled):
                 local._ollama_chat(f"http://127.0.0.1:{silent_ollama.port}",
-                                   {"model": "qwen3:8b", "messages": []})
+                                   {"model": "translategemma:12b", "messages": []})
         finally:
             local.abort_check_var.reset(token)
         assert time.monotonic() - started < PROMPT
@@ -160,13 +160,13 @@ class TestBlockedOllamaTranslation:
         monkeypatch.setattr(lt, "stop_capture", lambda proc, **kw: stopped.append(kw))
         monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
                             lambda path, **kw: [{"start": 0.0, "end": 2.0, "text": "你好"}])
-        engine = local.OllamaEngine(model="qwen3:8b",
+        engine = local.OllamaEngine(model="translategemma:12b",
                                     base_url=f"http://127.0.0.1:{silent_ollama.port}")
         assert _start("live_cancel_ollama", _chunk_dir(tmp_path), engine)
 
         assert _wait(lambda: silent_ollama.accepted == 1)
         message = _shown("live_cancel_ollama")
-        assert "translating with qwen3:8b" in message and "Ollama" in message
+        assert "translating with translategemma:12b" in message and "Ollama" in message
 
         started = time.monotonic()
         background_jobs.request_cancel("live_cancel_ollama")
@@ -186,9 +186,9 @@ class TestBlockedOllamaTranslation:
         now = [1000.0]
         monkeypatch.setattr(job_stage_service.time, "time", lambda: now[0])
         job_stage_service.set_stage(
-            "j", "Chunk 1: translating with qwen3:8b (Ollama)", slow_after=60,
+            "j", "Chunk 1: translating with translategemma:12b (Ollama)", slow_after=60,
             slow_note="Still waiting on Ollama after {secs} s: it may be loading the model.")
-        assert _shown("j") == "Chunk 1: translating with qwen3:8b (Ollama)"
+        assert _shown("j") == "Chunk 1: translating with translategemma:12b (Ollama)"
         now[0] += 75
         assert _shown("j").endswith(
             "Still waiting on Ollama after 75 s: it may be loading the model.")

@@ -152,6 +152,29 @@ def test_player_files_are_served_by_name_only(client, fake_live):
     client.post(f"/api/live/sessions/{sid}/stop")
 
 
+def test_a_player_segment_another_program_holds_open_is_a_503_not_a_500(client, fake_live, monkeypatch):
+    import builtins
+    import errno
+    sid = client.post("/api/live/sessions", json={"url": URL, "engine": "fake"}).json()["session_id"]
+    folder = os.path.join(live_service._sessions[sid]["dir"], "player")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "video.m3u8"), "w") as fh:
+        fh.write("#EXTM3U\n")
+    real_open = builtins.open
+
+    def locked(path, *a, **k):
+        if str(path).endswith("video.m3u8"):
+            exc = PermissionError(errno.EACCES, "The process cannot access the file")
+            exc.winerror = 32
+            raise exc
+        return real_open(path, *a, **k)
+    monkeypatch.setattr(builtins, "open", locked)
+    r = client.get(f"/api/live/player/{sid}/video.m3u8")
+    assert r.status_code == 503 and r.json()["error"]["code"] == "file_in_use"
+    monkeypatch.setattr(builtins, "open", real_open)
+    client.post(f"/api/live/sessions/{sid}/stop")
+
+
 def test_404_and_422(client):
     unknown = "live_" + "0" * 32
     assert client.get(f"/api/live/sessions/{unknown}").status_code == 404
@@ -331,11 +354,11 @@ def test_ids_are_strict_positive_integers(client, fake_live):
 def test_the_form_options_are_the_values_start_checks(client, monkeypatch):
     from engine_backends import engine_registry
     monkeypatch.setattr(engine_registry, "model_override_for_default",
-                        lambda name: "qwen3:8b" if name == "ollama" else None)
+                        lambda name: "translategemma:12b" if name == "ollama" else None)
     r = client.get("/api/live/options")
     assert r.status_code == 200, r.text
     o = r.json()
-    assert o["default_model"] == "qwen3:8b"
+    assert o["default_model"] == "translategemma:12b"
     assert [lang["code"] for lang in o["languages"]] == list(live_service.SOURCE_LANGUAGES)
     assert o["whisper_sizes"] == list(live_service.WHISPER_SIZES)
     # Numbers outside a range are clamped by Start, so the ranges are Start's own.

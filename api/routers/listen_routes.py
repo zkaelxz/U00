@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 
 from api.auth import is_at_pc, require_permission
 from api.schemas import DubRunStarted, ListenConfig, ListenRunRequest, error_responses
+from lib.storage_errors import require_readable
 from services import export_service, listen_service, model_readiness_service
 
 router = APIRouter(prefix="/api/listen", tags=["listen"])
@@ -35,6 +36,7 @@ def start_listen(body: ListenRunRequest, request: Request, drama_id: int = Path(
             responses=error_responses(404))
 def download_listen_track(drama_id: int = Path(ge=1)):
     track = listen_service.get_listen_track(drama_id)
+    require_readable(track["path"])
     return FileResponse(
         track["path"], media_type="audio/wav",
         headers={"Content-Disposition": export_service.dub_track_disposition(drama_id, track["name"])})

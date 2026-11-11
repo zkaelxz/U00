@@ -567,7 +567,7 @@ export function compareProblem(selected: number[], runs: BenchmarkRun[], max = 4
 
 /**
  * The raw `compare` query value: "engine:model,engine:model". Each engine and
- * model is URI-encoded, so a model with ":" or "/" in it ("qwen3:8b") stays
+ * model is URI-encoded, so a model with ":" or "/" in it ("translategemma:12b") stays
  * one part; the separators are left literal.
  */
 export function compareParam(configs: BenchmarkConfig[]): string {
