@@ -82,6 +82,23 @@ def set_notify_on_completion(enabled: bool):
     db.set_app_setting("notify_on_completion", bool(enabled))
 
 
+def _has_desktop() -> bool:
+    """False in a Windows service's Session 0, which has no desktop to show a toast on."""
+    import sys
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        session = ctypes.c_ulong()
+        kernel32 = ctypes.windll.kernel32
+        if not kernel32.ProcessIdToSessionId(kernel32.GetCurrentProcessId(), ctypes.byref(session)):
+            return True
+        return session.value != 0
+    except Exception:
+        # Unknown is treated as "has one": a skipped notice is worse than a swallowed failure.
+        return True
+
+
 def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
                          with_errors=False, reason=None):
     """Best-effort only -- never raises. A missing `plyer` install, or no
@@ -102,7 +119,7 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
                                                  with_errors=with_errors, reason=reason)
     except Exception:
         pass
-    if not get_notify_on_completion():
+    if not get_notify_on_completion() or not _has_desktop():
         return
     try:
         from plyer import notification

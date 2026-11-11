@@ -1,6 +1,6 @@
 """
 tests/test_local_model_defaults.py -- Step 5 (R3-lite): the local
-translation default is gemma4:12b (Qwen is no longer offered but a saved tag keeps working), Ollama requests
+translation default is qwen3:8b (a saved gemma4 tag keeps working but is no longer offered), Ollama requests
 have a timeout, and GPU model caches are emptied once a stage finishes.
 """
 import sys
@@ -15,12 +15,12 @@ from tests.http_fakes import StreamedBody
 
 
 class TestOllamaDefaults:
-    def test_default_model_is_gemma4_12b(self):
-        assert engine_local.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
-        assert engine_local.OllamaEngine().model == "gemma4:12b"
-        assert engine_registry.get_engine("ollama").model == "gemma4:12b"
-        assert engine_registry.builtin_default_model("ollama") == "gemma4:12b"
-        assert list(engine_local.OLLAMA_MODELS)[0] == "gemma4:12b"
+    def test_default_model_is_qwen3_8b(self):
+        assert engine_local.OLLAMA_DEFAULT_MODEL == "qwen3:8b"
+        assert engine_local.OllamaEngine().model == "qwen3:8b"
+        assert engine_registry.get_engine("ollama").model == "qwen3:8b"
+        assert engine_registry.builtin_default_model("ollama") == "qwen3:8b"
+        assert list(engine_local.OLLAMA_MODELS)[0] == "qwen3:8b"
 
     def test_only_qwen3_8b_is_offered_and_other_saved_tags_still_build_an_engine(self):
         assert [t for t in engine_local.OLLAMA_MODELS if t.startswith("qwen")] == ["qwen3:8b"]
@@ -56,7 +56,7 @@ class TestOllamaDefaults:
             return Resp()
         monkeypatch.setattr("requests.post", fake_post)
         assert engine_local.OllamaEngine().translate_batch(["你好"], {}) == ["Hello."]
-        assert seen["model"] == "gemma4:12b"
+        assert seen["model"] == "qwen3:8b"
         assert seen["timeout"] and seen["timeout"] > 0
 
 
@@ -138,20 +138,14 @@ class _OllamaReply(StreamedBody):
 
 
 class TestGemma4Models:
-    def test_tags_are_offered_and_e4b_e2b_are_not(self):
+    def test_local_gemma4_is_not_offered_but_a_saved_tag_still_builds(self):
+        # Ollama 0.24.0 cannot load the gemma4 architecture, so the picker no longer offers it.
         for tag in GEMMA_TAGS:
-            assert tag in engine_local.OLLAMA_MODELS
+            assert tag not in engine_local.OLLAMA_MODELS
             assert engine_registry.get_engine("ollama", None, tag).model == tag
-        assert not any(t.startswith("gemma4:e") for t in engine_local.OLLAMA_MODELS)
 
-    def test_default_and_existing_choices_are_unchanged(self):
-        assert list(engine_local.OLLAMA_MODELS) == ["gemma4:12b", "gemma4:26b", "translategemma:12b", "qwen3:8b"]
-        assert engine_local.OllamaEngine().model == "gemma4:12b"
-
-    def test_service_lists_the_tags_for_the_picker(self, isolated_db):
-        from services import translate_service
-        ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
-        assert all(t in ollama["models"] for t in GEMMA_TAGS)
+    def test_picker_choices(self):
+        assert list(engine_local.OLLAMA_MODELS) == ["qwen3:8b", "translategemma:12b"]
 
     def test_request_shape_is_the_same_as_for_a_hand_typed_qwen_tag(self, monkeypatch):
         sent = []
