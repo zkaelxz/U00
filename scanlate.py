@@ -40,7 +40,7 @@ from scanlate_detect import (
 import scanlate_tuning
 from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
                               split_separate_lettering,
-                              lettering_size, reclassify_wordy_sfx,
+                              lettering_size, reclassify_wordy_sfx, flag_katakana_effects,
                               region_excluded_from_auto)
 from scanlate_render import sample_text_style
 from scanlate_translate import translate_page_bubbles
@@ -277,6 +277,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     for order, b in enumerate(bubbles):
         b["reading_order"] = order
     reclassify_wordy_sfx(bubbles)
+    flag_katakana_effects(bubbles)
     flag_site_marks(bubbles)
     flag_english_text(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
