@@ -78,8 +78,8 @@ describe('extension devices helpers', () => {
     expect(activeCount([tok({}), tok({ id: 2, status: 'revoked' }), tok({ id: 3, status: 'expired' })])).toBe(1)
   })
 
-  it('does not promise that revoking a device cuts it off', () => {
-    expect(DEVICES_NOTE).toMatch(/does not check them yet/)
-    expect(DEVICES_NOTE).not.toMatch(/cut .* off/i)
+  it('says revoking a device stops that computer', () => {
+    expect(DEVICES_NOTE).toMatch(/Revoking a token stops that computer at once/)
+    expect(DEVICES_NOTE).not.toMatch(/record for now|does not check/)
   })
 })
