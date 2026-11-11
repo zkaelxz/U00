@@ -147,7 +147,8 @@ def test_novel_glossary_resumes_through_the_cache(isolated_db, monkeypatch):
         prompts.append(prompt)
         if len(prompts) == state["fail_at"]:
             raise RuntimeError("killed")
-        return json.dumps([{"term": f"T{seen.setdefault(prompt, len(seen))}", "suggested_translation": "x",
+        # A term the excerpt does not contain is dropped, so each reply names a run of 林 the windows hold.
+        return json.dumps([{"term": "林" * (seen.setdefault(prompt, len(seen)) + 1), "suggested_translation": "x",
                             "category": "character", "policy": "keep_pinyin", "reason": ""}])
 
     monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
@@ -515,7 +516,7 @@ def test_fresh_glossary_run_ignores_the_cache_but_refreshes_it(isolated_db, monk
         return json.dumps([{"term": next(replies), "suggested_translation": "x"}])
 
     monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
-    text = "林" * 2000
+    text = "林" * 2000 + "ABC"  # the replies name terms the excerpt holds, or they are dropped
     first = tguide.extract_glossary_from_novel(
         text, _Engine(), response_cache=glossary_service._novel_glossary_cache(_Engine(), "c"))
     n = len(calls)

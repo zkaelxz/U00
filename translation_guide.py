@@ -705,8 +705,40 @@ def _merge_novel_entries(all_terms: dict, entries) -> None:
         rendering = str(e.get("suggested_translation") or "").strip()
         if rendering and rendering not in renderings:
             renderings.append(rendering)
+        for alt in e.get("extra_renderings") or ():
+            if alt not in renderings:
+                renderings.append(alt)
         e["renderings"] = renderings
         all_terms[e["term"]] = e
+
+
+_PRONOUN_LEAD = re.compile(r"^\s*(she/her|he/him|they/them)", re.IGNORECASE)
+
+
+def _clean_window_entries(entries, window_text: str) -> list:
+    """The usable entries of one window's reply. A term the model did not copy
+    from the excerpt is dropped (a normalized or invented spelling would never
+    match the novel when the glossary is applied). A pronoun claim needs a quoted
+    line from the excerpt, otherwise it is reset to "unclear" so a guessed gender
+    never reaches the translation prompt. The ambiguity alternative is kept with
+    the renderings, where a reviewer sees it."""
+    out = []
+    for e in entries if isinstance(entries, list) else []:
+        if not isinstance(e, dict):
+            continue
+        term = e.get("term")
+        if not isinstance(term, str) or not term.strip() or term.strip() not in window_text:
+            continue
+        e["term"] = term.strip()
+        reason = str(e.get("reason") or "")
+        evidence = e.get("evidence")
+        if _PRONOUN_LEAD.match(reason) and not (isinstance(evidence, str) and evidence.strip()
+                                                 and evidence.strip() in window_text):
+            e["reason"] = _PRONOUN_LEAD.sub("unclear", reason, count=1)
+        alt = e.get("alt")
+        e["extra_renderings"] = [alt.strip()] if isinstance(alt, str) and alt.strip() else []
+        out.append(e)
+    return out
 
 
 # The note rides with the term into every translation prompt, so a character
@@ -715,7 +747,43 @@ _PERSON_PRONOUN_INSTRUCTION = (
     "For every person_name, start the reason with the character's pronouns as the "
     "text shows them (she/her, he/him or they/them), taken from the written 她/他, "
     "titles and kinship terms, never guessed from the name; write \"unclear\" if the "
-    "excerpt does not say.")
+    "excerpt does not say. Any pronoun other than \"unclear\" needs \"evidence\": a short "
+    "quote copied from the excerpt where 她/他 or a title refers to THIS person.")
+
+
+def _novel_glossary_prompt(lang_name: str, categories_desc: str, policies_desc: str,
+                           extras: str, sample: str) -> str:
+    """One window's extraction prompt; `extras` is the known-terms, conventions and
+    paired-translation blocks already joined."""
+    return (
+        f"Below is an excerpt from a {lang_name} novel. Extract the recurring TERMS that "
+        "need consistent handling across a translation -- character names, courtesy names, "
+        "sects and clans, titles and ranks, honorifics, cultivation realms, place names, "
+        "artifacts, techniques, and untranslatable concepts.\n\n"
+        "Extract terminology ONLY. Do not reproduce passages, plot, or dialogue -- the "
+        "output is a term list, nothing more.\n\n"
+        f"Categories:\n{categories_desc}\n\nHandling policies:\n{policies_desc}\n\n"
+        "For each term give the category, the policy fitting its convention, and a "
+        "suggested translation following that policy. If a name is MEANINGFUL (its "
+        "characters spell out something thematic, or it's a pun), note that in the reason "
+        "-- worth a translation note even when the name stays pinyin.\n\n"
+        "Only list items that need ONE fixed English rendering across the whole book. Skip "
+        "ordinary vocabulary and generic roles (incense, doctor, boss, an app's name, a "
+        "plain 'brother' or 'teacher') unless the book uses them as a name or a fixed title. "
+        "Copy every term character for character from the excerpt, in the same script "
+        "(traditional stays traditional). Give one rendering; if the word is genuinely "
+        "ambiguous (for example 阿姨 as aunt or as nanny), pick the likelier one and put the "
+        "other in \"alt\".\n\n"
+        "suggested_translation is only the English name or term itself, never a description of "
+        "a person or thing (not \"the woman in the long green skirt\"), and never contains "
+        "Chinese, Japanese or Korean characters.\n\n"
+        f"{_PERSON_PRONOUN_INSTRUCTION}\n\n"
+        'Return ONLY a JSON array: [{"term": "...", "suggested_translation": "...", '
+        '"category": "...", "policy": "...", "reason": "brief justification", '
+        '"evidence": "quote, people only", "alt": "other reading, only if ambiguous"}]. '
+        f"No preamble, no markdown fences.{extras}\n\n"
+        f"Excerpt:\n{sample}"
+    )
 
 
 def extract_glossary_from_novel(novel_text: str, engine, source_language: str = "zh",
@@ -762,8 +830,11 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
 
     known_block = ""
     if known_terms:
-        known_block = ("\n\nAlready in the glossary -- do NOT propose these again: "
-                       + ", ".join(t["term_original"] for t in known_terms))
+        known_block = ("\n\nAlready in the glossary -- do NOT propose these again, and where a new "
+                       "term contains or is built from one, use the glossary's English for that part: "
+                       + ", ".join(f'{t["term_original"]} = {t["term_translation"]}'
+                                   if t.get("term_translation") else t["term_original"]
+                                   for t in known_terms))
 
     conventions_block = ""
     if conventions.strip():
@@ -780,33 +851,14 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
                       f"(use it to find how each term was ACTUALLY rendered -- prefer that "
                       f"wording over inventing your own):\n{en_samples[i]}")
 
-        prompt = (
-            f"Below is an excerpt from a {lang_name} novel. Extract the recurring TERMS that "
-            "need consistent handling across a translation -- character names, courtesy names, "
-            "sects and clans, titles and ranks, honorifics, cultivation realms, place names, "
-            "artifacts, techniques, and untranslatable concepts.\n\n"
-            "Extract terminology ONLY. Do not reproduce passages, plot, or dialogue -- the "
-            "output is a term list, nothing more.\n\n"
-            f"Categories:\n{categories_desc}\n\nHandling policies:\n{policies_desc}\n\n"
-            "For each term give the category, the policy fitting its convention, and a "
-            "suggested translation following that policy. If a name is MEANINGFUL (its "
-            "characters spell out something thematic, or it's a pun), note that in the reason "
-            "-- worth a translation note even when the name stays pinyin.\n\n"
-            "suggested_translation is only the English name or term itself, never a description of "
-            "a person or thing (not \"the woman in the long green skirt\"), and never contains "
-            "Chinese, Japanese or Korean characters.\n\n"
-            f"{_PERSON_PRONOUN_INSTRUCTION}\n\n"
-            'Return ONLY a JSON array: [{"term": "...", "suggested_translation": "...", '
-            '"category": "...", "policy": "...", "reason": "brief justification"}]. '
-            f"No preamble, no markdown fences.{known_block}{conventions_block}{paired}\n\n"
-            f"Excerpt:\n{sample}"
-        )
+        prompt = _novel_glossary_prompt(lang_name, categories_desc, policies_desc,
+                                        known_block + conventions_block + paired, sample)
 
         text = response_cache[0](prompt) if response_cache else None
         cached = text is not None
         if text is None:
             try:
-                text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
+                text = call_llm_json(engine, prompt, max_tokens=6000, fallback="[]",
                                      usage_cb=usage_cb, expect="json_array")
             except TranslateRunStopped:
                 break  # the terms from earlier windows are still returned
@@ -814,7 +866,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         if (response_cache and not cached and isinstance(entries, list)
                 and any(isinstance(e, dict) and e.get("term") for e in entries)):
             response_cache[1](prompt, text)
-        _merge_novel_entries(all_terms, entries)
+        _merge_novel_entries(all_terms, _clean_window_entries(entries, sample))
         if progress_cb:
             progress_cb((i + 1) / total)
     return list(all_terms.values())
