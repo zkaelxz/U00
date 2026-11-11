@@ -112,6 +112,9 @@ LETTERING_RUN_OF_LARGEST = 0.6
 # fits, down to SMALLEST; DEFAULT when the lettering can't be measured.
 TYPESET_FONT_PER_SOURCE_PX = 1.0
 TYPESET_DEFAULT_FONT_PX = 18
+# With no measurable lettering the start size is this share of the box's short
+# side (never below DEFAULT), so a big balloon starts big.
+TYPESET_UNMEASURED_PER_BOX_SIDE = 0.11
 TYPESET_START_MIN_PX = 12
 TYPESET_START_MAX_PX = 40
 # Lettering whose block takes less than GROW_BELOW_FILL of its box starts the
