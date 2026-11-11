@@ -285,6 +285,14 @@ class TestFontSize:
         blank = np.full((400, 400), 255, np.uint8)
         assert scanlate.suggest_font_size(blank, box) == scanlate_tuning.TYPESET_DEFAULT_FONT_PX
 
+    def test_unmeasurable_lettering_in_a_big_balloon_starts_bigger_than_the_default(self):
+        pale = np.full((400, 400), 255, np.uint8)
+        _letters(pale, 120, 180, 4, size=24, step=30, gap=2)
+        pale[pale < 128] = 200  # ink the dark-ink threshold misses
+        box = {"x": 10, "y": 10, "w": 380, "h": 300, "orientation": "horizontal"}
+        size = scanlate.suggest_font_size(pale, box)
+        assert scanlate_tuning.TYPESET_DEFAULT_FONT_PX < size <= scanlate_tuning.TYPESET_START_MAX_PX
+
     def test_the_start_size_stays_within_the_tuned_range(self):
         box = {"x": 10, "y": 10, "w": 380, "h": 380, "orientation": "horizontal"}
         img = np.full((400, 400), 255, np.uint8)
