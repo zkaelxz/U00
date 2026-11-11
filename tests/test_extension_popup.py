@@ -197,3 +197,13 @@ def test_the_typeset_image_rides_with_a_page_s_regions_so_the_cache_and_redraws_
         return [out.get("a").typesetImage, out.get("b").typesetImage, out.get("a").length];
     })()"""
     assert _node("content_expression", expression) == ["data:image/jpeg;base64,AAAA", "", 1]
+
+
+def test_pages_saved_without_text_or_without_english_are_told_apart_in_the_closing_line():
+    counts = {"translated": 6, "cached": 0, "alreadyStored": 0, "skipped": 0, "failed": 0,
+              "noText": 2, "noEnglish": 3}
+    expression = ('window.__baihe.captureTally(6, ' + json.dumps(counts) +
+                  ', "", [], "", "translation failed (the engine did not answer)")')
+    text = _node("content_expression", expression)
+    assert "2 saved with no text found" in text
+    assert "3 saved with text read but no English back (translation failed (the engine did not answer))" in text

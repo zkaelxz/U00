@@ -1393,13 +1393,18 @@
 
   // The closing line of a chapter capture: every page found is either
   // counted in it or named as unreadable, so a shortfall is never silent.
-  function captureTally(found, counts, firstFailure, unreadablePages, firstSkip = "") {
+  function captureTally(found, counts, firstFailure, unreadablePages, firstSkip = "", englishProblem = "") {
     const tally = [`${found} page${found === 1 ? "" : "s"} found`];
     if (counts.translated) tally.push(`${counts.translated} translated`);
     if (counts.cached) tally.push(`${counts.cached} already done`);
     if (counts.alreadyStored) tally.push(`${counts.alreadyStored} already in library`);
     if (counts.skipped) {
       tally.push(`${counts.skipped} skipped as not a page (${firstSkip || "no reason was given"})`);
+    }
+    if (counts.noText) tally.push(`${counts.noText} saved with no text found on them (notice pages and art without lettering look like this)`);
+    if (counts.noEnglish) {
+      tally.push(`${counts.noEnglish} saved with text read but no English back` +
+                 (englishProblem ? ` (${englishProblem})` : " (check the engine under Settings > Browser extension)"));
     }
     if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
     // An image identical to an earlier page (a repeated credit card, a banner) is sent once.
@@ -1426,9 +1431,10 @@
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0, duplicates: 0 };
+    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0, duplicates: 0, noText: 0, noEnglish: 0 };
     let firstFailure = "";
     let firstSkip = "";
+    let firstEnglishProblem = "";
     let serverStop = "";
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
@@ -1545,6 +1551,20 @@
           counts.stored += (data.pages || []).filter((p) => p.stored).length;
           counts.skipped += (data.skipped || []).length;
           counts.failed += (data.failed || []).length;
+          // A saved page is only "translated" in the line if English came back, so the three ways
+          // it can come back without it are told apart: no text read, no engine answer, or both.
+          for (const page of data.pages || []) {
+            const regions = page.regions || [];
+            if (!regions.length) {
+              counts.noText += 1;
+            } else if (regions.some((r) => r.untranslated)) {
+              counts.noEnglish += 1;
+              if (!firstEnglishProblem) {
+                const note = (page.notes || []).find((n) => /translat|engine|key/i.test(String(n[1])));
+                firstEnglishProblem = note ? String(note[1]) : "";
+              }
+            }
+          }
           if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
           if (!firstSkip && (data.skipped || []).length) firstSkip = data.skipped[0].reason || "";
           if (data.stopped) serverStop = String(data.stopped);
@@ -1615,7 +1635,7 @@
         ? unreadableResult(unreadable, needAccess)
         : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
-    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip);
+    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip, firstEnglishProblem);
     const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}. ` +
                     `Took ${formatElapsed(Date.now() - run.startedAt)}.`;
     reportProgress(message);
