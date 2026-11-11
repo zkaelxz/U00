@@ -185,7 +185,8 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
         "word spaces or misread characters: check each region against the picture and translate "
         "what is actually written. Use the art to tell who is speaking and what is happening "
         "(tone, sound effects, who 'you' is). Translate only the listed regions, one answer per id; "
-        "a site watermark is not dialogue."
+        "a site watermark, logo or address strip is not dialogue: answer \"\" (an empty string) for "
+        "it, never a note about it, because your answer is typeset onto the page as written."
         + reference + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         'Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
         '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
