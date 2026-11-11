@@ -113,7 +113,7 @@ test('translate scope: this chapter or all chapters, with counts, hidden pages n
   await scope.selectOption({ index: 0 })
   await expect(panel.getByText(/2 of 3 pages have no text yet/)).toBeVisible()
   await panel.getByRole('button', { name: 'Translate this chapter' }).click()
-  await expect.poll(() => s.runs).toEqual([{ mode: 'missing', chapter_id: 'src:c1', engine: 'ollama', detect_backend: 'auto' }])
+  await expect.poll(() => s.runs).toEqual([{ mode: 'missing', chapter_id: 'src:c1', engine: 'ollama', detect_backend: 'auto', art_captions: false }])
   expect(s.unmocked).toEqual([])
 })
 

@@ -25334,6 +25334,8 @@ export interface components {
         };
         /** ScanlateConfig */
         ScanlateConfig: {
+            /** Art Captions Available */
+            art_captions_available: boolean;
             /** Default Engine */
             default_engine: string;
             /** Detect Backends */

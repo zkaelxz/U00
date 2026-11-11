@@ -113,12 +113,26 @@ def _mask_band_span(mask, top: int, bottom: int):
 
 def _hyphen_split(word: str, fits):
     """(head + "-", tail) with the longest head that `fits`, or None when no
-    split leaves at least three letters on each side."""
-    for cut in range(len(word) - 3, 2, -1):
-        head = word[:cut] + "-"
-        if fits(head):
-            return head, word[cut:]
-    return None
+    split leaves at least three letters on each side. Punctuation does not
+    count as a letter, so "Housework?" splits "House-work?", never "Housewo-rk?"."""
+    def letters(part):
+        return sum(c.isalpha() for c in part)
+
+    fitting = [cut for cut in range(len(word) - 3, 2, -1)
+               if letters(word[:cut]) >= 3 and letters(word[cut:]) >= 3 and fits(word[:cut] + "-")]
+    # Among the few longest heads, one that ends on a vowel before a consonant
+    # reads as a syllable break ("House-work", not "Housew-ork").
+    natural = next((cut for cut in fitting[:4]
+                    if word[cut - 1].lower() in "aeiouy" and word[cut].isalpha()
+                    and word[cut].lower() not in "aeiouy"), None)
+    cut = natural if natural is not None else (fitting[0] if fitting else None)
+    return (word[:cut] + "-", word[cut:]) if cut is not None else None
+
+
+def _split_twice(lines) -> bool:
+    """True when a word runs over two hyphens, "Hou-sewo-rk?": a line ending in
+    a hyphen right after another. One split reads fine; three pieces do not."""
+    return any(a.endswith("-") and b.endswith("-") for a, b in zip(lines, lines[1:]))
 
 
 def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
@@ -139,12 +153,15 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     comfort = scanlate_tuning.TYPESET_COMFORT_PX
     smallest = scanlate_tuning.TYPESET_SMALLEST_PX
     # Whole words down to the comfortable size, then hyphenated words down
-    # to it, and only then whole words at any size.
-    passes = ((False, comfort), (True, comfort), (True, smallest))
-    for hyphenate, floor in passes:
+    # to it, then smaller still, each time without a word cut in three pieces;
+    # that is allowed only as a last resort.
+    passes = ((False, comfort, True), (True, comfort, False), (True, smallest, False),
+              (True, smallest, True))
+    for hyphenate, floor, split_twice_ok in passes:
         for size in range(font_size, floor - 1, -1):
             laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate)
-            if laid_out is not None:
+            if laid_out is not None and (split_twice_ok
+                                         or not _split_twice([ln[0] for ln in laid_out[1]])):
                 return laid_out
     return None
 
@@ -324,20 +341,22 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         return font, lines, line_height
 
-    def overflows(font, lines, line_height):
+    def overflows(font, lines, line_height, split_twice_ok=True):
         # Wrapping never splits a word unless hyphenating, so a word wider than
         # the box is otherwise only brought inside it by a smaller size.
         return (line_height * len(lines) > box["h"] - 8
-                or any(_ink_width(draw, line, font) > box["w"] - 8 for line in lines))
+                or any(_ink_width(draw, line, font) > box["w"] - 8 for line in lines)
+                or (not split_twice_ok and _split_twice(lines)))
 
     # Whole words down to the comfortable size, then hyphenated words down to
     # it, and only then at any size -- as _layout_in_mask() does.
     comfort = scanlate_tuning.TYPESET_COMFORT_PX
     smallest = scanlate_tuning.TYPESET_SMALLEST_PX
-    for hyphenate, floor in ((False, comfort), (True, comfort), (True, smallest)):
+    for hyphenate, floor, split_twice_ok in ((False, comfort, True), (True, comfort, False),
+                                             (True, smallest, False), (True, smallest, True)):
         for size in list(range(font_size, floor - 1, -1)) or [font_size]:
             font, lines, line_height = wrap_and_measure(size, hyphenate)
-            if not overflows(font, lines, line_height):
+            if not overflows(font, lines, line_height, split_twice_ok):
                 break
         else:
             continue

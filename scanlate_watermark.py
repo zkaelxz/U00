@@ -106,6 +106,32 @@ def flag_site_marks(regions: list, earlier_pages: Sequence[list] = (), width: in
     return flagged
 
 
+_FRAGMENT_MAX_WIDTH = 0.06    # of the page's width
+_FRAGMENT_MAX_HEIGHT = 0.04   # of the page's height
+_FRAGMENT_EDGE_PX = 3
+
+
+def flag_edge_fragments(regions: list, width: int, height: int) -> int:
+    """Sets skip on a tiny region that touches the page's edge. The detector
+    boxes scan-edge debris and a clipped corner of a stamp, and OCR then reads
+    it as a word ("Miyamura Village" from a few pixels of a corner), which
+    would be translated and typeset onto the art. Real lettering is never
+    this small and flush against the edge. Returns how many were flagged."""
+    if width <= 0 or height <= 0:
+        return 0
+    flagged = 0
+    for region in regions:
+        if region.get("skip"):
+            continue
+        x, y, w, h = (int(region.get(k) or 0) for k in ("x", "y", "w", "h"))
+        if w > width * _FRAGMENT_MAX_WIDTH or h > height * _FRAGMENT_MAX_HEIGHT:
+            continue
+        if min(x, y, width - (x + w), height - (y + h)) <= _FRAGMENT_EDGE_PX:
+            region["skip"] = True
+            flagged += 1
+    return flagged
+
+
 def is_site_mark_region(region: dict) -> bool:
     """A skipped region whose text is a site's stamp: the one skipped kind the
     render paints out, because the stamp is not part of the art."""

@@ -166,3 +166,19 @@ def test_the_chosen_engine_is_kept_when_haiku_cannot_be_built(monkeypatch):
     monkeypatch.setattr(run_svc.engine_registry, "get_engine", boom)
     engine = _Engine()
     assert run_svc._picture_engine(engine, "claude") is engine
+
+
+def test_the_prompt_asks_for_an_empty_answer_for_a_watermark_not_a_note(monkeypatch):
+    sent = {}
+
+    def ask(engine, prompt, image, mime, max_tokens=0, on_done=None):
+        sent["prompt"] = prompt
+        return _answer({"0": "", "1": "Hello."})
+
+    monkeypatch.setattr(vision, "ask_about_image", ask)
+    regions = [{"id": "0", "text": "구글검색 뉴토끼", "box": {"x": 1, "y": 2, "w": 3, "h": 4}},
+               {"id": "1", "text": "안녕", "box": {"x": 5, "y": 6, "w": 7, "h": 8}}]
+    got, _ = scanlate_translate.translate_regions_with_image(
+        regions, b"x", "image/png", _Engine(), {"source_language": "ko"})
+    assert got == {"0": "", "1": "Hello."}
+    assert 'answer "" (an empty string)' in sent["prompt"]
