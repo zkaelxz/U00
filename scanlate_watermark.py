@@ -25,6 +25,15 @@ _SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "newtojuso", 
                "copymanga",
                "拷贝漫画", "拷貝漫畫", "mangadex", "twmanga", "kuaikan", "快看漫画", "快看漫畫")
 
+# Reader-site ads read as dialogue once translated. "Fastest webtoon" and
+# "search on Google" are the ad's own phrases, rare in a story.
+_PROMO = re.compile(r"가장\s*빠른\s*웹툰|구글\s*검색")
+
+# A stamp line by itself: the site's name cut short, or "미리보기" (preview)
+# with a digit read in for a stroke ("미12보7"). Matched only against a whole
+# line, since these are ordinary syllables inside a sentence.
+_STAMP_LINE = re.compile(r"^(?:뉴토끼?|미[리\d]{1,3}보[기\d]?)$")
+
 # A repeat counts as one stamp only while it stays in the same spot. The
 # stamp is a fixed overlay, whereas a line of dialogue that happens to repeat
 # (a name, a sigh) moves with its balloon.
@@ -45,14 +54,18 @@ def _normal(text: str | None) -> str:
 def looks_like_site_mark(text: str) -> bool:
     """True when the text is a web address or a known reader site's name."""
     text = text or ""
-    if _DOMAIN.search(text) or _CJK_DOMAIN.search(text):
+    if _DOMAIN.search(text) or _CJK_DOMAIN.search(text) or _PROMO.search(_STRIP.sub("", text)):
         return True
     squashed = _normal(text)
     return any(name in squashed for name in _SITE_NAMES)
 
 
+def _is_stamp_line(line: str) -> bool:
+    return looks_like_site_mark(line) or bool(_STAMP_LINE.match(_normal(line)))
+
+
 def _without_mark_lines(text: str) -> str:
-    return "\n".join(line for line in text.splitlines() if not looks_like_site_mark(line))
+    return "\n".join(line for line in text.splitlines() if not _is_stamp_line(line))
 
 
 def _centre(region: dict, width: float, height: float):
@@ -87,6 +100,10 @@ def flag_site_marks(regions: list, earlier_pages: Sequence[list] = (), width: in
         if region.get("skip") or not (region.get("source_text") or "").strip():
             continue
         mark = looks_like_site_mark(region["source_text"])
+        lines = region["source_text"].splitlines()
+        if not mark and len(lines) > 1 and any(_STAMP_LINE.match(_normal(ln)) for ln in lines):
+            # A cut-short name only counts beside other lines: alone it could be a word.
+            mark = True
         if mark:
             # A caption box near the stamp can take its lines into one region.
             # Skipping that region would drop the caption with the stamp, so
