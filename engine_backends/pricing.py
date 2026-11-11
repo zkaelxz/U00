@@ -44,24 +44,34 @@ GEMINI_MODELS = {
 # OpenAI's Chat Completions endpoint, the one place its address is set.
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 
-# Selectable OpenAI models. The default is the first-listed mini tier; the
-# lineup changes often, so check platform.openai.com/docs/models if a run
+# Selectable OpenAI models. The default is the first-listed (cheapest) tier;
+# the lineup changes often, so check platform.openai.com/docs/models if a run
 # starts failing, and update this and PRICING_PER_MILLION_TOKENS together.
 OPENAI_MODELS = {
-    "gpt-5-mini": "GPT-5 mini -- balanced quality and cost (recommended default)",
-    "gpt-5-nano": "GPT-5 nano -- cheapest, lower nuance",
-    "gpt-5": "GPT-5 -- highest quality, most expensive",
+    "gpt-6-luna": "GPT-6 Luna -- cheapest, high-volume (recommended default)",
+    "gpt-6.1-terra": "GPT-6.1 Terra -- better tone, names and context",
+    "gpt-6.1-sol": "GPT-6.1 Sol -- top tier for hard lines, most expensive",
 }
+
+# GPT-5 ids a saved preset or title may still name. OpenAI is retiring them
+# (gpt-5-mini is deprecated), so they run as the default model instead of
+# failing the run; see openai_model_or_default.
+OPENAI_RETIRED_MODELS = ("gpt-5-mini", "gpt-5-nano", "gpt-5")
+
+
+def openai_model_or_default(model):
+    return next(iter(OPENAI_MODELS)) if model in OPENAI_RETIRED_MODELS else model
+
 
 # Newer OpenAI models the provider itself lists (the manual model check in
 # services/model_registry_service) can be used without an edit here. Only the
-# GPT-5-and-later chat models: older ids (gpt-4, o-series) cost far more than
+# GPT-6-and-later chat models: older ids (gpt-4, o-series) cost far more than
 # any rate estimate_cost could fall back to, and the others are not Chat
-# Completions models. Newer GPT-5.x releases can also cost more than gpt-5,
+# Completions models. Newer releases can also cost more than gpt-6.1-sol,
 # so an unpriced one is costed at OPENAI_EXTRA_MODEL_CEILING instead.
 PROVIDER_CHECK_CACHE_KEY = "model_registry_provider_check"
 OPENAI_EXTRA_MODEL_CEILING = {"input": 5.0, "output": 40.0}
-_OPENAI_EXTRA_RE = re.compile(r"gpt-(?:[5-9]|[1-9][0-9])[a-z0-9._-]{0,60}")
+_OPENAI_EXTRA_RE = re.compile(r"gpt-(?:[6-9]|[1-9][0-9])[a-z0-9._-]{0,60}")
 _OPENAI_EXCLUDED_WORDS = re.compile(
     r"(?:^|[-.])(?:pro|codex|realtime|search|research|instruct|audio|image|tts|"
     r"transcribe|embedding|moderation|diarize)(?:[-.]|$)")
@@ -138,11 +148,11 @@ PRICING_PER_MILLION_TOKENS = {
     # Pinned ids the source-research lookup uses (not offered for translation).
     "gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50},
     "gemini-3.8-flash": {"input": 0.75, "output": 3.75},
-    # OpenAI list prices, checked against developers.openai.com/api/docs/pricing
-    # on PRICES_VERIFIED_ON.
-    "gpt-5-mini": {"input": 0.25, "output": 2.0},
-    "gpt-5-nano": {"input": 0.05, "output": 0.40},
-    "gpt-5": {"input": 1.25, "output": 10.0},
+    # OpenAI standard-tier list prices, read from developers.openai.com/api/docs/pricing
+    # on 2026-11-11.
+    "gpt-6-luna": {"input": 0.10, "output": 0.50},
+    "gpt-6.1-terra": {"input": 1.00, "output": 5.00},
+    "gpt-6.1-sol": {"input": 2.00, "output": 10.00},
     # Ollama cloud list prices (ollama.com/pricing, 2026-11-09); free use ended, so
     # these tags are billed per token and must count toward the spend caps.
     "gemma4:31b-cloud": {"input": 0.14, "output": 0.40},
@@ -264,7 +274,8 @@ def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int,
 # pre-run estimate ran 2-5x below the real spend on these, so the Lab (not
 # a normal Translate estimate) scales their output tokens by this factor.
 REASONING_OUTPUT_MULTIPLIER = 4
-_REASONING_MODELS = frozenset({"deepseek-v4-pro", "deepseek-reasoner", "gpt-5", "gpt-5-mini", "gpt-5-nano"})
+_REASONING_MODELS = frozenset({"deepseek-v4-pro", "deepseek-reasoner",
+                               "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol"})
 
 
 def is_reasoning_model(model) -> bool:

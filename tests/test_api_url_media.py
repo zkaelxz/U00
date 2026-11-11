@@ -328,6 +328,15 @@ def test_the_download_goes_through_the_guarded_egress_proxy(client, env):
     _no_tmp(did)
 
 
+def test_a_failed_download_says_where_to_update_yt_dlp(client, env, monkeypatch):
+    def boom(self, url, download=True):
+        raise RuntimeError("something nobody recognises")
+    monkeypatch.setattr(FakeYDL, "extract_info", boom)
+    st = _run(client, _drama())
+    assert st["status"] == "error"
+    assert "Diagnostics > Packages" in st["error"]
+
+
 def test_download_failure_hides_raw_text(client, env, monkeypatch):
     def boom(self, url, download=True):
         raise RuntimeError(f"HTTP 403 for {URL} at C:\\Users\\kae\\x")

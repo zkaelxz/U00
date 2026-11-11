@@ -277,6 +277,11 @@ def test_default_engine_is_the_cheapest_usable_when_none_was_saved(isolated_db):
     assert svc.default_engine(_engines(claude=True, deepseek=True, ollama=True)) == "ollama"
 
 
+def test_openai_is_the_automatic_default_only_when_it_is_the_only_usable_engine(isolated_db):
+    from services import scanlate_pages_service as svc
+    assert svc.default_engine(_engines(claude=False, openai=True, deepseek=False)) == "openai"
+
+
 def test_default_engine_honours_a_usable_saved_choice(isolated_db):
     from services import scanlate_pages_service as svc, settings_service
     settings_service.set_settings({"default_engine": "claude"})
