@@ -20,8 +20,9 @@ from .prompts import (MALE_PRONOUN_WORD, is_male_speaker_label, known_male_names
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
 from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
-from .translation_guard import (IMPERIAL_NOTE, allowed_source_runs, converted_to_imperial, flag_unusable_replies,
-                                guard_batch, strip_invented_speaker_tag)
+from .translation_guard import (HEADER_NOTE, IMPERIAL_NOTE, NUMBER_NOTE, SCRIPT_LEAK_NOTE, added_chapter_header,
+                                allowed_source_runs, changed_number, converted_to_imperial, flag_unusable_replies,
+                                guard_batch, novel_script_leak, strip_invented_speaker_tag)
 from .shared import (
     ContentModerationBlocked,
     _backoff_wait_var,
@@ -552,6 +553,11 @@ class _TranslateRun:
             # Only this attempt's replies: a line it left out still holds its
             # old English (maybe the user's edit), which must not be re-asked or flagged.
             self._guard_merged_or_shifted(fresh)
+        elif (allow_bisect and not self.groups and getattr(self.engine, "checks_replies", True)
+                and medium_prompts.kind_for(self.args.drama_meta) == "novel"):
+            # Source script in a novel is wrong whichever engine wrote it, so this
+            # one check does not follow the engines the general guard is off for.
+            self._guard_novel_script_leaks(fresh)
 
     _EMPTY_RETRY_DEPTH = 2
 
@@ -627,10 +633,20 @@ class _TranslateRun:
         glossary_check.enforce(chunk, self.args.glossary_terms, ask, self._should_stop,
                                self.allowed_runs)
 
-    def _guard_merged_or_shifted(self, chunk):
+    def _guard_novel_script_leaks(self, chunk):
+        leaking = [ln for ln in chunk if novel_script_leak(ln.en)]
+        if leaking:
+            guard_batch(leaking, self._reask(), self._should_stop, novel=True)
+
+    def _reask(self):
         def redo(lines_to_redo):
+            context = self._context_for(lines_to_redo)
+            if any(novel_script_leak(ln.en) for ln in lines_to_redo):
+                # The style profile can ask for a character to stay as written; the
+                # retry has to say that never applies to the English prose.
+                context = dict(context, script_correction=True)
             try:
-                return self._call_engine(lines_to_redo, self._context_for(lines_to_redo))
+                return self._call_engine(lines_to_redo, context)
             except TranslationCancelled:
                 return None
             except Exception as e:
@@ -642,7 +658,10 @@ class _TranslateRun:
                 import applog
                 applog.get_logger().warning(f"merge/shift re-ask skipped for batch {self.bi}: {redacted}")
                 return None
+        return redo
 
+    def _guard_merged_or_shifted(self, chunk):
+        redo = self._reask()
         novel = medium_prompts.kind_for(self.args.drama_meta) == "novel"
         for ln, reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs, novel):
             # The merged-or-shifted note would be wrong for a lost quote, so that is retried only.
@@ -654,9 +673,15 @@ class _TranslateRun:
     def _clean_novel_replies(chunk):
         for ln in chunk:
             ln.en = strip_invented_speaker_tag(ln.zh, ln.en)
-            if not ln.flag and converted_to_imperial(ln.zh, ln.en):
+            # Leaked script is certain, so it replaces the guard's softer "merged or shifted" note.
+            if novel_script_leak(ln.en) and (not ln.flag or ln.flag == "uncertain_translation"):
                 ln.flag = "uncertain_translation"
-                ln.flag_note = IMPERIAL_NOTE
+                ln.flag_note = SCRIPT_LEAK_NOTE
+            for note, found in ((IMPERIAL_NOTE, converted_to_imperial), (NUMBER_NOTE, changed_number),
+                                (HEADER_NOTE, added_chapter_header)):
+                if not ln.flag and found(ln.zh, ln.en):
+                    ln.flag = "uncertain_translation"
+                    ln.flag_note = note
 
     def _translate_batch(self, batch):
         wait_token = _backoff_wait_var.set(self._on_wait if self.args.detail_cb else None)
