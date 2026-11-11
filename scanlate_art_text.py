@@ -11,6 +11,7 @@ plain OpenCV inpainting leaves ghosts of the letters on busy art.
 import numpy as np
 
 from scanlate_inpaint import background_is_dark
+from scanlate_watermark import looks_like_site_mark
 
 # Paddle's detector runs out of memory on a full-height webtoon page, so the
 # page is shrunk to this on its longest side for detection only.
@@ -114,7 +115,10 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
     lines = []
     read_lines = ocr.rapidocr_lines if backend == "rapidocr" else ocr.paddle_lines
     for text, conf, (x, y, bw, bh) in read_lines(page, lang, scale):
-        if conf < _MIN_CONFIDENCE or not text.strip() or bh < _MIN_LINE_HEIGHT:
+        # A site's overlay stamp is small by design, which is why small marks are
+        # ignored; but it has to be found to be skipped and painted out.
+        small = bh < _MIN_LINE_HEIGHT and not looks_like_site_mark(text)
+        if conf < _MIN_CONFIDENCE or not text.strip() or small:
             continue
         box = {"x": x, "y": y, "w": bw, "h": bh}
         if any(_overlap(box, e) > 0.5 for e in existing_boxes):

@@ -92,6 +92,14 @@ class TestFindArtCaptions:
         found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy())
         assert [c["source_text"] for c in found] == ["魔王来了"]
 
+    def test_a_small_site_stamp_is_found_so_it_can_be_skipped_and_painted_out(self, monkeypatch):
+        self._fake(monkeypatch, [
+            ("구글검색 뉴토끼", 0.9, (620, 520, 160, 18)),
+            ("작은 글씨", 0.9, (10, 10, 160, 18)),
+        ])
+        found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy())
+        assert [c["source_text"] for c in found] == ["구글검색 뉴토끼"]
+
     def test_tall_pages_are_detected_at_a_capped_size(self, monkeypatch):
         seen = self._fake(monkeypatch, [])
         art.find_art_captions("p.png", "zh", [], image=np.full((2560, 1280, 3), (200, 80, 40), np.uint8))
