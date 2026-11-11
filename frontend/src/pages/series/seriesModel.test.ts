@@ -71,12 +71,12 @@ describe('series page model', () => {
       { key: 'beam_size', label: 'Beam size', group: 'transcribe', type: 'int', min: 1, max: 10 },
       { key: 'vad_threshold', label: 'VAD', group: 'transcribe', type: 'number', min: 0.1, max: 0.9 },
       { key: 'whisper_fast_mode', label: 'Fast', group: 'transcribe', type: 'bool' },
-      { key: 'separation_backend', label: 'Sep', group: 'transcribe', type: 'choice', choices: ['auto', 'demucs'] },
+      { key: 'separation_backend', label: 'Sep', group: 'transcribe', type: 'choice', choices: ['auto', 'audio_separator'] },
     ]
     const form = defaultsForm(fields, { beam_size: 8, whisper_fast_mode: false })
     expect(form).toEqual({ beam_size: '8', vad_threshold: '', whisper_fast_mode: 'false', separation_backend: '' })
-    expect(settingsFromForm(fields, { ...form, separation_backend: 'demucs', vad_threshold: '0.4' }))
-      .toEqual({ settings: { beam_size: 8, vad_threshold: 0.4, whisper_fast_mode: false, separation_backend: 'demucs' } })
+    expect(settingsFromForm(fields, { ...form, separation_backend: 'audio_separator', vad_threshold: '0.4' }))
+      .toEqual({ settings: { beam_size: 8, vad_threshold: 0.4, whisper_fast_mode: false, separation_backend: 'audio_separator' } })
     expect(settingsFromForm(fields, { ...form, beam_size: '8.5' })).toEqual({ problem: 'Beam size: enter a whole number.' })
     expect(settingsFromForm(fields, { ...form, beam_size: '99' })).toEqual({ problem: 'Beam size: between 1 and 10.' })
   })

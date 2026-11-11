@@ -13,7 +13,7 @@ function jobs() {
   return [
     {
       ...base, job_id: 'extract_audio_5', status: 'done', description: 'Audio extraction (drama #5)', drama_id: 5, kind: 'import',
-      started_at: t - 120, finished_at: t - 60, outcome: 'failed', outcome_message: 'Separating the vocals failed. Run pip install demucs',
+      started_at: t - 120, finished_at: t - 60, outcome: 'failed', outcome_message: 'Separating the vocals failed. Run pip install audio-separator',
     },
     { ...base, job_id: 'translate_5', status: 'running', progress: 0.3, message: 'Cancelling... (finishes the current step first)', description: 'Translation (drama #5)', started_at: t - 30, finished_at: null, drama_id: 5, kind: 'translate' },
   ]

@@ -11,7 +11,7 @@ import {
 // A fresh GPU server: almost nothing optional is installed.
 const FRESH: SetupReadiness = {
   faster_whisper: false, torch: false, torchaudio: false, uroman: false, soundfile: false, audio_separator: false,
-  demucs: false, pyannote: false, onnxruntime: false, openai: false, anthropic: false, yt_dlp: false, pypdf: false,
+  pyannote: false, onnxruntime: false, openai: false, anthropic: false, yt_dlp: false, pypdf: false,
   genanki: false, ebooklib: false, cv2: false, jieba: false, sudachi: false, kiwi: false, nagisa: false, soynlp: false,
   pytesseract: false, paddle_ocr: false, transformers_ok: false, qwen3_asr: false, ffmpeg: true, ffmpeg_libass: true,
   js_runtime: false, tesseract_program: false, manga_ocr: false, plyer: false, trafilatura: false, playwright: false,
@@ -24,7 +24,7 @@ const FRESH: SetupReadiness = {
 const READY: SetupReadiness = Object.fromEntries(Object.keys(FRESH).map((k) => [k, true])) as unknown as SetupReadiness
 
 const FORM: TranscribeNeedsForm = {
-  backend: 'whisper', separateVocals: false, separationBackend: 'auto', alignmentMethod: 'whisper_diff',
+  backend: 'whisper', separateVocals: false, alignmentMethod: 'whisper_diff',
   realignLong: false, useGroq: false, runDiarize: false, language: 'zh', mode: 'whisper',
 }
 
@@ -46,10 +46,8 @@ describe('a fresh install', () => {
 
   it('rules out vocal separation with a reason and the package to open', () => {
     expect(n.separation).toMatchObject({ action: 'diagnostics', packages: ['audio-separator'] })
-    expect(n.separation?.reason).toContain('audio-separator (or Demucs)')
-    expect(separationNeed(FRESH, 'demucs')?.packages).toEqual(['demucs'])
-    expect(separationNeed({ ...FRESH, demucs: true }, 'auto')).toBeNull()
-    expect(separationNeed({ ...FRESH, demucs: true }, 'audio_separator')).not.toBeNull()
+    expect(n.separation?.reason).toContain('needs audio-separator')
+    expect(separationNeed({ ...FRESH, audio_separator: true })).toBeNull()
   })
 
   it('rules out the three Qwen3 backends and names what is missing', () => {

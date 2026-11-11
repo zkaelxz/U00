@@ -90,7 +90,7 @@ def stored_min_pause_sec(drama) -> float:
 _BOOL_FIELDS = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
                 "whisper_repeat_guard", "split_by_sentences", "vocabulary_hint", "use_groq",
                 "difficult_audio")
-_SEPARATION_BACKENDS = ("auto", "audio_separator", "demucs")
+_SEPARATION_BACKENDS = ("auto", "audio_separator")
 
 
 def check_transcribe_fields(fields: dict, source_language) -> dict:

@@ -107,7 +107,7 @@ def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
     import audio_preprocess
     checkpoints = tmp_path / "torch" / "hub" / "checkpoints"
     checkpoints.mkdir(parents=True)
-    (checkpoints / "htdemucs.th").write_bytes(b"x" * 7)
+    (checkpoints / "model.pt").write_bytes(b"x" * 7)
     monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
     sep = tmp_path / "sep"
     sep.mkdir()
@@ -117,7 +117,7 @@ def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
     assert out["hf_total_bytes"] == 100
     assert "piper_voices" not in out and "piper_total_bytes" not in out
     assert out["model_files"] == [
-        {"folder": "torch", "name": "htdemucs.th", "size_bytes": 7},
+        {"folder": "torch", "name": "model.pt", "size_bytes": 7},
         {"folder": "audio_separator", "name": "vocals_mel_band_roformer.ckpt", "size_bytes": 20}]
     assert out["model_files_total_bytes"] == 27
     assert str(tmp_path) not in json.dumps(out)

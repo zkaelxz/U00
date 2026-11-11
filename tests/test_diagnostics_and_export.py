@@ -84,8 +84,7 @@ class TestDiagnostics:
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["audio-separator"][0] == "audio_separator"
         assert deps["funasr"][0] == "funasr"
-        assert deps["demucs"][0] == "demucs"
-        assert deps["audio-separator"][2] == deps["funasr"][2] == deps["demucs"][2] == "feature"
+        assert deps["audio-separator"][2] == deps["funasr"][2] == "feature"
 
     def test_requirements_optional_extras_are_registered(self):
         """CLAUDE.md: every pip-installable extra in requirements-optional.txt
@@ -361,7 +360,7 @@ class TestModelFolders:
     def test_lists_files_and_folders_largest_first_skipping_symlinks(self, tmp_path_str):
         folder = os.path.join(tmp_path_str, "models")
         os.makedirs(os.path.join(folder, "repo"))
-        with open(os.path.join(folder, "htdemucs.th"), "wb") as f:
+        with open(os.path.join(folder, "model.pt"), "wb") as f:
             f.write(b"x" * 300)
         with open(os.path.join(folder, "repo", "w.bin"), "wb") as f:
             f.write(b"x" * 500)
@@ -373,7 +372,7 @@ class TestModelFolders:
         except (OSError, NotImplementedError):
             pass
         assert diagnostics.scan_model_folder("torch", folder) == [
-            {"name": "repo", "size_bytes": 500}, {"name": "htdemucs.th", "size_bytes": 300}]
+            {"name": "repo", "size_bytes": 500}, {"name": "model.pt", "size_bytes": 300}]
         assert diagnostics.scan_model_folder("torch", os.path.join(tmp_path_str, "nope")) == []
 
     def test_delete_stays_inside_the_folder(self, tmp_path_str):

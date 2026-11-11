@@ -467,7 +467,7 @@ export default function TranscribeStage({
   // What the settings on screen need from this PC (unknown readiness needs nothing: the server still refuses).
   const needsForm: TranscribeNeedsForm | null = cf
     ? {
-        backend: cf.asr_backend_choice, separateVocals: cf.separate_vocals_first, separationBackend: cf.separation_backend,
+        backend: cf.asr_backend_choice, separateVocals: cf.separate_vocals_first,
         alignmentMethod: cf.alignment_method, realignLong: cf.realign_long_segments, useGroq: cf.use_groq,
         runDiarize, language, mode: mode ?? 'whisper',
       }

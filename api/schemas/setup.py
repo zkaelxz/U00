@@ -14,7 +14,6 @@ class SetupReadiness(BaseModel):
     uroman: bool
     soundfile: bool
     audio_separator: bool
-    demucs: bool
     pyannote: bool
     onnxruntime: bool
     openai: bool

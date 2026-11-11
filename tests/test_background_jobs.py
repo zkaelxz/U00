@@ -2818,7 +2818,7 @@ def test_a_thread_job_that_did_not_run_for_a_missing_package_ends_as_an_error():
     ("empty", None, "Nothing was produced: no speech or text was found."),
     ("qwen3_asr", "CUDA out of memory", "Qwen3-ASR failed on this audio. CUDA out of memory"),
     ("groq", "HTTP 503", "The Groq transcription request failed. HTTP 503"),
-    ("vocal_separation", "demucs crashed", "Separating the vocals failed. demucs crashed"),
+    ("vocal_separation", "separator crashed", "Separating the vocals failed. separator crashed"),
 ])
 def test_a_thread_job_whose_worker_reports_a_failure_ends_as_an_error(monkeypatch, reason,
                                                                       detail, text):

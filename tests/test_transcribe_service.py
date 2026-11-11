@@ -273,10 +273,11 @@ class TestUpdateTranscribeConfig:
             with pytest.raises(InvalidInputError):
                 transcribe_service.update_transcribe_config(did, hallucination_silence_sec=bad)
 
-    def test_unknown_separation_backend_raises(self, isolated_db):
+    @pytest.mark.parametrize("value", ["nonsense", "demucs"])
+    def test_unknown_separation_backend_raises(self, isolated_db, value):
         did = isolated_db.create_drama(title_en="D")
         with pytest.raises(InvalidInputError):
-            transcribe_service.update_transcribe_config(did, separation_backend="nonsense")
+            transcribe_service.update_transcribe_config(did, separation_backend=value)
 
     def test_bool_fields_persist_as_true_and_false(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
@@ -666,7 +667,7 @@ class TestStartTranscribeRun:
         did, ddir = _drama_with_audio(
             isolated_db, transcript_mode="whisper", whisper_size="small", beam_size=7,
             min_silence_ms=900, vad_threshold=0.4, separate_vocals_first=1,
-            separation_backend="demucs", realign_long_segments=1, whisper_fast_mode=1)
+            separation_backend="audio_separator", realign_long_segments=1, whisper_fast_mode=1)
         captured = _capture_worker_start(monkeypatch)
 
         transcribe_service.start_transcribe_run(did, initial_prompt="names")
@@ -678,7 +679,7 @@ class TestStartTranscribeRun:
         assert captured["hallucination_silence_sec"] == 0.0
         assert captured["min_pause_sec"] == 0.35
         assert captured["separate_vocals_first"] is True
-        assert captured["separation_backend"] == "demucs"
+        assert captured["separation_backend"] == "audio_separator"
         assert captured["realign_long_segments"] is True
         assert captured["whisper_fast_mode"] is True
         assert captured["use_groq"] is False
@@ -1050,7 +1051,7 @@ class TestRunTranscribeAndApplyJob:
         _seed_running_job(job_id)
 
         def boom(*a, **k):
-            raise audio_preprocess.VocalSeparationError("no demucs")
+            raise audio_preprocess.VocalSeparationError("no audio-separator")
         monkeypatch.setattr(audio_preprocess, "separate_vocals", boom)
 
         transcribe_service._run_transcribe_and_apply_job(
@@ -1116,7 +1117,7 @@ class TestRunTranscribeAndApplyJob:
 
         def fake_separate(in_path, out_path, backend="auto", progress_cb=None,
                           cancel_check_cb=None, use_gpu=None, event_cb=None):
-            event_cb("loading", "demucs")
+            event_cb("loading", "audio_separator")
             seen.append(background_jobs.get_status(job_id)["message"])
             event_cb("device", "cpu")
             seen.append(background_jobs.get_status(job_id)["message"])

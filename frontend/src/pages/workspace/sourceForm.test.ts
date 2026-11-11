@@ -50,7 +50,7 @@ describe('advancedSummary', () => {
   it('collapses hidden developer knobs into a count when Developer Mode is off', () => {
     const v = { ...base, beam_size: '8', vad_threshold: '0.6', whisper_repeat_guard: true, hardsub_ocr_backend: 'paddle', use_groq: true }
     expect(advancedSummary(v, false)).toBe('Groq · 4 developer options changed')
-    expect(advancedSummary({ ...base, separation_backend: 'demucs' }, false)).toBe('1 developer option changed')
+    expect(advancedSummary({ ...base, separation_backend: 'audio_separator' }, false)).toBe('1 developer option changed')
     expect(advancedSummary({ ...base, hardsub_interval_sec: '2' }, true)).toBe('hardsub every 2 s')
     expect(advancedSummary(v, true)).toBe('beam 8 · VAD 0.6 · repeat guard · Groq · hardsub OCR paddle')
   })

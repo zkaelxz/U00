@@ -67,11 +67,11 @@ def test_qwen3_asr_needs_torch_soundfile_and_new_enough_transformers(monkeypatch
 
 
 def test_package_flags_follow_the_import_names(monkeypatch, bare_pc):
-    present = {"faster_whisper", "audio_separator", "demucs", "pyannote.audio", "onnxruntime", "openai",
+    present = {"faster_whisper", "audio_separator", "pyannote.audio", "onnxruntime", "openai",
                "yt_dlp", "pypdf", "genanki", "jieba", "ebooklib", "cv2"}
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name in present)
     body = svc.get_readiness()
-    for flag in ("faster_whisper", "audio_separator", "demucs", "pyannote", "onnxruntime", "openai",
+    for flag in ("faster_whisper", "audio_separator", "pyannote", "onnxruntime", "openai",
                  "yt_dlp", "pypdf", "genanki", "jieba", "ebooklib", "cv2"):
         assert body[flag] is True, flag
     assert body["sudachi"] is False and body["kiwi"] is False and body["anthropic"] is False
