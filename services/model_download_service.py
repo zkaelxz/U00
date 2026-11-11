@@ -72,8 +72,9 @@ def _fetch_hub(repos, report, cancelled) -> None:
 
         class Bar(huggingface_hub.utils.tqdm):
             def update(self, n=1):
-                # The file-count bar has no unit "B"; only bytes are reported.
-                if self.unit == "B" and n:
+                # The file-count bar has no unit "B"; only bytes are reported. A bar
+                # the library disables never sets `unit` at all.
+                if getattr(self, "unit", None) == "B" and n:
                     received[0] += n
                     report(step / len(repos), f"Downloading {repo_id}… {received[0] / 1e9:.1f} GB so far")
                     if cancelled():
