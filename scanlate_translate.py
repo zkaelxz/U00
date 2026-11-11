@@ -30,10 +30,21 @@ _MAX_TOKENS_PER_CALL = 8192
 # the source dropped the pronoun and the picture was not sent.
 _NAMES_NOTE = (" A person's name, including an author or artist credit, is romanised "
                "(Murata Yusuke), never translated word by word. Render an idiom or "
-               "figurative phrase by what it means in this scene, not by its parts. The "
-               "source often drops who is meant: you cannot see the page, so never guess "
+               "figurative phrase by what it means in this scene, not by its parts.")
+# Only for the text-only call: the picture call can see who is meant.
+_BLIND_NOTE = (" The source often drops who is meant: you cannot see the page, so never guess "
                "he or she. Use the name, \"you\" or \"they\" unless the text or the context "
                "gives the gender.")
+
+# Word-for-word output read as stiff ("Big sis is wearing such a strange outfit!" for
+# お姉ちゃん変な格好〜). The fidelity clause is there because a plain "make it natural"
+# made a small model drop a thanks and flip a sentence's sense in a test.
+_FLOW_NOTE = (" Write the English a skilled comic letterer would: short, natural spoken "
+              "dialogue with contractions and the rhythm of real speech, never a "
+              "word-for-word gloss. Keep every name, detail, description and nuance: "
+              "rephrase freely so it reads smoothly, but add nothing, drop nothing and "
+              "keep each sentence's meaning. Keep each reply short enough for a speech "
+              "bubble, and spell each name one way.")
 
 
 def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
@@ -124,7 +135,7 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     prompt = (
         f"Translate these {source_name} manga/comic text regions into natural English, keeping "
         "character voice and plot consistent with the context below if any. They are listed in reading "
-        "order; each has an id." + _NAMES_NOTE + ocr_note
+        "order; each has an id." + _NAMES_NOTE + _BLIND_NOTE + _FLOW_NOTE + ocr_note
         + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         'Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
         '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
@@ -205,7 +216,7 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
         "(tone, sound effects, who 'you' is). Translate only the listed regions, one answer per id; "
         "a site watermark, logo or address strip is not dialogue: answer \"\" (an empty string) for "
         "it, never a note about it, because your answer is typeset onto the page as written."
-        + reference + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
+        + _NAMES_NOTE + _FLOW_NOTE + reference + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         'Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
         '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
         'next page"}. Use every id exactly once, as given. No preamble, no markdown fences.')
