@@ -20,7 +20,7 @@ from .prompts import (MALE_PRONOUN_WORD, is_male_speaker_label, known_male_names
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
 from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
-from .translation_guard import allowed_source_runs, flag_unusable_replies, guard_batch
+from .translation_guard import IMPERIAL_NOTE, allowed_source_runs, converted_to_imperial, flag_unusable_replies, guard_batch
 from .shared import (
     ContentModerationBlocked,
     _backoff_wait_var,
@@ -649,12 +649,21 @@ class _TranslateRun:
                 ln.flag = "uncertain_translation"
                 ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 
+    @staticmethod
+    def _flag_imperial_units(chunk):
+        for ln in chunk:
+            if not ln.flag and converted_to_imperial(ln.zh, ln.en):
+                ln.flag = "uncertain_translation"
+                ln.flag_note = IMPERIAL_NOTE
+
     def _translate_batch(self, batch):
         wait_token = _backoff_wait_var.set(self._on_wait if self.args.detail_cb else None)
         self.hard_failures.clear()
         translated_before = len(self.translated)
         try:
             self._process_chunk(batch, allow_bisect=True)
+            if medium_prompts.kind_for(self.args.drama_meta) == "novel":
+                self._flag_imperial_units(self.translated[translated_before:])
             if self.args.glossary_terms and len(self.translated) > translated_before:
                 self._check_glossary(self.translated[translated_before:])
         finally:

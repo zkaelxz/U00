@@ -502,3 +502,25 @@ class TestFirstAlternative:
                 return ["Strange. Or: Weird. Or: Odd. Or: Unusual."]
         translate_pipeline.translate_lines_with_engine(lines, Listy(), NOVEL, batch_size=1)
         assert lines[0].en == "Strange."
+
+
+class TestNovelImperialUnits:
+    def test_metric_source_turned_imperial_is_detected(self):
+        assert guard.converted_to_imperial("气温三十五度", "It was ninety-five degrees Fahrenheit")
+        assert guard.converted_to_imperial("他身高一米八", "He stood 6 feet tall")
+
+    def test_source_that_uses_imperial_or_plain_english_is_not(self):
+        assert not guard.converted_to_imperial("他身高六英尺", "He stood 6 feet tall")
+        assert not guard.converted_to_imperial("他身高一米八", "He stood 1.8 metres tall")
+
+    def test_novel_line_is_flagged_and_subtitle_is_not(self):
+        sources = ["他身高一米八，站在门口一动不动"]
+
+        class Eng(Scripted):
+            def translate_batch(self, zh_lines, context):
+                return ["He stood six feet tall in the doorway, not moving at all."]
+
+        for meta, flagged in ((NOVEL, True), ({}, False)):
+            lines = [Line(idx=0, start=0, end=1, zh=sources[0], id=300)]
+            translate_pipeline.translate_lines_with_engine(lines, Eng(), meta, batch_size=1)
+            assert (lines[0].flag == FLAG) is flagged
