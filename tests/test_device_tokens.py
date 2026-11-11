@@ -436,7 +436,9 @@ class TestOwnerAtThePcAddsADeviceForAnAdmin:
         ping = _bridge().get("/api/bridge/ping", headers=_bearer(body["token"]))
         assert ping.status_code == 200
         assert ping.json()["user_id"] == admin["id"] and ping.json()["is_admin"] is False
-        assert "at the PC" in str(auth_service.list_audit(50))
+        audit = [a for a in auth_service.list_audit(50) if a["action"] == "device_token.create"]
+        assert len(audit) == 1 and audit[0]["user_id"] is None
+        assert f"user {admin['id']}" in audit[0]["detail_redacted"] and "at the PC" in audit[0]["detail_redacted"]
 
     def test_several_admins_need_a_choice_and_only_an_active_admin_can_be_chosen(self, isolated_db):
         first = auth_service.grant_admin_local("owner@example.com")
@@ -454,13 +456,19 @@ class TestOwnerAtThePcAddsADeviceForAnAdmin:
         c = loopback_client(_app("off"))
         assert c.post(ADMIN, json={"label": "Laptop"}).status_code == 422
 
-    def test_the_usual_limits_still_apply(self, isolated_db):
+    def test_the_usual_limits_still_apply(self, isolated_db, monkeypatch):
         admin = auth_service.grant_admin_local("owner@example.com")
         c = loopback_client(_app("off"))
         assert c.post(ADMIN, json={"label": ""}).status_code == 422
-        for n in range(svc.MAX_LIVE_TOKENS):
-            assert c.post(ADMIN, json={"label": f"PC {n}"}).status_code in (200, 429)
-        assert len(device_tokens.list_for_user(admin["id"])) <= svc.MAX_LIVE_TOKENS
+        # The per-user creation rate (5 an hour) is shared with the admin's own bucket.
+        assert [c.post(ADMIN, json={"label": f"PC {n}"}).status_code for n in range(6)] == [
+            200, 200, 200, 200, 200, 429]
+        # And the cap on live tokens, with the rate out of the way.
+        monkeypatch.setattr(svc, "_create_limiter", auth_service.SlidingWindowRateLimiter(100, 3600))
+        for n in range(svc.MAX_LIVE_TOKENS - 5):
+            assert c.post(ADMIN, json={"label": f"More {n}"}).status_code == 200
+        assert c.post(ADMIN, json={"label": "One too many"}).status_code == 409
+        assert len(device_tokens.list_for_user(admin["id"])) == svc.MAX_LIVE_TOKENS
 
     def test_the_household_listener_never_serves_it(self, isolated_db):
         admin = auth_service.grant_admin_local("owner@example.com")

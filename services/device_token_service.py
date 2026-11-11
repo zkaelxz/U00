@@ -183,9 +183,15 @@ def _mint(user_id: int, label, expires_in_days, ip: str, now, session_principal)
                 and not _session_still_signed_in(session_principal, user_id))):
         device_tokens.revoke(token_id, now, user_id=user_id)
         raise ForbiddenError("Not allowed.")
-    auth_service.write_audit(user_id, "device_token.create",
-                             f"token {token_id} ip {auth_service.ip_prefix(ip)}"
-                             + ("" if session_principal is not None else " at the PC"))
+    # At the PC nobody signed in did this (the owner has no account), so, like
+    # admin_revoke, no user is the actor and the admin it was added for is named.
+    if session_principal is not None:
+        auth_service.write_audit(user_id, "device_token.create",
+                                 f"token {token_id} ip {auth_service.ip_prefix(ip)}")
+    else:
+        auth_service.write_audit(None, "device_token.create",
+                                 f"token {token_id} user {user_id} ip "
+                                 f"{auth_service.ip_prefix(ip)} at the PC")
     row = device_tokens.get(token_id)
     if row is None:
         raise NotFoundError("The new device token is gone.")
