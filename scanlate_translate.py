@@ -35,6 +35,16 @@ _NAMES_NOTE = (" A person's name, including an author or artist credit, is roman
                "he or she. Use the name, \"you\" or \"they\" unless the text or the context "
                "gives the gender.")
 
+# Word-for-word output read as stiff ("Big sis is wearing such a strange outfit!" for
+# お姉ちゃん変な格好〜). The fidelity clause is there because a plain "make it natural"
+# made a small model drop a thanks and flip a sentence's sense in a test.
+_FLOW_NOTE = (" Write the English a skilled comic letterer would: short, natural spoken "
+              "dialogue with contractions and the rhythm of real speech, never a "
+              "word-for-word gloss. Keep every name, detail, description and nuance: "
+              "rephrase freely so it reads smoothly, but add nothing, drop nothing and "
+              "keep each sentence's meaning. Keep each reply short enough for a speech "
+              "bubble, and spell each name one way.")
+
 
 def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
                             previous_context: str = "", usage_cb=None, glossary_terms=None,
@@ -124,7 +134,7 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     prompt = (
         f"Translate these {source_name} manga/comic text regions into natural English, keeping "
         "character voice and plot consistent with the context below if any. They are listed in reading "
-        "order; each has an id." + _NAMES_NOTE + ocr_note
+        "order; each has an id." + _NAMES_NOTE + _FLOW_NOTE + ocr_note
         + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         'Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
         '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
