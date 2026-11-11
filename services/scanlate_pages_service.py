@@ -171,9 +171,9 @@ def _weights_cached():
 
 def default_engine(engines: list | None = None) -> str:
     """The engine a Scanlate run starts with: the Settings default when the
-    person saved one that can run, otherwise the cheapest engine that can --
-    the stock default is Claude, the dearest, and a page run translates a
-    whole chapter. Cheapest by the price of each engine's default model; a
+    person saved one that can run, otherwise OpenAI (Luna) when it can run, else
+    the cheapest engine that can -- the stock default is Claude, the dearest,
+    and a page run translates a whole chapter. Cheapest by the price of each engine's default model; a
     free or local engine costs nothing. The Settings default when none can run, so
     the run is refused for the missing key as before."""
     import types
@@ -195,11 +195,12 @@ def default_engine(engines: list | None = None) -> str:
             free_tier=name == "gemini" and gemini_free)
         return estimate_cost_for_engine(stand_in, 1_000_000, 1_000_000)
 
-    # OpenAI's new default (Luna) is cheaper than DeepSeek but has no measured
-    # translation quality yet, so it is only the automatic pick when it is the
-    # one engine that can run.
-    ranked = [n for n in usable if n != "openai"] or usable
-    return min(ranked, key=price, default=chosen)
+    # Luna read slang best of the cheap engines in the stream test, and Kae
+    # chose it over DeepSeek, so it wins whenever its key works; the price
+    # ranking only decides among the rest.
+    if "openai" in usable:
+        return "openai"
+    return min(usable, key=price, default=chosen)
 
 
 def get_config(drama_id: int) -> dict:
