@@ -1152,6 +1152,24 @@ class TestLetteringMask:
         assert (mask[20:40, 58:60] == 255).all() and (mask[20:40, 70:72] == 255).all()
         assert mask[20:40, 40:50].max() == 0   # paper far from any stroke
 
+    def test_the_pale_halo_touching_a_stroke_is_masked_but_shading_far_from_it_is_not(self):
+        roi = np.full((60, 160), 235, np.uint8)
+        roi[20:40, 20:30] = 60            # stroke
+        roi[17:43, 15:35] = np.minimum(roi[17:43, 15:35], 205)   # its halo, over the stroke's edge
+        roi[20:40, 20:30] = 60
+        roi[:, 120:] = 200                # shading on the paper, apart from the stroke
+        mask = scanlate_inpaint._lettering_mask(roi)
+        assert (mask[17:43, 16:34] == 255).all()
+        assert mask[:, 125:].max() == 0
+
+    def test_a_halo_that_would_flood_the_box_is_left_out(self):
+        roi = np.full((60, 120), 235, np.uint8)
+        roi[:, :45] = 200                 # a shaded third of the box, touching the stroke
+        roi[20:40, 40:50] = 60
+        mask = scanlate_inpaint._lettering_mask(roi)
+        assert mask[:, :20].max() == 0
+        assert (mask[20:40, 40:50] == 255).all()
+
     def test_light_lettering_on_a_dark_balloon_masks_only_the_lettering(self):
         roi = np.full((60, 120), 20, np.uint8)
         roi[25:35, 50:70] = 255
