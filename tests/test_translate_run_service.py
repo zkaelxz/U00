@@ -355,7 +355,7 @@ def test_save_style_toggles_stores_translate_by_sentence_and_none_keeps_it(isola
     ("gemini", None, 30),                         # default model is Flash-Lite
     ("openai", "gpt-5", 30),                      # not tested at 60 yet
     ("deepseek", None, 30),
-    ("ollama", "qwen3:8b", 30),                   # local
+    ("ollama", "translategemma:12b", 30),                   # local
     ("no-such-engine", "claude-sonnet-5-5", 30),  # unknown engine: safe default
     ("claude", "something-new", 30),              # unknown model: safe default
 ])

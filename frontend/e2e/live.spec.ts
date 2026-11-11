@@ -236,7 +236,7 @@ test('the status names the stage, flags a long wait on Ollama, and says what a s
   m.state.status = 'running'
   m.state.message = 'Chunk 1: transcribing with Whisper small (CPU)'
   await expect(live.getByTestId('live-status')).toHaveText('Chunk 1: transcribing with Whisper small (CPU) · 0 lines')
-  m.state.message = 'Chunk 1: translating with qwen3:8b (Ollama) Still waiting on Ollama after 75 s: it may be loading the model.'
+  m.state.message = 'Chunk 1: translating with translategemma:12b (Ollama) Still waiting on Ollama after 75 s: it may be loading the model.'
   await expect(live.getByTestId('live-status')).toContainText('Still waiting on Ollama after 75 s')
 
   // A stop that can't act at once says why, instead of "finishes the current step first".
@@ -250,47 +250,47 @@ test('the status names the stage, flags a long wait on Ollama, and says what a s
   expect(m.unmocked).toEqual([])
 })
 
-test('model picker: Ollama and gemma4:12b are the labelled default, and every other choice still works', async ({ page }) => {
+test('model picker: Ollama and translategemma:12b are the labelled default, and every other choice still works', async ({ page }) => {
   const m = await mockLive(page, { ollama: true })
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   const engine = live.getByLabel('AI engine', { exact: true })
   await expect(engine).toHaveValue('ollama')
   const model = live.getByLabel('Model', { exact: true })
-  await expect(model.locator('option')).toHaveText(['qwen3:8b', 'gemma4:12b (default)'])
-  await expect(model).toHaveValue('gemma4:12b')
-  await expect.poll(() => m.ollamaChecks).toEqual(['gemma4:12b'])
+  await expect(model.locator('option')).toHaveText(['llama3.1:8b', 'translategemma:12b (default)'])
+  await expect(model).toHaveValue('translategemma:12b')
+  await expect.poll(() => m.ollamaChecks).toEqual(['translategemma:12b'])
   await expect(live.getByTestId('live-ollama-note')).toHaveCount(0)
   // Another engine without a model list: no picker, and the thinking switch is still offered for DeepSeek.
   await engine.selectOption('fake')
   await expect(model).toHaveCount(0)
   await engine.selectOption('ollama')
-  await model.selectOption('qwen3:8b')
+  await model.selectOption('llama3.1:8b')
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect.poll(() => m.posts.length).toBe(1)
-  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'qwen3:8b' })
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'llama3.1:8b' })
   m.state.status = 'running'
   m.state.message = 'Listening'
-  m.state.model = 'qwen3:8b'
-  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines · qwen3:8b')
+  m.state.model = 'llama3.1:8b'
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines · llama3.1:8b')
   await expect(model).toBeDisabled()
   expect(m.unmocked).toEqual([])
 })
 
-test('default start sends Ollama with gemma4:12b and replies without thinking', async ({ page }) => {
+test('default start sends Ollama with translategemma:12b and replies without thinking', async ({ page }) => {
   const m = await mockLive(page, { ollama: true })
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect.poll(() => m.posts.length).toBe(1)
-  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:12b', reply_without_thinking: true })
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'translategemma:12b', reply_without_thinking: true })
 })
 
 test('Ollama missing: says so plainly, keeps the engine, and another engine can be picked', async ({ page }) => {
   const m = await mockLive(page, { ollama: true, ollamaMissing: true })
   const live = await openLive(page)
   const note = live.getByTestId('live-ollama-note')
-  await expect(note).toContainText('Ollama doesn\'t have the model gemma4:12b')
+  await expect(note).toContainText('Ollama doesn\'t have the model translategemma:12b')
   await expect(note).toContainText('Pick another engine above')
   await expect(live.getByLabel('AI engine', { exact: true })).toHaveValue('ollama')
   await live.getByLabel('AI engine', { exact: true }).selectOption('deepseek')
@@ -327,11 +327,11 @@ test('model picker: a remembered model the engine no longer offers falls back to
   const m = await mockLive(page, { ollama: true })
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
-  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('gemma4:12b')
+  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('translategemma:12b')
   await expect(live.getByTestId('live-model-note')).toContainText("default model will be used")
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect.poll(() => m.posts.length).toBe(1)
-  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:12b' })
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'translategemma:12b' })
 })
 
 test('model picker: when the engine list fails to load, says the default model is used', async ({ page }) => {
@@ -504,12 +504,12 @@ test('the form offers and starts on what the server says, and a remembered choic
   const m = await mockLive(page, {
     ollama: true,
     liveOptions: {
-      whisper_sizes: ['small', 'medium'], max_minutes_range: [1, 30], default_model: 'qwen3:8b',
+      whisper_sizes: ['small', 'medium'], max_minutes_range: [1, 30], default_model: 'translategemma:12b',
       defaults: { source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 3, max_minutes: 20, player_height: 480 },
     },
   })
   const live = await openLive(page)
-  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('qwen3:8b')
+  await expect(live.getByLabel('Model', { exact: true })).toHaveValue('translategemma:12b')
   await expect(live.getByLabel('Language', { exact: true })).toHaveValue('ja')
   await live.getByText('Advanced').click()
   await expect(live.getByLabel('Whisper model', { exact: true }).locator('option')).toHaveText(['small', 'medium'])
@@ -518,7 +518,7 @@ test('the form offers and starts on what the server says, and a remembered choic
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect.poll(() => m.posts.length).toBe(1)
   expect(m.posts[0].body).toMatchObject({
-    model: 'qwen3:8b', source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 2, max_minutes: 20,
+    model: 'translategemma:12b', source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 2, max_minutes: 20,
   })
   expect(m.unmocked).toEqual([])
 })

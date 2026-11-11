@@ -34,6 +34,6 @@ describe('Quick video translate run text', () => {
   })
   it('words a setting row, naming the engine by its label', () => {
     expect(settingText({ label: 'Batch size', value: '30' })).toBe('Batch size: 30')
-    expect(settingText({ label: 'Engine and model', value: 'translategemma:4b', engine: 'ollama' })).toMatch(/^Engine and model: .+, translategemma:4b$/)
+    expect(settingText({ label: 'Engine and model', value: 'translategemma:12b', engine: 'ollama' })).toMatch(/^Engine and model: .+, translategemma:12b$/)
   })
 })

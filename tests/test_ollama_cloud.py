@@ -75,7 +75,7 @@ def test_cloud_detection():
 
 
 def test_local_default_is_unchanged_and_not_cloud():
-    assert engine_local.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
+    assert engine_local.OLLAMA_DEFAULT_MODEL == "translategemma:12b"
     assert not engine_local.is_ollama_cloud_model(engine_local.OllamaEngine().model)
     assert not set(engine_local.OLLAMA_CLOUD_MODELS) & set(engine_local.OLLAMA_MODELS)
 
@@ -162,7 +162,7 @@ def test_cloud_models_are_labelled_in_engine_list(isolated_db):
 
 
 def test_cloud_models_never_become_default_or_fallback_choice(isolated_db):
-    assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
+    assert engine_registry.effective_default_model("ollama") == "translategemma:12b"
     assert not any(engine_local.is_ollama_cloud_model(t.get("engine_model"))
                    for t in engine_registry.WORKFLOW_TIERS.values())
 
@@ -196,7 +196,7 @@ def test_ollama_default_picker_lists_local_tags_only():
 def test_cloud_tag_cannot_replace_the_ollama_default(isolated_db, tag):
     with pytest.raises(InvalidInputError, match="can't be the default"):
         model_registry_service.set_model_override("default", "ollama", engine_registry.effective_default_model("ollama"), tag)
-    assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
+    assert engine_registry.effective_default_model("ollama") == "translategemma:12b"
 
 
 def test_run_naming_ollama_without_a_model_never_resolves_to_a_cloud_tag(isolated_db):

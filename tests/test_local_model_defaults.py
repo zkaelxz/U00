@@ -1,6 +1,6 @@
 """
 tests/test_local_model_defaults.py -- Step 5 (R3-lite): the local
-translation default is qwen3:8b (a saved gemma4 tag keeps working but is no longer offered), Ollama requests
+translation default is translategemma:12b (a saved gemma4 tag keeps working but is no longer offered), Ollama requests
 have a timeout, and GPU model caches are emptied once a stage finishes.
 """
 import sys
@@ -15,32 +15,32 @@ from tests.http_fakes import StreamedBody
 
 
 class TestOllamaDefaults:
-    def test_default_model_is_qwen3_8b(self):
-        assert engine_local.OLLAMA_DEFAULT_MODEL == "qwen3:8b"
-        assert engine_local.OllamaEngine().model == "qwen3:8b"
-        assert engine_registry.get_engine("ollama").model == "qwen3:8b"
-        assert engine_registry.builtin_default_model("ollama") == "qwen3:8b"
-        assert list(engine_local.OLLAMA_MODELS)[0] == "qwen3:8b"
+    def test_default_model_is_translategemma_12b(self):
+        assert engine_local.OLLAMA_DEFAULT_MODEL == "translategemma:12b"
+        assert engine_local.OllamaEngine().model == "translategemma:12b"
+        assert engine_registry.get_engine("ollama").model == "translategemma:12b"
+        assert engine_registry.builtin_default_model("ollama") == "translategemma:12b"
+        assert list(engine_local.OLLAMA_MODELS)[0] == "translategemma:12b"
 
-    def test_only_qwen3_8b_is_offered_and_other_saved_tags_still_build_an_engine(self):
-        assert [t for t in engine_local.OLLAMA_MODELS if t.startswith("qwen")] == ["qwen3:8b"]
-        for tag in ("qwen3:8b", "qwen2.5:14b"):
+    def test_only_translategemma_12b_is_offered_and_other_saved_tags_still_build_an_engine(self):
+        assert not [t for t in engine_local.OLLAMA_MODELS if t.startswith("qwen")]
+        for tag in ("translategemma:12b", "qwen2.5:14b"):
             assert engine_registry.get_engine("ollama", None, tag).model == tag
 
     def test_a_saved_qwen_tag_still_passes_the_run_option_check(self):
         from services import translate_run_service as svc
-        svc._require_offered_model("ollama", "qwen3:8b")
+        svc._require_offered_model("ollama", "translategemma:12b")
         svc._require_offered_model("ollama", "qwen2.5:14b")
 
     def test_a_saved_qwen_tag_is_kept_by_a_preset(self, isolated_db):
         from services import translate_preset_service as svc
-        saved = svc.save_translate_preset("Qwen preset", "ollama", engine_model="qwen3:8b")
+        saved = svc.save_translate_preset("Qwen preset", "ollama", engine_model="translategemma:12b")
         did = isolated_db.create_drama(title_zh="D")
         applied = svc.apply_translate_preset(did, saved["preset"]["id"])
         assert applied["translation_engine"] == "ollama"
-        assert applied["engine_model"] == "qwen3:8b"
+        assert applied["engine_model"] == "translategemma:12b"
         row = next(p for p in isolated_db.list_presets() if p["id"] == saved["preset"]["id"])
-        assert row["engine_model"] == "qwen3:8b"
+        assert row["engine_model"] == "translategemma:12b"
 
     def test_translate_requests_have_a_timeout_and_use_the_default_model(self, monkeypatch):
         seen = {}
@@ -56,7 +56,7 @@ class TestOllamaDefaults:
             return Resp()
         monkeypatch.setattr("requests.post", fake_post)
         assert engine_local.OllamaEngine().translate_batch(["你好"], {}) == ["Hello."]
-        assert seen["model"] == "qwen3:8b"
+        assert seen["model"] == "translategemma:12b"
         assert seen["timeout"] and seen["timeout"] > 0
 
 
@@ -145,7 +145,7 @@ class TestGemma4Models:
             assert engine_registry.get_engine("ollama", None, tag).model == tag
 
     def test_picker_choices(self):
-        assert list(engine_local.OLLAMA_MODELS) == ["qwen3:8b", "translategemma:12b"]
+        assert list(engine_local.OLLAMA_MODELS) == ["translategemma:12b"]
 
     def test_request_shape_is_the_same_as_for_a_hand_typed_qwen_tag(self, monkeypatch):
         sent = []
@@ -154,7 +154,7 @@ class TestGemma4Models:
             sent.append((json, timeout))
             return _OllamaReply({"content": '{"1": "Hello."}'})
         monkeypatch.setattr("requests.post", fake_post)
-        for model in ("qwen3:8b", "gemma4:12b"):
+        for model in ("translategemma:12b", "gemma4:12b"):
             engine_local.OllamaEngine(model=model).translate_batch(["你好"], {})
         (qwen, _), (gemma, _) = sent
         from engine_backends.local import id_keyed_schema
@@ -175,7 +175,7 @@ class TestGemma4Models:
         assert strip_ollama_thinking('<think>still going {"1": "x"}') == ""
 
     @pytest.mark.parametrize("model, expected", [
-        ("qwen3:8b", 300), ("gemma4:12b", 300),
+        ("translategemma:12b", 300), ("gemma4:12b", 300),
         ("gemma4:26b", 900), ("gemma4:31b", 900),
     ])
     def test_cpu_split_models_get_a_longer_but_finite_timeout(self, monkeypatch, model, expected):
