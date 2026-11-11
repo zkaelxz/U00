@@ -28,13 +28,16 @@ process at once (`page_server.stop_server`, safe from an API request
 thread), so `restart_needed` stays False unless it could not be stopped.
 """
 
+import io
+import os
 import threading
+import zipfile
 
 import db
 import page_server
 from engine_backends import engine_registry
 from services import settings_service, translate_service
-from lib.errors import InvalidInputError
+from lib.errors import InvalidInputError, NotFoundError
 from sources import store as src_store
 
 ENGINE_SETTING = "extension_translation_engine"
@@ -42,6 +45,28 @@ ENGINE_SETTING = "extension_translation_engine"
 # Two toggles at once (a double click, two tabs) would otherwise interleave
 # so that "off" saves and reports stopped while "on" opens the port after it.
 _toggle_lock = threading.Lock()
+
+
+_EXTENSION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extension")
+# The end-to-end driver is a developer tool; it is not part of what a browser loads.
+_NOT_SHIPPED = {"verify_end_to_end.py"}
+
+
+def extension_zip() -> bytes:
+    """The browser extension as a zip, so it can be unpacked on a computer that
+    cannot open this PC's app folder (the folder is hard to find in a service install)."""
+    if not os.path.isfile(os.path.join(_EXTENSION_DIR, "manifest.json")):
+        raise NotFoundError("The extension files were not found in this install.")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(_EXTENSION_DIR):
+            dirs[:] = sorted(d for d in dirs if d != "__pycache__")
+            for name in sorted(files):
+                if name in _NOT_SHIPPED or name.endswith(".pyc"):
+                    continue
+                full = os.path.join(root, name)
+                zf.write(full, os.path.join("baihe-extension", os.path.relpath(full, _EXTENSION_DIR)))
+    return buf.getvalue()
 
 
 def get_status() -> dict:

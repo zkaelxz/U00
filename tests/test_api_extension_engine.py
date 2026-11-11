@@ -288,3 +288,26 @@ def test_no_response_exposes_the_ocr_settings_or_hf_token(env):
     for r in (c.get("/api/extension/status"), c.get("/api/extension/engine"),
               c.post("/api/extension/engine", json={"engine": "fake"})):
         assert HF_TOKEN not in r.text and "/opt/tess" not in r.text
+
+
+def test_pc_downloads_the_extension_as_a_zip(env):
+    import io
+    import zipfile
+    r = _client().get("/api/extension/download")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert "baihe-extension.zip" in r.headers["content-disposition"]
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert "baihe-extension/manifest.json" in names and "baihe-extension/background.js" in names
+    assert not any(n.endswith((".py", ".pyc")) for n in names)
+
+
+def test_the_extension_download_is_pc_only(env):
+    app = create_app(ApiSettings())
+    remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
+    assert remote.get("/api/extension/download").status_code in (401, 403)
+
+
+def test_download_says_so_when_the_extension_files_are_missing(env, monkeypatch, tmp_path):
+    monkeypatch.setattr(extension_service, "_EXTENSION_DIR", str(tmp_path / "nope"))
+    assert _client().get("/api/extension/download").status_code == 404
