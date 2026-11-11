@@ -19,10 +19,11 @@ from api.server import create_app
 from services import auth_service
 from lib.errors import ConflictError, ForbiddenError, NotFoundError
 from tests.api_helpers import loopback_client
+from tests.test_api_household_listener import _h as _household_h, _household_client
 
 REMOTE = "https://baihe.example.com"
 LOCAL_POST = {"X-Baihe-Local": "1"}
-ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"),
+ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"), ("POST", "/api/admin/users"),
           ("POST", "/api/admin/users/{id}/deactivate"), ("POST", "/api/admin/users/{id}/activate"),
           ("POST", "/api/admin/users/{id}/revoke-sessions"),
           ("POST", "/api/admin/users/{id}/revoke-admin"),
@@ -939,3 +940,66 @@ def test_a_job_that_crosses_its_starters_limit_is_stopped(isolated_db):
     assert wait_for_job_threads(5)
     assert seen == {"stopped_after": 2}
     assert background_jobs.get_status("over-limit")["status"] == "cancelled"
+
+
+# --- add a person ---------------------------------------------------------------
+
+def test_admin_at_the_pc_adds_a_person_with_the_household_rights(isolated_db):
+    a, s = _admin()
+    r = loopback_client(_app()).post("/api/admin/users", headers=_h(s),
+                                     json={"email": " New@Example.com ", "display_name": "  Kid\n Two "})
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    body = r.json()
+    assert (body["email"], body["display_name"]) == ("new@example.com", "Kid Two")
+    assert body["is_active"] and not body["is_admin"] and not body["has_google_binding"]
+    assert sorted(body["permissions"]) == sorted(auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("user.add")] == \
+        [(a["id"], f"user {body['id']}")]
+    assert _audit("permission.grant") == []
+
+
+def test_adding_a_person_can_give_the_browser_extension_right(isolated_db):
+    c = loopback_client(_app("off"))
+    r = c.post("/api/admin/users", headers=LOCAL_POST,
+               json={"email": "pc2@example.com", "extension_send": True})
+    assert r.status_code == 200
+    uid = r.json()["id"]
+    assert "extension.send" in r.json()["permissions"]
+    assert "extension.send" in auth_service.effective_permissions(uid)
+    assert [e["detail_redacted"] for e in _audit("permission.grant")] == [f"user {uid}: extension.send"]
+    assert _audit("user.add")[0]["user_id"] is None   # the owner at the PC, sign-in off
+
+
+def test_adding_a_person_is_refused_away_from_the_pc(isolated_db):
+    """Proxied (remote Host) and on the household listener alike: 403 with
+    the PC-only text, nothing written, and no hint whether the email exists."""
+    _a, s = _admin()
+    auth_service.add_user("taken@example.com")
+    for email in ("new@example.com", "taken@example.com"):
+        r = _remote(_app()).post("/api/admin/users", headers=_h(s), json={"email": email})
+        assert r.status_code == 403
+        assert r.json()["error"]["message"] == auth_service.ADD_AT_PC_ONLY
+        r = _household_client().post("/api/admin/users", headers=_household_h(s), json={"email": email})
+        assert r.status_code == 403
+        assert r.json()["error"]["message"] == auth_service.ADD_AT_PC_ONLY
+    assert auth_service.find_user_by_email("new@example.com") is None
+    assert len(_audit("user.add")) == 1
+
+
+def test_adding_a_person_checks_the_email_and_refuses_a_duplicate(isolated_db):
+    c = loopback_client(_app("off"))
+    assert c.post("/api/admin/users", headers=LOCAL_POST,
+                  json={"email": "kid@example.com"}).status_code == 200
+    r = c.post("/api/admin/users", headers=LOCAL_POST, json={"email": "KID@example.com"})
+    assert r.status_code == 409
+    for bad in ({"email": "not-an-email"}, {"email": ""}, {"email": "a@b.co", "is_admin": True},
+                {"email": "a@b.co", "display_name": "x" * 101}, {"email": "a@b.co", "extension_send": "yes"}):
+        assert c.post("/api/admin/users", headers=LOCAL_POST, json=bad).status_code in (400, 422), bad
+    assert [u["email"] for u in auth_service.list_users()] == ["kid@example.com"]
+
+
+def test_adding_a_person_never_makes_an_admin(isolated_db):
+    r = loopback_client(_app("off")).post("/api/admin/users", headers=LOCAL_POST,
+                                          json={"email": "kid@example.com"})
+    assert not db.auth_get_user(r.json()["id"])["is_admin"]
+    assert not any(p.startswith("admin.") for p in r.json()["permissions"])

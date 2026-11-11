@@ -8,6 +8,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 |---|---|
 | `GET /api/admin/audit` | admin.users.read |
 | `GET /api/admin/users` | admin.users.read |
+| `POST /api/admin/users` | admin.users |
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
