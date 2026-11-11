@@ -26369,6 +26369,10 @@ export interface components {
              * @default true
              */
             scanlate_chapter_brief: boolean;
+            /**
+             * Scanlate Page Image
+             * @default true
+             */
             scanlate_page_image: boolean;
             /** Scene Aware Batches */
             scene_aware_batches: boolean;
@@ -26640,6 +26644,7 @@ export interface components {
             retime_window_pad_seconds?: number | null;
             /** Scanlate Chapter Brief */
             scanlate_chapter_brief?: boolean | null;
+            /** Scanlate Page Image */
             scanlate_page_image?: boolean | null;
             /** Scene Aware Batches */
             scene_aware_batches?: boolean | null;
