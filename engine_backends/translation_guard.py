@@ -268,3 +268,36 @@ def guard_batch(chunk: list, redo, stop, allowed_runs=(), novel: bool = False) -
                 live[p].en = candidate[p]
     return [(live[p], reason)
             for p, reason in suspect_positions(sources, replies, allowed_runs, novel).items()]
+
+
+# Imperial words in the English only count when the source carries a measurement
+# of its own (metric or Chinese) and none of the imperial kind: 英尺 and 磅 in the
+# source make feet and pounds correct, and a line with no measurement has nothing
+# to convert ("a mile of road" in a figure of speech would be the model's choice).
+_IMPERIAL_IN_ENGLISH = re.compile(
+    r"\b(?:feet|foot|inch(?:es)?|miles?|pounds?|lbs?|ounces?|yards?|fahrenheit)\b|\d\s?°\s?F\b",
+    re.IGNORECASE)
+_MEASURE_IN_SOURCE = re.compile(r"[0-9零一二三四五六七八九十百千两半]\s?(?:米|公里|千米|厘米|公斤|千克|克|度|升|里|丈|尺|寸|斤)")
+_IMPERIAL_IN_SOURCE = re.compile(r"英尺|英寸|英里|英吋|磅|盎司|码|华氏|フィート|インチ|マイル|ポンド|피트|인치|마일|파운드|°F")
+
+IMPERIAL_NOTE = "check: metric measurement in the source reads as imperial here"
+
+
+def converted_to_imperial(source: str, english: str) -> bool:
+    """Novel mode keeps the source's units; a line that turns a measurement of
+    the source into feet, miles, pounds or Fahrenheit is flagged."""
+    return bool(_IMPERIAL_IN_ENGLISH.search(english or "") and _MEASURE_IN_SOURCE.search(source or "")
+                and not _IMPERIAL_IN_SOURCE.search(source or ""))
+
+
+# A model that has seen the prompt's "[Name]" speaker rule sometimes invents the
+# prefix itself on a source line that has none; only such a prefix is removed, so
+# a source that really opens with a bracketed label keeps its own.
+_INVENTED_TAG = re.compile(r"^\s*\[[^\[\]\n]{1,40}\]\s+(?=\S)")
+
+
+def strip_invented_speaker_tag(source: str, english: str) -> str:
+    if (source or "").lstrip().startswith(("[", "【", "［")):
+        return english
+    return _INVENTED_TAG.sub("", english or "", count=1)
+
