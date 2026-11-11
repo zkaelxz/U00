@@ -649,3 +649,22 @@ def test_one_block_of_lettering_and_a_small_box_stay_one_region():
     two = _glyph_page([(20, 20), (150, 120)], size=(260, 400))
     small = {"x": 0, "y": 0, "w": 400, "h": 260}
     assert scanlate_regions.split_separate_lettering(two, small) == [small]
+
+
+class TestKatakanaEffects:
+    @pytest.mark.parametrize("text,becomes", [
+        ("キュルルル・", "sfx"),
+        ("ゴゴゴゴ", "sfx"),
+        ("ドン！", "bubble"),
+        ("アメリカ", "bubble"),
+        ("ルルル、行こう", "bubble"),
+        ("もしかして", "bubble"),
+    ])
+    def test_only_a_stretched_katakana_effect_is_marked(self, text, becomes):
+        region = {"kind": "bubble", "source_text": text}
+        scanlate_regions.flag_katakana_effects([region])
+        assert region["kind"] == becomes
+
+    def test_a_region_the_person_included_is_left_alone(self):
+        region = {"kind": "bubble", "source_text": "ゴゴゴ", "include_sfx": True}
+        assert scanlate_regions.flag_katakana_effects([region]) == 0

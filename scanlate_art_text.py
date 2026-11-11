@@ -25,6 +25,9 @@ _BOLD_STROKE_RATIO = 0.10
 # A caption cut by a page break ends this close to the edge; OCR boxes rarely
 # reach the last pixel row.
 _EDGE_PX = 24
+# Fewer than this many letters or characters is a speck the detector read as a
+# glyph ("0", "4", one stray kanji), never a caption worth painting over.
+_MIN_CAPTION_CHARS = 3
 
 
 def _overlap(a: dict, b: dict) -> float:
@@ -89,6 +92,15 @@ def split_by_source_share(text: str, upper_src: str, lower_src: str):
     return " ".join(words[:cut]), " ".join(words[cut:])
 
 
+def _is_caption_text(text: str) -> bool:
+    """False for a speck ("0", "4") and for Latin-only text, which is already
+    English (a jacket's printed words) and is only damaged by being painted over."""
+    significant = [c for c in text if c.isalpha() or "\u3040" <= c <= "\u9fff"]
+    if len(significant) < _MIN_CAPTION_CHARS:
+        return False
+    return not all(c.isascii() for c in significant)
+
+
 def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None,
                       backend: str | None = None) -> list:
     """Caption boxes on the artwork that no existing region covers, as
@@ -108,7 +120,7 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
         if any(_overlap(box, e) > 0.5 for e in existing_boxes):
             continue
         lines.append({**box, "text": text.strip()})
-    return group_lines(lines)
+    return [g for g in group_lines(lines) if _is_caption_text(g["source_text"])]
 
 
 def caption_mask(page, box: dict):

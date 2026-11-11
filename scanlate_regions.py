@@ -50,6 +50,25 @@ def _reads_as_japanese_sentence(text: str) -> bool:
     return bool(re.search(r"[぀-ゟ]", text) and re.search(r"[一-鿿]", text))
 
 
+_KATAKANA_EFFECT = re.compile(r"^[゠-ヿー・…！？!?\s]*([゠-ヿ])\1{2,}[゠-ヿー・…！？!?\s]*$")
+
+
+def flag_katakana_effects(regions: list) -> int:
+    """Marks as sound effects the regions the detector called speech whose text
+    is katakana alone with one kana repeated three or more times ("キュルルル",
+    "ゴゴゴ"). Katakana speech does not stretch a syllable that way, and an effect
+    typeset as English dialogue ("Kyuru-ru-ru...") sits on the art as a stray
+    word. A region the person set to include_sfx is left as it is. Returns the count."""
+    changed = 0
+    for region in regions:
+        if region.get("kind") != "bubble" or region.get("include_sfx"):
+            continue
+        if _KATAKANA_EFFECT.match((region.get("source_text") or "").strip()):
+            region["kind"] = "sfx"
+            changed += 1
+    return changed
+
+
 def reclassify_wordy_sfx(regions: list) -> int:
     """Turns a region the detector called an SFX into a sign when its text is
     too long to be one, or reads as a Japanese sentence. The detector sees
