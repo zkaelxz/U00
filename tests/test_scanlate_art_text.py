@@ -28,6 +28,9 @@ def _dark_page_with_white_text(w=600, h=400):
     return page
 
 
+_COLOUR_PAGE = np.full((300, 400, 3), (200, 80, 40), np.uint8)
+
+
 class TestGroupLines:
     def test_stacked_lines_of_one_size_join_in_reading_order(self):
         out = art.group_lines([_line(10, 60, 300, 40, "BB"), _line(12, 10, 296, 42, "AA")])
@@ -58,37 +61,52 @@ class TestFindArtCaptions:
         return seen
 
     def test_drops_low_confidence_tiny_and_already_covered_lines(self, monkeypatch):
-        page = np.zeros((300, 400, 3), np.uint8)
+        page = _COLOUR_PAGE.copy()
         self._fake(monkeypatch, [
-            ("keep", 0.9, (10, 10, 200, 60)),
+            ("保留的字", 0.9, (10, 10, 200, 60)),
             ("unsure", 0.3, (10, 100, 200, 60)),
             ("watermark", 0.9, (10, 200, 200, 10)),
             ("in a bubble", 0.9, (250, 200, 100, 50)),
         ])
         found = art.find_art_captions("p.png", "zh", [{"x": 240, "y": 190, "w": 150, "h": 80}],
                                       image=page)
-        assert [c["source_text"] for c in found] == ["keep"]
+        assert [c["source_text"] for c in found] == ["保留的字"]
 
     def test_rapidocr_backend_reads_the_lines_and_paddle_is_left_alone(self, monkeypatch):
         def boom(*a, **k):
             raise AssertionError("paddle used")
         monkeypatch.setattr(ocr, "paddle_lines", boom)
         monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [
-            ("keep", 0.9, (10, 10, 200, 60)), ("unsure", 0.3, (10, 100, 200, 60))])
-        found = art.find_art_captions("p.png", "zh", [], image=np.zeros((300, 400, 3), np.uint8),
+            ("保留的字", 0.9, (10, 10, 200, 60)), ("unsure", 0.3, (10, 100, 200, 60))])
+        found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy(),
                                       backend="rapidocr")
-        assert [c["source_text"] for c in found] == ["keep"]
+        assert [c["source_text"] for c in found] == ["保留的字"]
+
+    def test_specks_and_already_english_text_are_not_captions(self, monkeypatch):
+        self._fake(monkeypatch, [
+            ("0", 0.9, (10, 10, 40, 40)),
+            ("代", 0.9, (10, 100, 45, 45)),
+            ("SCHOOL", 0.9, (10, 200, 200, 40)),
+            ("魔王来了", 0.9, (200, 10, 150, 60)),
+        ])
+        found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy())
+        assert [c["source_text"] for c in found] == ["魔王来了"]
+
+    def test_a_black_and_white_page_gets_no_captions(self, monkeypatch):
+        self._fake(monkeypatch, [("魔王来了", 0.9, (10, 10, 200, 60))])
+        grey = np.full((300, 400, 3), 128, np.uint8)
+        assert art.find_art_captions("p.png", "zh", [], image=grey) == []
 
     def test_tall_pages_are_detected_at_a_capped_size(self, monkeypatch):
         seen = self._fake(monkeypatch, [])
-        art.find_art_captions("p.png", "zh", [], image=np.zeros((2560, 1280, 3), np.uint8))
+        art.find_art_captions("p.png", "zh", [], image=np.full((2560, 1280, 3), (200, 80, 40), np.uint8))
         assert seen["scale"] == pytest.approx(0.5)
 
 
     def test_a_non_ascii_page_path_is_decoded_once_and_the_array_is_what_paddle_reads(
             self, tmp_path, monkeypatch):
         path = tmp_path / "页面_0001.png"
-        Image.new("RGB", (200, 100), (10, 10, 10)).save(path)
+        Image.new("RGB", (200, 100), (40, 80, 200)).save(path)
         got = {}
 
         def paddle_lines(image, lang, scale):
