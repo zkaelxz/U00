@@ -195,6 +195,18 @@ class TestRenderTextInBox:
 
 
 class TestFindFont:
+    def test_the_bundled_comic_face_is_the_default_for_regular_and_bold(self):
+        regular = scanlate_render._find_font(category="regular")
+        bold = scanlate_render._find_font(category="bold")
+        assert os.path.basename(regular) == "ComicNeue-Regular.ttf" and os.path.exists(regular)
+        assert os.path.basename(bold) == "ComicNeue-Bold.ttf" and os.path.exists(bold)
+
+    def test_a_bundled_font_covers_the_punctuation_the_typesetter_draws(self):
+        from PIL import ImageFont
+        font = ImageFont.truetype(scanlate_render._find_font(category="regular"), 20)
+        for ch in "…—’“”é!?":
+            assert font.getmask(ch).getbbox() is not None, ch
+
     def test_explicit_font_path_always_wins(self, tmp_path):
         real_font = tmp_path / "custom.ttf"
         real_font.write_bytes(b"fake ttf bytes")
