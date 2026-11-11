@@ -379,6 +379,40 @@ class TestTranslatingAPage:
         assert page["regions"][0]["translated_text"] == "the translation"
         assert len(fake_pipeline["translate"]) == 1
 
+    def test_the_page_goes_to_the_translation_with_a_vision_engine(self, token, fake_pipeline,
+                                                                  isolated_db, monkeypatch):
+        """The same extras a Scanlate run sends: the page picture, scaled to the
+        sent size, and the cast's notes (none for a title without a series)."""
+        from engine_backends import engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
+        page_server.set_translation_config(engine="gemini", api_key="test-key")
+        _post(token, {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
+                      "store": False})
+        extras = fake_pipeline["translate"][0]["kwargs"]
+        assert extras["character_notes"] == ""
+        assert extras["page_image"]["mime"] and extras["page_image"]["data"]
+        assert extras["page_image"]["scale"] > 0
+
+    def test_an_engine_without_pictures_gets_text_only(self, token, fake_pipeline,
+                                                       isolated_db, monkeypatch):
+        from engine_backends import engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
+        page_server.set_translation_config(engine="deepseek", api_key="test-key")
+        _post(token, {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
+                      "store": False})
+        assert "page_image" not in fake_pipeline["translate"][0]["kwargs"]
+
+    def test_the_page_picture_setting_turns_the_picture_off(self, token, fake_pipeline,
+                                                            isolated_db, monkeypatch):
+        from engine_backends import engine_registry
+        import db
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
+        db.set_app_setting("pref.scanlate_page_image", False)
+        page_server.set_translation_config(engine="gemini", api_key="test-key")
+        _post(token, {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
+                      "store": False})
+        assert "page_image" not in fake_pipeline["translate"][0]["kwargs"]
+
     def test_translation_runs_outside_the_pipeline_lock(self, token, fake_pipeline,
                                                         isolated_db, monkeypatch):
         import scanlate_translate

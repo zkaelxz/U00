@@ -344,8 +344,18 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     return page
 
 
+def _page_extras(drama, config: dict, engine, image: bytes) -> dict:
+    """Character notes and the page picture, as a Scanlate run sends them. A
+    failure here only costs that quality, never the translation."""
+    from services import extension_service
+    try:
+        return extension_service.page_extras(drama, config, engine, image)
+    except Exception:
+        return {}
+
+
 def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, source_url: str,
-                       config: dict, member: bool = False) -> list:
+                       config: dict, member: bool = False, image: bytes = b"") -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
 
@@ -360,7 +370,8 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
     originals = page_capture_checks.snapshot_texts(missing)
     try:
         page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,
-                                      _usage_cb(drama, config, engine))
+                                      _usage_cb(drama, config, engine),
+                                      **_page_extras(drama, config, engine, image))
     except Exception as e:
         return [["warning", f"translation failed ({failure_detail(e, member)})"]]
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
@@ -497,7 +508,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
-            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member)
+            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member,
+                                          image=data)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
@@ -510,7 +522,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                         if drama and drama.get("series_id") else None)
             try:
                 page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama,
-                                              glossary, _usage_cb(drama, config, engine))
+                                              glossary, _usage_cb(drama, config, engine),
+                                              **_page_extras(drama, config, engine, data))
             except Exception as e:
                 # The OCR text is still real and still useful, so it
                 # is returned rather than thrown away -- the same

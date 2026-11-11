@@ -81,12 +81,19 @@ def reveal_token(confirm=False) -> dict:
 
 
 def _saved_engine() -> tuple:
-    """(engine, model) from app settings; (None, None) when unset, unknown
-    to this build, or unreadable."""
+    """(engine, model) from app settings. Never saved: Scanlate's default
+    engine, so a first page is translated without a trip to Settings. Saved as
+    "no engine" (OCR only), unknown to this build, or unreadable: (None, None)."""
     try:
         saved = db.get_app_setting(ENGINE_SETTING, None)
     except Exception:
         return None, None
+    if saved is None:
+        from services import scanlate_pages_service
+        try:
+            return scanlate_pages_service.default_engine(), None
+        except Exception:
+            return None, None
     if not isinstance(saved, dict):
         return None, None
     engine = saved.get("engine")
@@ -133,6 +140,27 @@ def resolved_translation_config() -> dict:
     }
 
 
+def page_extras(drama, config: dict, engine, image: bytes | None) -> dict:
+    """What a Scanlate run sends with a page besides its text, for the same
+    quality: the series cast's pronouns and voice notes, and the page's
+    picture (when the setting is on and the engine takes pictures).
+    Keys are the `translate_page_bubbles` arguments."""
+    from engine_backends import paid_calls
+    from services import scanlate_run_service as run
+    extras = {"character_notes": run.load_translation_guide(drama or {})[1]}
+    name = config.get("engine") or ""
+    if image and settings_service.get("scanlate_page_image") and name in run.VISION_ENGINES:
+        picture = run.page_picture(image)
+        if picture is not None:
+            data, mime, scale = picture
+            picture_engine = run._picture_engine(engine, name)
+            extras["page_image"] = {
+                "data": data, "mime": mime, "scale": scale, "engine": picture_engine,
+                "usage_cb": paid_calls.usage_logger((drama or {}).get("id"), name, picture_engine,
+                                                     "extension_translate")}
+    return extras
+
+
 def push_translation_config() -> None:
     """Registers the per-request provider with page_server and pushes the
     current values once (idempotent)."""
@@ -164,7 +192,8 @@ def set_translation_settings(engine, model=None) -> dict:
         if not isinstance(model, str) or not entry or model not in (entry["models"] or ()):
             raise InvalidInputError("Unknown model for this engine.")
     if engine is None:
-        db.set_app_setting(ENGINE_SETTING, None)
+        # Kept as a saved choice, so "no engine" is not mistaken for "never chosen".
+        db.set_app_setting(ENGINE_SETTING, {"engine": None, "model": None})
     else:
         db.set_app_setting(ENGINE_SETTING, {"engine": engine, "model": model})
     push_translation_config()

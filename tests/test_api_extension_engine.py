@@ -54,15 +54,33 @@ def _client(**kw):
     return TestClient(create_app(ApiSettings(**kw)), raise_server_exceptions=False)
 
 
-def test_default_is_no_engine_and_no_keys(env):
+def test_unsaved_engine_follows_scanlates_default(env):
+    from services import scanlate_pages_service
     r = _client().get("/api/extension/engine")
     assert r.status_code == 200
     body = r.json()
-    assert body["engine"] is None and body["model"] is None and body["ready"] is False
+    assert body["engine"] == scanlate_pages_service.default_engine()
+    entry = next(e for e in body["engines"] if e["name"] == body["engine"])
+    assert body["model"] is None and body["ready"] is entry["key_configured"]
     assert {e["name"] for e in body["engines"]} == set(engine_registry.ENGINES)
     assert all(set(e) == {"name", "label", "free", "models", "model_labels", "cloud_models",
                                 "key_configured", "package_installed"}
                for e in body["engines"])
+
+
+def test_the_default_engine_is_what_page_server_translates_with(env):
+    from services import scanlate_pages_service
+    env.write_text("BAIHE_OPENAI_KEY=sk-test-openai-key-1234567890\n", encoding="utf-8")
+    expected = scanlate_pages_service.default_engine()
+    extension_service.push_translation_config()
+    assert page_server.get_translation_config()["engine"] == expected
+
+
+def test_choosing_no_engine_stays_ocr_only_even_with_a_key(env):
+    env.write_text("BAIHE_OPENAI_KEY=sk-test-openai-key-1234567890\n", encoding="utf-8")
+    body = _client().post("/api/extension/engine", json={"engine": None}).json()
+    assert body["engine"] is None and body["ready"] is False
+    assert page_server.get_translation_config()["engine"] is None
 
 
 def test_save_persists_and_pushes_key_server_side(env):
@@ -229,6 +247,7 @@ def test_resolved_config_carries_the_saved_ocr_settings(env):
     assert config["prefer_paddle_vl_manga"] is True
     assert config["hf_token"] == HF_TOKEN
     # Also with no engine chosen: OCR-only pages still use the saved OCR setup.
+    extension_service.set_translation_settings(None)
     assert extension_service.get_translation_settings()["engine"] is None
     extension_service.push_translation_config()
     assert page_server.get_translation_config()["tesseract_cmd"] == "/opt/tess/tesseract"
