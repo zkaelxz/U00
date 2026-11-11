@@ -16,6 +16,8 @@ const PREFS = {
   scanlate_chapter_brief: true,
   episode_brief: true,
   translate_reply_guard: 'auto',
+  claude_reasoning: 'default',
+  openai_reasoning: 'default',
   translate_alignment_check: false,
   episode_summary_engine: 'ollama',
   monthly_cap_usd: null as number | null,

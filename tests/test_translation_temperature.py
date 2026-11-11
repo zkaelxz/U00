@@ -81,3 +81,13 @@ def test_claude_requests_never_carry_one(monkeypatch):
     monkeypatch.setattr("engine_backends.claude.make_anthropic_client", lambda key: object())
     params = engine_claude.ClaudeEngine("key").build_request_params(_ctx(temperature=0.3), "1. x")
     assert "temperature" not in params
+
+
+def test_claude_sonnet_55_reasons_less_only_when_asked(monkeypatch):
+    monkeypatch.setattr("engine_backends.claude.make_anthropic_client", lambda key: object())
+    sonnet = engine_claude.ClaudeEngine("key", "claude-sonnet-5-5")
+    assert "thinking" not in sonnet.build_request_params(_ctx(), "1. x")
+    assert sonnet.build_request_params(_ctx(reasoning="less"), "1. x")["thinking"] == {"type": "between_tools"}
+    # An untried model keeps its own default instead of risking a 400.
+    other = engine_claude.ClaudeEngine("key", "claude-opus-5-5")
+    assert "thinking" not in other.build_request_params(_ctx(reasoning="less"), "1. x")
