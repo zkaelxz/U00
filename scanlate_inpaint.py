@@ -335,6 +335,26 @@ def _drop_marks_running_off_edge(mask) -> None:
             mask[labels == i] = 0
 
 
+# A mark this large in both directions yet this hollow is a frame or ornament
+# round the lettering, not the lettering itself.
+_FRAME_MIN_SPAN = 0.35
+_FRAME_MAX_FILL = 0.25
+
+
+def _drop_hollow_frames(mask) -> None:
+    """Clears, in place, the mask components that span much of the crop in both
+    directions but are mostly empty: a caption frame's border and ornaments.
+    Lettering lines are small in one direction or dense, so they stay. Erasing a
+    frame left a pale patch with the lettering's ghost where the frame had been."""
+    import cv2
+    count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), connectivity=8)
+    rh, rw = mask.shape[:2]
+    for i in range(1, count):
+        x, y, w, h, area = stats[i]
+        if w >= _FRAME_MIN_SPAN * rw and h >= _FRAME_MIN_SPAN * rh and area <= _FRAME_MAX_FILL * w * h:
+            mask[labels == i] = 0
+
+
 _ART_FILL_CONTEXT_PX = 60
 # Outlined lettering is white or pale; bright pixels that are strongly coloured
 # are artwork (flames, glare) and stay out of the lettering mask, so painting the
@@ -524,6 +544,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         mask[~keep] = 0
     elif spare_art:
         _drop_marks_running_off_edge(mask)
+    elif on_art:
+        _drop_hollow_frames(mask)
 
     inpainted_roi = None
     if inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
