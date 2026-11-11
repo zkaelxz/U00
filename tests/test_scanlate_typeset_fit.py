@@ -116,3 +116,15 @@ def test_a_narrow_balloon_never_shows_a_word_split_across_two_hyphens():
         scanlate_render.render_text_in_box(
             img, box, "Housework? Because it's absolutely forbidden", font_size=14, mask=mask)
     assert not scanlate_render._split_twice(seen[-1]), seen[-1]
+
+
+def test_rect_layout_keeps_the_line_breaks_of_the_translation():
+    box = {"x": 10, "y": 10, "w": 280, "h": 180}
+    img = Image.new("RGB", (300, 200), "white")
+    scanlate_render.render_text_in_box(img, dict(box), "Ch. 1 ... 5\nCh. 2 ... 27\nCh. 3 ... 43",
+                                       font_size=18)
+    dark = np.asarray(img.convert("L")) < 128
+    rows = np.flatnonzero(dark.any(axis=1))
+    # Three short lines stack; run together they would sit on one row band.
+    bands = 1 + int((np.diff(rows) > 3).sum())
+    assert bands == 3
