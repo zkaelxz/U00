@@ -652,7 +652,7 @@ els.cancelCapture.addEventListener("click", async () => {
   const tab = await activeTab();
   try {
     await chrome.tabs.sendMessage(tab.id, { type: "cancelCapture" });
-    say("Stopping…");
+    say("Cancelling…");
   } catch (e) {
     say(`Couldn't reach this page (${e.message}).`, true);
   }

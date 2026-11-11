@@ -344,6 +344,36 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     return page
 
 
+def _lines_without_english(bubbles) -> list:
+    """The lines translation should have covered but left empty: with text read, not skipped, and not
+    a sound effect left to the art. A partly answered reply (a short line or a name the model
+    dropped) ends up here."""
+    import scanlate_regions
+    return [b for b in bubbles
+            if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
+            and (b.get("source_text") or "").strip() and not (b.get("translated_text") or "").strip()]
+
+
+def _retry_unanswered_lines(bubbles, engine, drama, glossary, usage_cb):
+    """Asks once more for only the lines that came back empty. Returns a note when some are still
+    empty, so they are counted instead of silently showing the source text."""
+    import scanlate_translate
+    missing = _lines_without_english(bubbles)
+    if not missing:
+        return None
+    try:
+        scanlate_translate.translate_page_bubbles(
+            missing, engine, drama or {}, previous_context="", glossary_terms=glossary,
+            usage_cb=usage_cb)
+    except Exception:
+        # The first call's own failure note already says why; this is a second chance only.
+        pass
+    left = len(_lines_without_english(bubbles))
+    if left:
+        return ["warning", f"{left} line{'s' if left != 1 else ''} still had no translation after a retry"]
+    return None
+
+
 def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, source_url: str,
                        config: dict, member: bool = False) -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
@@ -423,6 +453,9 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     reuse_saved = None
     busy = None
     claim = None
+    read_started = 0.0
+    read_seconds = 0.0
+    translate_seconds = 0.0
     try:
         # The discard runs before the lock is released, while no other
         # request can have seen the page.
@@ -461,6 +494,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             if reuse_saved is None and busy is None:
                 try:
                     lang = _page_source_language(drama, source_language)
+                    read_started = time.monotonic()
                     bubbles, detect_notes = scanlate.detect_and_ocr_page(
                         image_path, lang,
                         detect_backend=config.get("detect_backend") or "auto",
@@ -470,6 +504,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                         prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
                         page_id=(page or {}).get("id"))
                 finally:
+                    read_seconds = time.monotonic() - read_started if read_started else 0.0
                     if temp_path:
                         try:
                             os.remove(temp_path)
@@ -508,6 +543,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         if bubbles and engine is not None:
             glossary = (db.list_effective_glossary_terms(drama["series_id"])
                         if drama and drama.get("series_id") else None)
+            translate_started = time.monotonic()
             try:
                 page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama,
                                               glossary, _usage_cb(drama, config, engine))
@@ -517,6 +553,11 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 # choice the Scanlate pipeline makes on this failure.
                 notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
                                          "the source text below was still read"])
+            retry_note = _retry_unanswered_lines(bubbles, engine, drama, glossary,
+                                                 _usage_cb(drama, config, engine))
+            if retry_note:
+                notes.append(retry_note)
+            translate_seconds = time.monotonic() - translate_started
         elif bubbles and engine is None:
             notes.append(_no_engine_note(config, "read"))
         if page is not None:
@@ -535,6 +576,9 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         "drama_id": int(drama_id) if drama_id else None,
         "page_id": (page or {}).get("id"),
         "stored": page is not None,
+        "untranslated_lines": len(_lines_without_english(bubbles)) if bubbles else 0,
+        # Which step is slow: finding and reading the text, or the translation call.
+        "seconds": {"read": round(read_seconds, 2), "translate": round(translate_seconds, 2)},
     }
 
 

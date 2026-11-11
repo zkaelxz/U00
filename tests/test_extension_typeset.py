@@ -155,3 +155,28 @@ def test_a_recapture_of_a_typeset_page_still_sends_its_image(token, fake_pipelin
 def test_no_image_is_sent_when_typeset_is_off(token, fake_pipeline, drama, monkeypatch):
     _writing_render(monkeypatch)
     assert "typeset_image" not in _send(token, drama).payload["pages"][0]
+
+
+def test_lines_the_engine_left_empty_are_asked_for_again_and_the_rest_are_counted(
+        token, drama, monkeypatch):
+    import scanlate
+    import scanlate_translate
+    boxes = [{"x": 1, "y": 2, "w": 30, "h": 40, "source_text": text, "translated_text": "",
+              "kind": "bubble", "font_category": "regular", "reading_order": i}
+             for i, text in enumerate(["잘가라 연다나", "안녕", "뭐라고"])]
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(b) for b in boxes], []))
+    calls = []
+
+    def translate(bubbles, engine, drama_meta, **kwargs):
+        calls.append([b["source_text"] for b in bubbles])
+        # The first call answers one line; the retry answers one of the two still missing.
+        target = next(b for b in bubbles if not b["translated_text"])
+        target["translated_text"] = "Goodbye, Yeon Dana" if len(calls) == 1 else "Hello"
+        raise ValueError("2 of 3 regions weren't translated")
+
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
+    page = _send(token, drama).payload["pages"][0]
+    assert len(calls) == 2 and len(calls[1]) == 2
+    assert page["untranslated_lines"] == 1
+    assert any("still had no translation after a retry" in n[1] for n in page["notes"])
+    assert [r["translated_text"] for r in page["regions"]].count("") == 1

@@ -389,6 +389,8 @@ class TestTranslatingAPage:
 
         def translate(bubbles, engine, drama_meta, **kwargs):
             held_during.append(page_server.PIPELINE_LOCK.locked())
+            for bubble in bubbles:
+                bubble["translated_text"] = "answered"
             return "context"
         monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
         page_server.set_translation_config(engine="claude", api_key="test-key")
@@ -1528,6 +1530,8 @@ class TestConcurrentCapturesOfOneTitle:
         def translate(bubbles, engine, drama_meta, **kwargs):
             n["calls"] += 1
             fake_pipeline["translate"].append({"kwargs": kwargs})
+            for bubble in bubbles:
+                bubble["translated_text"] = "answered"
             return f"context after call {n['calls']}"
         monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
         for i in (1, 0):

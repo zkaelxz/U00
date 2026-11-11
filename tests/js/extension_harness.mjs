@@ -539,6 +539,25 @@ async function novel(scenario) {
           .ask({ type: "getSettings" })).data.typeset,
       };
     }
+    case "worker_abort_send": {
+      // A request that never answers until its signal is aborted, as a batch the app is still working on.
+      let started;
+      const begun = new Promise((resolve) => { started = resolve; });
+      const h = loadBackground({
+        granted: () => true, stored: { token: "t" },
+        fetchImpl: (target, options) => new Promise((resolve, reject) => {
+          if (new URL(target).pathname === "/health") return resolve(new Response(JSON.stringify({ max_images_per_request: 12 })));
+          started();
+          options.signal.addEventListener("abort", () => { const e = new Error("aborted"); e.name = "AbortError"; reject(e); });
+        }),
+      });
+      const sending = h.ask({ type: "send", images: [{ key: "k", data: "AAAA", content_type: "image/png", url: "u" }],
+                              dramaId: 1, store: true, sourceUrl: "https://s/c", filterPages: false });
+      await begun;
+      const aborted = await h.ask({ type: "abortSends" });
+      const reply = await sending;
+      return { aborted, reply };
+    }
     case "worker_get_settings": {
       const h = loadBackground({ granted: () => true, stored: { token: "SECRET-TOKEN", serverUrl: "https://baihe.example" } });
       const reply = await h.ask({ type: "getSettings" }, { tab: { id: 1 } });

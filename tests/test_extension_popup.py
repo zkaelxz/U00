@@ -231,3 +231,25 @@ def test_a_cancel_stops_sending_between_requests_and_keeps_what_was_sent():
     })()"""
     out = _node("content_expression", expression)
     assert out == {"sent": [12], "cancelled": True, "done": 12}
+
+
+def test_cancel_says_so_at_once_aborts_the_request_in_flight_and_stays_cancelled():
+    expression = """(async () => {
+        const messages = [];
+        chrome.runtime.sendMessage = (m) => { messages.push(m.type + (m.text ? ":" + m.text : "")); return Promise.resolve(); };
+        const labels = [];
+        const run = { cancelled: false, text: "157 pages found — translating 1-12 of 12", ui: { set: (t) => labels.push(t) } };
+        window.__baihe.requestCancel(run);
+        window.__baihe.requestCancel(run);
+        const done = [];
+        const outcome = await window.__baihe.sendInBatches(
+            Array.from({ length: 24 }, (_, i) => ({ i })),
+            async (batch) => { done.push(batch.length); return { ok: false, cancelled: true, error: "Cancelled." }; },
+            () => {}, 12, () => run.cancelled);
+        return { cancelled: run.cancelled, text: run.text, labels, messages, sends: done.length, outcome: outcome.cancelled };
+    })()"""
+    out = _node("content_expression", expression)
+    assert out["cancelled"] is True and out["text"].startswith("Cancelling")
+    assert out["labels"] == [out["text"]]
+    assert [m for m in out["messages"] if m.startswith("abortSends")] == ["abortSends"]
+    assert out["sends"] == 0 and out["outcome"] is True

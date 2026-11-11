@@ -62,6 +62,17 @@ function base(serverUrl) {
 const CALL_TIMEOUT_MS = 4.5 * 60 * 1000;
 const STILL_WORKING = "Baihe is still working; send the rest later.";
 
+// Requests in flight, so a Cancel can end the wait for them at once instead of after the app answers.
+const inflight = new Set();
+
+function abortSends() {
+  for (const controller of inflight) {
+    controller.userAbort = true;
+    controller.abort();
+  }
+  return { ok: true, data: { aborted: inflight.size } };
+}
+
 async function call(path, { method = "GET", body = null } = {}) {
   const { token, serverUrl } = await settings();
   if (!token) {
@@ -69,6 +80,7 @@ async function call(path, { method = "GET", body = null } = {}) {
   }
   let response;
   const controller = new AbortController();
+  inflight.add(controller);
   const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
   try {
     response = await fetch(base(serverUrl) + path, {
@@ -85,6 +97,11 @@ async function call(path, { method = "GET", body = null } = {}) {
     });
   } catch (e) {
     clearTimeout(timer);
+    inflight.delete(controller);
+    if (controller.userAbort) {
+      // The app may still finish pages of the batch it was already working on; those are kept there.
+      return { ok: false, cancelled: true, error: "Cancelled." };
+    }
     if (e && e.name === "AbortError") {
       return {
         ok: false,
@@ -108,6 +125,7 @@ async function call(path, { method = "GET", body = null } = {}) {
     payload = null;
   }
   clearTimeout(timer);
+  inflight.delete(controller);
   if (!response.ok) {
     // The bridge answers {error: text}; the app's own routes answer {error: {message}}.
     const reported = payload && payload.error;
@@ -264,6 +282,11 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
       merged.received += batch.length;
       continue;
     }
+    if (answer.cancelled) {
+      // The person cancelled: this batch and the rest are neither failed nor skipped, just not done.
+      merged.cancelled = true;
+      break;
+    }
     if (!answer.ok) {
       firstError = firstError || answer;
       for (const image of batch) {
@@ -295,6 +318,9 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
       merged.stopped = data.stopped;
       break;
     }
+  }
+  if (merged.cancelled && !merged.pages.length && !merged.skipped.length && !merged.failed.length) {
+    return { ok: false, cancelled: true, error: "Cancelled." };
   }
   // Nothing arrived at all: surface the app's own refusal (bad token, bridge
   // off, no such drama) rather than a table of identical per-page failures.
@@ -451,6 +477,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "resolveTitle":
           respond(await resolveTitle(message));
+          break;
+        case "abortSends":
+          respond(abortSends());
           break;
         case "setTypeset":
           respond(await setTypeset(message));

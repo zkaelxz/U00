@@ -9,6 +9,7 @@ title list to what they can see and sends only into a title they can edit.
 """
 
 import json
+import time
 
 import page_capture_checks
 import page_server
@@ -118,6 +119,11 @@ def _record_run_notes(result: dict) -> None:
     if not (result.get("stored") and page_id) or result.get("already_stored"):
         return
     notes = [(n[0], n[-1]) for n in result.get("notes") or []]
+    seconds = result.get("seconds") or {}
+    if seconds:
+        notes.append(("info", "Time: read text " + f"{seconds.get('read', 0)}s, translate "
+                      f"{seconds.get('translate', 0)}s" +
+                      (f", typeset {seconds['typeset']}s." if "typeset" in seconds else ".")))
     if not result.get("regions"):
         notes.append(("warning", "No text was found on this page when the extension saved it."))
     if notes:
@@ -269,9 +275,11 @@ def run_images(payload, images, principal=None) -> dict:
                 stopped = page_capture_checks.page_failure_message(e)
                 break
             continue
-        _record_run_notes(result)
         if typeset:
+            typeset_started = time.monotonic()
             _typeset_stored_page(result, drama_id, member=principal is not None)
+            result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
+        _record_run_notes(result)
         result["key"] = image["key"]
         result["url"] = image["url"]
         results.append(result)

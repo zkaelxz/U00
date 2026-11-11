@@ -929,11 +929,13 @@
         sentAny = true;
         const halt = await onBatch(batch, response.data || {});
         done += batch.length;
+        if (response.data && response.data.cancelled) return { sentAny, limit: size, failure: null, cancelled: true, done };
         // The app stopped the whole request (every later page would fail
         // the same way); sending the rest would only repeat that.
         if (halt === true) return { sentAny, limit: size, failure: null, halted: true };
         continue;
       }
+      if (response.cancelled) return { sentAny, limit: size, failure: null, cancelled: true, done };
       const match = response.status === 413 && /at most (\d+) images/.exec(response.error || "");
       if (match && !retriedLimit && Number(match[1]) > 0 && Number(match[1]) < batch.length) {
         retriedLimit = true;
@@ -1365,10 +1367,7 @@
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.textContent = "Cancel";
-    cancel.addEventListener("click", () => {
-      run.cancelled = true;
-      label.textContent = "Stopping…";
-    });
+    cancel.addEventListener("click", () => requestCancel(run));
     const bar = document.createElement("progress");
     bar.max = 1;
     bar.hidden = true;
@@ -1378,7 +1377,6 @@
       chip,
       // A null fraction (the reader shows no page counter) hides the bar rather than guessing.
       set: (text, fraction = null) => {
-        if (run.cancelled) return;
         label.textContent = text;
         bar.hidden = fraction === null;
         if (fraction !== null) bar.value = fraction;
@@ -1400,6 +1398,7 @@
     const run = { cancelled: false, text: "Starting…", startedAt: Date.now(), tick: null };
     state.capture = run;
     const ui = showCaptureChip(run);
+    run.ui = ui;
     // A batch can take a minute (more with typeset on), so the clock keeps moving between reports.
     const ticker = setInterval(() => { if (run.tick) run.tick(); }, 1000);
     const scroller = makeScroller();
@@ -1483,6 +1482,8 @@
     let line = "";
     let fraction = null;
     const emit = () => {
+      // After a cancel the line stays "Cancelling…" however late a batch reports back.
+      if (run.cancelled) return;
       run.text = `${line} · ${formatElapsed(Date.now() - run.startedAt)}`;
       ui.set(run.text, fraction);
       reportProgress(run.text, fraction);
@@ -1602,6 +1603,7 @@
         }, limit, () => run.cancelled);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
+        if (outcome.cancelled || run.cancelled) return "";
         if (outcome.failure) return outcome.failure.reason;
         if (serverStop) return serverStop;
       }
@@ -1676,10 +1678,21 @@
                                ...accessNeeded(needAccess) } };
   }
 
+  // The one way a run is cancelled, from the page's chip or the popup: the label and the popup's
+  // line change at once, and the request in flight is dropped instead of waited for.
+  function requestCancel(run) {
+    if (run.cancelled) return;
+    run.cancelled = true;
+    run.text = "Cancelling… stopping the request in flight";
+    if (run.ui) run.ui.set(run.text, null);
+    reportProgress(run.text, null);
+    try { chrome.runtime.sendMessage({ type: "abortSends" }).catch(() => {}); } catch (e) { /* worker asleep */ }
+  }
+
   function cancelCapture() {
     const running = state.capture || state.visible;
     if (!running) return false;
-    running.cancelled = true;
+    requestCancel(running);
     return true;
   }
 
@@ -1744,5 +1757,5 @@
                      translatePageText, collectPageText, mainContentBlock,
                      isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox, regionsByKey };
+                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox, regionsByKey, requestCancel };
 })();
