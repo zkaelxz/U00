@@ -129,3 +129,5 @@
 .reader-edit-toggle[aria-pressed='true'] { background: var(--accent-soft, var(--surface-2)); }
 .reader-edit-form { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
 .reader-edit-form textarea { width: 100%; box-sizing: border-box; }
+.reader-term-count { text-align: right; margin: 0; }
+.reader-term-delete { color: var(--danger, #c0392b); align-self: center; }
