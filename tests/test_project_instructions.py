@@ -138,3 +138,45 @@ class TestTermConventions:
                                        project_instructions=self.TEXT)
         ges.start_novel_glossary_run(did)
         assert seen["conventions"] == "- sects: translate\n- names: pinyin"
+
+
+class TestNovelGlossaryReplyCleaning:
+    WINDOW = "戚聞溪看了他一眼，她笑了。阿姨端來茶。"
+
+    def _clean(self, entries):
+        import translation_guide as tguide
+        return tguide._clean_window_entries(entries, self.WINDOW)
+
+    def test_a_term_not_copied_from_the_excerpt_is_dropped(self):
+        kept = self._clean([{"term": "戚闻溪"}, {"term": "戚聞溪"}, {"term": ""}, "x"])
+        assert [e["term"] for e in kept] == ["戚聞溪"]
+
+    def test_a_pronoun_needs_a_quote_from_the_excerpt(self):
+        kept = self._clean([
+            {"term": "戚聞溪", "reason": "she/her, a student", "evidence": "她笑了"},
+            {"term": "阿姨", "reason": "he/him", "evidence": "不在文中"},
+            {"term": "茶", "reason": "She/her", "evidence": ""},
+        ])
+        assert kept[0]["reason"] == "she/her, a student"
+        assert kept[1]["reason"] == "unclear"
+        assert kept[2]["reason"] == "unclear"
+
+    def test_an_ambiguity_alternative_joins_the_renderings(self):
+        import translation_guide as tguide
+        merged = {}
+        tguide._merge_novel_entries(merged, self._clean([
+            {"term": "阿姨", "suggested_translation": "Auntie", "alt": "nanny"}]))
+        assert merged["阿姨"]["renderings"] == ["Auntie", "nanny"]
+
+    def test_glossary_renderings_reach_the_extraction_prompt(self, monkeypatch):
+        import translation_guide as tguide
+        prompts = []
+        monkeypatch.setattr(tguide, "call_llm_json",
+                            lambda engine, prompt, **kw: prompts.append(prompt) or "[]")
+
+        class Engine:
+            supports_reference = True
+
+        tguide.extract_glossary_from_novel(
+            "林" * 100, Engine(), known_terms=[{"term_original": "姑姑", "term_translation": "Auntie"}])
+        assert "姑姑 = Auntie" in prompts[0]
