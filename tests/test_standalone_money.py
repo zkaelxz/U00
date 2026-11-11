@@ -132,7 +132,7 @@ class TestFreeEnginesLeaveNoEmptyRows:
     def test_a_free_engine_that_reports_no_tokens_is_not_logged(self, isolated_db, monkeypatch):
         class Free(_Billed):
             name = "ollama"
-            model = "qwen3:8b"
+            model = "translategemma:12b"
         engine = Free(tokens=(0, 0))
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "local")
         monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: engine)

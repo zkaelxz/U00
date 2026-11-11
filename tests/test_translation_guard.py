@@ -246,7 +246,7 @@ class TestEngineAwareDefault:
             assert len(scripted.calls) == calls
 
     @pytest.mark.parametrize("model", [
-        "deepseek-chat", "gemini-flash-lite-latest", "gemini-flash-latest", "qwen3:8b",
+        "deepseek-chat", "gemini-flash-lite-latest", "gemini-flash-latest", "translategemma:12b",
         "some-unknown-model", ""])
     def test_other_engines_and_unknown_models_keep_the_reask(self, model):
         assert len(_merged_run(model).calls) == 2

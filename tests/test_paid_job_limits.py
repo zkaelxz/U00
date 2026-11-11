@@ -111,12 +111,12 @@ class TestRecordCall:
         assert row["input_tokens"] == 0 and row["estimated_cost_usd"] == 0
 
     def test_a_free_engine_with_no_tokens_is_not_logged(self):
-        local = SimpleNamespace(name="ollama", model="qwen3:8b")
+        local = SimpleNamespace(name="ollama", model="translategemma:12b")
         assert not paid_calls.record_call(local, "ollama", "op", {})
         assert _usage_rows() == []
 
     def test_a_free_engine_that_reports_tokens_is_logged(self):
-        local = SimpleNamespace(name="ollama", model="qwen3:8b")
+        local = SimpleNamespace(name="ollama", model="translategemma:12b")
         assert paid_calls.record_call(local, "ollama", "op", {"input_tokens": 5, "output_tokens": 5})
 
     def test_a_hosted_ollama_model_is_logged_even_with_no_tokens(self):
@@ -222,7 +222,7 @@ class TestCallLimits:
 
     def test_a_free_engine_with_no_tokens_writes_nothing(self):
         engine = FakeClaude()
-        engine.name, engine.model = "ollama", "qwen3:8b"
+        engine.name, engine.model = "ollama", "translategemma:12b"
         engine.client.messages.create = lambda **kw: SimpleNamespace(
             content=[SimpleNamespace(type="text", text="[]")], usage=None)
         with paid_calls.call_limits(engine, None, "op", log_usage=True):

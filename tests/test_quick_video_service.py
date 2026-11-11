@@ -156,14 +156,14 @@ def test_the_sweep_removes_only_old_watch_once_titles(jobs, started_downloads):
 
 
 def test_settings_summary_shows_the_chosen_profiles_values_and_the_defaults_it_leaves(isolated_db):
-    pid = db.save_preset("Quick", translation_engine="ollama", engine_model="translategemma:4b",
+    pid = db.save_preset("Quick", translation_engine="ollama", engine_model="translategemma:12b",
                          options_json=profile_service.dump_options(
                              {"quick_source_language": "ja", "quick_export_format": "vtt",
                               "quick_export_language": "bilingual", "context_window": 3}))
     assert qv.get_settings()["summary"] == []
     qv.set_profile(pid)
     rows = {r["label"]: r for r in qv.get_settings()["summary"]}
-    assert rows["Engine and model"]["engine"] == "ollama" and rows["Engine and model"]["value"] == "translategemma:4b"
+    assert rows["Engine and model"]["engine"] == "ollama" and rows["Engine and model"]["value"] == "translategemma:12b"
     assert rows["Source language"]["value"] == "Japanese"
     assert rows["Batch size"]["value"] == "30"
     assert rows["Context lines (before, after)"]["value"] == "3, 6"

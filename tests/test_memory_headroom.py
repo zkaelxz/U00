@@ -178,7 +178,7 @@ class TestOllama:
     def test_an_ollama_that_cannot_use_the_gpu_counts_the_whole_model_as_ram(self, monkeypatch, reserve):
         reserve(ram=8, ram_free=16 * GB, vram_free=30 * GB)
         self._serve(monkeypatch, size_gb=17)
-        self._resident(monkeypatch, [{"name": "qwen3:8b", "size": 8 * GB, "size_vram": 0}])
+        self._resident(monkeypatch, [{"name": "translategemma:12b", "size": 8 * GB, "size_vram": 0}])
         with pytest.raises(mh.HeadroomError) as ei:
             mh.check_ollama("http://localhost:11434", "qwen3.6:27b")
         assert "RAM" in str(ei.value)

@@ -656,7 +656,7 @@ def test_chosen_model_reaches_the_engine_and_shows_in_status(live, monkeypatch):
 def test_model_not_offered_for_the_engine_is_refused(live, monkeypatch):
     seen = _capture_engine(live, monkeypatch)
     with pytest.raises(InvalidInputError):
-        _start(engine="claude", model="qwen3:8b")
+        _start(engine="claude", model="translategemma:12b")
     with pytest.raises(InvalidInputError):
         _start(engine="ollama", model="not-a-real-model:1b")
     assert seen == {} and live_service._sessions == {}
@@ -681,8 +681,8 @@ def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
                         lambda base, model: (_ for _ in ()).throw(engine_local.OllamaUnavailableError(
                             "ollama_model_missing", f'Ollama doesn\'t have the model {model}. Run "ollama pull {model}" first.')))
     with pytest.raises(DependencyUnavailableError) as exc:
-        _start(engine="ollama", model="gemma4:12b")
-    assert 'ollama pull gemma4:12b' in str(exc.value)
+        _start(engine="ollama", model="translategemma:12b")
+    assert 'ollama pull translategemma:12b' in str(exc.value)
     assert seen == {} and live_service._sessions == {}
 
 
@@ -704,7 +704,7 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
     from lib import http
 
     def fake_get(url, ip, headers, timeout, method="GET", **k):
-        return _TagsResp(json.dumps({"models": [{"name": "qwen3:8b"}, {"name": "tiny:latest"}]}).encode())
+        return _TagsResp(json.dumps({"models": [{"name": "translategemma:12b"}, {"name": "tiny:latest"}]}).encode())
 
     class _TagsResp:
         ok = True
@@ -715,7 +715,7 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
         headers = {}
 
     monkeypatch.setattr(http, "pinned_get", fake_get)
-    local.check_ollama_model_installed("http://x", "qwen3:8b")
+    local.check_ollama_model_installed("http://x", "translategemma:12b")
     local.check_ollama_model_installed("http://x", "tiny")
     with pytest.raises(local.OllamaUnavailableError) as exc:
         local.check_ollama_model_installed("http://x", "gemma4:12b")

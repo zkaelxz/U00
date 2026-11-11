@@ -1,6 +1,7 @@
 // What a control needs from this PC, as plain data. Pure of React: a vitest pins the wording and the
 // readiness-to-disabled mapping per control. Anything unknown (readiness not loaded) counts as
 // ready, so a control is never switched off on a guess; the server still refuses what cannot run.
+import { LIVE_DEFAULT_MODEL } from '../../api/live'
 import type { SetupReadiness } from '../../types/setup'
 
 /** What the person can do about it. Only Whisper and GPU PyTorch install in place; the rest open Diagnostics or Settings. */
@@ -365,7 +366,7 @@ export function ollamaNeed(r: SetupReadiness | null): Need | null {
   return {
     id: 'ollama', label: 'Ollama test engine', action: 'external', packages: [],
     reason: r.ollama_reachable
-      ? "Ollama is running but the default model isn't pulled yet. Run \"ollama pull\" for it."
+      ? `Ollama is running but the default model isn't pulled yet. Run "ollama pull ${LIVE_DEFAULT_MODEL}" for it.`
       : "Ollama isn't running or isn't installed. It is a free local translator for testing.",
     link: { href: 'https://ollama.com/download', label: 'Get Ollama' },
   }

@@ -6,7 +6,7 @@ another process sees the same value; plus the completion notice itself.
 """
 
 from jobs.job_table import _warn
-from lib import settings_schema
+from lib import desktop_session, settings_schema
 
 
 def _setting(key):
@@ -102,7 +102,7 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
                                                  with_errors=with_errors, reason=reason)
     except Exception:
         pass
-    if not get_notify_on_completion():
+    if not get_notify_on_completion() or not desktop_session.has_desktop():
         return
     try:
         from plyer import notification

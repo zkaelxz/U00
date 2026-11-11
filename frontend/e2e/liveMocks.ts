@@ -20,7 +20,7 @@ const ENGINES = [
 
 const OLLAMA = {
   name: 'ollama', label: 'Ollama', free: true, key_configured: true,
-  models: ['qwen3:8b', 'gemma4:12b'], model_labels: {},
+  models: ['llama3.1:8b', 'translategemma:27b'], model_labels: {},
 }
 
 export const cue = (n: number) => ({
