@@ -135,6 +135,9 @@ PRICING_PER_MILLION_TOKENS = {
     "gemini-flash-latest": {"input": 0.75, "output": 3.75},
     "gemini-pro-latest": {"input": 2.0, "output": 12.0},
     "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
+    # Pinned ids the source-research lookup uses (not offered for translation).
+    "gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50},
+    "gemini-3.8-flash": {"input": 0.75, "output": 3.75},
     # OpenAI list prices, checked against developers.openai.com/api/docs/pricing
     # on PRICES_VERIFIED_ON.
     "gpt-5-mini": {"input": 0.25, "output": 2.0},
@@ -169,6 +172,7 @@ CACHE_WRITE_PRICE_FACTOR = 1.25
 SCHEDULED_PRICE_CHANGES = {
     # Google's pricing page, checked on PRICES_VERIFIED_ON.
     "gemini-flash-latest": [(datetime.date(2027, 1, 1), {"input": 1.50, "output": 7.50})],
+    "gemini-3.8-flash": [(datetime.date(2027, 1, 1), {"input": 1.50, "output": 7.50})],
 }
 
 # Date the tables above were last compared with the providers' pricing pages;
