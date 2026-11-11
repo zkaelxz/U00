@@ -1060,6 +1060,28 @@ class TestLamaGeneratorLayout:
         assert scanlate_inpaint._LAMA_ML_FILE == "lama-manga.safetensors"
 
 
+class TestWebtoonOverlapOnlyThroughArt:
+    def _noisy_strip(self, temp_dir, height, gutter_rows=()):
+        rng = np.random.default_rng(0)
+        img = rng.integers(0, 255, (height, 40, 3), dtype=np.uint8)
+        for y in gutter_rows:
+            img[y] = 255
+        path = os.path.join(temp_dir, "noisy.png")
+        cv2.imwrite(path, img)
+        return path
+
+    def test_a_cut_on_a_gutter_row_shares_no_band(self, temp_dir):
+        path = self._noisy_strip(temp_dir, 3000, gutter_rows=range(1590, 1600))
+        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        assert 1590 <= a["y_end"] <= 1600
+        assert b["y_start"] == a["y_end"]
+
+    def test_a_cut_through_artwork_keeps_the_shared_band(self, temp_dir):
+        path = self._noisy_strip(temp_dir, 3000)
+        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        assert b["y_start"] == a["y_end"] - 100
+
+
 class TestWebtoonSliceCap:
     def _strip(self, temp_dir, height):
         path = os.path.join(temp_dir, f"strip_{height}.png")

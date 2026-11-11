@@ -736,6 +736,7 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
         search_hi = min(y + int(target_height * 1.25), h - 1)
         window = empty_rows[search_lo:search_hi]
         cut = ideal_end
+        at_gutter = bool(window.any())
         if window.any():
             empty_idxs = np.flatnonzero(window)
             # prefer the empty row closest to the ideal cut point
@@ -746,7 +747,11 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
             slices.append({"y_start": y, "y_end": h, "index": idx})
             break
         slices.append({"y_start": y, "y_end": cut, "index": idx})
-        y = max(cut - overlap, cut) if overlap == 0 else max(cut - overlap, y + 1)
+        # No lettering crosses a gutter row, so nothing is split there; sharing a
+        # band would only show the bubble above the cut twice, the second time
+        # clipped, and OCR reads that clipped copy as junk. The band is kept for
+        # a cut that had to be made through artwork.
+        y = cut if (overlap == 0 or at_gutter) else max(cut - overlap, y + 1)
         idx += 1
         if idx >= _MAX_WEBTOON_SLICES:
             # Stopping here would silently drop the rest of the strip.
