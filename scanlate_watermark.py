@@ -26,8 +26,10 @@ _SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "newtojuso", 
                "拷贝漫画", "拷貝漫畫", "mangadex", "twmanga", "kuaikan", "快看漫画", "快看漫畫")
 
 # Reader-site ads read as dialogue once translated. "Fastest webtoon" and
-# "search on Google" are the ad's own phrases, rare in a story.
-_PROMO = re.compile(r"가장\s*빠른\s*웹[툰튼]|구글\s*검색")
+# "search on Google" are the ad's own phrases, rare in a story. OCR of a small
+# stamp over art often keeps only the ends of the first line ("가장른 미리보가"),
+# so "미리보" counts when "가장" or "웹툰" sits just before it.
+_PROMO = re.compile(r"가장\s*빠른\s*웹[툰튼]|구글\s*검색|(?:가장|웹[툰튼]).{0,4}미[리\d]{1,3}보")
 
 # A stamp line by itself: the site's name cut short, or "미리보기" (preview)
 # with a digit read in for a stroke ("미12보7"). Matched only against a whole
@@ -206,4 +208,17 @@ def logo_box(region: dict, page_width: int, page_height: int) -> dict:
     right = min(page_width, region["x"] + region["w"] + _LOGO_MARGIN_PX)
     bottom = min(page_height, region["y"] + region["h"] + _LOGO_MARGIN_PX)
     top = max(0, bottom - max(side, region["h"] + 2 * _LOGO_MARGIN_PX))
+    if _lacks_site_name_line(region):
+        # The site-name line and the logo OCR never reads lie under and around
+        # the one line it did read.
+        left = max(0, region["x"] - int(2.5 * region["h"]))
+        right = min(page_width, region["x"] + region["w"] + region["h"])
+        bottom = min(page_height, bottom + 3 * region["h"])
     return {"x": left, "y": top, "w": right - left, "h": bottom - top}
+
+
+def _lacks_site_name_line(region: dict) -> bool:
+    """True for a read of the promo's first line alone: the stamp has a second
+    line, with the site's name, under it that OCR of the faint overlay does not find."""
+    text = region.get("source_text") or ""
+    return "\n" not in text.strip() and bool(_PROMO.search(_STRIP.sub("", text))) and "구글" not in text

@@ -655,6 +655,48 @@ def test_one_block_of_lettering_and_a_small_box_stay_one_region():
     assert scanlate_regions.split_separate_lettering(two, small) == [small]
 
 
+def _frame_with_curls_and_a_caption(size=(700, 800)):
+    """Small corner curls (many, so their height is the page's median) and a line
+    of tall lettering with a dash after it, as in a captioned frame."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full(size, 250, np.uint8)
+    for cx, cy in ((40, 40), (700, 40), (40, 600), (700, 600)):
+        for k in range(4):
+            cv2.rectangle(page, (cx + k * 26, cy), (cx + k * 26 + 12, cy + 12), 40, -1)
+    for left, width, top, height in ((300, 24, 300, 36), (332, 26, 296, 44), (366, 20, 304, 30)):
+        cv2.rectangle(page, (left, top), (left + width, top + height), 40, -1)
+    cv2.rectangle(page, (404, 318), (440, 321), 40, -1)
+    return page
+
+
+def test_lettering_taller_than_the_frames_ornament_curls_is_still_found_as_a_block():
+    page = _frame_with_curls_and_a_caption()
+    parts = scanlate_regions.split_separate_lettering(page, {"x": 0, "y": 0, "w": 800, "h": 700})
+    caption = [p for p in parts if p["x"] <= 300 and p["x"] + p["w"] >= 386 and p["y"] <= 296
+               and p["y"] + p["h"] >= 340]
+    assert caption, parts
+
+
+def test_a_dash_ending_the_line_is_inside_its_block():
+    page = _frame_with_curls_and_a_caption()
+    parts = scanlate_regions.split_separate_lettering(page, {"x": 0, "y": 0, "w": 800, "h": 700})
+    assert any(p["x"] <= 300 and p["x"] + p["w"] >= 440 for p in parts), parts
+
+
+def test_marks_that_stand_alone_are_not_taken_for_a_row_of_letters():
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((700, 800), 250, np.uint8)
+    for x, y in ((40, 40), (700, 60), (60, 620), (690, 600), (360, 340)):
+        cv2.rectangle(page, (x, y), (x + 14, y + 14), 40, -1)
+    assert scanlate_regions._in_a_row(*_stats_of(page)) == []
+
+
+def _stats_of(page):
+    cv2 = pytest.importorskip("cv2")
+    _, _, stats, _ = cv2.connectedComponentsWithStats((page < 150).astype(np.uint8), connectivity=8)
+    return stats, list(range(1, len(stats)))
+
+
 class TestKatakanaEffects:
     @pytest.mark.parametrize("text,becomes", [
         ("キュルルル・", "sfx"),
