@@ -99,7 +99,7 @@ _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
 _QUEUE_FULL = "The download queue is full. Wait for a download to finish or cancel one."
 _NO_YTDLP = "Downloading from a URL needs yt-dlp, which isn't installed on this PC."
 _FAILED = ("Couldn't download from that link. It may be private, region-locked or not "
-           "supported, or yt-dlp may need an update.")
+           "supported, or yt-dlp may need an update (Diagnostics > Packages > Check for package updates).")
 _SAVE_FAILED = ("Downloaded, but couldn't make it this title's audio. The title's audio and "
                "video are unchanged.")
 _REJECTED = "That link can't be downloaded."
@@ -360,7 +360,7 @@ _FAILURE_REASONS = (
      "The site asked to sign in, or is treating this PC as a bot."),
     (r"requested format is not available|no video formats|no formats|javascript runtime|"
      r"challenge solving|n.?sig",
-     "No downloadable format was found: yt-dlp may need an update or a JavaScript runtime."),
+     "No downloadable format was found: yt-dlp may need an update (Diagnostics > Packages > Check for package updates) or a JavaScript runtime."),
     (r"http error 429|too many requests|rate[- ]?limit",
      "The site is rate-limiting this PC. Wait a while and try again."),
     (r"http error 40[13]|forbidden",
