@@ -10,6 +10,7 @@ The React Reader page shows it in an iframe (services/reader_service.py).
 """
 
 import json
+import re
 import types
 import html
 
@@ -118,6 +119,91 @@ _EDIT_CSS = """.edit-btn { border: none; background: rgba(128,128,128,.25); bord
   .edit-btn:hover { filter: brightness(0.92); }"""
 
 
+_NAME_CATEGORIES = ("person_name", "courtesy_name")
+
+
+def _term_kind(term: dict) -> str:
+    return "name" if term.get("category") in _NAME_CATEGORIES else "term"
+
+
+def _term_matchers(terms):
+    """(english_regex, english_lookup, source_lookup) for the glossary terms the
+    Reader highlights. The earlier term wins when two share a text, and longer
+    texts are tried first so "Auntie Wang" is not cut at "Auntie"."""
+    english, source = {}, {}
+    for t in terms or ():
+        if not isinstance(t.get("id"), int):
+            continue
+        en = (t.get("term_translation") or "").strip()
+        zh = (t.get("term_original") or "").strip()
+        if len(en) >= 2:
+            english.setdefault(en.casefold(), t)
+        if zh:
+            source.setdefault(zh.casefold(), t)
+    pattern = None
+    if english:
+        alts = "|".join(re.escape(k) for k in sorted(english, key=len, reverse=True))
+        pattern = re.compile(r"(?<!\w)(?:" + alts + r")(?!\w)", re.IGNORECASE)
+    return pattern, english, source
+
+
+def _term_mark(text: str, term: dict, tag: str = "mark") -> str:
+    return (f'<{tag} class="term term-{_term_kind(term)}" data-term-id="{int(term["id"])}" '
+            f'onclick="termClick({int(term["id"])})">{html.escape(text)}</{tag}>')
+
+
+def _highlight_english(text: str, matcher) -> str:
+    pattern, english, _ = matcher
+    if pattern is None:
+        return html.escape(text)
+    out, last = [], 0
+    for m in pattern.finditer(text):
+        out.append(html.escape(text[last:m.start()]))
+        out.append(_term_mark(m.group(0), english[m.group(0).casefold()]))
+        last = m.end()
+    out.append(html.escape(text[last:]))
+    return "".join(out)
+
+
+_TERM_CSS = """mark.term, span.term { cursor: pointer; border-radius: 4px; padding: 0 2px; color: inherit; }
+  .term-name { background: rgba(59,130,246,.14); border-bottom: 1px dotted rgb(59,130,246); }
+  .term-term { background: rgba(249,115,22,.16); border-bottom: 1px dotted rgb(249,115,22); }"""
+
+# Same constraint as editing: the frame has no network, so it only reports what was tapped or selected.
+_TERM_SCRIPT = """function termClick(termId) {
+    parent.postMessage({ baiheReader: 'term', termId: termId }, '*');
+  }
+  document.addEventListener('mouseup', function () { reportSelection(); });
+  document.addEventListener('touchend', function () { setTimeout(reportSelection, 50); });
+  function reportSelection() {
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().trim() : '';
+    if (!text || text.length > 200 || sel.isCollapsed) return;
+    const node = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+    if (!node || !node.closest('.en-text')) return;
+    parent.postMessage({ baiheReader: 'select', text: text }, '*');
+  }"""
+
+
+def _word_spans(segments, readings: bool, matcher) -> str:
+    """One line's source text as clickable words; a word that is a glossary term opens the term editor instead."""
+    spans = []
+    for word, reading in segments:
+        if not word.strip():
+            spans.append(html.escape(word))
+            continue
+        source_term = matcher[2].get(word.casefold()) if matcher else None
+        if source_term is not None:
+            spans.append(_term_mark(word, source_term, "span"))
+            continue
+        key = html.escape(word, quote=True)  # dataset.word reads it back verbatim
+        # Without readings the words stay <ruby> so click-to-define still works.
+        ruby = f"<rt>{html.escape(reading)}</rt>" if reading and readings else ""
+        spans.append(f'<ruby class="word" data-word="{key}" onclick="showDef(this)">'
+                     f'{html.escape(word)}{ruby}</ruby>')
+    return "".join(spans)
+
+
 def _row_html(ln, raw_html: str, en_html: str, seek_btn: str, editable: bool) -> str:
     """One line's row. Editing adds the line's saved id and a pencil, but only for a line that has an id."""
     id_attr = edit_btn = ""
@@ -139,8 +225,10 @@ def build_reader_html(lines, source_language: str, definitions: dict,
                        font_size: int = 22, line_height: float = 2.4,
                        max_width: int = 1200, font: str = "system",
                        readings: bool = True, paragraph_ends=None,
-                       editable: bool = False) -> str:
+                       editable: bool = False, terms=None) -> str:
     """
+    terms: glossary terms to highlight (editable pages only: a tap opens the
+    host page's term editor, which a read-only page has no use for).
     lines: list of Line-like objects with .zh (raw) and .en (translation)
     source_language: 'zh' | 'ja' | 'ko'
     definitions: {word: {"reading": str|None, "definitions": [str]}}
@@ -160,6 +248,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     line_height = float(line_height)
     max_width = int(max_width)
 
+    matcher = _term_matchers(terms) if editable else None
+    term_script = _TERM_SCRIPT if editable else ""
     rows_html = []
     missing_segmenters = []
     annotated_chars = 0
@@ -177,21 +267,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
             if name not in missing_segmenters:
                 missing_segmenters.append(name)
             segments = None
-        word_spans = [html.escape(ln.zh or "")] if segments is None else []
-        for word, reading in segments or ():
-            if not word.strip():
-                word_spans.append(html.escape(word))
-                continue
-            safe_word = html.escape(word)
-            key = html.escape(word, quote=True)  # dataset.word reads it back verbatim
-            # Without readings the words stay <ruby> so click-to-define still works.
-            ruby = f"<rt>{html.escape(reading)}</rt>" if reading and readings else ""
-            word_spans.append(
-                f'<ruby class="word" data-word="{key}" onclick="showDef(this)">'
-                f'{safe_word}{ruby}</ruby>'
-            )
-        raw_html = "".join(word_spans)
-        en_html = html.escape(ln.en or "")
+        raw_html = html.escape(ln.zh or "") if segments is None else _word_spans(segments, readings, matcher)
+        en_html = _highlight_english(ln.en or "", matcher) if matcher else html.escape(ln.en or "")
         seek_btn = (f'<button class="seek-btn" onclick="seekTo({ln.start})" title="Play from here">▶</button>'
                     if audio_data_uri else "")
         rows_html.append(_row_html(ln, raw_html, en_html, seek_btn, editable))
@@ -243,6 +320,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
               color: {c_fg}; }}
   .seek-btn:hover {{ background: {c_active}; }}
   {_EDIT_CSS}
+  {_TERM_CSS}
   .line-row.playing {{
       background: {c_accent_soft};
       box-shadow: inset 3px 0 0 {c_accent};
@@ -279,6 +357,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   let activeEl = null;
 
   {_EDIT_SCRIPT}
+  {term_script}
 
   function showDef(el) {{
     if (activeEl) activeEl.classList.remove('active');

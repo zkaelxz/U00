@@ -37,6 +37,7 @@ import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
 import { ListenWatch } from './reader/ListenWatch'
+import { ReaderTermPanels } from './reader/ReaderTermTools'
 import { lineEditPatch } from './reader/readerLineEdit'
 import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
 import { useSession } from '../hooks/useSession'
@@ -505,6 +506,8 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               <ActionError action={save} />
             </form>
           )}
+          <ReaderTermPanels dramaId={id} editMode={editMode} frameRef={frameRef} terms={terms}
+            onTermsLoaded={setTerms} onPageChanged={() => setPageTick((n) => n + 1)} />
           {data && pageSrc && !(stale && pageError !== null) && (
             <iframe
               ref={frameRef}
