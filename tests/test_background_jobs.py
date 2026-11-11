@@ -1879,18 +1879,19 @@ class TestNotifyOnCompletion:
         monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
         job_settings.set_notify_on_completion(True)
 
-        monkeypatch.setattr(job_settings, "_has_desktop", lambda: False)
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: False)
         job_settings._notify_job_finished("A job", "done")
         assert calls == []
 
-        monkeypatch.setattr(job_settings, "_has_desktop", lambda: True)
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
         job_settings._notify_job_finished("A job", "done")
         assert len(calls) == 1
 
     def test_has_desktop_is_true_off_windows(self, monkeypatch):
         import sys
         monkeypatch.setattr(sys, "platform", "linux")
-        assert job_settings._has_desktop() is True
+        from lib import desktop_session
+        assert desktop_session.has_desktop() is True
 
     def test_successful_job_notifies_when_enabled(self, monkeypatch):
         calls = []
