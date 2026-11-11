@@ -47,13 +47,18 @@ FONT_CATEGORIES = ["regular", "bold", "handwritten"]
 # this ships with by default.
 # Windows can live on any drive; WINDIR names the real folder.
 _WINDOWS_FONTS = os.path.join(os.environ.get("WINDIR") or "C:\\Windows", "Fonts")
+# Comic Neue (SIL Open Font License, assets/fonts/): a comic-lettering face that
+# is on every machine, so a page does not depend on which system fonts exist.
+_BUNDLED_FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
 _SYSTEM_FONT_CANDIDATES = {
     "bold": [
+        os.path.join(_BUNDLED_FONTS, "ComicNeue-Bold.ttf"),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         os.path.join(_WINDOWS_FONTS, "arialbd.ttf"),
     ],
     "regular": [
+        os.path.join(_BUNDLED_FONTS, "ComicNeue-Regular.ttf"),
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         os.path.join(_WINDOWS_FONTS, "arial.ttf"),
@@ -61,6 +66,7 @@ _SYSTEM_FONT_CANDIDATES = {
     "handwritten": [
         os.path.join(_WINDOWS_FONTS, "comic.ttf"),  # Comic Sans MS -- present on most Windows installs
         "/System/Library/Fonts/Supplemental/Bradley Hand Bold.ttf",
+        os.path.join(_BUNDLED_FONTS, "ComicNeue-Bold.ttf"),
     ],
 }
 
