@@ -233,15 +233,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
     boxes = merge_fragment_boxes(boxes, gray)
-    split_parts = set()
-    if gray is not None:
-        pieces = []
-        for box in boxes:
-            parts = split_separate_lettering(gray, box)
-            if len(parts) > 1:
-                split_parts.update((p["x"], p["y"], p["w"], p["h"]) for p in parts)
-            pieces.extend(parts)
-        boxes = pieces
+    boxes, split_parts = _split_frames(boxes, gray)
 
     captions = None
     if not boxes:
@@ -330,6 +322,21 @@ def flag_english_text(regions: list, source_language: str) -> int:
             region["skip"] = True
             flagged += 1
     return flagged
+
+
+def _split_frames(boxes: list, gray) -> tuple:
+    """`boxes` with each large one cut into its blocks of lettering, and the set
+    of (x, y, w, h) of the blocks that came from a cut."""
+    split_parts = set()
+    if gray is None:
+        return boxes, split_parts
+    pieces = []
+    for box in boxes:
+        parts = split_separate_lettering(gray, box)
+        if len(parts) > 1:
+            split_parts.update((p["x"], p["y"], p["w"], p["h"]) for p in parts)
+        pieces.extend(parts)
+    return pieces, split_parts
 
 
 def _is_thought_dots(text: str, source_language: str) -> bool:
