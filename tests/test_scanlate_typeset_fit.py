@@ -83,3 +83,36 @@ def test_rect_fallback_keeps_normal_text_inside_the_box():
     rows, cols = np.flatnonzero(dark.any(axis=1)), np.flatnonzero(dark.any(axis=0))
     assert cols.min() >= box["x"] and cols.max() < box["x"] + box["w"]
     assert rows.min() >= box["y"] and rows.max() < box["y"] + box["h"]
+
+
+def test_a_hyphen_split_breaks_between_syllables_and_leaves_three_letters_after_it():
+    fits = lambda head: len(head) <= 6
+    assert scanlate_render._hyphen_split("Housework?", fits) == ("House-", "work?")
+    # The tail "rk?" has two letters, so that cut is refused.
+    assert scanlate_render._hyphen_split("Housewo", lambda head: len(head) <= 3) is None
+
+
+def test_a_word_is_not_cut_into_three_pieces_while_a_smaller_size_would_avoid_it():
+    assert scanlate_render._split_twice(["Housew-", "or-", "k?"])
+    assert not scanlate_render._split_twice(["House-", "work?", "Hi-", "ya"])
+
+
+def test_a_narrow_balloon_never_shows_a_word_split_across_two_hyphens():
+    mask = np.ones((180, 44), dtype=bool)
+    img = Image.new("RGB", (120, 200), "white")
+    box = {"x": 10, "y": 10, "w": 44, "h": 180}
+    seen = []
+    real = scanlate_render._layout_at_size
+
+    def spy(draw, words, mask_, mh, font, hyphenate):
+        out = real(draw, words, mask_, mh, font, hyphenate)
+        if out is not None:
+            seen.append([ln for ln, *_ in out[1]])
+        return out
+
+    import pytest as _pytest
+    with _pytest.MonkeyPatch.context() as patch:
+        patch.setattr(scanlate_render, "_layout_at_size", spy)
+        scanlate_render.render_text_in_box(
+            img, box, "Housework? Because it's absolutely forbidden", font_size=14, mask=mask)
+    assert not scanlate_render._split_twice(seen[-1]), seen[-1]
