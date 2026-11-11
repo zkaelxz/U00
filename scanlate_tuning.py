@@ -126,6 +126,12 @@ TYPESET_SMALLEST_PX = 8
 # balloon is hyphenated before the text shrinks past it.
 TYPESET_COMFORT_PX = 13
 # Space between lines, and between the text and a balloon's outline.
+# Balloons whose starting sizes are within this ratio count as lettered alike, and
+# the cramped ones among them set a shared fit ratio; no balloon loses more than
+# 1 - MAX_SHRINK of the size it fitted, nor takes a ratio below MIN_RATIO.
+TYPESET_SIBLING_RATIO = 1.35
+TYPESET_SIBLING_MIN_RATIO = 0.7
+TYPESET_SIBLING_MAX_SHRINK = 0.75
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
 
