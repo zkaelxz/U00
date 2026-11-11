@@ -6,6 +6,7 @@ retry and flagging live in translate_pipeline."""
 import json
 import math
 import re
+import unicodedata
 
 # Thresholds are deliberately generous: a false alarm costs a paid re-ask, a
 # miss only leaves today's behaviour.
@@ -170,9 +171,17 @@ def dialogue_lost(source: str, reply: str) -> bool:
     return _english_words(outside) < 2
 
 
+def novel_script_leak(reply: str) -> bool:
+    """Any CJK character in a novel's English, quotes and kept terms included.
+    The general check exempts what a glossary or style profile mentions, but a
+    profile that says "keep 凹 as written" made a model leave it in the prose."""
+    return bool(_CJK.search(reply or ""))
+
+
 def line_problems(source: str, reply: str, allowed_runs=(), novel: bool = False) -> list:
     """Problems visible from one line alone. novel: also check that spoken
-    words keep their quotation marks and speaker tag."""
+    words keep their quotation marks and speaker tag, and that no source
+    script is left (strictly: see novel_script_leak)."""
     problems = []
     if not reply.strip():
         return problems
@@ -181,7 +190,7 @@ def line_problems(source: str, reply: str, allowed_runs=(), novel: bool = False)
     issue = length_issue(source, reply)
     if issue:
         problems.append(issue)
-    if leftover_source_script(reply, allowed_runs):
+    if (novel_script_leak(reply) if novel else leftover_source_script(reply, allowed_runs)):
         problems.append("leftover")
     return problems
 
@@ -301,3 +310,32 @@ def strip_invented_speaker_tag(source: str, english: str) -> str:
         return english
     return _INVENTED_TAG.sub("", english or "", count=1)
 
+
+
+SCRIPT_LEAK_NOTE = "check: Chinese, Japanese or Korean characters left in the English"
+NUMBER_NOTE = "check: a number in the source is different or missing in the English"
+HEADER_NOTE = "check: a chapter heading was added to this line"
+
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+# "Chapter 1 1:" and similar: a heading the model carried over from the
+# batch's chapter marker onto an ordinary paragraph.
+_ENGLISH_HEADER = re.compile(r"^\s*(?:chapter|ch\.?)\s*\d+[\s\d]*[:.\-–—]", re.IGNORECASE)
+_SOURCE_HEADER = re.compile(r"第.{1,9}[章回话話節节]|^\s*(?:chapter|ch\.?)\s*\d|[0-9０-９]+\s*화", re.IGNORECASE)
+
+
+def _numbers(text: str) -> set:
+    return {n.replace(",", "") for n in _NUMBER.findall(unicodedata.normalize("NFKC", text or ""))}
+
+
+def changed_number(source: str, english: str) -> bool:
+    """A number of two or more digits in the source that the English leaves out
+    while writing other numbers (35 degrees turned into 95). English that
+    spells the number out has no digits and is not judged: that is the model's
+    ordinary choice, and a false alarm costs the reader a look."""
+    wanted = {n for n in _numbers(source) if len(n.replace(".", "")) >= 2}
+    got = _numbers(english)
+    return bool(wanted and got and not wanted <= got)
+
+
+def added_chapter_header(source: str, english: str) -> bool:
+    return bool(_ENGLISH_HEADER.match(english or "") and not _SOURCE_HEADER.search(source or ""))

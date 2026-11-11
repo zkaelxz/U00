@@ -311,6 +311,25 @@ class TestNovelGlossary:
             tguide.call_llm_json = orig
         assert "no detail lost" in prompts[0] and "她笑了" in prompts[0]
 
+    def test_style_draft_never_keeps_source_script(self):
+        prompts = []
+
+        class Eng:
+            supports_reference = True
+
+        def fake_llm(engine, prompt, **kw):
+            prompts.append(prompt)
+            return '{"instructions": "Keep slang. Keep 凹 literal. Use past tense."}'
+        orig = tguide.call_llm_json
+        tguide.call_llm_json = fake_llm
+        try:
+            out = tguide.draft_novel_style_instructions("她笑了。" * 50, Eng())
+        finally:
+            tguide.call_llm_json = orig
+        assert out == "Keep slang. Use past tense."
+        assert "every word of the translation is English" in prompts[0]
+        assert "leave untranslated" not in prompts[0]
+
     def test_novel_only_is_source(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db, orig=None)
         seen = {}
