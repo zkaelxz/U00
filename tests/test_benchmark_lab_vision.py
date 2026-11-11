@@ -197,7 +197,7 @@ class TestBounds:
         calls = []
         release = threading.Event()
 
-        def slow(engine, prompt, data, mime):
+        def slow(engine, prompt, data, mime, max_tokens=0):
             calls.append(1)
             release.wait(8)
             return REFERENCE, {}

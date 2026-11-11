@@ -73,3 +73,18 @@ def test_only_a_skipped_stamp_is_painted_out():
     assert wm.is_site_mark_region(_r("뉴토끼.com", skip=True))
     assert not wm.is_site_mark_region(_r("뉴토끼.com"))
     assert not wm.is_site_mark_region(_r("안녕", skip=True))
+
+
+def test_a_caption_that_shares_its_region_with_the_stamp_keeps_its_lettering():
+    caption = "자신이 원하는걸\n얻고야 말겠다는\n미1리보기\n뉴토끼\n짐승의 눈빛까지 지닌 이 남자"
+    regions = [_r(caption)]
+    assert wm.flag_site_marks(regions) == 0
+    assert not regions[0]["skip"]
+    assert "뉴토끼" not in regions[0]["source_text"]
+    assert "얻고야 말겠다는" in regions[0]["source_text"]
+
+
+def test_a_region_that_is_only_the_stamp_is_still_skipped():
+    regions = [_r("구글검색\n뉴토끼")]
+    assert wm.flag_site_marks(regions) == 1
+    assert regions[0]["skip"]

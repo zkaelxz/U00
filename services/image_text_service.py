@@ -123,6 +123,10 @@ def _prepared(content: bytes) -> tuple:
     return data, mime, width, height
 
 
+# A page translation sends a stored page the same way a screenshot is sent.
+prepare_picture = _prepared
+
+
 def _estimate(engine_name: str, model: Optional[str], use_free_tier: bool,
               width: int, height: int) -> dict:
     priced = types.SimpleNamespace(
