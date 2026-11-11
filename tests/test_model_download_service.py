@@ -129,6 +129,22 @@ def test_hub_fetch_downloads_each_repo_at_its_pinned_revision(monkeypatch):
     assert messages[0][0] == 0.0 and messages[1][0] == 0.5
 
 
+def test_hub_progress_bar_reports_bytes_and_survives_a_disabled_bar(monkeypatch):
+    hub = pytest.importorskip("huggingface_hub")
+    bars = []
+    monkeypatch.setattr(hub, "snapshot_download",
+                        lambda repo, **kw: bars.append(kw["tqdm_class"]))
+    messages = []
+    svc._fetch_hub(["kha-white/manga-ocr-base"], lambda f, m: messages.append(m), lambda: False)
+    bar = bars[0]
+    # A disabled bar skips tqdm's init, so it has no `unit`; the library creates
+    # one when progress bars are switched off.
+    bar(total=2, unit="B", disable=True).update(1)
+    bar(total=2, unit="it").update(1)
+    bar(total=2_000_000_000, unit="B").update(1_500_000_000)
+    assert messages[-1] == "Downloading kha-white/manga-ocr-base… 1.5 GB so far"
+
+
 def test_start_is_pc_only_and_reading_needs_admin(models):
     app = create_app(ApiSettings(auth_mode="on"))
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
