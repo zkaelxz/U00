@@ -137,13 +137,13 @@ def test_unapproved_baseline_warns():
 
 
 def test_version_changes_listed():
-    old = {"torch": "2.4.0", "numpy": "1.26.0", "demucs": None, "python": "3.11.9"}
-    new = {"torch": "2.5.0", "numpy": "1.26.0", "demucs": "4.0.1", "python": "3.11.9"}
-    assert sp.version_changes(old, new) == [("demucs", None, "4.0.1"), ("torch", "2.4.0", "2.5.0")]
+    old = {"torch": "2.4.0", "numpy": "1.26.0", "onnxruntime": None, "python": "3.11.9"}
+    new = {"torch": "2.5.0", "numpy": "1.26.0", "onnxruntime": "1.31.1", "python": "3.11.9"}
+    assert sp.version_changes(old, new) == [("onnxruntime", None, "1.31.1"), ("torch", "2.4.0", "2.5.0")]
     res = sp.compare(_expected(), _result(devices={"transcribe": "Using CPU (int8)", "diarize": "gpu"}),
                      PROFILE, old, new)
     text = sp.format_report(res, "demo")
-    assert "torch: 2.4.0 -> 2.5.0" in text and "demucs: not installed -> 4.0.1" in text
+    assert "torch: 2.4.0 -> 2.5.0" in text and "onnxruntime: not installed -> 1.31.1" in text
     assert "FAIL" in text and "Result: FAIL" in text
 
 

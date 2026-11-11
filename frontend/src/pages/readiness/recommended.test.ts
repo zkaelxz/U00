@@ -4,7 +4,7 @@ import type { SetupReadiness } from '../../types/setup'
 import { recommendedRows, recommendedSummary } from './recommended'
 
 const FRESH = Object.fromEntries([
-  'faster_whisper', 'torch', 'torchaudio', 'uroman', 'soundfile', 'audio_separator', 'demucs', 'pyannote', 'onnxruntime', 'openai',
+  'faster_whisper', 'torch', 'torchaudio', 'uroman', 'soundfile', 'audio_separator', 'pyannote', 'onnxruntime', 'openai',
   'anthropic', 'yt_dlp', 'pypdf', 'genanki', 'ebooklib', 'cv2', 'jieba', 'sudachi', 'kiwi', 'nagisa', 'soynlp', 'pytesseract',
   'paddle_ocr', 'transformers_ok', 'qwen3_asr', 'ffmpeg_libass', 'js_runtime', 'tesseract_program', 'torch_cuda', 'hf_token_configured',
   'key_claude', 'key_deepseek', 'key_gemini', 'key_openai', 'key_groq', 'ollama_reachable', 'ollama_model_pulled',

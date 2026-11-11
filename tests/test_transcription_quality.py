@@ -169,13 +169,10 @@ def _fake_audio_separator(monkeypatch, fail=False, returns_relative=False):
 
 class TestVocalSeparationBackends:
     @pytest.mark.parametrize("relative", [False, True])
-    def test_auto_prefers_mel_band_roformer(self, monkeypatch, tmp_path, relative):
+    def test_auto_uses_mel_band_roformer(self, monkeypatch, tmp_path, relative):
         pytest.importorskip("soundfile")
         import audio_preprocess as ap
         seen = _fake_audio_separator(monkeypatch, returns_relative=relative)
-        monkeypatch.setattr(ap, "separate_vocals_demucs",
-                            lambda *a, **k: pytest.fail("Demucs used when RoFormer worked"))
-        monkeypatch.setitem(ap._BACKENDS, "demucs", ap.separate_vocals_demucs)
         in_path = str(tmp_path / "in.wav")
         _write_fixture_wav(in_path)
         out = str(tmp_path / "vocals.wav")
@@ -185,43 +182,21 @@ class TestVocalSeparationBackends:
         # temp separator work dir cleaned up -- only the two real WAVs remain
         assert sorted(p.name for p in tmp_path.iterdir()) == ["in.wav", "vocals.wav"]
 
-    def test_auto_falls_back_to_demucs_when_audio_separator_is_missing(self, monkeypatch, tmp_path):
+    def test_a_missing_audio_separator_names_the_package(self, monkeypatch, tmp_path):
         import audio_preprocess as ap
         monkeypatch.setitem(sys.modules, "audio_separator", None)
         monkeypatch.setitem(sys.modules, "audio_separator.separator", None)
-        used = []
-        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda a, o, **kw: used.append("demucs") or o)
-        assert ap.separate_vocals("in.wav", str(tmp_path / "v.wav")) == str(tmp_path / "v.wav")
-        assert used == ["demucs"]
+        with pytest.raises(ap.VocalSeparationError, match="pip install audio-separator"):
+            ap.separate_vocals("in.wav", str(tmp_path / "v.wav"))
 
-    def test_auto_falls_back_to_demucs_when_roformer_fails(self, monkeypatch, tmp_path):
+    def test_a_roformer_failure_is_reported_with_its_own_message(self, monkeypatch, tmp_path):
         pytest.importorskip("soundfile")
         import audio_preprocess as ap
         _fake_audio_separator(monkeypatch, fail=True)
-        used = []
-        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda a, o, **kw: used.append("demucs") or o)
         in_path = str(tmp_path / "in.wav")
         _write_fixture_wav(in_path)
-        ap.separate_vocals(in_path, str(tmp_path / "v.wav"))
-        assert used == ["demucs"]
-
-    def test_a_named_backend_uses_only_that_one(self, monkeypatch, tmp_path):
-        import audio_preprocess as ap
-        monkeypatch.setitem(sys.modules, "audio_separator", None)
-        monkeypatch.setitem(sys.modules, "audio_separator.separator", None)
-        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda *a, **kw: pytest.fail("fell back"))
-        with pytest.raises(ap.VocalSeparationError, match="pip install audio-separator"):
-            ap.separate_vocals("in.wav", str(tmp_path / "v.wav"), backend="audio_separator")
-
-    def test_both_failing_reports_both(self, monkeypatch, tmp_path):
-        import audio_preprocess as ap
-        monkeypatch.setitem(sys.modules, "audio_separator", None)
-        monkeypatch.setitem(sys.modules, "audio_separator.separator", None)
-        monkeypatch.setitem(sys.modules, "demucs", None)
-        monkeypatch.setitem(sys.modules, "demucs.api", None)
-        with pytest.raises(ap.VocalSeparationError) as err:
-            ap.separate_vocals("in.wav", str(tmp_path / "v.wav"))
-        assert "audio-separator" in str(err.value) and "demucs" in str(err.value)
+        with pytest.raises(ap.VocalSeparationError, match="CUDA out of memory"):
+            ap.separate_vocals(in_path, str(tmp_path / "v.wav"))
 
 
 def _fake_funasr(monkeypatch, texts_by_key):

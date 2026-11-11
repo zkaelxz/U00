@@ -303,19 +303,19 @@ def test_a_fresh_install_below_the_app_minimum_is_blocked():
 
 
 def test_pulling_torch_from_pypi_onto_an_nvidia_pc_is_blocked():
-    """demucs installed before GPU PyTorch brought in PyPI's CPU torch."""
-    rep = report(("demucs", "4.0.1"), ("torch", "2.11.0"), ("torchaudio", "2.11.0"))
-    p = build(rep, {}, keys=["demucs"], windows=False, nvidia=True)
+    """audio-separator installed before GPU PyTorch brought in PyPI's CPU torch."""
+    rep = report(("audio-separator", "0.48.0"), ("torch", "2.11.0"), ("torchaudio", "2.11.0"))
+    p = build(rep, {}, keys=["audio-separator"], windows=False, nvidia=True)
     assert len(p["blocked"]) == 1
     assert "torch 2.11.0, torchaudio 2.11.0" in p["blocked"][0]
     assert "Set up GPU PyTorch first" in p["blocked"][0]
-    assert build(rep, {}, keys=["demucs"], windows=False, nvidia=False)["blocked"] == []
+    assert build(rep, {}, keys=["audio-separator"], windows=False, nvidia=False)["blocked"] == []
 
 
 def test_replacing_an_installed_torch_is_blocked_with_or_without_a_gpu():
-    rep = report(("demucs", "4.0.1"), ("torch", "2.14.1"))
+    rep = report(("audio-separator", "0.48.0"), ("torch", "2.14.1"))
     for nvidia in (True, False):
-        p = build(rep, {"torch": "2.11.0+cu126"}, keys=["demucs"], windows=False, nvidia=nvidia)
+        p = build(rep, {"torch": "2.11.0+cu126"}, keys=["audio-separator"], windows=False, nvidia=nvidia)
         assert p["blocked"] == ["This would replace torch 2.11.0+cu126 with 2.14.1, so nothing "
                                 "was changed. PyTorch is changed only under GPU PyTorch."]
 
@@ -348,7 +348,7 @@ def test_the_plan_shows_the_conflict_reason(monkeypatch):
 
 def test_a_conflict_with_the_pinned_torch_says_so():
     text = ("The conflict is caused by:\n    The user requested (constraint) torch==2.11.0+cu126\n"
-            "    demucs 4.1 depends on torch>=2.12\n")
+            "    audio-separator 0.48 depends on torch>=2.12\n")
     kind, reason = plan_mod.pip_failure(text)
     assert kind == plan_mod.CONFLICT
     assert reason.startswith("It needs a different PyTorch than the one installed "

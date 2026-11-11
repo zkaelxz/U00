@@ -7,7 +7,7 @@ import { openAdvanced, enableDeveloperMode } from './sourceHelpers'
 // seeded one with Whisper mode on. Shared by the desktop and phone specs.
 
 const FIELDS = [
-  'faster_whisper', 'torch', 'torchaudio', 'uroman', 'soundfile', 'audio_separator', 'demucs', 'pyannote', 'onnxruntime', 'openai',
+  'faster_whisper', 'torch', 'torchaudio', 'uroman', 'soundfile', 'audio_separator', 'pyannote', 'onnxruntime', 'openai',
   'anthropic', 'yt_dlp', 'pypdf', 'genanki', 'ebooklib', 'cv2', 'jieba', 'sudachi', 'kiwi', 'nagisa', 'soynlp', 'pytesseract',
   'paddle_ocr', 'transformers_ok', 'qwen3_asr', 'ffmpeg', 'ffmpeg_libass', 'js_runtime', 'tesseract_program', 'gpu_found',
   'manga_ocr', 'plyer', 'trafilatura', 'playwright', 'browser_found',
@@ -84,7 +84,7 @@ export function registerReadinessCases(prefix: string) {
 
     const vocals = tools.getByRole('switch', { name: 'Separate vocals first' })
     await expect(vocals).toBeDisabled()
-    await expect(tools.getByTestId('needs-separation')).toContainText("needs audio-separator (or Demucs), which isn't installed")
+    await expect(tools.getByTestId('needs-separation')).toContainText("needs audio-separator, which isn't installed")
     await expect(tools.getByTestId('needs-separation').getByRole('link', { name: 'Open Diagnostics' }))
       .toHaveAttribute('href', '#/diagnostics?card=packages&package=audio-separator')
 
