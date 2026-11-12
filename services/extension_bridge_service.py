@@ -9,6 +9,7 @@ title list to what they can see and sends only into a title they can edit.
 """
 
 import json
+import os
 import re
 import threading
 import time
@@ -54,6 +55,20 @@ def require_drama_access(principal, drama_id) -> None:
         raise page_server.EndpointError(404, "no such drama")
 
 
+_MANIFEST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "extension", "manifest.json")
+
+
+def bundled_extension_version() -> str | None:
+    """Version of the extension files this app ships, so a copy loaded from an
+    older download can say it is stale (a browser never updates an unpacked one)."""
+    try:
+        with open(_MANIFEST, encoding="utf-8") as f:
+            return str(json.load(f)["version"])
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def health_payload(principal=None, app_port=None) -> dict:
     import db
     dramas = db.list_dramas()
@@ -64,6 +79,7 @@ def health_payload(principal=None, app_port=None) -> dict:
     return {
         "ok": True,
         "app": "Baihe Studio",
+        "extension_version": bundled_extension_version(),
         # The PC's "Open in Baihe" link must follow BAIHE_API_PORT; a member
         # opens the household address they typed, so the PC passes its port and a member's call does not.
         **({"app_port": app_port} if app_port is not None else {}),
