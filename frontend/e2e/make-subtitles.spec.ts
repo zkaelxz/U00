@@ -51,7 +51,9 @@ test('shows the steps while it runs and a reload reattaches to the job', async (
   expect(m.created, 'the reload does not start another run').toHaveLength(1)
 
   m.release()
-  await expect(card(page).getByRole('button', { name: 'Download SRT' })).toBeVisible()
+  // Release is followed by two 1.5 s job polls (transcribe, then translate) and the export fetch, so the default 5 s budget is
+  // only just enough on an idle machine and not on a busy CI runner.
+  await expect(card(page).getByRole('button', { name: 'Download SRT' })).toBeVisible({ timeout: 20_000 })
 })
 
 test('a failure names its step and links to that stage', async ({ page }) => {
