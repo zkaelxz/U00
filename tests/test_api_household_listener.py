@@ -1387,6 +1387,39 @@ class TestRunServers:
         svc._stopper()
         assert admin.should_exit and household.should_exit
 
+    def test_two_listeners_record_the_version_only_once_both_listen(self, isolated_db,
+                                                                    monkeypatch):
+        # One failing to start stops both, and an app update then rolls back.
+        import db
+        from api import __main__ as main_mod
+        recorded, hooks = [], []
+        monkeypatch.setattr(db, "record_app_version", lambda: recorded.append(1))
+        real = main_mod._app_server
+
+        def capture(config, on_started=None, quiet=False):
+            hooks.append(on_started)
+            return real(config, on_started=on_started, quiet=quiet)
+        monkeypatch.setattr(main_mod, "_app_server", capture)
+        self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", **SIGN_IN_ENV})
+        assert len(hooks) == 2
+        hooks[0]()
+        assert recorded == []
+        hooks[1]()
+        assert recorded == [1]
+
+    def test_one_listener_records_the_version_once_it_listens(self, isolated_db, monkeypatch):
+        import db
+        from api import __main__ as main_mod
+        hooks = []
+        real = main_mod._app_server
+
+        def capture(config, on_started=None, quiet=False):
+            hooks.append(on_started)
+            return real(config, on_started=on_started, quiet=quiet)
+        monkeypatch.setattr(main_mod, "_app_server", capture)
+        self._serve(monkeypatch, {})
+        assert hooks == [db.record_app_version]
+
     def test_unsafe_household_port_skips_only_the_household_listener(self, isolated_db,
                                                                       monkeypatch, capsys):
         single, ran, _c, _s = self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8756",

@@ -189,14 +189,20 @@ def _serve_with_household(settings):
     # lines carry the query string, which on the sign-in callback holds the
     # Google code and state.
     import db
-    # The admin listener is the one the app-update check waits on.
+    # Only once both listen: one failing to start stops both, and the app
+    # update then rolls back.
+    started = []
+
+    def on_started():
+        started.append(1)
+        if len(started) == 2:
+            db.record_app_version()
     servers = [_app_server(uvicorn.Config(app, host=settings.host, port=port,
                                           proxy_headers=True, forwarded_allow_ips="127.0.0.1",
                                           timeout_graceful_shutdown=3, access_log=access_log),
                            on_started=on_started, quiet=True)
-               for app, port, access_log, on_started in (
-                   (admin_app, settings.port, True, db.record_app_version),
-                   (household_app, settings.household_port, False, None))]
+               for app, port, access_log in ((admin_app, settings.port, True),
+                                             (household_app, settings.household_port, False))]
     shutdown_service.register_stopper(lambda: _stop_all(servers))
     failed = _run_servers(servers)
     shutdown_service.clean_shutdown()

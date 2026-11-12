@@ -3009,6 +3009,53 @@ def test_a_start_that_changes_the_tables_records_its_version_at_once(isolated_db
         _open_as(monkeypatch, "2.0.5")
 
 
+def test_a_new_index_also_records_its_version_at_once(isolated_db, monkeypatch):
+    # Same column names, but a UNIQUE index can break the old version's inserts.
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+
+    def add_an_index():
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("CREATE UNIQUE INDEX from_a_newer_version ON dramas (title_en)")
+            conn.commit()
+
+    monkeypatch.setattr(db, "_migrate_step26e_profiles", add_an_index)
+    _start_server_as(monkeypatch, "2.1.0")
+    assert _stored_version() == "2.1.0"
+
+
+def test_the_first_use_of_a_fresh_start_holds_the_record_back_too(isolated_db, monkeypatch):
+    # A real start has nothing initialised yet, so init_db runs nested
+    # inside its own first get_conn().
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+    db.configure_library_dir(db.LIBRARY_DIR)
+    _start_server_as(monkeypatch, "2.1.0")
+    assert _stored_version() == "2.0.5"
+    db.record_app_version()
+    assert _stored_version() == "2.1.0"
+
+
+def test_a_library_with_no_record_gets_none_until_the_server_answers(isolated_db, monkeypatch):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (db.APP_VERSION_SETTING,))
+        conn.commit()
+    _start_server_as(monkeypatch, "2.1.0")
+    assert _stored_version() is None
+    db.record_app_version()
+    assert _stored_version() == "2.1.0"
+
+
+def test_a_failed_record_never_stops_a_running_server(isolated_db, monkeypatch):
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+    _start_server_as(monkeypatch, "2.1.0")
+
+    def locked(version):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "_record", locked)
+    db.record_app_version()
+    assert _stored_version() == "2.0.5"
+
+
 def test_a_later_migration_that_fails_leaves_the_library_to_the_old_version(
         isolated_db, monkeypatch):
     db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")

@@ -318,6 +318,17 @@ def record_app_version():
     version, _unrecorded_version = _unrecorded_version, None
     if version is None:
         return
+    try:
+        _record(version)
+    except sqlite3.Error:
+        # The server is up and must stay up: the record is written at the next
+        # start instead, and until then only an older version may still open.
+        import applog   # applog imports db, so not at the top
+        applog.get_logger().warning("Couldn't record the app version in the library.",
+                                    exc_info=True)
+
+
+def _record(version):
     with contextlib.closing(get_conn()) as conn:
         try:
             stored_v = _version_tuple(json.loads(_stored_version(conn) or "null"))
@@ -347,22 +358,22 @@ def _write_version(conn, version):
     """, (APP_VERSION_SETTING, json.dumps(version)))
 
 
-def _table_columns(conn):
-    return frozenset((table, row[1])
-                     for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE "
-                                                  "type = 'table' AND name NOT LIKE 'sqlite_%'")
-                     for row in conn.execute(f'PRAGMA table_info("{table}")'))
+def _schema_snapshot(conn):
+    """Every table, index, trigger and view as written, so a rebuild that
+    keeps the column names (a new CHECK, a UNIQUE index) counts as a change."""
+    return frozenset(conn.execute("SELECT type, name, sql FROM sqlite_master "
+                                  "WHERE name NOT LIKE 'sqlite_%'"))
 
 
-def _hold_back_version_record(running, previous, columns_before):
+def _hold_back_version_record(running, previous, schema_before):
     """Puts the stored version back to what it was before this start when
-    the tables and columns are unchanged. A failure leaves the new version
+    the schema is unchanged. A failure leaves the new version
     recorded, which only blocks a rollback, as before the record was held."""
     global _unrecorded_version
     if previous == json.dumps(running):
         return
     with contextlib.suppress(sqlite3.Error), contextlib.closing(get_conn()) as conn:
-        if _table_columns(conn) != columns_before:
+        if _schema_snapshot(conn) != schema_before:
             return
         if previous is None:
             conn.execute("DELETE FROM app_settings WHERE key = ?", (APP_VERSION_SETTING,))
@@ -380,7 +391,7 @@ def init_db():
         if running:
             _refuse_newer_database(conn, running)
             if _defer_version_record:
-                held = (_stored_version(conn), _table_columns(conn))
+                held = (_stored_version(conn), _schema_snapshot(conn))
         # Order matters: later steps read tables and columns that earlier
         # ones create (the ownership step needs users and app_settings).
         _create_library_tables(conn)
