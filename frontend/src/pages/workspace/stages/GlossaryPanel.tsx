@@ -215,7 +215,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
   const [reloads, setReloads] = useState(0)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [query, setQuery] = useState('')
-  const [sort, setSort] = useState<TermSort>('added')
+  const [sort, setSort] = useState<TermSort>('listed')
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)

@@ -17,7 +17,8 @@ describe('glossary term view', () => {
   })
 
   it('sorts without changing the list it was given', () => {
-    expect(sortTerms(terms, 'added').map((t) => t.id)).toEqual([3, 2, 1])
+    expect(sortTerms(terms, 'newest').map((t) => t.id)).toEqual([3, 2, 1])
+    expect(sortTerms(terms, 'listed')).toBe(terms)
     expect(sortTerms(terms, 'translation').map((t) => t.id)).toEqual([1, 2, 3])
     expect(terms.map((t) => t.id)).toEqual([1, 2, 3])
   })
