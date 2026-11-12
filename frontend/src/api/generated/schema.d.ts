@@ -3734,6 +3734,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/capture-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: keep a finished capture's summary line in the app log */
+        post: operations["post_capture_summary_api_ext_bridge_capture_summary_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/health": {
         parameters: {
             query?: never;
@@ -8623,6 +8640,23 @@ export interface paths {
         put?: never;
         /** Add page images or PDFs (PNG/JPEG/WebP/PDF; see config upload_limits) */
         post: operations["post_pages_api_scanlate_dramas__drama_id__pages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scanlate/dramas/{drama_id}/pages/start-chapter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a new chapter at a page (for pages saved before chapters were recorded) */
+        post: operations["post_start_chapter_api_scanlate_dramas__drama_id__pages_start_chapter_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -15962,6 +15996,24 @@ export interface components {
              * @default
              */
             source: string;
+        };
+        /**
+         * ComicStartChapterRequest
+         * @description Start a new chapter at this page; a blank title is numbered by the reader.
+         */
+        ComicStartChapterRequest: {
+            /** Page Id */
+            page_id: number;
+            /**
+             * Title
+             * @default
+             */
+            title?: string;
+        };
+        /** ComicStartChapterResult */
+        ComicStartChapterResult: {
+            /** Changed */
+            changed: number;
         };
         /**
          * ComicViewPrefs
@@ -30816,6 +30868,17 @@ export interface components {
             app_last_result: string | null;
             /** App Last Result At */
             app_last_result_at: number | null;
+            /**
+             * App Rollback Backup At
+             * @description When the newest backup taken before that update started was made (ISO 8601), if that copy is still there.
+             */
+            app_rollback_backup_at: string | null;
+            /**
+             * App Rollback Library Changed
+             * @description The last app-only update was rolled back after the newer version had changed the library's tables.
+             * @default false
+             */
+            app_rollback_library_changed: boolean;
             /** App Size */
             app_size: number | null;
             /**
@@ -41937,6 +42000,26 @@ export interface operations {
         };
     };
     post_cancel_api_ext_bridge_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_capture_summary_api_ext_bridge_capture_summary_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -56954,6 +57037,59 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_start_chapter_api_scanlate_dramas__drama_id__pages_start_chapter_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicStartChapterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicStartChapterResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

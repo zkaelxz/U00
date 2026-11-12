@@ -54,6 +54,7 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
     requestAnimationFrame(() => window.scrollTo(0, y))
   }
   const [edge, setEdge] = useState('1')
+  const [newTitle, setNewTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
@@ -67,6 +68,21 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
   const jump = (i: number) => {
     const target = chapters[i]
     if (target) onGo(chapterStart(target, visible))
+  }
+
+  const startChapter = async (pageId: number) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await comicApi.startChapter(dramaId, { page_id: pageId, title: newTitle.trim() })
+      setNewTitle('')
+      closeSheet()
+      onChanged()
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const hide = async (hidden: boolean, body: { page_ids?: number[]; chapter_id?: string; edge?: 'first' | 'last' | 'all'; count?: number }) => {
@@ -153,6 +169,18 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
               </button>
             )}
           </div>
+          {sheetPage && !(sheetChapter?.known && sheetPage.chapter_page === 1) && (
+            <>
+              <Field label="Name for the new chapter" help="Optional. Left blank, it is numbered.">
+                <input type="text" maxLength={200} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+              </Field>
+              <div className="actions">
+                <button type="button" disabled={busy} onClick={() => void startChapter(sheetPage.id)}>
+                  Start a new chapter at page {target?.ordinal}
+                </button>
+              </div>
+            </>
+          )}
           {sheetChapter && (
             <>
               <Field label={`Pages at the start or end of ${chapterLabel(sheetChapter, target?.index ?? 0)}`}>

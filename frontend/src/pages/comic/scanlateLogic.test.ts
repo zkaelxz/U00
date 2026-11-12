@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import type { ScanlateConfig } from '../../types/scanlate'
 import {
   checkFiles,
+  describeWarning,
+  neighbourWarning,
+  warningPages,
   defaultEngine,
   firstPageNote,
   pagesText,
@@ -131,5 +134,45 @@ describe('parsePageRanges', () => {
     for (const bad of ['', ' ', '0', '21', '7-5', '1-21', 'a', '1,,2', '1-']) {
       expect(parsePageRanges(bad, 20)).toBeNull()
     }
+  })
+})
+
+describe('warning pages', () => {
+  const n = (page_id: number, ordinal: number, message: string, level = 'warning') => ({ page_id, ordinal, notes: [{ level, message }] })
+  const notes = [
+    n(3, 12, 'Region 2 had no translation and was left as the original.'),
+    n(1, 10, 'OCR found no text on this page, so nothing was saved.', 'error'),
+    n(2, 11, 'No bubbles found on this page. That is normal for covers and splash art; otherwise try the ML detector.'),
+    n(4, 15, 'Regions 1, 2 and 4 had no translation and were left as the original.'),
+    { page_id: 5, ordinal: 16, notes: [{ level: 'info', message: 'Time: 1s' }] },
+  ]
+
+  it('names a text box by the number drawn on the page', () => {
+    expect(describeWarning('Region 2 had no translation and was left as the original.')).toEqual({
+      kind: 'untranslated',
+      boxes: [2],
+      text: 'Text box numbered 2 on the page has no translation and still shows the original.',
+    })
+    const many = describeWarning('Regions 1, 2 and 4 had no translation and were left as the original.')
+    expect(many.text).toContain('Text boxes numbered 1, 2, 4')
+    expect(many.boxes).toEqual([1, 2, 4])
+  })
+
+  it('groups by kind, most urgent first, in reading order, skipping info-only pages', () => {
+    const { all, groups } = warningPages(notes)
+    expect(all.map((w) => w.ordinal)).toEqual([10, 11, 12, 15])
+    expect(groups.map((g) => [g.kind, g.pages.length, g.harmless])).toEqual([
+      ['noText', 1, false],
+      ['untranslated', 2, true],
+      ['noBubbles', 1, true],
+    ])
+  })
+
+  it('finds the next and previous warning page', () => {
+    const { all } = warningPages(notes)
+    expect(neighbourWarning(all, 11, 1)?.ordinal).toBe(12)
+    expect(neighbourWarning(all, 11, -1)?.ordinal).toBe(10)
+    expect(neighbourWarning(all, 15, 1)).toBeNull()
+    expect(neighbourWarning(all, null, 1)?.ordinal).toBe(10)
   })
 })

@@ -9,6 +9,8 @@ import type {
   ComicViewPrefs,
   ComicViewPrefsView,
   ComicSourceChapters,
+  ComicStartChapterRequest,
+  ComicStartChapterResult,
   ComicVisibilityRequest,
   ComicVisibilityResult,
   ComicVariant,
@@ -61,4 +63,6 @@ export const comicApi = {
   sourceChapters: (id: number, f?: Fetch) => getJson<ComicSourceChapters>(`${root(id)}/source-chapters`, f),
   setVisibility: (id: number, body: ComicVisibilityRequest, f?: Fetch) =>
     postJson<ComicVisibilityResult>(`${root(id)}/pages/visibility`, body, f),
+  startChapter: (id: number, body: ComicStartChapterRequest, f?: Fetch) =>
+    postJson<ComicStartChapterResult>(`${root(id)}/pages/start-chapter`, body, f),
 }

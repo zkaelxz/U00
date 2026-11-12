@@ -48,3 +48,15 @@ def test_an_unopenable_lock_file_raises_instead_of_waiting(tmp_path):
     with pytest.raises(OSError):
         with file_lock.hold(str(tmp_path / "missing-dir" / "x.lock")):
             pass
+
+
+def test_a_holder_with_a_timeout_gives_up_instead_of_waiting_forever(tmp_path):
+    path = str(tmp_path / "x.lock")
+    with file_lock.hold(path):
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            with file_lock.hold(path, poll=0.01, timeout=0.1):
+                pass
+        assert time.monotonic() - started < 5
+    with file_lock.hold(path, timeout=0.1):   # free again once the first lets go
+        pass

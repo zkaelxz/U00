@@ -420,3 +420,29 @@ class TestTitleNaming:
         r = self._title(token)
         assert r.status_code == 200 and calls == []
         assert db.get_drama(r.json()["drama_id"])["title_en"] == ""
+
+class TestCaptureSummary:
+    def test_a_member_logs_a_summary_for_a_title_they_can_edit(self, isolated_db, monkeypatch):
+        import applog
+        lines = []
+        monkeypatch.setattr(applog, "get_logger", lambda: type("L", (), {"info": staticmethod(
+            lambda fmt, *a: lines.append(fmt % a))})())
+        u, token = _member("a@example.com")
+        did = _drama(u["id"])
+        r = _client().post(f"{BASE}/capture-summary", json={"drama_id": did, "summary": "Saved 2 of 2 pages"},
+                           headers=_auth(token))
+        assert r.status_code == 200 and lines == [f"Extension capture (title {did}, member): Saved 2 of 2 pages"]
+
+    def test_a_member_cannot_log_against_someone_elses_private_title(self, isolated_db, monkeypatch):
+        import applog
+        lines = []
+        monkeypatch.setattr(applog, "get_logger", lambda: type("L", (), {"info": staticmethod(
+            lambda fmt, *a: lines.append(fmt % a))})())
+        owner, _t = _member("owner@example.com")
+        _u, token = _member("a@example.com")
+        r = _client().post(f"{BASE}/capture-summary", json={"drama_id": _drama(owner["id"]), "summary": "x"},
+                           headers=_auth(token))
+        assert r.status_code == 404 and lines == []
+
+    def test_no_token_is_refused(self, isolated_db):
+        assert _client().post(f"{BASE}/capture-summary", json={"summary": "x"}).status_code == 401

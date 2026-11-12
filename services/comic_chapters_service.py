@@ -54,6 +54,26 @@ def set_visibility(drama_id: int, hidden: bool, page_ids=None, chapter_id=None, 
     return {"changed": len(set(names)), "hidden_count": len(now_hidden & live)}
 
 
+def start_chapter(drama_id: int, page_id: int, title: str = "") -> dict:
+    """Starts a new chapter at `page_id`: that page and the rest of the chapter it is in.
+    Titles imported before chapters were recorded have none, and this is how a reader
+    cuts them up by hand. A page that already opens a named chapter is refused; one that
+    opens the unnamed run may name it."""
+    pages, groups = _groups(drama_id)
+    ordinal = next((i for i, p in enumerate(pages, start=1) if p["id"] == page_id), None)
+    if ordinal is None:
+        raise NotFoundError("No such page in this title.")
+    group = next(g for g in groups if g["first_page"] <= ordinal < g["first_page"] + g["page_count"])
+    at = ordinal - group["first_page"]
+    if at == 0 and group["known"]:
+        raise ConflictError("This page already starts a chapter.")
+    try:
+        comic_chapters.start_chapter(drama_id, group["filenames"][at:], title)
+    except comic_chapters.ManifestUnreadable:
+        raise ConflictError("The chapter data could not be updated, so nothing was changed.")
+    return {"changed": group["page_count"] - at}
+
+
 def run_page_ids(drama_id: int, chapter_id=None) -> list:
     """Ids of the pages an automatic run covers, in reading order: every
     visible page, or only the visible pages of `chapter_id`."""
