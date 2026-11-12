@@ -36,10 +36,12 @@ Status holds names, numbers, booleans and fixed sentences: never a URL or a path
 
 import contextlib
 import datetime
+import hashlib
 import hmac
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -86,6 +88,15 @@ RESULT_MESSAGES = {
     "broken": ("The update to {new} couldn't be finished or undone. Run the Baihe Studio "
                "installer again to repair it; your library and settings are kept."),
 }
+
+# The library as an app-only update found it, so the version a rollback puts
+# back can tell whether the newer one changed the tables before it stopped.
+BEFORE_UPDATE_KEY = "app_update.before"
+ROLLED_BACK_CODES = ("rolled_back_health", "recovered")
+LIBRARY_CHANGED = (" Version {new} had already changed the library's tables before it stopped, "
+                   "and {old} may not read those changes correctly.")
+RESTORE_BACKUP = (" To be safe, restore the backup from before the update "
+                  "(Library tools > Backup > Restore).")
 
 _lock = threading.Lock()
 # offer: "none" | "available" | "needs_full_installer"
@@ -196,8 +207,101 @@ def last_result():
     result = app_swap.read_result(install_root()) if us._is_installed() else None
     if result is None:
         return None
-    return {"outcome": result["code"], "at": result["at"],
-            "message": RESULT_MESSAGES[result["code"]].format(old=result["old"], new=result["new"])}
+    changed, backup_at, changed_by = _rollback_changed_library(result)
+    message = RESULT_MESSAGES[result["code"]].format(old=result["old"], new=result["new"])
+    if changed:
+        message += LIBRARY_CHANGED.format(old=result["old"], new=changed_by)
+    if backup_at:
+        message += RESTORE_BACKUP
+    return {"outcome": result["code"], "at": result["at"], "library_changed": changed,
+            "backup_at": backup_at, "message": message}
+
+
+def _remember_library(old, new) -> None:
+    previous = db.get_app_setting(BEFORE_UPDATE_KEY, None)
+    result = app_swap.read_result(install_root()) if us._is_installed() else None
+    if isinstance(previous, dict) and result is not None and _rollback_changed_library(result)[0]:
+        # The library is still the one an earlier rolled-back version changed.
+        # This attempt must not replace the record from before that change,
+        # or a failure that writes no result of its own would hide the warning.
+        previous["attempts"] = [*previous["attempts"], new]
+        db.set_app_setting(BEFORE_UPDATE_KEY, previous)
+        return
+    db.set_app_setting(BEFORE_UPDATE_KEY, {
+        "old": old, "attempts": [new], "layout": _library_layout(), **_newest_backup()})
+
+
+def _newest_backup() -> dict:
+    """The newest readable backup copy right now, by name, so a later check
+    can tell whether rotation has since deleted it."""
+    from services import auto_backup_service
+    try:
+        copies = auto_backup_service.settings_overview().get("copies") or []
+    except (ServiceError, OSError, AttributeError):
+        copies = []
+    for c in copies:
+        if _restorable_copy(c) and isinstance(c.get("name"), str):
+            return {"backup_name": c["name"], "backup_at": c.get("created_at")}
+    return {"backup_name": None, "backup_at": None}
+
+
+def _backup_still_there(name) -> bool:
+    from services import auto_backup_service
+    try:
+        copies = auto_backup_service.settings_overview().get("copies") or []
+    except (ServiceError, OSError, AttributeError):
+        return False
+    return any(_restorable_copy(c) and c.get("name") == name for c in copies)
+
+
+def _restorable_copy(c) -> bool:
+    """A readable copy of this library itself: not another library's copy in a
+    shared folder, nor one kept only for its sources.db."""
+    return (isinstance(c, dict) and bool(c.get("readable")) and c.get("managed") is True
+            and c.get("kept_as") != "sources")
+
+
+def _library_layout() -> str:
+    """Every table, index and trigger definition in library.db and sources.db.
+    Stricter than the release fingerprint (names only), so a table rebuilt
+    under the same column names, or a new index, still counts as a change.
+    A migration that only rewrites rows is not seen."""
+    from sources import store
+    parts = []
+    with contextlib.closing(db.get_conn()) as conn:
+        parts += [repr(tuple(r)) for r in conn.execute(
+            "SELECT 'library', type, name, tbl_name, sql FROM sqlite_master")]
+    # connect() creates and migrates sources.db on first use, so it exists by
+    # the time either side of the comparison is taken; a damaged one counts
+    # the same each time rather than blocking the update.
+    try:
+        with contextlib.closing(store.connect()) as conn:
+            parts += [repr(tuple(r)) for r in conn.execute(
+                "SELECT 'sources', type, name, tbl_name, sql FROM sqlite_master")]
+    except (sqlite3.Error, OSError):
+        parts.append("sources: unreadable")
+    return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()
+
+
+def _rollback_changed_library(result):
+    """(changed, backup_at, changed_by): whether a version that was rolled back
+    left the library different from how the first update attempt since found
+    it, when the backup from before it was taken (if that copy is still
+    there), and that first attempt's version, which made the change."""
+    if result["code"] not in ROLLED_BACK_CODES:
+        return False, None, None
+    try:
+        before = db.get_app_setting(BEFORE_UPDATE_KEY, None)
+        if not (isinstance(before, dict) and before.get("old") == result["old"]
+                and result["new"] in (before.get("attempts") or [])):
+            return False, None, None
+        changed = _library_layout() != before.get("layout")
+    except sqlite3.Error:
+        return False, None, None
+    if not changed:
+        return False, None, None
+    backup_at = before.get("backup_at") if _backup_still_there(before.get("backup_name")) else None
+    return True, backup_at if isinstance(backup_at, str) else None, before["attempts"][0]
 
 
 def status_fields() -> dict:
@@ -221,7 +325,9 @@ def status_fields() -> dict:
             "can_apply_app": (verified and offer == "available" and us._is_windows()
                               and can_switch_here() and s["download"] != "downloading"),
             "app_last_result": result["message"] if result else None,
-            "app_last_result_at": result["at"] if result else None}
+            "app_last_result_at": result["at"] if result else None,
+            "app_rollback_library_changed": bool(result and result["library_changed"]),
+            "app_rollback_backup_at": result["backup_at"] if result else None}
 
 
 # --- download -----------------------------------------------------------------
@@ -513,10 +619,11 @@ def _apply() -> dict:
     try:
         # INSTALLED names this PC's data folder; it never ships in the zip.
         shutil.copyfile(os.path.join(us._APP_DIR, "INSTALLED"), dest / "INSTALLED")
+        _remember_library(old, verified["version"])
         app_swap.write_journal(root, app_swap.STAGED, old, verified["version"], base,
                                port=_server_port())
         _start_helper(root)
-    except (OSError, ValueError, app_swap.SwapError):
+    except (OSError, ValueError, sqlite3.Error, app_swap.SwapError):
         app_swap.clear_journal(root)
         with contextlib.suppress(OSError, app_swap.SwapError):
             app_swap.remove_folder(dest, root)
@@ -548,6 +655,10 @@ def _hand_to_updater(verified, installed) -> dict:
         raise ConflictError("This update was built for a different Python, packages or "
                             "Caddy than this install has. Use the full installer.")
     _check_database(manifest)
+    try:
+        _remember_library(us.current_version(), verified["version"])
+    except sqlite3.Error:
+        raise DependencyUnavailableError(_START_FAILED) from None
     folder = us.updates_dir()
     try:
         with open(os.path.join(folder, verified["name"] + ".sig"), "w", encoding="ascii") as fh:
