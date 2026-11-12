@@ -175,9 +175,9 @@ def test_line_tool_cap_check_refuses_then_allows_after_reset(isolated_db, monkey
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
     db.log_usage(None, "claude", "m", "translate", 1, 1, 6.0)
     with pytest.raises(UnsupportedOperationError):
-        line_ai_service.refuse_if_over_monthly_cap("claude", False)
+        line_ai_service.refuse_if_over_monthly_cap("claude", False, None)
     settings_service.reset_month_counter()
-    line_ai_service.refuse_if_over_monthly_cap("claude", False)
+    line_ai_service.refuse_if_over_monthly_cap("claude", False, None)
 
 
 def test_recost_preview_reports_the_full_month_during_a_reset(isolated_db):

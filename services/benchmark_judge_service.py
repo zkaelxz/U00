@@ -105,7 +105,7 @@ def _case_tokens(case: dict, candidates: int) -> tuple:
 
 def estimate_judge(judge: dict, configs: list, cases: list) -> dict:
     """What the judge pass adds to a run's estimate."""
-    cap_applies = lab._cap_applies(judge["engine"])
+    cap_applies = lab._cap_applies(judge["engine"], judge.get("model"))
     cost = 0.0
     if cap_applies:
         probe = type("Probe", (), {})()
@@ -326,7 +326,7 @@ def _judge_cases(job_id, sessions, judge, state, engine, key, results, cases, ca
             return
         if time.monotonic() > deadline:
             return _stop_pass(state, "Stopped: judging ran past its time limit.")
-        if lab._cap_applies(judge["engine"]):
+        if lab._cap_applies(judge["engine"], judge.get("model")):
             _cap, refusal = pricing.resolve_cost_cap(
                 None, settings_service.get_monthly_cap_usd(), db.get_month_spend())
             if refusal:

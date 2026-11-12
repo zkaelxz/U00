@@ -908,12 +908,12 @@ def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(iso
     from services import translate_run_service
     m, _ = _paid_member(limit=1)
     with db.spending_for(m["id"]):
-        translate_run_service.refuse_when_cap_spent("claude")
+        translate_run_service.refuse_when_cap_spent("claude", False, None)
         db.log_usage(None, "claude", "m", "translate", 1, 1, 1)
         with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
-            translate_run_service.refuse_when_cap_spent("claude")
-        translate_run_service.refuse_when_cap_spent("ollama")   # a free engine is not capped
-    translate_run_service.refuse_when_cap_spent("claude")       # the PC owner's own work goes on
+            translate_run_service.refuse_when_cap_spent("claude", False, None)
+        translate_run_service.refuse_when_cap_spent("ollama", False, None)   # a free engine is not capped
+    translate_run_service.refuse_when_cap_spent("claude", False, None)       # the PC owner's own work goes on
 
 
 def test_a_job_that_crosses_its_starters_limit_is_stopped(isolated_db):

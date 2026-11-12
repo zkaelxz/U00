@@ -91,7 +91,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
     verified: false, verified_version: null, verified_name: null, can_install: false, signature_check: false, signature_verified: false, auto_check: false, include_prereleases: false,
     custom_source: false, app_update: 'none', app_update_here: false, app_size: null, app_download: 'idle',
     app_downloaded_bytes: 0, app_download_error: null, app_verified: false, app_verified_version: null,
-    can_apply_app: false, app_last_result: null, app_last_result_at: null,
+    can_apply_app: false, app_last_result: null, app_last_result_at: null, app_rollback_library_changed: false, app_rollback_backup_at: null,
   },
   // Settings > Signed-in devices, for a signed-in person: just this device.
   '/api/auth/sessions': {

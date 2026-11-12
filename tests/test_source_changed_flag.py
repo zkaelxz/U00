@@ -394,7 +394,7 @@ class TestTranslateClears:
         provider = bulk_providers.make_provider("claude", engine)
         assert bulk_poll.check_once(bulk_id, provider) == "applied"
         assert [(r["en"], r["flag"]) for r in db.load_lines(did)] == [
-            ("EN[第0句]", None), ("EN[第1句]", None)]
+            ("EN[line0]", None), ("EN[line1]", None)]
 
     def test_save_cleared_puts_the_flag_back_when_english_was_edited(self, isolated_db):
         did, ids = _seed([("一", "Old 1", FLAG)])

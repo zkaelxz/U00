@@ -21,6 +21,10 @@ CV_MIN_FILL = 0.55              # region area / its bounding box: bubbles are co
 # Outline length over its convex hull's: line art crossing a white panel cuts
 # deep notches into it, while a balloon's outline (tail included) stays smooth.
 CV_MAX_RAGGEDNESS = 1.3
+# A burst balloon's rim is a ring of hairline spikes, which reads as ragged; it is a balloon when
+# there are many notches all round and the outline with them filled in is an oval.
+CV_BURST_MIN_NOTCHES = 12
+CV_BURST_NOTCH_PX = 3
 CV_MIN_W = 25
 CV_MIN_H = 18
 # Share of the inside that is lettering: an empty white shape is artwork.
