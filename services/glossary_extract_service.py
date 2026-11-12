@@ -18,7 +18,7 @@ from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
-from glossary_io import TERM_CATEGORIES, TERM_POLICIES
+from glossary_io import MIN_ALIAS_LEN, TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service, novel_files_service, paid_job_service
 from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text, split_term_conventions
 from lib.errors import (
@@ -65,11 +65,29 @@ def novel_glossary_engine(drama_id: int) -> str:
 # anything else is Low. Deliberately simple so a reviewer can predict it.
 HIGH_CONFIDENCE_MIN_OCCURRENCES = 3
 MAX_ALTERNATIVES = 5
+MAX_ALIASES = 5
 
 
 def _confidence(occurrences: int, alternatives: list, translation: str) -> str:
     consistent = bool(translation) and not alternatives
     return "high" if consistent and occurrences >= HIGH_CONFIDENCE_MIN_OCCURRENCES else "low"
+
+
+def _proposal_aliases(proposal: dict, term: str, known: set) -> list:
+    """The other spellings a proposal carries. One that is another glossary
+    term's own text is left out: it would claim a different name."""
+    raw = proposal.get("aliases")
+    clean = [a.strip()[:MAX_TERM_LEN] for a in raw if isinstance(a, str)] if isinstance(raw, list) else []
+    return list(dict.fromkeys(a for a in clean if len(a) >= MIN_ALIAS_LEN and a != term and a not in known))[:MAX_ALIASES]
+
+
+def _merged_aliases(current, proposed: list):
+    """The stored aliases with the proposal's added, as the pipe-separated text
+    the glossary keeps; None when there is nothing to add (the stored value stays)."""
+    if not proposed:
+        return None
+    kept = [a.strip() for a in str((current or {}).get("aliases") or "").split("|") if a.strip()]
+    return "|".join(dict.fromkeys(kept + proposed))
 
 
 def _normalize_proposals(proposals, known_terms, source_text: str = "") -> list:
@@ -97,6 +115,7 @@ def _normalize_proposals(proposals, known_terms, source_text: str = "") -> list:
             "suggested_translation": translation,
             "occurrences": occurrences,
             "alternatives": alternatives,
+            "aliases": _proposal_aliases(p, term, known),
             "confidence": _confidence(occurrences, alternatives, translation),
             "category": p.get("category") if p.get("category") in TERM_CATEGORIES else None,
             "policy": p.get("policy") if p.get("policy") in TERM_POLICIES else None,
@@ -464,7 +483,8 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
             sid, term, translation, notes=p["reason"],
             category=edit.get("category", p["category"]),
             policy=edit.get("policy", p["policy"]),
-            enforce_exact=bool(current.get("enforce_exact")) if current else False)
+            enforce_exact=bool(current.get("enforce_exact")) if current else False,
+            aliases=_merged_aliases(current, p.get("aliases") or []))
         report["overwritten" if current is not None else "added"].append(term)
     return report
 

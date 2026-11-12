@@ -48,7 +48,7 @@ async function base(page: Page, { novel }: { novel: boolean }) {
 }
 
 const prop = (term: string, en: string, already = false) => ({
-  term, suggested_translation: en, category: 'person_name', policy: 'keep_pinyin', reason: 'Recurring name', already_in_glossary: already, occurrences: 3, alternatives: [], confidence: 'high',
+  term, suggested_translation: en, category: 'person_name', policy: 'keep_pinyin', reason: 'Recurring name', already_in_glossary: already, occurrences: 3, alternatives: [], aliases: [], confidence: 'high',
 })
 
 // A mocked extraction route: idle until started (or an earlier finished
