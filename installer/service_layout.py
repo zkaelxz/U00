@@ -39,10 +39,10 @@ DATA_FOLDER_ENTRIES = {"library", ".env", "model_cache", "launcher", "desktop.in
 # (browser_support.FOLDER_NAME), saved comics (sources_save_service.SAVE_DIRNAME),
 # voice engine venvs (voice_venv.VENVS_DIRNAME), the VTuber name list
 # (vdb_names_service.FILE_NAME) and the fetched phone-app build
-# (android_app_service.FOLDER_NAME). Kept apart from the
+# (android_app_service.FOLDER_NAME) and the downloaded ffmpeg (app_tools.FOLDER_NAME). Kept apart from the
 # list above, which Settings > Disk usage also reads as "may be cleared".
 APP_STATE_ENTRIES = frozenset({"android", "pending_install", "playwright_browsers", "saved_comics",
-                               "voice_engines", "vtuber_names.json"})
+                               "tools", "voice_engines", "vtuber_names.json"})
 
 
 # Copies a restore or Reset library keeps beside library\ (deleted from
