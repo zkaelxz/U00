@@ -371,6 +371,20 @@ def test_the_chapter_brief_reaches_each_pages_translation_and_is_cached(harness,
     assert not any("comic chapter" in p for p in prompts)
 
 
+def test_the_bar_counts_pages_while_the_chapter_is_read_and_then_keeps_climbing(harness, monkeypatch):
+    did, p1, p2, _ = _two_pages(monkeypatch)
+    _llm_calls(monkeypatch)
+    seen = []
+    monkeypatch.setattr(background_jobs, "update_progress",
+                        lambda jid, fraction, message=None: seen.append((fraction, message)))
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
+    messages = [m for _, m in seen]
+    assert messages.index("Reading page 1 of 2") < messages.index("Reading page 2 of 2")
+    assert messages.index("Reading page 2 of 2") < messages.index("Page 1 of 2")
+    fractions = [f for f, m in seen if m and m.startswith(("Reading page", "Writing", "Page "))]
+    assert fractions == sorted(fractions), "the bar must not drop back to 0% after the read-through"
+
+
 def test_the_chapter_brief_can_be_turned_off(harness, monkeypatch):
     did, p1, p2, _ = _two_pages(monkeypatch)
     patch_setting(monkeypatch, "scanlate_chapter_brief", False)

@@ -611,13 +611,20 @@ def _failure_note(exc: Exception) -> str:
     return f"This page failed: {type(exc).__name__}: {engine_shared.redact_secrets(str(exc))}"
 
 
+# The share of the progress bar the read-through takes when a run has one: it OCRs (and may
+# typeset) every page before the first translation, which is about half the run's time.
+_READ_SHARE = 0.5
+
+
 def _page_texts_when_read(drama_id: int, page_ids: list, ahead: dict, jid: str) -> list:
     """The OCR text of each page, in order, as the page's detect futures finish.
     A page whose detection failed or was skipped as already done contributes
     what is stored for it. Checks for a cancel while it waits."""
     from concurrent.futures import wait
     texts = []
-    for pid in page_ids:
+    for i, pid in enumerate(page_ids):
+        background_jobs.update_progress(jid, _READ_SHARE * i / len(page_ids),
+                                        f"Reading page {i + 1} of {len(page_ids)}")
         future = ahead[pid]
         while not future.done():
             render_svc.check_cancel(jid)
@@ -648,6 +655,7 @@ def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: 
             ahead[pid] = start_detect(pid, previous)
         previous = ahead[pid]
     texts = _page_texts_when_read(drama_id, page_ids, ahead, jid)
+    background_jobs.update_progress(jid, _READ_SHARE, "Writing the chapter brief")
     key = hashlib.sha1(chr(10).join(texts).encode("utf-8")).hexdigest()[:16]
     cache = os.path.join(db.drama_dir(drama_id), f"chapter_brief_{key}.txt")
     try:
@@ -721,14 +729,17 @@ def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_na
             return detector.submit(contextvars.copy_context().run, run)
         ahead = {page_ids[0]: start_detect(page_ids[0])} if page_ids else {}
         saved_before = None          # the page before this one, if this run translated it
+        read_first = total > 1 and settings_service.get("scanlate_chapter_brief")
         brief = (_chapter_brief(jid, drama_id, drama, page_ids, ahead, start_detect, engine,
-                                engine_name)
-                 if total > 1 and settings_service.get("scanlate_chapter_brief") else "")
+                                engine_name) if read_first else "")
+        # The bar continues from where the read-through left it instead of dropping back to 0%.
+        base = _READ_SHARE if read_first else 0.0
         for n, pid in enumerate(page_ids, start=1):
             render_svc.check_cancel(jid)
             if n < total and page_ids[n] not in ahead:
                 ahead[page_ids[n]] = start_detect(page_ids[n], ahead.get(pid))
-            background_jobs.update_progress(jid, (n - 1) / total, f"Page {n} of {total}")
+            background_jobs.update_progress(jid, base + (1 - base) * (n - 1) / total,
+                                            f"Page {n} of {total}")
             previous_id, saved_before = saved_before, None
             try:
                 outcome = _process_page(drama_id, drama, pid, mode, engine, engine_name,
