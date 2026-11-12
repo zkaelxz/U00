@@ -263,6 +263,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/glossary/dramas/{drama_id}/dismissals` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/dismissals/restore` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/export.csv` | library.read |
+| `GET /api/glossary/dramas/{drama_id}/from-chapters` | library.read |
+| `POST /api/glossary/dramas/{drama_id}/from-chapters` | jobs.start |
+| `POST /api/glossary/dramas/{drama_id}/from-chapters/cancel` | jobs.cancel |
 | `GET /api/glossary/dramas/{drama_id}/from-lines` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/from-lines` | jobs.start |
 | `POST /api/glossary/dramas/{drama_id}/from-lines/apply` | lines.edit |
@@ -435,6 +438,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/novel/dramas/{drama_id}/raw-novel` | media.upload |
 | `GET /api/novel/dramas/{drama_id}/raw-novel/chapters` | library.read |
 | `GET /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}` | lines.read |
+| `POST /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/move` | lines.edit |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/rename` | lines.edit |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/remove` | local_only() |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/text` | media.upload |

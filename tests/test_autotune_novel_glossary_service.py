@@ -233,7 +233,7 @@ def fake_engine(monkeypatch):
 class TestNovelGlossary:
     def test_paid_exposure(self, isolated_db):
         assert gs.PAID_ENGINE_FUNCTIONS == ("start_novel_glossary_run", "start_lines_glossary_run",
-                                             "draft_project_instructions")
+                                             "start_chapters_glossary_run", "draft_project_instructions")
         did, _ = _novel_drama(isolated_db, engine="deepseek")
         assert gs.novel_glossary_engine(did) == "deepseek"
 

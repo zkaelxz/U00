@@ -1,4 +1,4 @@
-import type { NovelChapterList, NovelChapterRenamed, NovelChapterText, NovelLineChapters } from '../types/novelChapters'
+import type { NovelChapterList, NovelChapterMoved, NovelChapterRenamed, NovelChapterText, NovelLineChapters } from '../types/novelChapters'
 import { getJson, postJson, type Fetch } from './client'
 
 // api/routers/novel_files_routes.py: library.read, bounded (a list page is
@@ -19,3 +19,7 @@ export const getLineChapters = (dramaId: number, f?: Fetch) =>
 // api/routers/novel_files_routes.py: lines.edit. Renames one saved chapter in the raw text, the chapter list and its title line.
 export const renameRawChapter = (dramaId: number, number: number, title: string, f?: Fetch) =>
   postJson<NovelChapterRenamed>(`/api/novel/dramas/${dramaId}/raw-novel/chapters/${number}/rename`, { title }, f)
+
+// api/routers/novel_files_routes.py: lines.edit. Moves one saved chapter, with its lines and their translations, to another place in the order.
+export const moveRawChapter = (dramaId: number, number: number, toNumber: number, f?: Fetch) =>
+  postJson<NovelChapterMoved>(`/api/novel/dramas/${dramaId}/raw-novel/chapters/${number}/move`, { to_number: toNumber }, f)

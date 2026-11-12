@@ -40,7 +40,7 @@ from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSave
                          SpellingSuggestStatus,
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
-                         LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
+                         ChaptersGlossaryRunResult, LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
                          NovelGlossaryStatus, WordReplacement, WordReplacementDeleteResult,
                          WordReplacementWrite, error_responses)
 from services import (address_terms_service, word_replacement_service, export_service, glossary_name_report_service, glossary_service, name_fix_service,
@@ -419,3 +419,32 @@ def post_apply_lines_glossary(payload: LinesGlossaryApplyRequest, drama_id: int 
              responses=error_responses(403, 404, 409, 422))
 def post_cancel_lines_glossary(request: Request, payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
     return glossary_service.cancel_lines_glossary_run(drama_id, payload.run_id, request.state.principal)
+
+
+# --- Scan every saved chapter, adding the new terms found (never overwriting) -------------
+# Same gates as from-lines. The status has the from-lines shape; its message names the outcome.
+
+@router.post("/dramas/{drama_id}/from-chapters", dependencies=[require_permission("jobs.start")],
+             response_model=ChaptersGlossaryRunResult,
+             summary="Start scanning every saved chapter in turn and adding the terms found",
+             responses=error_responses(400, 403, 404, 409, 503))
+def post_start_chapters_glossary(request: Request, drama_id: int = Path(ge=1)):
+    engine_name = glossary_service.lines_glossary_engine(drama_id)
+    require_engines_allowed(request, engine_name)
+    return glossary_service.start_chapters_glossary_run(drama_id, engine_name=engine_name)
+
+
+@router.get("/dramas/{drama_id}/from-chapters", dependencies=[require_permission("library.read")],
+            response_model=NovelGlossaryStatus,
+            summary="Status of this drama's every-chapter scan",
+            responses=error_responses(404))
+def get_chapters_glossary(drama_id: int = Path(ge=1)):
+    return _status_body(glossary_service.get_chapters_glossary_status(drama_id))
+
+
+@router.post("/dramas/{drama_id}/from-chapters/cancel", dependencies=[require_permission("jobs.cancel")],
+             response_model=JobCancelResult,
+             summary="Cancel this drama's every-chapter scan, only if it is still run run_id",
+             responses=error_responses(403, 404, 409, 422))
+def post_cancel_chapters_glossary(request: Request, payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.cancel_chapters_glossary_run(drama_id, payload.run_id, request.state.principal)
