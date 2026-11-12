@@ -212,6 +212,38 @@ class TestJob:
         import novel_text
         assert novel_text.read_pending_lines(isolated_db.drama_dir(did)) is not None   # still waiting: a retry can finish it
 
+    def test_a_stop_between_saving_the_lines_and_clearing_the_marker_does_not_add_them_twice(
+            self, isolated_db, monkeypatch):
+        import novel_text
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        before = self._snapshot(isolated_db, did)
+        text = self._add_text(isolated_db, did, "新的一章。")
+        self._tagger(monkeypatch)
+
+        def stop(_dir):
+            raise OSError("disk went away")
+        monkeypatch.setattr(novel_text, "clear_pending_lines", stop)
+        with pytest.raises(OSError):
+            narration_service._run_narration_job(
+                f"narration_{did}", did, narration_service._pending_tail(did, text), "claude", "k", None, append=True)
+        monkeypatch.undo()
+        saved = self._snapshot(isolated_db, did)
+        assert [r[2] for r in saved[len(before):]] == ["新的一章。"]   # the lines were committed
+        assert novel_text.read_pending_lines(isolated_db.drama_dir(did)) is not None   # the marker was not cleared
+        with pytest.raises(InvalidInputError):   # the retry sees they are there
+            narration_service._pending_tail(did, text)
+        assert novel_text.read_pending_lines(isolated_db.drama_dir(did)) is None
+        assert self._snapshot(isolated_db, did) == saved
+
+    def test_edited_lines_after_a_failed_save_do_not_look_like_an_applied_append(self, isolated_db, monkeypatch):
+        import novel_text
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        text = self._add_text(isolated_db, did, "新的一章。")
+        novel_text.write_pending_lines(isolated_db.drama_dir(did), len("新的一章。") + 2, len(text), 1, 1)
+        assert narration_service._pending_tail(did, text).strip() == "新的一章。"
+
     def test_a_failed_append_keeps_the_marker_and_a_retry_adds_the_lines_once(self, isolated_db, monkeypatch):
         import novel_text
         did = _drama(isolated_db)
