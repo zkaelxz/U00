@@ -248,6 +248,26 @@ def cancel_run(payload) -> dict:
     return {"cancelled": True}
 
 
+MAX_SUMMARY_CHARS = 2000
+
+
+def record_capture_summary(payload, principal=None) -> dict:
+    """POST /capture-summary: the closing line of a chapter capture, written to the app log so it
+    outlives the popup message. Paths, link queries and key-like text are removed first (the
+    line can carry a failure reason), and only the title's id is logged, never its name."""
+    summary = payload.get("summary") if isinstance(payload, dict) else None
+    if not isinstance(summary, str) or not summary.strip():
+        raise page_server.EndpointError(400, "summary must be text")
+    drama_id = payload.get("drama_id")
+    require_drama_access(principal, drama_id)
+    from applog import get_logger
+    from services import scanlate_pages_service
+    text = scanlate_pages_service.clean_note(" ".join(summary.split()))[:MAX_SUMMARY_CHARS]
+    get_logger().info("Extension capture (title %s%s): %s", int(drama_id) if isinstance(drama_id, int) else "?",
+                      ", member" if principal is not None else "", text)
+    return {"logged": True}
+
+
 def _run_cancelled(run_id: str) -> bool:
     with _cancelled_lock:
         return bool(run_id) and run_id in _cancelled_runs

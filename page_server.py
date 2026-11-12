@@ -781,9 +781,12 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel"):
+            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary"):
                 raise EndpointError(404, "unknown endpoint")
             payload = extension_bridge_service.parse_json(self._read_body())
+            if route == "/capture-summary":
+                self._send_json(200, extension_bridge_service.record_capture_summary(payload))
+                return
             if route == "/cancel":
                 self._send_json(200, extension_bridge_service.cancel_run(payload))
                 return

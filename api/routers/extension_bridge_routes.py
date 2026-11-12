@@ -161,6 +161,13 @@ async def post_title(request: Request):
         payload, principal=principal, translate_title=may_spend))
 
 
+@router.post("/capture-summary", dependencies=[require_device_token()],
+             summary="Device token: keep a finished capture's summary line in the app log")
+async def post_capture_summary(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: extension_bridge_service.record_capture_summary(payload, principal))
+
+
 @router.post("/cancel", dependencies=[require_device_token()],
              summary="Device token: stop working on the rest of a batch of pages")
 async def post_cancel(request: Request):
