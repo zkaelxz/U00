@@ -132,13 +132,26 @@ def _pending_tail(drama_id: int, text: str) -> str:
     waiting = novel_text.read_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     if waiting is None:
         raise InvalidInputError("No added chapters are waiting for lines.")
-    chars, length = waiting
+    chars, length = waiting.chars, waiting.length
     if length != len(text):
         raise ConflictError("The translation text changed after the chapters were added, so their lines "
                             "can't be cut on their own. Run chunk & tag again from the Source stage.")
-    if not db.load_lines(drama_id):
+    saved = db.load_lines(drama_id)
+    if not saved:
         raise InvalidInputError("This title has no lines to add to; run chunk & tag first.")
+    if lines_already_added(waiting, text, [ln["zh"] if isinstance(ln, dict) else ln.zh for ln in saved]):
+        # A stop between saving the lines and clearing the marker: adding them again would repeat them.
+        novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
+        raise InvalidInputError("These chapters already have their lines.")
     return text[-chars:]
+
+
+def lines_already_added(waiting, text: str, line_texts: list) -> bool:
+    """Whether the lines a stopped append was adding are already saved: the marker says how many lines
+    the title had and how many were being added, and those last lines hold the waiting text."""
+    return (waiting.base is not None and waiting.added is not None
+            and len(line_texts) == waiting.base + waiting.added
+            and novel_text.lines_hold_tail(line_texts, text[-waiting.chars:], waiting.added))
 
 
 def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
@@ -264,6 +277,12 @@ def _append_lines(job_id, drama_id, lines, notice=None):
     for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
     db.save_line_history_snapshot(drama_id, existing, "before adding chapters")
+    drama_dir = os.path.join(db.DRAMAS_DIR, str(drama_id))
+    waiting = novel_text.read_pending_lines(drama_dir)
+    if waiting:
+        # Written before the lines are, so a stop after they are saved and before the marker is cleared
+        # is recognised by the next retry instead of appending them a second time.
+        novel_text.write_pending_lines(drama_dir, waiting.chars, waiting.length, len(existing), len(lines))
     db.save_lines(drama_id, existing + lines, expect_unchanged=existing)
     finish_tagging_checkpoint(drama_id)
     novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import tempfile
+from typing import NamedTuple, Optional
 
 
 # A line that's a chapter heading of its own: 第十二章 / 第3回 / 第二卷 /
@@ -393,22 +394,34 @@ NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
 PENDING_LINES_FILENAME = "novel_pending_lines.json"
 
 
-def read_pending_lines(drama_dir: str):
-    """(chars, length) waiting for lines, or None when nothing is."""
+class PendingLines(NamedTuple):
+    chars: int
+    length: int
+    # Set while the lines are being appended: how many lines the title had and how many are being added. They
+    # tell a retry whether a stop between saving the lines and clearing this marker left them already added.
+    base: Optional[int] = None
+    added: Optional[int] = None
+
+
+def read_pending_lines(drama_dir: str) -> Optional[PendingLines]:
+    """What is waiting for lines, or None when nothing is."""
     try:
         with open(os.path.join(drama_dir, PENDING_LINES_FILENAME), encoding="utf-8") as f:
             data = json.load(f)
         chars, length = int(data["chars"]), int(data["length"])
-    except (OSError, ValueError, KeyError, TypeError):
+        base = int(data["base"]) if data.get("base") is not None else None
+        added = int(data["added"]) if data.get("added") is not None else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
-    return (chars, length) if chars > 0 and length >= chars else None
+    return PendingLines(chars, length, base, added) if chars > 0 and length >= chars else None
 
 
-def write_pending_lines(drama_dir: str, chars: int, length: int) -> None:
+def write_pending_lines(drama_dir: str, chars: int, length: int,
+                        base: Optional[int] = None, added: Optional[int] = None) -> None:
     fd, tmp = tempfile.mkstemp(prefix=".pending_", suffix=".part", dir=drama_dir)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"chars": chars, "length": length}, f)
+            json.dump({"chars": chars, "length": length, "base": base, "added": added}, f)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, os.path.join(drama_dir, PENDING_LINES_FILENAME))
@@ -416,6 +429,14 @@ def write_pending_lines(drama_dir: str, chars: int, length: int) -> None:
         if os.path.exists(tmp):
             os.remove(tmp)
         raise
+
+
+def lines_hold_tail(line_texts: list, tail: str, added: int) -> bool:
+    """True when the last `added` lines are exactly `tail` cut up (whitespace aside)."""
+    if added <= 0 or len(line_texts) < added:
+        return False
+    squash = lambda t: "".join(t.split())
+    return squash("".join(line_texts[-added:])) == squash(tail)
 
 
 def clear_pending_lines(drama_dir: str) -> None:

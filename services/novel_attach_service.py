@@ -41,7 +41,8 @@ import db
 import novel_text
 import ocr as ocr_module
 import subtitle_parse
-from services import cover_art_service, drama_service, media_upload_service, ownership_service, settings_service
+from services import (cover_art_service, drama_service, media_upload_service, narration_service, ownership_service,
+                      settings_service)
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 log = logging.getLogger(__name__)
@@ -92,8 +93,6 @@ def _write_novel(drama_id: int, text: str, mode: str) -> int:
         raise InvalidInputError(
             f"The combined novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
     final = _novel_path(drama_id, create=True)
-    if mode == "replace":
-        novel_text.clear_pending_lines(os.path.dirname(final))   # the whole text is new: nothing is waiting
     fd, tmp = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=os.path.dirname(final))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -105,6 +104,9 @@ def _write_novel(drama_id: int, text: str, mode: str) -> int:
         if os.path.exists(tmp):
             os.remove(tmp)
         raise
+    if mode == "replace":
+        # After the write, so a failed replace leaves the old text with its marker; the whole text is new now.
+        novel_text.clear_pending_lines(os.path.dirname(final))
     return len(text)
 
 
@@ -664,12 +666,22 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
         folder = db.drama_dir(drama_id)
         waiting = novel_text.read_pending_lines(folder)
         if not tail:
-            return {"char_count": len(current), "added_chars": 0, "pending_chars": waiting[0] if waiting else 0}
-        before = len(_read_novel(drama_id))
+            return {"char_count": len(current), "added_chars": 0, "pending_chars": waiting.chars if waiting else 0}
+        raw = _read_novel(drama_id)
+        before = len(raw)
+        if waiting and narration_service.lines_already_added(
+                waiting, raw, [ln["zh"] for ln in db.load_lines(drama_id)]):
+            novel_text.clear_pending_lines(folder)   # a stopped append that did save its lines
+            waiting = None
+        if waiting and waiting.length != before:
+            # The text changed after the earlier chapters were added, so where their lines start is not known;
+            # starting a new marker would leave them without lines for good.
+            raise ConflictError("The translation text changed after the last chapters were added without lines, "
+                                "so more can't be added yet. Run chunk & tag again from the Source stage.")
         count = _write_novel(drama_id, tail, "append")
         # Recorded after the text is saved, so a stop in between only leaves text without a marker
         # (which the Source stage's chunk & tag still covers); the added text is never lost track of.
-        pending = (waiting[0] if waiting and waiting[1] == before else 0) + len(tail) + 2
+        pending = (waiting.chars if waiting else 0) + len(tail) + 2
         novel_text.write_pending_lines(folder, pending, count)
         return {"char_count": count, "added_chars": len(tail), "pending_chars": pending}
 

@@ -713,3 +713,46 @@ def test_adding_chapters_records_what_waits_for_lines_and_a_retry_still_reports_
     # Replacing the whole text makes nothing wait.
     assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
     assert novel_text.read_pending_lines(db.drama_dir(did)) is None
+
+
+def test_a_text_edit_after_chapters_were_added_blocks_more_instead_of_losing_their_lines(client):
+    import db
+    import novel_text
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 200
+    waiting = novel_text.read_pending_lines(db.drama_dir(did))
+    path = os.path.join(db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n")   # a whitespace-only edit changes the length the marker was written against
+    pipeline.append_novel_chapter_once(did, "丁来了。", "第三章 新", source="x")
+    before = _novel_text(did)
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 409
+    assert _novel_text(did) == before
+    assert novel_text.read_pending_lines(db.drama_dir(did)) == waiting
+
+
+def test_a_failed_replace_keeps_the_marker_of_the_old_text(client, monkeypatch):
+    import db
+    import novel_text
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 200
+    waiting = novel_text.read_pending_lines(db.drama_dir(did))
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(os, "replace", boom)
+    c = client
+    try:
+        r = c.post(f"/api/novel/dramas/{did}/attach-from-sources", json={})
+        assert r.status_code >= 400
+    finally:
+        monkeypatch.undo()
+    assert novel_text.read_pending_lines(db.drama_dir(did)) == waiting
