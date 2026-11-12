@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { initialPick, reportText } from './NovelCastCard'
+import { initialPick, reportText } from './novelCastLogic'
 
 const person = (over: object) => ({ term: '林晚', name: 'Lin Wan', pronouns: 'she/her', who: '', occurrences: 3, current_pronouns: '', exists: false, ...over })
 
