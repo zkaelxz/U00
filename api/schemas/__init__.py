@@ -26,6 +26,7 @@ from api.schemas.settings import *  # noqa: F401,F403
 from api.schemas.loaded_models import *  # noqa: F401,F403
 from api.schemas.review import *  # noqa: F401,F403
 from api.schemas.characters import *  # noqa: F401,F403
+from api.schemas.word_replacements import *  # noqa: F401,F403
 from api.schemas.translate import *  # noqa: F401,F403
 from api.schemas.language_packs import *  # noqa: F401,F403
 from api.schemas.vdb_names import *  # noqa: F401,F403

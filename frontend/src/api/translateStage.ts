@@ -23,6 +23,7 @@ import type {
   GlossaryImportResult,
   GlossaryNameClusters,
   GlossaryTerm,
+  WordReplacement,
   GlossaryTermUpsert,
   GlossaryVariants,
   NameConsistency,
@@ -48,7 +49,7 @@ import type {
 import type { JobCancelResult } from '../types/jobs'
 import type { LibraryPreset, ProfileField } from '../types/library'
 import type { TranslateEngine } from '../types/translate'
-import { apiUrl, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
+import { apiUrl, deleteJson, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 export function buildEstimateQuery(p: EstimateParams): string {
@@ -127,6 +128,12 @@ export const cancelBulkTranslation = (id: number, bulkJobId: number, f?: Fetch) 
 
 export const getGlossaryTerms = (id: number, f?: Fetch) =>
   getJson<GlossaryTerm[]>(`/api/glossary/dramas/${id}/terms`, f)
+export const getWordReplacements = (id: number, f?: Fetch) =>
+  getJson<WordReplacement[]>(`/api/glossary/dramas/${id}/word-replacements`, f)
+export const saveWordReplacement = (id: number, body: { find_text: string; replace_text: string }, f?: Fetch) =>
+  postJson<WordReplacement>(`/api/glossary/dramas/${id}/word-replacements`, body, f)
+export const deleteWordReplacement = (id: number, replacementId: number, f?: Fetch) =>
+  deleteJson<{ deleted: number[] }>(`/api/glossary/dramas/${id}/word-replacements/${replacementId}`, f)
 export const saveGlossaryTerm = (id: number, term: GlossaryTermUpsert, f?: Fetch) =>
   postJson<GlossaryTerm>(`/api/glossary/dramas/${id}/terms`, term, f)
 /** Other spellings of `term` in the source lines (read-only, no engine, no cost). */

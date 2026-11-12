@@ -4,7 +4,7 @@ import { glossarySetup } from './glossaryScanMocks'
 import { mockLanguagePacks } from './languagePacksMocks'
 import { gotoTranslate } from './translateTabs'
 
-// The Glossary panel under one level of tabs: Terms | Find terms | Names | Packs | Instructions |
+// The Glossary panel under one level of tabs: Terms | Find terms | Names | Packs | Instructions | Replacements |
 // Re-translate. Terms, instructions and the scans are mocked.
 
 test.use({ viewport: { width: 1280, height: 800 } })
@@ -13,7 +13,7 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-const TABS: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Re-translate']
+const TABS: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Replacements', 'Re-translate']
 const region = (page: Page) => page.getByRole('region', { name: 'Glossary' })
 
 async function open(page: Page, opts: Parameters<typeof glossarySetup>[1] = {}) {
@@ -23,7 +23,7 @@ async function open(page: Page, opts: Parameters<typeof glossarySetup>[1] = {}) 
   await expect(region(page).getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
 }
 
-test('six tabs in one row, and no other tab row inside the Glossary', async ({ page }) => {
+test('seven tabs in one row, and no other tab row inside the Glossary', async ({ page }) => {
   await open(page)
   await expect(region(page).getByRole('tablist')).toHaveCount(1)
   await expect(region(page).getByRole('tab')).toHaveText(TABS)

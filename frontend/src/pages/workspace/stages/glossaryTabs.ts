@@ -2,7 +2,7 @@
 // state and an open editor survive a tab switch.
 import type { TabInfo } from '../../../components/Tabs'
 
-export type GlossaryTab = 'terms' | 'find' | 'names' | 'packs' | 'instructions' | 'retranslate'
+export type GlossaryTab = 'terms' | 'find' | 'names' | 'packs' | 'instructions' | 'replacements' | 'retranslate'
 
 export const GLOSSARY_TABS: TabInfo<GlossaryTab>[] = [
   { id: 'terms', label: 'Terms' },
@@ -10,6 +10,7 @@ export const GLOSSARY_TABS: TabInfo<GlossaryTab>[] = [
   { id: 'names', label: 'Names' },
   { id: 'packs', label: 'Packs' },
   { id: 'instructions', label: 'Instructions' },
+  { id: 'replacements', label: 'Replacements' },
   { id: 'retranslate', label: 'Re-translate' },
 ]
 
