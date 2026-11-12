@@ -56,7 +56,7 @@ interface Props {
   // The reader's Typeset toggle: off exports the original pages.
   typeset: boolean
   // Opens a page by its 1-based position, for the list of pages with warnings.
-  onGoToPage?: (ordinal: number) => void
+  onGoToPage?: (ordinal: number, boxes: number[]) => void
   pageNumber: number | null
   // Every page of the title in reading order (position n is page number n), 
   pageIds: number[]
@@ -373,7 +373,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
           </ul>
         </div>
       )}
-      <WarningPages all={warnings.all} groups={warnings.groups} pageNumber={pageNumber} onGoToPage={onGoToPage} />
+      <WarningPages all={warnings.all} groups={warnings.groups} pageNumber={pageNumber} onGo={onGoToPage} />
 
       <div className="actions scanlate-export">
         <button

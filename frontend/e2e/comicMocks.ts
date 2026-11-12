@@ -201,6 +201,8 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
 
   const { id } = opts
   const root = `/api/scanlate/dramas/${id}`
+  // The reader's warnings menu asks for the run notes of every title; none by default.
+  await page.route(new RegExp(`${root}/run-notes$`), (route) => json(route, { drama_id: id, pages: [] }))
   await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: true }))
   // Sign-in off, on the PC (the app asks before rendering any page).
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))

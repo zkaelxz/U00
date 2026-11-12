@@ -101,6 +101,8 @@ export interface WarningPage {
   kind: WarningKind
   text: string
   level: 'error' | 'warning'
+  // Numbers drawn on the boxes the warning is about (empty when it is about the whole page).
+  boxes: number[]
 }
 
 export interface WarningGroup {
@@ -119,7 +121,7 @@ const GROUPS: { kind: WarningKind; title: string; harmless: boolean }[] = [
 ]
 
 // The server sends plain sentences, so the kind is read from their wording; an unknown sentence lands in "Other warnings".
-export function describeWarning(message: string): { kind: WarningKind; text: string } {
+export function describeWarning(message: string): { kind: WarningKind; text: string; boxes: number[] } {
   const line = message.split('\n')[0]
   const region = /^Regions? (.+?) (?:had|have) no translation/.exec(line)
   if (region) {
@@ -128,14 +130,15 @@ export function describeWarning(message: string): { kind: WarningKind; text: str
     // The numbers are the ones drawn on the text boxes in the page view.
     return {
       kind: 'untranslated',
+      boxes: nums.split(', ').map(Number),
       text: `Text box${plural ? 'es' : ''} numbered ${nums} on the page ${plural ? 'have' : 'has'} no translation and still show${plural ? '' : 's'} the original.`,
     }
   }
-  if (line.startsWith('OCR found no text')) return { kind: 'noText', text: line }
+  if (line.startsWith('OCR found no text')) return { kind: 'noText', text: line, boxes: [] }
   if (line.startsWith('No bubbles found')) {
-    return { kind: 'noBubbles', text: 'No speech bubbles found. Normal for a cover or splash art; otherwise add boxes by hand.' }
+    return { kind: 'noBubbles', boxes: [], text: 'No speech bubbles found. Normal for a cover or splash art; otherwise add boxes by hand.' }
   }
-  return { kind: 'other', text: line.length > 140 ? `${line.slice(0, 139)}…` : line }
+  return { kind: 'other', boxes: [], text: line.length > 140 ? `${line.slice(0, 139)}…` : line }
 }
 
 // Every page with a warning or error (current page included), in reading order, plus the same pages grouped by kind.

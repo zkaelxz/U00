@@ -238,3 +238,19 @@
 .scanlate-problem-pages ul { margin: 0; padding-left: 0; list-style: none; display: grid; gap: var(--space-1); }
 .scanlate-problem-pages li { overflow-wrap: anywhere; }
 .scanlate-warning-groups { display: grid; gap: var(--space-2); max-height: 24rem; overflow-y: auto; }
+
+/* Warnings menu in the sticky bar: the popover scrolls on its own so the pages keep their place. */
+.comic-warning-menu { position: relative; }
+.comic-warning-menu > summary { cursor: pointer; list-style: none; }
+.comic-warning-pop {
+  position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 9;
+  width: min(32rem, 92vw); max-height: 70dvh; overflow-y: auto; padding: var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+}
+/* A box a warning names, marked after the jump. */
+.comic-box[data-flash] { border-width: 4px; background: color-mix(in srgb, var(--warn, #c60) 25%, transparent); }
+/* On a phone the button sits at the left edge, so the popover spans the sticky header instead of hanging off the button. */
+.comic-phone .comic-warning-menu { position: static; }
+.comic-phone .comic-warning-pop { left: var(--space-2); right: var(--space-2); width: auto; max-height: 60dvh; overflow-y: auto; }
+.comic-warning-pop .scanlate-warning-groups { max-height: none; overflow: visible; }

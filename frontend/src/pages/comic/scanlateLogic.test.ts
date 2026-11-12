@@ -150,9 +150,12 @@ describe('warning pages', () => {
   it('names a text box by the number drawn on the page', () => {
     expect(describeWarning('Region 2 had no translation and was left as the original.')).toEqual({
       kind: 'untranslated',
+      boxes: [2],
       text: 'Text box numbered 2 on the page has no translation and still shows the original.',
     })
-    expect(describeWarning('Regions 1, 2 and 4 had no translation and were left as the original.').text).toContain('Text boxes numbered 1, 2, 4')
+    const many = describeWarning('Regions 1, 2 and 4 had no translation and were left as the original.')
+    expect(many.text).toContain('Text boxes numbered 1, 2, 4')
+    expect(many.boxes).toEqual([1, 2, 4])
   })
 
   it('groups by kind, most urgent first, in reading order, skipping info-only pages', () => {

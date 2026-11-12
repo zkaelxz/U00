@@ -45,6 +45,10 @@ import { ShowOriginalButton } from './comic/PageOriginal'
 import { useOriginalPages } from './comic/useOriginalPages'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { ScanlatePanel } from './comic/ScanlatePanel'
+import { WarningMenu } from './comic/WarningPages'
+import { warningPages } from './comic/scanlateLogic'
+import { scanlateApi } from '../api/scanlate'
+import type { ScanlatePageNotes } from '../types/scanlate'
 import {
   clampPage,
   comicHref,
@@ -266,6 +270,29 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     [count, id, visible, current, requestJump],
   )
 
+  // Run notes for the warnings menu in the bar, which stays on screen while the panel is closed or scrolled away.
+  const [runNotes, setRunNotes] = useState<ScanlatePageNotes[]>([])
+  useEffect(() => {
+    let cancelled = false
+    scanlateApi.runNotes(id).then(
+      (n) => !cancelled && setRunNotes(n.pages),
+      () => {},
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [id, data])
+  const warnings = useMemo(() => warningPages(runNotes), [runNotes])
+  const [flash, setFlash] = useState<{ page: number; boxes: number[] } | null>(null)
+  const goToWarning = useCallback(
+    (n: number, boxes: number[]) => {
+      go(n, false, true)
+      setFlash(boxes.length ? { page: n, boxes } : null)
+    },
+    [go],
+  )
+  const warningMenu = <WarningMenu all={warnings.all} groups={warnings.groups} pageNumber={current} onGo={goToWarning} />
+
   const srcFor = useCallback(
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version, 'reader'),
     [id, prefs.typeset, original.originals],
@@ -400,7 +427,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       scopes={scopes}
       onChanged={refreshPages}
       onJob={setWatchedJob}
-      onGoToPage={(n) => go(n, false, true)}
+      onGoToPage={goToWarning}
     />
   )
 
@@ -478,6 +505,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               mounted={paged || inRenderWindow(n, current ?? 1)}
               regions={overlayFor(p)}
               boxText={!phone}
+              flashBoxes={flash?.page === n ? flash.boxes : undefined}
               onLineTap={canEdit ? (idx) => setEditing({ pageId: p.id, number: n, idx }) : undefined}
               onProblem={onProblem}
               figureRef={figureRef(n)}
@@ -519,6 +547,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <h1 className="reader-title">{title ?? (titleError ? 'This title' : 'Loading…')}</h1>
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
+          {!empty && warningMenu}
           {!empty && toolsButton}
           {addButton}
           {!empty && editButton}
@@ -536,6 +565,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
             data === null && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
           )}
           {toggles}
+          {!empty && warningMenu}
           {!empty && toolsButton}
           {addButton}
           {!empty && editButton}
