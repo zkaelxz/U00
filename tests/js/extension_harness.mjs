@@ -50,17 +50,27 @@ function container(children) {
   return parent;
 }
 
-function loadContent({ images = [], canvases = [], fetchImage }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null }) {
   const sent = [];
+  const shots = [];
+  const marks = [];
   const progress = [];
   const fetched = [];
   let listener = null;
+  // Canvases the script makes itself can be exported when a screenshot is being cropped; the
+  // page's own (tainted) canvases, made by the tests, never can.
+  const cropCanvas = () => {
+    const c = fakeCanvas();
+    if (screenshot) c.toBlob = (cb) => cb(new Blob([PNG], { type: "image/png" }));
+    return c;
+  };
   const document = {
     title: "", body: { innerText: "", appendChild() {} },
-    documentElement: { appendChild() {}, scrollHeight: 800 },
+    documentElement: { appendChild() {}, scrollHeight: 800,
+      setAttribute: (name) => marks.push(`set ${name}`), removeAttribute: (name) => marks.push(`remove ${name}`) },
     images, head: { appendChild() {} },
     querySelectorAll: (sel) => (sel === "canvas" ? canvases : []),
-    createElement: (tag) => (tag === "canvas" ? fakeCanvas() : { style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
+    createElement: (tag) => (tag === "canvas" ? cropCanvas() : { style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
     getElementById: () => null,
   };
   const sandbox = {
@@ -83,6 +93,11 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
             fetched.push(message.url);
             return fetchImage(message);
           }
+          if (message.type === "getSettings") return { ok: true, data: { screenshot: !!(screenshot && screenshot.on) } };
+          if (message.type === "captureTab") {
+            shots.push(marks.slice());
+            return screenshot.reply || { ok: true, data: { data: Buffer.from(PNG).toString("base64") } };
+          }
           if (message.type === "send") { sent.push(message); return { ok: true, data: { pages: [] } }; }
           if (message.type === "progress") progress.push(message);
           return { ok: true };
@@ -101,7 +116,8 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
   vm.createContext(sandbox);
   vm.runInContext(read("content.js"), sandbox);
   const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
-  return { ask, sent, fetched, progress, sandbox };
+  sandbox.innerWidth = 800;
+  return { ask, sent, fetched, progress, sandbox, shots, marks };
 }
 
 const okImage = (bytes = JPEG, type = "image/jpeg") => async () => ({
@@ -153,6 +169,24 @@ async function content(scenario) {
       canvas.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
       return run(visible, { canvases: [canvas], fetchImage: okImage() });
     }
+    case "canvas_screenshot": {
+      const shoot = async (opts, size = [800, 700]) => {
+        const canvas = placed(fakeCanvas(...size), 40);
+        canvas.scrollIntoView = () => {};
+        container([canvas]);
+        const h = loadContent({ canvases: [canvas], fetchImage: okImage(), bitmap: { width: 800, height: 800 }, ...opts });
+        h.sandbox.__bitmap = { width: 800, height: 800 };
+        const result = await h.ask(visible);
+        return { ok: result.ok, error: result.error, shots: h.shots, marks: h.marks,
+                 sent: h.sent.flatMap((m) => m.images.map((i) => ({ content_type: i.content_type, bytes: Buffer.from(i.data, "base64").length }))) };
+      };
+      return {
+        on: await shoot({ screenshot: { on: true } }),
+        off: await shoot({ screenshot: { on: false } }),
+        tall: await shoot({ screenshot: { on: true } }, [800, 1200]),
+        refused: await shoot({ screenshot: { on: true, reply: { ok: false, error: "the browser would not take a picture of the tab" } } }),
+      };
+    }
     case "canvas_tainted_no_url": {
       const canvas = fakeCanvas(800, 1200);
       container([canvas]);
@@ -203,7 +237,7 @@ async function content(scenario) {
   throw new Error(`unknown scenario ${scenario}`);
 }
 
-function loadBackground({ granted, response, fetchImpl, stored = {} }) {
+function loadBackground({ granted, response, fetchImpl, stored = {}, chromeExtra = {}, sandboxExtra = {} }) {
   let listener = null;
   const fetchCalls = [];
   const sandbox = {
@@ -214,10 +248,13 @@ function loadBackground({ granted, response, fetchImpl, stored = {} }) {
       return response();
     },
     chrome: {
-      runtime: { onInstalled: { addListener() {} }, onMessage: { addListener: (fn) => { listener = fn; } } },
+      ...chromeExtra,
+      runtime: { onInstalled: { addListener() {} }, onMessage: { addListener: (fn) => { listener = fn; } },
+                 ...(chromeExtra.runtime || {}) },
       storage: { local: { remove() {}, get: async () => stored, set: async () => {} } },
       permissions: { contains: async ({ origins }) => granted(origins) },
     },
+    ...sandboxExtra,
   };
   sandbox.importScripts = (name) => vm.runInContext(read(name), sandbox);
   vm.createContext(sandbox);
@@ -344,6 +381,23 @@ async function background(scenario) {
       await h.ask({ type: "fetchImage", url }, { url: "https://reader.example/ch/1?token=secret" });
       const o = h.fetchCalls[0].options;
       return { referrer: o.referrer, referrerPolicy: o.referrerPolicy };
+    }
+    case "tab_picture": {
+      const ask = async (stored, sender, fail = false) => {
+        let windowId = null;
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t", ...stored },
+          chromeExtra: { tabs: { captureVisibleTab: async (id) => { windowId = id; if (fail) throw new Error("no"); return "data:image/png;base64,QUJD"; } } },
+        });
+        const r = await h.ask({ type: "captureTab" }, sender);
+        return { ...r, ...(r.ok ? { windowId } : {}) };
+      };
+      return {
+        off: await ask({}, { tab: { id: 1, windowId: 7 } }),
+        on: await ask({ screenshot: true }, { tab: { id: 1, windowId: 7 } }),
+        noTab: await ask({ screenshot: true }, {}),
+        blocked: await ask({ screenshot: true }, { tab: { id: 1, windowId: 7 } }, true),
+      };
     }
     case "no_referrer_without_a_page": {
       const h = loadBackground({ granted: () => true, response: image(JPEG) });

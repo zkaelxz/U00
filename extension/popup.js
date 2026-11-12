@@ -22,6 +22,7 @@ const els = {
   saveNovel: document.getElementById("saveNovel"),
   dramaTitle: document.getElementById("dramaTitle"),
   typeset: document.getElementById("typeset"),
+  screenshot: document.getElementById("screenshot"),
   progress: document.getElementById("progress"),
   autoCreate: document.getElementById("autoCreate"),
   autoFill: document.getElementById("autoFill"),
@@ -375,6 +376,7 @@ async function load() {
   els.drama.length = 1;
   auto = { ...auto, ...(settings.autoTitle || {}) };
   els.typeset.checked = settings.typeset === true;
+  els.screenshot.checked = settings.screenshot === true;
   showAutoOptions();
   const tab = await activeTab();
   const site = siteOf(tab && tab.url);
@@ -645,6 +647,8 @@ els.drama.addEventListener("change", () => {
 els.autoCreate.addEventListener("change", () => saveAutoOption("create", els.autoCreate.checked));
 els.autoFill.addEventListener("change", () => saveAutoOption("fill", els.autoFill.checked));
 els.autoSeries.addEventListener("change", () => saveAutoOption("series", els.autoSeries.checked));
+els.screenshot.addEventListener("change", () =>
+  chrome.runtime.sendMessage({ type: "setScreenshot", on: els.screenshot.checked }));
 els.typeset.addEventListener("change", () =>
   chrome.runtime.sendMessage({ type: "setTypeset", on: els.typeset.checked }));
 els.translate.addEventListener("click", () => run(false));
