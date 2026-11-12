@@ -315,6 +315,12 @@ def test_apply_refuses_a_changed_download(env):
     assert env["started"] == []
 
 
+def test_a_check_keeps_the_releases_schema_for_the_full_installers_backup_check(env):
+    _serve(env, manifest=_app_manifest(db_schema_sha256="1" * 64))
+    us.check()
+    assert aus._offer_schema == ("0.2.0", "1" * 64)
+
+
 def test_a_database_change_needs_a_recent_backup(env, monkeypatch):
     _serve(env, manifest=_app_manifest(db_schema_sha256="0" * 64))
     us.check()

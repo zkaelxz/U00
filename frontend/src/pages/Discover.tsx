@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 
 import { translateApi, engineOffReason, engineShortName } from '../api/translate'
 import { PageShell } from '../components/PageShell'
+import { FindSwitch } from './FindSwitch'
 import { Field } from '../components/Field'
 import { RetryBanner } from '../components/RetryBanner'
 import { Section } from '../components/Section'
@@ -134,6 +135,7 @@ export default function DiscoverPage() {
         <Tabs label="Discover tasks" idPrefix="discover" tabs={TABS} active={tab} onSelect={setTab} />
       )}
     >
+      <FindSwitch current="discover" />
       {CATALOGUE_TAB_ENABLED && (
         <div role="tabpanel" id={tabPanelId('discover', 'catalogue')} aria-labelledby={tabButtonId('discover', 'catalogue')} hidden={tab !== 'catalogue'} className="discover-panel">
           <CatalogPanel pc={pc} reloadKey={catalogKey} />

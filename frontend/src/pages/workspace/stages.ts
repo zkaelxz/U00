@@ -1,4 +1,5 @@
 import { DEFAULT_STAGE } from '../../router'
+import type { TitleKind } from './titleKind'
 
 // Pipeline stages of the Workspace. Transcript and Diarize live inside
 // 'source'. To add a stage: an id here, a label, and one
@@ -7,10 +8,15 @@ export const STAGE_IDS = ['source', 'translate', 'review', 'export'] as const
 export type StageId = (typeof STAGE_IDS)[number]
 
 export const STAGE_LABELS: Record<StageId, string> = {
-  source: 'Media',
+  source: 'Transcribe',
   translate: 'Translate',
   review: 'Review',
   export: 'Export',
+}
+
+// A novel or comic has nothing to transcribe: its first stage is where the text or pages are attached.
+export function stageLabel(stage: StageId, kind?: TitleKind | null): string {
+  return stage === 'source' && (kind === 'novel' || kind === 'comic') ? 'Media' : STAGE_LABELS[stage]
 }
 
 export function isStageId(s: string): s is StageId {

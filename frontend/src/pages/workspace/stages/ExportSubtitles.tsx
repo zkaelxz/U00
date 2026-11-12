@@ -12,6 +12,8 @@ import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
 import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, srtFileText, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
+import { stageLabel } from '../stages'
+import { titleKind } from '../titleKind'
 import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
 
@@ -143,7 +145,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         <p className="stage-blocker" id="export-blocker" data-testid="export-blocker">
           <span>No lines to export yet.</span>
           <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-            Go to Media
+            Go to {stageLabel('source', titleKind(drama.media_type, drama.content_mode))}
           </ButtonLink>
         </p>
       )}

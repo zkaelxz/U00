@@ -143,7 +143,7 @@ test('Saved settings for this step: closed, read-only, per step, with a link to 
   const rows = panel.getByTestId('queue-saved-settings')
   await expect(rows).toContainText('Speech model')
   await expect(rows).toContainText('Whisper small')
-  await expect(panel.getByRole('link', { name: "Change in the title's Media stage" })).toHaveAttribute('href', '#/drama/3/source')
+  await expect(panel.getByRole('link', { name: "Change in the title's Transcribe stage" })).toHaveAttribute('href', '#/drama/3/source')
 
   await card.getByLabel('Step').selectOption('translate')
   await expect(rows).toContainText('Claude, claude-sonnet-5-5')

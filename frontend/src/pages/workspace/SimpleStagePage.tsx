@@ -12,6 +12,7 @@ import { SourceLink } from '../discover/ExternalLink'
 import { JobPill } from './JobPill'
 import { STAGE_COMPONENTS } from './stageRegistry'
 import { STAGE_IDS, type StageId } from './stages'
+import { titleKind } from './titleKind'
 import { StageContext, type StageContextValue } from './StageContext'
 import { SimpleStepNav } from './SimpleStepNav'
 import { TitleSteps } from './TitleSteps'
@@ -57,7 +58,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
         )}
       </header>
-      {!simple && <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => s !== 'review')} active={stage} />}
+      {!simple && <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => s !== 'review')} active={stage} kind={titleKind(drama.media_type, drama.content_mode)} />}
       <div className={simple ? 'title-studio title-studio-stage' : undefined}>
         <div className="title-studio-main">
           <ErrorBanner error={error} />
