@@ -6581,6 +6581,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rename one saved chapter (409 while a job runs or if its text has no title line) */
+        post: operations["post_rename_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__rename_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/novel/dramas/{drama_id}/raw-novel/remove": {
         parameters: {
             query?: never;
@@ -22337,6 +22354,22 @@ export interface components {
             total: number;
             /** Translation Chars */
             translation_chars: number;
+        };
+        /** NovelChapterRenameRequest */
+        NovelChapterRenameRequest: {
+            /** Title */
+            title: string;
+        };
+        /** NovelChapterRenamed */
+        NovelChapterRenamed: {
+            /** Drama Id */
+            drama_id: number;
+            /** Line Updated */
+            line_updated: boolean;
+            /** Number */
+            number: number;
+            /** Title */
+            title: string;
         };
         /** NovelChapterRow */
         NovelChapterRow: {
@@ -49779,6 +49812,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_rename_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__rename_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelChapterRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelChapterRenamed"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

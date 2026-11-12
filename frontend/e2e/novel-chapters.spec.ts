@@ -48,6 +48,26 @@ test('shows text with no chapter markers as one Unsplit text block', async ({ pa
   await expect(panel.getByRole('button', { name: /Unsplit text/ })).toBeVisible()
 })
 
+test('renames a chapter from its preview and reloads the list', async ({ page }) => {
+  const posted: unknown[] = []
+  await mockChapters(page, listBody([row(1)]), (number, offset) => ({
+    drama_id: 2, number, title: '第1章 标题', source: 'xbanxia', imported_at: '', unsplit: false, chars: 3000,
+    in_translation: false, offset, text: 'text', next_offset: null }))
+  await page.route('**/api/novel/dramas/2/raw-novel/chapters/1/rename', (route) => {
+    posted.push(route.request().postDataJSON())
+    return route.fulfill({ json: { drama_id: 2, number: 1, title: 'New name', line_updated: true } })
+  })
+  await page.goto('/#/drama/2/source')
+  await openChapters(page)
+  await page.getByRole('button', { name: /第1章 标题/ }).click()
+  const preview = page.getByRole('region', { name: 'Chapter preview' })
+  await preview.getByRole('button', { name: 'Rename' }).click()
+  await preview.getByLabel('Chapter title').fill('New name')
+  await preview.getByRole('button', { name: 'Save name' }).click()
+  await expect(preview).toHaveCount(0)
+  expect(posted).toEqual([{ title: 'New name' }])
+})
+
 test('opens a preview, loads the rest with Show all, and copies', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   const rows = [row(1, { chars: 120000 })]
