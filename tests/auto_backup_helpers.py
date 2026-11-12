@@ -145,6 +145,7 @@ def _seed_series(c, name="Saga"):
     _insert(c, "translation_memory", series_id=sid, source_text="你好", translation="Hello",
             use_count=3, updated_at="2026-01-03")
     _insert(c, "glossary_dismissals", series_id=sid, term_original="路人", created_at="2026-01-04")
+    _insert(c, "word_replacements", series_id=sid, find_text="thee", replace_text="you")
     return sid, sc
 
 
@@ -229,7 +230,7 @@ def _seed_world():
 
 
 SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
-                   "glossary_dismissals")
+                   "word_replacements", "glossary_dismissals")
 
 
 def _delete_drama(did):
