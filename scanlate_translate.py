@@ -320,7 +320,8 @@ def build_chapter_brief(page_texts: list, engine, drama_meta: dict, usage_cb=Non
         "(how formal, how long their lines run, their attitude and manner of speaking, judged "
         "from what they say and do), names and recurring terms with the English to use for each, "
         "and a few sentences on what happens. Describe voices and facts only: do not write English "
-        "renderings of specific lines, because the translator would copy them. Keep it under 250 words.\n\n" + source + "\n\n"
+        "renderings of specific lines, because the translator would copy them, and give one English term "
+        "for each name or term, never alternatives. Keep it under 250 words.\n\n" + source + "\n\n"
         'Return ONLY a JSON object: {"brief": "<the brief in English>"}. No preamble, no markdown fences.')
     text = call_llm_json(engine, prompt, max_tokens=900, fallback=None, usage_cb=usage_cb)
     if not text:

@@ -370,6 +370,7 @@ def test_the_chapter_brief_reaches_each_pages_translation_and_is_cached(harness,
     # The voice comes from the chapter itself: the brief is asked for it and each page is told to use it.
     assert "voice and personality" in brief_prompt
     assert "do not write English renderings" in brief_prompt
+    assert "one English term" in brief_prompt
     assert all("in its speaker's voice as the brief describes it" in p for p in page_prompts)
     # Running the same chapter again reads the brief from disk, not from the engine.
     prompts.clear()
