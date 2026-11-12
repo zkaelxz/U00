@@ -1,5 +1,6 @@
 """services/novel_cast_service.py -- the cast proposal for a novel: the people the glossary scan found, with their pronouns, offered for approval; applying sets pronouns only where none are set."""
 
+import sqlite3
 import re
 
 import db
@@ -84,19 +85,25 @@ def apply(drama_id: int, entries) -> dict:
     (no speaker of that name yet and no series)."""
     drama = ownership_service.require_drama(drama_id)
     chosen = _clean_entries(entries)
-    speakers = {}
-    for c in characters_service.list_characters(drama_id):
-        for name in (c.get("character_name"), c.get("speaker_label")):
-            if _norm(name):
-                speakers.setdefault(_norm(name), c)
     sid = drama.get("series_id")
-    series = {_norm(s["character_name"]): s for s in (db.list_series_characters(sid) if sid else [])}
     report = {"set": [], "added": [], "kept": [], "not_applied": []}
     for name, pronouns in chosen:
         key = _norm(name)
+        # Read again for every name: another entry of this request, or a person editing meanwhile, may have
+        # just set pronouns or added this character, and a decision on a stale list would overwrite it.
+        speakers, series = _speakers(drama_id), _series(sid)
         speaker, known = speakers.get(key), series.get(key)
+        if speaker is None and known is None and sid:
+            try:
+                db.insert_series_character(sid, name, gender=pronouns)   # insert-only: never touches an existing row
+                report["added"].append(name)
+                continue
+            except sqlite3.IntegrityError:
+                known = _series(sid).get(key)   # someone added it first (maybe in other letter case)
         if speaker is not None:
-            if tguide.normalize_pronouns(speaker.get("pronouns")) or tguide.normalize_pronouns(speaker.get("series_pronouns")):
+            if _has_pronouns(speaker):
+                report["kept"].append(name)
+            elif _has_pronouns(_speakers(drama_id).get(key) or speaker):   # a last look right before the write
                 report["kept"].append(name)
             else:
                 characters_service.update_character(drama_id, speaker["speaker_label"], pronouns=pronouns)
@@ -107,9 +114,23 @@ def apply(drama_id: int, entries) -> dict:
             else:
                 db.update_series_character(known["id"], gender=pronouns)
                 report["set"].append(name)
-        elif sid:
-            db.upsert_series_character(sid, name, gender=pronouns)
-            report["added"].append(name)
         else:
             report["not_applied"].append(name)
     return report
+
+
+def _has_pronouns(speaker) -> bool:
+    return bool(tguide.normalize_pronouns(speaker.get("pronouns")) or tguide.normalize_pronouns(speaker.get("series_pronouns")))
+
+
+def _speakers(drama_id: int) -> dict:
+    out = {}
+    for c in characters_service.list_characters(drama_id):
+        for name in (c.get("character_name"), c.get("speaker_label")):
+            if _norm(name):
+                out.setdefault(_norm(name), c)
+    return out
+
+
+def _series(sid) -> dict:
+    return {_norm(s["character_name"]): s for s in (db.list_series_characters(sid) if sid else [])}

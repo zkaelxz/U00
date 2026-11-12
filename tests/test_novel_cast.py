@@ -93,6 +93,48 @@ def test_an_empty_series_pronoun_is_filled_but_nothing_else_about_the_character_
     assert (row["gender"], row["aliases"], row["notes"]) == ("she/her", "Wanwan", "keeps a diary")
 
 
+def test_a_name_twice_in_one_request_or_added_meanwhile_never_overwrites_the_existing_character(isolated_db, monkeypatch):
+    did, sid = _title()
+    report = svc.apply(did, [{"name": "Lin Wan", "pronouns": "she/her"}, {"name": "lin  wan", "pronouns": "he/him"}])
+    assert report["added"] == ["Lin Wan"] and report["kept"] == ["lin wan"]
+    [row] = db.list_series_characters(sid)
+    assert row["gender"] == "she/her"
+    # Added by someone else after this request began: its aliases, notes and pronouns stay.
+    real = db.list_series_characters
+    calls = []
+
+    def stale_then_real(series_id):
+        calls.append(1)
+        if len(calls) == 1:
+            return []   # the list the request read before the other person's add
+        return real(series_id)
+    db.upsert_series_character(sid, "Shen Yi", aliases="Yi", notes="the cook", gender="he/him")
+    monkeypatch.setattr(db, "list_series_characters", stale_then_real)
+    out = svc.apply(did, [{"name": "Shen Yi", "pronouns": "she/her"}])
+    monkeypatch.undo()
+    assert out["kept"] == ["Shen Yi"] and out["added"] == []
+    shen = next(r for r in db.list_series_characters(sid) if r["character_name"] == "Shen Yi")
+    assert (shen["gender"], shen["aliases"], shen["notes"]) == ("he/him", "Yi", "the cook")
+
+
+def test_pronouns_set_by_hand_just_before_apply_are_kept(isolated_db, monkeypatch):
+    did, _ = _title(series=False, speakers=["Lin Wan"])
+    real = svc.characters_service.list_characters
+    calls = []
+
+    def typed_in_between(drama_id):
+        rows = real(drama_id)
+        calls.append(1)
+        if len(calls) == 1:
+            svc.characters_service.update_character(drama_id, "Lin Wan", pronouns="he/him")
+        return rows
+    monkeypatch.setattr(svc.characters_service, "list_characters", typed_in_between)
+    out = svc.apply(did, [{"name": "Lin Wan", "pronouns": "she/her"}])
+    monkeypatch.undo()
+    assert out["kept"] == ["Lin Wan"] and out["set"] == []
+    assert next(c for c in svc.characters_service.list_characters(did) if c["speaker_label"] == "Lin Wan")["pronouns"] == "he/him"
+
+
 def test_apply_refuses_unknown_pronouns_and_empty_choices(isolated_db):
     did, _ = _title()
     with pytest.raises(InvalidInputError):
