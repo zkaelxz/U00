@@ -26955,7 +26955,7 @@ export interface components {
             ollama_num_ctx_override: number;
             /**
              * Openai Reasoning
-             * @default default
+             * @default less
              */
             openai_reasoning: string;
             /**
