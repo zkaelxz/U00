@@ -26,6 +26,8 @@
 .stage-translate [role="region"][aria-label="Glossary"], .stage-translate [role="region"][aria-label="Characters"] { display: grid; gap: var(--space-3); min-width: 0; }
 .stage-translate .glossary-bulk { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .stage-translate .glossary-bulk .error { flex-basis: 100%; margin: 0; }
+.stage-translate .glossary-toolbar { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.stage-translate .glossary-toolbar input[type="search"] { flex: 1 1 12rem; min-width: 0; }
 .stage-translate .voice-details > summary { cursor: pointer; }
 .stage-translate .voice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-2) var(--space-3); margin-top: var(--space-2); }
 .stage-translate .voice-grid .voice-wide { grid-column: 1 / -1; }

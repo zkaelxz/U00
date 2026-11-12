@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { glossaryTab, type GlossaryTabName } from './glossaryTabs'
-import { glossarySetup } from './glossaryScanMocks'
+import { glossarySetup, TERM } from './glossaryScanMocks'
 import { mockLanguagePacks } from './languagePacksMocks'
 import { gotoTranslate } from './translateTabs'
 
@@ -143,4 +143,13 @@ test('Packs holds Language packs and VTuber names, and Terms keeps only the term
   await page.reload()
   await expect(region(page).getByRole('tab', { name: 'Packs', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(packs).toBeVisible()
+})
+
+test('searching the Terms table narrows it and says how many match', async ({ page }) => {
+  const t = (id: number, o: string, en: string) => ({ ...TERM, id, term_original: o, term_translation: en })
+  await open(page, { terms: [t(11, '姑姑', 'Auntie'), t(12, '畢藍', 'Bi Lan')] })
+  await expect(region(page).getByRole('status').filter({ hasText: '2 terms' })).toBeVisible()
+  await region(page).getByLabel('Search terms').fill('auntie')
+  await expect(region(page).getByRole('status').filter({ hasText: '1 of 2 terms' })).toBeVisible()
+  await expect(region(page).getByLabel('Select 畢藍')).toHaveCount(0)
 })
