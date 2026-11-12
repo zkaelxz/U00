@@ -134,7 +134,7 @@ def _estimate(engine_name: str, model: Optional[str], use_free_tier: bool,
         free_tier=use_free_tier)
     tokens_in, tokens_out = _tokens(engine_name, width, height)
     estimated = pricing.estimate_cost_for_engine(priced, tokens_in, tokens_out)
-    cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
+    cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier, priced.model)
     monthly = translate_run_service.month_cap_usd() if cap_applies else 0
     cap_left = max(0.0, monthly - db.get_month_spend()) if monthly else None
     return {"engine": engine_name, "model": priced.model or None, "estimated_usd": estimated,
@@ -165,7 +165,7 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
     api_key = resolve_api_key(engine_name, env_path)
     if api_key is None:
         raise MissingKeyError(engine_name)
-    translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier)
+    translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier, model)
     priced = _estimate(engine_name, model, use_free_tier, width, height)
     if priced["cap_applies"] and not priced["fits_cap"]:
         raise UnsupportedOperationError(CAP_MESSAGE)
@@ -182,7 +182,8 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
 def _send(engine, engine_name: str, use_free_tier: bool, data: bytes, mime: str,
           width: int, height: int, language: str) -> tuple:
     """(text, usage) for one prepared picture, logging exactly one usage row."""
-    metered = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
+    metered = translate_run_service.engine_cap_applies(
+        engine_name, use_free_tier, getattr(engine, "model", None))
     lock = threading.Lock()
     logged = []
 

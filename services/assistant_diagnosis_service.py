@@ -169,20 +169,32 @@ def build_engine(engine_name=None, model=None):
     from services import line_ai_service, settings_service
     require_cloud_consent(engine_name, model)
     engine = reader_service.llm_engine(engine_name, model)
-    line_ai_service.refuse_if_over_monthly_cap(engine_name, bool(settings_service.get("gemini_free_tier")))
+    line_ai_service.refuse_if_over_monthly_cap(
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
     return engine, engine_name, model
 
 
 def _chat(system_prompt: str, messages: list, engine) -> str:
     import qa
+    from engine_backends import paid_calls
+    from services import line_ai_service, settings_service
+    name = getattr(engine, "name", None) or type(engine).__name__
+    # Each tool round is its own paid request, so the cap is re-read before every one.
+    line_ai_service.refuse_if_over_monthly_cap(
+        name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
+    logged = []
     try:
-        return qa.dispatch_chat(system_prompt, messages, engine,
-                                 max_tokens=MAX_OUTPUT_TOKENS) or ""
+        return qa.dispatch_chat(system_prompt, messages, engine, max_tokens=MAX_OUTPUT_TOKENS,
+                                usage_cb=logged.append) or ""
     except ServiceError:
         raise
     except Exception as e:  # engine/network failure: never leak a key or path
         raise ServiceError("The engine call failed: " + _redact(str(e))[:300],
                            details={"reason": _failure_reason(e)}) from None
+    finally:
+        # Written for a failed request too: a paid provider may have billed it.
+        for usage in logged or [None]:
+            paid_calls.record_call(engine, name, "assistant", usage)
 
 
 def _failure_reason(exc) -> str:

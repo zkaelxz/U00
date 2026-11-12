@@ -106,7 +106,8 @@ def needs_gpu(stage: str, configs: list) -> bool:
 
 def arm_capped(cfg: dict, applies) -> bool:
     """Whether the monthly and run caps govern this arm: its own engine, or the engine it translates with."""
-    return applies(cfg["engine"]) or bool(translate_arm(cfg) and applies(cfg["translate"]["engine"]))
+    return applies(cfg["engine"], cfg.get("model")) or bool(
+        translate_arm(cfg) and applies(cfg["translate"]["engine"], cfg["translate"].get("model")))
 
 
 def estimate_cost(stage: str, cfg: dict, cases: list, price=None) -> float:

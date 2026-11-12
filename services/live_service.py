@@ -475,7 +475,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                                 "Try again in a moment.")
     engine_name, eng = _build_engine(engine, model)
     translate_run_service.refuse_when_cap_spent(
-        engine_name, bool(settings_service.get("gemini_free_tier")))
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(eng, "model", None))
 
     session_id = f"live_{uuid.uuid4().hex}"
     out_dir = storage.new_workdir(session_id)

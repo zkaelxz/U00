@@ -68,7 +68,8 @@ def _refuse_when_cap_spent() -> None:
     if not name:
         return
     try:
-        translate_run_service.refuse_when_cap_spent(name)
+        translate_run_service.refuse_when_cap_spent(
+            name, False, page_server.get_translation_config().get("model"))
     except ServiceError as e:
         raise page_server.EndpointError(429, e.message) from None
 

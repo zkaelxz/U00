@@ -6,8 +6,8 @@ for proofing continuity and catching context you might have missed --
 not a general chatbot, it only knows what's in the lines you give it.
 """
 
-from engine_backends.shared import ContentModerationBlocked, call_with_backoff, post_json
-from engine_backends.local import chat_target, OllamaEngine, estimate_ollama_num_ctx
+from engine_backends.shared import ContentModerationBlocked, call_with_backoff, claude_usage, post_json
+from engine_backends.local import chat_target, OllamaEngine, estimate_ollama_num_ctx, ollama_usage
 from engine_backends.gemini import GeminiEngine, gemini_reply
 from engine_backends.openai_compat import OpenAIEngine
 
@@ -50,12 +50,16 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
     return dispatch_chat(system_prompt, messages, engine)
 
 
-def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 1000) -> str:
+def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 1000,
+                  usage_cb=None) -> str:
     """Shared multi-engine chat dispatch, factored out of ask_about_drama
     so services/maintenance_assistant_service.py can reuse the exact same
     Claude/OpenAI-shaped/Gemini/Ollama request handling -- only the
     system_prompt/grounding differs per caller, the dispatch mechanics
-    (auth shape, free-tier throttling, Ollama's num_ctx estimate) don't."""
+    (auth shape, free-tier throttling, Ollama's num_ctx estimate) don't.
+    usage_cb(usage dict in the app's shape) is called once per reply that
+    reported tokens, before an empty or refused reply is raised: it was billed."""
+    report = usage_cb or (lambda _usage: None)
     if not getattr(engine, "supports_reference", False):
         return "This engine doesn't support free-form Q&A -- use Claude, DeepSeek, or Ollama."
 
@@ -64,6 +68,7 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         resp = call_with_backoff(lambda: client.messages.create(
             model=engine.model, max_tokens=max_tokens, system=system_prompt, messages=messages,
         ))
+        report(claude_usage(getattr(resp, "usage", None)))
         if getattr(resp, "stop_reason", None) == "refusal":
             raise ContentModerationBlocked("claude", "refusal")
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
@@ -75,6 +80,9 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         resp = call_with_backoff(lambda: client.chat.completions.create(
             model=engine.model, messages=full_messages,
         ))
+        usage = getattr(resp, "usage", None)
+        report({"input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                "output_tokens": getattr(usage, "completion_tokens", 0) or 0})
         content = resp.choices[0].message.content if resp.choices else None
         if not content:
             raise RuntimeError(EMPTY_ANSWER)
@@ -86,15 +94,18 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
         # format isn't worth the extra plumbing for this one caller.
         history_text = "\n\n".join(
             f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
-        data, _usage = call_with_backoff(lambda: engine.generate(
+        data, usage = call_with_backoff(lambda: engine.generate(
             engine.prompt_body(history_text, system_prompt)))
+        report(usage)
         text, _finish_reason = gemini_reply(data)
         if not text:
             raise RuntimeError(EMPTY_ANSWER)
         return text
     if isinstance(engine, OpenAIEngine):
         full_messages = [{"role": "system", "content": system_prompt}] + messages
-        return call_with_backoff(lambda: engine.chat(full_messages))
+        return call_with_backoff(lambda: engine.chat(
+            full_messages, usage_cb=lambda inp, out: report(
+                {"input_tokens": inp, "output_tokens": out})))
     if isinstance(engine, OllamaEngine):
         # Same reasoning as Gemini above: no .client, so it fell through
         # to the generic decline message and Q&A silently didn't work
@@ -112,6 +123,7 @@ def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 
             "options": {"num_ctx": estimate_ollama_num_ctx(system_prompt, history_text)},
         }, timeout=300, headers=headers,
             label="Your Ollama account (your own key)" if headers else "Ollama"))
+        report(ollama_usage(data))
         content = (data.get("message") or {}).get("content")
         if not content:
             raise RuntimeError(EMPTY_ANSWER)

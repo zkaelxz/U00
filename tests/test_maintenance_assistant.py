@@ -712,7 +712,7 @@ def test_a_failed_tier_offers_the_next_without_calling_it(dev_mode, real_build, 
     keys.add("gemini")
     engines = []
 
-    def boom(system_prompt, messages, engine, max_tokens=0):
+    def boom(system_prompt, messages, engine, max_tokens=0, usage_cb=None):
         engines.append(engine)
         raise raised
 
@@ -729,7 +729,7 @@ def test_an_ollama_that_is_not_running_reads_as_unreachable(dev_mode, real_build
     import qa
     from lib import http
 
-    def down(system_prompt, messages, engine, max_tokens=0):
+    def down(system_prompt, messages, engine, max_tokens=0, usage_cb=None):
         raise http.FetchError()
 
     monkeypatch.setattr(qa, "dispatch_chat", down)

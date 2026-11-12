@@ -9,7 +9,7 @@ import logging
 
 import db
 import source_change
-from engine_backends import engine_registry, pricing, llm_tasks
+from engine_backends import engine_registry, pricing, llm_tasks, paid_calls
 import translation_guide as tguide
 import word_replacements
 
@@ -60,7 +60,8 @@ def repair_stale_aligned_statuses() -> int:
 
 def _summary_engine_is_paid(summary_engine, summary_engine_choice) -> bool:
     name = summary_engine_choice or getattr(summary_engine, "name", "")
-    return (name not in engine_registry.FREE_ENGINES
+    # paid_calls.is_paid, not FREE_ENGINES: a hosted Ollama tag is billed too.
+    return (paid_calls.is_paid(name, summary_engine)
             and not getattr(summary_engine, "free_tier", False))
 
 
