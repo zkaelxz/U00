@@ -20,7 +20,7 @@ test('stage tabs show a tick, a dot or a ring by state, with the reason as the d
   await expect(mark('review')).toHaveText('○')
   await expect(mark('export')).toHaveText('○')
   // The mark is decoration: the link's name is still its label.
-  await expect(nav.getByRole('link', { name: 'Media', exact: true })).toBeVisible()
+  await expect(nav.getByRole('link', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(nav.getByRole('link', { name: /^Review/ })).toHaveAttribute('title', 'Review: Not done yet · 1 flagged')
 })
 
@@ -28,7 +28,7 @@ test('with no progress read there are no marks and no counts', async ({ page }) 
   await page.route('**/api/workflow/dramas/1/progress', (route) =>
     route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/#/drama/1/source')
-  await expect(page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Media', exact: true })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(page.locator('nav.stage-tabs .stage-mark')).toHaveCount(0)
   await expect(page.locator('nav.stage-tabs .stage-count:not(:empty)')).toHaveCount(0)
 })

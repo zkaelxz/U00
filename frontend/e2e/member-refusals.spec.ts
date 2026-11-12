@@ -116,7 +116,7 @@ test('Settings: a member gets no keys, engines or system tabs and no sharing lis
   await expect(page.locator('input[type="password"]')).toHaveCount(0)
   // Menu items is the member's own; it starts closed beside the open Sharing card.
   await page.getByRole('button', { name: 'Expand all' }).click()
-  await expect(page.getByRole('switch', { name: 'Discover' })).toHaveCount(1)
+  await expect(page.getByRole('switch', { name: 'Find' })).toHaveCount(1)
   await expect(page.getByText('Stronger translation for hard lines')).toHaveCount(0)
   // The admin-only per-item sharing list is hidden, not just refused.
   await expect(sharing.getByRole('list', { name: 'Titles and series' })).toHaveCount(0)

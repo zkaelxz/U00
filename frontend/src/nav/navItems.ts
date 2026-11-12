@@ -82,8 +82,8 @@ export const NAV_ITEMS: NavItem[] = [
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
-  item('Sources', { name: 'sources' }, { requires: 'library.read', feature: 'sources', rail: { group: 'find', active: ['sources', 'sources-manage'] } }),
-  item('Discover', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover'] } }),
+  // Discover and Sources are two tabs of one entry; each page carries the switch (pages/FindSwitch.tsx).
+  item('Find', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover', 'sources', 'sources-manage'] } }),
   item('Live', { name: 'live' }, { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
   // The header's Jobs button is the glance; this is the page.
   item('Jobs', { name: 'jobs' }, {

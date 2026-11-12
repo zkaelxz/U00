@@ -44,6 +44,7 @@ import {
 } from '../translateTabs'
 import { useSimple, useStage } from '../StageContext'
 import { foldsTranslateOptions, titleKind } from '../titleKind'
+import { stageLabel } from '../stages'
 import { useTranslateRunForm } from './useTranslateRunForm'
 import { MediaTabPanel } from './MediaTabPanel'
 import {
@@ -470,7 +471,7 @@ function RunPanel({
               <>
                 <span>Still needed: lines to translate.</span>
                 <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                  Go to Media
+                  Go to {stageLabel('source', titleKind(drama.media_type, drama.content_mode))}
                 </ButtonLink>
               </>
             )}

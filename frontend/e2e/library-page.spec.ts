@@ -165,9 +165,9 @@ test('line search without permission to read lines: a plain note, no error banne
 
 test('pasting a link in the start box opens New title with it filled in; titles wrap instead of being cut', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('button', { name: 'Start' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Add link' })).toBeDisabled()
   await page.getByLabel('Paste a link to start a title').fill('https://example.com/watch?v=abc')
-  await page.getByRole('button', { name: 'Start' }).click()
+  await page.getByRole('button', { name: 'Add link' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel(/^Link/)).toHaveValue('https://example.com/watch?v=abc')
   await page.keyboard.press('Escape')

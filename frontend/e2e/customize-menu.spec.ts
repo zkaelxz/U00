@@ -5,7 +5,7 @@ import { navLink, openSettingsGroups } from './settingsNav'
 
 // Settings > Menu items on the wide screen (left rail), against the seeded API (auth off).
 
-test('hiding Discover removes it from the rail, the address still loads and the choice survives a reload', async ({ page }) => {
+test('hiding Find removes it from the rail, the address still loads and the choice survives a reload', async ({ page }) => {
   await hideDiscoverFromSettings(page)
   await expectDiscoverGone(page)
 
@@ -17,8 +17,8 @@ test('hiding Discover removes it from the rail, the address still loads and the 
   // Switching it back on restores the link.
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Account and display')
-  await page.getByRole('region', { name: 'Menu items' }).getByRole('switch', { name: 'Discover' }).click()
-  await expect(navLink(page, 'Discover')).toBeVisible()
+  await page.getByRole('region', { name: 'Menu items' }).getByRole('switch', { name: 'Find' }).click()
+  await expect(navLink(page, 'Find')).toBeVisible()
 })
 
 test('Library and Settings are listed but locked on', async ({ page }) => {
