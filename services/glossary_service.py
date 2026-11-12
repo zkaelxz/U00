@@ -64,7 +64,7 @@ import csv
 
 import db
 import translation_guide as tguide
-from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, parse_glossary_file
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, glossary_to_json, parse_glossary_file
 from engine_backends.engine_registry import WORKFLOW_TIERS, effective_tier
 from services.glossary_common import (
     MAX_NOTES_LEN,
@@ -338,6 +338,14 @@ def glossary_csv(drama_id: int) -> str:
     sid = _series_id(drama, required=False)
     terms = db.list_effective_glossary_terms(sid) if sid else []
     return glossary_to_csv([{k: _csv_safe(v) for k, v in t.items()} for t in terms])
+
+
+def glossary_json(drama_id: int) -> str:
+    """glossary_csv's terms as JSON (the same series and shared-group fold); the importer reads
+    it back, so it can carry a glossary to another series."""
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=False)
+    return glossary_to_json(db.list_effective_glossary_terms(sid) if sid else [])
 
 
 def bulk_delete_glossary_terms(drama_id: int, term_ids: list, confirm: bool = False) -> dict:

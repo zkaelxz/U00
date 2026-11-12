@@ -323,6 +323,25 @@ class TestImportExportBulk:
         t = client.get(_url(did, "terms")).json()[0]
         assert (t["term_original"], t["term_translation"]) == ("'tis", "'Twas")
 
+    def test_export_json_round_trips_through_the_importer(self, client, isolated_db):
+        did = _drama(isolated_db)
+        client.post(_url(did, "terms"), json={**FULL, "aliases": ["沈疑", "清疑"], "banned_translations": ["Shen"]})
+        r = client.get(_url(did, "export.json"))
+        assert r.status_code == 200 and r.headers["content-type"].startswith("application/json")
+        assert "glossary%20%28en%29.json" in r.headers["content-disposition"]
+        row = r.json()[0]
+        assert row["term_original"] == "沈清疑" and row["enforce_exact"] is True
+        assert row["aliases"] == ["沈疑", "清疑"] and row["banned_translations"] == ["Shen"]
+        other = _drama(isolated_db, "T")
+        assert client.post(_url(other, "import"), json={"text": r.text, "filename": "g.json"}).json()["added"] == ["沈清疑"]
+        t = client.get(_url(other, "terms")).json()[0]
+        assert t["aliases"] == ["沈疑", "清疑"] and t["banned_translations"] == ["Shen"]
+
+    def test_export_json_empty_and_unknown(self, client, isolated_db):
+        did = _drama(isolated_db, series=False)
+        assert client.get(_url(did, "export.json")).json() == []
+        assert client.get(_url(999, "export.json")).status_code == 404
+
     def test_export_csv_empty_and_unknown(self, client, isolated_db):
         did = _drama(isolated_db, series=False)
         r = client.get(_url(did, "export.csv"))
