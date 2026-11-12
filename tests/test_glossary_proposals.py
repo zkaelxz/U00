@@ -251,3 +251,15 @@ class TestAliases:
         rows = {r["term_original"]: r for r in db.list_glossary_terms(sid)}
         assert rows["沈清"]["aliases"] == "阿清|小沈"
         assert not rows["青云宗"]["aliases"]
+
+    def test_merged_aliases_stay_within_what_the_editor_accepts(self, isolated_db):
+        did, sid = _drama(isolated_db)
+        stored = "|".join(f"a{i}" for i in range(48))
+        db.upsert_glossary_term(sid, "沈清", "Shen Qing", aliases=stored)
+        merged = glossary_extract_service._merged_aliases(
+            {"aliases": stored}, ["b1", "b2", "b3", "x" * 201, "has|bar"])
+        parts = merged.split("|")
+        assert len(parts) == 50 and parts[:48] == stored.split("|") and parts[48:] == ["b1", "b2"]
+        # Nothing is dropped from a list that is already longer than the cap.
+        long = "|".join(f"a{i}" for i in range(55))
+        assert glossary_extract_service._merged_aliases({"aliases": long}, ["new"]) == long

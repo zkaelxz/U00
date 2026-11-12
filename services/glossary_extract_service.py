@@ -20,7 +20,7 @@ import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
 from glossary_io import MIN_ALIAS_LEN, TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service, novel_files_service, paid_job_service
-from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text, split_term_conventions
+from services.glossary_common import MAX_ITEM_LEN, MAX_LIST_ITEMS, MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text, split_term_conventions
 from lib.errors import (
     ConflictError,
     InvalidInputError,
@@ -87,7 +87,10 @@ def _merged_aliases(current, proposed: list):
     if not proposed:
         return None
     kept = [a.strip() for a in str((current or {}).get("aliases") or "").split("|") if a.strip()]
-    return "|".join(dict.fromkeys(kept + proposed))
+    # The term editor refuses more than MAX_LIST_ITEMS aliases, so a merge that
+    # went past it would make the term impossible to save again.
+    fits = [a for a in proposed if len(a) <= MAX_ITEM_LEN and "|" not in a]
+    return "|".join(list(dict.fromkeys(kept + fits))[:max(MAX_LIST_ITEMS, len(kept))])
 
 
 def _normalize_proposals(proposals, known_terms, source_text: str = "") -> list:

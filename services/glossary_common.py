@@ -17,6 +17,8 @@ from services.ownership_service import require_drama as _drama  # noqa: F401  (t
 
 MAX_TERM_LEN = 200
 MAX_NOTES_LEN = 1000
+MAX_LIST_ITEMS = 50   # aliases or banned renderings per term
+MAX_ITEM_LEN = 200
 
 # Term conventions live as a trailing section of the project instructions text,
 # so the translate prompt carries them with no second channel, and backup and
