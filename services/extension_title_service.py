@@ -44,8 +44,8 @@ _NO_TITLE = ("No existing title matches this page. Pick a drama, or turn on crea
 _KINDS = ("comic", "novel")
 
 _NUMBER = r"[\d０-９一二三四五六七八九十百零]+"
-_CHAPTER_MARK = (rf"第\s*{_NUMBER}\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol|volume)\.?\s*[\d.]+"
-                 r"|[\d.]+\s*[화話话章]|#\s*\d+")
+_CHAPTER_MARK = (rf"第\s*{_NUMBER}\s*[章话話回集卷巻期]|(?:chapter|chap|ch|episode|ep|vol|volume)\.?\s*[\d.]+"
+                 r"|[\d.]+\s*[화話话章권巻卷]|#\s*\d+")
 _CHAPTER_ONLY = re.compile(rf"^(?:{_CHAPTER_MARK}|\d+)$", re.IGNORECASE)
 # A chapter mark inside brackets ("【第1話】Name") would otherwise be cut together with
 # everything after it, leaving only the opening bracket.

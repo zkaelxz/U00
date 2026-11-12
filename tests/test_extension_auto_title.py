@@ -345,3 +345,13 @@ def test_invisible_characters_do_not_split_one_series(token):
 ])
 def test_a_chapter_mark_inside_brackets_does_not_cut_the_name(raw, expected):
     assert titles._clean_candidate(raw, {"site"}) == expected
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("작품명 1권 - 리디", "작품명"),
+    ("[단행본] 작품명 12권 | Ridi", "[단행본] 작품명"),
+    ("作品名 第3巻 - Site", "作品名"),
+    ("作品名 2巻", "作品名"),
+])
+def test_a_volume_mark_is_not_part_of_the_name(raw, expected):
+    assert titles._clean_candidate(raw, {"site", "ridi", "리디"}) == expected
