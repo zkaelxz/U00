@@ -12,7 +12,7 @@ const BASE = {
   custom_source: false,
   app_update: 'none', app_update_here: true, app_size: null, app_download: 'idle', app_downloaded_bytes: 0,
   app_download_error: null, app_verified: false, app_verified_version: null, can_apply_app: false,
-  app_last_result: null, app_last_result_at: null,
+  app_last_result: null, app_last_result_at: null, app_rollback_library_changed: false, app_rollback_backup_at: null,
 }
 const AVAILABLE = {
   ...BASE, latest: '0.2.0', update_available: true, installer_name: 'BaiheStudio-Setup-0.2.0.exe',
@@ -136,6 +136,22 @@ test('the last app-only update says how it went', async ({ page }) => {
   await expect(card(page).getByTestId('update-app-result')).toHaveText(
     'Version 0.2.0 didn’t start, so Baihe Studio went back to 0.1.0.',
   )
+  await expect(card(page).getByTestId('update-app-rollback-backup')).toHaveCount(0)
+})
+
+test('a rollback after the newer version changed the library points at the backup', async ({ page }) => {
+  await mockUpdates(page, {
+    app_last_result:
+      'Version 0.2.0 didn’t start, so Baihe Studio went back to 0.1.0. Version 0.2.0 had already changed the library’s tables before it stopped.',
+    app_rollback_library_changed: true,
+    app_rollback_backup_at: '2026-11-12T10:00:00Z',
+  })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Notifications and backups')
+  const line = card(page).getByTestId('update-app-rollback-backup')
+  await expect(line).toContainText('The newest backup from before the update was taken')
+  const link = line.getByRole('link', { name: 'Open Backup to restore it' })
+  await expect(link).toHaveAttribute('href', '#/library-tools?tab=backup')
 })
 
 test('a copy with a release key says when the signature was verified', async ({ page }) => {

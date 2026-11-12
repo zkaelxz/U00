@@ -38,6 +38,15 @@ export function checkLine(s: UpdateStatus): string {
   return s.current ? 'You have the latest version.' : `The latest release is ${s.latest}.`
 }
 
+/** After a rolled-back update that changed the library: which backup to restore. */
+export function rollbackBackupLine(backupAt: string | null | undefined, locale?: string): string {
+  const when = backupAt ? new Date(backupAt) : null
+  if (!when || Number.isNaN(when.getTime())) {
+    return 'No backup from before the update is left to restore.'
+  }
+  return `The newest backup from before the update was taken ${when.toLocaleString(locale)}.`
+}
+
 export function downloadLine(s: UpdateStatus): string | null {
   if (s.download === 'downloading') {
     const of = s.size ? ` of ${formatDecimalBytes(s.size)}` : ''

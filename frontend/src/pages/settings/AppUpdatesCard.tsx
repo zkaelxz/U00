@@ -27,7 +27,7 @@ import type { UpdateStatus } from '../../types/update'
 import {
   APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, PRERELEASES_HELP, SERVICE_AUTO_APPLY_HELP, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
   PHONE_APP_NOTE, appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
-  downloadLine, installTarget, isDownloading, phoneAppLine, signatureLine, versionLine,
+  downloadLine, installTarget, isDownloading, phoneAppLine, rollbackBackupLine, signatureLine, versionLine,
 } from './updateModel'
 import { useInterval } from '../../hooks/useInterval'
 
@@ -153,6 +153,14 @@ function AppUpdatesControls() {
           {progress && <p role="status" data-testid="update-download-line">{progress}</p>}
           {status.app_last_result && (
             <p role="status" data-testid="update-app-result">{status.app_last_result}</p>
+          )}
+          {status.app_rollback_library_changed && (
+            <p data-testid="update-app-rollback-backup">
+              {rollbackBackupLine(status.app_rollback_backup_at)}
+              {status.app_rollback_backup_at && (
+                <>{' '}<a href="#/library-tools?tab=backup">Open Backup to restore it</a></>
+              )}
+            </p>
           )}
           {appLine && <p data-testid="update-app-line">{appLine}</p>}
           {(canDownloadApp(status) || status.can_apply_app) && !restarting && (
