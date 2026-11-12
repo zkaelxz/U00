@@ -21,6 +21,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -38,7 +39,8 @@
         <receiver
             android:name=".InstallResult"
             android:exported="false" />
-        <!-- Its own launcher entry: browse a comic site and send its pages to Baihe. -->
+        <!-- No launcher entry of its own, so the phone shows one icon; it is reached from the
+             Baihe icon's long-press shortcut, a link to another site, or Android's Share. -->
         <activity
             android:name=".GrabActivity"
             android:label="Baihe Grab"
@@ -46,10 +48,6 @@
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|keyboardHidden">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
