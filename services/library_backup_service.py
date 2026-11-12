@@ -25,7 +25,7 @@ import subtitle_formats
 from lib import sqlite_check
 from core import Line, lines_to_bilingual_srt, lines_to_srt
 from services import export_service, keep_original_service, vdb_names_service
-from services import library_translated_guard
+from services import library_translated_guard, novel_chapter_move_service
 from services import library_restore_service as lrs
 from services.library_admin_service import (BACKUP_JOB_ID, DATABASE_BACKUP_JOB_ID, EXPORT_JOB_ID,
                                             _artifact_dir, _check_ids, _refuse_duplicate,
@@ -179,7 +179,8 @@ def _backup_files(library_dir: str, skip: set, excluded: tuple) -> list:
             files = [f for f in files if f not in excluded]
         for fname in files:
             full = os.path.join(root, fname)
-            if full in skip or fname == ".env" or os.path.islink(full):
+            if (full in skip or fname in (".env", novel_chapter_move_service.LOCK_FILENAME)
+                    or os.path.islink(full)):
                 continue
             try:
                 size = os.path.getsize(full)
