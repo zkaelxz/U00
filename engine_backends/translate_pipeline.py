@@ -20,7 +20,9 @@ from .prompts import (MALE_PRONOUN_WORD, is_male_speaker_label, known_male_names
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
 from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
-from .translation_guard import allowed_source_runs, flag_unusable_replies, guard_batch
+from .translation_guard import (HEADER_NOTE, IMPERIAL_NOTE, NUMBER_NOTE, SCRIPT_LEAK_NOTE, added_chapter_header,
+                                allowed_source_runs, changed_number, converted_to_imperial, flag_unusable_replies,
+                                guard_batch, novel_script_leak, strip_invented_speaker_tag)
 from .shared import (
     ContentModerationBlocked,
     _backoff_wait_var,
@@ -28,6 +30,7 @@ from .shared import (
     call_with_backoff,
     keep_answers_across_retries,
     is_english_line,
+    keep_first_alternative,
     strip_echoed_label,
     tagged_line_languages,
     redact_secrets,
@@ -41,7 +44,7 @@ import source_change
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
                               locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
                               ollama_num_ctx_override: int | None = None, thinking: bool | None = None,
-                              temperature: float | None = None) -> dict:
+                              temperature: float | None = None, reasoning: str | None = None) -> dict:
     """The per-job context every engine's prompt is built from -- shared by
     the batch paths (runs, bulk submission, Compare, stronger engine, Manhua)
     so they send the same prompt. Live builds its own per-chunk context
@@ -49,7 +52,9 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
 
     thinking: let a model that can reason do so. None means the title's
     remembered choice, else off, so a run is fast and cheap by default;
-    engines without a request switch ignore it."""
+    engines without a request switch ignore it.
+    reasoning: "less" asks Claude (Sonnet 5.5) or OpenAI (Luna) to reason less (see
+    thinking.REASONING_MODES); None keeps the provider's default."""
     if thinking is None:
         thinking = title_thinking(drama_meta)
     return {
@@ -66,6 +71,7 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
         "source_language": (drama_meta or {}).get("source_language", "zh"),
         "ollama_num_ctx_override": ollama_num_ctx_override,
         "temperature": temperature,
+        "reasoning": reasoning,
     }
 
 
@@ -238,7 +244,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  translate_by_sentence=None, check_replies: bool | None = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
-                                 stop_before_batch=None, temperature: float | None = None):
+                                 stop_before_batch=None, temperature: float | None = None,
+                                 reasoning: str | None = None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -280,7 +287,7 @@ class _TranslateRun:
             self.engine, a.drama_meta, style_note=a.style_note, novel_reference=a.novel_reference,
             locale=a.locale, glossary_terms=a.glossary_terms, style_guidelines=a.style_guidelines,
             ollama_num_ctx_override=a.ollama_num_ctx_override, thinking=a.thinking,
-            temperature=a.temperature)
+            temperature=a.temperature, reasoning=a.reasoning)
         self.context["check_replies"] = a.check_replies
         self.size = a.batch_size or default_batch_size(self.engine)
         self.guard_enabled = (default_reply_guard(self.engine) if a.check_replies is None
@@ -524,7 +531,7 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = strip_echoed_label(self.character_names.get(ln.speaker), tr)
+                ln.en = keep_first_alternative(strip_echoed_label(self.character_names.get(ln.speaker), tr))
                 source_change.clear_for_new_english(ln)
                 self.translated.append(ln)
                 fresh.append(ln)
@@ -546,6 +553,11 @@ class _TranslateRun:
             # Only this attempt's replies: a line it left out still holds its
             # old English (maybe the user's edit), which must not be re-asked or flagged.
             self._guard_merged_or_shifted(fresh)
+        elif (allow_bisect and not self.groups and getattr(self.engine, "checks_replies", True)
+                and medium_prompts.kind_for(self.args.drama_meta) == "novel"):
+            # Source script in a novel is wrong whichever engine wrote it, so this
+            # one check does not follow the engines the general guard is off for.
+            self._guard_novel_script_leaks(fresh)
 
     _EMPTY_RETRY_DEPTH = 2
 
@@ -621,10 +633,20 @@ class _TranslateRun:
         glossary_check.enforce(chunk, self.args.glossary_terms, ask, self._should_stop,
                                self.allowed_runs)
 
-    def _guard_merged_or_shifted(self, chunk):
+    def _guard_novel_script_leaks(self, chunk):
+        leaking = [ln for ln in chunk if novel_script_leak(ln.en)]
+        if leaking:
+            guard_batch(leaking, self._reask(), self._should_stop, novel=True)
+
+    def _reask(self):
         def redo(lines_to_redo):
+            context = self._context_for(lines_to_redo)
+            if any(novel_script_leak(ln.en) for ln in lines_to_redo):
+                # The style profile can ask for a character to stay as written; the
+                # retry has to say that never applies to the English prose.
+                context = dict(context, script_correction=True)
             try:
-                return self._call_engine(lines_to_redo, self._context_for(lines_to_redo))
+                return self._call_engine(lines_to_redo, context)
             except TranslationCancelled:
                 return None
             except Exception as e:
@@ -636,7 +658,10 @@ class _TranslateRun:
                 import applog
                 applog.get_logger().warning(f"merge/shift re-ask skipped for batch {self.bi}: {redacted}")
                 return None
+        return redo
 
+    def _guard_merged_or_shifted(self, chunk):
+        redo = self._reask()
         novel = medium_prompts.kind_for(self.args.drama_meta) == "novel"
         for ln, reason in guard_batch(chunk, redo, self._should_stop, self.allowed_runs, novel):
             # The merged-or-shifted note would be wrong for a lost quote, so that is retried only.
@@ -644,12 +669,28 @@ class _TranslateRun:
                 ln.flag = "uncertain_translation"
                 ln.flag_note = MERGE_SHIFT_FLAG_NOTE
 
+    @staticmethod
+    def _clean_novel_replies(chunk):
+        for ln in chunk:
+            ln.en = strip_invented_speaker_tag(ln.zh, ln.en)
+            # Leaked script is certain, so it replaces the guard's softer "merged or shifted" note.
+            if novel_script_leak(ln.en) and (not ln.flag or ln.flag == "uncertain_translation"):
+                ln.flag = "uncertain_translation"
+                ln.flag_note = SCRIPT_LEAK_NOTE
+            for note, found in ((IMPERIAL_NOTE, converted_to_imperial), (NUMBER_NOTE, changed_number),
+                                (HEADER_NOTE, added_chapter_header)):
+                if not ln.flag and found(ln.zh, ln.en):
+                    ln.flag = "uncertain_translation"
+                    ln.flag_note = note
+
     def _translate_batch(self, batch):
         wait_token = _backoff_wait_var.set(self._on_wait if self.args.detail_cb else None)
         self.hard_failures.clear()
         translated_before = len(self.translated)
         try:
             self._process_chunk(batch, allow_bisect=True)
+            if medium_prompts.kind_for(self.args.drama_meta) == "novel":
+                self._clean_novel_replies(self.translated[translated_before:])
             if self.args.glossary_terms and len(self.translated) > translated_before:
                 self._check_glossary(self.translated[translated_before:])
         finally:

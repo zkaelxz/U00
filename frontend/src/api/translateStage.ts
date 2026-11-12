@@ -17,11 +17,13 @@ import type {
   GlossaryAffectedRunStarted,
   GlossaryCatalogues,
   GlossaryInstructions,
+  InstructionsDraft,
   GlossaryBulkDeleteResult,
   GlossaryImportBody,
   GlossaryImportResult,
   GlossaryNameClusters,
   GlossaryTerm,
+  WordReplacement,
   GlossaryTermUpsert,
   GlossaryVariants,
   NameConsistency,
@@ -47,7 +49,7 @@ import type {
 import type { JobCancelResult } from '../types/jobs'
 import type { LibraryPreset, ProfileField } from '../types/library'
 import type { TranslateEngine } from '../types/translate'
-import { apiUrl, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
+import { apiUrl, deleteJson, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 export function buildEstimateQuery(p: EstimateParams): string {
@@ -126,6 +128,12 @@ export const cancelBulkTranslation = (id: number, bulkJobId: number, f?: Fetch) 
 
 export const getGlossaryTerms = (id: number, f?: Fetch) =>
   getJson<GlossaryTerm[]>(`/api/glossary/dramas/${id}/terms`, f)
+export const getWordReplacements = (id: number, f?: Fetch) =>
+  getJson<WordReplacement[]>(`/api/glossary/dramas/${id}/word-replacements`, f)
+export const saveWordReplacement = (id: number, body: { find_text: string; replace_text: string }, f?: Fetch) =>
+  postJson<WordReplacement>(`/api/glossary/dramas/${id}/word-replacements`, body, f)
+export const deleteWordReplacement = (id: number, replacementId: number, f?: Fetch) =>
+  deleteJson<{ deleted: number[] }>(`/api/glossary/dramas/${id}/word-replacements/${replacementId}`, f)
 export const saveGlossaryTerm = (id: number, term: GlossaryTermUpsert, f?: Fetch) =>
   postJson<GlossaryTerm>(`/api/glossary/dramas/${id}/terms`, term, f)
 /** Other spellings of `term` in the source lines (read-only, no engine, no cost). */
@@ -145,10 +153,13 @@ export const importGlossary = (id: number, body: GlossaryImportBody, f?: Fetch) 
   postJson<GlossaryImportResult>(`/api/glossary/dramas/${id}/import`, body, f)
 /** A plain download link (Content-Disposition: attachment). */
 export const glossaryCsvUrl = (id: number) => apiUrl(`/api/glossary/dramas/${id}/export.csv`)
+export const glossaryJsonUrl = (id: number) => apiUrl(`/api/glossary/dramas/${id}/export.json`)
 export const getGlossaryCatalogues = (f?: Fetch) =>
   getJson<GlossaryCatalogues>('/api/glossary/catalogues', f)
 export const getInstructions = (id: number, f?: Fetch) =>
   getJson<GlossaryInstructions>(`/api/glossary/dramas/${id}/instructions`, f)
+export const draftInstructions = (id: number, f?: Fetch) =>
+  postJson<InstructionsDraft>(`/api/glossary/dramas/${id}/instructions/draft`, {}, f)
 export const saveInstructions = (id: number, scope: 'project' | 'series', text: string, f?: Fetch) =>
   postJson<GlossaryInstructions>(`/api/glossary/dramas/${id}/instructions/${scope}`, { text }, f)
 

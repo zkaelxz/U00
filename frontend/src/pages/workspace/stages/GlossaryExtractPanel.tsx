@@ -1,3 +1,5 @@
+import { ChapterScope } from './ChapterScope'
+import { ScanAllChapters } from './ScanAllChapters'
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { hasStatus } from '../../../api/client'
@@ -83,6 +85,8 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
   // null = the default selection for the current proposals.
   const { picked, setPicked, edits, setEdits } = useRunSelection(dramaId, source, run)
   const [overwrite, setOverwrite] = useState(false)
+  // From lines only: scan one saved chapter instead of the whole title.
+  const [chapter, setChapter] = useState<number | null>(null)
   // From novel only; not remembered, so a paid re-run is always a choice.
   const [fresh, setFresh] = useState(false)
   const [confirming, setConfirming] = useRunScoped(run, false)
@@ -121,7 +125,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
     setPicked(null)
     setEdits({})
     setConfirming(false)
-    startExtraction(dramaId, source, { fresh: source === 'novel' && fresh })
+    startExtraction(dramaId, source, { fresh: source === 'novel' && fresh, chapter: source === 'lines' ? chapter ?? undefined : undefined })
       .then((r) => {
         setProblem(r.problem)
         setError(r.error)
@@ -214,9 +218,11 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       <div className="suggest-bar">
         <span className="suggest-bar-label">Suggest terms from</span>
         {picker}
+        {source === 'lines' && <ChapterScope dramaId={dramaId} value={chapter} onChange={setChapter} />}
+        {source === 'lines' && <ScanAllChapters dramaId={dramaId} />}
         {!active && (
           <button type="button" className={buttonClass('secondary')} disabled={!!blocker || !ready || busy} onClick={start}>
-            {suggestButtonLabel(proposals.length > 0 || hasTerms)}
+            {chapter ? 'Scan this chapter' : suggestButtonLabel(proposals.length > 0 || hasTerms)}
           </button>
         )}
       </div>
@@ -224,7 +230,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       {reasons}
       {active && status && (
         <p className="actions" role="status" data-testid={`${text.testId}-running`}>
-          <span>{extractionProgressText(source, status.status, status.progress)}</span>
+          <span>{extractionProgressText(source, status.status, status.progress, status.message)}</span>
           <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status || !status.run_id} onClick={cancel}>
             Cancel
           </button>
@@ -242,7 +248,9 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       )}
       {status?.status === 'error' && (
         <p className="error" role="alert">
-          {safeDetail(status.message) ?? 'Extraction failed. Details are in the app log.'}
+          {safeDetail(status.message) ?? 'Extraction failed. Details are in the app log.'}{' '}
+          This uses the title's saved engine, not the one picked for a single run. Change it by choosing a tier or profile under Style on the{' '}
+          <a href={`#/drama/${dramaId}/translate`}>Translate tab</a>.
         </p>
       )}
       {status?.status === 'cancelled' && <p className="muted">Extraction was cancelled.</p>}

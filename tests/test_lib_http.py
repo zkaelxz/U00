@@ -456,14 +456,23 @@ def _serve_calls(monkeypatch, *responses):
 
 
 @pytest.mark.parametrize("status", [307, 308])
-def test_a_307_or_308_keeps_the_post_method_and_body(monkeypatch, status):
-    calls = _serve_calls(monkeypatch, Resp(status, headers={"Location": "https://other.example/x"}),
-                         Resp(200, b"ok"))
+def test_a_307_or_308_keeps_the_post_method_and_body_on_the_same_origin(monkeypatch, status):
+    calls = _serve_calls(monkeypatch, Resp(status, headers={"Location": "/x"}), Resp(200, b"ok"))
     http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None,
-              headers={"Authorization": "k", "Accept": "a/b"}, json={"q": 1})
+              headers={"Authorization": "k"}, json={"q": 1})
     assert [c[1] for c in calls] == ["POST", "POST"]
     assert calls[1][3] == {"json": {"q": 1}}
-    assert calls[1][2] == {"Accept": "a/b"}  # credentials still stripped cross-origin
+    assert calls[1][2] == {"Authorization": "k"}
+
+
+@pytest.mark.parametrize("status", [307, 308])
+@pytest.mark.parametrize("kw", [{"json": {"q": 1}}, {"data": b"x"}])
+def test_a_307_or_308_to_another_origin_is_refused_when_it_carries_a_body(monkeypatch, status, kw):
+    calls = _serve_calls(monkeypatch, Resp(status, headers={"Location": "https://other.example/x"}),
+                         Resp(200, b"ok"))
+    with pytest.raises(http.FetchError):
+        http.post("https://a.example/", timeout=5, max_bytes=100, guard=lambda u: None, **kw)
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize("status", [301, 302, 303])

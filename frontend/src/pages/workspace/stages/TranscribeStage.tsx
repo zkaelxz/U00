@@ -46,7 +46,7 @@ import { PreflightCard } from '../../preflight/PreflightCard'
 import { NeedRows, type ListedNeed } from '../../readiness/NeedRows'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
 import { QWEN3_BACKENDS, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
-import { useStage } from '../StageContext'
+import { useSimple, useStage } from '../StageContext'
 import type { MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { AutoTune } from './AutoTune'
@@ -74,6 +74,7 @@ const WHISPER_LABELS: Record<string, string> = {
   'large-v3-turbo': 'Faster',
   'ja-1.5b': 'Japanese only: whisper-ja 1.5B, anime and games, opt-in, about 3 GB, needs a GPU',
   'kotoba-v2': 'Japanese only: kotoba-whisper v2.0, opt-in, about 1.5 GB, fast; line timing only',
+  'breeze-asr-25': 'Chinese only: Breeze-ASR-25 (Taiwanese Mandarin), opt-in, about 3 GB',
 }
 // Download sizes, mirrored from services/transcribe_pipeline._MODEL_DOWNLOAD_SIZES for the two models the picker offers.
 const WHISPER_DOWNLOAD: Record<string, string> = { 'large-v3': 'about 3 GB', 'large-v3-turbo': 'about 1.6 GB' }
@@ -119,6 +120,7 @@ export default function TranscribeStage({
   tab, goTab, transcriptMode, media, file, confirmReplace, replaceUnconfirmed, onReplaceRefused, busy, showRawNovel = true, onJobStarted, onSendFailed, retryRef,
 }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
+  const simple = useSimple()
   const developerMode = useDeveloperMode()
   const pc = usePcOnly()
   const { readiness, refresh: refreshReadiness } = useReadiness()
@@ -465,7 +467,7 @@ export default function TranscribeStage({
   // What the settings on screen need from this PC (unknown readiness needs nothing: the server still refuses).
   const needsForm: TranscribeNeedsForm | null = cf
     ? {
-        backend: cf.asr_backend_choice, separateVocals: cf.separate_vocals_first, separationBackend: cf.separation_backend,
+        backend: cf.asr_backend_choice, separateVocals: cf.separate_vocals_first,
         alignmentMethod: cf.alignment_method, realignLong: cf.realign_long_segments, useGroq: cf.use_groq,
         runDiarize, language, mode: mode ?? 'whisper',
       }
@@ -684,7 +686,8 @@ export default function TranscribeStage({
         )}
       </MediaTabPanel>
       <MediaTabPanel id="tools" shownOn="transcribe" active={tab}>
-        {cf && (
+        {/* Simple leaves the tuning out, but a highlighted field must stay reachable. */}
+        {cf && !(simple && !fieldProblem) && (
           <TranscribeAdvanced
             dramaId={dramaId}
             cf={cf}

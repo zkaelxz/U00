@@ -67,11 +67,11 @@ def test_qwen3_asr_needs_torch_soundfile_and_new_enough_transformers(monkeypatch
 
 
 def test_package_flags_follow_the_import_names(monkeypatch, bare_pc):
-    present = {"faster_whisper", "audio_separator", "demucs", "pyannote.audio", "onnxruntime", "openai",
+    present = {"faster_whisper", "audio_separator", "pyannote.audio", "onnxruntime", "openai",
                "yt_dlp", "pypdf", "genanki", "jieba", "ebooklib", "cv2"}
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name in present)
     body = svc.get_readiness()
-    for flag in ("faster_whisper", "audio_separator", "demucs", "pyannote", "onnxruntime", "openai",
+    for flag in ("faster_whisper", "audio_separator", "pyannote", "onnxruntime", "openai",
                  "yt_dlp", "pypdf", "genanki", "jieba", "ebooklib", "cv2"):
         assert body[flag] is True, flag
     assert body["sudachi"] is False and body["kiwi"] is False and body["anthropic"] is False
@@ -83,6 +83,7 @@ def test_whisper_cache_flags_cover_each_live_size(monkeypatch, bare_pc):
     assert {k: v for k, v in body.items() if k.startswith("whisper_cached_")} == {
         "whisper_cached_tiny": False, "whisper_cached_base": False, "whisper_cached_small": True,
         "whisper_cached_medium": False, "whisper_cached_large_v3_turbo": True, "whisper_cached_large_v3": False,
+        "whisper_cached_ja_15b": False,
     }
     assert {svc.whisper_cached_flag(s) for s in whisper_models.LIVE_WHISPER_SIZES} <= set(body)
 
@@ -237,3 +238,10 @@ def test_route_fields_match_the_service(isolated_db, bare_pc):
     client = TestClient(_app(), base_url=REMOTE, raise_server_exceptions=False)
     r = client.get("/api/setup/readiness", headers=_headers(_member()))
     assert set(r.json()) == set(svc.get_readiness())
+
+
+def test_the_japanese_live_model_has_a_valid_cached_flag():
+    from api.schemas import SetupReadiness
+    flag = svc.whisper_cached_flag("ja-1.5b")
+    assert flag == "whisper_cached_ja_15b"
+    assert flag in SetupReadiness.model_fields

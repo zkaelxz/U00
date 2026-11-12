@@ -1,35 +1,23 @@
 """
 audio_preprocess.py -- optional audio preprocessing before transcription:
-vocal separation (stripping background music) via Demucs.
+vocal separation (stripping background music) via a Mel-Band RoFormer vocal
+model run through audio-separator, plus an optional loudness-levelling pass.
 
 WHY THIS EXISTS: Whisper's accuracy on audio dramas/livestreams with a
-music bed under the dialogue is meaningfully worse than on clean speech
--- a real, independently-confirmed gap (this app had no preprocessing
-step at all before this, and a comparable project turned to an
-OBS-level, GPU-vendor-specific noise filter for exactly this reason,
-because nothing at the Python/pipeline level existed to reach for). A
-generic noise-reduction filter (spectral gating, hiss/static removal)
-doesn't actually solve this -- background music isn't noise in that
-sense, it's a second, structured audio source mixed into the same
-track. Demucs is a real source-separation model, trained specifically
-to split a mixed track into vocals/drums/bass/other stems; keeping only
-the vocals stem is what actually gets a music bed out of Whisper's way.
+music bed under the dialogue is meaningfully worse than on clean speech.
+A generic noise-reduction filter (spectral gating, hiss/static removal)
+doesn't solve this -- background music isn't noise in that sense, it's a
+second, structured audio source mixed into the same track. A source
+separation model splits the mix into stems; keeping only the vocals stem
+is what gets the music bed out of Whisper's way.
 
-Deliberately opt-in, not run automatically on every transcription:
-Demucs is a full neural network pass over the whole file (real time
-added, roughly comparable to Whisper's own pass), and it downloads its
-own model (~80MB for the default htdemucs) on first use. Clean
-dialogue-only audio with no music bed gets no benefit from running it
--- there's nothing to separate out, so it would only cost time.
+Deliberately opt-in, not run automatically on every transcription: it is a
+full neural network pass over the whole file, and it drops short fillers and
+quiet speech on some titles (docs/asr-experiments.md has the measurements).
+Clean dialogue-only audio gets no benefit from it.
 
-Requires: `pip install demucs` (pulls in torch/torchaudio, already a
-transitive dependency of faster-whisper elsewhere in this app).
-
-A second, preferred backend is `audio-separator` (MIT,
-https://github.com/nomadkaraoke/python-audio-separator) running a Mel-Band
-RoFormer vocal model, which gives cleaner vocals than Demucs on content
-with a music bed. Demucs's own repo is archived and no longer maintained,
-so it stays only as the fallback. Requires `pip install audio-separator`.
+Requires `pip install audio-separator` (MIT,
+https://github.com/nomadkaraoke/python-audio-separator).
 """
 import os
 import shutil
@@ -53,15 +41,11 @@ MEL_ROFORMER_VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
 MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
     os.path.expanduser("~"), ".cache", "audio-separator-models")
 
-# Neither backend exposes a per-chunk callback of its own (each
-# is one opaque call over the whole file), so real progress and a
-# genuine mid-run cancel are done outside the backend -- split the input
-# into overlapping windows, run each one through the backend separately,
-# and recombine with a short linear crossfade at each boundary so the
-# seam isn't audible.
-# demucs' htdemucs model is one torch.hub checkpoint with this name.
-HTDEMUCS_CHECKPOINT = "955717e8-8726e21a.th"
-
+# audio-separator exposes no per-chunk callback (it is one opaque call over
+# the whole file), so real progress and a genuine mid-run cancel are done
+# outside it -- split the input into overlapping windows, run each one
+# through it separately, and recombine with a short linear crossfade at each
+# boundary so the seam isn't audible.
 DEFAULT_CHUNK_SECONDS = 30.0
 DEFAULT_CHUNK_OVERLAP_SECONDS = 1.0
 
@@ -73,8 +57,7 @@ DEFAULT_CHUNK_OVERLAP_SECONDS = 1.0
 # "<model>.part-<pid>-<uuid>" marker beside the model says "a download is in
 # flight". A file is only ever deleted when it fails _checkpoint_ok, so a
 # complete model survives a failed load (out of memory, wrong device) and a
-# stale marker next to it. Demucs needs no guard: torch.hub downloads to a
-# temp file in the same directory and renames it only once complete.
+# stale marker next to it.
 _PART_MARK = ".part-"
 # Far below the real size (~900 MB for the RoFormer vocal model); only
 # catches a zero-length or obviously cut-off file.
@@ -417,45 +400,26 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
                     progress_cb=None, cancel_check_cb=None,
                     use_gpu=None, event_cb=None) -> str:
     """Writes just the vocals of audio_path to out_path and returns
-    out_path. backend: "auto" tries Mel-Band RoFormer (audio-separator)
-    first and falls back to Demucs if it's missing or fails; naming a
-    backend uses only that one.
+    out_path, using Mel-Band RoFormer through audio-separator.
+
+    backend: "auto" and "audio_separator" are the same engine. "demucs" is
+    accepted as the same engine too: a title, series default or saved profile
+    written while Demucs existed can still hold it, and must keep running.
 
     progress_cb, if given, is called with a 0..1 fraction as separation
     proceeds chunk by chunk. cancel_check_cb, if given, is checked
-    before each chunk starts; a True result raises VocalSeparationCancelled
-    (never treated as a failure worth falling back to the other backend
-    for).
+    before each chunk starts; a True result raises VocalSeparationCancelled.
 
-    use_gpu=False keeps Demucs on the CPU and makes audio-separator refuse (None leaves the library's own
+    use_gpu=False makes audio-separator refuse (None leaves the library's own
     choice). event_cb(event, value), if given, reports "loading" (the
     backend name, before the model is downloaded/loaded, which cannot report
     progress) and "device" ("gpu" or "cpu", once the model is loaded)."""
-    order = {"auto": ("audio_separator", "demucs")}.get(backend, (backend,))
-    from lib import model_offline
-    # Offline (a run started away from the PC) "auto" falls back to Demucs only
-    # when its weights are there: torch.hub ignores the Hugging Face switches.
-    skipped_fallback = (backend == "auto" and model_offline.active()
-                        and not model_offline.torch_hub_checkpoint(HTDEMUCS_CHECKPOINT))
-    if skipped_fallback:
-        order = ("audio_separator",)
-    errors = []
-    runners = [_BACKENDS[name] for name in order]  # an unknown name fails before anything else
-    # Before the loop: a refusal must not be mistaken for a backend failure
-    # and retried on the other backend.
+    if backend in ("auto", "demucs"):
+        backend = "audio_separator"
+    run = _BACKENDS[backend]  # an unknown name fails before anything else
     memory_headroom.check_separation(use_gpu)
-    for run in runners:
-        try:
-            return run(audio_path, out_path, progress_cb=progress_cb,
-                       cancel_check_cb=cancel_check_cb,
-                       use_gpu=use_gpu, event_cb=event_cb)
-        except VocalSeparationCancelled:
-            raise
-        except VocalSeparationError as exc:
-            errors.append(str(exc))
-    if skipped_fallback:
-        errors.append(model_offline.NOT_DOWNLOADED_MESSAGE)
-    raise VocalSeparationError("\n".join(errors))
+    return run(audio_path, out_path, progress_cb=progress_cb,
+               cancel_check_cb=cancel_check_cb, use_gpu=use_gpu, event_cb=event_cb)
 
 
 def separate_vocals_audio_separator(audio_path: str, out_path: str,
@@ -475,7 +439,7 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         # Separator picks CUDA/MPS itself whenever torch reports one and has no
         # constructor argument to stay on the CPU, so refuse rather than use the GPU.
         raise VocalSeparationError(
-            "audio-separator can't be limited to the CPU here. Use Demucs, or turn GPU on.")
+            "audio-separator can't be limited to the CPU here. Turn GPU on to separate vocals.")
 
     work_dir = tempfile.mkdtemp(prefix="baihe_separator_", dir=os.path.dirname(out_path) or None)
     try:
@@ -515,56 +479,6 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         return out_path
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
-
-
-def separate_vocals_demucs(audio_path: str, out_path: str, model: str = "htdemucs",
-                           progress_cb=None, cancel_check_cb=None,
-                           use_gpu=None, event_cb=None) -> str:
-    """
-    Runs Demucs source separation on audio_path and writes just its
-    vocals stem to out_path -- everything else Demucs identifies
-    (background music, incidental sound effects) is discarded. Returns
-    out_path, for chaining directly into whatever reads audio next
-    (transcribe_for_timing expects exactly this: a path to an audio file).
-
-    model: which Demucs model to use. "htdemucs" (the default, a hybrid
-    transformer architecture) is Demucs' own recommended general-purpose
-    choice; "htdemucs_ft" is a fine-tuned variant that's noticeably
-    slower (it runs multiple passes internally) but sometimes cleaner --
-    worth trying if htdemucs's separation still leaves audible music
-    bleeding through on a particular source.
-
-    The model is loaded once (via Separator(model=model)) and reused
-    across every chunk, not reloaded per chunk.
-    """
-    try:
-        from demucs.api import Separator, save_audio
-    except ImportError as exc:
-        raise VocalSeparationError(
-            "Vocal separation needs Demucs: pip install demucs") from exc
-
-    if event_cb:
-        event_cb("loading", "demucs")
-    # Demucs picks CUDA on its own when torch has it; honour "GPU off".
-    separator = Separator(model=model, device="cpu") if use_gpu is False else Separator(model=model)
-    if event_cb:
-        event_cb("device", _device_kind(getattr(separator, "_device", None)))
-
-    def _process_chunk(chunk_path, chunk_out_path):
-        try:
-            _origin, separated = separator.separate_audio_file(chunk_path)
-        except Exception as exc:
-            raise VocalSeparationError(
-                f"Demucs failed to separate '{chunk_path}': {exc}") from exc
-        if "vocals" not in separated:
-            raise VocalSeparationError(
-                f"Demucs model '{model}' didn't produce a vocals stem (got: "
-                f"{', '.join(separated.keys())} instead) -- pick a different model.")
-        save_audio(separated["vocals"], chunk_out_path, samplerate=separator.samplerate)
-
-    _separate_vocals_chunked(audio_path, out_path, _process_chunk,
-                             progress_cb=progress_cb, cancel_check_cb=cancel_check_cb)
-    return out_path
 
 
 def _separate_vocals_chunked(audio_path: str, out_path: str, process_chunk_fn,
@@ -637,4 +551,4 @@ def _crossfade_append(prev, nxt, overlap_samples: int):
     return np.concatenate([prev[:-overlap_samples], blended, nxt[overlap_samples:]], axis=0)
 
 
-_BACKENDS = {"audio_separator": separate_vocals_audio_separator, "demucs": separate_vocals_demucs}
+_BACKENDS = {"audio_separator": separate_vocals_audio_separator}

@@ -278,3 +278,32 @@ def delete_glossary_term(term_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("DELETE FROM glossary_terms WHERE id = ?", (term_id,))
         conn.commit()
+
+
+def list_word_replacements(series_id: int) -> list:
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute("SELECT id, find_text, replace_text FROM word_replacements "
+                            "WHERE series_id = ? ORDER BY id", (series_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_word_replacement(series_id: int, find_text: str, replace_text: str) -> dict:
+    """Adds a replacement, or changes the text an existing one for the same find
+    text swaps in."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("""
+            INSERT INTO word_replacements (series_id, find_text, replace_text) VALUES (?, ?, ?)
+            ON CONFLICT(series_id, find_text) DO UPDATE SET replace_text = excluded.replace_text
+        """, (series_id, find_text, replace_text))
+        conn.commit()
+        row = conn.execute("SELECT id, find_text, replace_text FROM word_replacements "
+                           "WHERE series_id = ? AND find_text = ?", (series_id, find_text)).fetchone()
+    return dict(row)
+
+
+def delete_word_replacement(series_id: int, replacement_id: int) -> bool:
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("DELETE FROM word_replacements WHERE id = ? AND series_id = ?",
+                           (replacement_id, series_id))
+        conn.commit()
+        return cur.rowcount == 1

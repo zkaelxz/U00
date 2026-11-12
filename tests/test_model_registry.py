@@ -341,17 +341,17 @@ class TestOfferProviderModels:
         assert len(self._models("gemini")["models"]) == len(pricing.GEMINI_MODELS) + 1
         assert self._models("deepseek")["models"] == ["deepseek-flash", "deepseek-v5"]
 
-    def test_openai_offers_only_listed_gpt5_and_later_chat_models(self, isolated_db):
+    def test_openai_offers_only_listed_gpt6_and_later_chat_models(self, isolated_db):
         db.set_app_setting("offer_provider_models", True)
-        listed = ["gpt-5-mini", "gpt-6-luna", "gpt-5.6-luna", "gpt-4", "gpt-4o", "o3",
+        listed = ["gpt-5-mini", "gpt-6-luna", "gpt-6-mars", "gpt-6.2-luna", "gpt-4", "gpt-4o", "o3",
                   "gpt-5-codex", "gpt-5-pro", "gpt-realtime-2", "gpt-5-mini-tts",
                   "gpt-image-2", "whisper-1", "text-embedding-4", "gpt-6-Bad Id"]
         db.set_app_setting(svc.CHECK_CACHE_KEY, json.dumps({
             "checked_at": "2026-10-01T00:00:00", "engines": {"openai": {"ok": True, "models": listed}}}))
         o = self._models("openai")
-        assert o["models"] == list(pricing.OPENAI_MODELS) + ["gpt-6-luna", "gpt-5.6-luna"]
-        assert "high ceiling" in o["model_labels"]["gpt-6-luna"]
-        assert svc._override_error("openai", "gpt-6-luna") is None
+        assert o["models"] == list(pricing.OPENAI_MODELS) + ["gpt-6-mars", "gpt-6.2-luna"]
+        assert "high ceiling" in o["model_labels"]["gpt-6-mars"]
+        assert svc._override_error("openai", "gpt-6-mars") is None
         assert svc._override_error("openai", "gpt-4") is not None
 
     def test_never_calls_network(self, isolated_db, monkeypatch):
@@ -561,6 +561,13 @@ class TestModelOverrides:
         self._cache(deepseek=["deepseek-flash", "deepseek-v4-pro", "deepseek-embed-1", "other-2"])
         item = self._default_item("deepseek")
         assert item["candidates"] == ["deepseek-v4-pro"]
+
+    def test_ollama_default_can_be_switched_to_another_picker_model(self, isolated_db):
+        item = self._default_item("ollama")
+        assert item["candidates"] == ["translategemma:12b"]
+        svc.set_model_override("default", "ollama", item["model"], "translategemma:12b")
+        assert engine_registry.get_engine("ollama", None).model == "translategemma:12b"
+
 
 def test_an_oversized_model_list_is_refused(monkeypatch):
 

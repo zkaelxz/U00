@@ -10,9 +10,9 @@ describe('installAllPlan', () => {
     const plan = installAllPlan([
       need({ action: 'install_whisper', packages: ['faster_whisper'] }),
       need({ action: 'install_gpu_torch' }),
-      need({ packages: ['demucs', 'audio-separator'] }),
+      need({ packages: ['audio-separator'] }),
     ], ['faster_whisper'])
-    expect(plan).toEqual({ gpuTorch: true, keys: ['faster_whisper', 'demucs', 'audio-separator'] })
+    expect(plan).toEqual({ gpuTorch: true, keys: ['faster_whisper', 'audio-separator'] })
   })
 
   it('lists a shared package once and skips tokens and separate programs', () => {

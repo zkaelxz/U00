@@ -207,7 +207,7 @@ Evidence:
 - The primary sits between an "Upload" secondary and "Detect speakers only".
 - "Still needed: the transcript text." points at a field below the fold (`TranscribeStage.tsx:280-287, 340-344`; `ws-source-desktop.png`).
 - Expected, Min and Max speakers are always shown even though Min and Max only apply to "Detect speakers only" (`:329-337`, help text).
-- Raw option labels `whisper_diff`, `qwen3_forced_align`, `qwen3_asr`, `audio_separator`, `demucs`, `tesseract`, `paddle` (`:360-363`).
+- Raw option labels `whisper_diff`, `qwen3_forced_align`, `qwen3_asr`, `audio_separator`, `tesseract`, `paddle` (`:360-363`).
 - Checkboxes at `:266-271` and `:345-347`.
 
 | Task | Current | Proposed |

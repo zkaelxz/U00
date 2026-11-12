@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
+import { LIVE_DEFAULT_MODEL } from '../../api/live'
 import type { SetupReadiness } from '../../types/setup'
 import {
-  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
-  browserTierNeed, mlDetectorNeed, notifyNeed, ocrBackendNeed, trafilaturaNeed,
+  ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
+  browserTierNeed, mlDetectorNeed, notifyNeed, ollamaNeed, ocrBackendNeed, trafilaturaNeed,
   scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
 // A fresh GPU server: almost nothing optional is installed.
 const FRESH: SetupReadiness = {
   faster_whisper: false, torch: false, torchaudio: false, uroman: false, soundfile: false, audio_separator: false,
-  demucs: false, pyannote: false, onnxruntime: false, openai: false, anthropic: false, yt_dlp: false, pypdf: false,
+  pyannote: false, onnxruntime: false, openai: false, anthropic: false, yt_dlp: false, pypdf: false,
   genanki: false, ebooklib: false, cv2: false, jieba: false, sudachi: false, kiwi: false, nagisa: false, soynlp: false,
   pytesseract: false, paddle_ocr: false, transformers_ok: false, qwen3_asr: false, ffmpeg: true, ffmpeg_libass: true,
   js_runtime: false, tesseract_program: false, manga_ocr: false, plyer: false, trafilatura: false, playwright: false,
@@ -18,12 +19,12 @@ const FRESH: SetupReadiness = {
   key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false,
   ollama_reachable: false, ollama_model_pulled: false,
   whisper_cached_tiny: false, whisper_cached_base: false, whisper_cached_small: false, whisper_cached_medium: false,
-  whisper_cached_large_v3_turbo: false, whisper_cached_large_v3: false,
+  whisper_cached_large_v3_turbo: false, whisper_cached_large_v3: false, whisper_cached_ja_15b: false,
 }
 const READY: SetupReadiness = Object.fromEntries(Object.keys(FRESH).map((k) => [k, true])) as unknown as SetupReadiness
 
 const FORM: TranscribeNeedsForm = {
-  backend: 'whisper', separateVocals: false, separationBackend: 'auto', alignmentMethod: 'whisper_diff',
+  backend: 'whisper', separateVocals: false, alignmentMethod: 'whisper_diff',
   realignLong: false, useGroq: false, runDiarize: false, language: 'zh', mode: 'whisper',
 }
 
@@ -45,10 +46,8 @@ describe('a fresh install', () => {
 
   it('rules out vocal separation with a reason and the package to open', () => {
     expect(n.separation).toMatchObject({ action: 'diagnostics', packages: ['audio-separator'] })
-    expect(n.separation?.reason).toContain('audio-separator (or Demucs)')
-    expect(separationNeed(FRESH, 'demucs')?.packages).toEqual(['demucs'])
-    expect(separationNeed({ ...FRESH, demucs: true }, 'auto')).toBeNull()
-    expect(separationNeed({ ...FRESH, demucs: true }, 'audio_separator')).not.toBeNull()
+    expect(n.separation?.reason).toContain('needs audio-separator')
+    expect(separationNeed({ ...FRESH, audio_separator: true })).toBeNull()
   })
 
   it('rules out the three Qwen3 backends and names what is missing', () => {
@@ -229,6 +228,11 @@ describe('Export, Live, Reader and Review needs', () => {
     expect(liveWhisperSize({ ...r, faster_whisper: false }, 'medium', true).reason).toContain('Whisper')
   })
 
+  it('knows whether the Japanese Live model is on the PC', () => {
+    expect(liveWhisperSize({ ...READY, whisper_cached_ja_15b: false }, 'ja-1.5b', true)).toEqual({ reason: null, download: true })
+    expect(liveWhisperSize({ ...READY, whisper_cached_ja_15b: true }, 'ja-1.5b', false)).toEqual({ reason: null, download: false })
+  })
+
   it('names the word splitter for the title language', () => {
     expect(wordSplitterNeed({ ...READY, jieba: false }, 'zh')).toMatchObject({ packages: ['jieba'] })
     expect(wordSplitterNeed({ ...READY, sudachi: false }, 'ja')).toMatchObject({ packages: ['sudachipy'] })
@@ -335,5 +339,23 @@ describe('gpuOnText', () => {
     expect(gpuOnText(true, null)).toBe('GPU on')
     expect(gpuOnText(true, { ...READY, gpu_found: true })).toBe('GPU on')
     expect(gpuOnText(true, { ...READY, gpu_found: false })).toBe('GPU on, none found')
+  })
+})
+
+describe('liveWhisperOptionNote', () => {
+  it('does not call a size Japanese only just because it is excluded for the language', () => {
+    expect(liveWhisperOptionNote(true, { reason: null, download: false })).toBe(' (not for this language)')
+  })
+  it('keeps the availability notes for sizes that fit the language', () => {
+    expect(liveWhisperOptionNote(false, { reason: 'x', download: false })).toBe(' (not available)')
+    expect(liveWhisperOptionNote(false, { reason: null, download: true })).toBe(' (downloads first)')
+    expect(liveWhisperOptionNote(false, { reason: null, download: false })).toBe('')
+  })
+})
+
+describe('ollamaNeed', () => {
+  it('names the model to pull when Ollama runs without it', () => {
+    const need = ollamaNeed({ ...FRESH, ollama_reachable: true, ollama_model_pulled: false })
+    expect(need?.reason).toContain(`ollama pull ${LIVE_DEFAULT_MODEL}`)
   })
 })

@@ -147,6 +147,8 @@ def test_config_names_the_auto_backend_and_whether_it_is_installed(client, monke
     present.update({"onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "yaml"})
     body = client.get(f"/api/scanlate/dramas/{did}/config").json()
     assert body["ocr_backend"] == "rapidocr" and body["ocr_backend_installed"] is True
+    # Captions on the art need PaddleOCR and the LaMa model, which a bare test box lacks.
+    assert body["art_captions_available"] is False
 
 
 def test_page_detail_keyed_by_id_and_scoped(client):

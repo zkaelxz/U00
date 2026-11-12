@@ -370,6 +370,33 @@ class TestGlossaryInScanlateTranslation:
                                         glossary_terms=HONORIFIC)
         assert engine.calls[0][1]["glossary_terms"] == HONORIFIC
 
+    def test_a_page_picture_is_sent_with_the_regions_scaled_to_it(self, monkeypatch):
+        seen = {}
+
+        def with_image(regions, image, mime, engine, drama_meta, **kwargs):
+            seen.update(regions=regions, image=image, mime=mime, engine=engine, kwargs=kwargs)
+            return {"0": "Hello"}, "ctx"
+        monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+        bubbles = [{"source_text": "你好", "x": 10, "y": 20, "w": 30, "h": 40}]
+        picture_engine = object()
+        context = scanlate_translate.translate_page_bubbles(
+            bubbles, _FakeLLM(), {}, character_notes="Mei: she/her",
+            page_image={"data": b"jpg", "mime": "image/jpeg", "scale": 0.5, "engine": picture_engine})
+        assert context == "ctx" and bubbles[0]["translated_text"] == "Hello"
+        assert seen["regions"][0]["box"] == {"x": 5, "y": 10, "w": 15, "h": 20}
+        assert seen["engine"] is picture_engine
+        assert seen["kwargs"]["character_notes"] == "Mei: she/her"
+
+    def test_a_failed_picture_request_falls_back_to_the_text(self, monkeypatch):
+        def broken(*args, **kwargs):
+            raise RuntimeError("the provider refused the picture")
+        monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", broken)
+        engine = _RecordingMT()
+        bubbles = [{"source_text": "师姐", "x": 1, "y": 2, "w": 3, "h": 4}]
+        scanlate_translate.translate_page_bubbles(
+            bubbles, engine, {}, page_image={"data": b"jpg", "mime": "image/jpeg", "scale": 1.0})
+        assert engine.calls, "the text-only request was not made"
+
     def test_glossary_block_matches_workspace_style_guidelines(self):
         import translation_guide
         block = translation_guide.build_glossary_block(HONORIFIC)
@@ -389,8 +416,12 @@ class TestSfxSkipByDefault:
         inpainted, drawn = [], []
         monkeypatch.setattr(scanlate_render, "inpaint_region",
                             lambda path, box, out_path=None, **kw: inpainted.append(box) or out_path)
-        monkeypatch.setattr(scanlate_render, "render_text_in_box",
-                            lambda img, box, text, **kw: drawn.append(text) or img)
+        def draw(img, box, text, report=None, **kw):
+            # A fitting pass (report given) only measures; it draws nothing on the page.
+            if report is None:
+                drawn.append(text)
+            return img
+        monkeypatch.setattr(scanlate_render, "render_text_in_box", draw)
         _, skipped_blank = scanlate_render.process_page(bubble_page, bubbles, str(tmp_path / "out.png"))
         return inpainted, drawn, skipped_blank
 
@@ -607,3 +638,162 @@ class TestSkippedSfxNote:
         notes = []
         scanlate._note_skipped_sfx([{"kind": "bubble"}, {"kind": "sfx", "include_sfx": True}], notes)
         assert notes == []
+
+
+class TestStrayMarkBeforeSoundEffect:
+    @pytest.mark.parametrize("text,kind,expected", [
+        ("0啾", "sfx", "啾"),
+        ("0 啾 啾", "sfx", "啾 啾"),
+        ("Oドン", "sfx", "ドン"),
+        ("0啾", "sign", "0啾"),
+        ("0", "sfx", "0"),
+        ("Fzzt", "sfx", "Fzzt"),
+        ("啾0", "sfx", "啾0"),
+    ])
+    def test_only_a_leading_mark_on_an_effect_is_dropped(self, text, kind, expected):
+        assert scanlate_regions.strip_stray_sfx_mark(text, kind) == expected
+
+def _glyph_page(blocks, size=(700, 800)):
+    cv2 = pytest.importorskip("cv2")
+    page = np.full(size, 250, np.uint8)
+    for bx, by in blocks:
+        for row in range(2):
+            for col in range(6):
+                cv2.rectangle(page, (bx + col * 30, by + row * 40),
+                              (bx + col * 30 + 22, by + row * 40 + 26), 40, -1)
+    return page
+
+
+def test_two_blocks_of_lettering_far_apart_become_two_regions_inside_the_box():
+    page = _glyph_page([(60, 60), (420, 480)])
+    box = {"x": 0, "y": 0, "w": 800, "h": 700, "kind": "sign"}
+    parts = scanlate_regions.split_separate_lettering(page, box)
+    assert len(parts) == 2
+    assert parts[0]["x"] < 160 and parts[0]["y"] < 160 and parts[1]["x"] > 300 and parts[1]["y"] > 400
+    assert all(0 <= p["x"] and p["x"] + p["w"] <= 800 and p["y"] + p["h"] <= 700 for p in parts)
+
+
+def test_one_block_of_lettering_and_a_small_box_stay_one_region():
+    page = _glyph_page([(300, 300)])
+    box = {"x": 0, "y": 0, "w": 800, "h": 700}
+    assert scanlate_regions.split_separate_lettering(page, box) == [box]
+    two = _glyph_page([(20, 20), (150, 120)], size=(260, 400))
+    small = {"x": 0, "y": 0, "w": 400, "h": 260}
+    assert scanlate_regions.split_separate_lettering(two, small) == [small]
+
+
+def _frame_with_curls_and_a_caption(size=(700, 800)):
+    """Small corner curls (many, so their height is the page's median) and a line
+    of tall lettering with a dash after it, as in a captioned frame."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full(size, 250, np.uint8)
+    for cx, cy in ((40, 40), (700, 40), (40, 600), (700, 600)):
+        for k in range(4):
+            cv2.rectangle(page, (cx + k * 26, cy), (cx + k * 26 + 12, cy + 12), 40, -1)
+    for left, width, top, height in ((300, 24, 300, 36), (332, 26, 296, 44), (366, 20, 304, 30)):
+        cv2.rectangle(page, (left, top), (left + width, top + height), 40, -1)
+    cv2.rectangle(page, (404, 318), (440, 321), 40, -1)
+    return page
+
+
+def test_lettering_taller_than_the_frames_ornament_curls_is_still_found_as_a_block():
+    page = _frame_with_curls_and_a_caption()
+    parts = scanlate_regions.split_separate_lettering(page, {"x": 0, "y": 0, "w": 800, "h": 700})
+    caption = [p for p in parts if p["x"] <= 300 and p["x"] + p["w"] >= 386 and p["y"] <= 296
+               and p["y"] + p["h"] >= 340]
+    assert caption, parts
+
+
+def test_a_dash_ending_the_line_is_inside_its_block():
+    page = _frame_with_curls_and_a_caption()
+    parts = scanlate_regions.split_separate_lettering(page, {"x": 0, "y": 0, "w": 800, "h": 700})
+    assert any(p["x"] <= 300 and p["x"] + p["w"] >= 440 for p in parts), parts
+
+
+def test_marks_that_stand_alone_are_not_taken_for_a_row_of_letters():
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((700, 800), 250, np.uint8)
+    for x, y in ((40, 40), (700, 60), (60, 620), (690, 600), (360, 340)):
+        cv2.rectangle(page, (x, y), (x + 14, y + 14), 40, -1)
+    assert scanlate_regions._in_a_row(*_stats_of(page)) == []
+
+
+def _stats_of(page):
+    cv2 = pytest.importorskip("cv2")
+    _, _, stats, _ = cv2.connectedComponentsWithStats((page < 150).astype(np.uint8), connectivity=8)
+    return stats, list(range(1, len(stats)))
+
+
+class TestKatakanaEffects:
+    @pytest.mark.parametrize("text,becomes", [
+        ("キュルルル・", "sfx"),
+        ("ゴゴゴゴ", "sfx"),
+        ("ドン！", "bubble"),
+        ("アメリカ", "bubble"),
+        ("ルルル、行こう", "bubble"),
+        ("もしかして", "bubble"),
+    ])
+    def test_only_a_stretched_katakana_effect_is_marked(self, text, becomes):
+        region = {"kind": "bubble", "source_text": text}
+        scanlate_regions.flag_katakana_effects([region])
+        assert region["kind"] == becomes
+
+    def test_a_region_the_person_included_is_left_alone(self):
+        region = {"kind": "bubble", "source_text": "ゴゴゴ", "include_sfx": True}
+        assert scanlate_regions.flag_katakana_effects([region]) == 0
+
+
+def test_a_block_cut_from_a_frame_that_reads_as_nothing_is_not_a_region(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    page = _glyph_page([(60, 60), (420, 480)])
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, page)
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+    monkeypatch.setattr(scanlate, "ocr_box_region",
+                        lambda p, b, *a, **kw: "こんにちは" if b["x"] < 200 else "")
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert [b["source_text"] for b in bubbles] == ["こんにちは"]
+
+
+def test_a_box_that_was_not_split_keeps_its_empty_region_for_hand_entry(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, _glyph_page([(300, 300)]))
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+    monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **kw: "")
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert len(bubbles) == 1
+
+
+def _two_lobe_balloon():
+    """One speech balloon drawn as two overlapping lobes, three lines of lettering in each, at the
+    size and position of a real Naver page where the detector gave the pair a single region."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((900, 690), 245, np.uint8)
+    for center, axes in (((220, 500), (175, 130)), ((430, 690), (170, 140))):
+        cv2.ellipse(page, center, axes, 0, 0, 360, 255, -1)
+        cv2.ellipse(page, center, axes, 0, 0, 360, 0, 3)
+    first = [(103, 458, 8), (165, 503, 4), (128, 550, 6)]
+    second = [(395, 640, 4), (330, 690, 7), (325, 735, 7)]
+    for left, top, glyphs in first + second:
+        for k in range(glyphs):
+            cv2.rectangle(page, (left + k * 31, top), (left + k * 31 + 24, top + 34), 30, -1)
+    return page
+
+
+def test_a_two_lobe_balloon_becomes_one_region_per_lobe():
+    page = _two_lobe_balloon()
+    box = {"x": 41, "y": 339, "w": 570, "h": 514, "kind": "bubble"}
+    parts = scanlate_regions.split_separate_lettering(page, box)
+    assert len(parts) == 2
+    upper, lower = sorted(parts, key=lambda p: p["y"])
+
+    def holds(part, left, top, right, bottom):
+        return (part["x"] <= left and part["y"] <= top and part["x"] + part["w"] >= right
+                and part["y"] + part["h"] >= bottom)
+
+    assert holds(upper, 103, 458, 340, 584) and holds(lower, 325, 640, 551, 769)
+    assert not holds(upper, 325, 640, 551, 769) and not holds(lower, 103, 458, 340, 584)
+    assert all(p["kind"] == "bubble" for p in parts)

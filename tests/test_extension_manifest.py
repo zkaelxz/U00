@@ -100,7 +100,10 @@ class TestTheManifest:
         assert "permissions.request" not in _code("content.js")
 
     def test_permissions_stay_minimal(self, manifest):
-        assert set(manifest["permissions"]) == {"activeTab", "scripting", "storage"}
+        # declarativeNetRequestWithHostAccess only sets a Referer on an image download the
+        # extension retries after a 403, and only on hosts the person has allowed.
+        assert set(manifest["permissions"]) == {
+            "activeTab", "scripting", "storage", "declarativeNetRequestWithHostAccess"}
         for wide in ("<all_urls>", "tabs", "webRequest", "cookies", "history"):
             assert wide not in manifest["permissions"]
             assert wide not in manifest["host_permissions"]
@@ -227,7 +230,10 @@ class TestChapterCaptureStaysPolite:
         code = _code("content.js")
         capture = code[code.index("async function captureChapter("):code.index("async function runCapture(")]
         assert capture.index("finally") < capture.index('type: "captureDone"')
-        assert code.count('type: "captureDone"') == 1
+        # One for a chapter capture, one for a translate-visible run; each in its own finally.
+        assert code.count('type: "captureDone"') == 2
+        visible = code[code.index("async function translateVisible("):code.index("async function translateVisibleRun(")]
+        assert visible.index("finally") < visible.index('type: "captureDone"')
         popup = _code("popup.js")
         start = popup[popup.index("async function startCapture("):popup.index("async function syncCaptureUi")]
         assert "chrome.storage.local.set({ overlay: els.overlay.checked })" in start

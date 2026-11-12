@@ -37,10 +37,11 @@ DATA_FOLDER_ENTRIES = {"library", ".env", "model_cache", "launcher", "desktop.in
 # Also the app's own, written there once it runs: a queued Diagnostics install
 # (pending_install.state_dir), the downloaded browser
 # (browser_support.FOLDER_NAME), saved comics (sources_save_service.SAVE_DIRNAME),
-# voice engine venvs (voice_venv.VENVS_DIRNAME) and the VTuber name list
-# (vdb_names_service.FILE_NAME). Kept apart from the
+# voice engine venvs (voice_venv.VENVS_DIRNAME), the VTuber name list
+# (vdb_names_service.FILE_NAME) and the fetched phone-app build
+# (android_app_service.FOLDER_NAME) and the downloaded ffmpeg (app_tools.FOLDER_NAME). Kept apart from the
 # list above, which Settings > Disk usage also reads as "may be cleared".
-APP_STATE_ENTRIES = frozenset({"pending_install", "playwright_browsers", "saved_comics",
+APP_STATE_ENTRIES = frozenset({"android", "pending_install", "playwright_browsers", "saved_comics",
                                "tools", "voice_engines", "vtuber_names.json"})
 
 

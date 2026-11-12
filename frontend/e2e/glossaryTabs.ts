@@ -3,7 +3,7 @@ import { expectPickedTab, pickTab } from './tabPicker'
 
 import { showTranslateCard, translatePanel, type TranslateTabName } from './translateTabs'
 
-export type GlossaryTabName = 'Terms' | 'Find terms' | 'Names' | 'Packs' | 'Instructions' | 'Re-translate'
+export type GlossaryTabName = 'Terms' | 'Find terms' | 'Names' | 'Packs' | 'Instructions' | 'Replacements' | 'Re-translate'
 
 // The Glossary panel's tab row. Every panel stays in the page (hidden), so a spec that
 // means to use one switches to it first. A tab with something to look at has a count after its
@@ -17,7 +17,7 @@ export async function glossaryTab(page: Page, name: GlossaryTabName) {
   await expectPickedTab(region, 'Glossary', tabName)
 }
 
-export const GLOSSARY_TAB_NAMES: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Re-translate']
+export const GLOSSARY_TAB_NAMES: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Replacements', 'Re-translate']
 
 // Opens every fold of a Translate sub-tab. The Glossary's folds sit in its own tabs and a hidden
 // tab's fold can't be clicked, so each Glossary tab is shown in turn.

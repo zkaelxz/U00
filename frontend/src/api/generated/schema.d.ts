@@ -31,7 +31,8 @@ export interface paths {
         /** List users (no session details) */
         get: operations["list_users_api_admin_users_get"];
         put?: never;
-        post?: never;
+        /** Add a person with the household rights (PC only) */
+        post: operations["add_user_api_admin_users_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1390,6 +1391,40 @@ export interface paths {
         get: operations["get_characters_api_characters_dramas__drama_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/characters/dramas/{drama_id}/cast-proposal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The people the glossary scan found, with the pronouns it read, for approval */
+        get: operations["get_cast_proposal_api_characters_dramas__drama_id__cast_proposal_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/characters/dramas/{drama_id}/cast-proposal/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set the chosen pronouns where none are set (never replaces existing ones) */
+        post: operations["post_cast_proposal_apply_api_characters_dramas__drama_id__cast_proposal_apply_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3682,6 +3717,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: stop working on the rest of a batch of pages */
+        post: operations["post_cancel_api_ext_bridge_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/health": {
         parameters: {
             query?: never;
@@ -3794,7 +3846,8 @@ export interface paths {
         /** PC only: every browser-extension device */
         get: operations["admin_list_api_extension_devices_get"];
         put?: never;
-        post?: never;
+        /** PC only: add an extension device for an admin account (token shown once) */
+        post: operations["admin_create_api_extension_devices_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3812,6 +3865,23 @@ export interface paths {
         put?: never;
         /** PC only: revoke anyone's extension device */
         post: operations["admin_revoke_api_extension_devices__device_token_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/extension/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** PC only: the browser extension as a zip to unpack and load */
+        get: operations["get_download_api_extension_download_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3974,6 +4044,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/glossary/dramas/{drama_id}/export.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The series glossary as JSON (download) */
+        get: operations["get_glossary_json_api_glossary_dramas__drama_id__export_json_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/from-chapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status of this drama's every-chapter scan */
+        get: operations["get_chapters_glossary_api_glossary_dramas__drama_id__from_chapters_get"];
+        put?: never;
+        /** Start scanning every saved chapter in turn and adding the terms found */
+        post: operations["post_start_chapters_glossary_api_glossary_dramas__drama_id__from_chapters_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/from-chapters/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel this drama's every-chapter scan, only if it is still run run_id */
+        post: operations["post_cancel_chapters_glossary_api_glossary_dramas__drama_id__from_chapters_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/glossary/dramas/{drama_id}/from-lines": {
         parameters: {
             query?: never;
@@ -4106,6 +4228,23 @@ export interface paths {
         get: operations["get_instructions_api_glossary_dramas__drama_id__instructions_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/instructions/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Draft this novel's style instruction from a sample of its text (not saved) */
+        post: operations["post_draft_instructions_api_glossary_dramas__drama_id__instructions_draft_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4280,6 +4419,41 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/word-replacements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The series' word replacements, applied to every line a translation writes */
+        get: operations["get_word_replacements_api_glossary_dramas__drama_id__word_replacements_get"];
+        put?: never;
+        /** Add a word replacement, or change the one for the same word */
+        post: operations["post_word_replacement_api_glossary_dramas__drama_id__word_replacements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/word-replacements/{replacement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete one word replacement */
+        delete: operations["delete_word_replacement_api_glossary_dramas__drama_id__word_replacements__replacement_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -6425,6 +6599,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/novel/dramas/{drama_id}/add-chapters-from-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append the newly imported chapters to the narration text, keeping what is there */
+        post: operations["post_add_chapters_from_sources_api_novel_dramas__drama_id__add_chapters_from_sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/novel/dramas/{drama_id}/attach-epub": {
         parameters: {
             query?: never;
@@ -6470,6 +6661,23 @@ export interface paths {
         put?: never;
         /** Attach pasted novel text to one drama */
         post: operations["post_attach_text_api_novel_dramas__drama_id__attach_text_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/novel/dramas/{drama_id}/line-chapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which lines belong to which chapter, with translated and checked counts */
+        get: operations["get_line_chapters_api_novel_dramas__drama_id__line_chapters_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6556,6 +6764,40 @@ export interface paths {
         get: operations["get_raw_novel_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move one saved chapter to another position, with its lines (409 if they do not line up) */
+        post: operations["post_move_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rename one saved chapter (409 while a job runs or if its text has no title line) */
+        post: operations["post_rename_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__rename_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6676,6 +6918,74 @@ export interface paths {
         get: operations["get_lncrawl_status_api_novel_lncrawl_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pc-profile/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn profiles off (needs the PIN) */
+        post: operations["pc_profile_clear_api_pc_profile_clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pc-profile/lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch the PC window back to Guest */
+        post: operations["pc_profile_lock_api_pc_profile_lock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pc-profile/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set or change the profile PIN */
+        post: operations["pc_profile_set_pin_api_pc_profile_pin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pc-profile/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch the PC window to Kae with the PIN */
+        post: operations["pc_profile_unlock_api_pc_profile_unlock_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11197,6 +11507,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/translate-run/dramas/{drama_id}/chapters/{number}/retranslate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview translating one novel chapter again, with a cost estimate */
+        get: operations["get_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/translate-run/dramas/{drama_id}/chapters/{number}/retranslate/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Translate one novel chapter again */
+        post: operations["start_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/translate-run/dramas/{drama_id}/config": {
         parameters: {
             query?: never;
@@ -11869,6 +12213,24 @@ export interface components {
             /** Skipped Existing */
             skipped_existing: string[];
         };
+        /**
+         * AdminAddUserRequest
+         * @description People > Add a person. The service checks the email's shape.
+         */
+        AdminAddUserRequest: {
+            /**
+             * Display Name
+             * @default
+             */
+            display_name?: string;
+            /** Email */
+            email: string;
+            /**
+             * Extension Send
+             * @default false
+             */
+            extension_send?: boolean;
+        };
         /** AdminDeviceToken */
         AdminDeviceToken: {
             /** Created At */
@@ -11894,6 +12256,18 @@ export interface components {
             user_id: number;
             /** User Name */
             user_name: string;
+        };
+        /** AdminDeviceTokenCreateRequest */
+        AdminDeviceTokenCreateRequest: {
+            /**
+             * Expires In Days
+             * @default 90
+             */
+            expires_in_days?: number | null;
+            /** Label */
+            label: string;
+            /** User Id */
+            user_id?: number | null;
         };
         /** AdminDeviceTokenList */
         AdminDeviceTokenList: {
@@ -14977,6 +15351,73 @@ export interface components {
             requires: string;
             /** Unset Label */
             unset_label: string | null;
+        };
+        /** CastApplyEntry */
+        CastApplyEntry: {
+            /** Name */
+            name: string;
+            /**
+             * Pronouns
+             * @enum {string}
+             */
+            pronouns: "she/her" | "he/him" | "they/them";
+        };
+        /** CastApplyRequest */
+        CastApplyRequest: {
+            /** People */
+            people: components["schemas"]["CastApplyEntry"][];
+        };
+        /** CastApplyResult */
+        CastApplyResult: {
+            /** Added */
+            added: string[];
+            /** Kept */
+            kept: string[];
+            /** Not Applied */
+            not_applied: string[];
+            /** Set */
+            set: string[];
+        };
+        /**
+         * CastPerson
+         * @description One person the glossary scan found. pronouns is what the scan read from the text ("" when it
+         *     said unclear); current_pronouns is what the title or its series already has for that name.
+         */
+        CastPerson: {
+            /** Current Pronouns */
+            current_pronouns: string;
+            /** Exists */
+            exists: boolean;
+            /** Name */
+            name: string;
+            /** Occurrences */
+            occurrences: number;
+            /** Pronouns */
+            pronouns: string;
+            /** Term */
+            term: string;
+            /** Who */
+            who: string;
+        };
+        /** CastProposal */
+        CastProposal: {
+            /** Drama Id */
+            drama_id: number;
+            /** Has Series */
+            has_series: boolean;
+            /** People */
+            people: components["schemas"]["CastPerson"][];
+            /** Ready */
+            ready: boolean;
+        };
+        /** ChaptersGlossaryRunResult */
+        ChaptersGlossaryRunResult: {
+            /** Chapter Count */
+            chapter_count: number;
+            /** Engine */
+            engine: string;
+            /** Job Id */
+            job_id: string;
         };
         /** CharactersCloneEngineItem */
         CharactersCloneEngineItem: {
@@ -19305,6 +19746,13 @@ export interface components {
              */
             source_language: "zh" | "ja" | "ko";
         };
+        /** InstructionsDraft */
+        InstructionsDraft: {
+            /** Engine */
+            engine: string;
+            /** Instructions */
+            instructions: string;
+        };
         /**
          * JellyfinConfig
          * @description The key is write-only: only `key_configured` comes back.
@@ -21034,6 +21482,12 @@ export interface components {
             segment_range: number[];
             /** Thinking Switch Engines */
             thinking_switch_engines: string[];
+            /** Whisper Exclusions */
+            whisper_exclusions: {
+                [key: string]: {
+                    [key: string]: string;
+                };
+            };
             /** Whisper Sizes */
             whisper_sizes: string[];
         };
@@ -21694,6 +22148,8 @@ export interface components {
              * @description True when this request would pass a PC-only (local_only) route: the viewer is at the PC. A UI hint only; those routes still enforce it.
              */
             local: boolean;
+            /** @description The PC window's Owner/Guest state; null unless this request is the PC window with sign-in off (the only place profiles apply). */
+            pc_profile: components["schemas"]["PcProfileStatus"] | null;
         };
         /** ModelCandidate */
         ModelCandidate: {
@@ -22142,6 +22598,11 @@ export interface components {
         };
         /** NarrationRunRequest */
         NarrationRunRequest: {
+            /**
+             * Append
+             * @default false
+             */
+            append?: boolean;
             /** Engine */
             engine?: string | null;
             /** Model */
@@ -22224,6 +22685,11 @@ export interface components {
                 [key: string]: "sent" | "failed" | "refused" | "not_configured";
             };
         };
+        /** NovelAddChaptersRequest */
+        NovelAddChaptersRequest: {
+            /** From Chapter */
+            from_chapter?: number | null;
+        };
         /** NovelAttachFromSourcesRequest */
         NovelAttachFromSourcesRequest: {
             /**
@@ -22280,6 +22746,113 @@ export interface components {
             /** Translation Chars */
             translation_chars: number;
         };
+        /** NovelChapterMoveRequest */
+        NovelChapterMoveRequest: {
+            /** To Number */
+            to_number: number;
+        };
+        /** NovelChapterMoved */
+        NovelChapterMoved: {
+            /** Drama Id */
+            drama_id: number;
+            /** Lines Moved */
+            lines_moved: number;
+            /** Number */
+            number: number;
+            /** To Number */
+            to_number: number;
+            /**
+             * Translation Text Stale
+             * @default false
+             */
+            translation_text_stale: boolean;
+            /**
+             * Translation Text Updated
+             * @default false
+             */
+            translation_text_updated: boolean;
+        };
+        /** NovelChapterRenameRequest */
+        NovelChapterRenameRequest: {
+            /** Title */
+            title: string;
+        };
+        /** NovelChapterRenamed */
+        NovelChapterRenamed: {
+            /** Drama Id */
+            drama_id: number;
+            /** Line Updated */
+            line_updated: boolean;
+            /** Number */
+            number: number;
+            /** Title */
+            title: string;
+            /**
+             * Translation Text Updated
+             * @default false
+             */
+            translation_text_updated: boolean;
+        };
+        /**
+         * NovelChapterRetranslatePreview
+         * @description One chapter's lines before translating it again; estimate is None when
+         *     every line was edited by hand.
+         */
+        NovelChapterRetranslatePreview: {
+            /** Drama Id */
+            drama_id: number;
+            estimate: components["schemas"]["TranslateRunEstimate"] | null;
+            estimate_with_hand_edited: components["schemas"]["TranslateRunEstimate"];
+            /** Hand Edited Count */
+            hand_edited_count: number;
+            /** Line Count */
+            line_count: number;
+            /** Number */
+            number: number;
+        };
+        /**
+         * NovelChapterRetranslateStart
+         * @description Translate one chapter again with the Translate form's run options.
+         */
+        NovelChapterRetranslateStart: {
+            /** Batch Size */
+            batch_size?: number | null;
+            /** Context Window */
+            context_window?: number | null;
+            /** Context Window Ahead */
+            context_window_ahead?: number | null;
+            /** Default Female Pronouns */
+            default_female_pronouns?: boolean | null;
+            /** Engine */
+            engine?: string | null;
+            /** Gemini Free Tier */
+            gemini_free_tier?: boolean | null;
+            /** Include Genre Notes */
+            include_genre_notes?: boolean | null;
+            /**
+             * Include Hand Edited
+             * @default false
+             */
+            include_hand_edited?: boolean;
+            /** Job Cost Cap Usd */
+            job_cost_cap_usd?: number | null;
+            /**
+             * Locale
+             * @default en-US
+             */
+            locale?: string;
+            /** Model */
+            model?: string | null;
+            /**
+             * Style Note
+             * @default
+             */
+            style_note?: string;
+            /** Style Preset */
+            style_preset?: string | null;
+            /** Thinking */
+            thinking?: boolean | null;
+        };
         /** NovelChapterRow */
         NovelChapterRow: {
             /** Chars */
@@ -22332,6 +22905,18 @@ export interface components {
              */
             url: string;
         };
+        /** NovelChaptersAdded */
+        NovelChaptersAdded: {
+            /** Added Chars */
+            added_chars: number;
+            /** Char Count */
+            char_count: number;
+            /**
+             * Pending Chars
+             * @default 0
+             */
+            pending_chars: number;
+        };
         /** NovelFileStatus */
         NovelFileStatus: {
             /** Char Count */
@@ -22371,6 +22956,8 @@ export interface components {
         };
         /** NovelGlossaryProposal */
         NovelGlossaryProposal: {
+            /** Aliases */
+            aliases: string[];
             /** Already In Glossary */
             already_in_glossary: boolean;
             /** Alternatives */
@@ -22432,6 +23019,42 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** NovelLineChapterRow */
+        NovelLineChapterRow: {
+            /** First Idx */
+            first_idx: number;
+            /** Line Count */
+            line_count: number;
+            /** Number */
+            number: number;
+            /**
+             * Part
+             * @default
+             */
+            part: string;
+            /** Reviewed */
+            reviewed: number;
+            /** Title */
+            title: string;
+            /**
+             * Title En
+             * @default
+             */
+            title_en: string;
+            /** Translated */
+            translated: number;
+        };
+        /** NovelLineChapters */
+        NovelLineChapters: {
+            /** Chapters */
+            chapters: components["schemas"]["NovelLineChapterRow"][];
+            /** Drama Id */
+            drama_id: number;
+            /** Source */
+            source: string;
+            /** Total Lines */
+            total_lines: number;
+        };
         /** NovelOcrResult */
         NovelOcrResult: {
             /** Job Id */
@@ -22486,6 +23109,56 @@ export interface components {
             size_bytes: number;
             /** Vram Bytes */
             vram_bytes: number;
+        };
+        /** PcProfilePinRequest */
+        PcProfilePinRequest: {
+            /** Pin */
+            pin: string;
+        };
+        /** PcProfileSavedStatus */
+        PcProfileSavedStatus: {
+            /**
+             * Guest
+             * @description The PC window is on Guest now: private titles are hidden.
+             */
+            guest: boolean;
+            /**
+             * Hidden
+             * @description How many titles or series were marked private.
+             * @default 0
+             */
+            hidden: number;
+            /**
+             * Pin Set
+             * @description A PIN exists, so the PC window opens on Guest.
+             */
+            pin_set: boolean;
+        };
+        /** PcProfileSetPinRequest */
+        PcProfileSetPinRequest: {
+            /** Current Pin */
+            current_pin?: string | null;
+            /**
+             * Hide Existing
+             * @description Also mark every title and series made at the PC private.
+             * @default false
+             */
+            hide_existing?: boolean;
+            /** New Pin */
+            new_pin: string;
+        };
+        /** PcProfileStatus */
+        PcProfileStatus: {
+            /**
+             * Guest
+             * @description The PC window is on Guest now: private titles are hidden.
+             */
+            guest: boolean;
+            /**
+             * Pin Set
+             * @description A PIN exists, so the PC window opens on Guest.
+             */
+            pin_set: boolean;
         };
         /** PendingInstallChange */
         PendingInstallChange: {
@@ -22959,7 +23632,10 @@ export interface components {
             /** Value */
             value: string;
         };
-        /** QueueSettingRow */
+        /**
+         * QueueSettingRow
+         * @description One "label: value" line of a step's settings, shown by the Queue and by Quick video translate.
+         */
         QueueSettingRow: {
             /** Engine */
             engine: string | null;
@@ -23051,6 +23727,11 @@ export interface components {
             profile_id: number | null;
             /** Profiles */
             profiles: components["schemas"]["QuickVideoProfile"][];
+            /**
+             * Summary
+             * @default []
+             */
+            summary: components["schemas"]["QueueSettingRow"][];
         };
         /** QuickVideoSettingsSet */
         QuickVideoSettingsSet: {
@@ -25308,6 +25989,8 @@ export interface components {
         };
         /** ScanlateConfig */
         ScanlateConfig: {
+            /** Art Captions Available */
+            art_captions_available: boolean;
             /** Default Engine */
             default_engine: string;
             /** Detect Backends */
@@ -25654,6 +26337,12 @@ export interface components {
              * @description The first 50 terms that would be added.
              */
             new_terms: string[];
+            /**
+             * Replacements New
+             * @description Word replacements the copy would add.
+             * @default 0
+             */
+            replacements_new: number;
             /** Series Id */
             series_id: number;
             /** Skipped Count */
@@ -25675,6 +26364,11 @@ export interface components {
         SeriesCopyTermsResult: {
             /** Added */
             added: number;
+            /**
+             * Replacements Added
+             * @default 0
+             */
+            replacements_added: number;
             /** Series Id */
             series_id: number;
             /** Skipped */
@@ -26168,6 +26862,11 @@ export interface components {
              * @default 0.35
              */
             asmr_stop_threshold: number;
+            /**
+             * Claude Reasoning
+             * @default default
+             */
+            claude_reasoning: string;
             /** Cookies Browser */
             cookies_browser: string | null;
             /** Cookies File */
@@ -26238,6 +26937,11 @@ export interface components {
             ocr_prefer_paddle_vl_manga: boolean;
             /** Ollama Num Ctx Override */
             ollama_num_ctx_override: number;
+            /**
+             * Openai Reasoning
+             * @default default
+             */
+            openai_reasoning: string;
             /**
              * Quick Split Seconds
              * @default 12
@@ -26343,6 +27047,16 @@ export interface components {
              * @default true
              */
             scanlate_chapter_brief: boolean;
+            /**
+             * Scanlate Page Image
+             * @default true
+             */
+            scanlate_page_image: boolean;
+            /**
+             * Scanlate Sfx Gloss
+             * @default false
+             */
+            scanlate_sfx_gloss: boolean;
             /** Scene Aware Batches */
             scene_aware_batches: boolean;
             /**
@@ -26523,6 +27237,8 @@ export interface components {
             asmr_stop_threshold?: number | null;
             /** Bulk Auto Resume */
             bulk_auto_resume?: boolean | null;
+            /** Claude Reasoning */
+            claude_reasoning?: string | null;
             /** Cookies Browser */
             cookies_browser?: string | null;
             /** Cookies File */
@@ -26569,6 +27285,8 @@ export interface components {
             offer_provider_models?: boolean | null;
             /** Ollama Num Ctx Override */
             ollama_num_ctx_override?: number | null;
+            /** Openai Reasoning */
+            openai_reasoning?: string | null;
             /** Quick Split Seconds */
             quick_split_seconds?: number | null;
             /** Qwen Context Pad Seconds */
@@ -26613,6 +27331,10 @@ export interface components {
             retime_window_pad_seconds?: number | null;
             /** Scanlate Chapter Brief */
             scanlate_chapter_brief?: boolean | null;
+            /** Scanlate Page Image */
+            scanlate_page_image?: boolean | null;
+            /** Scanlate Sfx Gloss */
+            scanlate_sfx_gloss?: boolean | null;
             /** Scene Aware Batches */
             scene_aware_batches?: boolean | null;
             /** Scene Break Gap Seconds */
@@ -26672,8 +27394,6 @@ export interface components {
             browser_found: boolean;
             /** Cv2 */
             cv2: boolean;
-            /** Demucs */
-            demucs: boolean;
             /** Ebooklib */
             ebooklib: boolean;
             /** Faster Whisper */
@@ -26752,6 +27472,8 @@ export interface components {
             uroman: boolean;
             /** Whisper Cached Base */
             whisper_cached_base: boolean;
+            /** Whisper Cached Ja 15B */
+            whisper_cached_ja_15b: boolean;
             /** Whisper Cached Large V3 */
             whisper_cached_large_v3: boolean;
             /** Whisper Cached Large V3 Turbo */
@@ -30588,6 +31310,27 @@ export interface components {
             /** Result Count */
             result_count: number;
         };
+        /** WordReplacement */
+        WordReplacement: {
+            /** Find Text */
+            find_text: string;
+            /** Id */
+            id: number;
+            /** Replace Text */
+            replace_text: string;
+        };
+        /** WordReplacementDeleteResult */
+        WordReplacementDeleteResult: {
+            /** Deleted */
+            deleted: number[];
+        };
+        /** WordReplacementWrite */
+        WordReplacementWrite: {
+            /** Find Text */
+            find_text: string;
+            /** Replace Text */
+            replace_text: string;
+        };
         /**
          * WorkflowProgress
          * @description Pipeline progress for the React stage bar. `stage_index` is the 7-tab
@@ -30765,6 +31508,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminUserList"];
+                };
+            };
+        };
+    };
+    add_user_api_admin_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAddUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -34539,6 +35315,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cast_proposal_api_characters_dramas__drama_id__cast_proposal_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CastProposal"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_cast_proposal_apply_api_characters_dramas__drama_id__cast_proposal_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CastApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CastApplyResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -41040,6 +41900,26 @@ export interface operations {
             };
         };
     };
+    post_cancel_api_ext_bridge_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     get_health_api_ext_bridge_health_get: {
         parameters: {
             query?: never;
@@ -41180,6 +42060,66 @@ export interface operations {
             };
         };
     };
+    admin_create_api_extension_devices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminDeviceTokenCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceTokenCreated"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     admin_revoke_api_extension_devices__device_token_id__revoke_post: {
         parameters: {
             query?: never;
@@ -41207,6 +42147,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_download_api_extension_download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -41640,6 +42609,224 @@ export interface operations {
             };
         };
     };
+    get_glossary_json_api_glossary_dramas__drama_id__export_json_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chapters_glossary_api_glossary_dramas__drama_id__from_chapters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelGlossaryStatus"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_start_chapters_glossary_api_glossary_dramas__drama_id__from_chapters_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChaptersGlossaryRunResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_cancel_chapters_glossary_api_glossary_dramas__drama_id__from_chapters_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryRunCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCancelResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_lines_glossary_api_glossary_dramas__drama_id__from_lines_get: {
         parameters: {
             query?: never;
@@ -41682,7 +42869,10 @@ export interface operations {
     };
     post_start_lines_glossary_api_glossary_dramas__drama_id__from_lines_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Scan only this saved chapter */
+                chapter?: number | null;
+            };
             header?: never;
             path: {
                 drama_id: number;
@@ -42221,6 +43411,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_draft_instructions_api_glossary_dramas__drama_id__instructions_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstructionsDraft"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -42857,6 +44123,140 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_word_replacements_api_glossary_dramas__drama_id__word_replacements_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WordReplacement"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_word_replacement_api_glossary_dramas__drama_id__word_replacements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WordReplacementWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WordReplacement"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_word_replacement_api_glossary_dramas__drama_id__word_replacements__replacement_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                replacement_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WordReplacementDeleteResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -48972,6 +50372,59 @@ export interface operations {
             };
         };
     };
+    post_add_chapters_from_sources_api_novel_dramas__drama_id__add_chapters_from_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelAddChaptersRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelChaptersAdded"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_attach_epub_api_novel_dramas__drama_id__attach_epub_post: {
         parameters: {
             query?: never;
@@ -49127,6 +50580,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_line_chapters_api_novel_dramas__drama_id__line_chapters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelLineChapters"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -49431,6 +50924,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_move_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelChapterMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelChapterMoved"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_rename_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__rename_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelChapterRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelChapterRenamed"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -49802,6 +51403,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LncrawlStatus"];
+                };
+            };
+        };
+    };
+    pc_profile_clear_api_pc_profile_clear_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PcProfilePinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pc_profile_lock_api_pc_profile_lock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileStatus"];
+                };
+            };
+        };
+    };
+    pc_profile_set_pin_api_pc_profile_pin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PcProfileSetPinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileSavedStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pc_profile_unlock_api_pc_profile_unlock_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PcProfilePinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcProfileStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -64403,6 +66123,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_get: {
+        parameters: {
+            query?: {
+                job_cost_cap_usd?: number | null;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelChapterRetranslatePreview"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelChapterRetranslateStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryAffectedRunStarted"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

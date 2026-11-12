@@ -25,12 +25,26 @@ _SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "newtojuso", 
                "copymanga",
                "拷贝漫画", "拷貝漫畫", "mangadex", "twmanga", "kuaikan", "快看漫画", "快看漫畫")
 
+# Reader-site ads read as dialogue once translated. "Fastest webtoon" and
+# "search on Google" are the ad's own phrases, rare in a story. OCR of a small
+# stamp over art often keeps only the ends of the first line ("가장른 미리보가"),
+# so "미리보" counts when "가장" or "웹툰" sits just before it.
+_PROMO = re.compile(r"가장\s*빠른\s*웹[툰튼]|구글\s*검색|(?:가장|웹[툰튼]).{0,4}미[리\d]{1,3}보")
+
+# A stamp line by itself: the site's name cut short, or "미리보기" (preview)
+# with a digit read in for a stroke ("미12보7"). Matched only against a whole
+# line, since these are ordinary syllables inside a sentence.
+_STAMP_LINE = re.compile(r"^(?:뉴토끼?|미[리\d]{1,3}보[기\d]?)$")
+
 # A repeat counts as one stamp only while it stays in the same spot. The
 # stamp is a fixed overlay, whereas a line of dialogue that happens to repeat
 # (a name, a sigh) moves with its balloon.
 _SAME_SPOT = 0.08            # of the page's width / height, centre to centre
 _EDGE_BAND = 0.18            # of the page's width / height from each edge
 _MIN_REPEAT_CHARS = 3
+# What must be left of a region once its stamp lines are dropped for it to be
+# lettering that happens to share a box with the stamp, not the stamp itself.
+_MIN_LETTERING_CHARS = 6
 
 _STRIP = re.compile(r"[\W_]+", re.UNICODE)
 
@@ -42,10 +56,18 @@ def _normal(text: str | None) -> str:
 def looks_like_site_mark(text: str) -> bool:
     """True when the text is a web address or a known reader site's name."""
     text = text or ""
-    if _DOMAIN.search(text) or _CJK_DOMAIN.search(text):
+    if _DOMAIN.search(text) or _CJK_DOMAIN.search(text) or _PROMO.search(_STRIP.sub("", text)):
         return True
     squashed = _normal(text)
     return any(name in squashed for name in _SITE_NAMES)
+
+
+def _is_stamp_line(line: str) -> bool:
+    return looks_like_site_mark(line) or bool(_STAMP_LINE.match(_normal(line)))
+
+
+def _without_mark_lines(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not _is_stamp_line(line))
 
 
 def _centre(region: dict, width: float, height: float):
@@ -72,18 +94,95 @@ def flag_site_marks(regions: list, earlier_pages: Sequence[list] = (), width: in
     translated nor painted over. A region is one when its text is an address or
     a known site name, or when it sits in the page's edge band with the same
     text and place as a region on one of `earlier_pages` (each a list of
-    regions from a page of the same size). Returns how many were flagged."""
+    regions from a page of the same size). A region that also holds real lettering
+    keeps it: only the stamp's lines are cut from its text. Returns how many
+    were flagged."""
     flagged = 0
     for region in regions:
         if region.get("skip") or not (region.get("source_text") or "").strip():
             continue
         mark = looks_like_site_mark(region["source_text"])
+        lines = region["source_text"].splitlines()
+        if not mark and len(lines) > 1 and any(_STAMP_LINE.match(_normal(ln)) for ln in lines):
+            # A cut-short name only counts beside other lines: alone it could be a word.
+            mark = True
+        if mark:
+            # A caption box near the stamp can take its lines into one region.
+            # Skipping that region would drop the caption with the stamp, so
+            # only the stamp's own lines are removed from its text.
+            lettering = _without_mark_lines(region["source_text"])
+            if len(_normal(lettering)) >= _MIN_LETTERING_CHARS:
+                region["source_text"] = lettering
+                mark = False
         if (not mark and width > 0 and height > 0
                 and len(_normal(region["source_text"])) >= _MIN_REPEAT_CHARS):
             centre = _centre(region, width, height)
             mark = _on_edge(centre) and any(
                 _same_stamp(region, centre, earlier, width, height) for earlier in earlier_pages)
         if mark:
+            region["skip"] = True
+            flagged += 1
+    return flagged
+
+
+_FRAGMENT_MAX_WIDTH = 0.06    # of the page's width
+_FRAGMENT_MAX_HEIGHT = 0.04   # of the page's height
+_FRAGMENT_EDGE_PX = 3
+
+
+def flag_edge_fragments(regions: list, width: int, height: int) -> int:
+    """Sets skip on a tiny region that touches the page's edge. The detector
+    boxes scan-edge debris and a clipped corner of a stamp, and OCR then reads
+    it as a word ("Miyamura Village" from a few pixels of a corner), which
+    would be translated and typeset onto the art. Real lettering is never
+    this small and flush against the edge. Returns how many were flagged."""
+    if width <= 0 or height <= 0:
+        return 0
+    flagged = 0
+    for region in regions:
+        if region.get("skip"):
+            continue
+        x, y, w, h = (int(region.get(k) or 0) for k in ("x", "y", "w", "h"))
+        if w > width * _FRAGMENT_MAX_WIDTH or h > height * _FRAGMENT_MAX_HEIGHT:
+            continue
+        if min(x, y, width - (x + w), height - (y + h)) <= _FRAGMENT_EDGE_PX:
+            region["skip"] = True
+            flagged += 1
+    return flagged
+
+
+_NUMBER_MAX_WIDTH = 0.05      # of the page's width
+_NUMBER_MAX_HEIGHT = 0.03     # of the page's height
+_NUMBER_BAND = 0.08           # of the page's height, from the top or bottom edge
+# A webtoon strip is far taller than wide, so the height fractions alone would
+# open a margin thousands of pixels deep: both are also capped by the width.
+_NUMBER_MAX_HEIGHT_PER_WIDTH = 0.06
+_NUMBER_BAND_PER_WIDTH = 0.12
+_NUMBER_MAX_CHARS = 3
+
+
+def flag_page_numbers(regions: list, width: int, height: int) -> int:
+    """Sets skip on a page number: a few characters in a tiny box inside the
+    top or bottom margin. An italic "88" in a corner was read as the sound
+    "おお" and typeset as "Wow", and OCR does the same with other numerals. A
+    region this small and this short in the margin is never dialogue, because
+    balloons sit inside the panels. Returns how many were flagged."""
+    if width <= 0 or height <= 0:
+        return 0
+    max_h = min(height * _NUMBER_MAX_HEIGHT, width * _NUMBER_MAX_HEIGHT_PER_WIDTH)
+    band = min(height * _NUMBER_BAND, width * _NUMBER_BAND_PER_WIDTH)
+    flagged = 0
+    for region in regions:
+        if region.get("skip"):
+            continue
+        text = _normal(region.get("source_text"))
+        if not text or len(text) > _NUMBER_MAX_CHARS:
+            continue
+        x, y, w, h = (int(region.get(k) or 0) for k in ("x", "y", "w", "h"))
+        if w > width * _NUMBER_MAX_WIDTH or h > max_h:
+            continue
+        centre_y = y + h / 2
+        if centre_y < band or centre_y > height - band:
             region["skip"] = True
             flagged += 1
     return flagged
@@ -109,4 +208,17 @@ def logo_box(region: dict, page_width: int, page_height: int) -> dict:
     right = min(page_width, region["x"] + region["w"] + _LOGO_MARGIN_PX)
     bottom = min(page_height, region["y"] + region["h"] + _LOGO_MARGIN_PX)
     top = max(0, bottom - max(side, region["h"] + 2 * _LOGO_MARGIN_PX))
+    if _lacks_site_name_line(region):
+        # The site-name line and the logo OCR never reads lie under and around
+        # the one line it did read.
+        left = max(0, region["x"] - int(2.5 * region["h"]))
+        right = min(page_width, region["x"] + region["w"] + region["h"])
+        bottom = min(page_height, bottom + 3 * region["h"])
     return {"x": left, "y": top, "w": right - left, "h": bottom - top}
+
+
+def _lacks_site_name_line(region: dict) -> bool:
+    """True for a read of the promo's first line alone: the stamp has a second
+    line, with the site's name, under it that OCR of the faint overlay does not find."""
+    text = region.get("source_text") or ""
+    return "\n" not in text.strip() and bool(_PROMO.search(_STRIP.sub("", text))) and "구글" not in text

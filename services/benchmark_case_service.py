@@ -111,10 +111,10 @@ def require_backend_ready(backend: str, cases, refine: bool | None = None) -> No
             raise DependencyUnavailableError(problem)
 
 
-def require_separation_ready(configs, use_gpu) -> None:
+def require_separation_ready(configs) -> None:
     """Separate vocals first loads a separation model that is fetched on first use."""
     from services import model_readiness_service as ready
-    if any(c["options"]["separate_vocals_first"] for c in configs) and not ready.separation_ready("auto", use_gpu):
+    if any(c["options"]["separate_vocals_first"] for c in configs) and not ready.separation_ready():
         raise DependencyUnavailableError(
             "The vocal separation model isn't downloaded yet. Run Separate vocals first once on a title "
             "to download it; the Lab does not download it for you.")

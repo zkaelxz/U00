@@ -18,7 +18,7 @@ import uuid
 from typing import Optional
 
 import db
-from engine_backends import engine_registry, shared
+from engine_backends import engine_registry, local, shared
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError
 from services import drama_service, language_pack_service, profile_service, url_media_service
 
@@ -47,10 +47,50 @@ def _preset(profile_id) -> Optional[dict]:
     return next((p for p in _presets() if p["id"] == profile_id), None)
 
 
+def describe_profile(preset: dict) -> list:
+    """The settings a run with this profile uses, as {label, value, engine} rows. Values the profile leaves
+    unset show what the run falls back to, resolved by the same functions the run calls."""
+    import translation_guide
+    from services import engine_routing_service
+    options = profile_service.stored_options(preset)
+    engine = preset.get("translation_engine")
+    if engine not in engine_registry.ENGINES:
+        engine = engine_routing_service.resolve_capability("translation.cheap")
+    model = preset.get("engine_model")
+    # A run that was handed no model never picks up an Ollama cloud tag (paid work its own gate cannot see).
+    if not model or (engine == "ollama" and local.is_ollama_cloud_model(model)) or preset.get("translation_engine") != engine:
+        model = engine_registry.effective_default_model(engine)
+    defaults = engine_registry.default_translate_options(engine, model)
+    style_key = preset.get("style_preset")
+    style = translation_guide.STYLE_PRESETS[style_key if style_key in translation_guide.STYLE_PRESETS else "audio_drama"]
+    language = options.get("quick_source_language") or ""
+    packs = options.get("quick_language_packs") or []
+    spend = [name for key, name in (("reflect", "Reflect"), ("bulk", "Bulk"), ("thinking", "Thinking")) if options.get(key)]
+    recognizer = options.get("asr_backend_choice") or (f"Whisper {options['whisper_size']}" if options.get("whisper_size") else None)
+    export = _export_settings(options)
+    rows = [
+        ("Source language", {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(language, "Not set"), None),
+        ("Speech recognizer", recognizer or "The app's default for this language", None),
+        ("Engine and model", model or "", engine),
+        ("Tone and character voice", style["label"], None),
+        ("Batch size", options.get("batch_size") or defaults["batch_size"], None),
+        ("Context lines (before, after)", f"{options.get('context_window', defaults['context_window'])}, "
+                                          f"{options.get('context_window_ahead', defaults['context_window_ahead'])}", None),
+        ("Glossary", "None: a new title starts without one", None),
+        ("Language packs", ", ".join(packs) if packs else "Off", None),
+        ("Paid modes", ", ".join(spend) if spend else "None", None),
+        ("Cost", "Free" if engine in engine_registry.FREE_ENGINES else "Uses your API key and costs money", None),
+        ("Export", f"{export['format'].upper()}, {export['language']}", None),
+    ]
+    return [{"label": label, "value": str(value), "engine": eng} for label, value, eng in rows]
+
+
 def get_settings() -> dict:
     """The saved profile choice and the profiles to pick from. A profile that was deleted reads as no choice."""
     chosen = db.get_app_setting(PROFILE_KEY)
-    return {"profile_id": chosen if _preset(chosen) else None,
+    preset = _preset(chosen)
+    return {"profile_id": chosen if preset else None,
+            "summary": describe_profile(preset) if preset else [],
             "profiles": [{"id": p["id"], "name": p["name"],
                           "ready": bool(profile_service.stored_options(p).get("quick_source_language"))}
                          for p in _presets()]}

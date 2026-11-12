@@ -251,7 +251,7 @@ class TestReviewFixes:
         _run_now()
         svc.promote(a["id"], confirm=True)
         monkeypatch.setitem(engine_registry.ENGINES, "ollama", GoodEngine)
-        b = svc.add_candidate("ollama", "qwen3:8b")["candidate"]
+        b = svc.add_candidate("ollama", "translategemma:12b")["candidate"]
         _run_now()
         svc.promote(b["id"], confirm=True)
         assert db.get_model_candidate(a["id"])["status"] == "superseded"

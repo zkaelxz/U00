@@ -163,7 +163,7 @@ def _build_library():
         conn.execute("PRAGMA foreign_keys = OFF")
         chars = {}
         for sid, marker in ((sa, MINE), (sb, OTHER)):
-            for t in ("series_characters", "glossary_terms", "translation_memory",
+            for t in ("series_characters", "glossary_terms", "translation_memory", "word_replacements",
                       "glossary_dismissals"):
                 _seed_row(conn, t, {"series_id": sid}, marker)
             chars[sid] = conn.execute("SELECT id FROM series_characters WHERE series_id = ?",
@@ -192,7 +192,7 @@ def _build_library():
             for t in ("progress", "personal_notes", "reading_history"):
                 _seed_row(conn, t, {"drama_id": did, "profile_id": other_profile}, OTHER)
         seeded = set(drama_tables) | {"series_characters", "glossary_terms", "bubbles",
-                                      "translation_memory", "glossary_dismissals", "translate_history",
+                                      "translation_memory", "glossary_dismissals", "word_replacements", "translate_history",
                                       "style_profile", "profiles", "dramas", "series", "users",
                                       "user_permissions", "auth_sessions", "audit_log"}
         for t in _tables(conn):

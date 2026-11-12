@@ -27,6 +27,7 @@ text in a table before final render -- the Scanlate page in the web app.
 """
 
 import os
+import re
 
 import numpy as np
 from memory_headroom import HeadroomError
@@ -38,7 +39,8 @@ from scanlate_detect import (
 )
 import scanlate_tuning
 from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
-                              lettering_size, reclassify_wordy_sfx,
+                              split_separate_lettering, strip_stray_sfx_mark,
+                              lettering_size, reclassify_wordy_sfx, flag_katakana_effects,
                               region_excluded_from_auto)
 from scanlate_render import sample_text_style
 from scanlate_translate import translate_page_bubbles
@@ -230,7 +232,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     except BubbleModelUnavailable as exc:
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
-    boxes = merge_fragment_boxes(boxes)
+    boxes = merge_fragment_boxes(boxes, gray)
+    boxes, split_parts = _split_frames(boxes, gray)
 
     captions = None
     if not boxes:
@@ -258,6 +261,13 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         except Exception:
             b["source_text"] = ""
             ocr_failed += 1
+        if _is_thought_dots(b["source_text"], source_language):
+            continue
+        # A block cut out of a frame that reads as nothing is a curl of its
+        # ornament, not lettering; it would only be an empty row to review.
+        if (b["x"], b["y"], b["w"], b["h"]) in split_parts and not b["source_text"].strip():
+            continue
+        b["source_text"] = strip_stray_sfx_mark(b["source_text"], b.get("kind"))
         b["language"] = detect_script_language(b["source_text"], b["language"])
         # Classical-CV style guess (see sample_text_style()), reviewable
         # per bubble before render.
@@ -268,8 +278,13 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b.update(translated_text="", font_size=suggest_font_size(gray, b), skip=False,
                  include_sfx=False)
         bubbles.append(b)
+    for order, b in enumerate(bubbles):
+        b["reading_order"] = order
     reclassify_wordy_sfx(bubbles)
+    flag_katakana_effects(bubbles)
     flag_site_marks(bubbles)
+    flag_english_text(bubbles, source_language)
+    flag_bare_numbers(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
     if art_captions:
         bubbles += (captions if captions is not None
@@ -283,6 +298,72 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     return bubbles, notes
 
 
+# The small circles that trail a thought balloon's tail are read as the letters
+# o and O or the digit 0; a script that has none of them in its lettering has
+# no text there to translate.
+_THOUGHT_DOTS = re.compile(r"[oO0°○◦.·・\s]+")
+
+
+_SOURCE_SCRIPT = re.compile("[\u1100-\u11ff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+_ENGLISH_MIN_LETTERS = 4
+
+
+def flag_english_text(regions: list, source_language: str) -> int:
+    """Sets skip on a region of a Chinese, Japanese or Korean page whose text has
+    no source-script character and at least a few Latin letters: it is already
+    English (a shirt's "SCHOOL CHILD" in the art), and translating it only
+    painted a blur over the drawing. Returns how many it flagged."""
+    if source_language not in ("ja", "zh", "ko"):
+        return 0
+    flagged = 0
+    for region in regions:
+        text = region.get("source_text") or ""
+        if (not region.get("skip") and not _SOURCE_SCRIPT.search(text)
+                and sum(c.isascii() and c.isalpha() for c in text) >= _ENGLISH_MIN_LETTERS):
+            region["skip"] = True
+            flagged += 1
+    return flagged
+
+
+_BARE_NUMBER = re.compile(r"(?=.*[0-9０-９])[0-9０-９\s.,:;!?！？…%％/\-–—]+")
+
+
+def flag_bare_numbers(regions: list, source_language: str) -> int:
+    """Sets skip on a region whose whole text is a number. It reads the same in
+    English, so translating it changes nothing, and OCR of a face or a pattern in
+    the art ("610" over a character's face) gave such a number its own region that
+    was then painted over the drawing. Returns how many it flagged."""
+    if source_language not in ("ja", "zh", "ko"):
+        return 0
+    flagged = 0
+    for region in regions:
+        if not region.get("skip") and _BARE_NUMBER.fullmatch((region.get("source_text") or "").strip()):
+            region["skip"] = True
+            flagged += 1
+    return flagged
+
+
+def _split_frames(boxes: list, gray) -> tuple:
+    """`boxes` with each large one cut into its blocks of lettering, and the set
+    of (x, y, w, h) of the blocks that came from a cut."""
+    split_parts = set()
+    if gray is None:
+        return boxes, split_parts
+    pieces = []
+    for box in boxes:
+        parts = split_separate_lettering(gray, box)
+        if len(parts) > 1:
+            split_parts.update((p["x"], p["y"], p["w"], p["h"]) for p in parts)
+        pieces.extend(parts)
+    return pieces, split_parts
+
+
+def _is_thought_dots(text: str, source_language: str) -> bool:
+    text = text.strip()
+    return (source_language in ("ja", "zh", "ko") and bool(text)
+            and any(c in "oO0" for c in text) and bool(_THOUGHT_DOTS.fullmatch(text)))
+
+
 def suggest_font_size(gray, region: dict) -> int:
     """The size the English starts at for a region: its source lettering's
     size scaled by scanlate_tuning.TYPESET_FONT_PER_SOURCE_PX, within
@@ -290,11 +371,14 @@ def suggest_font_size(gray, region: dict) -> int:
     the balloon. Short lettering in a much larger balloon starts bigger (up to
     TYPESET_GROW_MAX), because the render only ever shrinks and would otherwise
     leave a few small words floating in the balloon.
-    TYPESET_DEFAULT_FONT_PX when no lettering is measurable."""
+    When no lettering is measurable (pale ink that the dark-ink threshold
+    misses, say), the default grows with the box's short side, so a large
+    balloon is not left with one small line of English."""
     t = scanlate_tuning
     size = lettering_size(gray, region, region.get("orientation")) if gray is not None else None
     if not size:
-        return t.TYPESET_DEFAULT_FONT_PX
+        by_box = round(min(region["w"], region["h"]) * t.TYPESET_UNMEASURED_PER_BOX_SIDE)
+        return int(min(max(t.TYPESET_DEFAULT_FONT_PX, by_box), t.TYPESET_START_MAX_PX))
     size *= t.TYPESET_FONT_PER_SOURCE_PX
     fill = lettering_fill(gray, region)
     if fill and fill < t.TYPESET_GROW_BELOW_FILL:

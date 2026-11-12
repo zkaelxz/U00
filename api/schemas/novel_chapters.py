@@ -5,9 +5,11 @@ Counts, titles and text, plus each chapter's display-safe source page link
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-__all__ = ["NovelChapterRow", "NovelChapterList", "NovelChapterText"]
+__all__ = ["NovelChapterRow", "NovelChapterList", "NovelChapterText", "NovelLineChapterRow",
+           "NovelLineChapters", "NovelChapterRenameRequest",
+           "NovelChapterRenamed", "NovelChapterMoveRequest", "NovelChapterMoved"]
 
 
 class NovelChapterRow(BaseModel):
@@ -53,3 +55,55 @@ class NovelChapterText(BaseModel):
     text: str
     # Character offset to ask for next; null at the end of the chapter.
     next_offset: Optional[int]
+
+
+class NovelLineChapterRow(BaseModel):
+    # The saved chapter's number in the raw-novel chapter list (1-based), or a
+    # running count when chapters were found from headings in the lines.
+    number: int
+    title: str
+    # The translation of the chapter's title line; "" until it is translated.
+    title_en: str = ""
+    # The volume heading the chapter falls under ("" when the text has none).
+    part: str = ""
+    first_idx: int
+    line_count: int
+    translated: int
+    reviewed: int
+
+
+class NovelLineChapters(BaseModel):
+    drama_id: int
+    total_lines: int
+    # "saved": from the saved chapters' titles; "headings": from chapter
+    # headings in the lines; "": no chapters could be told apart.
+    source: str
+    chapters: List[NovelLineChapterRow]
+
+
+class NovelChapterRenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=1000)
+
+
+class NovelChapterRenamed(BaseModel):
+    drama_id: int
+    number: int
+    title: str
+    # False when no line of the title held the old chapter title (nothing to change there).
+    line_updated: bool
+    # True when the translation text was a copy of the saved chapters and was updated too.
+    translation_text_updated: bool = False
+
+
+class NovelChapterMoveRequest(BaseModel):
+    # The position (1-based) the chapter should have afterwards.
+    to_number: int = Field(ge=1, le=100000)
+
+
+class NovelChapterMoved(BaseModel):
+    drama_id: int
+    number: int
+    to_number: int
+    lines_moved: int
+    translation_text_updated: bool = False
+    translation_text_stale: bool = False

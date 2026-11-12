@@ -75,7 +75,7 @@ def test_cloud_detection():
 
 
 def test_local_default_is_unchanged_and_not_cloud():
-    assert engine_local.OLLAMA_DEFAULT_MODEL == "gemma4:12b"
+    assert engine_local.OLLAMA_DEFAULT_MODEL == "translategemma:27b"
     assert not engine_local.is_ollama_cloud_model(engine_local.OllamaEngine().model)
     assert not set(engine_local.OLLAMA_CLOUD_MODELS) & set(engine_local.OLLAMA_MODELS)
 
@@ -162,7 +162,7 @@ def test_cloud_models_are_labelled_in_engine_list(isolated_db):
 
 
 def test_cloud_models_never_become_default_or_fallback_choice(isolated_db):
-    assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
+    assert engine_registry.effective_default_model("ollama") == "translategemma:27b"
     assert not any(engine_local.is_ollama_cloud_model(t.get("engine_model"))
                    for t in engine_registry.WORKFLOW_TIERS.values())
 
@@ -174,8 +174,8 @@ def test_gpu_seam_skips_cloud_only():
     assert not engine_local.ollama_touches_local_gpu("claude", "claude-sonnet-5-5")
 
 
-def test_cost_is_zero_not_a_made_up_price():
-    engine = engine_local.OllamaEngine(model=CLOUD)
+def test_local_model_costs_nothing():
+    engine = engine_local.OllamaEngine(model="gemma4:12b")
     assert pricing.estimate_cost_for_engine(engine, 100_000, 50_000) == 0.0
 
 
@@ -196,7 +196,7 @@ def test_ollama_default_picker_lists_local_tags_only():
 def test_cloud_tag_cannot_replace_the_ollama_default(isolated_db, tag):
     with pytest.raises(InvalidInputError, match="can't be the default"):
         model_registry_service.set_model_override("default", "ollama", engine_registry.effective_default_model("ollama"), tag)
-    assert engine_registry.effective_default_model("ollama") == "gemma4:12b"
+    assert engine_registry.effective_default_model("ollama") == "translategemma:27b"
 
 
 def test_run_naming_ollama_without_a_model_never_resolves_to_a_cloud_tag(isolated_db):
@@ -278,3 +278,9 @@ def test_cloud_tag_gate_unit():
         api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", "gemma4:12b"), ("claude", None))
     with patch.object(api_auth, "holds", return_value=True):
         api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))
+
+
+def test_cloud_models_are_priced_so_the_spend_cap_counts_them():
+    for tag in engine_local.OLLAMA_CLOUD_MODELS:
+        assert pricing.estimate_cost(tag, 1_000_000, 1_000_000) == pytest.approx(0.54)
+    assert pricing.estimate_cost("gemma4:12b", 1_000_000, 1_000_000) == 0.0

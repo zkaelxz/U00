@@ -36,7 +36,6 @@ _PACKAGES = {
     "uroman": ("uroman",),
     "soundfile": ("soundfile",),
     "audio_separator": ("audio_separator",),
-    "demucs": ("demucs",),
     "pyannote": ("pyannote.audio",),
     "onnxruntime": ("onnxruntime",),
     "openai": ("openai",),
@@ -108,8 +107,8 @@ def _ollama_state() -> tuple:
 
 
 def whisper_cached_flag(size: str) -> str:
-    """The readiness flag for one Live Whisper size ("large-v3-turbo" -> "whisper_cached_large_v3_turbo")."""
-    return "whisper_cached_" + size.replace("-", "_")
+    """The readiness flag for one Live Whisper size ("large-v3-turbo" -> "whisper_cached_large_v3_turbo", "ja-1.5b" -> "whisper_cached_ja_15b")."""
+    return "whisper_cached_" + size.replace("-", "_").replace(".", "")
 
 
 def _compute() -> dict:

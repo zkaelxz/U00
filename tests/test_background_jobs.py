@@ -1867,6 +1867,32 @@ class TestNotifyOnCompletion:
         assert not _wait_for(lambda: calls, timeout=0.5)
         bg.clear_job("t_notify_off")
 
+    def test_no_toast_is_attempted_without_a_desktop(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+        job_settings.set_notify_on_completion(True)
+
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: False)
+        job_settings._notify_job_finished("A job", "done")
+        assert calls == []
+
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
+        job_settings._notify_job_finished("A job", "done")
+        assert len(calls) == 1
+
+    def test_has_desktop_is_true_off_windows(self, monkeypatch):
+        import sys
+        monkeypatch.setattr(sys, "platform", "linux")
+        from lib import desktop_session
+        assert desktop_session.has_desktop() is True
+
     def test_successful_job_notifies_when_enabled(self, monkeypatch):
         calls = []
         monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append(a))
@@ -2792,7 +2818,7 @@ def test_a_thread_job_that_did_not_run_for_a_missing_package_ends_as_an_error():
     ("empty", None, "Nothing was produced: no speech or text was found."),
     ("qwen3_asr", "CUDA out of memory", "Qwen3-ASR failed on this audio. CUDA out of memory"),
     ("groq", "HTTP 503", "The Groq transcription request failed. HTTP 503"),
-    ("vocal_separation", "demucs crashed", "Separating the vocals failed. demucs crashed"),
+    ("vocal_separation", "separator crashed", "Separating the vocals failed. separator crashed"),
 ])
 def test_a_thread_job_whose_worker_reports_a_failure_ends_as_an_error(monkeypatch, reason,
                                                                       detail, text):

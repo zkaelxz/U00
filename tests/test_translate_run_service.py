@@ -353,9 +353,9 @@ def test_save_style_toggles_stores_translate_by_sentence_and_none_keeps_it(isola
     ("gemini", "gemini-flash-latest", 30),
     ("gemini", "gemini-flash-lite-latest", 30),
     ("gemini", None, 30),                         # default model is Flash-Lite
-    ("openai", "gpt-5", 30),                      # not tested at 60 yet
+    ("openai", "gpt-6.1-sol", 30),                # not tested at 60 yet
     ("deepseek", None, 30),
-    ("ollama", "qwen3:8b", 30),                   # local
+    ("ollama", "translategemma:12b", 30),                   # local
     ("no-such-engine", "claude-sonnet-5-5", 30),  # unknown engine: safe default
     ("claude", "something-new", 30),              # unknown model: safe default
 ])
@@ -374,7 +374,7 @@ def test_default_batch_size_accepts_an_engine_instance(isolated_db):
 def test_config_offers_a_batch_default_per_engine_and_model(isolated_db):
     table = svc.get_translate_config(_drama())["batch_size_defaults"]
     assert table["claude"]["claude-sonnet-5-5"] == 60 and table["claude"][""] == 60
-    assert table["claude"]["claude-haiku-4-5-20251001"] == 30
+    assert "claude-haiku-4-5-20251001" not in table["claude"]
     assert table["gemini"]["gemini-pro-latest"] == 60
     assert table["gemini"]["gemini-flash-lite-latest"] == 30
 
@@ -422,3 +422,10 @@ def test_a_new_run_waits_while_a_cancelled_requests_provider_call_is_still_runni
 
     with pytest.raises(ConflictError, match="still finishing"):
         svc.start_translate_run(did, engine_name="fake")
+
+
+def test_a_saved_retired_gpt5_model_still_passes_the_model_check(isolated_db):
+    svc._require_offered_model("openai", "gpt-5-mini")
+    svc._require_offered_model("openai", "gpt-6-luna")
+    with pytest.raises(InvalidInputError):
+        svc._require_offered_model("openai", "gpt-4")

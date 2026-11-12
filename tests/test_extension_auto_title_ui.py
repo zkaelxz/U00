@@ -76,3 +76,61 @@ def test_a_token_the_app_refuses_is_not_reported_as_the_app_being_down():
     out = _node("popup_health_failure")
     assert out["revoked"] == out["refused"] == "Baihe didn't accept this token."
     assert out["down"] == "Can't reach Baihe on this PC."
+
+
+def test_typeset_is_off_by_default_and_sent_when_on_whether_or_not_the_page_is_saved():
+    out = _node("worker_typeset")
+    assert "typeset" not in out["offBody"]
+    assert out["onBody"]["typeset"] is True
+    assert out["notSaved"]["typeset"] is True
+    assert out["saved"] == [{"typeset": True}] and out["settings"] is True
+
+
+def test_cancel_drops_the_request_in_flight_instead_of_waiting_for_the_app():
+    out = _node("worker_abort_send")
+    assert out["aborted"]["data"]["aborted"] == 1
+    assert out["reply"] == {"ok": False, "cancelled": True, "error": "Cancelled."}
+
+
+def test_cancelling_names_the_running_batch_to_the_app_so_it_stops_too():
+    out = _node("worker_abort_send")
+    assert out["sentRun"] and out["sentRun"] == out["cancelledRun"]
+
+
+def test_the_next_chapter_link_is_the_sites_own_short_label_on_the_same_site():
+    out = _node("next_chapter")
+    assert out["rel"] == "https://novel.example/ch/4"
+    for key in ("text", "korean", "japanese", "chinese", "label"):
+        assert out[key] == "https://novel.example/ch/4", key
+    # A sentence that merely contains "next", another site, the page itself, or no link: nothing to follow.
+    # 下一页 and the like are the next piece of the same chapter, so each would be saved as a chapter.
+    assert out["nextPage"] == ""
+    assert out["sentence"] == "" and out["otherSite"] == "" and out["samePage"] == "" and out["none"] == ""
+
+
+def test_a_sign_in_or_purchase_page_is_recognised_but_a_chapter_with_text_is_not():
+    out = _node("gated")
+    assert out["password"] is True and out["notice"] is True and out["purchase"] is True
+    assert out["plain"] is False and out["prose"] is False
+
+
+def test_a_run_over_several_chapters_follows_the_next_link_and_reports_each_outcome():
+    out = _node("worker_series")
+    text = {name: out[name]["done"]["text"] for name in out if name != "cancelled"}
+    saves = lambda run: [c for c in out[run]["calls"] if c[0] == "saveNovelText"]
+    assert out["three"]["started"]["data"]["started"] is True
+    assert text["three"] == "Chapters: saved 3, skipped 0, failed 0. Stopped: reached the chapter limit."
+    assert len(saves("three")) == 3
+    assert "no next-chapter link" in text["end"] and "saved 2" in text["end"]
+    assert "skipped 1" in text["duplicate"] and "Chapter 2 (already saved)" in text["duplicate"]
+    # A sign-in or purchase page ends the run without trying to read it.
+    assert "sign-in or purchase" in text["gated"] and len(saves("gated")) == 2
+    assert "failed 1" in text["broken"] and "No chapter text found" in text["broken"]
+    assert "led back to a chapter already done" in text["loop"]
+    assert "captureChapter" in [c[0] for c in out["comic"]["calls"]] and "saved 2" in text["comic"]
+
+
+def test_a_second_chapter_run_is_refused_and_cancel_ends_the_first():
+    out = _node("worker_series")["cancelled"]
+    assert out["second"] == {"ok": False, "error": "A chapter run is already going."}
+    assert out["done"]["text"].endswith("Stopped: cancelled.")

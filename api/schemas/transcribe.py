@@ -371,6 +371,8 @@ class LiveFormOptions(BaseModel):
     """What the Live form offers and starts on: the values Start checks against."""
     languages: List[LiveLanguage]
     whisper_sizes: List[str]
+    # {size: {language: reason}} for the pairs Start refuses (whisper_models.WHISPER_LANGUAGE_RULES).
+    whisper_exclusions: Dict[str, Dict[str, str]]
     segment_range: List[float]
     overlap_range: List[float]
     max_minutes_range: List[float]

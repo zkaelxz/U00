@@ -19,9 +19,13 @@ from pydantic import ValidationError
 
 from api.auth import local_only, require_permission
 from api.schemas import (DeleteConfirm, NovelFileStatus, NovelFileTextRequest,
-                         NovelChapterList, NovelChapterText, NovelFileUploadResult,
+                         NovelChapterList, NovelChapterMoved, NovelChapterMoveRequest,
+                         NovelChapterRenameRequest, NovelChapterRenamed,
+                         NovelChapterText, NovelLineChapters, NovelFileUploadResult,
                          NovelReferenceRemoveResult, error_responses)
 from services import novel_chapters_service as chapters_svc
+from services import (novel_chapter_edit_service, novel_chapter_move_service,
+                      novel_line_chapters_service)
 from services import novel_files_service as svc
 from lib.errors import InvalidInputError
 
@@ -95,6 +99,31 @@ def get_raw_novel_chapters(drama_id: int = Path(ge=1), offset: int = Query(0, ge
                            limit: int = Query(chapters_svc.DEFAULT_PAGE, ge=1,
                                               le=chapters_svc.MAX_PAGE)):
     return chapters_svc.list_chapters(drama_id, offset, limit)
+
+
+@router.get("/dramas/{drama_id}/line-chapters", dependencies=[require_permission("lines.read")],
+            response_model=NovelLineChapters, responses=_NOT_FOUND,
+            summary="Which lines belong to which chapter, with translated and checked counts")
+def get_line_chapters(drama_id: int = Path(ge=1)):
+    return novel_line_chapters_service.line_chapters(drama_id)
+
+
+@router.post("/dramas/{drama_id}/raw-novel/chapters/{number}/rename",
+             dependencies=[require_permission("lines.edit")],
+             response_model=NovelChapterRenamed, responses=_ERR,
+             summary="Rename one saved chapter (409 while a job runs or if its text has no title line)")
+def post_rename_chapter(payload: NovelChapterRenameRequest, drama_id: int = Path(ge=1),
+                        number: int = Path(ge=1)):
+    return novel_chapter_edit_service.rename_chapter(drama_id, number, payload.title)
+
+
+@router.post("/dramas/{drama_id}/raw-novel/chapters/{number}/move",
+             dependencies=[require_permission("lines.edit")],
+             response_model=NovelChapterMoved, responses=_ERR,
+             summary="Move one saved chapter to another position, with its lines (409 if they do not line up)")
+def post_move_chapter(payload: NovelChapterMoveRequest, drama_id: int = Path(ge=1),
+                      number: int = Path(ge=1)):
+    return novel_chapter_move_service.move_chapter(drama_id, number, payload.to_number)
 
 
 @router.get("/dramas/{drama_id}/raw-novel/chapters/{number}",

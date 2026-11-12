@@ -19,6 +19,8 @@ import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateS
 import { splitLines, type RunForm } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage, useStageFocus } from '../StageContext'
+import { filterTerms, sortTerms, type TermSort } from './glossaryTermView'
+import { GlossaryTermsToolbar } from './GlossaryTermsToolbar'
 import { GlossaryImport } from './GlossaryImport'
 import { InstructionsEditor } from './GlossaryInstructions'
 import { GlossaryRetranslateAction } from './GlossaryRetranslate'
@@ -33,6 +35,7 @@ import { revealForm } from './revealForm'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
 import { scanBanner, scanSummary, sourceToShow } from './glossaryScan'
+import { WordReplacementsTab } from './GlossaryReplacements'
 import { GLOSSARY_TABS, emptyTabText, instructionsSummary, type GlossaryTab } from './glossaryTabs'
 import { loadGlossaryUi, saveGlossaryUi } from './glossaryUi'
 import { noneAsNull } from './glossaryTermForm'
@@ -211,6 +214,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
   const [saveError, setSaveError] = useState<unknown>(null)
   const [reloads, setReloads] = useState(0)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<TermSort>('listed')
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -313,7 +318,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       setReloads((n) => n + 1)
     }, setSaveError)
 
-  const ids = terms ? terms.map((t) => t.id) : []
+  const shown = terms ? sortTerms(filterTerms(terms, query), sort) : []
+  const ids = shown.map((t) => t.id)
   const chosen = selectedInOrder(selected, ids)
   const allOn = ids.length > 0 && chosen.length === ids.length
 
@@ -415,6 +421,9 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
         </div>
       )}
       {terms && terms.length > 0 && (
+        <GlossaryTermsToolbar query={query} onQuery={setQuery} sort={sort} onSort={setSort} shown={shown.length} total={terms.length} />
+      )}
+      {terms && terms.length > 0 && (
         <div className="table-scroll"><table role="table" className="card-table glossary-table">
           <thead>
             <tr role="row">
@@ -432,7 +441,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
               <th role="columnheader">Original</th><th role="columnheader">Translation</th><th role="columnheader">Aliases</th><th role="columnheader">Banned</th><th role="columnheader">Exact</th><th role="columnheader"><span className="visually-hidden">Edit</span></th></tr>
           </thead>
           <tbody>
-            {terms.map((t) => (
+            {shown.map((t) => (
               <TermRow
                 key={t.id}
                 t={t}
@@ -560,11 +569,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       ))}
       {panel('packs', (
         <>
-      <LanguagePacks
-        glossarySources={(terms ?? []).map((t) => t.term_original)}
-        hasSeries={seriesId != null}
-        onAdded={() => setReloads((n) => n + 1)}
-      />
+      <LanguagePacks glossarySources={(terms ?? []).map((t) => t.term_original)} hasSeries={seriesId != null}
+        onAdded={() => setReloads((n) => n + 1)} />
       <VtuberNames />
         </>
       ))}
@@ -595,6 +601,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           )}
         </>
       ) : <p className="muted" role="status">Loading instructions…</p>)}
+      {panel('replacements', <WordReplacementsTab />)}
       {panel('retranslate', <RetranslateTab retranslate={retranslate} />)}
       </div>
     </Section>

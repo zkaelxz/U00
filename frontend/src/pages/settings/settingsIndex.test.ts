@@ -58,7 +58,7 @@ describe('settings tabs', () => {
 
   it('keeps the cards of the Account and display tab in order', () => {
     // 'source-update' is the one admin-only card (system.update), pinned second; Settings and the palette hide it from a member.
-    expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'source-update', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
+    expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'source-update', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key', 'pc-profiles'])
   })
 })
 

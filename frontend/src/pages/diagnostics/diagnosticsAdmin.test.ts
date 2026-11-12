@@ -235,7 +235,7 @@ describe('other sections', () => {
     })).toBe('12.0 GB · 7 models')
     expect(modelCacheSummary({
       hf_cache: [], hf_total_bytes: 0,
-      model_files: [{ folder: 'torch', name: 'htdemucs.th', size_bytes: 1 }],
+      model_files: [{ folder: 'torch', name: 'model.pt', size_bytes: 1 }],
       model_files_total_bytes: 84_000_000,
     })).toBe('84.0 MB · 1 model file')
   })
@@ -288,6 +288,7 @@ describe('model downloads', () => {
     expect(MODEL_DOWNLOAD_IDS['Qwen3-ASR']).toBe('qwen3_asr')
     expect(MODEL_DOWNLOAD_IDS['SenseVoice (FunASR)']).toBe('sensevoice')
     expect(MODEL_DOWNLOAD_IDS['manga-ocr']).toBe('manga_ocr')
+    expect(MODEL_DOWNLOAD_IDS['LaMa-manga']).toBe('lama_manga')
     expect(MODEL_DOWNLOAD_IDS['Whisper (faster-whisper)']).toBeUndefined()
   })
 

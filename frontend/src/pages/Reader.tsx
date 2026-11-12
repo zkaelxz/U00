@@ -5,7 +5,7 @@
  * Folded Sections below: Watch / listen, Words, Vocabulary, Glossary,
  * Story tools and My notes; Sections with no data are not rendered.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
 import { api, ApiError, keepaliveFetch } from '../api/client'
 import { pageHtmlUrl, readerApi, readerEngines, readerEnginesOff } from '../api/reader'
@@ -37,6 +37,8 @@ import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
 import { ListenWatch } from './reader/ListenWatch'
+import { ChapterJump } from './reader/ReaderChapters'
+import { ReaderTermPanels } from './reader/ReaderTermTools'
 import { lineEditPatch } from './reader/readerLineEdit'
 import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
 import { useSession } from '../hooks/useSession'
@@ -68,7 +70,8 @@ function goToPage(id: number, page: number, replace = false) {
   else window.location.hash = href
 }
 
-function Pager({ page, count, loading, onGo, goTo }: {
+function Pager({ page, count, loading, onGo, goTo, chapters }: {
+  chapters?: ReactNode
   page: number
   count: number
   loading: boolean
@@ -86,6 +89,7 @@ function Pager({ page, count, loading, onGo, goTo }: {
       <button type="button" aria-label="Next page" disabled={page >= count} onClick={() => onGo(page + 1)}>
         ›
       </button>
+      {chapters}
       {goTo && <GoTo count={count} onGo={onGo} />}
     </nav>
   )
@@ -475,7 +479,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           <ListenWatch dramaId={id} media={media} setMedia={setMedia} sourceLanguage={sourceLanguage} />
           {!phone && page !== null && (
             <div className="reader-bar">
-              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo />
+              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo chapters={<ChapterJump dramaId={id} page={page} pageSize={prefs.chapterSize} onGo={onGo} />} />
               {editToggle}
               {metrics && <span className="muted" data-testid="reader-metrics">{metrics}</span>}
             </div>
@@ -505,6 +509,8 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               <ActionError action={save} />
             </form>
           )}
+          <ReaderTermPanels dramaId={id} editMode={editMode} frameRef={frameRef} terms={terms}
+            onTermsLoaded={setTerms} onPageChanged={() => setPageTick((n) => n + 1)} />
           {data && pageSrc && !(stale && pageError !== null) && (
             <iframe
               ref={frameRef}
@@ -555,7 +561,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           )}
           {phone && page !== null && (
             <div className="reader-bottom">
-              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo={false} />
+              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo={false} chapters={<ChapterJump dramaId={id} page={page} pageSize={prefs.chapterSize} onGo={onGo} />} />
             </div>
           )}
         </>

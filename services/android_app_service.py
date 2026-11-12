@@ -9,6 +9,9 @@ import zipfile
 import portable
 from lib.errors import ConflictError, DependencyUnavailableError, NotFoundError, ServiceError
 
+# A top-level folder of the data folder: installer/service_layout.APP_STATE_ENTRIES must list it,
+# or Setup refuses the data folder once a phone-app build has been fetched.
+FOLDER_NAME = "android"
 APK_NAME = "baihe-shell.apk"
 VERSION_NAME = "baihe-shell.version"
 # Android's versionCode is a signed 32-bit int.
@@ -26,7 +29,7 @@ _fetch_lock = threading.Lock()
 
 
 def _folder() -> str:
-    return os.path.join(portable.data_dir(), "android")
+    return os.path.join(portable.data_dir(), FOLDER_NAME)
 
 
 def apk_path() -> str | None:
@@ -70,7 +73,8 @@ def fetch_latest() -> dict:
         repo = gh.releases_repo()
         try:
             release = json.loads(gh.read_small(
-                f"https://api.github.com/repos/{repo}/releases/tags/{RELEASE_TAG}", _MAX_RELEASE_JSON_BYTES))
+                f"https://api.github.com/repos/{repo}/releases/tags/{RELEASE_TAG}", _MAX_RELEASE_JSON_BYTES,
+                accept="application/vnd.github+json"))
         except ServiceError as exc:
             if getattr(exc, "details", None) == {"http_status": 404}:
                 raise NotFoundError("No phone-app build has been published yet. On GitHub, open "

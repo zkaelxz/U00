@@ -48,7 +48,7 @@ def test_lists_each_model_with_whether_it_is_on_disk(client, models):
     state["sensevoice"] = True
     body = client.get("/api/diagnostics/model-downloads").json()
     assert {m["id"]: m["downloaded"] for m in body["models"]} == {
-        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False}
+        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "lama_manga": False}
     assert body["models"][0]["job_id"] == "model_download_qwen3_asr"
 
 
@@ -127,6 +127,22 @@ def test_hub_fetch_downloads_each_repo_at_its_pinned_revision(monkeypatch):
         ("kha-white/manga-ocr-base", "aa6573bd10b0d446cbf622e29c3e084914df9741"),
         ("Qwen/Qwen3-ForcedAligner-0.6B-hf", "c07281df297b9905d24a508279258cccf987a064")]
     assert messages[0][0] == 0.0 and messages[1][0] == 0.5
+
+
+def test_hub_progress_bar_reports_bytes_and_survives_a_disabled_bar(monkeypatch):
+    hub = pytest.importorskip("huggingface_hub")
+    bars = []
+    monkeypatch.setattr(hub, "snapshot_download",
+                        lambda repo, **kw: bars.append(kw["tqdm_class"]))
+    messages = []
+    svc._fetch_hub(["kha-white/manga-ocr-base"], lambda f, m: messages.append(m), lambda: False)
+    bar = bars[0]
+    # A disabled bar skips tqdm's init, so it has no `unit`; the library creates
+    # one when progress bars are switched off.
+    bar(total=2, unit="B", disable=True).update(1)
+    bar(total=2, unit="it").update(1)
+    bar(total=2_000_000_000, unit="B").update(1_500_000_000)
+    assert messages[-1] == "Downloading kha-white/manga-ocr-base… 1.5 GB so far"
 
 
 def test_start_is_pc_only_and_reading_needs_admin(models):

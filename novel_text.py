@@ -5,8 +5,11 @@ cleanup rules every novel import shares (site chrome lines, ruby readings,
 OCR line joins, chapter headings, legacy encodings).
 """
 
+import json
 import os
 import re
+import tempfile
+from typing import NamedTuple, Optional
 
 
 # A line that's a chapter heading of its own: 第十二章 / 第3回 / 第二卷 /
@@ -35,6 +38,20 @@ def is_heading_text(text: str) -> bool:
     match = _CHAPTER_HEADING_RE.match(text)
     # Korean prose ends its sentences with "."; an English "Chapter 3." stays a heading.
     return bool(match and (match.group("english") or not text.endswith(".")))
+
+
+# A volume heading groups chapters (第二卷, 제2권, "Volume 2: Title"); the same
+# length and punctuation limits keep an ordinary sentence from matching.
+_VOLUME_HEADING_RE = re.compile(
+    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[卷部篇]|제\s*[0-9０-９]+\s*[권부]|"
+    r"(?:volume|vol\.?|book|part)\s+[0-9ivxIVX]+)" + _HEADING_END, re.IGNORECASE)
+
+
+def is_volume_heading_text(text: str) -> bool:
+    text = (text or "").strip()
+    if not text or len(text) > _CHAPTER_HEADING_MAX_CHARS or text.endswith(_SENTENCE_END):
+        return False
+    return bool(_VOLUME_HEADING_RE.match(text))
 
 
 def is_chapter_heading(ln) -> bool:
@@ -369,6 +386,64 @@ def tidy_ocr_text(text: str) -> str:
 # Where the novel's source text is saved beside its title: narration and the
 # translate pipeline both read it, so it lives here and not with the dub code.
 NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
+
+
+# Text appended to the translation text that has no lines yet: {"chars": appended characters waiting,
+# "length": the text's length when they were appended}. It lets a failed "add chapters" be finished
+# without re-cutting the whole text (which would drop lines edited in Review).
+PENDING_LINES_FILENAME = "novel_pending_lines.json"
+
+
+class PendingLines(NamedTuple):
+    chars: int
+    length: int
+    # Set while the lines are being appended: how many lines the title had and how many are being added. They
+    # tell a retry whether a stop between saving the lines and clearing this marker left them already added.
+    base: Optional[int] = None
+    added: Optional[int] = None
+
+
+def read_pending_lines(drama_dir: str) -> Optional[PendingLines]:
+    """What is waiting for lines, or None when nothing is."""
+    try:
+        with open(os.path.join(drama_dir, PENDING_LINES_FILENAME), encoding="utf-8") as f:
+            data = json.load(f)
+        chars, length = int(data["chars"]), int(data["length"])
+        base = int(data["base"]) if data.get("base") is not None else None
+        added = int(data["added"]) if data.get("added") is not None else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return PendingLines(chars, length, base, added) if chars > 0 and length >= chars else None
+
+
+def write_pending_lines(drama_dir: str, chars: int, length: int,
+                        base: Optional[int] = None, added: Optional[int] = None) -> None:
+    fd, tmp = tempfile.mkstemp(prefix=".pending_", suffix=".part", dir=drama_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"chars": chars, "length": length, "base": base, "added": added}, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, os.path.join(drama_dir, PENDING_LINES_FILENAME))
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
+def lines_hold_tail(line_texts: list, tail: str, added: int) -> bool:
+    """True when the last `added` lines are exactly `tail` cut up (whitespace aside)."""
+    if added <= 0 or len(line_texts) < added:
+        return False
+    squash = lambda t: "".join(t.split())
+    return squash("".join(line_texts[-added:])) == squash(tail)
+
+
+def clear_pending_lines(drama_dir: str) -> None:
+    try:
+        os.remove(os.path.join(drama_dir, PENDING_LINES_FILENAME))
+    except FileNotFoundError:
+        pass
 
 
 def narration_paragraph_ends(lines, drama_dir: str):

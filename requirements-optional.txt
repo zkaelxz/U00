@@ -45,12 +45,10 @@ soynlp>=0.0.493
 # --- vocal separation before transcription (audio_preprocess.py) ---
 # Strips background music from a music-bed source (audio dramas,
 # livestreams) before Whisper sees it. audio-separator runs a Mel-Band
-# RoFormer vocal model (cleaner, preferred); Demucs is the fallback (its
-# project is archived). Each downloads its own model on first use.
+# RoFormer vocal model, which it downloads on first use.
 audio-separator>=0.48.0
 audioread>=3.1.0          # audio-separator imports it but doesn't declare it; librosa
                          # used to pull it in and stopped in 1.0.
-demucs>=4.1.0
 
 # --- word-level forced alignment (word_align.py), EXPERIMENTAL ---
 # Splits an oversized VAD-merged transcript line back into multiple
@@ -61,16 +59,15 @@ uroman>=1.3.1.1
 
 # --- OCR ---
 pytesseract>=0.3.13        # also needs the Tesseract binary + language packs
-paddleocr==3.7.0        # better Chinese accuracy, heavier. Pinned: 3.x changed its API from
-                         # what a lot of older tutorials show (use_angle_cls, .ocr(path, cls=True)),
-                         # and ocr.py's extract_text_paddle() targets this one. It requires
-                         # paddlex<3.8.0, which in turn pins opencv-contrib-python==4.10.0.84
-                         # exactly: Diagnostics removes a plain opencv-python first
-                         # (install_plan.py), because the two share one 'cv2' folder.
-paddlepaddle==3.3.1     # PaddlePaddle publishes wheels for Python 3.9-3.13 only. On 3.14 you'll
-                         # get "No matching distribution found" -- not a network or pip problem,
-                         # there's genuinely no wheel yet. Needs a separate Python 3.12/3.13
-                         # install if you want it on a newer interpreter. Check python --version first.
+# paddleocr / paddlepaddle are NOT installed from this file: PaddleX, which paddleocr needs,
+# pins numpy<2.4 and opencv-contrib-python==4.10.0.84, both below what Baihe needs, so
+# installing them alongside the rest downgrades those two (Diagnostics refuses that). RapidOCR
+# covers Chinese and Korean and manga-ocr covers Japanese. If you still want PaddleOCR, use
+# Diagnostics, which previews the change first, or install exactly these by hand:
+# paddleocr==3.7.0       # 3.x changed its API from older tutorials; ocr.py's extract_text_paddle()
+#                        # targets this one. Needs paddlex<3.8.0.
+# paddlepaddle==3.3.1    # Wheels exist for Python 3.9-3.13 only; on 3.14 pip reports "No matching
+#                        # distribution found" (no wheel yet, not a network problem).
 # manga-ocr>=0.1        # Japanese manga speech bubbles
 # rapidocr>=3.10         # Chinese/Japanese OCR on onnxruntime. Install with --no-deps (Diagnostics does):
 #                        # it requires opencv-python-headless, which shares the 'cv2' folder with the

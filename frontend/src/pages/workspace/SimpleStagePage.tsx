@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import type { DramaDetail } from '../../api/types'
 import { ButtonLink } from '../../components/Button'
@@ -9,8 +9,12 @@ import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
 import { JobPill } from './JobPill'
 import { STAGE_COMPONENTS } from './stageRegistry'
-import type { StageId } from './stages'
+import { STAGE_IDS, type StageId } from './stages'
 import { StageContext, type StageContextValue } from './StageContext'
+import { SimpleStepNav } from './SimpleStepNav'
+import { TitleSteps } from './TitleSteps'
+import { useTitleProgress } from './useTitleProgress'
+import './titleLines.css'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 
@@ -25,10 +29,15 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   stage: StageId | null
   onView: (v: TitleView) => void
 }) {
+  const steps = useTitleProgress(id, false)
+  const { refresh } = steps
+  // A finished job changes the counts the steps column shows, so it refreshes with the stage.
+  const onJobDone = useCallback(() => { refetch(); refresh() }, [refetch, refresh])
   const ctx = useMemo<StageContextValue>(
-    () => ({ dramaId: id, drama, refetchDrama: refetch, onJobDone: refetch, simple }),
-    [id, drama, refetch, simple],
+    () => ({ dramaId: id, drama, refetchDrama: refetch, onJobDone, simple }),
+    [id, drama, refetch, onJobDone, simple],
   )
+  // `simple` is true only for audio and video, the only kinds whose Simple pages link to Review.
   const Stage = stage ? STAGE_COMPONENTS[stage] : null
   return (
     <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
@@ -45,10 +54,23 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
         )}
       </header>
-      <ErrorBanner error={error} />
-      <StageContext.Provider value={ctx}>
-        {Stage && <Stage />}
-      </StageContext.Provider>
+      {!simple && <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => s !== 'review')} active={stage} />}
+      <div className={simple ? 'title-studio title-studio-stage' : undefined}>
+        <div className="title-studio-main">
+          <ErrorBanner error={error} />
+          <StageContext.Provider value={ctx}>
+            {Stage && <Stage />}
+          </StageContext.Provider>
+        </div>
+        {simple && (
+          <div className="title-studio-side">
+            <TitleSteps id={id} {...steps} />
+            <div className="actions">
+              <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   )
 }

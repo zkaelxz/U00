@@ -24,7 +24,7 @@ import {
 } from './glossaryExtract'
 
 const prop = (term: string, en: string, category: string | null = 'person_name', policy: string | null = 'keep_pinyin'): NovelGlossaryProposal => ({
-  term, suggested_translation: en, category, policy, reason: '', already_in_glossary: false, occurrences: 3, alternatives: [], confidence: 'high',
+  term, suggested_translation: en, category, policy, reason: '', already_in_glossary: false, occurrences: 3, alternatives: [], aliases: [], confidence: 'high',
 })
 
 const WEI = prop('魏婴', 'Wei Ying')
@@ -43,6 +43,9 @@ describe('glossary extraction helpers', () => {
     expect(extractionProgressText('novel', 'running', 0.42)).toBe('Reading the novel… 42%')
     expect(extractionProgressText('lines', 'running', 0.1)).toBe('Scanning the transcript…')
     expect(extractionProgressText('lines', 'queued', 0)).toBe('Waiting to start…')
+    expect(extractionProgressText('lines', 'running', 0.1, 'Scanning 87 lines (elapsed 3m 05s).')).toBe(
+      'Scanning 87 lines (elapsed 3m 05s).',
+    )
   })
 
   it('review uses the novel when attached, else the lines', () => {

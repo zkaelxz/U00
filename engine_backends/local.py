@@ -21,7 +21,7 @@ from .shared import (
     redact_secrets,
     request_translations_with_retry,
 )
-from .temperature import temperature_of
+from .temperature import ollama_sampling
 from .thinking import ollama_chat_with_think, thinking_choice
 from .translation_guard import allowed_source_runs
 from .ollama_server import (  # noqa: F401  (re-exported; callers and tests use local.*)
@@ -96,17 +96,18 @@ def _refuses_schema(exc) -> bool:
     return bool(_SCHEMA_REFUSAL_RE.search(getattr(exc, "body_text", None) or ""))
 
 
-# Local Ollama models offered in the picker. gemma4:12b is the default: it fits
-# a 12 GB GPU fully, while the 26b/31b tags offload to the CPU and run slower.
+# Local Ollama models offered in the picker. translategemma:27b is the default
+# (about 17 GB: it fits a 24 GB or larger card, and 12b is the pick for smaller ones).
+# Both load on every Ollama version in use, including 0.24.0, which cannot load the
+# gemma4 architecture (newer Ollama needs an NVIDIA driver over 550).
 # A title or preset that saved another tag (an old Qwen one, say) keeps it and
 # still runs if Ollama has it; it is just no longer offered here.
-OLLAMA_DEFAULT_MODEL = "gemma4:12b"
+OLLAMA_DEFAULT_MODEL = "translategemma:27b"
 
 
 OLLAMA_MODELS = {
-    "gemma4:12b": "Gemma 4 12B -- recommended default, about 8 GB, fits fully on a 12 GB GPU; too big for 8 GB",
-    "gemma4:26b": "Gemma 4 26B (MoE) -- about 16-19 GB, won't fit a 12 GB GPU; offloads to the CPU and runs slower",
-    "gemma4:31b": "Gemma 4 31B -- about 19-20 GB, won't fit a 12 GB GPU; offloads to the CPU and runs much slower",
+    "translategemma:27b": "TranslateGemma 27B -- recommended default, translation-only model, about 17 GB; needs a card with 24 GB or more",
+    "translategemma:12b": "TranslateGemma 12B -- translation-only model, about 8 GB; fits a 12 GB card",
 }
 
 
@@ -116,8 +117,8 @@ OLLAMA_MODELS = {
 # of the default and out of every fallback so a local-only setup never
 # starts sending text off the PC without the owner picking one.
 OLLAMA_CLOUD_MODELS = {
-    "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
-    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; free use is capped",
+    "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; billed per token (about 1 cent per 200-line title)",
+    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; billed per token",
 }
 
 
@@ -362,7 +363,7 @@ def ollama_task_reply(chat, engine, messages: list, max_tokens: int, expect: str
     num_predict = max(1, min(int(max_tokens), OLLAMA_MAX_NUM_PREDICT))
     num_ctx = engine.num_ctx_for(estimated + num_predict)
     payload = {"model": engine.model, "messages": messages, "stream": False,
-               "options": {"num_ctx": num_ctx, "num_predict": num_predict}}
+               "options": {"num_ctx": num_ctx, "num_predict": num_predict, **ollama_sampling()}}
     if expect == "json_object":
         payload["format"] = "json"
     data = ollama_chat_with_think(chat, engine.base_url, payload, False)
@@ -717,11 +718,9 @@ class OllamaEngine:
                 "stream": False,
                 "format": ("json" if (self.base_url, self.model) in _schema_refused
                            else id_keyed_schema(ids)),
-                "options": {"num_ctx": num_ctx, "num_predict": OLLAMA_MAX_NUM_PREDICT},
+                "options": {"num_ctx": num_ctx, "num_predict": OLLAMA_MAX_NUM_PREDICT,
+                            **ollama_sampling(context)},
             }
-            temperature = temperature_of(context, "ollama")
-            if temperature is not None:
-                payload["options"]["temperature"] = temperature
             try:
                 resp = send(payload)
             except Exception as exc:

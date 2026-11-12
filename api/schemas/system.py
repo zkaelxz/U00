@@ -13,6 +13,10 @@ __all__ = [
     "MonthCounterResetResult",
     "HealthResponse",
     "MetaResponse",
+    "PcProfileStatus",
+    "PcProfileSavedStatus",
+    "PcProfilePinRequest",
+    "PcProfileSetPinRequest",
     "DependencyStatus",
     "FileCompleteness",
     "GpuStatus",
@@ -55,6 +59,28 @@ class HealthResponse(BaseModel):
     status: str = Field(description="`ok` whenever the server can answer at all.")
 
 
+class PcProfileStatus(BaseModel):
+    pin_set: bool = Field(description="A PIN exists, so the PC window opens on Guest.")
+    guest: bool = Field(description="The PC window is on Guest now: private titles are hidden.")
+
+
+class PcProfileSavedStatus(PcProfileStatus):
+    hidden: int = Field(0, description="How many titles or series were marked private.")
+
+
+class PcProfilePinRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pin: StrictStr = Field(max_length=64)
+
+
+class PcProfileSetPinRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_pin: StrictStr = Field(max_length=64)
+    hide_existing: StrictBool = Field(False, description="Also mark every title and series made "
+                                      "at the PC private.")
+    current_pin: Optional[StrictStr] = Field(None, max_length=64)
+
+
 class MetaResponse(BaseModel):
     app: str
     api_version: str
@@ -63,6 +89,9 @@ class MetaResponse(BaseModel):
     local: bool = Field(description="True when this request would pass a PC-only (local_only) "
                                     "route: the viewer is at the PC. A UI hint only; those "
                                     "routes still enforce it.")
+    pc_profile: Optional[PcProfileStatus] = Field(
+        None, description="The PC window's Owner/Guest state; null unless this request is the "
+                          "PC window with sign-in off (the only place profiles apply).")
     features: Dict[str, bool] = Field(default_factory=dict,
                                       description="Feature switches (`jellyfin`, `sources`, "
                                                   "`extension`): false when the area is switched "
@@ -247,8 +276,12 @@ class SettingsPreferences(TimingPreferences):
     default_style_note: str
     scene_aware_batches: bool
     scanlate_chapter_brief: bool = True
+    scanlate_page_image: bool = True
+    scanlate_sfx_gloss: bool = False
     episode_brief: bool = True
     translate_reply_guard: str = "auto"
+    claude_reasoning: str = "default"
+    openai_reasoning: str = "default"
     translate_alignment_check: bool = False
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
@@ -349,8 +382,12 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
     scene_aware_batches: Optional[StrictBool] = None
     scanlate_chapter_brief: Optional[StrictBool] = None
+    scanlate_page_image: Optional[StrictBool] = None
+    scanlate_sfx_gloss: Optional[StrictBool] = None
     episode_brief: Optional[StrictBool] = None
     translate_reply_guard: Optional[StrictStr] = Field(None, max_length=40)
+    claude_reasoning: Optional[StrictStr] = Field(None, max_length=40)
+    openai_reasoning: Optional[StrictStr] = Field(None, max_length=40)
     translate_alignment_check: Optional[StrictBool] = None
     episode_summary_engine: Optional[StrictStr] = Field(None, max_length=40)
     monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None

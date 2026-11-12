@@ -70,6 +70,17 @@ def get_logger():
     return logger
 
 
+def release_log_file():
+    """Closes the log file so a folder holding it can be renamed: Windows
+    refuses to rename a directory with an open file inside (WinError 5).
+    The next get_logger() call opens it again."""
+    logger = logging.getLogger(_LOGGER_NAME)
+    for h in list(logger.handlers):
+        logger.removeHandler(h)
+        h.close()
+    setattr(logger, "_baihe_log_path", None)
+
+
 def tail(n: int = 50):
     """Returns the last n lines of the current log file (oldest first),
     or [] if nothing has been logged yet. Used by Diagnostics."""

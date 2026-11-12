@@ -73,3 +73,13 @@ test('with lines the phone shows the bar, the steps and long lines wrapped, with
   await expectTall(page.getByRole('link', { name: 'Open all 10 lines' }), 'Open all lines')
   await expectNoSidewaysScroll(page)
 })
+
+test('the steps on a stage page are tall enough to tap and do not scroll sideways', async ({ page }) => {
+  await page.goto('/#/drama/1')
+  await chooseSimple(page)
+  await page.goto('/#/drama/1/translate')
+  const links = page.getByRole('list', { name: 'Steps' }).getByRole('link')
+  await expect(links).toHaveCount(5)
+  for (const [n, name] of ['Add media', 'Redo', 'Translate', 'Review', 'Export'].entries()) await expectTall(links.nth(n), name)
+  await expectNoSidewaysScroll(page)
+})

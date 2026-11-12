@@ -253,7 +253,7 @@ class TestWhisperThatNeverReturns:
         calls = []
 
         class LocalOllama(Engine):
-            name, model = "ollama", "qwen3:8b"
+            name, model = "ollama", "translategemma:12b"
 
         def whisper(path, **kw):
             _prepare(True)   # what the loader does
@@ -958,7 +958,7 @@ class TestOllamaCadence:
         stream, start, notes = job
         freed = []
         monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory",
-                            lambda: freed.append(1) or "Ollama still has a model loaded (qwen3:8b).")
+                            lambda: freed.append(1) or "Ollama still has a model loaded (translategemma:12b).")
 
         def whisper(path, **kw):
             _prepare(True)   # the loader's hook, per call
@@ -973,10 +973,10 @@ class TestOllamaCadence:
 
     def test_a_job_with_a_local_ollama_frees_it_once_and_shows_the_notice(self, job, monkeypatch):
         class LocalOllama(Engine):
-            name, model = "ollama", "qwen3:8b"
+            name, model = "ollama", "translategemma:12b"
         freed, notes = self._run_job(job, monkeypatch, LocalOllama(), "live_ol", True)
         assert len(freed) == 1
-        assert "Ollama still has a model loaded (qwen3:8b)." in notes
+        assert "Ollama still has a model loaded (translategemma:12b)." in notes
 
     def test_a_job_with_a_cloud_translator_never_touches_ollama(self, job, monkeypatch):
         class Hosted(Engine):

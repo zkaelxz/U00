@@ -4,6 +4,7 @@ import inspect
 import re
 from pathlib import Path
 from lib.errors import MissingPackageError
+from . import pricing
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
 from .local import OllamaEngine, is_ollama_cloud_model
@@ -114,7 +115,7 @@ KEYLESS_ENGINES = {"ollama"}
 # Ids a provider renamed but still serves: a preset or title that saved one
 # keeps running, so a translate run still accepts them after the built-in
 # default moves. The offered lists do not show them.
-_LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",)}
+_LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",), "openai": pricing.OPENAI_RETIRED_MODELS}
 
 
 def legacy_ids(engine_name: str) -> tuple:
@@ -128,7 +129,7 @@ ENGINE_NOTES = {
     "claude": "Paid, cloud; best tone and character voice.",
     "deepseek": "Paid, cloud, very cheap; strong on Chinese.",
     "gemini": "Paid, cloud, cheap; strong on Chinese/Japanese.",
-    "openai": "Paid, cloud; GPT-5 models, billed per token.",
+    "openai": "Paid, cloud; GPT-6 models, billed per token.",
     "ollama": "Free and private; local Gemma 4 on your GPU.",
 }
 

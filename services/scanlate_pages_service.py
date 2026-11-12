@@ -171,9 +171,9 @@ def _weights_cached():
 
 def default_engine(engines: list | None = None) -> str:
     """The engine a Scanlate run starts with: the Settings default when the
-    person saved one that can run, otherwise the cheapest engine that can --
-    the stock default is Claude, the dearest, and a page run translates a
-    whole chapter. Cheapest by the price of each engine's default model; a
+    person saved one that can run, otherwise OpenAI (Luna) when it can run, else
+    the cheapest engine that can -- the stock default is Claude, the dearest,
+    and a page run translates a whole chapter. Cheapest by the price of each engine's default model; a
     free or local engine costs nothing. The Settings default when none can run, so
     the run is refused for the missing key as before."""
     import types
@@ -195,6 +195,11 @@ def default_engine(engines: list | None = None) -> str:
             free_tier=name == "gemini" and gemini_free)
         return estimate_cost_for_engine(stand_in, 1_000_000, 1_000_000)
 
+    # Luna read slang best of the cheap engines in the stream test, and Kae
+    # chose it over DeepSeek, so it wins whenever its key works; the price
+    # ranking only decides among the rest.
+    if "openai" in usable:
+        return "openai"
     return min(usable, key=price, default=chosen)
 
 
@@ -224,6 +229,9 @@ def get_config(drama_id: int) -> dict:
         "ocr_backend": ocr_backend,
         "ocr_backend_installed": ocr_backend_installed(
             ocr_backend, str(settings_service.get("tesseract_cmd")) or None),
+        # Captions on the art need PaddleOCR and the LaMa model; the panel turns
+        # them on by default only when both are here.
+        "art_captions_available": ocr_backend_installed("paddle") and lama_cached,
         "page_count": len(pages),
         "pages_with_regions": sum(1 for p in pages if p["id"] in with_regions),
         "pages_rendered": sum(1 for p in pages if p.get("rendered_filename")),

@@ -54,3 +54,5 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
 @media (prefers-reduced-motion: no-preference) {
   button, select, input { transition: background-color .16s, border-color .16s, box-shadow .16s; }
 }
+
+#progress { width: 100%; height: 6px; margin: 4px 0 0; accent-color: var(--accent); }

@@ -90,7 +90,7 @@ def stored_min_pause_sec(drama) -> float:
 _BOOL_FIELDS = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
                 "whisper_repeat_guard", "split_by_sentences", "vocabulary_hint", "use_groq",
                 "difficult_audio")
-_SEPARATION_BACKENDS = ("auto", "audio_separator", "demucs")
+_SEPARATION_BACKENDS = ("auto", "audio_separator")
 
 
 def check_transcribe_fields(fields: dict, source_language) -> dict:
@@ -616,6 +616,9 @@ _ADVICE_RULES = (
     ("ja_model_language", "blocked",
      lambda c: c["model"] in ("ja-1.5b", "kotoba-v2") and _runs_whisper(c) and c["language"] not in ("", "ja"),
      "This Whisper model is for Japanese only.", lambda c: {"whisper_size": "large-v3"}),
+    ("zh_model_language", "blocked",
+     lambda c: c["model"] == "breeze-asr-25" and _runs_whisper(c) and c["language"] not in ("", "zh"),
+     "Breeze-ASR-25 is for Chinese only.", lambda c: {"whisper_size": "large-v3"}),
     ("qwen_long_audio", "warn",
      lambda c: c["backend"] in _LONG_AUDIO_QWEN,
      "Qwen3 ASR on long audio gives no word timings, fewer lines and \"Timing uncertain · Split evenly\" flags. Use Whisper.",

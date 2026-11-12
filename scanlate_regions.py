@@ -9,6 +9,8 @@ regions the automated inpaint-and-replace pass leaves alone.
 from dataclasses import dataclass, asdict
 from typing import Optional
 
+import re
+
 import numpy as np
 
 import scanlate_tuning
@@ -48,6 +50,25 @@ def _reads_as_japanese_sentence(text: str) -> bool:
     return bool(re.search(r"[぀-ゟ]", text) and re.search(r"[一-鿿]", text))
 
 
+_KATAKANA_EFFECT = re.compile(r"^[゠-ヿー・…！？!?\s]*([゠-ヿ])\1{2,}[゠-ヿー・…！？!?\s]*$")
+
+
+def flag_katakana_effects(regions: list) -> int:
+    """Marks as sound effects the regions the detector called speech whose text
+    is katakana alone with one kana repeated three or more times ("キュルルル",
+    "ゴゴゴ"). Katakana speech does not stretch a syllable that way, and an effect
+    typeset as English dialogue ("Kyuru-ru-ru...") sits on the art as a stray
+    word. A region the person set to include_sfx is left as it is. Returns the count."""
+    changed = 0
+    for region in regions:
+        if region.get("kind") != "bubble" or region.get("include_sfx"):
+            continue
+        if _KATAKANA_EFFECT.match((region.get("source_text") or "").strip()):
+            region["kind"] = "sfx"
+            changed += 1
+    return changed
+
+
 def reclassify_wordy_sfx(regions: list) -> int:
     """Turns a region the detector called an SFX into a sign when its text is
     too long to be one, or reads as a Japanese sentence. The detector sees
@@ -66,6 +87,20 @@ def reclassify_wordy_sfx(regions: list) -> int:
             region["kind"] = "sign"
             changed += 1
     return changed
+
+
+_STRAY_LEADING_MARK = re.compile(
+    r"^[0OoＯ０]\s?(?=[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af])")
+
+
+def strip_stray_sfx_mark(text: str, kind: str) -> str:
+    """Drops a lone "0"/"O" glued to the front of a CJK sound effect. OCR
+    reads the round start of a stroke or a speck of screentone as one, and a
+    short effect has nothing around it to outvote the error. Only effects
+    are touched: in a sentence a leading digit can be real."""
+    if kind != "sfx":
+        return text
+    return _STRAY_LEADING_MARK.sub("", text or "", count=1)
 
 
 def detect_script_language(text: str, fallback: str) -> str:
@@ -115,6 +150,117 @@ def _letter_ink(gray, box: dict):
     return np.isin(labels, keep)
 
 
+_SPLIT_GLYPH_MAX_SPAN = 0.12     # of the box's short side
+_SPLIT_GLYPH_MIN_PX = 8
+_SPLIT_JOIN_SPAN = 0.12          # lettering closer than this is one block
+_SPLIT_MIN_GLYPHS = 4
+_SPLIT_MIN_BOX_SIDE = 300
+_SPLIT_PAD_SPAN = 0.08
+_SPLIT_ROW_GAP = 1.5             # of the taller mark's height, between letters of a line
+
+
+def split_separate_lettering(gray, box: dict) -> list:
+    """The boxes for a large region whose lettering falls into separate blocks,
+    or [box] when it is one block. Two caption frames drawn close together are
+    detected as one region, and one translation was then fitted across both and
+    laid over their border. Each block of lettering, grown by a margin, becomes
+    a region of its own, kept inside `box`. Glyphs are the small compact marks;
+    frames and art are larger or sparser and do not count."""
+    import cv2
+    if min(box["w"], box["h"]) < _SPLIT_MIN_BOX_SIDE:
+        return [box]
+    h, w = gray.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    roi = gray[y0:min(h, y0 + box["h"]), x0:min(w, x0 + box["w"])]
+    if not roi.size:
+        return [box]
+    ink = (roi < int(min(max(150, float(np.median(roi)) * 0.8), 240))).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    side = min(roi.shape[:2])
+    limit = _SPLIT_GLYPH_MAX_SPAN * side
+    compact = [i for i in range(1, n)
+               if min(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= _SPLIT_GLYPH_MIN_PX
+               and max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) <= limit
+               and stats[i, cv2.CC_STAT_AREA] >= 0.25 * stats[i, cv2.CC_STAT_WIDTH] * stats[i, cv2.CC_STAT_HEIGHT]]
+    if not compact:
+        return [box]
+    # Lettering is one size; an ornament's curl is larger, a speck smaller. The
+    # median is no judge on a frame with many small curls or a stamp, though, so
+    # marks standing in a row of like marks are letters whatever their size.
+    in_rows = set(_in_a_row(stats, compact))
+    typical = float(np.median([stats[i, cv2.CC_STAT_HEIGHT] for i in compact]))
+    glyphs = np.zeros(ink.shape, np.uint8)
+    for i in compact:
+        if i in in_rows or 0.6 * typical <= stats[i, cv2.CC_STAT_HEIGHT] <= 1.6 * typical:
+            glyphs[labels == i] = 1
+    typical = float(np.median([stats[i, cv2.CC_STAT_HEIGHT] for i in in_rows or compact]))
+    join = max(3, int(_SPLIT_JOIN_SPAN * side)) | 1
+    blocks = cv2.dilate(glyphs, np.ones((join, join), np.uint8))
+    count, block_labels, block_stats, _ = cv2.connectedComponentsWithStats(blocks, connectivity=8)
+    found = []
+    for i in range(1, count):
+        if int(glyphs[block_labels == i].sum()) >= 1:
+            ys, xs = np.nonzero((block_labels == i) & (glyphs > 0))
+            if len(xs) >= _SPLIT_MIN_GLYPHS * _SPLIT_GLYPH_MIN_PX ** 2 // 2:
+                found.append((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
+    if len(found) < 2:
+        return [box]
+    found = [_with_dashes(f, stats, limit, typical) for f in found]
+    pad = int(_SPLIT_PAD_SPAN * side)
+    out = []
+    for fx0, fy0, fx1, fy1 in found:
+        nx0, ny0 = max(0, fx0 - pad), max(0, fy0 - pad)
+        nx1, ny1 = min(roi.shape[1], fx1 + pad), min(roi.shape[0], fy1 + pad)
+        out.append(dict(box, x=x0 + nx0, y=y0 + ny0, w=nx1 - nx0, h=ny1 - ny0))
+    return out
+
+
+def _with_dashes(block: tuple, stats, limit: float, reach: float) -> tuple:
+    """`block` grown over the dash, full stop or ellipsis dot ("바로 이곳—", "그래.")
+    standing at the end of its line: too small to count as a letter, but still ink
+    the render must paint out, or it is left floating beside the English."""
+    import cv2
+    x0, y0, x1, y1 = block
+    for i in range(1, len(stats)):
+        x, y, w, h = (int(stats[i, cv2.CC_STAT_LEFT]), int(stats[i, cv2.CC_STAT_TOP]),
+                      int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT]))
+        dash = min(w, h) < _SPLIT_GLYPH_MIN_PX <= max(w, h) <= limit and max(w, h) >= 2 * min(w, h)
+        thin = dash or max(w, h) < _SPLIT_GLYPH_MIN_PX + 2
+        on_the_line = y0 <= y + h / 2.0 <= y1
+        near = x - x1 <= reach and x0 - (x + w) <= reach
+        if thin and on_the_line and near and (x + w > x1 or x < x0):
+            x0, x1 = min(x0, x), max(x1, x + w)
+    return (x0, y0, x1, y1)
+
+
+def _in_a_row(stats, candidates: list) -> list:
+    """The candidate marks that have a neighbour of like height on their own line,
+    close by: letters. The curls of a corner ornament are alone, or far from the
+    next one across the frame. Taking the median height over every mark let the
+    many small curls decide the size of lettering, so a caption's letters were
+    dropped as too tall and the ornaments kept as text."""
+    import cv2
+
+    def box(i):
+        return (int(stats[i, cv2.CC_STAT_LEFT]), int(stats[i, cv2.CC_STAT_TOP]),
+                int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT]))
+
+    kept = []
+    for i in candidates:
+        x, y, w, h = box(i)
+        for j in candidates:
+            if j == i:
+                continue
+            x2, y2, w2, h2 = box(j)
+            shared = min(y + h, y2 + h2) - max(y, y2)
+            gap = max(x2 - (x + w), x - (x2 + w2), 0)
+            if (shared >= 0.5 * min(h, h2) and 0.5 <= h / float(h2) <= 2.0
+                    and gap <= _SPLIT_ROW_GAP * max(h, h2)):
+                kept.append(i)
+                break
+    return kept
+
+
 def _runs(profile, bridge: int) -> list:
     """Lengths of the inked runs in a 1-D profile, joining runs split by
     fewer than `bridge` empty positions."""
@@ -140,7 +286,12 @@ def lettering_size(gray, box: dict, orientation: str | None):
         return None
     profile = letters.any(axis=0) if orientation == "vertical" else letters.any(axis=1)
     runs = [r for r in _runs(profile, bridge=3) if r >= 6]
-    return float(np.median(runs)) if runs else None
+    if not runs:
+        return None
+    # An ellipsis or a punctuation mark is a thin run beside the glyph columns;
+    # counting it pulled the median down and the English started too small.
+    runs = [r for r in runs if r >= scanlate_tuning.LETTERING_RUN_OF_LARGEST * max(runs)]
+    return float(np.median(runs))
 
 
 def lettering_fill(gray, box: dict):

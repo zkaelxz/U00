@@ -66,15 +66,31 @@ def env(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(svc, "FFMPEG_SIZE", len(state["zip"]))
     monkeypatch.setattr(svc, "FFMPEG_SHA256", hashlib.sha256(state["zip"]).hexdigest())
 
-    def fake_get(url, **kw):
-        assert kw.get("timeout") and kw["allow_redirects"] is False
-        state["calls"].append(url)
-        reply = state["routes"].get(url)
-        if isinstance(reply, Exception):
-            raise reply
-        return reply or FakeResponse(state["zip"])
+    class FakeSession:
+        """Stands in for lib.http.session: runs the service's own guard on every
+        hop, as the real one does, and follows redirects."""
+        def __init__(self, **kw):
+            assert kw["timeout"] and kw["max_bytes"] == svc.FFMPEG_SIZE
+            self.guard = kw["guard"]
 
-    monkeypatch.setattr(svc.requests, "get", fake_get)
+        def get(self, url, **kw):
+            for _ in range(5):
+                self.guard(url)
+                state["calls"].append(url)
+                reply = state["routes"].get(url)
+                if isinstance(reply, Exception):
+                    raise reply
+                reply = reply or FakeResponse(state["zip"])
+                if reply.status_code != 302:
+                    return reply
+                url = reply.headers["Location"]
+            raise AssertionError("redirect loop")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(svc.http, "session", lambda **kw: FakeSession(**kw))
+    monkeypatch.setattr(svc.http, "check_public", lambda url: "93.184.216.34")
     monkeypatch.setenv("PATH", "/usr/bin")
     background_jobs.clear_job(svc.FFMPEG_JOB_ID)
     svc._RESULT["last"] = None
@@ -132,7 +148,7 @@ def test_a_redirect_off_the_allowed_hosts_is_refused(client, env):
     env["routes"][svc.FFMPEG_URLS[0]] = FakeResponse(status=302, location="https://evil.example.com/f.zip")
     env["routes"][svc.FFMPEG_URLS[1]] = FakeResponse(status=302, location="http://www.gyan.dev/f.zip")
     assert _run(client) == "error"
-    assert all("evil" not in c for c in env["calls"])
+    assert all("evil" not in c and not c.startswith("http:") for c in env["calls"])
     assert list((env["data"] / "tools").iterdir()) == []
 
 
@@ -206,3 +222,19 @@ def test_download_urls_are_https_on_allowed_hosts():
     for url in svc.FFMPEG_URLS:
         p = urlsplit(url)
         assert p.scheme == "https" and p.hostname in svc.ALLOWED_HOSTS
+
+
+def test_a_leftover_partial_folder_is_replaced(client, env):
+    folder = env["data"] / "tools" / "ffmpeg"
+    folder.mkdir(parents=True)
+    (folder / "ffmpeg.exe").write_bytes(b"half")      # ffprobe.exe missing: not a complete install
+    assert _run(client) == "done"
+    assert (folder / "ffmpeg.exe").read_bytes() == b"FFMPEG"
+
+
+def test_the_guard_refuses_other_hosts_and_plain_http():
+    from lib.errors import DependencyUnavailableError
+    for url in ("https://evil.example.com/f.zip", "http://www.gyan.dev/f.zip",
+                "https://user:pw@www.gyan.dev/f.zip", "https://www.gyan.dev:8443/f.zip"):
+        with pytest.raises(DependencyUnavailableError):
+            svc._guard(url)

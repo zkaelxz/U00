@@ -58,12 +58,15 @@ describe('series page model', () => {
   })
 
   it('words the copy preview and result', () => {
-    const p = { series_id: 1, source_series_id: 2, new_terms: [], skipped_terms: [] }
+    const p = { series_id: 1, source_series_id: 2, new_terms: [], skipped_terms: [], replacements_new: 0 }
     expect(copyPreviewText({ ...p, new_count: 3, skipped_count: 2 }))
       .toBe('3 new terms will be added, 2 are already there and are skipped.')
     expect(copyPreviewText({ ...p, new_count: 1, skipped_count: 0 })).toBe('1 new term will be added.')
     expect(copyPreviewText({ ...p, new_count: 0, skipped_count: 4 })).toBe('Nothing to add: all 4 terms are already there.')
-    expect(copyResultText({ added: 2, skipped: 1 })).toBe('Added 2 terms; skipped 1 already there.')
+    expect(copyResultText({ added: 2, skipped: 1, replacements_added: 0 })).toBe('Added 2 terms; skipped 1 already there.')
+    expect(copyPreviewText({ ...p, new_count: 0, skipped_count: 4, replacements_new: 2 }))
+      .toBe('0 new terms and 2 word replacements will be added, 4 are already there and are skipped.')
+    expect(copyResultText({ added: 1, skipped: 0, replacements_added: 2 })).toBe('Added 1 term and 2 word replacements.')
   })
 
   it('turns the defaults form into settings, leaving blanks unset', () => {
@@ -71,12 +74,12 @@ describe('series page model', () => {
       { key: 'beam_size', label: 'Beam size', group: 'transcribe', type: 'int', min: 1, max: 10 },
       { key: 'vad_threshold', label: 'VAD', group: 'transcribe', type: 'number', min: 0.1, max: 0.9 },
       { key: 'whisper_fast_mode', label: 'Fast', group: 'transcribe', type: 'bool' },
-      { key: 'separation_backend', label: 'Sep', group: 'transcribe', type: 'choice', choices: ['auto', 'demucs'] },
+      { key: 'separation_backend', label: 'Sep', group: 'transcribe', type: 'choice', choices: ['auto', 'audio_separator'] },
     ]
     const form = defaultsForm(fields, { beam_size: 8, whisper_fast_mode: false })
     expect(form).toEqual({ beam_size: '8', vad_threshold: '', whisper_fast_mode: 'false', separation_backend: '' })
-    expect(settingsFromForm(fields, { ...form, separation_backend: 'demucs', vad_threshold: '0.4' }))
-      .toEqual({ settings: { beam_size: 8, vad_threshold: 0.4, whisper_fast_mode: false, separation_backend: 'demucs' } })
+    expect(settingsFromForm(fields, { ...form, separation_backend: 'audio_separator', vad_threshold: '0.4' }))
+      .toEqual({ settings: { beam_size: 8, vad_threshold: 0.4, whisper_fast_mode: false, separation_backend: 'audio_separator' } })
     expect(settingsFromForm(fields, { ...form, beam_size: '8.5' })).toEqual({ problem: 'Beam size: enter a whole number.' })
     expect(settingsFromForm(fields, { ...form, beam_size: '99' })).toEqual({ problem: 'Beam size: between 1 and 10.' })
   })

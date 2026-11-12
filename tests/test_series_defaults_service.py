@@ -39,7 +39,7 @@ def _audit(action):
 
 GOOD = {"beam_size": 8, "vad_threshold": 0.4, "whisper_fast_mode": True,
         "include_genre_notes": False, "default_female_pronouns": True,
-        "separation_backend": "demucs"}
+        "separation_backend": "audio_separator"}
 
 
 # --- validation and storage ------------------------------------------------
@@ -154,7 +154,7 @@ class TestInheritance:
         row = db.get_drama(d["id"])
         assert (row["beam_size"], row["vad_threshold"], row["whisper_fast_mode"]) == (8, 0.4, 1)
         assert (row["include_genre_notes"], row["default_female_pronouns"]) == (0, 1)
-        assert row["separation_backend"] == "demucs"
+        assert row["separation_backend"] == "audio_separator"
 
     def test_a_new_title_inherits_sensitivity_and_difficult_audio(self, people):
         s = db.create_series("Saga", owner_user_id=people["a_id"])

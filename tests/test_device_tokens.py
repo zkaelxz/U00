@@ -421,6 +421,66 @@ class TestOwnership:
 
 # --- the dependency ------------------------------------------------------------
 
+class TestOwnerAtThePcAddsADeviceForAnAdmin:
+    """The owner at the main PC has no account and an admin's own session may
+    not add a device from away, so the PC route is how an admin account gets one."""
+
+    def test_the_only_admin_gets_a_device_that_acts_with_member_rights(self, isolated_db):
+        admin = auth_service.grant_admin_local("owner@example.com")
+        c = loopback_client(_app("off"))
+        r = c.post(ADMIN, json={"label": "Laptop"})
+        assert r.status_code == 200
+        body = r.json()
+        assert re.fullmatch(r"baihe_dt_[A-Za-z0-9_-]{43}", body["token"])
+        assert device_tokens.list_for_user(admin["id"])[0]["label"] == "Laptop"
+        ping = _bridge().get("/api/bridge/ping", headers=_bearer(body["token"]))
+        assert ping.status_code == 200
+        assert ping.json()["user_id"] == admin["id"] and ping.json()["is_admin"] is False
+        audit = [a for a in auth_service.list_audit(50) if a["action"] == "device_token.create"]
+        assert len(audit) == 1 and audit[0]["user_id"] is None
+        assert f"user {admin['id']}" in audit[0]["detail_redacted"] and "at the PC" in audit[0]["detail_redacted"]
+
+    def test_several_admins_need_a_choice_and_only_an_active_admin_can_be_chosen(self, isolated_db):
+        first = auth_service.grant_admin_local("owner@example.com")
+        second = auth_service.grant_admin_local("spouse@example.com")
+        member, _ = _member("kid@example.com")
+        c = loopback_client(_app("off"))
+        assert c.post(ADMIN, json={"label": "Laptop"}).status_code == 422
+        assert c.post(ADMIN, json={"label": "Laptop", "user_id": member["id"]}).status_code == 404
+        assert c.post(ADMIN, json={"label": "Laptop", "user_id": 9999}).status_code == 404
+        r = c.post(ADMIN, json={"label": "Laptop", "user_id": second["id"]})
+        assert r.status_code == 200
+        assert device_tokens.list_for_user(second["id"]) and not device_tokens.list_for_user(first["id"])
+
+    def test_no_admin_account_is_a_plain_refusal(self, isolated_db):
+        c = loopback_client(_app("off"))
+        assert c.post(ADMIN, json={"label": "Laptop"}).status_code == 422
+
+    def test_the_usual_limits_still_apply(self, isolated_db, monkeypatch):
+        admin = auth_service.grant_admin_local("owner@example.com")
+        c = loopback_client(_app("off"))
+        assert c.post(ADMIN, json={"label": ""}).status_code == 422
+        # The per-user creation rate (5 an hour) is shared with the admin's own bucket.
+        assert [c.post(ADMIN, json={"label": f"PC {n}"}).status_code for n in range(6)] == [
+            200, 200, 200, 200, 200, 429]
+        # And the cap on live tokens, with the rate out of the way.
+        monkeypatch.setattr(svc, "_create_limiter", auth_service.SlidingWindowRateLimiter(100, 3600))
+        for n in range(svc.MAX_LIVE_TOKENS - 5):
+            assert c.post(ADMIN, json={"label": f"More {n}"}).status_code == 200
+        assert c.post(ADMIN, json={"label": "One too many"}).status_code == 409
+        assert len(device_tokens.list_for_user(admin["id"])) == svc.MAX_LIVE_TOKENS
+
+    def test_the_household_listener_never_serves_it(self, isolated_db):
+        admin = auth_service.grant_admin_local("owner@example.com")
+        s = auth_service.create_session(admin["id"], "pytest", "127.0.0.1")
+        app = create_app(ApiSettings(household_port=8610, serve_frontend=False, **SIGN_IN),
+                         listener="household")
+        c = TestClient(app, base_url=f"http://{PUBLIC_HOST}", client=("127.0.0.1", 5000),
+                       raise_server_exceptions=False)
+        r = c.post(ADMIN, json={"label": "Laptop"}, headers=_h(s))
+        assert r.status_code == 403 and device_tokens.list_for_user(admin["id"]) == []
+
+
 class TestRequireDeviceToken:
     def test_valid_token_is_its_user_with_member_rights(self, isolated_db):
         u, _ = _member()

@@ -64,7 +64,7 @@ import csv
 
 import db
 import translation_guide as tguide
-from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, parse_glossary_file
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, glossary_to_json, parse_glossary_file
 from engine_backends.engine_registry import WORKFLOW_TIERS, effective_tier
 from services.glossary_common import (
     MAX_NOTES_LEN,
@@ -81,7 +81,8 @@ from lib.errors import (
 
 # Functions that call an LLM engine (and so may spend on a paid one, i.e.
 # any engine outside engine_backends.engine_registry.FREE_ENGINES).
-PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run")
+PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run", "start_chapters_glossary_run",
+                         "draft_project_instructions")
 
 MAX_LIST_ITEMS = 50
 MAX_ITEM_LEN = 200
@@ -328,13 +329,23 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
 
 
 def glossary_csv(drama_id: int) -> str:
-    """"Export glossary as CSV": the
-    series glossary as CSV text; just the header row when there is none.
-    A cell that a spreadsheet would run as a formula is prefixed with '."""
+    """"Export glossary as CSV": the series glossary as CSV text, with the
+    shared group's terms folded in (the series' own term wins on the same
+    original), so one file carries everything the series translates with;
+    just the header row when there is none. A cell that a spreadsheet would
+    run as a formula is prefixed with '."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
-    terms = db.list_glossary_terms(sid) if sid else []
+    terms = db.list_effective_glossary_terms(sid) if sid else []
     return glossary_to_csv([{k: _csv_safe(v) for k, v in t.items()} for t in terms])
+
+
+def glossary_json(drama_id: int) -> str:
+    """glossary_csv's terms as JSON (the same series and shared-group fold); the importer reads
+    it back, so it can carry a glossary to another series."""
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=False)
+    return glossary_to_json(db.list_effective_glossary_terms(sid) if sid else [])
 
 
 def bulk_delete_glossary_terms(drama_id: int, term_ids: list, confirm: bool = False) -> dict:
@@ -429,4 +440,11 @@ from services.glossary_extract_service import (  # noqa: E402,F401
     start_lines_glossary_run,
     get_lines_glossary_status,
     apply_lines_glossary,
+    draft_project_instructions,
+)
+from services.glossary_chapters_service import (  # noqa: E402,F401
+    cancel_chapters_glossary_run,
+    chapters_glossary_job_id,
+    get_chapters_glossary_status,
+    start_chapters_glossary_run,
 )

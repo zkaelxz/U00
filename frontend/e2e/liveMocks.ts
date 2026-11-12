@@ -20,7 +20,7 @@ const ENGINES = [
 
 const OLLAMA = {
   name: 'ollama', label: 'Ollama', free: true, key_configured: true,
-  models: ['qwen3:8b', 'gemma4:12b'], model_labels: {},
+  models: ['llama3.1:8b', 'translategemma:27b'], model_labels: {},
 }
 
 export const cue = (n: number) => ({
@@ -90,7 +90,7 @@ interface LiveMocks {
 /** Everything Live looks at in GET /api/setup/readiness, present; a spec overrides what it wants missing. */
 export const LIVE_READY: Record<string, boolean> = {
   faster_whisper: true, ffmpeg: true, yt_dlp: true, js_runtime: true, gpu_found: true,
-  whisper_cached_tiny: true, whisper_cached_base: true, whisper_cached_small: true, whisper_cached_medium: true, whisper_cached_large_v3_turbo: true, whisper_cached_large_v3: true,
+  whisper_cached_tiny: true, whisper_cached_base: true, whisper_cached_small: true, whisper_cached_medium: true, whisper_cached_large_v3_turbo: true, whisper_cached_large_v3: true, whisper_cached_ja_15b: true,
 }
 
 export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean>; liveOptions?: Partial<LiveFormOptions>; permissions?: string[] } = {}): Promise<LiveMocks> {

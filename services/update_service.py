@@ -62,7 +62,7 @@ import background_jobs
 import db
 import portable
 import process_guard
-from lib import capped_body, release_signature
+from lib import capped_body, desktop_session, release_signature
 from lib import storage_errors
 from lib.errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
@@ -289,10 +289,11 @@ def _read_capped(resp, cap) -> bytes:
                                    make_deadline_error=_too_slow)
 
 
-def read_small(url, cap) -> bytes:
+def read_small(url, cap, accept="application/octet-stream") -> bytes:
     """A small GitHub API answer or text asset, for callers outside this module
-    that need the same host allowlist, redirect checks and size cap."""
-    return _read_capped(_open(url, API_HOSTS | DOWNLOAD_HOSTS, "application/octet-stream"), cap)
+    that need the same host allowlist, redirect checks and size cap. The API's JSON
+    endpoints answer HTTP 415 to the default asset Accept, so they pass their own."""
+    return _read_capped(_open(url, API_HOSTS | DOWNLOAD_HOSTS, accept), cap)
 
 
 def copy_problem(exc):
@@ -759,6 +760,16 @@ _APP_UPDATE_APPLYING = ("The app-only update is being applied. Wait for Baihe St
                         "restart, then try again.")
 
 
+NO_DESKTOP_FOR_SETUP = ("Baihe is running as a background service with no desktop, so Setup can't open "
+                        "here. Run {name} from the library's updates folder on this PC yourself, or use "
+                        "the app-only update if it is offered.")
+
+
+def _verified_name() -> str:
+    with _lock:
+        return _verified["name"] if _verified is not None else "the downloaded installer"
+
+
 def setup_busy() -> bool:
     """Whether install() is starting Setup or a Setup it started is still
     open: the app-only update must not swap the app folder Setup replaces."""
@@ -778,6 +789,10 @@ def install() -> dict:
     if not _is_installed():
         raise UnsupportedOperationError("Updates are for the installed app. A source checkout "
                                         "updates with git.")
+    if not desktop_session.has_desktop():
+        # A boot service runs in Session 0: Setup's window would open on no desktop and wait
+        # forever, leaving "starting or open" stuck and the button unusable.
+        raise UnsupportedOperationError(NO_DESKTOP_FOR_SETUP.format(name=_verified_name()))
     # Checked and set under one lock: a second click can't start a second Setup,
     # and a download can't start (and delete the file) while this one copies it.
     with _lock:

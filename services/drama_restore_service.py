@@ -69,7 +69,7 @@ _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
-SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
+SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory", "word_replacements",
                    "glossary_dismissals")
 # Columns naming a file in the drama folder, with the one subfolder the app
 # writes that file in (None: the folder itself). Readers join these onto the

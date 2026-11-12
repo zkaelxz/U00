@@ -54,7 +54,7 @@ def test_preference_defaults(isolated_db, env_file):
     assert set(timing_settings_service.KEYS) <= set(prefs)
     assert {k: v for k, v in prefs.items() if k not in timing_settings_service.KEYS} == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
-        "scene_aware_batches": True, "scanlate_chapter_brief": True, "episode_brief": True, "translate_reply_guard": "auto", "translate_alignment_check": False, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
+        "scene_aware_batches": True, "scanlate_chapter_brief": True, "scanlate_page_image": True, "scanlate_sfx_gloss": False, "episode_brief": True, "translate_reply_guard": "auto", "claude_reasoning": "default", "openai_reasoning": "default", "translate_alignment_check": False, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
         "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
         "keep_free_ram_gb": 0.0, "whisper_model_path": "", "ocr_backend": "auto", "speaker_model": "nemotron",
         "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",
@@ -425,9 +425,9 @@ def test_ollama_summary_reuses_the_ollama_run_model(isolated_db, env_file, monke
     monkeypatch.setattr(engine_registry, "get_engine",
                         lambda name, key=None, model=None, **k: built.append((name, model)) or object())
     settings_service.set_settings({"episode_summary_engine": "ollama"})
-    translate_run_service.pick_summary_engine(run_engine="ollama", run_model="qwen3:8b")
+    translate_run_service.pick_summary_engine(run_engine="ollama", run_model="translategemma:12b")
     translate_run_service.pick_summary_engine(run_engine="deepseek", run_model="deepseek-chat")
-    assert built == [("ollama", "qwen3:8b"), ("ollama", None)]
+    assert built == [("ollama", "translategemma:12b"), ("ollama", None)]
 
 
 def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, env_file,

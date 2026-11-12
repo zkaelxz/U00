@@ -134,6 +134,19 @@ class TestLinesGlossaryService:
         assert status["status"] == "done" and len(status["result"]["proposals"]) == 3
         assert SECRET not in repr(status)
 
+    def test_slow_call_shows_elapsed_and_is_not_flagged_as_progress_stalled(self, isolated_db, monkeypatch, fake_engine):
+        import threading
+        did, _ = _lines_drama(isolated_db)
+        release = threading.Event()
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: release.wait(5) and [])
+        out = gs.start_lines_glossary_run(did)
+        time.sleep(0.3)
+        live = background_jobs.get_status(out["job_id"])
+        release.set()
+        wait_for_job(out["job_id"], timeout=4.0)
+        assert "elapsed" in live["message"] and "Scanning 2 lines" in live["message"]
+        assert live["can_report_progress"] is False
+
     def test_cancel_ends_a_hung_engine_call(self, isolated_db, monkeypatch, fake_engine):
         import threading
         did, _ = _lines_drama(isolated_db)
@@ -177,6 +190,7 @@ class TestLinesGlossaryService:
         monkeypatch.setattr(tguide, "extract_terms_llm", boom)
         st = wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         assert st["status"] == "error" and SECRET not in repr(st)
+        assert "Glossary extraction failed (engine: " in st["error"]
         assert SECRET not in repr(gs.get_lines_glossary_status(did))
 
     def test_cancel_during_call_drops_result(self, isolated_db, monkeypatch, fake_engine):
@@ -383,13 +397,25 @@ class TestLinesGlossaryRoutes:
         assert body["status"] == "done" and body["run_id"]
         assert set(body["proposals"][0]) == {"term", "suggested_translation", "category",
                                              "policy", "reason", "already_in_glossary",
-                                             "occurrences", "alternatives", "confidence"}
+                                             "occurrences", "alternatives", "aliases", "confidence"}
         r = local_client.post(_gl(did, "/apply"), json={
             "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure Cloud Sect"}},
             "run_id": body["run_id"]})
         assert r.status_code == 200, r.text
         assert r.json()["added"] == ["青云宗"]
         assert isolated_db.list_glossary_terms(sid)[0]["term_translation"] == "Azure Cloud Sect"
+
+    def test_a_chapter_scan_reads_only_that_chapters_lines(self, local_client, isolated_db, monkeypatch,
+                                                           fake_engine):
+        did, _ = _lines_drama(isolated_db, zh=("第一章", "青云宗来了", "第二章", "沈清走了", "她笑了"))
+        seen = []
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda lines, *a, **kw: seen.append(list(lines)) or [])
+        r = local_client.post(_gl(did) + "?chapter=2")
+        assert r.status_code == 200 and r.json()["line_count"] == 3, r.text
+        wait_for_job(f"lines_glossary_{did}", timeout=4.0)
+        assert seen == [["第二章", "沈清走了", "她笑了"]]
+        r = local_client.post(_gl(did) + "?chapter=9")
+        assert r.status_code == 404
 
     def test_error_status_never_contains_key(self, local_client, isolated_db, monkeypatch,
                                              fake_engine):

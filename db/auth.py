@@ -393,14 +393,16 @@ _TERM_COLUMNS = ("term_original", "term_translation", "notes", "category", "poli
                  "enforce_exact", "aliases", "banned_translations")
 
 
-def copy_series_terms(series_id: int, terms, key) -> dict:
+def copy_series_terms(series_id: int, terms, key, replacements=()) -> dict:
     """Adds `terms` (glossary_terms rows) to a series in one transaction,
     with every column (aliases and banned translations included). A term is
     skipped when the series already has one with the same `key(original)`,
     read inside the transaction, or an earlier term in `terms` had it;
     nothing is overwritten. All or nothing: any error rolls back every
-    insert. Returns {"added": n, "skipped": n}."""
-    added = skipped = 0
+    insert. `replacements` are (find, replace) pairs added in the same
+    transaction, ones the series already has (same find text) left as they are.
+    Returns {"added": n, "skipped": n, "replacements_added": n}."""
+    added = skipped = replacements_added = 0
     with contextlib.closing(db.get_conn()) as conn:
         _immediate(conn)
         try:
@@ -422,11 +424,16 @@ def copy_series_terms(series_id: int, terms, key) -> dict:
                     "ON CONFLICT(series_id, term_original) DO NOTHING", (series_id, *values))
                 added += cur.rowcount
                 skipped += 1 - cur.rowcount
+            for find_text, replace_text in replacements:
+                replacements_added += conn.execute(
+                    "INSERT INTO word_replacements (series_id, find_text, replace_text) VALUES (?, ?, ?) "
+                    "ON CONFLICT(series_id, find_text) DO NOTHING",
+                    (series_id, find_text, replace_text)).rowcount
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
             raise
-    return {"added": added, "skipped": skipped}
+    return {"added": added, "skipped": skipped, "replacements_added": replacements_added}
 
 
 def list_item_sharing(limit: int, offset: int):

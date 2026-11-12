@@ -24,6 +24,8 @@ export interface MetaResponse {
   environment: string
   // True when the viewer is at the PC (PC-only routes would allow the request).
   local?: boolean
+  // The PC window's Owner/Guest state; null or missing anywhere else.
+  pc_profile?: { pin_set: boolean; guest: boolean } | null
   // False for an area the server has switched off; a missing name means on.
   features?: Record<string, boolean>
 }

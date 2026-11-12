@@ -19,7 +19,6 @@ import re
 CLAUDE_MODELS = {
     "claude-sonnet-5-5": "Sonnet 5.5 -- balanced quality and cost (recommended default)",
     "claude-opus-5-5": "Opus 5.5 -- highest quality",
-    "claude-haiku-4-5-20251001": "Haiku 4.5 -- fastest and cheapest, lower nuance",
     # Kept selectable so a saved preset, title or promoted benchmark model that
     # names one of these still runs instead of being refused as "not offered".
     "claude-sonnet-5": "Sonnet 5 -- previous generation",
@@ -40,29 +39,42 @@ GEMINI_MODELS = {
     # priced at ai.google.dev in September 2026, but there's no CJK-specific
     # quality benchmark for it yet, so no quality claim is made here.
     "gemini-3.1-flash-lite": "3.1 Flash-Lite -- cheaper, lighter tier (no quality claim yet)",
+    # Opt-in only: in one small zh->en test it came closest to Sonnet on idioms and
+    # tone, but it thinks before answering, so it costs more and is slower.
+    "gemini-3.8-flash": "3.8 Flash -- close to Sonnet on idioms and tone in a small test; slower, costs more (thinks first)",
 }
 
 # OpenAI's Chat Completions endpoint, the one place its address is set.
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 
-# Selectable OpenAI models. The default is the first-listed mini tier; the
-# lineup changes often, so check platform.openai.com/docs/models if a run
+# Selectable OpenAI models. The default is the first-listed (cheapest) tier;
+# the lineup changes often, so check platform.openai.com/docs/models if a run
 # starts failing, and update this and PRICING_PER_MILLION_TOKENS together.
 OPENAI_MODELS = {
-    "gpt-5-mini": "GPT-5 mini -- balanced quality and cost (recommended default)",
-    "gpt-5-nano": "GPT-5 nano -- cheapest, lower nuance",
-    "gpt-5": "GPT-5 -- highest quality, most expensive",
+    "gpt-6-luna": "GPT-6 Luna -- cheapest, high-volume (recommended default)",
+    "gpt-6.1-terra": "GPT-6.1 Terra -- better tone, names and context",
+    "gpt-6.1-sol": "GPT-6.1 Sol -- top tier for hard lines, most expensive",
 }
+
+# GPT-5 ids a saved preset or title may still name. OpenAI is retiring them
+# (gpt-5-mini is deprecated), so they run as the default model instead of
+# failing the run; see openai_model_or_default.
+OPENAI_RETIRED_MODELS = ("gpt-5-mini", "gpt-5-nano", "gpt-5")
+
+
+def openai_model_or_default(model):
+    return next(iter(OPENAI_MODELS)) if model in OPENAI_RETIRED_MODELS else model
+
 
 # Newer OpenAI models the provider itself lists (the manual model check in
 # services/model_registry_service) can be used without an edit here. Only the
-# GPT-5-and-later chat models: older ids (gpt-4, o-series) cost far more than
+# GPT-6-and-later chat models: older ids (gpt-4, o-series) cost far more than
 # any rate estimate_cost could fall back to, and the others are not Chat
-# Completions models. Newer GPT-5.x releases can also cost more than gpt-5,
+# Completions models. Newer releases can also cost more than gpt-6.1-sol,
 # so an unpriced one is costed at OPENAI_EXTRA_MODEL_CEILING instead.
 PROVIDER_CHECK_CACHE_KEY = "model_registry_provider_check"
 OPENAI_EXTRA_MODEL_CEILING = {"input": 5.0, "output": 40.0}
-_OPENAI_EXTRA_RE = re.compile(r"gpt-(?:[5-9]|[1-9][0-9])[a-z0-9._-]{0,60}")
+_OPENAI_EXTRA_RE = re.compile(r"gpt-(?:[6-9]|[1-9][0-9])[a-z0-9._-]{0,60}")
 _OPENAI_EXCLUDED_WORDS = re.compile(
     r"(?:^|[-.])(?:pro|codex|realtime|search|research|instruct|audio|image|tts|"
     r"transcribe|embedding|moderation|diarize)(?:[-.]|$)")
@@ -136,11 +148,18 @@ PRICING_PER_MILLION_TOKENS = {
     "gemini-flash-latest": {"input": 0.75, "output": 3.75},
     "gemini-pro-latest": {"input": 2.0, "output": 12.0},
     "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
-    # OpenAI list prices, checked against developers.openai.com/api/docs/pricing
-    # on PRICES_VERIFIED_ON.
-    "gpt-5-mini": {"input": 0.25, "output": 2.0},
-    "gpt-5-nano": {"input": 0.05, "output": 0.40},
-    "gpt-5": {"input": 1.25, "output": 10.0},
+    # Pinned ids: the research lookup uses both; 3.8 Flash is also offered for translation.
+    "gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50},
+    "gemini-3.8-flash": {"input": 0.75, "output": 3.75},
+    # OpenAI standard-tier list prices, read from developers.openai.com/api/docs/pricing
+    # on 2026-11-11.
+    "gpt-6-luna": {"input": 0.10, "output": 0.50},
+    "gpt-6.1-terra": {"input": 1.00, "output": 5.00},
+    "gpt-6.1-sol": {"input": 2.00, "output": 10.00},
+    # Ollama cloud list prices (ollama.com/pricing, 2026-11-09); free use ended, so
+    # these tags are billed per token and must count toward the spend caps.
+    "gemma4:31b-cloud": {"input": 0.14, "output": 0.40},
+    "gemma4:cloud": {"input": 0.14, "output": 0.40},
 }
 
 
@@ -166,6 +185,7 @@ CACHE_WRITE_PRICE_FACTOR = 1.25
 SCHEDULED_PRICE_CHANGES = {
     # Google's pricing page, checked on PRICES_VERIFIED_ON.
     "gemini-flash-latest": [(datetime.date(2027, 1, 1), {"input": 1.50, "output": 7.50})],
+    "gemini-3.8-flash": [(datetime.date(2027, 1, 1), {"input": 1.50, "output": 7.50})],
 }
 
 # Date the tables above were last compared with the providers' pricing pages;
@@ -257,7 +277,8 @@ def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int,
 # pre-run estimate ran 2-5x below the real spend on these, so the Lab (not
 # a normal Translate estimate) scales their output tokens by this factor.
 REASONING_OUTPUT_MULTIPLIER = 4
-_REASONING_MODELS = frozenset({"deepseek-v4-pro", "deepseek-reasoner", "gpt-5", "gpt-5-mini", "gpt-5-nano"})
+_REASONING_MODELS = frozenset({"deepseek-v4-pro", "deepseek-reasoner",
+                               "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol"})
 
 
 def is_reasoning_model(model) -> bool:

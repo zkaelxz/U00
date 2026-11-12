@@ -87,11 +87,11 @@ def test_report_flags_regression_and_failure_without_paths():
     now = _run([{"id": "t1", "kind": "transcription", "metric": "cer", "score": 0.8, "speed_x": 12.0,
                  "vram_mb": 4000, "detail": "ok"},
                 {"id": "d1", "kind": "diarization", "score": None, "metric": None,
-                 "error": "RuntimeError: failed to open C:\\Users\\Mary\\secret.wav"}])
+                 "error": "RuntimeError: failed to open C:\\Users\\Example\\secret.wav"}])
     report = rc.format_report(now, prev)
     assert "WORSE" in report and "FAILED" in report and "1 failed, 1 worse" in report
     assert report.startswith(rc.REPORT_TITLE)
-    assert "Mary" not in report
+    assert "Example" not in report
 
 
 def test_dry_run_loads_and_writes_nothing(tmp_path, monkeypatch, capsys):

@@ -57,6 +57,15 @@ FRAGMENT_OVERLAP = 0.4
 FRAGMENT_ALIGNED = 0.6
 FRAGMENT_GAP = 0.3
 
+# Two boxes touching or this close (as a share of the narrower one's width, or
+# height when stacked) are the columns of one balloon when this share of each
+# lies inside the one balloon found around them.
+BALLOON_COLUMN_GAP = 0.6
+BALLOON_COLUMN_INSIDE = 0.7
+# A balloon interior covering this share of its box means the box lies within
+# the balloon (there is no outline in it to spare).
+BALLOON_FILLS_BOX = 0.9
+
 # --- Region kinds (scanlate_detect.classify_text_regions) ---
 # A box at least this share light (gray above the level) is a balloon or a
 # caption box rather than lettering on the art.
@@ -95,11 +104,17 @@ OCR_DENOISE_BACKENDS = ("paddle",)
 OCR_DENOISE_MIN_NOISE = 3.0
 
 # --- Typesetting (scanlate_render) ---
+# A column or line of the source lettering thinner than this share of the
+# thickest is punctuation, not a glyph row, and is left out of its size.
+LETTERING_RUN_OF_LARGEST = 0.6
 # The English starts at the source lettering's size (column width or line
 # height) times this, kept within START_MIN..START_MAX, and shrinks until it
 # fits, down to SMALLEST; DEFAULT when the lettering can't be measured.
 TYPESET_FONT_PER_SOURCE_PX = 1.0
 TYPESET_DEFAULT_FONT_PX = 18
+# With no measurable lettering the start size is this share of the box's short
+# side (never below DEFAULT), so a big balloon starts big.
+TYPESET_UNMEASURED_PER_BOX_SIDE = 0.11
 TYPESET_START_MIN_PX = 12
 TYPESET_START_MAX_PX = 40
 # Lettering whose block takes less than GROW_BELOW_FILL of its box starts the
@@ -111,8 +126,25 @@ TYPESET_SMALLEST_PX = 8
 # balloon is hyphenated before the text shrinks past it.
 TYPESET_COMFORT_PX = 13
 # Space between lines, and between the text and a balloon's outline.
+# Balloons whose starting sizes are within this ratio count as lettered alike, and
+# the cramped ones among them set a shared fit ratio; no balloon loses more than
+# 1 - MAX_SHRINK of the size it fitted, nor takes a ratio below MIN_RATIO.
+TYPESET_SIBLING_RATIO = 1.35
+TYPESET_SIBLING_MIN_RATIO = 0.7
+TYPESET_SIBLING_MAX_SHRINK = 0.75
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
+
+# --- Cleanup (scanlate_inpaint) ---
+# A balloon whose paper (gray levels, among the lighter half of its pixels)
+# varies by no more than this is flat white, and is repainted in one colour.
+INPAINT_FLAT_PAPER_STD = 6.0
+# Paper further than the halo from any lettering that is darker than the rest by
+# more than SHADE_DEPTH, in more than this share of its pixels, is sky, cloud or
+# tone, not paper: whitening it printed a hard-edged white box. Real balloons
+# measured 0 to 0.01 there, a sky 0.15.
+INPAINT_FLAT_PAPER_MAX_SHADED = 0.05
+INPAINT_FLAT_PAPER_SHADE_DEPTH = 6
 
 # --- OCR line layout (ocr_layout) ---
 # A line thinner than this share of a larger line beside it is furigana. Ruby

@@ -44,9 +44,13 @@ _NO_TITLE = ("No existing title matches this page. Pick a drama, or turn on crea
 _KINDS = ("comic", "novel")
 
 _NUMBER = r"[\d０-９一二三四五六七八九十百零]+"
-_CHAPTER_MARK = (rf"第\s*{_NUMBER}\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol|volume)\.?\s*[\d.]+"
-                 r"|[\d.]+\s*[화話话章]|#\s*\d+")
+_CHAPTER_MARK = (rf"第\s*{_NUMBER}\s*[章话話回集卷巻期]|(?:chapter|chap|ch|episode|ep|vol|volume)\.?\s*[\d.]+"
+                 r"|[\d.]+\s*[화話话章권巻卷]|#\s*\d+")
 _CHAPTER_ONLY = re.compile(rf"^(?:{_CHAPTER_MARK}|\d+)$", re.IGNORECASE)
+# A chapter mark inside brackets ("【第1話】Name") would otherwise be cut together with
+# everything after it, leaving only the opening bracket.
+_BRACKETED_CHAPTER = re.compile(
+    rf"[【\[（(「『〈《][^】\]）)」』〉》]*?(?:{_CHAPTER_MARK})[^】\]）)」』〉》]*[】\]）)」』〉》]", re.IGNORECASE)
 _CHAPTER_TAIL = re.compile(rf"\s*(?:{_CHAPTER_MARK}).*$", re.IGNORECASE)
 # Page titles read "Name chapter - Site" or "chapter_Name_Site"; a hyphen with no spaces
 # belongs to the name ("One-Punch Man").
@@ -86,7 +90,7 @@ def _site_words(host: str, site_name: str = "") -> set:
 def _clean_candidate(text: str, site: set) -> str:
     """The work's name out of one page title: the first piece that is not a
     chapter number or the site's name, with a trailing chapter marker cut off."""
-    for part in _SEPARATORS.split(_line(text)):
+    for part in _SEPARATORS.split(_BRACKETED_CHAPTER.sub(" ", _line(text))):
         part = part.strip()
         if not part or _CHAPTER_ONLY.match(part) or term_key(part).replace(" ", "") in site:
             continue

@@ -147,7 +147,8 @@ def test_novel_glossary_resumes_through_the_cache(isolated_db, monkeypatch):
         prompts.append(prompt)
         if len(prompts) == state["fail_at"]:
             raise RuntimeError("killed")
-        return json.dumps([{"term": f"T{seen.setdefault(prompt, len(seen))}", "suggested_translation": "x",
+        # A term the excerpt does not contain is dropped, so each reply names a run of 林 the windows hold.
+        return json.dumps([{"term": "林" * (seen.setdefault(prompt, len(seen)) + 1), "suggested_translation": "x",
                             "category": "character", "policy": "keep_pinyin", "reason": ""}])
 
     monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
@@ -515,7 +516,7 @@ def test_fresh_glossary_run_ignores_the_cache_but_refreshes_it(isolated_db, monk
         return json.dumps([{"term": next(replies), "suggested_translation": "x"}])
 
     monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
-    text = "林" * 2000
+    text = "林" * 2000 + "ABC"  # the replies name terms the excerpt holds, or they are dropped
     first = tguide.extract_glossary_from_novel(
         text, _Engine(), response_cache=glossary_service._novel_glossary_cache(_Engine(), "c"))
     n = len(calls)
@@ -542,7 +543,7 @@ def test_fresh_route_parameter_reaches_the_services(isolated_db, monkeypatch):
                         lambda d, engine_name=None, fresh=False: seen.update(g=fresh) or
                         {"job_id": "novel_glossary_1", "engine": "ollama", "paired": False})
     monkeypatch.setattr(narration_service, "start_narration_run",
-                        lambda d, engine_name=None, model=None, fresh=False:
+                        lambda d, engine_name=None, model=None, fresh=False, **_:
                         seen.update(n=fresh) or {"job_id": "narration_1"})
     did = isolated_db.create_drama(title_en="F")
     c = TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
@@ -675,3 +676,34 @@ def test_provenance_record_failure_is_logged(isolated_db, monkeypatch):
     lines[0].en = "hello"
     on_save(lines)
     assert len(seen) == 1 and "db locked" in seen[0]
+
+
+def test_a_cut_off_glossary_reply_is_asked_again_in_halves(isolated_db, monkeypatch):
+    novel = "林" * 1500 + "\n" + "森" * 1500
+    prompts = []
+
+    def fake_llm(engine, prompt, **kw):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return '[{"term": "林林", "suggested_translation": "Lin", "category": "character"'
+        term = "林林" if "林林林" in prompt.split("Excerpt:\n")[1] else "森森"
+        return json.dumps([{"term": term, "suggested_translation": "x", "category": "character",
+                            "policy": "keep_pinyin", "reason": ""}])
+
+    monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
+    terms = tguide.extract_glossary_from_novel(novel, _Engine())
+    assert {t["term"] for t in terms} == {"林林", "森森"} and len(prompts) == 3
+
+
+def test_a_cut_off_reply_in_a_half_is_not_asked_again(isolated_db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: calls.append(1) or '[{"term": "林"')
+    assert tguide.extract_glossary_from_novel("林" * 3000, _Engine()) == []
+    assert len(calls) == 3 * len(tguide._sample_across_text("林" * 3000))
+
+
+def test_prose_instead_of_an_array_is_not_retried(isolated_db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: calls.append(1) or "Sorry, no.")
+    tguide.extract_glossary_from_novel("林" * 3000, _Engine())
+    assert len(calls) == len(tguide._sample_across_text("林" * 3000))

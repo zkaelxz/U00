@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { auditQuery, listAdminUsers, listAudit, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPermission } from './adminUsers'
+import { addAdminUser, auditQuery, listAdminUsers, listAudit, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPermission } from './adminUsers'
 import { ApiError } from './client'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
@@ -46,6 +46,14 @@ describe('admin users api', () => {
       'DELETE /api/admin/users/7/permissions/engines.paid',
     ])
     for (const [, init] of mock.mock.calls) expect(init.body).toBeUndefined()
+  })
+
+  it('adding a person is a JSON POST to the users list', async () => {
+    const { mock, f } = reply(200, {})
+    await addAdminUser({ email: 'kid@example.com', display_name: 'Kid', extension_send: true }, f)
+    const [url, init] = mock.mock.calls[0]
+    expect(`${init.method} ${url}`).toBe('POST /api/admin/users')
+    expect(JSON.parse(init.body)).toEqual({ email: 'kid@example.com', display_name: 'Kid', extension_send: true })
   })
 
   it('builds the audit query, leaving empty filters out', () => {

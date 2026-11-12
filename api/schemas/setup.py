@@ -14,7 +14,6 @@ class SetupReadiness(BaseModel):
     uroman: bool
     soundfile: bool
     audio_separator: bool
-    demucs: bool
     pyannote: bool
     onnxruntime: bool
     openai: bool
@@ -51,6 +50,7 @@ class SetupReadiness(BaseModel):
     whisper_cached_medium: bool
     whisper_cached_large_v3_turbo: bool
     whisper_cached_large_v3: bool
+    whisper_cached_ja_15b: bool
     gpu_found: bool
     # The installed torch is a CUDA build (from its metadata; nothing is imported).
     torch_cuda: bool

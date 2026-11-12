@@ -83,3 +83,90 @@ def test_rect_fallback_keeps_normal_text_inside_the_box():
     rows, cols = np.flatnonzero(dark.any(axis=1)), np.flatnonzero(dark.any(axis=0))
     assert cols.min() >= box["x"] and cols.max() < box["x"] + box["w"]
     assert rows.min() >= box["y"] and rows.max() < box["y"] + box["h"]
+
+
+def test_a_hyphen_split_breaks_between_syllables_and_leaves_three_letters_after_it():
+    fits = lambda head: len(head) <= 6
+    assert scanlate_render._hyphen_split("Housework?", fits) == ("House-", "work?")
+    # The tail "rk?" has two letters, so that cut is refused.
+    assert scanlate_render._hyphen_split("Housewo", lambda head: len(head) <= 3) is None
+
+
+def test_a_word_is_not_cut_into_three_pieces_while_a_smaller_size_would_avoid_it():
+    assert scanlate_render._split_twice(["Housew-", "or-", "k?"])
+    assert not scanlate_render._split_twice(["House-", "work?", "Hi-", "ya"])
+
+
+def test_a_narrow_balloon_never_shows_a_word_split_across_two_hyphens():
+    mask = np.ones((180, 44), dtype=bool)
+    img = Image.new("RGB", (120, 200), "white")
+    box = {"x": 10, "y": 10, "w": 44, "h": 180}
+    seen = []
+    real = scanlate_render._layout_at_size
+
+    def spy(draw, words, mask_, mh, font, hyphenate):
+        out = real(draw, words, mask_, mh, font, hyphenate)
+        if out is not None:
+            seen.append([ln for ln, *_ in out[1]])
+        return out
+
+    import pytest as _pytest
+    with _pytest.MonkeyPatch.context() as patch:
+        patch.setattr(scanlate_render, "_layout_at_size", spy)
+        scanlate_render.render_text_in_box(
+            img, box, "Housework? Because it's absolutely forbidden", font_size=14, mask=mask)
+    assert not scanlate_render._split_twice(seen[-1]), seen[-1]
+
+
+def test_rect_layout_keeps_the_line_breaks_of_the_translation():
+    box = {"x": 10, "y": 10, "w": 280, "h": 180}
+    img = Image.new("RGB", (300, 200), "white")
+    scanlate_render.render_text_in_box(img, dict(box), "Ch. 1 ... 5\nCh. 2 ... 27\nCh. 3 ... 43",
+                                       font_size=18)
+    dark = np.asarray(img.convert("L")) < 128
+    rows = np.flatnonzero(dark.any(axis=1))
+    # Three short lines stack; run together they would sit on one row band.
+    bands = 1 + int((np.diff(rows) > 3).sum())
+    assert bands == 3
+
+
+def test_a_compound_breaks_between_its_two_consonants_not_after_a_stray_vowel():
+    assert scanlate_render._hyphen_split("nickname", lambda head: len(head) <= 7) == ("nick-", "name")
+
+
+def test_a_digraph_is_not_cut():
+    head, tail = scanlate_render._hyphen_split("something", lambda head: len(head) <= 5)
+    assert not (head.endswith("t-") and tail.startswith("h"))
+
+
+def test_a_word_that_already_has_a_hyphen_breaks_there_and_is_not_cut_again():
+    assert scanlate_render._hyphen_split("Alma-diel.", lambda head: len(head) <= 6) == ("Alma-", "diel.")
+    assert scanlate_render._hyphen_split("Amae-san.", lambda head: len(head) <= 5) == ("Amae-", "san.")
+
+
+def test_an_own_hyphen_whose_head_does_not_fit_falls_back_to_a_new_split():
+    head, tail = scanlate_render._hyphen_split("Alma-diel.", lambda head: len(head) <= 4)
+    assert head.endswith("-") and head + tail != "Alma-diel."
+
+
+def test_a_short_word_is_never_cut_even_when_a_cut_would_fit():
+    assert scanlate_render._hyphen_split("Humans…", lambda head: True) is None
+    assert scanlate_render._hyphen_split("Humanity", lambda head: len(head) <= 6) is not None
+
+
+def test_a_narrow_balloon_shrinks_a_six_letter_word_instead_of_cutting_it(monkeypatch):
+    mask = np.ones((107, 40), dtype=bool)
+    img = Image.new("RGB", (120, 140), "white")
+    box = {"x": 10, "y": 10, "w": 40, "h": 107}
+    seen = []
+    real = scanlate_render._layout_at_size
+
+    def spy(draw, words, mask_, mh, font, hyphenate):
+        out = real(draw, words, mask_, mh, font, hyphenate)
+        if out is not None:
+            seen.append([ln for ln, *_ in out[1]])
+        return out
+
+    monkeypatch.setattr(scanlate_render, "_layout_at_size", spy)
+    scanlate_render.render_text_in_box(img, box, "Humans…", font_size=18, mask=mask)
+    assert seen and all(not ln.endswith("-") for lines in seen for ln in lines), seen

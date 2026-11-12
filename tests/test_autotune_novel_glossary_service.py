@@ -232,7 +232,8 @@ def fake_engine(monkeypatch):
 
 class TestNovelGlossary:
     def test_paid_exposure(self, isolated_db):
-        assert gs.PAID_ENGINE_FUNCTIONS == ("start_novel_glossary_run", "start_lines_glossary_run")
+        assert gs.PAID_ENGINE_FUNCTIONS == ("start_novel_glossary_run", "start_lines_glossary_run",
+                                             "start_chapters_glossary_run", "draft_project_instructions")
         did, _ = _novel_drama(isolated_db, engine="deepseek")
         assert gs.novel_glossary_engine(did) == "deepseek"
 
@@ -265,6 +266,69 @@ class TestNovelGlossary:
         assert props["师尊"]["already_in_glossary"] and not props["青云宗"]["already_in_glossary"]
         assert props["沈清"]["category"] is None and props["沈清"]["policy"] is None
         assert SECRET not in repr(st)
+
+    def test_style_draft_is_returned_and_not_saved(self, isolated_db, monkeypatch, fake_engine):
+        did, _ = _novel_drama(isolated_db)
+        seen = {}
+
+        def fake_draft(src, engine, source_language, usage_cb=None):
+            seen.update(src=src, lang=source_language)
+            usage_cb(10, 5)
+            return "Close third person, past tense."
+        monkeypatch.setattr(tguide, "draft_novel_style_instructions", fake_draft)
+        out = gs.draft_project_instructions(did)
+        assert out == {"instructions": "Close third person, past tense.", "engine": "claude"}
+        assert seen["src"] == "原文"
+        assert not isolated_db.get_drama(did).get("project_instructions")
+
+    def test_style_draft_needs_a_novel_and_hides_the_key(self, isolated_db, monkeypatch, fake_engine):
+        nos = isolated_db.create_drama(title_en="x")
+        with pytest.raises(UnsupportedOperationError, match="novel"):
+            gs.draft_project_instructions(nos)
+        did, _ = _novel_drama(isolated_db)
+
+        def boom(*a, **kw):
+            raise RuntimeError(f"401 for key {SECRET}")
+        monkeypatch.setattr(tguide, "draft_novel_style_instructions", boom)
+        with pytest.raises(RuntimeError) as err:
+            gs.draft_project_instructions(did)
+        assert SECRET not in str(err.value)
+
+    def test_style_draft_prompt_asks_for_the_wishes_and_parses_json(self):
+        prompts = []
+
+        class Eng:
+            supports_reference = True
+
+        def fake_llm(engine, prompt, **kw):
+            prompts.append(prompt)
+            return '{"instructions": " Keep slang. "}'
+        orig = tguide.call_llm_json
+        tguide.call_llm_json = fake_llm
+        try:
+            assert tguide.draft_novel_style_instructions("她笑了。" * 50, Eng()) == "Keep slang."
+        finally:
+            tguide.call_llm_json = orig
+        assert "no detail lost" in prompts[0] and "她笑了" in prompts[0]
+
+    def test_style_draft_never_keeps_source_script(self):
+        prompts = []
+
+        class Eng:
+            supports_reference = True
+
+        def fake_llm(engine, prompt, **kw):
+            prompts.append(prompt)
+            return '{"instructions": "Keep slang. Keep 凹 literal. Use past tense."}'
+        orig = tguide.call_llm_json
+        tguide.call_llm_json = fake_llm
+        try:
+            out = tguide.draft_novel_style_instructions("她笑了。" * 50, Eng())
+        finally:
+            tguide.call_llm_json = orig
+        assert out == "Keep slang. Use past tense."
+        assert "every word of the translation is English" in prompts[0]
+        assert "leave untranslated" not in prompts[0]
 
     def test_novel_only_is_source(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db, orig=None)

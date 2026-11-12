@@ -70,14 +70,15 @@ def test_enabled_local_ok_and_resolves(env_file):
     assert SECRET not in overview.text
 
 
-def test_preserves_other_lines_replaces_in_place_and_permissions(env_file):
+def test_preserves_other_lines_replaces_in_place_and_makes_the_file_private(env_file):
     env_file.write_text("# comment\nOTHER=1\nBAIHE_CLAUDE_KEY=old\nBAIHE_GROQ_KEY=g")
     os.chmod(env_file, 0o640)
     assert _set(_client()).status_code == 200
     assert env_file.read_text() == (
         f"# comment\nOTHER=1\nBAIHE_CLAUDE_KEY={SECRET}\nBAIHE_GROQ_KEY=g")
     if os.name == "posix":
-        assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o640
+        # A group-readable file is tightened, not preserved: a saved key must not stay readable by others.
+        assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o600
     assert [p.name for p in env_file.parent.iterdir()] == [".env"]
 
 

@@ -2,9 +2,9 @@
 // Reads need admin.users.read, writes admin.users. The writes are not
 // local_only() routes, so they use plain postJson, not pcOnlyFetch: an admin
 // may change member accounts from away, and the server refuses (403) any
-// change to an admin account there.
+// change to an admin account there, and adding a person.
 import type {
-  AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage, AuditQuery,
+  AdminAddUserRequest, AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage, AuditQuery,
 } from '../types/adminUsers'
 import { deleteJson, getJson, postJson, type Fetch } from './client'
 
@@ -14,6 +14,10 @@ const BASE = '/api/admin'
 const AUDIT_PAGE_SIZE = 50
 
 export const listAdminUsers = (f?: Fetch) => getJson<AdminUserList>(`${BASE}/users`, f)
+
+/** Allowlists an email with the household rights (main PC only). */
+export const addAdminUser = (body: AdminAddUserRequest, f?: Fetch) =>
+  postJson<AdminUser>(`${BASE}/users`, body, f)
 
 export const setUserActive = (id: number, active: boolean, f?: Fetch) =>
   postJson<AdminUser>(`${BASE}/users/${id}/${active ? 'activate' : 'deactivate'}`, undefined, f)

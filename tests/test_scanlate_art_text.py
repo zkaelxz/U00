@@ -28,6 +28,9 @@ def _dark_page_with_white_text(w=600, h=400):
     return page
 
 
+_COLOUR_PAGE = np.full((300, 400, 3), (200, 80, 40), np.uint8)
+
+
 class TestGroupLines:
     def test_stacked_lines_of_one_size_join_in_reading_order(self):
         out = art.group_lines([_line(10, 60, 300, 40, "BB"), _line(12, 10, 296, 42, "AA")])
@@ -58,37 +61,71 @@ class TestFindArtCaptions:
         return seen
 
     def test_drops_low_confidence_tiny_and_already_covered_lines(self, monkeypatch):
-        page = np.zeros((300, 400, 3), np.uint8)
+        page = _COLOUR_PAGE.copy()
         self._fake(monkeypatch, [
-            ("keep", 0.9, (10, 10, 200, 60)),
+            ("保留的字", 0.9, (10, 10, 200, 60)),
             ("unsure", 0.3, (10, 100, 200, 60)),
             ("watermark", 0.9, (10, 200, 200, 10)),
             ("in a bubble", 0.9, (250, 200, 100, 50)),
         ])
         found = art.find_art_captions("p.png", "zh", [{"x": 240, "y": 190, "w": 150, "h": 80}],
                                       image=page)
-        assert [c["source_text"] for c in found] == ["keep"]
+        assert [c["source_text"] for c in found] == ["保留的字"]
 
-    def test_rapidocr_backend_reads_the_lines_and_paddle_is_left_alone(self, monkeypatch):
-        def boom(*a, **k):
-            raise AssertionError("paddle used")
-        monkeypatch.setattr(ocr, "paddle_lines", boom)
+    def test_rapidocr_backend_reads_the_lines_and_paddle_adds_only_site_stamps(self, monkeypatch):
+        monkeypatch.setattr(ocr, "paddle_lines", lambda page, lang, scale: [
+            ("Paddle's own caption", 0.9, (300, 300, 200, 60)),
+            ("가장른 미리보가", 0.65, (622, 500, 154, 26))])
         monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [
-            ("keep", 0.9, (10, 10, 200, 60)), ("unsure", 0.3, (10, 100, 200, 60))])
-        found = art.find_art_captions("p.png", "zh", [], image=np.zeros((300, 400, 3), np.uint8),
+            ("保留的字", 0.9, (10, 10, 200, 60)), ("unsure", 0.3, (10, 100, 200, 60))])
+        found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy(),
                                       backend="rapidocr")
-        assert [c["source_text"] for c in found] == ["keep"]
+        assert [c["source_text"] for c in found] == ["保留的字", "가장른 미리보가"]
+
+    def test_a_stamp_only_paddle_sees_is_not_read_twice_when_rapidocr_sees_it_too(self, monkeypatch):
+        stamp = ("구글검색 뉴토끼", 0.9, (620, 520, 160, 18))
+        monkeypatch.setattr(ocr, "paddle_lines", lambda page, lang, scale: [stamp])
+        monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [stamp])
+        found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy(), backend="rapidocr")
+        assert [c["source_text"] for c in found] == ["구글검색 뉴토끼"]
+
+    def test_without_paddle_installed_the_rapidocr_lines_are_still_used(self, monkeypatch):
+        def missing(*a, **k):
+            raise ImportError("paddleocr")
+        monkeypatch.setattr(ocr, "paddle_lines", missing)
+        monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [
+            ("保留的字", 0.9, (10, 10, 200, 60))])
+        found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy(), backend="rapidocr")
+        assert [c["source_text"] for c in found] == ["保留的字"]
+
+    def test_specks_and_already_english_text_are_not_captions(self, monkeypatch):
+        self._fake(monkeypatch, [
+            ("0", 0.9, (10, 10, 40, 40)),
+            ("代", 0.9, (10, 100, 45, 45)),
+            ("SCHOOL", 0.9, (10, 200, 200, 40)),
+            ("魔王来了", 0.9, (200, 10, 150, 60)),
+        ])
+        found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy())
+        assert [c["source_text"] for c in found] == ["魔王来了"]
+
+    def test_a_small_site_stamp_is_found_so_it_can_be_skipped_and_painted_out(self, monkeypatch):
+        self._fake(monkeypatch, [
+            ("구글검색 뉴토끼", 0.9, (620, 520, 160, 18)),
+            ("작은 글씨", 0.9, (10, 10, 160, 18)),
+        ])
+        found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy())
+        assert [c["source_text"] for c in found] == ["구글검색 뉴토끼"]
 
     def test_tall_pages_are_detected_at_a_capped_size(self, monkeypatch):
         seen = self._fake(monkeypatch, [])
-        art.find_art_captions("p.png", "zh", [], image=np.zeros((2560, 1280, 3), np.uint8))
+        art.find_art_captions("p.png", "zh", [], image=np.full((2560, 1280, 3), (200, 80, 40), np.uint8))
         assert seen["scale"] == pytest.approx(0.5)
 
 
     def test_a_non_ascii_page_path_is_decoded_once_and_the_array_is_what_paddle_reads(
             self, tmp_path, monkeypatch):
         path = tmp_path / "页面_0001.png"
-        Image.new("RGB", (200, 100), (10, 10, 10)).save(path)
+        Image.new("RGB", (200, 100), (40, 80, 200)).save(path)
         got = {}
 
         def paddle_lines(image, lang, scale):
@@ -368,6 +405,23 @@ def test_outlined_lettering_on_dark_art_is_erased_to_the_art_tone():
     erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
     assert int(erased.max()) < 90
     assert abs(float(erased.mean()) - 30) < 15
+
+
+def test_a_sign_region_on_dark_art_is_painted_out_without_spare_art():
+    page = _outlined_red_lettering_on_dark_art()
+    box = {"x": 70, "y": 120, "w": 460, "h": 140}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="cv", on_art=True)
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert int(erased.max()) < 90
+
+
+def test_a_sign_with_pale_lettering_on_coloured_art_is_erased_without_blanking_the_art():
+    page = np.full((300, 400, 3), (30, 110, 230), np.uint8)
+    cv2.putText(page, "HELLO", (60, 160), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 8)
+    box = {"x": 40, "y": 90, "w": 320, "h": 100}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="cv", on_art=True)
+    assert int(page[90:190, 40:360].min(axis=2).max()) < 150
+    assert abs(int(page[250, 20, 0]) - 30) < 5
 
 
 def test_a_box_full_of_coloured_bright_art_is_not_painted_out_as_lettering():

@@ -40,6 +40,7 @@ import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
+import { PcProfileCard } from './settings/PcProfileCard'
 import { showOllamaKey } from './settings/ollamaKeyModel'
 import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
@@ -336,6 +337,7 @@ export default function SettingsPage() {
             <SettingsCard id="devices"><DevicesCard /></SettingsCard>
             <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
             <SettingsCard id="ollama-key"><OllamaKeyCard /></SettingsCard>
+            {shown('pc-profiles') && <SettingsCard id="pc-profiles"><PcProfileCard /></SettingsCard>}
           </>
         ))}
         {settings && prefProps && panel('integrations', (

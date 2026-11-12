@@ -1,6 +1,7 @@
 """Claude (Anthropic) engine."""
 
 from .prompts import build_batch_user_message, build_claude_system_blocks
+from .thinking import claude_thinking_params
 from .shared import (
     ContentModerationBlocked,
     TruncatedReply,
@@ -34,6 +35,7 @@ class ClaudeEngine:
             "model": self.model, "max_tokens": 4000,
             "system": build_claude_system_blocks(context),
             "messages": [{"role": "user", "content": build_batch_user_message(context, numbered)}],
+            **claude_thinking_params(self.model, context),
         }
 
     def translate_batch(self, zh_lines, context: dict):

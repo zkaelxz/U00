@@ -111,7 +111,7 @@ class TestDuringTheSession:
 
     def test_a_free_local_engine_is_not_logged(self, guard_env):
         engine = _PaidEngine()
-        engine.name, engine.model = "ollama", "qwen3:8b"
+        engine.name, engine.model = "ollama", "translategemma:12b"
         from services import live_spend_service
         guard = live_spend_service.LiveSpendGuard(engine, "ollama", lambda reason, label: guard_env.append(reason))
         CueTranslator(engine, "zh", spend_guard=guard).translate("a")

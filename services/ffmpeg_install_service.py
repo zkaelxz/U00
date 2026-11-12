@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 import zipfile
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlsplit
 
 import requests
 
@@ -16,7 +16,7 @@ import app_tools
 import background_jobs
 import diagnostics
 from jobs import job_launch
-from lib import capped_body
+from lib import capped_body, http
 from lib.errors import ConflictError, DependencyUnavailableError
 from services import diagnostics_admin_service as admin_svc
 
@@ -121,7 +121,10 @@ def get_status() -> dict:
 
 def start_install(confirm: bool = False) -> dict:
     """PC only (the route is local_only()). 422 unconfirmed or not possible on
-    this PC; 409 while any job runs or when ffmpeg is already there."""
+    this PC; 409 when any job is running or queued at the start (the install
+    itself holds nothing exclusive, so a job started during it is allowed;
+    the folder only takes its final name once fully unpacked) or when ffmpeg
+    is already there."""
     admin_svc.guard(confirm)
     reason = _refusal()
     if reason:
@@ -135,35 +138,15 @@ def start_install(confirm: bool = False) -> dict:
     return {"job_id": FFMPEG_JOB_ID, "started": True}
 
 
-def _check_url(url: str):
+def _guard(url: str):
+    """lib.http's per-hop guard: only https on the allowed hosts, then the
+    usual public-address check that pins the connection to what it resolved."""
     parts = urlsplit(url)
     if (parts.scheme != "https" or (parts.hostname or "").lower() not in ALLOWED_HOSTS
             or parts.username or parts.password or parts.port not in (None, 443)):
         raise DependencyUnavailableError("The download came from an address Baihe doesn't trust, "
                                          "so it was refused.")
-
-
-def _no_credentials(request):
-    """Passed as `auth=` so requests never adds ~/.netrc credentials."""
-    request.headers.pop("Authorization", None)
-    return request
-
-
-def _open(url: str):
-    for _ in range(MAX_REDIRECTS + 1):
-        _check_url(url)
-        resp = requests.get(url, headers={"User-Agent": "BaiheStudio-tools"}, auth=_no_credentials,
-                            allow_redirects=False, stream=True, timeout=TIMEOUT)
-        if resp.status_code in (301, 302, 303, 307, 308):
-            location = resp.headers.get("Location") or ""
-            resp.close()
-            url = urljoin(url, location)
-            continue
-        if resp.status_code != 200:
-            resp.close()
-            raise DependencyUnavailableError(f"The download server answered HTTP {resp.status_code}.")
-        return resp
-    raise DependencyUnavailableError("Too many redirects from the download server.")
+    return http.check_public(url)
 
 
 def _too_big():
@@ -191,29 +174,37 @@ def fetch_verified(urls, part: str, size: int, expected: str, progress, cancelle
 def _download_one(url, part, size, expected, progress, cancelled):
     sha, total = hashlib.sha256(), 0
     deadline = time.monotonic() + DOWNLOAD_DEADLINE_SECONDS
-    resp = _open(url)
+    # The cap is the pinned size, so a longer body is cut off by lib.http itself.
+    session = http.session(timeout=TIMEOUT, guard=_guard, max_bytes=size, max_redirects=MAX_REDIRECTS)
     try:
-        declared = capped_body.declared_length(resp)
-        if declared is not None and declared > size:
-            raise _too_big()
-        with open(part, "wb") as fh:
-            for chunk in resp.iter_content(CHUNK):
-                if cancelled():
-                    raise background_jobs.JobCancelled()
-                total += len(chunk)
-                if total > size:
-                    raise _too_big()
-                if time.monotonic() > deadline:
-                    raise DependencyUnavailableError("The download took too long, so it was "
-                                                     "stopped. Try again.")
-                sha.update(chunk)
-                fh.write(chunk)
-                progress(total)
-        if total != size:
-            raise DependencyUnavailableError("The download was incomplete. Try again.")
-        if not hmac.compare_digest(sha.hexdigest(), expected):
-            raise DependencyUnavailableError("The download doesn't match the expected SHA-256, so it "
-                                             "was deleted. Nothing was installed.")
+        resp = session.get(url, headers={"User-Agent": "BaiheStudio-tools"})
+        try:
+            if resp.status_code != 200:
+                raise DependencyUnavailableError(
+                    f"The download server answered HTTP {resp.status_code}.")
+            declared = capped_body.declared_length(resp)
+            if declared is not None and declared > size:
+                raise _too_big()
+            with open(part, "wb") as fh:
+                for chunk in resp.iter_content(CHUNK):
+                    if cancelled():
+                        raise background_jobs.JobCancelled()
+                    total += len(chunk)
+                    if total > size:
+                        raise _too_big()
+                    if time.monotonic() > deadline:
+                        raise DependencyUnavailableError("The download took too long, so it was "
+                                                         "stopped. Try again.")
+                    sha.update(chunk)
+                    fh.write(chunk)
+                    progress(total)
+            if total != size:
+                raise DependencyUnavailableError("The download was incomplete. Try again.")
+            if not hmac.compare_digest(sha.hexdigest(), expected):
+                raise DependencyUnavailableError("The download doesn't match the expected SHA-256, "
+                                                 "so it was deleted. Nothing was installed.")
+        finally:
+            resp.close()
     except BaseException:
         try:
             os.remove(part)
@@ -221,7 +212,7 @@ def _download_one(url, part, size, expected, progress, cancelled):
             pass
         raise
     finally:
-        resp.close()
+        session.close()
 
 
 def unpack(zip_path: str, dest: str) -> None:

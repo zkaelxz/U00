@@ -1,6 +1,7 @@
 // What a control needs from this PC, as plain data. Pure of React: a vitest pins the wording and the
 // readiness-to-disabled mapping per control. Anything unknown (readiness not loaded) counts as
 // ready, so a control is never switched off on a guess; the server still refuses what cannot run.
+import { LIVE_DEFAULT_MODEL } from '../../api/live'
 import type { SetupReadiness } from '../../types/setup'
 
 /** What the person can do about it. Only Whisper and GPU PyTorch install in place; the rest open Diagnostics or Settings. */
@@ -58,15 +59,11 @@ function ffmpegNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
-export function separationNeed(r: SetupReadiness | null, backend: string): Need | null {
-  if (!r) return null
-  const separator = backend === 'demucs' ? r.demucs : backend === 'audio_separator' ? r.audio_separator : r.audio_separator || r.demucs
-  if (separator) return null
-  const missing = backend === 'demucs' ? ['demucs'] : backend === 'audio_separator' ? ['audio-separator'] : ['audio-separator']
-  const what = backend === 'demucs' ? 'Demucs' : backend === 'audio_separator' ? 'audio-separator' : 'audio-separator (or Demucs)'
+export function separationNeed(r: SetupReadiness | null): Need | null {
+  if (!r || r.audio_separator) return null
   return {
-    id: 'separation', label: 'Vocal separation', action: 'diagnostics', packages: missing,
-    reason: `Separating vocals first needs ${what}, which isn't installed.`,
+    id: 'separation', label: 'Vocal separation', action: 'diagnostics', packages: ['audio-separator'],
+    reason: "Separating vocals first needs audio-separator, which isn't installed.",
   }
 }
 
@@ -300,6 +297,7 @@ export function gpuOnText(useGpu: boolean, r: SetupReadiness | null): string {
 const LIVE_SIZE_FLAGS: Record<string, keyof SetupReadiness> = {
   tiny: 'whisper_cached_tiny', base: 'whisper_cached_base', small: 'whisper_cached_small', medium: 'whisper_cached_medium',
   'large-v3-turbo': 'whisper_cached_large_v3_turbo', 'large-v3': 'whisper_cached_large_v3',
+  'ja-1.5b': 'whisper_cached_ja_15b',
 }
 
 /**
@@ -313,6 +311,15 @@ export function liveWhisperSize(r: SetupReadiness | null, size: string, atMainPc
   if (!r.faster_whisper) return { reason: 'Needs Whisper, which is not installed.', download: false }
   if (!atMainPc) return { reason: 'Not downloaded yet. Download it from the main PC first.', download: false }
   return { reason: null, download: true }
+}
+
+/** The note after a Live Whisper size in the picker. A size excluded for the title's language says so
+ *  generally: the exclusion can be either way (ja-1.5b is Japanese only, medium is not recommended
+ *  for Japanese), so the full reason is shown under the picker instead. */
+export function liveWhisperOptionNote(wrongLanguage: boolean, size: { reason: string | null; download: boolean }): string {
+  if (wrongLanguage) return ' (not for this language)'
+  if (size.reason) return ' (not available)'
+  return size.download ? ' (downloads first)' : ''
 }
 
 /** Looking up a page's words splits it into words first: Chinese through jieba, Japanese through Sudachi, Korean through Kiwi. */
@@ -355,7 +362,7 @@ export function ollamaNeed(r: SetupReadiness | null): Need | null {
   return {
     id: 'ollama', label: 'Ollama test engine', action: 'external', packages: [],
     reason: r.ollama_reachable
-      ? "Ollama is running but the default model isn't pulled yet. Run \"ollama pull\" for it."
+      ? `Ollama is running but the default model isn't pulled yet. Run "ollama pull ${LIVE_DEFAULT_MODEL}" for it.`
       : "Ollama isn't running or isn't installed. It is a free local translator for testing.",
     link: { href: 'https://ollama.com/download', label: 'Get Ollama' },
   }
@@ -369,7 +376,6 @@ export function qwen3Warning(forAlignment = false): string {
 export interface TranscribeNeedsForm {
   backend: string
   separateVocals: boolean
-  separationBackend: string
   alignmentMethod: string
   realignLong: boolean
   useGroq: boolean
@@ -405,7 +411,7 @@ export interface TranscribeNeeds {
 export function transcribeNeeds(r: SetupReadiness | null, f: TranscribeNeedsForm): TranscribeNeeds {
   return {
     whisper: usesLocalWhisper(f) ? whisperNeed(r) : null,
-    separation: separationNeed(r, f.separationBackend),
+    separation: separationNeed(r),
     qwen3: qwen3Need(r),
     qwenAlign: qwenAlignNeed(r, f.language),
     realign: realignNeed(r),

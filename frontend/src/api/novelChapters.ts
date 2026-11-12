@@ -1,5 +1,5 @@
-import type { NovelChapterList, NovelChapterText } from '../types/novelChapters'
-import { getJson, type Fetch } from './client'
+import type { NovelChapterList, NovelChapterMoved, NovelChapterRenamed, NovelChapterRetranslatePreview, NovelChapterRetranslateStarted, NovelChapterText, NovelLineChapters } from '../types/novelChapters'
+import { getJson, postJson, type Fetch } from './client'
 
 // api/routers/novel_files_routes.py: library.read, bounded (a list page is
 // at most 200 rows, a text slice at most 50,000 characters).
@@ -11,3 +11,23 @@ export const getRawChapterText = (dramaId: number, number: number, offset = 0, l
     `/api/novel/dramas/${dramaId}/raw-novel/chapters/${number}?offset=${offset}&limit=${limit}`,
     f,
   )
+
+// api/routers/novel_files_routes.py: lines.read. Which lines belong to which saved chapter, with counts.
+export const getLineChapters = (dramaId: number, f?: Fetch) =>
+  getJson<NovelLineChapters>(`/api/novel/dramas/${dramaId}/line-chapters`, f)
+
+// api/routers/novel_files_routes.py: lines.edit. Renames one saved chapter in the raw text, the chapter list and its title line.
+export const renameRawChapter = (dramaId: number, number: number, title: string, f?: Fetch) =>
+  postJson<NovelChapterRenamed>(`/api/novel/dramas/${dramaId}/raw-novel/chapters/${number}/rename`, { title }, f)
+
+// api/routers/novel_files_routes.py: lines.edit. Moves one saved chapter, with its lines and their translations, to another place in the order.
+export const moveRawChapter = (dramaId: number, number: number, toNumber: number, f?: Fetch) =>
+  postJson<NovelChapterMoved>(`/api/novel/dramas/${dramaId}/raw-novel/chapters/${number}/move`, { to_number: toNumber }, f)
+
+/** Read-only (lines.read): the chapter's line counts and a cost estimate; no engine call. */
+export const getChapterRetranslatePreview = (dramaId: number, number: number, f?: Fetch) =>
+  getJson<NovelChapterRetranslatePreview>(`/api/translate-run/dramas/${dramaId}/chapters/${number}/retranslate`, f)
+/** jobs.start: translates the chapter's lines again with the title's saved settings. */
+export const startChapterRetranslate = (dramaId: number, number: number, includeHandEdited: boolean, f?: Fetch) =>
+  postJson<NovelChapterRetranslateStarted>(
+    `/api/translate-run/dramas/${dramaId}/chapters/${number}/retranslate/run`, { include_hand_edited: includeHandEdited }, f)

@@ -139,3 +139,170 @@ def test_two_failed_pages_on_one_recycled_canvas_are_both_counted():
                 log.isNew(canvas, canvasSignature(canvas, 4))];
     })()"""
     assert _node("content_expression", expression) == [True, False, True]
+
+
+def _place(region, kind="bubble", natural=(800, 1200), shown=(400, 600), text_height_per_px=5):
+    """placeBox on a fake box whose text needs text_height_per_px * fontSize of height."""
+    expression = f"""(() => {{
+        const box = {{ dataset: {{ kind: {json.dumps(kind)} }}, style: {{}}, clientHeight: 0, clientWidth: 0,
+          get scrollHeight() {{ return {text_height_per_px} * parseFloat(this.style.fontSize); }},
+          get scrollWidth() {{ return 0; }} }};
+        // clientHeight follows the box height set by placeBox
+        Object.defineProperty(box, "clientHeight", {{ get() {{ return parseFloat(this.style.height); }} }});
+        window.__baihe.placeBox(box, {json.dumps(region)}, {shown[0] / natural[0]}, {shown[1] / natural[1]}, {shown[0]}, {shown[1]});
+        return box.style;
+    }})()"""
+    return _node("content_expression", expression)
+
+
+def test_a_box_hanging_off_the_left_of_the_page_is_kept_inside_it():
+    style = _place({"x": -60, "y": 100, "w": 200, "h": 100})
+    assert style["left"] == "0px" and float(style["width"][:-2]) <= 400
+
+
+def test_text_shrinks_until_it_fits_the_box_but_not_below_a_legible_size():
+    fits = _place({"x": 100, "y": 100, "w": 400, "h": 400})
+    cramped = _place({"x": 100, "y": 100, "w": 40, "h": 20})
+    assert float(fits["fontSize"][:-2]) > float(cramped["fontSize"][:-2]) >= 7
+
+
+def test_speech_balloons_are_round_and_narration_stays_a_box():
+    assert _place({"x": 10, "y": 10, "w": 200, "h": 100})["borderRadius"] == "50%"
+    assert _place({"x": 10, "y": 10, "w": 200, "h": 100}, kind="narration")["borderRadius"] == ""
+
+
+def test_a_capture_that_ends_short_says_which_pages_were_skipped_and_how_many_got_no_answer():
+    counts = {"translated": 85, "cached": 0, "alreadyStored": 0, "skipped": 3, "failed": 0}
+    text = tally(89, counts, "", [])
+    assert "3 skipped as not a page (no reason was given)" in text and "1 not sent or not answered" in text
+
+
+def test_the_first_skip_reason_is_named():
+    counts = {"translated": 2, "cached": 0, "alreadyStored": 0, "skipped": 1, "failed": 0}
+    expression = ('window.__baihe.captureTally(3, ' + json.dumps(counts) +
+                  ', "", [], "looks like an ad banner")')
+    assert "1 skipped as not a page (looks like an ad banner)" in _node("content_expression", expression)
+
+
+def test_a_fully_accounted_capture_reports_nothing_missing():
+    counts = {"translated": 3, "cached": 0, "alreadyStored": 0, "skipped": 0, "failed": 0}
+    assert "not sent" not in tally(3, counts, "", [])
+
+
+def test_the_typeset_image_rides_with_a_page_s_regions_so_the_cache_and_redraws_carry_it():
+    expression = """(() => {
+        const out = window.__baihe.regionsByKey({ pages: [
+            { key: "a", regions: [{ x: 1 }], typeset_image: "data:image/jpeg;base64,AAAA" },
+            { key: "b", regions: [{ x: 2 }] }] });
+        return [out.get("a").typesetImage, out.get("b").typesetImage, out.get("a").length];
+    })()"""
+    assert _node("content_expression", expression) == ["data:image/jpeg;base64,AAAA", "", 1]
+
+
+def test_pages_saved_without_text_or_without_english_are_told_apart_in_the_closing_line():
+    counts = {"translated": 6, "cached": 0, "alreadyStored": 0, "skipped": 0, "failed": 0,
+              "noText": 2, "noEnglish": 3}
+    expression = ('window.__baihe.captureTally(6, ' + json.dumps(counts) +
+                  ', "", [], "", "translation failed (the engine did not answer)")')
+    text = _node("content_expression", expression)
+    assert "2 saved with no text found" in text
+    assert "3 saved with text read but no English back (translation failed (the engine did not answer))" in text
+
+
+def test_cancel_is_in_the_always_visible_area_not_on_the_chapter_tab():
+    html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
+    chapter = html[html.index('id="panel-chapter"'):html.index("</section>", html.index('id="panel-chapter"'))]
+    assert 'id="cancelCapture"' not in chapter
+    assert html.index('id="status"') < html.index('id="cancelCapture"')
+
+
+def test_a_cancel_stops_sending_between_requests_and_keeps_what_was_sent():
+    expression = """(async () => {
+        let cancelled = false;
+        const sent = [];
+        const items = Array.from({ length: 30 }, (_, i) => ({ i }));
+        const outcome = await window.__baihe.sendInBatches(
+            items,
+            async (batch) => { sent.push(batch.length); return { ok: true, data: {} }; },
+            () => { cancelled = true; },
+            12,
+            () => cancelled);
+        return { sent, cancelled: outcome.cancelled, done: outcome.done };
+    })()"""
+    out = _node("content_expression", expression)
+    assert out == {"sent": [12], "cancelled": True, "done": 12}
+
+
+def test_cancel_says_so_at_once_aborts_the_request_in_flight_and_stays_cancelled():
+    expression = """(async () => {
+        const messages = [];
+        chrome.runtime.sendMessage = (m) => { messages.push(m.type + (m.text ? ":" + m.text : "")); return Promise.resolve(); };
+        const labels = [];
+        const run = { cancelled: false, text: "157 pages found — translating 1-12 of 12", ui: { set: (t) => labels.push(t) } };
+        window.__baihe.requestCancel(run);
+        window.__baihe.requestCancel(run);
+        const done = [];
+        const outcome = await window.__baihe.sendInBatches(
+            Array.from({ length: 24 }, (_, i) => ({ i })),
+            async (batch) => { done.push(batch.length); return { ok: false, cancelled: true, error: "Cancelled." }; },
+            () => {}, 12, () => run.cancelled);
+        return { cancelled: run.cancelled, text: run.text, labels, messages, sends: done.length, outcome: outcome.cancelled };
+    })()"""
+    out = _node("content_expression", expression)
+    assert out["cancelled"] is True and out["text"].startswith("Cancelling")
+    assert out["labels"] == [out["text"]]
+    assert [m for m in out["messages"] if m.startswith("abortSends")] == ["abortSends"]
+    assert out["sends"] == 0 and out["outcome"] is True
+
+
+def _complete(found, entries, repeats=(), unreadable=(), counts=None, timing=None, expected=0):
+    counts = counts or {"untranslatedLines": 0}
+    timing = timing or {"read": 0, "translate": 0, "typeset": 0, "pages": 0}
+    expression = ("window.__baihe.completenessLine(" + ", ".join(json.dumps(a) for a in (
+        found, list(entries), list(repeats), list(unreadable), counts, timing, expected)) + ")")
+    return _node("content_expression", expression)
+
+
+def test_the_closing_line_names_every_page_that_is_not_saved_and_why():
+    entries = [{"position": 1, "status": "saved", "typeset": True},
+               {"position": 2, "status": "saved", "typeset": False, "noText": True},
+               {"position": 3, "status": "saved", "typeset": False, "noText": False},
+               {"position": 4, "status": "skipped", "reason": "looks like an ad banner"},
+               {"position": 5, "status": "failed", "reason": "the app stopped answering"},
+               {"position": 6, "status": "queued"}]
+    text = _complete(7, entries, repeats=[1], unreadable=[{"position": 7, "error": "blank"}],
+                     counts={"untranslatedLines": 2},
+                     timing={"read": 4, "translate": 10, "typeset": 2, "pages": 2})
+    assert text.startswith("Saved 3 of 7 pages; typeset 1 of 3; 3 missed: ")
+    assert "page 4 (skipped: looks like an ad banner)" in text
+    assert "page 5 (failed: the app stopped answering)" in text
+    assert "page 6 (never sent or no answer)" in text
+    assert "1 unreadable: page 7 (blank)" in text
+    assert "2 saved without a typeset image: page 2 (no text found), page 3 (typeset failed)" in text
+    assert "1 repeat of an earlier page left out" in text and "2 lines with no English" in text
+    assert "per page: read text 2.0s, translate 5.0s, typeset 1.0s" in text
+
+
+def test_a_clean_capture_says_all_saved_and_names_nothing_missing():
+    entries = [{"position": i, "status": "saved"} for i in range(1, 4)]
+    text = _complete(3, entries)
+    assert text == "Saved 3 of 3 pages"
+
+
+def test_the_closing_line_says_when_the_reader_shows_more_pages_than_were_found():
+    entries = [{"position": 1, "status": "saved"}, {"position": 2, "status": "saved"}]
+    assert "the reader shows 80 pages, found 2" in _complete(2, entries, expected=80)
+    assert "the reader shows" not in _complete(2, entries, expected=2)
+    assert "the reader shows" not in _complete(2, entries)
+
+
+@pytest.mark.parametrize("found, expected, loading, tries, wait", [
+    (12, 80, 0, 0, True),    # the counter says more pages exist
+    (12, 0, 3, 0, True),     # no counter, images still loading
+    (80, 80, 0, 0, False),   # everything found and loaded
+    (12, 80, 0, 3, False),   # bounded: a wrong counter cannot hold the run forever
+])
+def test_the_run_waits_for_more_pages_only_while_something_says_they_are_coming(
+        found, expected, loading, tries, wait):
+    expression = f"window.__baihe.keepWaiting({found}, {expected}, {loading}, {tries})"
+    assert _node("content_expression", expression) is wait
