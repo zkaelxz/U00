@@ -26096,6 +26096,12 @@ export interface components {
              * @description The first 50 terms that would be added.
              */
             new_terms: string[];
+            /**
+             * Replacements New
+             * @description Word replacements the copy would add.
+             * @default 0
+             */
+            replacements_new: number;
             /** Series Id */
             series_id: number;
             /** Skipped Count */
@@ -26117,6 +26123,11 @@ export interface components {
         SeriesCopyTermsResult: {
             /** Added */
             added: number;
+            /**
+             * Replacements Added
+             * @default 0
+             */
+            replacements_added: number;
             /** Series Id */
             series_id: number;
             /** Skipped */

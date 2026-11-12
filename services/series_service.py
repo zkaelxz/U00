@@ -23,7 +23,7 @@ import sqlite3
 import unicodedata
 
 import db
-from services import auth_service, drama_service, ownership_service
+from services import auth_service, drama_service, ownership_service, word_replacement_service
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 300           # drama_service.MAX_NAME_LEN, the "New series" limit
@@ -230,6 +230,22 @@ def _source_terms(principal, series_id, source_series_id) -> list:
     return terms
 
 
+def _replacements_to_copy(series_id, source_series_id) -> list:
+    """The source's word replacements the destination lacks (by find text,
+    ignoring case), within the per-series cap."""
+    have = db.list_word_replacements(series_id)
+    taken = {r["find_text"].casefold() for r in have}
+    room = word_replacement_service.MAX_REPLACEMENTS - len(have)
+    out = []
+    for r in db.list_word_replacements(source_series_id):
+        key = r["find_text"].casefold()
+        if key in taken or len(out) >= room:
+            continue
+        taken.add(key)
+        out.append((r["find_text"], r["replace_text"]))
+    return out
+
+
 def copy_terms_preview(principal, series_id, source_series_id) -> dict:
     terms = _source_terms(principal, series_id, source_series_id)
     taken = {term_key(t["term_original"]) for t in db.list_glossary_terms(series_id)}
@@ -240,15 +256,17 @@ def copy_terms_preview(principal, series_id, source_series_id) -> dict:
         taken.add(key)
     return {"series_id": series_id, "source_series_id": source_series_id,
             "new_count": len(new), "skipped_count": len(skipped),
+            "replacements_new": len(_replacements_to_copy(series_id, source_series_id)),
             "new_terms": [t["term_original"] for t in new[:PREVIEW_TERMS]],
             "skipped_terms": [t["term_original"] for t in skipped[:PREVIEW_TERMS]]}
 
 
 def copy_terms(principal, series_id, source_series_id) -> dict:
-    """Adds the source's terms the destination lacks, every column included,
+    """Adds the source's terms and word replacements the destination lacks, every column included,
     in one transaction (db.copy_series_terms), which decides "already there"
     against the destination as it is then, so a term added since the preview
     is skipped and a failure part-way adds nothing."""
     terms = _source_terms(principal, series_id, source_series_id)
-    result = db.copy_series_terms(series_id, terms, term_key)
+    result = db.copy_series_terms(series_id, terms, term_key,
+                                  _replacements_to_copy(series_id, source_series_id))
     return {"series_id": series_id, "source_series_id": source_series_id, **result}
