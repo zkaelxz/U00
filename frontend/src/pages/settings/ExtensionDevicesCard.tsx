@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
-  createDeviceToken, listAllDeviceTokens, listMyDeviceTokens, revokeAnyDeviceToken, revokeMyDeviceToken,
+  createAdminDeviceToken, createDeviceToken, listAllDeviceTokens, listMyDeviceTokens, revokeAnyDeviceToken, revokeMyDeviceToken,
 } from '../../api/extensionDevices'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
@@ -28,7 +28,7 @@ import type { AdminDeviceToken, DeviceToken, DeviceTokenList } from '../../types
 import { copyFallbackText } from '../diagnostics/diagnosticsAdmin'
 import '../diagnostics/diagnostics.css'
 import {
-  DEFAULT_EXPIRY_DAYS, DEVICES_NOTE, EXPIRY_CHOICES, MAX_DEVICE_LABEL_CHARS, NO_SEND_PERMISSION, SHOWN_ONCE_WARNING,
+  ADMIN_DEVICE_NOTE, DEFAULT_EXPIRY_DAYS, DEVICES_NOTE, EXPIRY_CHOICES, MAX_DEVICE_LABEL_CHARS, NO_SEND_PERMISSION, SHOWN_ONCE_WARNING,
   activeCount, adminTokensBlock, extensionDevicesView, labelProblem, tokenDetails,
 } from './extensionDevicesModel'
 
@@ -234,6 +234,8 @@ function AllDevices() {
   const [busy, setBusy] = useState<number | null>(null)
   const [note, setNote] = useState('')
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const [adding, setAdding] = useState(false)
+  const [created, setCreated] = useState<{ token: string; label: string } | null>(null)
 
   const load = useCallback(() => {
     listAllDeviceTokens().then((r) => {
@@ -242,6 +244,24 @@ function AllDevices() {
     }, setError)
   }, [])
   useEffect(load, [load])
+
+  // The owner at the PC has no account, so the server attaches the device to the admin account.
+  const create = async (label: string, days: number | null) => {
+    setAdding(true)
+    setNote('')
+    setError(null)
+    try {
+      const r = await createAdminDeviceToken(label, days)
+      setCreated({ token: r.token, label: r.device_token.label })
+      return true
+    } catch (e) {
+      setError(e)
+      return false
+    } finally {
+      setAdding(false)
+      load()
+    }
+  }
 
   const revoke = async (t: AdminDeviceToken) => {
     setBusy(t.id)
@@ -262,6 +282,7 @@ function AllDevices() {
     <div className="diag-stack" data-testid="all-extension-devices">
       <h2 className="settings-subhead subhead">Everyone's devices</h2>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {created && <ShownOnce token={created.token} label={created.label} onDone={() => setCreated(null)} />}
       {list === null ? (
         !error && <p className="muted">Loading…</p>
       ) : list.length === 0 ? (
@@ -269,6 +290,13 @@ function AllDevices() {
       ) : (
         <TokenList tokens={list} nowMs={nowMs} busy={busy} block={null} onRevoke={(t) => void revoke(t)}
           owner={(t) => t.user_name} />
+      )}
+      {created === null && (
+        <>
+          <h2 className="settings-subhead subhead">Add a computer for the admin account</h2>
+          <p className="settings-note">{ADMIN_DEVICE_NOTE}</p>
+          <AddDevice busy={adding} disabled={adding || busy !== null} onCreate={create} />
+        </>
       )}
       <span className="muted" aria-live="polite">{note}</span>
     </div>

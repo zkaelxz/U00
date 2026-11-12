@@ -399,6 +399,30 @@ async function background(scenario) {
         blocked: await ask({ screenshot: true }, { tab: { id: 1, windowId: 7 } }, true),
       };
     }
+    case "referer_retry": {
+      const run = async ({ firstStatus, sender, rules = true }) => {
+        const calls = [];
+        let n = 0;
+        const dnr = { updateSessionRules: async (change) => { calls.push(change); } };
+        const h = loadBackground({
+          granted: () => true,
+          chromeExtra: rules ? { declarativeNetRequestWithHostAccess: undefined, declarativeNetRequest: dnr,
+                                 runtime: { id: "extid" } } : { runtime: { id: "extid" } },
+          fetchImpl: async () => { n += 1; return n === 1 ? new Response("", { status: firstStatus })
+            : image(JPEG)(); },
+        });
+        const r = await h.ask({ type: "fetchImage", url }, sender);
+        return { ok: r.ok, error: r.error, fetches: h.fetchCalls.length, rules: calls };
+      };
+      const page = { url: "https://reader.example/ch/1?token=secret" };
+      return {
+        retried: await run({ firstStatus: 403, sender: page }),
+        notNeeded: await run({ firstStatus: 200, sender: page }),
+        otherError: await run({ firstStatus: 404, sender: page }),
+        noPage: await run({ firstStatus: 403, sender: {} }),
+        noPermission: await run({ firstStatus: 403, sender: page, rules: false }),
+      };
+    }
     case "no_referrer_without_a_page": {
       const h = loadBackground({ granted: () => true, response: image(JPEG) });
       await h.ask({ type: "fetchImage", url });
