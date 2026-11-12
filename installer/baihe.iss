@@ -892,7 +892,7 @@ begin
   begin
     CleanCaption := 'Remove everything (clean uninstall): all of the above and the rest of Baihe Studio''s files';
     CleanWarning := 'This permanently deletes your library, settings and API keys, downloaded models ' +
-      'and Baihe Studio''s other files in' + #13#10 + UninstDataDir + #13#10 +
+      'downloaded voice engines and browser, and Baihe Studio''s other files in' + #13#10 + UninstDataDir + #13#10 +
       '(anything else in that folder is left alone).';
   end;
   Form := CreateCustomForm(ScaleX(500), ScaleY(290), False, False);
@@ -1474,6 +1474,13 @@ begin
           AddLine(Left, 'your settings and API keys (.env) - couldn''t be deleted; remove it by hand');
       if DeleteModels then
         DeleteTree(UninstDataDir + '\model_cache', 'downloaded AI models', Removed, Left);
+      // Only "Remove everything": big, app-made and downloaded again on demand,
+      // but not among the three boxes, so a plain tick never reaches them.
+      if CleanAll then
+      begin
+        DeleteTree(UninstDataDir + '\voice_engines', 'downloaded voice engines', Removed, Left);
+        DeleteTree(UninstDataDir + '\playwright_browsers', 'the downloaded browser', Removed, Left);
+      end;
       // Baihe's downloaded VTuber name list and its half-written download:
       // these two names only, never a *.part pattern, on every uninstall. The
       // folder may be one the user picked and shares with other files.

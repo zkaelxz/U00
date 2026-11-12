@@ -595,7 +595,8 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
   `backups\auto`, logs, `source_cache`, browser profiles,
   `extension_token.txt`), `.env`, `model_cache`, and the
   launcher's files. If the user picked an existing folder, only those named
-  items go, and the folder is removed only if that leaves it empty.
+  items go (plus `voice_engines` and `playwright_browsers`, which only a clean
+  uninstall removes), and the folder is removed only if that leaves it empty.
 - **Temporary items.** Baihe Studio's own named items in `%TEMP%` are removed:
   `baihe_*` work folders, `baihe_page_*` files and `baihe-torch-pins-*` files.
   Nothing else in `%TEMP%` is removed. Temporary folders Python names itself
