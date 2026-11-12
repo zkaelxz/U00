@@ -90,3 +90,8 @@ class TestOptionsPage:
     def test_no_reply_falls_back_to_the_unreachable_message(self):
         out = _run("options", "no_reply_fallback")
         assert (out["status"], out["bad"]) == ("Couldn't reach the app.", True)
+
+
+    def test_an_older_loaded_copy_is_told_to_update(self):
+        out = _run("options", "stale_extension")
+        assert "version 1.2.0; your Baihe has 1.3.0" in out["status"]

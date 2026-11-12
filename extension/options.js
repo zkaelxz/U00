@@ -30,10 +30,12 @@ function serverOrigin(text) {
   }
 }
 
-function describeConnection({ dramas, engine_configured: engineConfigured }) {
+function describeConnection(data) {
+  const { dramas, engine_configured: engineConfigured } = data;
   const count = dramas?.length ?? 0;
+  const stale = staleExtensionNote(data);
   return `Connected to Baihe. ${pluralize(count, "drama")} available.` +
-    (engineConfigured ? "" : NO_ENGINE_HINT);
+    (engineConfigured ? "" : NO_ENGINE_HINT) + (stale ? ` ${stale}` : "");
 }
 
 async function saveAndTest() {
