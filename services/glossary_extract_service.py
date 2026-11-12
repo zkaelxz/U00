@@ -120,7 +120,10 @@ def _normalize_proposals(proposals, known_terms, source_text: str = "") -> list:
             "occurrences": occurrences,
             "alternatives": alternatives,
             "aliases": _proposal_aliases(p, term, known),
-            "confidence": _confidence(occurrences, alternatives, translation),
+            # A meaning the model says it inferred must not read as High just because the
+            # word repeats: Select all High would apply the guess unreviewed.
+            "confidence": "low" if p.get("unsure") is True
+                          else _confidence(occurrences, alternatives, translation),
             "category": p.get("category") if p.get("category") in TERM_CATEGORIES else None,
             "policy": p.get("policy") if p.get("policy") in TERM_POLICIES else None,
             "reason": str(p.get("reason") or "")[:MAX_NOTES_LEN],
