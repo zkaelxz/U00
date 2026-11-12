@@ -345,11 +345,11 @@ def test_a_read_only_install_folder_refuses_before_a_job_exists(env, monkeypatch
         return real_tf(*a, dir=dir, **k)
     monkeypatch.setattr(svc.tempfile, "TemporaryFile", denied)
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: pytest.fail("no preview"))
-    with pytest.raises(admin_svc.AdminActionNotPossible, match="Stop the service"):
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="install folder is locked"):
         svc.start_dependency_install("jieba", confirm=True)
     monkeypatch.setattr(diagnostics_torch, "nvidia_driver_info", lambda: None)
     monkeypatch.setattr(svc.torch_svc, "_python_supported", lambda: True)
-    with pytest.raises(admin_svc.AdminActionNotPossible, match="Stop the service"):
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="install folder is locked"):
         svc.start_gpu_torch_setup("cpu", confirm=True)
     assert background_jobs.get_status(JOB) is None
     assert os.listdir(paths["purelib" if which == "platlib" else "platlib"]) == []   # probe cleaned up
@@ -570,7 +570,7 @@ def test_upgrade_refuses_a_read_only_install_folder_before_anything_runs(env, mo
     monkeypatch.setattr(svc, "_writable", lambda folder: False)
     monkeypatch.setattr(install_plan, "run_dry_run", lambda keys, specs=None: pytest.fail("no preview"))
     monkeypatch.setattr(packages_svc, "stream_tree", lambda *a, **k: pytest.fail("no pip"))
-    with pytest.raises(admin_svc.AdminActionNotPossible, match="Stop the service"):
+    with pytest.raises(admin_svc.AdminActionNotPossible, match="install folder is locked"):
         svc.start_dependency_upgrade("jieba", confirm=True)
     assert background_jobs.get_status(JOB) is None
 
