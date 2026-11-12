@@ -78,6 +78,10 @@ def _kept_headers(stored, header) -> str:
 # near-in-time repeats; a bigger one (thousands of the same cue within a few
 # seconds) falls back to the cheap in-order pairing so memory stays bounded.
 MAX_ALIGN_CELLS = 1_000_000
+# The same bound for a whole import: many clusters under the per-cluster cap
+# could still add up to minutes of pure-Python table filling. Past it the rest
+# fall back to the in-order pairing.
+MAX_TOTAL_ALIGN_CELLS = 5_000_000
 
 
 def _pair_greedy(old_starts: list, new_starts: list) -> list:
@@ -91,10 +95,12 @@ def _pair_greedy(old_starts: list, new_starts: list) -> list:
     return pairs
 
 
-def _align_piece(old_starts: list, new_starts: list) -> list:
+def _align_piece(old_starts: list, new_starts: list, budget: list) -> list:
+    """`budget` is a one-item list holding the cells the whole import may still build."""
     n, m = len(old_starts), len(new_starts)
-    if n * m > MAX_ALIGN_CELLS:
+    if n * m > MAX_ALIGN_CELLS or n * m > budget[0]:
         return _pair_greedy(old_starts, new_starts)
+    budget[0] -= n * m
     # best[i][j] = (pairs, -total gap) for old[i:] against new[j:]
     best = [[(0, 0.0)] * (m + 1) for _ in range(n + 1)]
     for i in range(n - 1, -1, -1):
@@ -118,13 +124,15 @@ def _align_piece(old_starts: list, new_starts: list) -> list:
     return pairs
 
 
-def _align_in_order(old_starts: list, new_starts: list) -> list:
+def _align_in_order(old_starts: list, new_starts: list, budget: list | None = None) -> list:
     """Pairs (old position, new position) of two time-sorted lists of the same
     text: the most pairs whose starts are within KEEP_MATCH_SECONDS, then the
     least total time gap, never crossing. Either side may skip entries, so a
     repeat the file dropped doesn't shift every later pairing onto the wrong
     row (and its notes). Entries more than KEEP_MATCH_SECONDS from their
     neighbours can't pair across that gap, so each cluster is aligned alone."""
+    if budget is None:
+        budget = [MAX_TOTAL_ALIGN_CELLS]
     merged = sorted([(t, 0, i) for i, t in enumerate(old_starts)] + [(t, 1, j) for j, t in enumerate(new_starts)])
     pieces, current = [], []
     for item in merged:
@@ -141,7 +149,7 @@ def _align_in_order(old_starts: list, new_starts: list) -> list:
         if not olds or not news:
             continue
         pairs.extend((olds[a][1], news[b][1])
-                     for a, b in _align_piece([t for t, _ in olds], [t for t, _ in news]))
+                     for a, b in _align_piece([t for t, _ in olds], [t for t, _ in news], budget))
     return pairs
 
 
@@ -158,11 +166,12 @@ def _keep_matching_lines(new_lines: list, translations, lines: list) -> int:
     for i, new in enumerate(new_lines):
         new_by_text.setdefault(new.zh.strip(), []).append(i)
     kept = 0
+    budget = [MAX_TOTAL_ALIGN_CELLS]
     for text, indexes in new_by_text.items():
         olds = sorted(old_by_text.get(text, []), key=lambda o: o.start)
         indexes = sorted(indexes, key=lambda k: new_lines[k].start)
         for o, k in _align_in_order(
-                [x.start for x in olds], [new_lines[i].start for i in indexes]):
+                [x.start for x in olds], [new_lines[i].start for i in indexes], budget):
             best, i = olds[o], indexes[k]
             new = new_lines[i]
             keeper = copy.copy(best)

@@ -56,6 +56,18 @@ def test_alignment_is_bounded_and_clusters_align_alone(monkeypatch):
     assert svc._align_in_order(olds, news) == [(0, 0), (1, 1), (2, 2)]
 
 
+def test_alignment_time_is_capped_across_clusters(monkeypatch):
+    # Each cluster is under the per-cluster cap, but together they are over the
+    # whole-import cap: the first fills the budget, the rest pair in order.
+    monkeypatch.setattr(svc, "MAX_TOTAL_ALIGN_CELLS", 9)
+    built = []
+    real = svc._pair_greedy
+    monkeypatch.setattr(svc, "_pair_greedy", lambda o, n: built.append(len(o)) or real(o, n))
+    olds = [float(c * 100 + k * 0.1) for c in range(3) for k in range(3)]
+    assert len(svc._align_in_order(olds, olds)) == 9
+    assert built == [3, 3]
+
+
 class TestSourceImport:
     def test_into_an_empty_title(self, local_client):
         did = _drama()
