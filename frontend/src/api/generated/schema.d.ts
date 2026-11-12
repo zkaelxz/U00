@@ -6633,6 +6633,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move one saved chapter to another position, with its lines (409 if they do not line up) */
+        post: operations["post_move_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/rename": {
         parameters: {
             query?: never;
@@ -22406,6 +22423,27 @@ export interface components {
             total: number;
             /** Translation Chars */
             translation_chars: number;
+        };
+        /** NovelChapterMoveRequest */
+        NovelChapterMoveRequest: {
+            /** To Number */
+            to_number: number;
+        };
+        /** NovelChapterMoved */
+        NovelChapterMoved: {
+            /** Drama Id */
+            drama_id: number;
+            /** Lines Moved */
+            lines_moved: number;
+            /** Number */
+            number: number;
+            /** To Number */
+            to_number: number;
+            /**
+             * Translation Text Updated
+             * @default false
+             */
+            translation_text_updated: boolean;
         };
         /** NovelChapterRenameRequest */
         NovelChapterRenameRequest: {
@@ -50044,6 +50082,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_move_chapter_api_novel_dramas__drama_id__raw_novel_chapters__number__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelChapterMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelChapterMoved"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

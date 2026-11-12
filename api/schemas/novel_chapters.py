@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 __all__ = ["NovelChapterRow", "NovelChapterList", "NovelChapterText", "NovelLineChapterRow",
            "NovelLineChapters", "NovelChapterRenameRequest",
-           "NovelChapterRenamed"]
+           "NovelChapterRenamed", "NovelChapterMoveRequest", "NovelChapterMoved"]
 
 
 class NovelChapterRow(BaseModel):
@@ -88,4 +88,17 @@ class NovelChapterRenamed(BaseModel):
     # False when no line of the title held the old chapter title (nothing to change there).
     line_updated: bool
     # True when the translation text was a copy of the saved chapters and was updated too.
+    translation_text_updated: bool = False
+
+
+class NovelChapterMoveRequest(BaseModel):
+    # The position (1-based) the chapter should have afterwards.
+    to_number: int = Field(ge=1, le=100000)
+
+
+class NovelChapterMoved(BaseModel):
+    drama_id: int
+    number: int
+    to_number: int
+    lines_moved: int
     translation_text_updated: bool = False

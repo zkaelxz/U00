@@ -15,7 +15,7 @@ import { featureOn } from '../../../api/features'
 import { useFeatures } from '../../../hooks/useFeatures'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getRawChapterText, getRawChapters, renameRawChapter } from '../../../api/novelChapters'
+import { getRawChapterText, getRawChapters, moveRawChapter, renameRawChapter } from '../../../api/novelChapters'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
@@ -137,6 +137,17 @@ export function NovelChaptersPanel() {
     }
   }
 
+  const move = async (toNumber: number) => {
+    if (!preview) return
+    try {
+      await moveRawChapter(dramaId, preview.number, toNumber)
+      setPreview(null)
+      setReloads((n) => n + 1)
+    } catch (e) {
+      setError(e)
+    }
+  }
+
   const copy = async () => {
     if (!preview) return
     const ok = await copyText(preview.text)
@@ -241,6 +252,12 @@ export function NovelChaptersPanel() {
               <button type="button" onClick={copy}>Copy</button>
               {preview.head.title && !preview.head.unsplit && renaming === null && (
                 <button type="button" onClick={() => setRenaming(preview.head.title)}>Rename</button>
+              )}
+              {list?.split && !preview.head.unsplit && (
+                <>
+                  <button type="button" disabled={!prev} onClick={() => prev && void move(prev)}>Move earlier</button>
+                  <button type="button" disabled={!following} onClick={() => following && void move(following)}>Move later</button>
+                </>
               )}
               {preview.next !== null && (
                 <button type="button" disabled={loading} onClick={showAll}>Show all</button>
