@@ -35,3 +35,27 @@ def test_no_desktop_session_launches_nothing(monkeypatch):
                         lambda *a, **k: pytest.fail("must not launch without a desktop"))
     with pytest.raises(file_manager.NoDesktopError):
         file_manager.open_folder("/a")
+
+
+def test_a_service_refusal_does_not_swallow_the_next_click(monkeypatch):
+    """The refusal must not start the repeat window: the second click has to
+    get the same answer, not a silent success."""
+    monkeypatch.setattr(file_manager, "_has_desktop", lambda: False)
+    for _ in range(2):
+        with pytest.raises(file_manager.NoDesktopError):
+            file_manager.open_folder("/a")
+
+
+def test_a_failed_launch_does_not_swallow_the_retry(monkeypatch):
+    calls = []
+
+    def popen(argv, **kw):
+        calls.append(argv)
+        if len(calls) == 1:
+            raise FileNotFoundError("no file manager")
+    monkeypatch.setattr(file_manager, "_has_desktop", lambda: True)
+    monkeypatch.setattr(file_manager.subprocess, "Popen", popen)
+    with pytest.raises(OSError):
+        file_manager.open_folder("/a")
+    file_manager.open_folder("/a")
+    assert len(calls) == 2
