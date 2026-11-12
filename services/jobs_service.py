@@ -592,7 +592,7 @@ def is_stale(record: dict, now: Optional[float] = None) -> bool:
 # the two drift apart). Ids with no entry, or not scoped to a drama, are "other".
 JOB_KIND_BY_PREFIX = {
     "translate_": "translate", "bulk_translate_": "translate",
-    "novel_glossary_": "translate", "lines_glossary_": "translate",
+    "novel_glossary_": "translate", "lines_glossary_": "translate", "chapters_glossary_": "translate",
     "spelling_suggest_": "translate",
     "flag_": "review", "fixflag_": "review", "timingchk_": "review", "consistency_": "review",
     "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",

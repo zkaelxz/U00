@@ -81,7 +81,8 @@ from lib.errors import (
 
 # Functions that call an LLM engine (and so may spend on a paid one, i.e.
 # any engine outside engine_backends.engine_registry.FREE_ENGINES).
-PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run", "draft_project_instructions")
+PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run", "start_chapters_glossary_run",
+                         "draft_project_instructions")
 
 MAX_LIST_ITEMS = 50
 MAX_ITEM_LEN = 200
@@ -432,4 +433,10 @@ from services.glossary_extract_service import (  # noqa: E402,F401
     get_lines_glossary_status,
     apply_lines_glossary,
     draft_project_instructions,
+)
+from services.glossary_chapters_service import (  # noqa: E402,F401
+    cancel_chapters_glossary_run,
+    chapters_glossary_job_id,
+    get_chapters_glossary_status,
+    start_chapters_glossary_run,
 )
