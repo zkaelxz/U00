@@ -16,6 +16,6 @@ export const getRawChapterText = (dramaId: number, number: number, offset = 0, l
 export const getLineChapters = (dramaId: number, f?: Fetch) =>
   getJson<NovelLineChapters>(`/api/novel/dramas/${dramaId}/line-chapters`, f)
 
-// api/routers/novel_files_routes.py: media.upload. Renames one saved chapter in the raw text, the chapter list and its title line.
+// api/routers/novel_files_routes.py: lines.edit. Renames one saved chapter in the raw text, the chapter list and its title line.
 export const renameRawChapter = (dramaId: number, number: number, title: string, f?: Fetch) =>
   postJson<NovelChapterRenamed>(`/api/novel/dramas/${dramaId}/raw-novel/chapters/${number}/rename`, { title }, f)

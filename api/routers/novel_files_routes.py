@@ -107,7 +107,7 @@ def get_line_chapters(drama_id: int = Path(ge=1)):
 
 
 @router.post("/dramas/{drama_id}/raw-novel/chapters/{number}/rename",
-             dependencies=[require_permission("media.upload")],
+             dependencies=[require_permission("lines.edit")],
              response_model=NovelChapterRenamed, responses=_ERR,
              summary="Rename one saved chapter (409 while a job runs or if its text has no title line)")
 def post_rename_chapter(payload: NovelChapterRenameRequest, drama_id: int = Path(ge=1),

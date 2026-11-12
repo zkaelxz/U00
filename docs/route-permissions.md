@@ -431,7 +431,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/novel/dramas/{drama_id}/raw-novel` | media.upload |
 | `GET /api/novel/dramas/{drama_id}/raw-novel/chapters` | library.read |
 | `GET /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}` | lines.read |
-| `POST /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/rename` | media.upload |
+| `POST /api/novel/dramas/{drama_id}/raw-novel/chapters/{number}/rename` | lines.edit |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/remove` | local_only() |
 | `POST /api/novel/dramas/{drama_id}/raw-novel/text` | media.upload |
 | `GET /api/novel/dramas/{drama_id}/reference` | library.read |
