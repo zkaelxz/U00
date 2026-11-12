@@ -385,7 +385,7 @@ def test_ask_passes_history_and_validates(client, drama, fake_engine, monkeypatc
     import qa
     got = {}
 
-    def fake(q, lines, meta, eng, chat_history=None):
+    def fake(q, lines, meta, eng, chat_history=None, usage_cb=None):
         got.update(q=q, h=chat_history)
         return "answer"
     monkeypatch.setattr(qa, "ask_about_drama", fake)
@@ -917,3 +917,64 @@ class TestPageDocument:
     def test_page_html_bad_page_is_the_same_422(self, client, drama):
         r = client.get(f"{BASE}/{drama}/page.html?page=7")
         assert r.status_code == 422 and r.json()["error"]["details"]["page_count"] == 1
+
+
+# --- Ask is held to the monthly cap and logged -----------------------------------
+
+class _PaidFake(_FakeEngine):
+    name = "claude"
+    model = "claude-sonnet-5-5"
+
+
+def _usage_rows():
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT engine, operation, input_tokens, output_tokens, estimated_cost_usd FROM usage_log")]
+
+
+def test_ask_logs_the_calls_it_makes(client, drama, monkeypatch):
+    import qa
+    from engine_backends import engine_registry
+    from services import translate_service
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _PaidFake())
+
+    def reply(q, lines, meta, eng, chat_history=None, usage_cb=None):
+        usage_cb({"input_tokens": 10_000, "output_tokens": 2_000})
+        return "answer"
+    monkeypatch.setattr(qa, "ask_about_drama", reply)
+    assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 200
+    [row] = _usage_rows()
+    assert (row["engine"], row["operation"], row["input_tokens"]) == ("claude", "reader_ask", 10_000)
+    assert row["estimated_cost_usd"] == pytest.approx(0.04)
+
+
+def test_ask_is_refused_once_the_monthly_cap_is_spent(client, drama, monkeypatch):
+    import qa
+    from engine_backends import engine_registry
+    from services import translate_run_service, translate_service
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _PaidFake())
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
+    db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
+    monkeypatch.setattr(qa, "ask_about_drama", lambda *a, **k: pytest.fail("called past the cap"))
+    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"})
+    assert r.status_code >= 400 and "cap" in r.text.lower()
+
+
+def test_ask_on_a_hosted_ollama_tag_is_held_to_the_cap(client, drama, monkeypatch):
+    import qa
+    from engine_backends import engine_registry
+    from services import translate_run_service, translate_service
+
+    class Cloud(_PaidFake):
+        name = "ollama"
+        model = "gemma4:31b-cloud"
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: Cloud())
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
+    db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
+    monkeypatch.setattr(qa, "ask_about_drama", lambda *a, **k: pytest.fail("called past the cap"))
+    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?", "engine": "ollama"})
+    assert r.status_code >= 400 and "cap" in r.text.lower()

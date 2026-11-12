@@ -26,7 +26,7 @@ export function LibraryStartBox({ onStart }: { onStart: (link: string) => void }
           placeholder="Paste a link to start a title"
           onChange={(e) => setLink(e.target.value)}
         />
-        <button type="submit" className={buttonClass('secondary')} disabled={!link.trim()}>Start</button>
+        <button type="submit" className={buttonClass('secondary')} disabled={!link.trim()}>Add link</button>
       </div>
     </form>
   )

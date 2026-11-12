@@ -53,7 +53,7 @@ test('with no lines, Export is disabled and links to Source (rule 22)', async ({
   await expect(page.getByRole('button', { name: 'Download SRT', exact: true })).toBeDisabled()
   const blocker = page.getByTestId('export-blocker')
   await expect(blocker).toContainText('No lines to export yet.')
-  await blocker.getByRole('link', { name: 'Go to Media' }).click()
+  await blocker.getByRole('link', { name: 'Go to Transcribe' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/source$/)
 })
 

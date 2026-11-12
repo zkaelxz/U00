@@ -674,7 +674,7 @@ class TestStoryWikiQa:
         import qa
         got = {}
 
-        def fake(q, lines, meta, eng, chat_history=None):
+        def fake(q, lines, meta, eng, chat_history=None, usage_cb=None):
             got.update(q=q, n=len(lines), h=chat_history)
             return "answer"
         monkeypatch.setattr(qa, "ask_about_drama", fake)
