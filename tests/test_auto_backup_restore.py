@@ -156,6 +156,25 @@ class TestRestoreBugReports:
 
 
 class TestRestoreRoundTrip:
+    def test_word_replacements_restore_within_the_series_cap(self, isolated_db, monkeypatch):
+        w = _seed_world()
+        with contextlib.closing(_conn()) as c:
+            for word in ("one", "two"):
+                _insert(c, "word_replacements", series_id=w["series"], find_text=word, replace_text="x")
+            c.commit()
+        _snap()
+        _delete_drama(w["a"])
+        _delete_series(w["series"])
+        monkeypatch.setattr(drs.word_replacement_service, "MAX_REPLACEMENTS", 2)
+        res = _restore(w["a"])
+        assert res["counts"]["word_replacements"] == 2
+        with contextlib.closing(_conn()) as c:
+            sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (w["a"],)).fetchone()[0]
+            kept = [r[0] for r in c.execute("SELECT find_text FROM word_replacements WHERE series_id = ? "
+                                            "ORDER BY id", (sid,))]
+        # Three were saved (the seed's "thee" and these two); the oldest two come back.
+        assert kept == ["thee", "one"]
+
     def test_full_round_trip_series_gone(self, isolated_db):
         w = _seed_world()
         a, b = w["a"], w["b"]

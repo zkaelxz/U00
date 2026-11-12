@@ -8,7 +8,7 @@ export const TERM = { id: 11, term_original: 'ヤロ', term_translation: 'Yalo',
 
 export const prop = (term: string, en: string) => ({
   term, suggested_translation: en, category: 'person_name', policy: 'keep_pinyin', reason: 'Recurring name',
-  already_in_glossary: false, occurrences: 3, alternatives: [], confidence: 'high',
+  already_in_glossary: false, occurrences: 3, alternatives: [], aliases: [], confidence: 'high',
 })
 
 export const IDLE = { job_id: '', status: 'idle', progress: 0, message: '', proposals: null, run_id: null }

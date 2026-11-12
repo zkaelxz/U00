@@ -67,6 +67,8 @@ import translation_guide as tguide
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, glossary_to_json, parse_glossary_file
 from engine_backends.engine_registry import WORKFLOW_TIERS, effective_tier
 from services.glossary_common import (
+    MAX_ITEM_LEN,
+    MAX_LIST_ITEMS,
     MAX_NOTES_LEN,
     MAX_TERM_LEN,
     _drama,
@@ -84,8 +86,6 @@ from lib.errors import (
 PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run", "start_chapters_glossary_run",
                          "draft_project_instructions")
 
-MAX_LIST_ITEMS = 50
-MAX_ITEM_LEN = 200
 MAX_INSTRUCTIONS_LEN = 5000
 
 
