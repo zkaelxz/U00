@@ -782,3 +782,42 @@ def test_reset_unlinks_followed_series_from_the_old_titles(isolated_db, monkeypa
     assert row["series_id"] == "s1" and row["drama_id"] is None
     assert src_store.imported_chapter_ids("site", "s1", new) == set()
     assert src_store.import_retry_rows("site", "s1", new) == []
+
+
+def test_reset_is_refused_untouched_when_sources_db_cannot_be_unlinked(isolated_db, monkeypatch):
+    """Resetting anyway would leave links that name the old titles, and the next chapter
+    check could import into a new title that reuses an id. Replaces the earlier test that
+    pinned ok:true with a logged failure."""
+    import sqlite3
+    from lib.errors import ConflictError
+    from sources import store as src_store
+    _no_jobs(monkeypatch)
+
+    def locked():
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(src_store, "begin_unlink_all_dramas", locked)
+    did = db.create_drama(title_en="Old")
+    with pytest.raises(ConflictError):
+        admin_svc.reset_library(confirm=True)
+    assert [d["id"] for d in db.list_dramas()] == [did]
+
+
+def test_a_failed_reset_keeps_the_followed_series_links(isolated_db, monkeypatch):
+    """The unlink is held open until the reset succeeds, so a reset that fails (the
+    library folder can't be renamed, a full disk) leaves every link and import record."""
+    from sources import store as src_store
+    _no_jobs(monkeypatch)
+    did = db.create_drama(title_en="Old")
+    src_store.track_series("site", "s1", "Followed")
+    src_store.set_tracked_drama("site", "s1", did)
+    src_store.record_imported("site", "s1", "c1", did)
+
+    def boom():
+        raise OSError("folder in use")
+    monkeypatch.setattr(db, "reset_library", boom)
+    with pytest.raises(OSError):
+        admin_svc.reset_library(confirm=True)
+    row = src_store.list_tracked_series()[0]
+    assert row["drama_id"] == did and src_store.imported_chapter_ids("site", "s1", did) == {"c1"}
+    # The write lock is released: the next write goes straight through.
+    src_store.set_tracked_drama("site", "s1", did)

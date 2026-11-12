@@ -165,6 +165,20 @@ def unlink_all_dramas() -> None:
         forget_drama_links(conn)
 
 
+def begin_unlink_all_dramas():
+    """Clears the links inside a transaction that stays open and holds sources.db's
+    write lock until the caller commits or rolls back the returned connection, so
+    the unlink can follow a library reset: both happen or neither does."""
+    conn = connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        forget_drama_links(conn)
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
 def set_tracked_save(source: str, series_id: str, on: bool, by_user_id: int | None = None) -> bool:
     """Whether the chapter check saves a tracked series' new chapters as
     CBZ files, saved as `by_user_id`'s. Turning it off drops the chapters

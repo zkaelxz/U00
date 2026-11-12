@@ -74,6 +74,77 @@ def _kept_headers(stored, header) -> str:
     return json.dumps({"headers": dict(list(headers.items())[-KEPT_ASS_HEADERS:])}, ensure_ascii=False)
 
 
+# Largest old x new table the exact alignment builds for one cluster of
+# near-in-time repeats; a bigger one (thousands of the same cue within a few
+# seconds) falls back to the cheap in-order pairing so memory stays bounded.
+MAX_ALIGN_CELLS = 1_000_000
+
+
+def _pair_greedy(old_starts: list, new_starts: list) -> list:
+    pairs, o = [], 0
+    for k, start in enumerate(new_starts):
+        while o < len(old_starts) and old_starts[o] < start - KEEP_MATCH_SECONDS:
+            o += 1
+        if o < len(old_starts) and old_starts[o] <= start + KEEP_MATCH_SECONDS:
+            pairs.append((o, k))
+            o += 1
+    return pairs
+
+
+def _align_piece(old_starts: list, new_starts: list) -> list:
+    n, m = len(old_starts), len(new_starts)
+    if n * m > MAX_ALIGN_CELLS:
+        return _pair_greedy(old_starts, new_starts)
+    # best[i][j] = (pairs, -total gap) for old[i:] against new[j:]
+    best = [[(0, 0.0)] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            top = max(best[i + 1][j], best[i][j + 1])
+            gap = abs(old_starts[i] - new_starts[j])
+            if gap <= KEEP_MATCH_SECONDS:
+                take = best[i + 1][j + 1]
+                top = max(top, (take[0] + 1, take[1] - gap))
+            best[i][j] = top
+    pairs, i, j = [], 0, 0
+    while i < n and j < m:
+        gap = abs(old_starts[i] - new_starts[j])
+        if gap <= KEEP_MATCH_SECONDS and best[i][j] == (best[i + 1][j + 1][0] + 1, best[i + 1][j + 1][1] - gap):
+            pairs.append((i, j))
+            i, j = i + 1, j + 1
+        elif best[i][j] == best[i + 1][j]:
+            i += 1
+        else:
+            j += 1
+    return pairs
+
+
+def _align_in_order(old_starts: list, new_starts: list) -> list:
+    """Pairs (old position, new position) of two time-sorted lists of the same
+    text: the most pairs whose starts are within KEEP_MATCH_SECONDS, then the
+    least total time gap, never crossing. Either side may skip entries, so a
+    repeat the file dropped doesn't shift every later pairing onto the wrong
+    row (and its notes). Entries more than KEEP_MATCH_SECONDS from their
+    neighbours can't pair across that gap, so each cluster is aligned alone."""
+    merged = sorted([(t, 0, i) for i, t in enumerate(old_starts)] + [(t, 1, j) for j, t in enumerate(new_starts)])
+    pieces, current = [], []
+    for item in merged:
+        if current and item[0] - current[-1][0] > KEEP_MATCH_SECONDS:
+            pieces.append(current)
+            current = []
+        current.append(item)
+    if current:
+        pieces.append(current)
+    pairs = []
+    for piece in pieces:
+        olds = [(t, i) for t, side, i in piece if side == 0]
+        news = [(t, j) for t, side, j in piece if side == 1]
+        if not olds or not news:
+            continue
+        pairs.extend((olds[a][1], news[b][1])
+                     for a, b in _align_piece([t for t, _ in olds], [t for t, _ in news]))
+    return pairs
+
+
 def _keep_matching_lines(new_lines: list, translations, lines: list) -> int:
     """Gives each new line the id of the current line that has the same text at
     about the same time, and its other fields (notes, emotion tags, speaker,
@@ -81,24 +152,27 @@ def _keep_matching_lines(new_lines: list, translations, lines: list) -> int:
     emotion tags live on the row, not on the Line, so a line given a new id
     would lose them with no undo (the history snapshot holds line fields only).
     Returns how many were kept."""
-    unused = {}
+    old_by_text, new_by_text = {}, {}
     for old in lines:
-        unused.setdefault((old.zh or "").strip(), []).append(old)
-    kept = 0
+        old_by_text.setdefault((old.zh or "").strip(), []).append(old)
     for i, new in enumerate(new_lines):
-        candidates = unused.get(new.zh.strip(), [])
-        best = min(candidates, key=lambda o: abs(o.start - new.start), default=None)
-        if best is None or abs(best.start - new.start) > KEEP_MATCH_SECONDS:
-            continue
-        candidates.remove(best)
-        keeper = copy.copy(best)
-        keeper.orig = dict(best.orig) if best.orig is not None else None
-        keeper.merged_ids = []
-        keeper.idx, keeper.start, keeper.end, keeper.ass_event = new.idx, new.start, new.end, new.ass_event
-        if translations:
-            keeper.en = new.en
-        new_lines[i] = keeper
-        kept += 1
+        new_by_text.setdefault(new.zh.strip(), []).append(i)
+    kept = 0
+    for text, indexes in new_by_text.items():
+        olds = sorted(old_by_text.get(text, []), key=lambda o: o.start)
+        indexes = sorted(indexes, key=lambda k: new_lines[k].start)
+        for o, k in _align_in_order(
+                [x.start for x in olds], [new_lines[i].start for i in indexes]):
+            best, i = olds[o], indexes[k]
+            new = new_lines[i]
+            keeper = copy.copy(best)
+            keeper.orig = dict(best.orig) if best.orig is not None else None
+            keeper.merged_ids = []
+            keeper.idx, keeper.start, keeper.end, keeper.ass_event = new.idx, new.start, new.end, new.ass_event
+            if translations:
+                keeper.en = new.en
+            new_lines[i] = keeper
+            kept += 1
     return kept
 
 
