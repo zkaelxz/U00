@@ -803,7 +803,18 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list | None = No
     history = [{"role": m["role"], "content": m["content"]} for m in history]
     lines = _require_lines(drama_id)
     engine = llm_engine(engine_name, model)
-    answer = _run_engine(lambda: qa.ask_about_drama(question, lines, drama, engine,
-                                                    chat_history=history),
-                         (engine, "reader_ask", drama_id))
+    from services import line_ai_service
+    name = getattr(engine, "name", None) or type(engine).__name__
+    # qa.ask_about_drama is a plain chat call, outside call_llm_json, so neither
+    # the monthly cap nor the usage log sees it unless it is done here.
+    line_ai_service.refuse_if_over_monthly_cap(
+        name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
+    logged = []
+    try:
+        answer = _run_engine(lambda: qa.ask_about_drama(
+            question, lines, drama, engine, chat_history=history, usage_cb=logged.append))
+    finally:
+        # Written for a failed request too: a paid provider may have billed it.
+        for usage in logged or [None]:
+            paid_calls.record_call(engine, name, "reader_ask", usage, drama_id=drama_id)
     return {"drama_id": drama_id, "answer": answer}

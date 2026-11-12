@@ -92,3 +92,74 @@ export function parsePageRanges(text: string, max: number): number[] | null {
   }
   return found.size ? [...found].sort((a, b) => a - b) : null
 }
+
+export type WarningKind = 'noText' | 'other' | 'untranslated' | 'noBubbles'
+
+export interface WarningPage {
+  pageId: number
+  ordinal: number
+  kind: WarningKind
+  text: string
+  level: 'error' | 'warning'
+  // Numbers drawn on the boxes the warning is about (empty when it is about the whole page).
+  boxes: number[]
+}
+
+export interface WarningGroup {
+  kind: WarningKind
+  title: string
+  // Harmless groups start folded so they do not bury the pages that need a look.
+  harmless: boolean
+  pages: WarningPage[]
+}
+
+const GROUPS: { kind: WarningKind; title: string; harmless: boolean }[] = [
+  { kind: 'noText', title: 'No text was read', harmless: false },
+  { kind: 'other', title: 'Other warnings', harmless: false },
+  { kind: 'untranslated', title: 'Text boxes left in the original language', harmless: true },
+  { kind: 'noBubbles', title: 'No speech bubbles found (often covers or art)', harmless: true },
+]
+
+// The server sends plain sentences, so the kind is read from their wording; an unknown sentence lands in "Other warnings".
+export function describeWarning(message: string): { kind: WarningKind; text: string; boxes: number[] } {
+  const line = message.split('\n')[0]
+  const region = /^Regions? (.+?) (?:had|have) no translation/.exec(line)
+  if (region) {
+    const nums = region[1].replace(/ and /g, ', ')
+    const plural = /[, ]/.test(nums)
+    // The numbers are the ones drawn on the text boxes in the page view.
+    return {
+      kind: 'untranslated',
+      boxes: nums.split(', ').map(Number),
+      text: `Text box${plural ? 'es' : ''} numbered ${nums} on the page ${plural ? 'have' : 'has'} no translation and still show${plural ? '' : 's'} the original.`,
+    }
+  }
+  if (line.startsWith('OCR found no text')) return { kind: 'noText', text: line, boxes: [] }
+  if (line.startsWith('No bubbles found')) {
+    return { kind: 'noBubbles', boxes: [], text: 'No speech bubbles found. Normal for a cover or splash art; otherwise add boxes by hand.' }
+  }
+  return { kind: 'other', boxes: [], text: line.length > 140 ? `${line.slice(0, 139)}…` : line }
+}
+
+// Every page with a warning or error (current page included), in reading order, plus the same pages grouped by kind.
+export function warningPages(
+  notes: { page_id: number; ordinal: number; notes: { level: string; message: string }[] }[],
+): { all: WarningPage[]; groups: WarningGroup[] } {
+  const all: WarningPage[] = []
+  for (const p of notes) {
+    const worst = p.notes.find((x) => x.level === 'error') ?? p.notes.find((x) => x.level !== 'info')
+    if (!worst) continue
+    const d = describeWarning(worst.message)
+    all.push({ pageId: p.page_id, ordinal: p.ordinal, level: worst.level === 'error' ? 'error' : 'warning', ...d })
+  }
+  all.sort((a, b) => a.ordinal - b.ordinal)
+  const groups = GROUPS.map((g) => ({ ...g, pages: all.filter((w) => w.kind === g.kind) })).filter((g) => g.pages.length > 0)
+  return { all, groups }
+}
+
+// The nearest warning page after (or before) the one on screen, or null at the end of the list.
+export function neighbourWarning(all: WarningPage[], current: number | null, dir: 1 | -1): WarningPage | null {
+  const from = current ?? (dir === 1 ? 0 : Infinity)
+  const ahead = all.filter((w) => (dir === 1 ? w.ordinal > from : w.ordinal < from))
+  return (dir === 1 ? ahead[0] : ahead[ahead.length - 1]) ?? null
+}

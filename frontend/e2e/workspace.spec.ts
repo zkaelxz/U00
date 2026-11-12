@@ -41,14 +41,14 @@ test('opens the workspace from the library and navigates stages', async ({ page 
   // Header: humanized badges and a real back button.
   await expect(page.locator('.workspace-header .pill').first()).not.toHaveText(/_/)
   await expect(page.getByRole('link', { name: 'Back to Library' })).toHaveClass(/btn/)
-  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Transcribe', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('media-status')).toContainText(/limit/i)
 
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Review' }).click()
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
 
   await page.goto('/#/drama/3/not-a-stage')
-  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Transcribe', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 const progress = (stage: string, states: Record<string, string>) => ({
@@ -64,7 +64,7 @@ test('opens on the reported stage and marks progress in the stepper (P16/P17)', 
   const nav = page.getByRole('navigation', { name: 'Stages' })
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
-  await expect(nav.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('data-state', 'done')
+  await expect(nav.getByRole('link', { name: 'Transcribe', exact: true })).toHaveAttribute('data-state', 'done')
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: Next step · 1 flagged')
   await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('title', 'Translate: Done · 2 left')
   await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toContainText('Translate· 2 left')
@@ -80,7 +80,7 @@ test('falls back to Source when progress cannot be read', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) =>
     route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/#/drama/1')
-  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Transcribe', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('stage-counts')).toHaveCount(0)
 })
 
@@ -416,7 +416,7 @@ test('form state and the running job survive a stage-tab switch', async ({ page 
   await page.getByLabel('Extra names to expect', { exact: true }).fill('keep me')
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Review' }).click()
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
-  await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Media', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByLabel('Extra names to expect', { exact: true })).toHaveValue('keep me')
   await expect(page.getByTestId('job-status')).toContainText('Running')
   await expect(page.getByTestId('job-percent')).toHaveText('40%')

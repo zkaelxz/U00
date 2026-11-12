@@ -822,6 +822,8 @@ def _install(verified) -> dict:
         raise ConflictError("There is no newer version to install. Check for updates first.")
     if background_jobs.active_job_ids():
         raise ConflictError("Finish or cancel the running jobs first: Setup stops the app.")
+    from services import app_update_service
+    app_update_service.check_database_before_setup(verified["version"])
     public_key = _release_public_key()
     changed = "The downloaded installer changed or is missing. Download it again."
     # The copy, in a new folder only this user can reach, is what gets hashed,

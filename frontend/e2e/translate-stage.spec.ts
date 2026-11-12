@@ -122,7 +122,7 @@ test('with no lines, Translate is disabled and links to Source (rule 22)', async
   await expect(run.getByRole('button', { name: 'Translate 0 lines' })).toBeDisabled()
   const blocker = run.getByTestId('translate-blocker')
   await expect(blocker).toContainText('Still needed: lines to translate.')
-  await blocker.getByRole('link', { name: 'Go to Media' }).click()
+  await blocker.getByRole('link', { name: 'Go to Transcribe' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/source$/)
 })
 

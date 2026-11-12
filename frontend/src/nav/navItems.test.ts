@@ -39,7 +39,7 @@ const personas: Record<string, NavContext> = {
 
 const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const ALL = ['Library', 'Library tools', 'Quick translate', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings']
+const ALL = ['Library', 'Library tools', 'Quick translate', 'Find', 'Live', 'Jobs', 'Settings']
 
 // Make subtitles creates a title, so it follows the permission the Library's New title needs.
 const withMake = (l: string[]) => [...l.slice(0, 2), 'Make subtitles', ...l.slice(2)]
@@ -73,7 +73,7 @@ describe('nav registry per persona', () => {
 
   it('Simple leaves the admin and system pages out of the menu, Advanced lists them', () => {
     const owner = personas['owner at the PC']
-    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Make subtitles', 'Quick translate', 'Sources', 'Discover', 'Live', 'Jobs', 'Settings'])
+    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Make subtitles', 'Quick translate', 'Find', 'Live', 'Jobs', 'Settings'])
     expect(labels({ ...owner, simple: false })).toEqual(labels(owner))
     const dev: NavContext = { ...owner, developerMode: true }
     expect(labels({ ...dev, simple: true })).not.toEqual(expect.arrayContaining(['Benchmark Lab']))
@@ -138,7 +138,7 @@ describe('left rail', () => {
   it('owner sees every page, grouped, with Benchmark Lab under Diagnostics once Developer Mode is on', () => {
     expect(visibleRailGroups({ ...owner, developerMode: true }).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
-      ['Find and add', ['Sources', 'Discover']],
+      ['Find and add', ['Find']],
       ['Tools', ['Make subtitles', 'Quick translate', 'Live']],
       ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant']],
     ])
@@ -150,7 +150,7 @@ describe('left rail', () => {
 
   it('household member: no People and access, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
-    expect(labelsOf).toEqual(['Library', 'Library tools', 'Sources', 'Discover', 'Quick translate', 'Live', 'Jobs', 'Settings'])
+    expect(labelsOf).toEqual(['Library', 'Library tools', 'Find', 'Quick translate', 'Live', 'Jobs', 'Settings'])
   })
 
   it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab (Developer Mode on) but not People and access', () => {
@@ -177,7 +177,7 @@ describe('left rail', () => {
     const ctx: NavContext = { ...owner, developerMode: true }
     const targets = visibleRailGroups(ctx).flatMap((g) => g.items.map((r) => r.item.target.name))
     expect(targets).toEqual(
-      expect.arrayContaining(['library', 'library-tools', 'sources', 'discover', 'translate', 'make-subtitles', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
+      expect.arrayContaining(['library', 'library-tools', 'discover', 'translate', 'make-subtitles', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
     )
   })
 
@@ -220,16 +220,20 @@ describe('feature switches', () => {
   const owner = personas['owner at the PC']
   const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-  it('shows Sources when no switch is reported or Sources is on', () => {
-    expect(labels(owner)).toContain('Sources')
-    expect(labels({ ...owner, features: { jellyfin: false } })).toContain('Sources')
-    expect(labels({ ...owner, features: { sources: true } })).toContain('Sources')
+  it('shows Find when no switch is reported or Sources is on', () => {
+    expect(labels(owner)).toContain('Find')
+    expect(labels({ ...owner, features: { jellyfin: false } })).toContain('Find')
+    expect(labels({ ...owner, features: { sources: true } })).toContain('Find')
   })
 
-  it('drops Sources everywhere the menu is built when it is switched off', () => {
+  it('keeps Find when Sources is switched off, since Discover still works', () => {
     const off = { ...owner, features: { sources: false } }
-    expect(labels(off)).not.toContain('Sources')
-    expect(customizableNavItems(off).map((i) => i.label)).not.toContain('Sources')
-    expect(visibleRailGroups(off).flatMap((g) => g.items.map((r) => r.item.label))).not.toContain('Sources')
+    expect(labels(off)).toContain('Find')
+    expect(visibleRailGroups(off).flatMap((g) => g.items.map((r) => r.item.label))).toContain('Find')
+  })
+
+  it('lights Find for the Discover page and both Sources routes', () => {
+    const find = visibleRailGroups(owner).flatMap((g) => g.items).find((r) => r.item.label === 'Find')
+    expect(find?.active).toEqual(['discover', 'sources', 'sources-manage'])
   })
 })
