@@ -344,8 +344,9 @@ def get_options() -> dict:
     }
 
 
-def _cap_applies(engine: str) -> bool:
-    return translate_run_service.engine_cap_applies(engine, bool(settings_service.get("gemini_free_tier")))
+def _cap_applies(engine: str, model) -> bool:
+    return translate_run_service.engine_cap_applies(
+        engine, bool(settings_service.get("gemini_free_tier")), model)
 
 
 _NO_MODEL_FOLDER = ("The offline model folder isn't set or can't be found. "
@@ -445,7 +446,7 @@ def _check_selection(stage, configs, tier, set_name, case_ids):
 def _estimate_config(cfg: dict, cases: list):
     """Pre-run cost of one translation config over these cases (the same
     chars-per-token heuristic as a normal translation estimate), or 0.0."""
-    if not _cap_applies(cfg["engine"]):
+    if not _cap_applies(cfg["engine"], cfg.get("model")):
         return 0.0
     engine_cls = engine_registry.ENGINES[cfg["engine"]]
     probe = type("Probe", (), {})()

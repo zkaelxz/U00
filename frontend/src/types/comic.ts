@@ -62,6 +62,10 @@ export type ComicVisibilityRequest = Schemas['ComicVisibilityRequest']
 
 export type ComicVisibilityResult = Schemas['ComicVisibilityResult']
 
+export type ComicStartChapterRequest = Schemas['ComicStartChapterRequest']
+
+export type ComicStartChapterResult = Schemas['ComicStartChapterResult']
+
 export type ComicSourceChapter = Schemas['ComicSourceChapter']
 
 export type ComicSourceChapters = Schemas['ComicSourceChapters']

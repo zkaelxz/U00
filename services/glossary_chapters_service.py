@@ -103,7 +103,8 @@ def start_chapters_glossary_run(drama_id: int, engine_name: Optional[str] = None
     if len(chapters) < 2:
         raise UnsupportedOperationError("This title has no saved chapters to scan one by one.")
     engine_name, engine = extract._glossary_engine(drama, engine_name)
-    translate_run_service.refuse_when_cap_spent(engine_name, bool(settings_service.get("gemini_free_tier")))
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
     job_id = chapters_glossary_job_id(drama_id)
     started = extract._start_extraction_job(
         job_id, _run_job, drama_id, engine, engine_name, chapters, gpu_touching=engine_name == "ollama",

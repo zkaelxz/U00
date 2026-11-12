@@ -380,7 +380,7 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
         monkeypatch.setattr(background_jobs, "list_all_jobs",
                             lambda: {"t": {"status": "running", "gpu_touching": True}})
     elif gate == "cap":
-        def over(engine, free_tier):
+        def over(engine, free_tier, model=None):
             raise UnsupportedOperationError("cap")
         monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", over)
     elif gate == "engine":
@@ -421,7 +421,7 @@ def test_auto_start_uses_the_monthly_cap_helper(env, starts, monkeypatch):
     from services import line_ai_service
     seen = []
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap",
-                        lambda engine, free_tier: seen.append(engine))
+                        lambda engine, free_tier, model=None: seen.append(engine))
     _check(_auto(env))
     assert seen == ["fake"] and len(starts) == 1
 

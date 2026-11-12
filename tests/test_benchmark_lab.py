@@ -562,8 +562,8 @@ class TestReviewFixes:
 
     def test_gemini_free_tier_not_capped(self, isolated_db, monkeypatch):
         patch_setting(monkeypatch, "gemini_free_tier", True)
-        assert svc._cap_applies("gemini") is False
-        assert svc._cap_applies("claude") is True
+        assert svc._cap_applies("gemini", None) is False
+        assert svc._cap_applies("claude", None) is True
 
     def test_cancel_marks_current_and_later_runs(self, isolated_db, monkeypatch):
         svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
@@ -836,8 +836,8 @@ class TestLabBugHunt:
     def test_every_paid_engine_counts_toward_the_cap(self, isolated_db, monkeypatch):
         patch_setting(monkeypatch, "gemini_free_tier", False)
         paid = [n for n in engine_registry.ENGINES if n not in engine_registry.FREE_ENGINES]
-        assert paid and all(svc._cap_applies(n) for n in paid)
-        assert not any(svc._cap_applies(n) for n in engine_registry.FREE_ENGINES)
+        assert paid and all(svc._cap_applies(n, None) for n in paid)
+        assert not any(svc._cap_applies(n, None) for n in engine_registry.FREE_ENGINES)
 
     def test_ocr_choices_are_the_apps_ocr_backends(self):
         import ocr

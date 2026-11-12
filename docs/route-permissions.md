@@ -245,6 +245,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/export/dramas/{drama_id}/softsub-video` | jobs.start |
 | `GET /api/export/dramas/{drama_id}/subtitle` | lines.read |
 | `POST /api/ext-bridge/cancel` | device_token (extension.send) |
+| `POST /api/ext-bridge/capture-summary` | device_token (extension.send) |
 | `GET /api/ext-bridge/health` | device_token (extension.send) |
 | `POST /api/ext-bridge/novel` | device_token (extension.send) |
 | `POST /api/ext-bridge/page` | device_token (extension.send) |
@@ -559,6 +560,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/scanlate/dramas/{drama_id}/export` | jobs.start |
 | `GET /api/scanlate/dramas/{drama_id}/pages` | library.read |
 | `POST /api/scanlate/dramas/{drama_id}/pages` | media.upload |
+| `POST /api/scanlate/dramas/{drama_id}/pages/start-chapter` | lines.edit |
 | `POST /api/scanlate/dramas/{drama_id}/pages/visibility` | lines.edit |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}` | lines.read |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/image` | media.stream |

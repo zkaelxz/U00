@@ -40,10 +40,12 @@ class LiveSpendGuard:
         """Called before each translation request. Raises JobCancelled once the
         session has been stopped, here or earlier."""
         if not self._halted and translate_run_service.engine_cap_applies(
-                self._name, bool(getattr(self._engine, "free_tier", False))):
+                self._name, bool(getattr(self._engine, "free_tier", False)),
+                getattr(self._engine, "model", None)):
             try:
                 translate_run_service.refuse_when_cap_spent(
-                    self._name, bool(getattr(self._engine, "free_tier", False)))
+                    self._name, bool(getattr(self._engine, "free_tier", False)),
+                    getattr(self._engine, "model", None))
             except UnsupportedOperationError as refusal:
                 self._halt(f"Live stopped: {refusal}", CAP_LABEL)
         if self._halted:

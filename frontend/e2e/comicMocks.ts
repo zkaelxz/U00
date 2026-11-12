@@ -153,6 +153,8 @@ export interface ComicMockState {
   progressPosts: number[]
   // Bodies of POST .../pages/visibility.
   visibility: unknown[]
+  // Bodies of POST .../pages/start-chapter.
+  startChapter: unknown[]
   unmocked: string[]
 }
 
@@ -177,7 +179,7 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     id: 7, title: 'Moonlit Courtyard', mediaType: 'manhua', pageCount: 8, width: 800, height: 1200,
     lastPage: 1, progressFails: false, rendered: [], imagesForbidden: false, firstPageText: null, pagesDelayMs: 0, ...over,
   }
-  const s: ComicMockState = { opts, calls: [], images: [], progressPosts: [], visibility: [], unmocked: [] }
+  const s: ComicMockState = { opts, calls: [], images: [], progressPosts: [], visibility: [], startChapter: [], unmocked: [] }
   const pngCache = new Map<string, Buffer>()
   const record = (route: Route) => {
     const req = route.request()
@@ -259,6 +261,11 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   await page.route(new RegExp(`${root}/source-chapters$`), (route) => {
     record(route)
     return json(route, { mode: 'none', source: '', series_id: '', imported_ids: [], chapters: [] })
+  })
+  await page.route(new RegExp(`${root}/pages/start-chapter$`), (route) => {
+    record(route)
+    s.startChapter.push(route.request().postDataJSON())
+    return json(route, { changed: 1 })
   })
   // Hide / restore pages; the list answers with the new state afterwards.
   await page.route(new RegExp(`${root}/pages/visibility$`), (route) => {
