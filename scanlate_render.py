@@ -202,6 +202,50 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     return None
 
 
+# A rectangle smaller than this share of the balloon would set the text far smaller than the
+# balloon allows, so the outline layout is used instead.
+_MIN_RECT_SHARE = 0.45
+
+
+def _roomiest_rectangle(mask):
+    """(top, left, bottom, right) of the largest-area axis-aligned rectangle with every pixel
+    inside `mask`, or None for an empty mask. Row-by-row histogram of column heights with a
+    stack, so a bubble-sized mask costs one pass."""
+    heights = np.zeros(mask.shape[1], dtype=int)
+    best, best_area = None, 0
+    for y in range(mask.shape[0]):
+        heights = np.where(mask[y], heights + 1, 0)
+        stack = []                       # (start column, height) with rising heights
+        for x, h in enumerate(list(heights) + [0]):
+            start = x
+            while stack and stack[-1][1] >= h:
+                s, sh = stack.pop()
+                if sh * (x - s) > best_area:
+                    best_area, best = sh * (x - s), (y - int(sh) + 1, s, y + 1, x)
+                start = s
+            stack.append((start, h))
+    return best
+
+
+def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font):
+    """_layout_in_mask() inside the roomiest rectangle of the balloon: even lines instead of
+    ones that follow the outline. Returns the same (font, lines) with the lines placed in the
+    mask's coordinates, or None when the rectangle is too small a part of the balloon or the
+    text does not fit it, so the caller uses the outline layout."""
+    found = _roomiest_rectangle(mask)
+    if found is None:
+        return None
+    top, left, bottom, right = found
+    if (bottom - top) * (right - left) < _MIN_RECT_SHARE * int(mask.sum()):
+        return None
+    laid_out = _layout_in_mask(draw, text, np.ones((bottom - top, right - left), dtype=bool),
+                               font_size, load_font)
+    if laid_out is None:
+        return None
+    font, placed = laid_out
+    return font, [(line, l + left, r + left, t + top) for line, l, r, t in placed]
+
+
 def _layout_at_size(draw, words, mask, mh, font, hyphenate):
     line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
     widths = {}
@@ -318,10 +362,26 @@ def _note_missing_cjk_font(notes, regions) -> None:
         notes.append(("warning", "cjk_font_missing", CJK_FONT_MISSING_NOTE))
 
 
+def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_layout: bool):
+    """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline."""
+    laid_out = _layout_in_rectangle(draw, text, mask, font_size, load_font) if rect_layout else None
+    return laid_out or _layout_in_mask(draw, text, mask, font_size, load_font)
+
+
+def _draw_laid_out(draw, box: dict, laid_out, align: str, fill) -> None:
+    font, placed = laid_out
+    for line, left, right, top in placed:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        line_w = bbox[2] - bbox[0]
+        lx = left + (max(0, (right - left - line_w) // 2) if align == "center" else 0)
+        # textbbox's own left offset, so the ink starts where it was measured
+        draw.text((box["x"] + lx - bbox[0], box["y"] + top), line, font=font, fill=fill)
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
-                        mask=None, report: dict | None = None):
+                        mask=None, report: dict | None = None, rect_layout: bool = False):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
     report: when given, receives {"size": the font size that was drawn}.
@@ -355,20 +415,13 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
             text = " ".join(_CJK_CHARS.sub("", text).split())
 
     if mask is not None:
-        laid_out = _layout_in_mask(
-            draw, text, mask, font_size,
-            lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
-            else ImageFont.load_default(sz))
+        load_font = (lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
+                     else ImageFont.load_default(sz))
+        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout)
         if laid_out is not None:
-            font, placed = laid_out
             if report is not None:
-                report["size"] = font.size
-            for line, left, right, top in placed:
-                bbox = draw.textbbox((0, 0), line, font=font)
-                line_w = bbox[2] - bbox[0]
-                lx = left + (max(0, (right - left - line_w) // 2) if align == "center" else 0)
-                # textbbox's own left offset, so the ink starts where it was measured
-                draw.text((box["x"] + lx - bbox[0], box["y"] + top), line, font=font, fill=fill)
+                report["size"] = laid_out[0].size
+            _draw_laid_out(draw, box, laid_out, align, fill)
             return image
 
     def wrap_and_measure(sz, hyphenate):
@@ -499,7 +552,7 @@ def _text_fill(pil_img, box: dict, sampled=None):
 
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
                   custom_fonts: dict | None = None, notes: list | None = None,
-                  match_color: bool = False):
+                  match_color: bool = False, rect_layout: bool = False):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -531,7 +584,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
     atomically, so two renders of the same page can't collide. With a
     `notes` list, an ML inpaint that fell back to OpenCV is recorded there
     (once) and the render goes on with the OpenCV result instead of raising.
-    `match_color` letters a balloon in the colour of its original lettering when that was
+    `rect_layout` sets balloon text in the largest rectangle inside the balloon (see
+    _roomiest_rectangle) instead of following its outline. `match_color` letters a balloon in the colour of its original lettering when that was
     a real colour (see sampled_ink_color); black and white lettering stays automatic.
     """
     import tempfile
@@ -580,7 +634,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
             scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
-        _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks)
+        _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
+                         rect_layout)
         for b in bubbles:
             if scanlate_sfx.is_glossed(b):
                 scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
@@ -593,7 +648,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
 
 
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
-                     font_path: str | None, custom_fonts: dict | None, inks: list) -> None:
+                     font_path: str | None, custom_fonts: dict | None, inks: list,
+                     rect_layout: bool = False) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
     then the real pass draws with sibling balloons held to a shared ratio."""
     masks = [(bubble_shape_mask(image_path, b, image=gray,
@@ -605,7 +661,7 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
         render_text_in_box(target, b, b["translated_text"], font_size=size,
                            font_path=font_path,
                            font_category=b.get("font_category") or "regular",
-                           custom_fonts=custom_fonts, mask=shape_mask,
+                           custom_fonts=custom_fonts, mask=shape_mask, rect_layout=rect_layout,
                            fill=_text_fill(target, b, ink), report=report)
 
     starts = [b.get("font_size", 18) for b in to_render]
