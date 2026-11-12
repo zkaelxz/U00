@@ -163,13 +163,9 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
             summary="Preview translating one novel chapter again, with a cost estimate",
             responses=error_responses(400, 404, 422))
 def get_chapter_retranslate(drama_id: int = Path(ge=1), number: int = Path(ge=1),
-                            engine: Optional[str] = Query(None, max_length=40),
-                            model: Optional[str] = Query(None, max_length=200),
-                            gemini_free_tier: Optional[bool] = None,
                             job_cost_cap_usd: Optional[float] = Query(None, ge=0)):
-    return novel_chapter_retranslate_service.preview(
-        drama_id, number, engine_name=engine, model=model,
-        gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd)
+    # No engine or model parameter: the estimate is for the title's saved engine, which the run uses too.
+    return novel_chapter_retranslate_service.preview(drama_id, number, job_cost_cap_usd=job_cost_cap_usd)
 
 
 @router.post("/dramas/{drama_id}/chapters/{number}/retranslate/run", dependencies=[require_permission("jobs.start")],

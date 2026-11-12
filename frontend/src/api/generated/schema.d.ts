@@ -65612,9 +65612,6 @@ export interface operations {
     get_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_get: {
         parameters: {
             query?: {
-                engine?: string | null;
-                model?: string | null;
-                gemini_free_tier?: boolean | null;
                 job_cost_cap_usd?: number | null;
             };
             header?: never;

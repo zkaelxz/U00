@@ -97,7 +97,7 @@ def test_routes(isolated_db):
     did = _book()
     client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
                         headers={"X-Baihe-Local": "1"})
-    r = client.get(f"/api/translate-run/dramas/{did}/chapters/1/retranslate", params={"engine": "fake"})
+    r = client.get(f"/api/translate-run/dramas/{did}/chapters/1/retranslate")
     assert r.status_code == 200 and r.json()["line_count"] == 3
     r = client.post(f"/api/translate-run/dramas/{did}/chapters/1/retranslate/run", json={"engine": "fake"})
     assert r.status_code == 200, r.text
