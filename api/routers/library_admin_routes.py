@@ -23,7 +23,8 @@ from api.auth import holds_paid_engines, local_only, require_engines_allowed, re
 from api.schemas import (
     LibraryArtifactInfo, LibraryArtifactKind, LibraryBackupRequest,
     LibraryBulkDeleteRequest, LibraryBulkDeleteResult, LibraryBulkResult,
-    LibraryBulkStatusRequest, LibraryBulkTagRequest, LibraryBulkTranslateRequest,
+    LibraryBulkSeriesRequest, LibraryBulkStatusRequest, LibraryBulkTagRequest,
+    LibraryBulkTranslateRequest,
     LibraryBulkTranslateStarted, LibraryExportRequest, LibraryExportStarted, LibraryJobStarted,
     LibraryRestoreDone, LibraryStorageCleanRequest, LibraryStorageCleanResult,
     LibraryStoragePreset, LibraryStorageScan, LibraryUserBackupRequest, error_responses)
@@ -69,6 +70,14 @@ def post_bulk_status(body: LibraryBulkStatusRequest):
              summary="Add or remove one list tag on several dramas (per-id results)")
 def post_bulk_tags(body: LibraryBulkTagRequest):
     return las.bulk_set_tags(body.drama_ids, body.tag, body.present)
+
+
+@router.post("/bulk/series", dependencies=[require_permission("admin.library")],
+             response_model=LibraryBulkResult, responses=_ERR,
+             summary="Put several dramas in one series, or take them out (per-id results)")
+def post_bulk_series(body: LibraryBulkSeriesRequest, request: Request):
+    return las.bulk_set_series(body.drama_ids, principal=request.state.principal,
+                               series_id=body.series_id, new_series_name=body.new_series_name)
 
 
 @router.post("/bulk/delete", dependencies=[local_only()], response_model=LibraryBulkDeleteResult,

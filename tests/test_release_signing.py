@@ -156,12 +156,16 @@ if [ "$1 $2" = "run download" ]; then
   while [ $# -gt 0 ]; do case "$1" in --name) n="$2"; shift;; --dir) d="$2"; shift;; esac; shift; done
   mkdir -p "$d/$n"
   printf 'MZ fake installer' > "$d/$n/$n.exe"
+elif [ "$1" = "api" ] && printf '%s' "$*" | grep -q 'release/v'; then
+  [ -s "$GH_NOTES_FILE" ] || exit 1
+  cat "$GH_NOTES_FILE"
 elif [ "$1" = "api" ]; then
   printf '# comment\\n%s\\n' "$GH_COMMITTED_PUBLIC_KEY"
 elif [ "$1 $2" = "release view" ]; then
   exit 1
 elif [ "$1 $2" = "release create" ]; then
   printf '%s\\n' "$@" > "$GH_LOG"
+  while [ $# -gt 0 ]; do [ "$1" = "--notes-file" ] && cp "$2" "$GH_LOG.notes"; shift; done
 fi
 """
 
@@ -174,7 +178,7 @@ FAKE_GH_WITH_APP_ZIP = FAKE_GH.replace(
 
 
 def _run_release(tmp_path, key, fake_gh=FAKE_GH, committed_public=None,
-                 ref="v0.2.0"):
+                 ref="v0.2.0", notes=None):
     if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
                                and shutil.which("base64")):
         pytest.skip("needs bash, openssl and coreutils (the release job runs on ubuntu)")
@@ -189,7 +193,9 @@ def _run_release(tmp_path, key, fake_gh=FAKE_GH, committed_public=None,
            "GITHUB_RUN_ID": "1", "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t",
            "GH_LOG": str(tmp_path / "gh.log"), "TMPDIR": str(tmp_path),
            "GITHUB_SHA": "0" * 40,
-           "GH_COMMITTED_PUBLIC_KEY": committed_public or ""}
+           "GH_COMMITTED_PUBLIC_KEY": committed_public or "",
+           "GH_NOTES_FILE": str(tmp_path / "notes.md")}
+    (tmp_path / "notes.md").write_text(notes or "", encoding="utf-8")
     if key is not None:
         env["BAIHE_RELEASE_SIGNING_KEY"] = key
     proc = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True,
@@ -400,3 +406,31 @@ def test_promote_refuses_and_changes_nothing(tmp_path, change, says):
     proc, edits = _run_promote(tmp_path, **change)
     assert proc.returncode != 0 and edits == []
     assert says in proc.stdout and "Nothing was promoted" in proc.stdout
+
+
+def test_the_release_body_is_the_tags_notes_file(tmp_path, keys):
+    # The update card shows the body, so this is what people read before updating.
+    _, _, private, public_text = keys
+    proc, gh_args, _ = _run_release(tmp_path, private, committed_public=public_text,
+                                    notes="# Baihe Studio v0.2.0\n\n- Fixed a thing.\n")
+    assert proc.returncode == 0, proc.stderr
+    assert "--notes-file" in gh_args and "--notes" not in gh_args
+    body = (tmp_path / "gh.log.notes").read_text()
+    assert body.startswith("# Baihe Studio v0.2.0\n\n- Fixed a thing.\n")
+    assert body.rstrip().endswith("Check the installer against its .sha256 file before you run it.")
+
+
+def test_without_a_notes_file_the_release_gets_one_line_and_a_warning(tmp_path, keys):
+    _, _, private, public_text = keys
+    proc, gh_args, _ = _run_release(tmp_path, private, committed_public=public_text)
+    assert proc.returncode == 0, proc.stderr
+    assert (tmp_path / "gh.log.notes").read_text().startswith("Baihe Studio 0.2.0.\n")
+    assert "release/v0.2.0-notes.md is not in the tagged commit" in proc.stdout
+
+
+def test_a_huge_notes_file_is_cut_below_githubs_limit(tmp_path, keys):
+    _, _, private, public_text = keys
+    proc, _, _ = _run_release(tmp_path, private, committed_public=public_text,
+                              notes="x" * 200_000)
+    assert proc.returncode == 0, proc.stderr
+    assert len((tmp_path / "gh.log.notes").read_text()) < 125_000

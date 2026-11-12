@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  artifactDownloadUrl, bulkDelete, bulkSetStatus, bulkSetTag, bulkTranslate, cleanStorage, deletePreset,
+  artifactDownloadUrl, bulkDelete, bulkSetSeries, bulkSetStatus, bulkSetTag, bulkTranslate, cleanStorage, deletePreset,
   deleteVoiceBankEntry, getArtifactInfo, restoreBackup, scanStorage, startBackup, startExport,
   startUserBackup,
 } from './libraryAdmin'
@@ -27,6 +27,16 @@ describe('library admin api', () => {
     expect(u2).toBe('/api/library/admin/bulk/tags')
     expect(JSON.parse(i2.body)).toEqual({ drama_ids: [3], tag: 'On Hold', present: false })
     expect(localHeader(i1)).toBe('1')
+  })
+
+  it('bulk series sends the ids and either a series id or a new name', async () => {
+    const { mock, f } = reply(200, { results: [], updated: 0 })
+    await bulkSetSeries([1, 2], { series_id: 5 }, f)
+    await bulkSetSeries([3], { new_series_name: 'Saga' }, f)
+    const [[u1, i1], [, i2]] = mock.mock.calls
+    expect(u1).toBe('/api/library/admin/bulk/series')
+    expect(JSON.parse(i1.body)).toEqual({ drama_ids: [1, 2], series_id: 5 })
+    expect(JSON.parse(i2.body)).toEqual({ drama_ids: [3], new_series_name: 'Saga' })
   })
 
   it('bulk translate posts the ids', async () => {

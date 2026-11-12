@@ -34,6 +34,9 @@ export const bulkSetStatus = (drama_ids: number[], status: LibraryStatus, f?: Fe
 export const bulkSetTag = (drama_ids: number[], tag: LibraryListTag, present: boolean, f?: Fetch) =>
   postJson<LibraryBulkResult>(`${BASE}/bulk/tags`, { drama_ids, tag, present }, f)
 
+export const bulkSetSeries = (drama_ids: number[], series: { series_id: number } | { new_series_name: string }, f?: Fetch) =>
+  postJson<LibraryBulkResult>(`${BASE}/bulk/series`, { drama_ids, ...series }, f)
+
 export const bulkTranslate = (drama_ids: number[], f?: Fetch) =>
   postJson<LibraryBulkTranslateStarted>(`${BASE}/bulk/translate`, { drama_ids }, f)
 

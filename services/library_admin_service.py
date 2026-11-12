@@ -44,7 +44,7 @@ from services import (drama_service, keep_original_service, ownership_service, p
                       settings_service, translate_run_service, translate_service)
 from services import library_translated_guard
 from services import workspace_job_service as wjs
-from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 STATUSES = ("not started", "aligned", "translated", "dubbed", "exported")
@@ -221,6 +221,32 @@ def bulk_set_tags(drama_ids, tag: str, present: bool) -> dict:
     if not isinstance(present, bool):
         raise InvalidInputError("present must be true or false.")
     return _bulk_apply(drama_ids, lambda did: db.set_custom_tag(did, tag, present))
+
+
+def bulk_set_series(drama_ids, *, principal=None, series_id=None, new_series_name=None) -> dict:
+    """Puts each drama in one series (`series_id`; 0 takes it out) or in the
+    series named `new_series_name`, created on the first drama and reused by
+    the rest. Each drama goes through drama_service.set_drama_series, so the
+    ownership and private-series rules apply per drama; a refused drama gets
+    its own error and the others still move."""
+    ids = _check_ids(drama_ids)
+    if (series_id is None) == (new_series_name is None):
+        raise InvalidInputError("Pass series_id or new_series_name.")
+    if new_series_name is not None and not new_series_name.strip():
+        raise InvalidInputError("new_series_name must not be blank.")
+    errors = ((NotFoundError, "not_found"), (ForbiddenError, "not_allowed"),
+              (ConflictError, "conflict"), (ServiceError, "failed"))
+    results = []
+    for did in ids:
+        try:
+            drama_service.set_drama_series(did, principal=principal, series_id=series_id,
+                                           new_series_name=new_series_name)
+        except ServiceError as e:
+            code = next(c for cls, c in errors if isinstance(e, cls))
+            results.append({"drama_id": did, "ok": False, "error": code, "message": str(e)})
+        else:
+            results.append({"drama_id": did, "ok": True})
+    return {"results": results, "updated": sum(r["ok"] for r in results)}
 
 
 def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:

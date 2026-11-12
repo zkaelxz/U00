@@ -11,6 +11,8 @@ diagnostics_packages_service and diagnostics_gpu_torch_service.
 No HTTP types: the refusals are ServiceError subclasses the API maps by type.
 """
 
+import logging
+import sqlite3
 import time
 
 import background_jobs
@@ -18,6 +20,8 @@ from jobs import job_launch, job_runner
 import db
 import diagnostics
 from lib.errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Admin actions (router: local_only). Each requires confirm=True and
@@ -122,18 +126,39 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
         if not job_runner.wait_for_job_threads(10.0):
             raise AdminActionJobsRunning(
                 "A background job is still finishing; try again in a moment.")
-        from services import previous_library_service
-        kept = previous_library_service.keep_before_reset()
-        try:
-            db.reset_library()
-        except BaseException:
-            previous_library_service.after_reset(kept, ok=False)
-            raise
-        previous_library_service.after_reset(kept, ok=True)
-        # sources.db survives the reset but its title ids are the old library's;
-        # the new titles start again from id 1.
+        # sources.db survives the reset but its title ids are the old library's,
+        # and a new title gets id 1 again. The unlink is opened first and
+        # committed only once the reset has succeeded: if it can't be opened the
+        # reset is refused with the library untouched, and if the reset fails
+        # the links are rolled back rather than lost with it.
         from sources import store as src_store
-        src_store.unlink_all_dramas()
+        try:
+            unlink = src_store.begin_unlink_all_dramas()
+        except sqlite3.Error:
+            logger.warning("Library reset refused: could not unlink followed series", exc_info=True)
+            raise ConflictError(
+                "Couldn't clear the followed-series links (sources.db is locked or damaged), "
+                "so nothing was reset. Try again in a moment.") from None
+        try:
+            from services import previous_library_service
+            kept = previous_library_service.keep_before_reset()
+            try:
+                db.reset_library()
+            except BaseException:
+                previous_library_service.after_reset(kept, ok=False)
+                raise
+            previous_library_service.after_reset(kept, ok=True)
+        except BaseException:
+            unlink.rollback()
+            raise
+        else:
+            try:
+                unlink.commit()
+            except sqlite3.Error:
+                # The library is gone and nothing can undo that; say so loudly.
+                logger.error("Library reset done but the followed-series unlink did not commit", exc_info=True)
+        finally:
+            unlink.close()
         background_jobs.clear_all_jobs()
     finally:
         job_launch.release_exclusive()
