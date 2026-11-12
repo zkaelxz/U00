@@ -27048,6 +27048,11 @@ export interface components {
              */
             scanlate_chapter_brief: boolean;
             /**
+             * Scanlate Match Text Color
+             * @default false
+             */
+            scanlate_match_text_color: boolean;
+            /**
              * Scanlate Page Image
              * @default true
              */
@@ -27331,6 +27336,8 @@ export interface components {
             retime_window_pad_seconds?: number | null;
             /** Scanlate Chapter Brief */
             scanlate_chapter_brief?: boolean | null;
+            /** Scanlate Match Text Color */
+            scanlate_match_text_color?: boolean | null;
             /** Scanlate Page Image */
             scanlate_page_image?: boolean | null;
             /** Scanlate Sfx Gloss */
