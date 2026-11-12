@@ -15,6 +15,17 @@ android {
         versionName = "0.1"
     }
 
+    buildTypes {
+        release {
+            // Signed with the debug key on purpose: Android refuses an update signed with a
+            // different key, and every phone already runs a build signed with it. The build is
+            // still not debuggable, so USB debugging cannot read the app's stored sign-in.
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            isMinifyEnabled = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
