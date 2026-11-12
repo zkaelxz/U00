@@ -461,7 +461,9 @@ def test_a_failed_helper_start_undoes_the_staging(env, monkeypatch):
 def test_the_last_swap_is_reported_in_plain_words(env):
     app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", "0.2.0")
     s = us.status()
-    assert s["app_last_result"] == "Version 0.2.0 didn't start, so Baihe Studio went back to 0.1.0."
+    assert s["app_last_result"] == ("Version 0.2.0 didn't start, so Baihe Studio went back to "
+                                    "0.1.0. Couldn't tell whether the newer version changed the "
+                                    "library.")
     for code in app_swap.RESULT_CODES:
         assert code in aus.RESULT_MESSAGES
 
@@ -605,12 +607,67 @@ def test_a_later_rollback_names_the_version_that_changed_the_library(env, monkey
     assert s["app_last_result"].startswith("Version 0.3.0 didn't start")
 
 
+def test_a_rollback_with_no_record_says_it_couldnt_tell(env):
+    s = _rolled_back(env)
+    assert s["app_rollback_library_unknown"] is True
+    assert s["app_rollback_library_changed"] is False
+    assert s["app_last_result"].endswith(
+        "Couldn't tell whether the newer version changed the library.")
+
+
+def test_an_unreadable_sources_db_says_it_couldnt_tell(env, monkeypatch):
+    import sqlite3
+    from sources import store
+    _backups(monkeypatch)
+    _start_update(env)
+
+    def damaged():
+        raise sqlite3.DatabaseError("file is not a database")
+    monkeypatch.setattr(store, "connect", damaged)
+    s = _rolled_back(env)
+    assert s["app_rollback_library_unknown"] is True
+    assert s["app_rollback_library_changed"] is False
+
+
+def test_a_library_change_is_still_seen_with_sources_db_unreadable(env, monkeypatch):
+    import sqlite3
+    from sources import store
+    _backups(monkeypatch)
+    _start_update(env)
+    _change_library()
+
+    def damaged():
+        raise sqlite3.DatabaseError("file is not a database")
+    monkeypatch.setattr(store, "connect", damaged)
+    s = _rolled_back(env)
+    assert s["app_rollback_library_changed"] is True
+    assert s["app_rollback_library_unknown"] is False
+
+
+def test_a_kept_update_or_unchanged_rollback_is_not_unknown(env, monkeypatch):
+    _backups(monkeypatch)
+    _start_update(env)
+    assert _rolled_back(env)["app_rollback_library_unknown"] is False
+    app_swap.write_result(env["root"], "updated", "0.1.0", "0.2.0")
+    assert us.status()["app_rollback_library_unknown"] is False
+
+
+def test_a_record_without_the_library_layout_says_it_couldnt_tell(env):
+    db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.1.0", "attempts": ["0.2.0"],
+                                               "layout": "x" * 64, "backup_name": None,
+                                               "backup_at": None})
+    s = _rolled_back(env)
+    assert s["app_rollback_library_unknown"] is True
+    assert s["app_rollback_library_changed"] is False
+
+
 def test_a_record_from_another_update_is_not_used(env, monkeypatch):
     db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.0.9", "attempts": ["0.1.0"],
                                                "layout": "x" * 64, "backup_name": None,
                                                "backup_at": None})
     app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", "0.2.0")
-    assert us.status()["app_rollback_library_changed"] is False
+    s = us.status()
+    assert s["app_rollback_library_changed"] is False and s["app_rollback_library_unknown"] is True
 
 
 def test_a_kept_update_never_warns_about_the_library(env, monkeypatch):

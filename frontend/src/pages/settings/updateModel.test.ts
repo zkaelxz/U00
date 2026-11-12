@@ -17,7 +17,7 @@ const BASE: UpdateStatus = {
   can_install: false, signature_check: false, signature_verified: false, auto_check: false, include_prereleases: false, custom_source: false,
   app_update: 'none', app_update_here: true, app_update_by_service: false, app_auto_apply: false, app_size: null, app_download: 'idle', app_downloaded_bytes: 0,
   app_download_error: null, app_verified: false, app_verified_version: null, can_apply_app: false,
-  app_last_result: null, app_last_result_at: null, app_rollback_library_changed: false, app_rollback_backup_at: null,
+  app_last_result: null, app_last_result_at: null, app_rollback_library_changed: false, app_rollback_library_unknown: false, app_rollback_backup_at: null,
 }
 const AVAILABLE: UpdateStatus = {
   ...BASE, latest: '0.2.0', update_available: true, installer_name: 'BaiheStudio-Setup-0.2.0.exe',

@@ -95,6 +95,7 @@ BEFORE_UPDATE_KEY = "app_update.before"
 ROLLED_BACK_CODES = ("rolled_back_health", "recovered")
 LIBRARY_CHANGED = (" Version {new} had already changed the library's tables before it stopped, "
                    "and {old} may not read those changes correctly.")
+LIBRARY_UNKNOWN = " Couldn't tell whether the newer version changed the library."
 RESTORE_BACKUP = (" To be safe, restore the backup from before the update "
                   "(Library tools > Backup > Restore).")
 
@@ -212,28 +213,35 @@ def last_result():
     result = app_swap.read_result(install_root()) if us._is_installed() else None
     if result is None:
         return None
-    changed, backup_at, changed_by = _rollback_changed_library(result)
+    check = _rollback_library_check(result)
     message = RESULT_MESSAGES[result["code"]].format(old=result["old"], new=result["new"])
-    if changed:
-        message += LIBRARY_CHANGED.format(old=result["old"], new=changed_by)
-    if backup_at:
+    if check["state"] == "changed":
+        message += LIBRARY_CHANGED.format(old=result["old"], new=check["changed_by"])
+    elif check["state"] == "unknown":
+        message += LIBRARY_UNKNOWN
+    if check["backup_at"]:
         message += RESTORE_BACKUP
-    return {"outcome": result["code"], "at": result["at"], "library_changed": changed,
-            "backup_at": backup_at, "message": message}
+    return {"outcome": result["code"], "at": result["at"],
+            "library_changed": check["state"] == "changed",
+            "library_unknown": check["state"] == "unknown",
+            "backup_at": check["backup_at"], "message": message}
 
 
 def _remember_library(old, new) -> None:
     previous = db.get_app_setting(BEFORE_UPDATE_KEY, None)
     result = app_swap.read_result(install_root()) if us._is_installed() else None
-    if isinstance(previous, dict) and result is not None and _rollback_changed_library(result)[0]:
+    if (isinstance(previous, dict) and result is not None
+            and _rollback_library_check(result)["state"] == "changed"):
         # The library is still the one an earlier rolled-back version changed.
         # This attempt must not replace the record from before that change,
         # or a failure that writes no result of its own would hide the warning.
         previous["attempts"] = [*previous["attempts"], new]
         db.set_app_setting(BEFORE_UPDATE_KEY, previous)
         return
+    library, sources = _library_layout()
     db.set_app_setting(BEFORE_UPDATE_KEY, {
-        "old": old, "attempts": [new], "layout": _library_layout(), **_newest_backup()})
+        "old": old, "attempts": [new], "library": library, "sources": sources,
+        **_newest_backup()})
 
 
 def _newest_backup() -> dict:
@@ -266,47 +274,63 @@ def _restorable_copy(c) -> bool:
             and c.get("kept_as") != "sources")
 
 
-def _library_layout() -> str:
-    """Every table, index and trigger definition in library.db and sources.db.
+def _library_layout():
+    """(library, sources): hashes of every table, index and trigger definition
+    in library.db and in sources.db, sources None when it can't be read.
     Stricter than the release fingerprint (names only), so a table rebuilt
     under the same column names, or a new index, still counts as a change.
     A migration that only rewrites rows is not seen."""
     from sources import store
-    parts = []
     with contextlib.closing(db.get_conn()) as conn:
-        parts += [repr(tuple(r)) for r in conn.execute(
-            "SELECT 'library', type, name, tbl_name, sql FROM sqlite_master")]
+        library = _definitions(conn)
     # connect() creates and migrates sources.db on first use, so it exists by
-    # the time either side of the comparison is taken; a damaged one counts
-    # the same each time rather than blocking the update.
+    # the time either side of the comparison is taken; a damaged one makes the
+    # answer unknown rather than blocking the update.
     try:
         with contextlib.closing(store.connect()) as conn:
-            parts += [repr(tuple(r)) for r in conn.execute(
-                "SELECT 'sources', type, name, tbl_name, sql FROM sqlite_master")]
+            sources = _definitions(conn)
     except (sqlite3.Error, OSError):
-        parts.append("sources: unreadable")
-    return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()
+        sources = None
+    return library, sources
 
 
-def _rollback_changed_library(result):
-    """(changed, backup_at, changed_by): whether a version that was rolled back
-    left the library different from how the first update attempt since found
-    it, when the backup from before it was taken (if that copy is still
-    there), and that first attempt's version, which made the change."""
+def _definitions(conn) -> str:
+    rows = sorted(repr(tuple(r)) for r in conn.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master"))
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+
+
+def _rollback_library_check(result) -> dict:
+    """{state, backup_at, changed_by} for a rolled-back update. state is
+    "changed" when a version that was rolled back left the library different
+    from how the first update attempt since found it, "unknown" when that
+    can't be told (no record of that update, or a database that couldn't be
+    read), else "unchanged"; None when the result isn't a rollback. When
+    changed, backup_at is when the backup from before the update was taken,
+    if that copy is still there, and changed_by is that first attempt's
+    version."""
+    none = {"state": None, "backup_at": None, "changed_by": None}
     if result["code"] not in ROLLED_BACK_CODES:
-        return False, None, None
+        return none
     try:
         before = db.get_app_setting(BEFORE_UPDATE_KEY, None)
         if not (isinstance(before, dict) and before.get("old") == result["old"]
-                and result["new"] in (before.get("attempts") or [])):
-            return False, None, None
-        changed = _library_layout() != before.get("layout")
+                and result["new"] in (before.get("attempts") or [])
+                and isinstance(before.get("library"), str)):
+            return {**none, "state": "unknown"}
+        library, sources = _library_layout()
     except sqlite3.Error:
-        return False, None, None
-    if not changed:
-        return False, None, None
-    backup_at = before.get("backup_at") if _backup_still_there(before.get("backup_name")) else None
-    return True, backup_at if isinstance(backup_at, str) else None, before["attempts"][0]
+        return {**none, "state": "unknown"}
+    if library != before.get("library") or (
+            sources is not None and before.get("sources") is not None
+            and sources != before.get("sources")):
+        backup_at = before.get("backup_at")
+        if not (isinstance(backup_at, str) and _backup_still_there(before.get("backup_name"))):
+            backup_at = None
+        return {"state": "changed", "backup_at": backup_at, "changed_by": before["attempts"][0]}
+    if sources is None or before.get("sources") is None:
+        return {**none, "state": "unknown"}
+    return none | {"state": "unchanged"}
 
 
 def status_fields() -> dict:
@@ -332,6 +356,7 @@ def status_fields() -> dict:
             "app_last_result": result["message"] if result else None,
             "app_last_result_at": result["at"] if result else None,
             "app_rollback_library_changed": bool(result and result["library_changed"]),
+            "app_rollback_library_unknown": bool(result and result["library_unknown"]),
             "app_rollback_backup_at": result["backup_at"] if result else None}
 
 
