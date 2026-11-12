@@ -1367,6 +1367,13 @@ begin
   // outside what the owner asked this to remove; NoteKeptData reports it.
 end;
 
+procedure NoteKeptFolder(const Name, Caption: String; var Left: String);
+begin
+  if DirExists(UninstDataDir + '\' + Name) then
+    AddLine(Left, Caption + ' (' + UninstDataDir + '\' + Name + ', ' +
+      SizeText(FolderBytes(UninstDataDir + '\' + Name)) + ')');
+end;
+
 // What is still in the data folder once the steps above have run, by name
 // and size only. No file is opened, so the settings file's keys are never
 // shown.
@@ -1382,6 +1389,15 @@ begin
       SizeText(FolderBytes(UninstDataDir + '\model_cache')) + ')');
   if FileExists(UninstDataDir + '\vtuber_names.json') then
     AddLine(Left, 'vtuber_names.json - couldn''t be deleted; remove it by hand');
+  // Folders the app makes in the data folder after Setup. No uninstall box
+  // deletes them, so they are named here instead of silently surviving a
+  // "remove everything" in a folder Setup didn't create.
+  NoteKeptFolder('voice_engines', 'downloaded voice engines', Left);
+  NoteKeptFolder('playwright_browsers', 'the downloaded browser', Left);
+  NoteKeptFolder('saved_comics', 'comics you saved', Left);
+  NoteKeptFolder('baihe_trash', 'items you moved to Trash (kept unless you delete the library)', Left);
+  NoteKeptFolder('android', 'the Android app update file', Left);
+  NoteKeptFolder('pending_install', 'a queued Diagnostics install', Left);
   if HasRestoreCopies() then
   begin
     if DirExists(UninstDataDir + '\library') then

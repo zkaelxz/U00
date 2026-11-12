@@ -367,6 +367,15 @@ class TestUninstall:
         # Names and sizes only: the settings file is never opened.
         assert "LoadStringFromFile" not in kept + step and "never shown" in kept
 
+    def test_app_made_data_folders_are_listed_as_kept_and_never_deleted(self, iss):
+        kept = _func(iss, "NoteKeptData")
+        for name in ("voice_engines", "playwright_browsers", "saved_comics", "baihe_trash", "android",
+                     "pending_install"):
+            assert f"NoteKeptFolder('{name}'" in kept, name
+        # The helper only measures and prints.
+        helper = _func(iss, "NoteKeptFolder")
+        assert not re.search(r"DelTree|DeleteFile|RemoveDir|DeleteTree", helper)
+
     def test_declining_the_clean_confirmation_restores_the_boxes(self, iss):
         ask = _func(iss, "AskWhatToDelete")
         declined = ask[ask.index("if not Confirmed then"):]
