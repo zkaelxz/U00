@@ -3,7 +3,7 @@
   "name": "Baihe Studio — translate this page",
   "version": "1.0.0",
   "description": "Sends the comic page you're reading to your own local Baihe Studio, and draws the translation over it.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["http://127.0.0.1:8756/*"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "icons": {
