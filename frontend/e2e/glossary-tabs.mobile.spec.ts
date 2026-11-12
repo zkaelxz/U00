@@ -11,7 +11,7 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-const TABS: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Re-translate']
+const TABS: GlossaryTabName[] = ['Terms', 'Find terms', 'Names', 'Packs', 'Instructions', 'Replacements', 'Re-translate']
 
 for (const scheme of ['light', 'dark'] as const) {
   test(`every Glossary tab fits the phone (${scheme})`, async ({ page }) => {
@@ -32,7 +32,7 @@ for (const scheme of ['light', 'dark'] as const) {
       }))
       expect(scroll, `${name} scrolls sideways`).toBeLessThanOrEqual(client)
     }
-    // The six sections are a picker: its button and every option are full-height targets.
+    // The seven sections are a picker: its button and every option are full-height targets.
     const glossary = page.getByRole('region', { name: 'Glossary' })
     expect((await glossary.locator('.ui-tab-picker-btn').boundingBox())!.height).toBeGreaterThanOrEqual(44)
     await glossary.locator('.ui-tab-picker-btn').click()
