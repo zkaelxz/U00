@@ -241,15 +241,14 @@ const SOURCE_CHANGED_HELP = 'The source text changed after this line was transla
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function ShakyBadge({ line, active }: { line: ReviewLine; active: boolean }) {
+function ShakyBadge({ line, help }: { line: ReviewLine; help: boolean }) {
   if (!isShaky(line)) return null
   return (
     <>
       <span data-testid="line-shaky" title={SHAKY_HELP}>
         <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
       </span>
-      {/* A title never shows on a touch screen; the tip opens on a tap. Active row only, to keep its roving Tab order. */}
-      {active && <HelpTip label="Shaky" id={`line-shaky-help-${line.id}`}>{SHAKY_HELP}</HelpTip>}
+      {help && <HelpTip label="Shaky" id={`line-shaky-help-${line.id}`}>{SHAKY_HELP}</HelpTip>}
     </>
   )
 }
@@ -307,6 +306,11 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
   const flagNoteId = `flag-note-${line.id}`
   const reasonId = `review-reason-${line.id}`
   const langChip = lineLangChip(line.lang, sourceLanguage)
+  // A title never shows on a touch screen. The phone's meta line doesn't wrap and has no room for a
+  // help button, so the active row spells the reasons out under it; elsewhere the active row gets a tip
+  // (active only, to keep the roving Tab order).
+  const badgeHelp = active && !isPhone
+  const badgeReasons = [isShaky(line) && SHAKY_HELP, isSourceChanged(line) && SOURCE_CHANGED_HELP].filter((r): r is string => !!r)
   const textLang = sourceTextLang(line.lang, sourceLanguage)
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -379,13 +383,13 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
-        <ShakyBadge line={line} active={active} />
+        <ShakyBadge line={line} help={badgeHelp} />
         {isSourceChanged(line) && (
           <>
             <span data-testid="source-changed-badge" title={SOURCE_CHANGED_HELP}>
               <Badge tone="warn">Source changed</Badge>
             </span>
-            {active && <HelpTip label="Source changed" id={`source-changed-help-${line.id}`}>{SOURCE_CHANGED_HELP}</HelpTip>}
+            {badgeHelp && <HelpTip label="Source changed" id={`source-changed-help-${line.id}`}>{SOURCE_CHANGED_HELP}</HelpTip>}
           </>
         )}
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
@@ -407,6 +411,9 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         </button>
       </div>
       {line.flag && !isPhone && <FlagNote text={flagText(line)} />}
+      {isPhone && active && badgeReasons.length > 0 && (
+        <p className="muted review-badge-reasons" data-testid="badge-reasons">{badgeReasons.join('. ')}.</p>
+      )}
       {/* A phone's meta line has no room for the number (it would move ⋯ under the tap point), so the active row shows it below. */}
       {!prose && isPhone && active && <LineCps line={line} lineAbove />}
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}

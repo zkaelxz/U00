@@ -90,14 +90,22 @@ describe('help that would otherwise be hover-only', () => {
     )
   const shaky = { ...LINE, flag: null, confidence: 0.4 }
 
-  it('gives the active row a tap help button for the Shaky badge', () => {
+  it('spells the Shaky reason out under the active row on a phone, whose meta line has no room for a button', () => {
     const html = render(shaky, true, true)
-    expect(html).toContain('aria-label="Help: Shaky"')
-    expect(html).toContain('Whisper was unsure of this line')
+    expect(html).toMatch(/data-testid="badge-reasons">Whisper was unsure of this line\.<\/p>/)
+    expect(html).not.toContain('Help: Shaky')
   })
 
-  it('adds no help button to other rows, so only the active row has Tab stops', () => {
-    expect(render(shaky, false, true)).not.toContain('Help: Shaky')
+  it('gives the active row a help tip for the Shaky badge on a wider screen', () => {
+    expect(render(shaky, true, false)).toContain('aria-label="Help: Shaky"')
+  })
+
+  it('adds neither to other rows, so only the active row has Tab stops', () => {
+    for (const isPhone of [true, false]) {
+      const html = render(shaky, false, isPhone)
+      expect(html).not.toContain('Help: Shaky')
+      expect(html).not.toContain('badge-reasons')
+    }
   })
 
   it('shows the Snap to speech times as text on a phone', () => {
