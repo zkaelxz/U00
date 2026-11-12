@@ -278,6 +278,7 @@ class SettingsPreferences(TimingPreferences):
     scanlate_chapter_brief: bool = True
     scanlate_page_image: bool = True
     scanlate_sfx_gloss: bool = False
+    scanlate_match_text_color: bool = False
     episode_brief: bool = True
     translate_reply_guard: str = "auto"
     claude_reasoning: str = "default"
@@ -384,6 +385,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     scanlate_chapter_brief: Optional[StrictBool] = None
     scanlate_page_image: Optional[StrictBool] = None
     scanlate_sfx_gloss: Optional[StrictBool] = None
+    scanlate_match_text_color: Optional[StrictBool] = None
     episode_brief: Optional[StrictBool] = None
     translate_reply_guard: Optional[StrictStr] = Field(None, max_length=40)
     claude_reasoning: Optional[StrictStr] = Field(None, max_length=40)

@@ -68,6 +68,7 @@ export interface SettingsPreferences extends TimingPreferences {
   scanlate_chapter_brief: boolean // read the whole comic chapter once before translating its pages
   scanlate_page_image: boolean // send each comic page's picture with its OCR text when translating
   scanlate_sfx_gloss: boolean // translate sound effects into a small gloss beside the art
+  scanlate_match_text_color: boolean // letter comic balloons in the original lettering's colour
   translate_reply_guard: string // auto | on | off
   claude_reasoning: string // default | less
   openai_reasoning: string // default | less

@@ -29,7 +29,7 @@ import comic_chapters
 import db
 import storage
 from lib import cancellable_lock
-from services import artifact_service, comic_view_service
+from services import artifact_service, comic_view_service, settings_service
 from services import scanlate_pages_service as pages_svc
 from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
@@ -86,7 +86,8 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
     # A direct call outside a job has no cancel to honour, so the wait is unbounded as before.
     with cancellable_lock.hold(pages_svc.pipeline_lock(), cancel_check or (lambda: None)):
         _path, skipped_blank = scanlate_render.process_page(
-            src, bubbles, out, custom_fonts=_custom_fonts(drama_id), notes=render_notes)
+            src, bubbles, out, custom_fonts=_custom_fonts(drama_id), notes=render_notes,
+            match_color=bool(settings_service.get("scanlate_match_text_color")))
     for n in render_notes:
         # The missing-weights note is a complete sentence already.
         notes.append((n[0], n[-1] if n[1] == "inpaint_unavailable"
