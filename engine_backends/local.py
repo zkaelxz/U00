@@ -21,7 +21,7 @@ from .shared import (
     redact_secrets,
     request_translations_with_retry,
 )
-from .temperature import temperature_of
+from .temperature import ollama_sampling
 from .thinking import ollama_chat_with_think, thinking_choice
 from .translation_guard import allowed_source_runs
 from .ollama_server import (  # noqa: F401  (re-exported; callers and tests use local.*)
@@ -363,7 +363,7 @@ def ollama_task_reply(chat, engine, messages: list, max_tokens: int, expect: str
     num_predict = max(1, min(int(max_tokens), OLLAMA_MAX_NUM_PREDICT))
     num_ctx = engine.num_ctx_for(estimated + num_predict)
     payload = {"model": engine.model, "messages": messages, "stream": False,
-               "options": {"num_ctx": num_ctx, "num_predict": num_predict}}
+               "options": {"num_ctx": num_ctx, "num_predict": num_predict, **ollama_sampling()}}
     if expect == "json_object":
         payload["format"] = "json"
     data = ollama_chat_with_think(chat, engine.base_url, payload, False)
@@ -718,11 +718,9 @@ class OllamaEngine:
                 "stream": False,
                 "format": ("json" if (self.base_url, self.model) in _schema_refused
                            else id_keyed_schema(ids)),
-                "options": {"num_ctx": num_ctx, "num_predict": OLLAMA_MAX_NUM_PREDICT},
+                "options": {"num_ctx": num_ctx, "num_predict": OLLAMA_MAX_NUM_PREDICT,
+                            **ollama_sampling(context)},
             }
-            temperature = temperature_of(context, "ollama")
-            if temperature is not None:
-                payload["options"]["temperature"] = temperature
             try:
                 resp = send(payload)
             except Exception as exc:
