@@ -960,7 +960,7 @@ def test_ask_is_refused_once_the_monthly_cap_is_spent(client, drama, monkeypatch
     db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
     monkeypatch.setattr(qa, "ask_about_drama", lambda *a, **k: pytest.fail("called past the cap"))
     r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"})
-    assert r.status_code >= 400 and "cap" in r.text.lower()
+    assert r.status_code == 400 and "cap" in r.text.lower()
 
 
 def test_ask_on_a_hosted_ollama_tag_is_held_to_the_cap(client, drama, monkeypatch):
@@ -977,4 +977,75 @@ def test_ask_on_a_hosted_ollama_tag_is_held_to_the_cap(client, drama, monkeypatc
     db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
     monkeypatch.setattr(qa, "ask_about_drama", lambda *a, **k: pytest.fail("called past the cap"))
     r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?", "engine": "ollama"})
-    assert r.status_code >= 400 and "cap" in r.text.lower()
+    assert r.status_code == 400 and "cap" in r.text.lower()
+
+
+def _paid(monkeypatch, engine=None):
+    from engine_backends import engine_registry
+    from services import translate_service
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: engine or _PaidFake())
+
+
+def test_a_failed_ask_still_writes_a_usage_row(client, drama, monkeypatch):
+    import qa
+    _paid(monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("provider down")
+    monkeypatch.setattr(qa, "ask_about_drama", boom)
+    assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 500
+    [row] = _usage_rows()
+    assert row["operation"] == "reader_ask" and row["estimated_cost_usd"] == 0
+
+
+def test_a_local_ollama_ask_is_not_held_to_a_spent_cap(client, drama, monkeypatch):
+    import qa
+    from services import translate_run_service
+
+    class Local(_PaidFake):
+        name = "ollama"
+        model = "gemma4:12b"
+    _paid(monkeypatch, Local())
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
+    db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
+    monkeypatch.setattr(qa, "ask_about_drama", lambda *a, **k: "answer")
+    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?", "engine": "ollama"})
+    assert r.status_code == 200 and r.json()["answer"] == "answer"
+
+
+def test_the_requested_model_reaches_the_engine_and_the_cap_check(client, drama, monkeypatch):
+    import qa
+    from engine_backends import engine_registry
+    from services import translate_run_service, translate_service
+    built = []
+
+    def get_engine(name, key, model=None, **kw):
+        built.append((name, model))
+
+        class E(_PaidFake):
+            pass
+        E.name, E.model = name, model
+        return E()
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(engine_registry, "get_engine", get_engine)
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
+    db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
+    monkeypatch.setattr(qa, "ask_about_drama", lambda *a, **k: "answer")
+    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?", "engine": "ollama",
+                                                 "model": "gemma4:31b-cloud"})
+    assert built == [("ollama", "gemma4:31b-cloud")]
+    assert r.status_code == 400
+
+
+def test_a_usage_log_failure_does_not_fail_an_answer(client, drama, monkeypatch):
+    import qa
+    _paid(monkeypatch)
+
+    def reply(q, lines, meta, eng, chat_history=None, usage_cb=None):
+        usage_cb({"input_tokens": 5, "output_tokens": 5})
+        return "answer"
+    monkeypatch.setattr(qa, "ask_about_drama", reply)
+    monkeypatch.setattr(db, "log_usage", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full")))
+    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"})
+    assert r.status_code == 200 and r.json()["answer"] == "answer"
