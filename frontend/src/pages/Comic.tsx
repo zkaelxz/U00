@@ -396,6 +396,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       pageId={currentPage?.id ?? null}
       typeset={prefs.typeset}
       pageNumber={currentPage ? current : null}
+      pageIds={pages.map((p) => p.id)}
       scopes={scopes}
       onChanged={refreshPages}
       onJob={setWatchedJob}

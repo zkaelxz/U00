@@ -14,7 +14,7 @@ export type ScanlatePageNotes = Schemas['ScanlatePageNotes']
 export type ScanlateRunNotes = Schemas['ScanlateRunNotes']
 export type ScanlateUploadResult = Schemas['ScanlateUploadResult']
 
-export type ScanlateRunMode = 'missing' | 'page' | 'all'
+export type ScanlateRunMode = 'missing' | 'page' | 'pages' | 'all'
 
 export type ScanlateRunRequest = Schemas['ScanlateRunRequest']
 

@@ -55,7 +55,7 @@ test('a failed settings read is shown and every run button stays off', async ({ 
   const panel = await openPanel(page)
   await expect(panel.getByRole('alert')).toContainText('Could not load this. Try again.')
   await expect(panel.getByRole('button', { name: 'Translate all pages' })).toBeDisabled()
-  await expect(panel.getByRole('button', { name: 'Redo page 1' })).toBeDisabled()
+  await expect(panel.getByRole('button', { name: 'Redo pages' })).toBeDisabled()
   expect(s.runs).toEqual([])
   expect(s.unmocked).toEqual([])
 })

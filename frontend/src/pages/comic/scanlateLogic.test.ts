@@ -6,6 +6,7 @@ import {
   defaultEngine,
   firstPageNote,
   pagesText,
+  parsePageRanges,
   progressSummary,
   runBlockedReason,
   toolsSummary,
@@ -118,5 +119,17 @@ describe('firstPageNote', () => {
     expect(firstPageNote('run', job('done', 'Page 1 of 1'))).toBeUndefined()
     expect(firstPageNote('export', job('running', 'Page 1 of 181'))).toBeUndefined()
     expect(firstPageNote('run', null)).toBeUndefined()
+  })
+})
+
+describe('parsePageRanges', () => {
+  it('reads numbers and ranges, sorted and without repeats', () => {
+    expect(parsePageRanges('5-7, 2, 6', 20)).toEqual([2, 5, 6, 7])
+    expect(parsePageRanges(' 3 ', 3)).toEqual([3])
+  })
+  it('refuses empty text, out-of-range pages, backwards ranges and junk', () => {
+    for (const bad of ['', ' ', '0', '21', '7-5', '1-21', 'a', '1,,2', '1-']) {
+      expect(parsePageRanges(bad, 20)).toBeNull()
+    }
   })
 })
