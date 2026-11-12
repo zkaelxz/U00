@@ -5,6 +5,7 @@ import type { components } from '../api/generated/schema'
 import type { NovelGlossaryApplyRequest } from './autotuneGlossary'
 
 export type LinesGlossaryRunResult = components['schemas']['LinesGlossaryRunResult']
+export type ChaptersGlossaryRunResult = components['schemas']['ChaptersGlossaryRunResult']
 
 // A field left out keeps the proposal's value; null category/policy = none.
 export interface GlossaryProposalEdit {

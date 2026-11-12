@@ -230,3 +230,27 @@ test('Scan this chapter starts a scan of the chosen chapter only', async ({ page
   await expect.poll(() => urls.length).toBe(1)
   expect(urls[0]).toMatch(/from-lines\?chapter=2$/)
 })
+
+test('Scan all chapters starts the every-chapter scan and shows its outcome', async ({ page }) => {
+  await glossarySetup(page)
+  let status: object = { job_id: '', status: 'idle', progress: 0, message: '', proposals: null, run_id: null }
+  let posts = 0
+  await page.route('**/api/glossary/dramas/1/from-chapters', (route) => {
+    if (route.request().method() === 'POST') {
+      posts += 1
+      status = { job_id: 'chapters_glossary_1', status: 'done', progress: 1, message: 'Scanned 2 chapters; added 3 terms.', proposals: [], run_id: 'run-9' }
+      return route.fulfill({ json: { job_id: 'chapters_glossary_1', engine: 'claude', chapter_count: 2 } })
+    }
+    return route.fulfill({ json: status })
+  })
+  await page.route('**/api/novel/dramas/1/line-chapters', (route) => route.fulfill({
+    json: { drama_id: 1, source: 'saved', total_lines: 8, chapters: [
+      { number: 1, title: 'Start', first_idx: 0, line_count: 4, translated: 0, reviewed: 0 },
+      { number: 2, title: 'Fox', first_idx: 4, line_count: 4, translated: 0, reviewed: 0 }] },
+  }))
+  await page.goto('/#/drama/1/translate')
+  await glossaryTab(page, 'Find terms')
+  await page.getByRole('region', { name: 'Glossary' }).getByRole('button', { name: 'Scan all chapters' }).click()
+  await expect(page.getByText('Scanned 2 chapters; added 3 terms.')).toBeVisible()
+  expect(posts).toBe(1)
+})

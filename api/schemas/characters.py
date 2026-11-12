@@ -54,6 +54,7 @@ __all__ = [
     "CharactersMergeUndo",
     "CharactersMergeUndoRequest",
     "CharactersMergeResult",
+    "ChaptersGlossaryRunResult",
     "LinesGlossaryRunResult",
     "GlossaryProposalEdit",
     "GlossaryProposalsApplyRequest",
@@ -469,6 +470,12 @@ class LinesGlossaryRunResult(BaseModel):
     job_id: str
     engine: str
     line_count: int
+
+
+class ChaptersGlossaryRunResult(BaseModel):
+    job_id: str
+    engine: str
+    chapter_count: int
 
 
 class GlossaryProposalEdit(BaseModel):

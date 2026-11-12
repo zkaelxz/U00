@@ -1,4 +1,5 @@
 import { ChapterScope } from './ChapterScope'
+import { ScanAllChapters } from './ScanAllChapters'
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { hasStatus } from '../../../api/client'
@@ -218,6 +219,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
         <span className="suggest-bar-label">Suggest terms from</span>
         {picker}
         {source === 'lines' && <ChapterScope dramaId={dramaId} value={chapter} onChange={setChapter} />}
+        {source === 'lines' && <ScanAllChapters dramaId={dramaId} />}
         {!active && (
           <button type="button" className={buttonClass('secondary')} disabled={!!blocker || !ready || busy} onClick={start}>
             {chapter ? 'Scan this chapter' : suggestButtonLabel(proposals.length > 0 || hasTerms)}
