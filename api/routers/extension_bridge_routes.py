@@ -151,3 +151,9 @@ async def post_novel(request: Request):
 async def post_title(request: Request):
     principal = request.state.principal
     return await _handle(request, lambda payload: titles.resolve_from_bridge(payload, principal=principal))
+
+
+@router.post("/cancel", dependencies=[require_device_token()],
+             summary="Device token: stop working on the rest of a batch of pages")
+async def post_cancel(request: Request):
+    return await _handle(request, extension_bridge_service.cancel_run)
