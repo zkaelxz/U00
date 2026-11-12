@@ -43,8 +43,8 @@ export function OpenFolderButton({ open, size = 'md', className, title }: {
       </button>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {byHand && (
-        <div className="banner" role="status">
-          <div>
+        <div className="banner open-folder-notice" role="status">
+          <div className="open-folder-notice-body">
             <strong>Open this folder yourself.</strong>
             <div className="muted">Baihe is running as a background service on this PC, so it can't open a window. Paste this path into File Explorer:</div>
             <input type="text" readOnly value={byHand} aria-label="Folder path" style={{ width: '100%' }}
