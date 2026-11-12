@@ -206,7 +206,7 @@ def _typeset_stored_page(result: dict, drama_id, member: bool) -> None:
 _RUN_ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
 _CANCELLED_TTL_SECONDS = 3600
 _MAX_CANCELLED_RUNS = 1000
-_cancelled_runs: dict = {}
+_cancelled_runs: dict[str, float] = {}
 _cancelled_lock = threading.Lock()
 
 
@@ -225,7 +225,7 @@ def cancel_run(payload) -> dict:
         for key in [k for k, at in _cancelled_runs.items() if now - at > _CANCELLED_TTL_SECONDS]:
             del _cancelled_runs[key]
         if len(_cancelled_runs) >= _MAX_CANCELLED_RUNS:
-            del _cancelled_runs[min(_cancelled_runs, key=_cancelled_runs.get)]
+            del _cancelled_runs[min(_cancelled_runs, key=lambda k: _cancelled_runs[k])]
         _cancelled_runs[run_id] = now
     return {"cancelled": True}
 
