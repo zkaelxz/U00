@@ -99,3 +99,61 @@ def test_job_object_group_ends_a_process_added_by_pid(sleeper):
     finally:
         k.CloseHandle(job)
     assert process_guard.terminate_group(name) is False
+
+
+def _run_staging_script(tmp_path, source, digest):
+    """installer/stage_service.ps1 the way Setup runs it: values in front of the script text,
+    passed to powershell.exe as an encoded command."""
+    import base64
+    from pathlib import Path
+    body = (Path(__file__).resolve().parent.parent / "installer" / "stage_service.ps1").read_text(encoding="ascii")
+    header = "".join(f"${name} = '{value}'\r\n" for name, value in (
+        ("Source", source), ("Staging", tmp_path / "staging"), ("Digest", digest),
+        ("Root", tmp_path / "app"), ("Data", tmp_path / "data"), ("Extra", "")))
+    encoded = base64.b64encode((header + body).encode("utf-16-le")).decode("ascii")
+    run = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+                         capture_output=True, text=True, timeout=120)
+    return run.returncode, run.stdout + run.stderr
+
+
+def _service_tree(tmp_path):
+    source = tmp_path / "service"
+    (source / "helper" / "lib").mkdir(parents=True)
+    (source / "helper" / "lib" / "a.txt").write_bytes(b"one")
+    (source / "B.txt").write_bytes(b"two")
+    return source
+
+
+@windows_only
+def test_staging_script_agrees_with_the_build_digest_and_reaches_the_run_step(tmp_path):
+    from installer import build_installer
+    source = _service_tree(tmp_path)
+    code, out = _run_staging_script(tmp_path, source, build_installer.service_tree_digest(source))
+    # No python.exe in this stand-in tree, so the verified copy fails when it is run (exit 4),
+    # which is how this tells "digest accepted" (4) from "digest refused" (3).
+    assert code == 4 and "Unexpected error" in out, out
+    assert not (tmp_path / "staging").exists()
+
+
+@windows_only
+def test_staging_script_refuses_files_that_changed_after_the_build(tmp_path):
+    from installer import build_installer
+    source = _service_tree(tmp_path)
+    digest = build_installer.service_tree_digest(source)
+    (source / "helper" / "lib" / "a.txt").write_bytes(b"swapped")
+    code, out = _run_staging_script(tmp_path, source, digest)
+    assert code == 3 and "do not match" in out, out
+    assert not (tmp_path / "staging").exists()
+
+
+@windows_only
+def test_staging_script_refuses_a_link_in_the_source(tmp_path):
+    from installer import build_installer
+    source = _service_tree(tmp_path)
+    digest = build_installer.service_tree_digest(source)
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(source / "linked"), str(target)],
+                   check=True, capture_output=True)
+    code, out = _run_staging_script(tmp_path, source, digest)
+    assert code == 3 and "contain a link" in out, out

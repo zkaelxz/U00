@@ -401,6 +401,38 @@ class TestStageService:
         bi.stage_service(payload, z, winsw, caddy, licenses)
         return payload / "service"
 
+    def test_the_elevated_staging_script_ships_and_is_part_of_the_digest(self, tmp_path, monkeypatch):
+        service = self._stage(tmp_path, monkeypatch)
+        shipped = service / "stage_service.ps1"
+        assert shipped.read_bytes() == (bi.INSTALLER_DIR / "stage_service.ps1").read_bytes()
+        before = bi.service_tree_digest(service)
+        shipped.write_bytes(shipped.read_bytes() + b"# tampered\n")
+        assert bi.service_tree_digest(service) != before
+
+    def test_tree_digest_form(self, tmp_path):
+        """The text installer/stage_service.ps1 rebuilds: path, tab, file hash, line feed, ordinal order."""
+        (tmp_path / "b").mkdir()
+        (tmp_path / "b" / "x.txt").write_bytes(b"two")
+        (tmp_path / "B.txt").write_bytes(b"one")
+        (tmp_path / "a.txt").write_bytes(b"three")
+        (tmp_path / "empty-dir").mkdir()
+        sha = lambda data: hashlib.sha256(data).hexdigest()
+        text = (f"B.txt\t{sha(b'one')}\na.txt\t{sha(b'three')}\nb/x.txt\t{sha(b'two')}\n")
+        assert bi.service_tree_digest(tmp_path) == hashlib.sha256(text.encode()).hexdigest()
+
+    def test_a_changed_renamed_or_extra_file_changes_the_digest(self, tmp_path):
+        (tmp_path / "f.txt").write_bytes(b"1")
+        base = bi.service_tree_digest(tmp_path)
+        (tmp_path / "f.txt").write_bytes(b"2")
+        assert bi.service_tree_digest(tmp_path) != base
+        (tmp_path / "f.txt").rename(tmp_path / "g.txt")
+        (tmp_path / "g.txt").write_bytes(b"1")
+        assert bi.service_tree_digest(tmp_path) != base
+        (tmp_path / "g.txt").rename(tmp_path / "f.txt")
+        assert bi.service_tree_digest(tmp_path) == base
+        (tmp_path / "extra").write_bytes(b"")
+        assert bi.service_tree_digest(tmp_path) != base
+
     def test_pins_are_sha256(self):
         assert len(bi.WINSW_SHA256) == 64 and all(c in "0123456789abcdef" for c in bi.WINSW_SHA256)
         assert bi.WINSW_URL.startswith("https://") and bi.WINSW_VERSION in bi.WINSW_URL
@@ -546,6 +578,12 @@ class TestVersionAndIscc:
         assert "/DAppVersionNumeric=0.2.0.0" in cmd
         assert "/DExtraDiskSpace=123" in cmd
         assert cmd[-1].endswith("baihe.iss")
+
+    def test_iscc_command_pins_the_service_payload(self, tmp_path):
+        cmd = bi.iscc_command("ISCC.exe", tmp_path, tmp_path, "0.2.0", 1,
+                              service_digest="d" * 64, stage_script_sha256="s" * 64)
+        assert f"/DServiceTreeDigest={'d' * 64}" in cmd
+        assert f"/DStageScriptSha256={'s' * 64}" in cmd
 
     def test_main_rejects_an_unsafe_version(self, capsys):
         assert bi.main(["--version", "1.0\"; rm -rf /"]) == 2
