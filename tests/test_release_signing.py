@@ -1,7 +1,8 @@
 """
-lib/release_signature.py, tools/release_signing.py and the release job's
-signing step in .github/workflows/windows-installer.yml. Keys are throwaway
-ones made here; the workflow step runs for real with a fake `gh` on PATH.
+lib/release_signature.py, tools/release_signing.py, the release job's
+signing step in .github/workflows/windows-installer.yml and the promote step
+in .github/workflows/promote-release.yml. Keys are throwaway ones made here;
+the workflow steps run for real with a fake `gh` on PATH.
 """
 
 import hashlib
@@ -305,3 +306,97 @@ def test_release_job_signs_the_app_zip_too(tmp_path, keys):
         assert (out / (name + ".sha256")).read_text().split() == [
             hashlib.sha256(data).hexdigest(), name]
     assert private.split(":", 1)[1] not in proc.stdout + proc.stderr
+
+
+def test_a_stable_tag_is_published_as_a_pre_release_first(tmp_path, keys):
+    # Copies with "Include pre-releases" off are offered it only once
+    # Promote Release has run.
+    _, _, private, public_text = keys
+    proc, gh_args, _ = _run_release(tmp_path, private, committed_public=public_text)
+    assert proc.returncode == 0, proc.stderr
+    assert "--prerelease" in gh_args
+
+
+# --- the promote job -------------------------------------------------------------
+
+def _promote_job():
+    yaml = pytest.importorskip("yaml")
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "promote-release.yml")
+                        .read_text(encoding="utf-8"))
+    job = wf["jobs"]["promote"]
+    assert job["environment"] == "release-main"
+    assert not any("uses" in s for s in job["steps"])   # nothing from the repository runs
+    (step,) = job["steps"]
+    return step["run"]
+
+
+FAKE_GH_PROMOTE = """#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$GH_LOG"
+case "$1 $2" in
+  "api repos/o/r/environments/release-main") printf '%s\\n' "$GH_RULES" ;;
+  "release view")
+    case "$*" in
+      *isDraft*) printf '%s\\n' "$GH_STATE" ;;
+      *assets*) printf '%s\\n' $GH_ASSETS ;;
+    esac ;;
+  "release edit") ;;
+  *) exit 1 ;;
+esac
+"""
+
+SIGNED = f"{NAME} {NAME}.sha256 {NAME}.sig"
+
+
+def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=SIGNED):
+    if os.name == "nt" or not shutil.which("bash"):
+        pytest.skip("needs bash (the promote job runs on ubuntu)")
+    script = _promote_job()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "gh").write_text(FAKE_GH_PROMOTE, encoding="utf-8")
+    (bindir / "gh").chmod(0o755)
+    log = tmp_path / "gh.log"
+    env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "TAG": tag,
+           "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t", "GH_LOG": str(log),
+           "GH_RULES": rules, "GH_STATE": state, "GH_ASSETS": assets}
+    proc = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True,
+                          timeout=60)
+    calls = log.read_text().splitlines() if log.exists() else []
+    return proc, [c for c in calls if c.startswith("release edit")]
+
+
+def test_promote_makes_the_tested_pre_release_the_full_release(tmp_path):
+    proc, edits = _run_promote(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert edits == ["release edit v0.2.0 --repo o/r --prerelease=false --latest"]
+
+
+APP = "BaiheStudio-App-0.2.0.zip"
+
+
+def test_promote_checks_the_app_zip_files_when_the_release_has_one(tmp_path):
+    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP} {APP}.sha256")
+    assert proc.returncode != 0 and edits == []
+    assert f"no {APP}.sig" in proc.stdout
+
+
+def test_promote_takes_a_release_with_a_signed_app_zip(tmp_path):
+    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP} {APP}.sha256 {APP}.sig "
+                                                "BaiheStudio-App-0.2.0.json")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert len(edits) == 1
+
+
+@pytest.mark.parametrize("change,says", [
+    ({"rules": "0"}, "no required reviewer"),
+    ({"state": "false false"}, "not a published pre-release"),
+    ({"state": "true true"}, "not a published pre-release"),
+    ({"tag": "v0.2.0-beta.1"}, "stays a pre-release"),
+    ({"tag": "v0.2.0; rm -rf /"}, "not a release tag"),
+    ({"assets": f"{NAME} {NAME}.sha256"}, f"no {NAME}.sig"),
+])
+def test_promote_refuses_and_changes_nothing(tmp_path, change, says):
+    proc, edits = _run_promote(tmp_path, **change)
+    assert proc.returncode != 0 and edits == []
+    assert says in proc.stdout and "Nothing was promoted" in proc.stdout

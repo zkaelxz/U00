@@ -30,7 +30,7 @@ matrix was skipped, and fails if any shard failed or `changes` did; it exists so
 notes-only, and `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
-and `windows-installer.yml` (job `installer`, plus `release` for a tag) cover the installer. `dependency-canary.yml` and
+and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
 `dependency-audit.yml` are weekly scheduled runs, never a PR gate (see "Testing a dependency upgrade" below). The five guard files are ignored only in the workflow's `test-shard` command lines;
 `python run_tests.py` and the local commands above still run everything.
 

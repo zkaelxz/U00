@@ -19,8 +19,9 @@ import background_jobs
 from jobs import job_launch
 from lib import ids as lib_ids
 import db
+import novel_text
 import storage
-from services import auth_service, novel_chapter_move_service
+from services import auth_service
 from services.library_admin_service import (USER_BACKUP_JOB_ID, _artifact_dir, _refuse_duplicate,
                                             refuse_during_maintenance)
 from services.library_backup_service import _sanitized_snapshot, _write_artifact
@@ -258,7 +259,7 @@ def _drama_media_files(drama_id: int):
         dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
         for fname in files:
             full = os.path.join(root, fname)
-            if (fname in (".env", novel_chapter_move_service.LOCK_FILENAME)
+            if (fname in (".env", novel_text.CHAPTER_MOVE_LOCK_FILENAME)
                     or os.path.islink(full) or not os.path.isfile(full)):
                 continue
             yield full, os.path.relpath(full, db.LIBRARY_DIR).replace(os.sep, "/")
