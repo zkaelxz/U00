@@ -386,6 +386,11 @@ def tidy_ocr_text(text: str) -> str:
 # Where the novel's source text is saved beside its title: narration and the
 # translate pipeline both read it, so it lives here and not with the dub code.
 NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
+# Chapter-move bookkeeping in a title's folder. Title copies leave out both: a copied journal
+# would have the copy's start-up recovery act on files that aren't the move's. Backups leave out
+# only the lock; they keep the journal so a restore can finish or undo the move.
+CHAPTER_MOVE_JOURNAL_FILENAME = ".chapter-move.json"
+CHAPTER_MOVE_LOCK_FILENAME = ".chapter-move.lock"
 
 
 # Text appended to the translation text that has no lines yet: {"chars": appended characters waiting,

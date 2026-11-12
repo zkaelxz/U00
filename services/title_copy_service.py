@@ -6,6 +6,7 @@ import os
 import shutil
 
 import db
+import novel_text
 from services import drama_service, ownership_service
 from lib.errors import ConflictError, ServiceError
 
@@ -86,7 +87,9 @@ def _copy_folder(source_id: int, new_id: int) -> None:
         raise ConflictError("Not enough free disk space to copy this title's files.")
     # Real copies, never hard links: a tool that rewrites a file in place
     # would otherwise change the original through the copy.
-    shutil.copytree(src, os.path.join(db.DRAMAS_DIR, str(new_id)), dirs_exist_ok=True)
+    shutil.copytree(src, os.path.join(db.DRAMAS_DIR, str(new_id)), dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns(novel_text.CHAPTER_MOVE_JOURNAL_FILENAME,
+                                                  novel_text.CHAPTER_MOVE_LOCK_FILENAME))
 
 
 def duplicate_title(source_id: int, principal=None) -> dict:

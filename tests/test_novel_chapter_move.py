@@ -439,6 +439,35 @@ def test_startup_gives_up_waiting_on_a_move_lock_that_is_never_let_go(isolated_d
     assert svc.recover_interrupted_moves() == [did]   # the next start puts it right
 
 
+def test_a_move_request_gives_up_with_409_when_another_copy_holds_the_lock(isolated_db, monkeypatch):
+    from lib import file_lock
+    did = _book(isolated_db)
+    before = _state(did)
+    monkeypatch.setattr(svc, "_MOVE_WAIT_SECONDS", 0.1)
+    lock = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), svc.LOCK_FILENAME)
+    with file_lock.hold(lock):          # another copy of the app holding it, hung
+        with pytest.raises(ConflictError, match="Another copy"):
+            svc.move_chapter(did, 3, 1)
+    assert _state(did) == before
+    svc.move_chapter(did, 3, 1)          # free again: the request goes through
+
+
+def test_a_timeout_inside_recovery_is_not_reported_as_a_held_lock(isolated_db, monkeypatch, caplog):
+    did = _book(isolated_db)
+    _kill_at(monkeypatch, "raw")
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+
+    def slow_disk(_drama_id):
+        raise TimeoutError("disk stalled")
+    monkeypatch.setattr(svc, "_recover", slow_disk)
+    assert svc.recover_interrupted_moves() == []
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("could not be put right" in m for m in messages)
+    assert not any("still holds" in m for m in messages)
+
+
 def test_a_title_with_no_folder_refuses_the_move_instead_of_crashing(isolated_db):
     import shutil
     did = db.create_drama(title_en="No folder")
