@@ -1,4 +1,4 @@
-"""Whether a process id belongs to a running process.
+"""Whether a process id belongs to a running process, and which process it is.
 
 Standard library only: pending_install and the installer launcher run before
 the app's dependencies are importable.
@@ -61,3 +61,60 @@ def pid_alive(pid: int) -> bool:
     except OSError:
         return True         # PermissionError: it exists, owned by someone else
     return True
+
+
+
+def _windows_start_token(pid: int, kernel32) -> str | None:
+    """The creation FILETIME of the process holding `pid`, with kernel32
+    injected so it can be tested; None when Windows won't say. Windows stores
+    it when the process starts, so a later clock change doesn't move it."""
+    from ctypes import byref
+    from ctypes.wintypes import FILETIME
+    handle = kernel32.OpenProcess(_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        created, exited, kernel, user = FILETIME(), FILETIME(), FILETIME(), FILETIME()
+        if not kernel32.GetProcessTimes(handle, byref(created), byref(exited), byref(kernel),
+                                        byref(user)):
+            return None
+        ticks = (created.dwHighDateTime << 32) | created.dwLowDateTime
+        return f"w{ticks}" if ticks else None
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _linux_start_token(pid: int, proc_root: str = "/proc") -> str | None:
+    """Boot id plus the start time in clock ticks since boot: neither moves
+    when the wall clock is set, unlike a start time in Unix seconds."""
+    try:
+        with open(f"{proc_root}/sys/kernel/random/boot_id", encoding="ascii") as fh:
+            boot = fh.read().strip()
+        with open(f"{proc_root}/{pid}/stat", encoding="ascii", errors="replace") as fh:
+            stat = fh.read()
+        # The command name (field 2) is in parentheses and may itself hold
+        # spaces or ")", so fields are counted from the last ")": starttime,
+        # field 22, is the 20th after it.
+        ticks = int(stat[stat.rindex(")") + 2:].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
+    return f"l{boot}-{ticks}" if boot else None
+
+
+def process_start_token(pid: int) -> str | None:
+    """A value that names one process: equal for the same process whoever
+    asks, different for a later process given the same pid. None when it is
+    unknown (no such process, access refused, or a platform with no cheap
+    standard-library probe)."""
+    if not 0 < pid <= MAX_PID:
+        return None
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        k32 = _windows_kernel32()
+        k32.GetProcessTimes.restype = wintypes.BOOL
+        k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        return _windows_start_token(pid, k32)
+    if os.path.isdir("/proc/self"):
+        return _linux_start_token(pid)
+    return None

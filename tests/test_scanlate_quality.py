@@ -74,6 +74,30 @@ class TestDetector:
         boxes = scanlate_detect.detect_bubbles_cv(_save(tmp_path, img))
         assert len(boxes) == 1 and abs(boxes[0]["x"] - 520) < 10
 
+    @pytest.mark.parametrize("spokes", [40, 90, 180])
+    def test_a_burst_balloon_with_a_ring_of_hairline_spikes_is_found(self, tmp_path, spokes):
+        import math
+        img = np.full((900, 700), 90, np.uint8)
+        cx, cy, radius = 350, 450, 190
+        cv2.circle(img, (cx, cy), radius, 255, -1)
+        for k in range(spokes):
+            a = 2 * math.pi * k / spokes
+            cv2.line(img, (int(cx + math.cos(a) * radius * 0.8), int(cy + math.sin(a) * radius * 0.8)),
+                     (int(cx + math.cos(a) * radius), int(cy + math.sin(a) * radius)), 0, 1)
+        _letters(img, 300, 420, 5)
+        _letters(img, 300, 480, 5)
+        boxes = scanlate_detect.detect_bubbles_cv(_save(tmp_path, img))
+        assert len(boxes) == 1 and abs(boxes[0]["w"] - 380) < 20
+
+    def test_a_white_shape_with_one_deep_cut_is_still_a_ragged_outline(self, tmp_path):
+        img = np.full((900, 700), 90, np.uint8)
+        cv2.circle(img, (350, 450), 190, 255, -1)
+        import math
+        cv2.line(img, (350, 450), (int(350 + math.cos(0.3) * 200), int(450 + math.sin(0.3) * 200)), 0, 12)
+        _letters(img, 300, 420, 5)
+        boxes, rejected = scanlate_detect.detect_bubbles_cv(_save(tmp_path, img), debug=True)
+        assert boxes == [] and any(r[4] == "ragged outline" for r in rejected)
+
     def test_thresholds_come_from_the_tuning_module(self, tmp_path, monkeypatch):
         path = _save(tmp_path, _white_panel_page())
         monkeypatch.setattr(scanlate_tuning, "CV_MIN_W", 400)

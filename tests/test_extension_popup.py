@@ -306,3 +306,10 @@ def test_the_run_waits_for_more_pages_only_while_something_says_they_are_coming(
         found, expected, loading, tries, wait):
     expression = f"window.__baihe.keepWaiting({found}, {expected}, {loading}, {tries})"
     assert _node("content_expression", expression) is wait
+
+
+def test_the_clean_and_typeset_switch_is_in_the_always_visible_area_not_on_the_auto_tab():
+    html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
+    auto = html[html.index('id="panel-auto"'):html.index("</section>", html.index('id="panel-auto"'))]
+    assert 'id="typeset"' not in auto
+    assert html.index('id="typeset"') < html.index('id="tab-page"')

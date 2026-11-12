@@ -21,7 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 import page_server
-from api.auth import require_device_token, require_engines_allowed
+from api.auth import holds, require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
 from services import extension_bridge_service
@@ -94,8 +94,21 @@ def _require_engine_allowed(request: Request) -> None:
                                 model=page_server.get_translation_config().get("model"))
 
 
-async def _handle(request: Request, work, uses_engine: bool = False):
+# `extension.send` only lets a member use the extension; what the extension writes into a
+# title is still governed by the permissions the People screen gives for it, so taking
+# `lines.edit` or `jobs.start` away must stop the extension too.
+_WRITE = ("lines.edit",)
+_ENGINE_WRITE = ("lines.edit", "jobs.start")
+
+
+def _require_held(request: Request, permissions) -> None:
+    if not all(holds(request, p) for p in permissions):
+        raise ForbiddenError("Not allowed.")
+
+
+async def _handle(request: Request, work, uses_engine: bool = False, needs=()):
     try:
+        _require_held(request, needs)
         if uses_engine:
             _require_engine_allowed(request)
         payload = await _json_body(request)
@@ -122,28 +135,32 @@ async def get_health(request: Request):
              summary="Device token: translate one page image")
 async def post_page(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _images(payload, True, principal), uses_engine=True)
+    return await _handle(request, lambda payload: _images(payload, True, principal), uses_engine=True,
+                         needs=_ENGINE_WRITE)
 
 
 @router.post("/pages", dependencies=[require_device_token()],
              summary="Device token: translate several page images")
 async def post_pages(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _images(payload, False, principal), uses_engine=True)
+    return await _handle(request, lambda payload: _images(payload, False, principal), uses_engine=True,
+                         needs=_ENGINE_WRITE)
 
 
 @router.post("/text", dependencies=[require_device_token()],
              summary="Device token: translate a block of page text")
 async def post_text(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _text(payload, principal), uses_engine=True)
+    return await _handle(request, lambda payload: _text(payload, principal), uses_engine=True,
+                         needs=_ENGINE_WRITE)
 
 
 @router.post("/novel", dependencies=[require_device_token()],
              summary="Device token: save a web-novel page's text as a chapter")
 async def post_novel(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: novel.save_from_bridge(payload, principal=principal))
+    return await _handle(request, lambda payload: novel.save_from_bridge(payload, principal=principal),
+                         needs=_WRITE)
 
 
 @router.post("/title", dependencies=[require_device_token()],
@@ -151,14 +168,15 @@ async def post_novel(request: Request):
 async def post_title(request: Request):
     principal = request.state.principal
     # Naming a new title is one AI call on the owner's extension engine, so a member who could
-    # not send a page through that engine gets the title without it.
-    try:
-        _require_engine_allowed(request)
-        may_spend = True
-    except ForbiddenError:
-        may_spend = False
+    # not send a page through that engine (engine rights, or `jobs.start`) gets the title without it.
+    may_spend = holds(request, "jobs.start")
+    if may_spend:
+        try:
+            _require_engine_allowed(request)
+        except ForbiddenError:
+            may_spend = False
     return await _handle(request, lambda payload: titles.resolve_from_bridge(
-        payload, principal=principal, translate_title=may_spend))
+        payload, principal=principal, translate_title=may_spend), needs=_WRITE)
 
 
 @router.post("/capture-summary", dependencies=[require_device_token()],
