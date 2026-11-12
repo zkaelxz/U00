@@ -137,6 +137,54 @@ def test_lines_that_do_not_line_up_refuse_the_move(isolated_db):
     assert _state(did) == before
 
 
+def _rewrite_lines(did, texts, timed=False):
+    db.save_lines(did, [Line(idx=r["idx"], start=r["start"] + (0.5 if timed else 0), end=r["end"],
+                             zh=t, en=r["en"], id=r["id"])
+                        for r, t in zip(db.load_lines(did), texts)], fields=("zh", "start", "end"))
+
+
+def test_a_body_line_equal_to_a_later_title_refuses_instead_of_cutting_early(isolated_db):
+    did = db.create_drama(title_en="D")
+    _import(did, 1, "上", "甲。\n\n下\n\n乙。")
+    _import(did, 2, "下", "丙。")
+    db.save_lines(did, [Line(idx=i, start=float(i), end=i + 1.0, zh=t, en=f"en{i}")
+                        for i, t in enumerate(["上", "甲。", "下", "乙。", "下", "丙。"])])
+    before = _state(did)
+    with pytest.raises(ConflictError):
+        svc.move_chapter(did, 2, 1)
+    assert _state(did) == before
+
+
+def test_lines_with_their_own_times_refuse_the_move(isolated_db):
+    did = _book(isolated_db)
+    _rewrite_lines(did, TEXTS, timed=True)
+    before = _state(did)
+    with pytest.raises(ConflictError) as err:
+        svc.move_chapter(did, 3, 1)
+    assert "times" in err.value.message
+    assert _state(did) == before
+
+
+def test_a_raw_file_that_cannot_be_restored_still_gets_the_lines_put_back(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    before_lines = _state(did)[2]
+    calls = []
+    real = svc.edit._swap_in
+
+    def second_fails(tmp, dest):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError("disk")
+        return real(tmp, dest)
+    monkeypatch.setattr(svc.edit, "_swap_in", second_fails)
+    monkeypatch.setattr(svc.edit, "_restore_raw", lambda *a: (_ for _ in ()).throw(OSError("gone")))
+    with pytest.raises(ConflictError) as err:
+        svc.move_chapter(did, 2, 1)
+    monkeypatch.undo()
+    assert ".before-edit" in err.value.message
+    assert _state(did)[2] == before_lines
+
+
 def test_refusals(isolated_db):
     did = _book(isolated_db)
     with pytest.raises(NotFoundError):
@@ -156,6 +204,17 @@ def test_a_translation_text_that_copies_the_raw_chapters_follows_the_move(isolat
     assert svc.move_chapter(did, 3, 1)["translation_text_updated"] is True
     with open(copy, encoding="utf-8", newline="") as f:
         assert f.read() == _raw(did)
+
+
+def test_a_translation_text_that_is_not_a_copy_is_left_alone_and_reported(isolated_db):
+    did = _book(isolated_db)
+    copy = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), "novel_narration_source.txt")
+    with open(copy, "w", encoding="utf-8") as g:
+        g.write("pasted and edited")
+    out = svc.move_chapter(did, 3, 1)
+    assert (out["translation_text_updated"], out["translation_text_stale"]) == (False, True)
+    with open(copy, encoding="utf-8") as f:
+        assert f.read() == "pasted and edited"
 
 
 def test_route_moves_a_chapter(client, isolated_db):

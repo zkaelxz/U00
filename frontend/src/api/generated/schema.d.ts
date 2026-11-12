@@ -22440,6 +22440,11 @@ export interface components {
             /** To Number */
             to_number: number;
             /**
+             * Translation Text Stale
+             * @default false
+             */
+            translation_text_stale: boolean;
+            /**
              * Translation Text Updated
              * @default false
              */

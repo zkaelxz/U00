@@ -102,3 +102,4 @@ class NovelChapterMoved(BaseModel):
     to_number: int
     lines_moved: int
     translation_text_updated: bool = False
+    translation_text_stale: bool = False

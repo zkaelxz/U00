@@ -75,7 +75,7 @@ test('moves a chapter one place later from its preview and reloads the list', as
     in_translation: false, offset, text: 'text', next_offset: null }))
   await page.route('**/api/novel/dramas/2/raw-novel/chapters/1/move', (route) => {
     posted.push(route.request().postDataJSON())
-    return route.fulfill({ json: { drama_id: 2, number: 1, to_number: 2, lines_moved: 4, translation_text_updated: false } })
+    return route.fulfill({ json: { drama_id: 2, number: 1, to_number: 2, lines_moved: 4, translation_text_updated: false, translation_text_stale: true } })
   })
   await page.goto('/#/drama/2/source')
   await openChapters(page)
@@ -83,8 +83,11 @@ test('moves a chapter one place later from its preview and reloads the list', as
   const preview = page.getByRole('region', { name: 'Chapter preview' })
   await expect(preview.getByRole('button', { name: 'Move earlier' })).toBeDisabled()
   await preview.getByRole('button', { name: 'Move later' }).click()
+  expect(posted).toEqual([])
+  await preview.getByRole('button', { name: 'Move chapter' }).click()
   await expect(preview).toHaveCount(0)
   expect(posted).toEqual([{ to_number: 2 }])
+  await expect(page.getByRole('status').filter({ hasText: 'not a copy of the saved chapters' })).toBeVisible()
 })
 
 test('opens a preview, loads the rest with Show all, and copies', async ({ page, context }) => {

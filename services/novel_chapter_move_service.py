@@ -30,6 +30,8 @@ from sources import pipeline, store
 _NOT_ALIGNED = ("The chapters and the lines do not line up (a chapter's title line is missing or "
                 "out of order), so the chapters can't be moved safely. Split the text into lines "
                 "again first.")
+_TIMED = ("These lines have their own times, so reordering chapters would put them out of step "
+          "with the audio. Only untimed novel lines can be reordered.")
 
 
 def move_chapter(drama_id: int, number: int, to_number: int) -> dict:
@@ -58,8 +60,9 @@ def _new_order(count: int, number: int, to_number: int) -> list:
 
 
 def _moved_lines(rows: list, starts: list, order: list) -> list:
-    """The saved lines regrouped by chapter in `order`, renumbered from 0. A line saved at its own
-    position as its time (start == idx, as the novel splitter writes them) keeps doing so."""
+    """The saved lines regrouped by chapter in `order`, renumbered from 0. Their times are their
+    positions (start == idx, as the novel splitter writes them; _untimed refuses any others), so
+    they are renumbered with them."""
     bounds = {n: (pos, starts[i + 1][2] if i + 1 < len(starts) else len(rows))
               for i, (n, _t, pos) in enumerate(starts)}
     out = []
@@ -67,12 +70,34 @@ def _moved_lines(rows: list, starts: list, order: list) -> list:
         first, end = bounds[n]
         for row in rows[first:end]:
             ln = line_from_row(row)
-            at_idx = ln.start == float(row["idx"]) and ln.end == float(row["idx"]) + 1.0
             ln.idx = len(out)
-            if at_idx:
-                ln.start, ln.end = float(ln.idx), float(ln.idx) + 1.0
+            ln.start, ln.end = float(ln.idx), float(ln.idx) + 1.0
             out.append(ln)
     return out
+
+
+def _untimed(rows: list) -> bool:
+    """True when every line's time is just its position, i.e. nothing was timed to audio."""
+    return all(r.get("start") == float(r["idx"]) and r.get("end") == float(r["idx"]) + 1.0
+               for r in rows)
+
+
+def _lines_match_text(raw: str, chapters: list, rows: list, starts: list) -> bool:
+    """True when each chapter's lines, joined, are exactly that chapter's saved text (ignoring
+    white space, which the line splitter drops). Finding a title line is not enough: a body line
+    equal to a later chapter's title would cut a chapter early."""
+    def squeeze(text: str) -> str:
+        return "".join(text.split())
+
+    with open(raw, "rb") as src:
+        for i, (n, _title, first) in enumerate(starts):
+            end = starts[i + 1][2] if i + 1 < len(starts) else len(rows)
+            c = chapters[n - 1]
+            src.seek(c["start"])
+            text = src.read(c["length"]).decode("utf-8", errors="replace")
+            if squeeze(text) != "".join(squeeze(r.get("zh") or "") for r in rows[first:end]):
+                return False
+    return True
 
 
 def _as_read(rows: list) -> list:
@@ -136,12 +161,38 @@ def _checked(drama_id: int, number: int, to_number: int):
     return found[0], chapters, sep
 
 
+def _roll_back(drama_id: int, raw: str, folder: str, raw_swapped: bool, lines_saved: bool,
+               rows: list) -> None:
+    """Undoes whatever a failed move had done. Each step runs on its own, so a file that cannot
+    be restored does not stop the lines being put back. Raises only when something is left
+    half-done, saying which part."""
+    stuck = []
+    if raw_swapped:
+        try:
+            edit._restore_raw(raw, folder)
+        except Exception:
+            stuck.append("The saved text could not be put back in its old order; its earlier copy "
+                         "is kept beside it as a .before-edit file.")
+    if lines_saved:
+        try:
+            db.save_lines(drama_id, _as_read(rows))
+        except Exception:
+            stuck.append("The lines could not be put back in their old order. Restore them from "
+                         "the line history (\u201cbefore moving a chapter\u201d).")
+    if stuck:
+        raise ConflictError("The move failed and was only partly undone. " + " ".join(stuck))
+
+
 def _move_locked(drama_id: int, number: int, to_number: int) -> dict:
     raw, chapters, sep = _checked(drama_id, number, to_number)
     rows = db.load_lines(drama_id)
     starts = mapping.starts_from_manifest(drama_id, [mapping.norm(r.get("zh")) for r in rows])
     if ([n for n, _t, _p in starts] != list(range(1, len(chapters) + 1))
             or starts[0][2] != 0):
+        raise ConflictError(_NOT_ALIGNED)
+    if not _untimed(rows):
+        raise ConflictError(_TIMED)
+    if not _lines_match_text(raw, chapters, rows, starts):
         raise ConflictError(_NOT_ALIGNED)
     folder = os.path.dirname(raw)
     order = _new_order(len(chapters), number, to_number)
@@ -165,17 +216,9 @@ def _move_locked(drama_id: int, number: int, to_number: int) -> dict:
         for tmp in (tmp_raw, tmp_man):
             if os.path.exists(tmp):
                 os.remove(tmp)
-        if raw_swapped:
-            edit._restore_raw(raw, folder)
-        if lines_saved:
-            try:
-                db.save_lines(drama_id, _as_read(rows))
-            except Exception as put_back:
-                raise ConflictError(
-                    "The move failed and the lines could not be put back in their old order. "
-                    "Restore them from the line history (“before moving a chapter”)."
-                ) from put_back
+        _roll_back(drama_id, raw, folder, raw_swapped, lines_saved, rows)
         raise
     translation_updated = narration_is_copy and edit._copy_to_translation_text(raw, narration, folder)
     return {"drama_id": drama_id, "number": number, "to_number": to_number,
-            "lines_moved": len(moved), "translation_text_updated": bool(translation_updated)}
+            "lines_moved": len(moved), "translation_text_updated": bool(translation_updated),
+            "translation_text_stale": os.path.isfile(narration) and not translation_updated}
