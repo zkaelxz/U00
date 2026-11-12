@@ -138,7 +138,7 @@ def refresh_offer(release) -> None:
             manifest = json.loads(data.decode("utf-8"))
         except (ServiceError, ValueError, OSError, us.requests.RequestException):
             manifest = None
-        if _manifest_ok(manifest, release["version"]):
+        if isinstance(manifest, dict) and _manifest_ok(manifest, release["version"]):
             offer = "available" if _base_matches(manifest) else "needs_full_installer"
             size = app["size"]
             schema = (release["version"], manifest.get("db_schema_sha256"))
