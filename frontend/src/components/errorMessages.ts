@@ -95,8 +95,8 @@ export function keyWritesRefused(): string {
 export interface DescribeOptions {
   // PC-only callers: a 403 reads PC_ONLY_FORBIDDEN instead of the generic text.
   pcOnly?: boolean
-  // Admin/restore callers: validation_error and invalid_input show the
-  // server's own text too (fixed sentences, no paths; still safeDetail-filtered).
+  // Admin/restore callers: validation_error and invalid_input show the server's own text
+  // as the heading at any status (fixed sentences, no paths; still safeDetail-filtered).
   serverText?: boolean
   // Refusals whose server sentence is the whole answer ("There is no dub track for this title.")
   // show it as the heading instead of the generic validation text.
@@ -111,11 +111,6 @@ export const MISSING_PACKAGE_TITLE = "A package this needs isn't installed. Inst
 const MISSING_PACKAGE_MEMBER = `A package this needs isn't installed. ${ASK_PC_OWNER}`
 
 const SERVER_TEXT_CODES = ['not_found', 'conflict', 'unsupported_operation', 'dependency_unavailable', 'application_error']
-
-// With the server's reason shown, the generic "Nothing was changed unless stated otherwise" would
-// contradict a reason that says something was left behind, so the heading claims nothing.
-const APPLICATION_ERROR_WITH_REASON = 'The action failed.'
-const READ_APPLICATION_ERROR_WITH_REASON = 'Could not load this.'
 
 const SENSITIVE =
   /(?:[A-Za-z]:\\|\\\\|\/(?:home|Users|tmp|var|etc|root|opt|mnt)\/|\bsk-[\w-]{6,}|\bBearer\s+\S+|(?:api[_-]?key|token|secret)\s*[=:])/i
@@ -189,8 +184,13 @@ export function describeError(
   const isRead = e?.method === 'GET' || e?.method === 'HEAD'
   // A member whose own paid-engine limit is used up: the server's sentence says what to do.
   const paidLimitText = code === 'forbidden' && reason === PAID_LIMIT_REASON ? safeDetail(e?.message ?? '') : null
-  const applicationReason =
+  // The reason is the heading, so no generic "Nothing was changed unless stated otherwise" can
+  // contradict a reason that says something was left behind. It may send the reader to
+  // Diagnostics, which a member cannot open; then the generic heading stands.
+  const rawApplicationReason =
     code === 'application_error' && typeof e?.message === 'string' ? safeDetail(withoutExceptionNames(e.message)) : null
+  const applicationReason =
+    rawApplicationReason && (canOpenDiagnostics() || !/Diagnostics/.test(rawApplicationReason)) ? capFirst(rawApplicationReason) : null
   const jobText = code === JOB_FAILED && typeof e?.message === 'string' ? safeDetail(e.message.replace(EXCEPTION_PREFIX, '')) : null
   // 422 sentences (InvalidInputError) and 429 wait times are fixed server
   // text written for people; safeDetail still drops anything path- or key-like.
@@ -198,7 +198,7 @@ export function describeError(
   const serverTitle =
     serverMsg &&
     serverMsg !== PLACEHOLDER_INVALID &&
-    ((e?.status === 422 && OPT_IN_SERVER_TEXT_CODES.includes(code)) || code === 'rate_limited' ||
+    ((OPT_IN_SERVER_TEXT_CODES.includes(code) && (e?.status === 422 || opts.serverText)) || code === 'rate_limited' ||
       STORAGE_CODES.includes(code) ||
       (opts.pinText && code === 'forbidden' && serverMsg !== GENERIC_FORBIDDEN_SERVER_TEXT))
       ? capFirst(serverMsg)
@@ -215,7 +215,7 @@ export function describeError(
         (missingPackage ? (canOpenDiagnostics() ? MISSING_PACKAGE_TITLE : MISSING_PACKAGE_MEMBER) : null) ??
         refusalText ??
         serverTitle ??
-        (applicationReason ? (isRead ? READ_APPLICATION_ERROR_WITH_REASON : APPLICATION_ERROR_WITH_REASON) : null) ??
+        applicationReason ??
         (isRead ? READ_GENERIC[code] : undefined) ??
         (code === 'dependency_unavailable' ? (canOpenDiagnostics() ? DEPENDENCY_ADMIN : DEPENDENCY_MEMBER) : undefined) ??
         (code === 'network_error' ? couldNotReachBaihe() : undefined) ??
@@ -225,7 +225,7 @@ export function describeError(
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
   const rawDetail =
     code === 'application_error'
-      ? applicationReason
+      ? null
       : e?.message && showServer && !ollamaText && !addressText && !engineText && !missingKey && !refusalText && !serverTitle
         ? safeDetail(e.message)
         : null
