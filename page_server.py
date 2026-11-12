@@ -354,6 +354,58 @@ def _page_extras(drama, config: dict, engine, image: bytes) -> dict:
         return {}
 
 
+def _lines_without_english(bubbles) -> list:
+    """The lines translation should have covered but left empty: text read, not skipped, not a
+    sound effect left to the art. A partly answered reply (a short line, a name the model dropped)
+    ends up here."""
+    import scanlate_regions
+    return [b for b in bubbles
+            if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
+            and (b.get("source_text") or "").strip() and not (b.get("translated_text") or "").strip()]
+
+
+def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
+                         image: bytes = b"") -> float:
+    """Translates a freshly read page, asks once more for any lines left empty, and returns the
+    seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
+    retry, so they are counted rather than silently shown as the source text."""
+    import db
+    import scanlate_translate
+
+    engine = _build_engine(config)
+    if not bubbles:
+        return 0.0
+    if engine is None:
+        notes.append(_no_engine_note(config, "read"))
+        return 0.0
+    started = time.monotonic()
+    glossary = (db.list_effective_glossary_terms(drama["series_id"])
+                if drama and drama.get("series_id") else None)
+    usage = _usage_cb(drama, config, engine)
+    extras = _page_extras(drama, config, engine, image)
+    try:
+        page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage,
+                                      **extras)
+    except Exception as e:
+        # The OCR text is still real and still useful, so it is returned rather than thrown
+        # away -- the same choice the Scanlate pipeline makes on this failure.
+        notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
+                                 "the source text below was still read"])
+    missing = _lines_without_english(bubbles)
+    if missing:
+        try:
+            scanlate_translate.translate_page_bubbles(
+                missing, engine, drama or {}, previous_context="", glossary_terms=glossary,
+                usage_cb=usage, character_notes=extras.get("character_notes", ""))
+        except Exception:
+            pass  # the first call's own note already says why; this is a second chance only
+        left = len(_lines_without_english(bubbles))
+        if left:
+            notes.append(["warning", f"{left} line{'s' if left != 1 else ''} still had no "
+                                     "translation after a retry"])
+    return time.monotonic() - started
+
+
 def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, source_url: str,
                        config: dict, member: bool = False, image: bytes = b"") -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
@@ -434,6 +486,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     reuse_saved = None
     busy = None
     claim = None
+    read_seconds = 0.0
     try:
         # The discard runs before the lock is released, while no other
         # request can have seen the page.
@@ -472,6 +525,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             if reuse_saved is None and busy is None:
                 try:
                     lang = _page_source_language(drama, source_language)
+                    read_started = time.monotonic()
                     bubbles, detect_notes = scanlate.detect_and_ocr_page(
                         image_path, lang,
                         detect_backend=config.get("detect_backend") or "auto",
@@ -480,6 +534,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                         tesseract_cmd=config.get("tesseract_cmd") or None,
                         prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
                         page_id=(page or {}).get("id"))
+                    read_seconds = time.monotonic() - read_started
                 finally:
                     if temp_path:
                         try:
@@ -516,22 +571,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
         notes.extend(_detect_notes(detect_notes, member))
-        engine = _build_engine(config)
-        if bubbles and engine is not None:
-            glossary = (db.list_effective_glossary_terms(drama["series_id"])
-                        if drama and drama.get("series_id") else None)
-            try:
-                page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama,
-                                              glossary, _usage_cb(drama, config, engine),
-                                              **_page_extras(drama, config, engine, data))
-            except Exception as e:
-                # The OCR text is still real and still useful, so it
-                # is returned rather than thrown away -- the same
-                # choice the Scanlate pipeline makes on this failure.
-                notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
-                                         "the source text below was still read"])
-        elif bubbles and engine is None:
-            notes.append(_no_engine_note(config, "read"))
+        translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
+                                                 notes, member, data)
         if page is not None:
             notes.extend(read_notes)
             notes.extend(page_capture_checks.save_translations_of_read(
@@ -548,6 +589,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         "drama_id": int(drama_id) if drama_id else None,
         "page_id": (page or {}).get("id"),
         "stored": page is not None,
+        "untranslated_lines": len(_lines_without_english(bubbles)),
+        "seconds": {"read": round(read_seconds, 2), "translate": round(translate_seconds, 2)},
     }
 
 

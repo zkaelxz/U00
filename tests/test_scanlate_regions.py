@@ -416,8 +416,12 @@ class TestSfxSkipByDefault:
         inpainted, drawn = [], []
         monkeypatch.setattr(scanlate_render, "inpaint_region",
                             lambda path, box, out_path=None, **kw: inpainted.append(box) or out_path)
-        monkeypatch.setattr(scanlate_render, "render_text_in_box",
-                            lambda img, box, text, **kw: drawn.append(text) or img)
+        def draw(img, box, text, report=None, **kw):
+            # A fitting pass (report given) only measures; it draws nothing on the page.
+            if report is None:
+                drawn.append(text)
+            return img
+        monkeypatch.setattr(scanlate_render, "render_text_in_box", draw)
         _, skipped_blank = scanlate_render.process_page(bubble_page, bubbles, str(tmp_path / "out.png"))
         return inpainted, drawn, skipped_blank
 
@@ -678,6 +682,48 @@ def test_one_block_of_lettering_and_a_small_box_stay_one_region():
     assert scanlate_regions.split_separate_lettering(two, small) == [small]
 
 
+def _frame_with_curls_and_a_caption(size=(700, 800)):
+    """Small corner curls (many, so their height is the page's median) and a line
+    of tall lettering with a dash after it, as in a captioned frame."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full(size, 250, np.uint8)
+    for cx, cy in ((40, 40), (700, 40), (40, 600), (700, 600)):
+        for k in range(4):
+            cv2.rectangle(page, (cx + k * 26, cy), (cx + k * 26 + 12, cy + 12), 40, -1)
+    for left, width, top, height in ((300, 24, 300, 36), (332, 26, 296, 44), (366, 20, 304, 30)):
+        cv2.rectangle(page, (left, top), (left + width, top + height), 40, -1)
+    cv2.rectangle(page, (404, 318), (440, 321), 40, -1)
+    return page
+
+
+def test_lettering_taller_than_the_frames_ornament_curls_is_still_found_as_a_block():
+    page = _frame_with_curls_and_a_caption()
+    parts = scanlate_regions.split_separate_lettering(page, {"x": 0, "y": 0, "w": 800, "h": 700})
+    caption = [p for p in parts if p["x"] <= 300 and p["x"] + p["w"] >= 386 and p["y"] <= 296
+               and p["y"] + p["h"] >= 340]
+    assert caption, parts
+
+
+def test_a_dash_ending_the_line_is_inside_its_block():
+    page = _frame_with_curls_and_a_caption()
+    parts = scanlate_regions.split_separate_lettering(page, {"x": 0, "y": 0, "w": 800, "h": 700})
+    assert any(p["x"] <= 300 and p["x"] + p["w"] >= 440 for p in parts), parts
+
+
+def test_marks_that_stand_alone_are_not_taken_for_a_row_of_letters():
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((700, 800), 250, np.uint8)
+    for x, y in ((40, 40), (700, 60), (60, 620), (690, 600), (360, 340)):
+        cv2.rectangle(page, (x, y), (x + 14, y + 14), 40, -1)
+    assert scanlate_regions._in_a_row(*_stats_of(page)) == []
+
+
+def _stats_of(page):
+    cv2 = pytest.importorskip("cv2")
+    _, _, stats, _ = cv2.connectedComponentsWithStats((page < 150).astype(np.uint8), connectivity=8)
+    return stats, list(range(1, len(stats)))
+
+
 class TestKatakanaEffects:
     @pytest.mark.parametrize("text,becomes", [
         ("キュルルル・", "sfx"),
@@ -695,3 +741,27 @@ class TestKatakanaEffects:
     def test_a_region_the_person_included_is_left_alone(self):
         region = {"kind": "bubble", "source_text": "ゴゴゴ", "include_sfx": True}
         assert scanlate_regions.flag_katakana_effects([region]) == 0
+
+
+def test_a_block_cut_from_a_frame_that_reads_as_nothing_is_not_a_region(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    page = _glyph_page([(60, 60), (420, 480)])
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, page)
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+    monkeypatch.setattr(scanlate, "ocr_box_region",
+                        lambda p, b, *a, **kw: "こんにちは" if b["x"] < 200 else "")
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert [b["source_text"] for b in bubbles] == ["こんにちは"]
+
+
+def test_a_box_that_was_not_split_keeps_its_empty_region_for_hand_entry(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, _glyph_page([(300, 300)]))
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+    monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **kw: "")
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert len(bubbles) == 1

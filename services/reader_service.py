@@ -64,7 +64,7 @@ from engine_backends import shared as engine_shared
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
-from services import ownership_service, settings_service, translate_service
+from services import glossary_service, ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from lib.errors import (
     DependencyUnavailableError,
@@ -136,7 +136,8 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
         html_str = reader.build_reader_html(
             page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
             font_size=font_size, line_height=line_height, max_width=max_width, font=font,
-            readings=readings, paragraph_ends=ends, editable=editable)
+            readings=readings, paragraph_ends=ends, editable=editable,
+            terms=glossary_service.effective_glossary_terms(drama_id) if editable else None)
 
     return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
 

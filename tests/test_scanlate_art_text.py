@@ -72,14 +72,30 @@ class TestFindArtCaptions:
                                       image=page)
         assert [c["source_text"] for c in found] == ["保留的字"]
 
-    def test_rapidocr_backend_reads_the_lines_and_paddle_is_left_alone(self, monkeypatch):
-        def boom(*a, **k):
-            raise AssertionError("paddle used")
-        monkeypatch.setattr(ocr, "paddle_lines", boom)
+    def test_rapidocr_backend_reads_the_lines_and_paddle_adds_only_site_stamps(self, monkeypatch):
+        monkeypatch.setattr(ocr, "paddle_lines", lambda page, lang, scale: [
+            ("Paddle's own caption", 0.9, (300, 300, 200, 60)),
+            ("가장른 미리보가", 0.65, (622, 500, 154, 26))])
         monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [
             ("保留的字", 0.9, (10, 10, 200, 60)), ("unsure", 0.3, (10, 100, 200, 60))])
-        found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy(),
+        found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy(),
                                       backend="rapidocr")
+        assert [c["source_text"] for c in found] == ["保留的字", "가장른 미리보가"]
+
+    def test_a_stamp_only_paddle_sees_is_not_read_twice_when_rapidocr_sees_it_too(self, monkeypatch):
+        stamp = ("구글검색 뉴토끼", 0.9, (620, 520, 160, 18))
+        monkeypatch.setattr(ocr, "paddle_lines", lambda page, lang, scale: [stamp])
+        monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [stamp])
+        found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy(), backend="rapidocr")
+        assert [c["source_text"] for c in found] == ["구글검색 뉴토끼"]
+
+    def test_without_paddle_installed_the_rapidocr_lines_are_still_used(self, monkeypatch):
+        def missing(*a, **k):
+            raise ImportError("paddleocr")
+        monkeypatch.setattr(ocr, "paddle_lines", missing)
+        monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [
+            ("保留的字", 0.9, (10, 10, 200, 60))])
+        found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy(), backend="rapidocr")
         assert [c["source_text"] for c in found] == ["保留的字"]
 
     def test_specks_and_already_english_text_are_not_captions(self, monkeypatch):
@@ -91,6 +107,14 @@ class TestFindArtCaptions:
         ])
         found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy())
         assert [c["source_text"] for c in found] == ["魔王来了"]
+
+    def test_a_small_site_stamp_is_found_so_it_can_be_skipped_and_painted_out(self, monkeypatch):
+        self._fake(monkeypatch, [
+            ("구글검색 뉴토끼", 0.9, (620, 520, 160, 18)),
+            ("작은 글씨", 0.9, (10, 10, 160, 18)),
+        ])
+        found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy())
+        assert [c["source_text"] for c in found] == ["구글검색 뉴토끼"]
 
     def test_tall_pages_are_detected_at_a_capped_size(self, monkeypatch):
         seen = self._fake(monkeypatch, [])

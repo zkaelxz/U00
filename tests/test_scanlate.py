@@ -1190,6 +1190,25 @@ class TestEnglishTextSkipped:
         assert regions[0]["skip"] is False
 
 
+class TestBareNumbersSkipped:
+    def test_a_region_that_is_only_a_number_is_skipped(self):
+        regions = [{"source_text": "610", "skip": False}, {"source_text": "１００！", "skip": False},
+                   {"source_text": "3-2", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "zh") == 3
+        assert all(r["skip"] for r in regions)
+
+    def test_numbers_inside_a_sentence_and_empty_text_are_left_alone(self):
+        regions = [{"source_text": "第3拳", "skip": False}, {"source_text": "我有100个", "skip": False},
+                   {"source_text": "", "skip": False}, {"source_text": "...", "skip": False},
+                   {"source_text": "610", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "zh") == 1
+        assert [r["skip"] for r in regions] == [False, False, False, False, True]
+
+    def test_an_english_source_page_is_left_alone(self):
+        regions = [{"source_text": "610", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "en") == 0
+
+
 class TestHollowFrames:
     def test_a_sign_erase_keeps_the_frame_round_the_lettering_and_erases_the_lettering(self):
         import cv2
@@ -1282,3 +1301,28 @@ def test_render_paints_out_a_skipped_site_stamp(tmp_path):
     done = cv2.imread(out)
     assert done[100:180, 20:150].mean() < 200        # no longer white
     assert (done[0:15] == img[0:15]).all()            # the art away from it is untouched
+
+
+class TestSiblingBalloonsShareAFitRatio:
+    def test_a_roomy_balloon_follows_a_cramped_one_of_similar_lettering(self):
+        caps = scanlate_render.sibling_size_caps([(32, 32), (26, 22)])
+        assert caps == [27, 26]
+
+    def test_lettering_much_larger_or_smaller_is_left_alone(self):
+        assert scanlate_render.sibling_size_caps([(40, 40), (26, 22), (18, 18)]) == [40, 26, 18]
+
+    def test_a_very_cramped_neighbour_costs_a_balloon_at_most_a_quarter(self):
+        assert scanlate_render.sibling_size_caps([(30, 30), (30, 8)]) == [22, 30]
+
+    def test_a_lone_balloon_keeps_its_start(self):
+        assert scanlate_render.sibling_size_caps([(24, 24)]) == [24]
+
+
+class TestRenderReportsTheDrawnSize:
+    def test_the_report_carries_the_fitted_size(self):
+        from PIL import Image
+        img = Image.new("RGB", (80, 60), "white")
+        report = {}
+        scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
+                                           "of text that must shrink", font_size=40, report=report)
+        assert 8 <= report["size"] < 40

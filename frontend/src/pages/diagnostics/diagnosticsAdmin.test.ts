@@ -235,7 +235,7 @@ describe('other sections', () => {
     })).toBe('12.0 GB · 7 models')
     expect(modelCacheSummary({
       hf_cache: [], hf_total_bytes: 0,
-      model_files: [{ folder: 'torch', name: 'htdemucs.th', size_bytes: 1 }],
+      model_files: [{ folder: 'torch', name: 'model.pt', size_bytes: 1 }],
       model_files_total_bytes: 84_000_000,
     })).toBe('84.0 MB · 1 model file')
   })

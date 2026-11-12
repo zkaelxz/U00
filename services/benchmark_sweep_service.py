@@ -124,11 +124,11 @@ def _model_choices(language: str, refine: bool) -> list:
     return out
 
 
-def _knob_choices(use_gpu) -> list:
+def _knob_choices() -> list:
     out = []
     for key, label, values in KNOBS:
         reason = None
-        if key == "separate_vocals_first" and not model_readiness_service.separation_ready("auto", use_gpu):
+        if key == "separate_vocals_first" and not model_readiness_service.separation_ready():
             reason = ("The vocal separation model isn't downloaded yet. Run Separate vocals first once on a "
                       "title; the sweep does not download it.")
         out.append({"key": key, "label": label, "values": list(values), "included": reason is None,
@@ -155,7 +155,7 @@ class _Plan:
             raise DependencyUnavailableError(
                 f"The default model, {default_model}, isn't on this PC yet. Run a title with it once; "
                 "the sweep never downloads a model.")
-        self.knobs = _knob_choices(self.use_gpu)
+        self.knobs = _knob_choices()
         self.default = {"engine": "whisper", "model": default_model, "changes": {}}
         cfg = self.config(self.default)
         context = lab.run_context(STAGE, cfg, cases, self.use_gpu)

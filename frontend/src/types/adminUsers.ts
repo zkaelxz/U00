@@ -8,6 +8,7 @@ type Schemas = components['schemas']
 type LaterFields = 'has_own_ollama_key' | 'month_paid_spend_usd' | 'monthly_paid_cap_usd'
 export type AdminUser = Omit<Schemas['AdminUser'], LaterFields> & Partial<Pick<Schemas['AdminUser'], LaterFields>>
 export type AdminUserList = Omit<Schemas['AdminUserList'], 'users'> & { users: AdminUser[] }
+export type AdminAddUserRequest = Schemas['AdminAddUserRequest']
 export type AdminSessionsRevoked = Schemas['AdminSessionsRevoked']
 export type AuditEvent = Schemas['AuditEvent']
 export type AuditPage = Schemas['AuditPage']

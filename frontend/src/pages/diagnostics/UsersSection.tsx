@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
-  listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPaidLimit, setUserPermission,
+  addAdminUser, listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPaidLimit, setUserPermission,
 } from '../../api/adminUsers'
 import { removeUserOllamaKey } from '../../api/memberKey'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { Field } from '../../components/Field'
 import { HelpTip } from '../../components/HelpTip'
 import { Section } from '../../components/Section'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
 import {
-  canChangeUsers, canViewUsers, CHANGES_AT_PC, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, revokeAdminBlock,
+  canChangeUsers, canViewUsers, CHANGES_AT_PC, MAX_DISPLAY_NAME_CHARS, MAX_EMAIL_CHARS, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, revokeAdminBlock,
   rowBlocks, sessionsText, showRevokeAdmin, rightAbout, rightName, showRights, userName,
 } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
@@ -29,7 +30,8 @@ type Busy = { id: number; what: Action | 'right' | 'limit' } | null
  * a confirm step, and give or take a member account's rights (one
  * toggle each, no confirm: each is undone by the same toggle). Admin accounts
  * hold every right and can only be changed on the PC (off elsewhere, with
- * the reason). Adding people stays on the PC (python -m api). Loaded when
+ * the reason). "Add a person" is shown on the main PC only, where the server
+ * allows it. Loaded when
  * opened; hidden from anyone without admin.users.read, and read-only (no
  * buttons) without admin.users.
  */
@@ -139,6 +141,13 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
           </ul>
         )}
         <span className="muted" aria-live="polite">{note}</span>
+        {canChange && pc === 'local' && users !== null && (
+          <AddPersonForm busy={busy !== null} onAdded={(u) => {
+            setError(null)
+            setNote(`${u.email} was added. Their first Google sign-in links the account.`)
+            load()
+          }} />
+        )}
       </div>
     </Section>
   )
@@ -262,6 +271,61 @@ function PaidLimitForm({ user: u, busy, onLimit }: { user: AdminUser; busy: bool
         }}>Remove limit</button>
       )}
       {bad && <div className="muted" id={`${id}-bad`}>Enter an amount above $0 and up to ${MAX_PAID_LIMIT_USD.toLocaleString('en-US')}, such as 5 or 12.50.</div>}
+    </form>
+  )
+}
+
+/** Allowlists an email with the household rights; `python -m api add-user` from the page. */
+function AddPersonForm({ busy, onAdded }: { busy: boolean; onAdded: (user: AdminUser) => void }) {
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [extension, setExtension] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const submit = async () => {
+    setAdding(true)
+    setError(null)
+    try {
+      const u = await addAdminUser({ email: email.trim(), display_name: name.trim(), extension_send: extension })
+      setEmail('')
+      setName('')
+      setExtension(false)
+      onAdded(u)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setAdding(false)
+    }
+  }
+  return (
+    <form className="admin-add-user" aria-label="Add a person" onSubmit={(e) => {
+      e.preventDefault()
+      if (email.trim() && !adding) void submit()
+    }}>
+      <h3 className="subhead">Add a person</h3>
+      <p className="muted">
+        They sign in with Google using this email. They start with the household rights (see the library, read and
+        edit subtitles, start and stop jobs, use Review); tick more in their Rights row once they are added.
+      </p>
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <Field label="Email">
+        <input type="email" required autoComplete="off" spellCheck={false} maxLength={MAX_EMAIL_CHARS}
+          value={email} disabled={adding} onChange={(e) => setEmail(e.target.value)} />
+      </Field>
+      <Field label="Name (optional)">
+        <input type="text" autoComplete="off" maxLength={MAX_DISPLAY_NAME_CHARS}
+          value={name} disabled={adding} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <label className="admin-add-user-right">
+        <input type="checkbox" checked={extension} disabled={adding} onChange={(e) => setExtension(e.target.checked)} />
+        <span>Also allow the browser extension</span>
+        <HelpTip label={rightName('extension.send')} id="admin-add-user-extension">{rightAbout('extension.send')}</HelpTip>
+      </label>
+      <div className="actions">
+        <button type="submit" className={buttonClass('primary')} disabled={busy || adding || !email.trim()}>
+          {adding ? 'Adding…' : 'Add person'}
+        </button>
+      </div>
     </form>
   )
 }

@@ -50,7 +50,7 @@ class TestExtractionStats:
         class Engine:
             supports_reference = True
         answers = iter(["Sect A", "Sect B", "Sect B"])
-        monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: ["a", "b", "c"])
+        monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: ["宗a", "宗b", "宗c"])  # each window holds the term
         monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps([
             {"term": "宗", "suggested_translation": next(answers), "category": "sect",
              "policy": "hybrid", "reason": ""}]))

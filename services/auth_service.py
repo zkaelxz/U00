@@ -309,6 +309,25 @@ def _require_pc_for_admin(row, at_pc: bool):
         raise ForbiddenError(ADMIN_AT_PC_ONLY)
 
 
+ADD_AT_PC_ONLY = "People can only be added at the main PC."
+
+
+def admin_add_user(email: str, display_name: str = "", extension_send: bool = False,
+                   actor_id=None, at_pc: bool = False) -> dict:
+    """The People screen's "Add a person": `add_user` (household defaults),
+    plus `extension.send` when asked; returns the admin_list_users row.
+    PC-only (403 elsewhere, checked before the email is looked at, so a
+    remote session learns nothing about who is listed): a new account can
+    sign in from the internet, and a remote admin session has no second
+    factor. Never makes an admin; that stays `python -m api grant-admin`."""
+    if not at_pc:
+        raise ForbiddenError(ADD_AT_PC_ONLY)
+    user = add_user(email, " ".join(str(display_name or "").split()), actor_id=actor_id)
+    if extension_send:
+        user = grant_permission(user["id"], "extension.send", actor_id=actor_id)
+    return _admin_view(user, actor_id, time.time())
+
+
 def admin_set_active(user_id: int, active: bool, actor_id=None, at_pc: bool = False) -> dict:
     """Admin activate/deactivate; returns the admin_list_users row. The
     caller can't deactivate their own account (409); an admin target needs

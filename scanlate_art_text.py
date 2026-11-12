@@ -11,6 +11,7 @@ plain OpenCV inpainting leaves ghosts of the letters on busy art.
 import numpy as np
 
 from scanlate_inpaint import background_is_dark
+from scanlate_watermark import looks_like_site_mark
 
 # Paddle's detector runs out of memory on a full-height webtoon page, so the
 # page is shrunk to this on its longest side for detection only.
@@ -101,6 +102,30 @@ def _is_caption_text(text: str) -> bool:
     return not all(c.isascii() for c in significant)
 
 
+def _lines_with_stamps(read_lines, page, lang: str, scale: float, backend: str | None) -> list:
+    """The OCR lines of `read_lines`, plus the site-stamp lines PaddleOCR finds
+    when RapidOCR is the reader. RapidOCR's detector misses a site's faint
+    overlay stamp on art that Paddle's finds; Paddle is not needed otherwise, so
+    a missing install leaves the RapidOCR lines alone."""
+    lines = list(read_lines(page, lang, scale))
+    if backend != "rapidocr":
+        return lines
+    import ocr
+    from memory_headroom import HeadroomError
+    try:
+        extra = ocr.paddle_lines(page, lang, scale)
+    except HeadroomError:
+        raise
+    except Exception:
+        return lines
+    known = [{"x": x, "y": y, "w": w, "h": h} for _, _, (x, y, w, h) in lines]
+    for text, conf, (x, y, w, h) in extra:
+        box = {"x": x, "y": y, "w": w, "h": h}
+        if looks_like_site_mark(text) and not any(_overlap(box, k) > 0.5 for k in known):
+            lines.append((text, conf, (x, y, w, h)))
+    return lines
+
+
 def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None,
                       backend: str | None = None) -> list:
     """Caption boxes on the artwork that no existing region covers, as
@@ -113,8 +138,11 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
     scale = min(1.0, _DETECT_LIMIT_SIDE / float(max(h, w)))
     lines = []
     read_lines = ocr.rapidocr_lines if backend == "rapidocr" else ocr.paddle_lines
-    for text, conf, (x, y, bw, bh) in read_lines(page, lang, scale):
-        if conf < _MIN_CONFIDENCE or not text.strip() or bh < _MIN_LINE_HEIGHT:
+    for text, conf, (x, y, bw, bh) in _lines_with_stamps(read_lines, page, lang, scale, backend):
+        # A site's overlay stamp is small by design, which is why small marks are
+        # ignored; but it has to be found to be skipped and painted out.
+        small = bh < _MIN_LINE_HEIGHT and not looks_like_site_mark(text)
+        if conf < _MIN_CONFIDENCE or not text.strip() or small:
             continue
         box = {"x": x, "y": y, "w": bw, "h": bh}
         if any(_overlap(box, e) > 0.5 for e in existing_boxes):

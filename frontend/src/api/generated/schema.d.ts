@@ -31,7 +31,8 @@ export interface paths {
         /** List users (no session details) */
         get: operations["list_users_api_admin_users_get"];
         put?: never;
-        post?: never;
+        /** Add a person with the household rights (PC only) */
+        post: operations["add_user_api_admin_users_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11937,6 +11938,24 @@ export interface components {
             saved: string[];
             /** Skipped Existing */
             skipped_existing: string[];
+        };
+        /**
+         * AdminAddUserRequest
+         * @description People > Add a person. The service checks the email's shape.
+         */
+        AdminAddUserRequest: {
+            /**
+             * Display Name
+             * @default
+             */
+            display_name?: string;
+            /** Email */
+            email: string;
+            /**
+             * Extension Send
+             * @default false
+             */
+            extension_send?: boolean;
         };
         /** AdminDeviceToken */
         AdminDeviceToken: {
@@ -26782,8 +26801,6 @@ export interface components {
             browser_found: boolean;
             /** Cv2 */
             cv2: boolean;
-            /** Demucs */
-            demucs: boolean;
             /** Ebooklib */
             ebooklib: boolean;
             /** Faster Whisper */
@@ -30877,6 +30894,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminUserList"];
+                };
+            };
+        };
+    };
+    add_user_api_admin_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAddUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

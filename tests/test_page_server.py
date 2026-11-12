@@ -350,7 +350,8 @@ class TestTranslatingAPage:
         assert page["regions"] == [{
             "x": 11, "y": 22, "w": 33, "h": 44,
             "source_text": "原文", "translated_text": "",
-            "kind": "bubble", "font_category": "regular", "reading_order": 0}]
+            "kind": "bubble", "font_category": "regular", "reading_order": 0,
+            "left_alone": False, "untranslated": True}]
         assert page["key"] == "img-1"
 
     def test_with_no_engine_configured_the_source_text_still_comes_back(self, token,
@@ -422,6 +423,8 @@ class TestTranslatingAPage:
 
         def translate(bubbles, engine, drama_meta, **kwargs):
             held_during.append(page_server.PIPELINE_LOCK.locked())
+            for bubble in bubbles:
+                bubble["translated_text"] = "answered"
             return "context"
         monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
         page_server.set_translation_config(engine="claude", api_key="test-key")
@@ -1561,6 +1564,8 @@ class TestConcurrentCapturesOfOneTitle:
         def translate(bubbles, engine, drama_meta, **kwargs):
             n["calls"] += 1
             fake_pipeline["translate"].append({"kwargs": kwargs})
+            for bubble in bubbles:
+                bubble["translated_text"] = "answered"
             return f"context after call {n['calls']}"
         monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
         for i in (1, 0):

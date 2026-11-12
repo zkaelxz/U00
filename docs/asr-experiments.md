@@ -153,9 +153,22 @@ English. Slower: one language detection per speech span.
 
 ### Separate vocals first
 
-Leave it off unless the background is music alone; the Transcribe stage says so.
-Backend `auto` tries Mel-Band RoFormer (`audio-separator`) first and falls back to
-Demucs. RoFormer was very slow on 4 CPU cores in one timing (see the snapshot).
+Leave it off unless the background is music alone or the speech is whispered; the
+Transcribe stage says so. The one engine is Mel-Band RoFormer (`audio-separator`);
+`auto` and `audio_separator` mean the same, and a saved `demucs` value runs it too.
+Demucs was removed after the 2026-11-11 test below (it gave different text on every
+run). RoFormer was very slow on 4 CPU cores in one timing (see the snapshot).
+
+Measured 2026-11-11 against hand-corrected lines (large-v3 fp16, temperature 0,
+Chinese, default VAD, each condition run twice, CER against Simplified-converted
+lines): title 59 (40 lines, whispered) original 0.358, RoFormer 0.205, Demucs
+0.176 and 0.188; title 60 (87 lines) original 0.399, RoFormer 0.365, Demucs 0.411
+and 0.406. Original and RoFormer repeated exactly; Demucs did not (title 59 moved
+0.12, title 60 0.16). On title 59 the original run stopped at 160.5 s of 166.5 s,
+which accounts for part of the gain. RoFormer lost or changed 4-5 short fillers
+(嗯, 有) per title and ran about twice as slowly. Two clips: not enough for a
+default (the margin rule needs a third). On a V100 with title 2 (no reference)
+separation also dropped 9 consecutive lines, so check line counts when using it.
 
 ## Do not combine
 

@@ -126,6 +126,12 @@ TYPESET_SMALLEST_PX = 8
 # balloon is hyphenated before the text shrinks past it.
 TYPESET_COMFORT_PX = 13
 # Space between lines, and between the text and a balloon's outline.
+# Balloons whose starting sizes are within this ratio count as lettered alike, and
+# the cramped ones among them set a shared fit ratio; no balloon loses more than
+# 1 - MAX_SHRINK of the size it fitted, nor takes a ratio below MIN_RATIO.
+TYPESET_SIBLING_RATIO = 1.35
+TYPESET_SIBLING_MIN_RATIO = 0.7
+TYPESET_SIBLING_MAX_SHRINK = 0.75
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
 
@@ -133,6 +139,12 @@ TYPESET_OUTLINE_MARGIN_PX = 2
 # A balloon whose paper (gray levels, among the lighter half of its pixels)
 # varies by no more than this is flat white, and is repainted in one colour.
 INPAINT_FLAT_PAPER_STD = 6.0
+# Paper further than the halo from any lettering that is darker than the rest by
+# more than SHADE_DEPTH, in more than this share of its pixels, is sky, cloud or
+# tone, not paper: whitening it printed a hard-edged white box. Real balloons
+# measured 0 to 0.01 there, a sky 0.15.
+INPAINT_FLAT_PAPER_MAX_SHADED = 0.05
+INPAINT_FLAT_PAPER_SHADE_DEPTH = 6
 
 # --- OCR line layout (ocr_layout) ---
 # A line thinner than this share of a larger line beside it is furigana. Ruby

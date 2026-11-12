@@ -29,6 +29,7 @@ __all__ = [
     "MemberKeySaveRequest",
     "MemberKeyRemoved",
     "MemberPaidLimitRequest",
+    "AdminAddUserRequest",
     "NotificationChannel",
     "NotificationOutcome",
     "NotificationStatus",
@@ -161,6 +162,14 @@ class MemberPaidLimitRequest(BaseModel):
     """A member's own monthly limit for paid engines; null clears it."""
     model_config = ConfigDict(extra="forbid")
     monthly_cap_usd: Optional[float] = Field(..., gt=0, le=100000, strict=True)
+
+
+class AdminAddUserRequest(BaseModel):
+    """People > Add a person. The service checks the email's shape."""
+    model_config = ConfigDict(extra="forbid")
+    email: StrictStr = Field(..., min_length=3, max_length=254)
+    display_name: StrictStr = Field("", max_length=100)
+    extension_send: StrictBool = False
 
 # --- Job notifications (Discord / ntfy) ---------------------------------------
 NotificationChannel = Literal["discord", "ntfy"]

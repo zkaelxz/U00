@@ -117,21 +117,51 @@ def _mask_band_span(mask, top: int, bottom: int):
     return best
 
 
+_DIGRAPHS = {"th", "ch", "sh", "ph", "wh", "ck", "gh", "ng"}
+
+
+# A shorter word is never cut: "Hum-ans" reads worse than the same word set a
+# size smaller, and a six-letter word has only that one place to break.
+_MIN_HYPHENATED_LETTERS = 7
+
+
+def _cut_rank(word: str, cut: int) -> int:
+    """How natural a syllable break is before word[cut]: 0 between two consonants
+    ("nick-name", "sun-set"), 1 after a vowel before a consonant ("house-work"),
+    2 anywhere else. A digraph ("th", "ck") is never cut."""
+    before, after = word[cut - 1].lower(), word[cut].lower()
+    if not after.isalpha() or not before.isalpha():
+        return 2
+    if before + after in _DIGRAPHS:
+        return 2
+    if before not in "aeiouy" and after not in "aeiouy":
+        return 0
+    return 1 if before in "aeiouy" else 2
+
+
 def _hyphen_split(word: str, fits):
     """(head + "-", tail) with the longest head that `fits`, or None when no
-    split leaves at least three letters on each side. Punctuation does not
-    count as a letter, so "Housework?" splits "House-work?", never "Housewo-rk?"."""
+    split leaves at least three letters on each side. A hyphen the word already
+    has ("Alma-diel") is the break when its head fits, so the word is not also
+    cut again. Punctuation does not count as a letter, so "Housework?" splits
+    "House-work?", never "Housewo-rk?"."""
     def letters(part):
         return sum(c.isalpha() for c in part)
 
+    own = [i + 1 for i, c in enumerate(word)
+           if c == "-" and letters(word[:i]) >= 2 and letters(word[i + 1:]) >= 2]
+    for cut in reversed(own):
+        if fits(word[:cut]):
+            return word[:cut], word[cut:]
+
+    if letters(word) < _MIN_HYPHENATED_LETTERS:
+        return None
     fitting = [cut for cut in range(len(word) - 3, 2, -1)
                if letters(word[:cut]) >= 3 and letters(word[cut:]) >= 3 and fits(word[:cut] + "-")]
-    # Among the few longest heads, one that ends on a vowel before a consonant
-    # reads as a syllable break ("House-work", not "Housew-ork").
-    natural = next((cut for cut in fitting[:4]
-                    if word[cut - 1].lower() in "aeiouy" and word[cut].isalpha()
-                    and word[cut].lower() not in "aeiouy"), None)
-    cut = natural if natural is not None else (fitting[0] if fitting else None)
+    # Among the few longest heads, the most syllable-like break wins; the longest
+    # fitting head is the fallback when none reads as one.
+    best = min(fitting[:4], key=lambda cut: (_cut_rank(word, cut), -cut), default=None)
+    cut = best if best is not None and _cut_rank(word, best) < 2 else (fitting[0] if fitting else None)
     return (word[:cut] + "-", word[cut:]) if cut is not None else None
 
 
@@ -291,9 +321,10 @@ def _note_missing_cjk_font(notes, regions) -> None:
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
-                        mask=None):
+                        mask=None, report: dict | None = None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
+    report: when given, receives {"size": the font size that was drawn}.
     Auto-shrinks font_size until the wrapped text fits the box (a single
     word wider than the box shrinks it too); word-wraps to fit box width.
     Horizontal text layout only -- no vertical CJK rendering (that's koharu's specialty, not replicated
@@ -330,6 +361,8 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
             else ImageFont.load_default(sz))
         if laid_out is not None:
             font, placed = laid_out
+            if report is not None:
+                report["size"] = font.size
             for line, left, right, top in placed:
                 bbox = draw.textbbox((0, 0), line, font=font)
                 line_w = bbox[2] - bbox[0]
@@ -372,6 +405,8 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         break
     # Nothing fit: the smallest size is what is drawn.
 
+    if report is not None:
+        report["size"] = size
     total_h = line_height * len(lines)
     start_y = box["y"] + max(0, (box["h"] - total_h) // 2)
     for i, line in enumerate(lines):
@@ -383,6 +418,27 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
             lx = box["x"] + 4
         draw.text((lx, start_y + i * line_height), line, font=font, fill=fill)
     return image
+
+
+def sibling_size_caps(entries: list) -> list:
+    """Start sizes for a second render so balloons that were lettered alike are
+    typeset alike. `entries` is [(start, fitted)] per balloon: the size it began
+    at (from its source lettering) and the size that fitted. One balloon too
+    narrow for its word shrinks well below its start while a roomier neighbour
+    with similar source lettering keeps its full size, and the pair then reads as
+    two different sizes of voice ("Mommy!" beside "Dad!"). Balloons whose starts
+    are within scanlate_tuning.TYPESET_SIBLING_RATIO of each other share the
+    smallest fitted/start ratio, so each keeps its source proportion, and none
+    drops below TYPESET_SIBLING_MAX_SHRINK of the size it fitted."""
+    t = scanlate_tuning
+    caps = []
+    for start, fitted in entries:
+        ratios = [f / s for s, f in entries
+                  if s and max(s, start) / min(s, start) <= t.TYPESET_SIBLING_RATIO]
+        r = max(min(ratios), t.TYPESET_SIBLING_MIN_RATIO) if ratios else 1.0
+        cap = max(int(start * r), int(fitted * t.TYPESET_SIBLING_MAX_SHRINK))
+        caps.append(min(start, max(cap, t.TYPESET_COMFORT_PX)) if fitted > cap else start)
+    return caps
 
 
 def chosen_color(box: dict):
@@ -488,15 +544,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
             scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
-        for b in to_render:
-            shape_mask = (bubble_shape_mask(image_path, b, image=gray,
-                                            margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
-                          if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
-            render_text_in_box(pil_img, b, b["translated_text"],
-                                font_size=b.get("font_size", 18), font_path=font_path,
-                                font_category=b.get("font_category") or "regular",
-                                custom_fonts=custom_fonts, mask=shape_mask,
-                                fill=_text_fill(pil_img, b))
+        _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts)
         for b in bubbles:
             if scanlate_sfx.is_glossed(b):
                 scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
@@ -506,6 +554,34 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         if os.path.exists(result_path):
             os.remove(result_path)
     return out_path, skipped_blank
+
+
+def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
+                     font_path: str | None, custom_fonts: dict | None) -> None:
+    """Draws each balloon's text: a scratch pass finds the size each one fits at,
+    then the real pass draws with sibling balloons held to a shared ratio."""
+    masks = [(bubble_shape_mask(image_path, b, image=gray,
+                                margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
+              if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
+             for b in to_render]
+
+    def draw(target, b, shape_mask, size, report=None):
+        render_text_in_box(target, b, b["translated_text"], font_size=size,
+                           font_path=font_path,
+                           font_category=b.get("font_category") or "regular",
+                           custom_fonts=custom_fonts, mask=shape_mask,
+                           fill=_text_fill(target, b), report=report)
+
+    starts = [b.get("font_size", 18) for b in to_render]
+    scratch = pil_img.copy()
+    fitted = []
+    for b, m, start in zip(to_render, masks, starts):
+        rep = {}
+        draw(scratch, b, m, start, rep)
+        fitted.append(rep.get("size", start))
+    sizes = sibling_size_caps(list(zip(starts, fitted)))
+    for b, m, size in zip(to_render, masks, sizes):
+        draw(pil_img, b, m, size)
 
 
 def _erase_site_stamps(page, bubbles: list) -> None:

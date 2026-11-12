@@ -36,7 +36,6 @@ _PACKAGES = {
     "uroman": ("uroman",),
     "soundfile": ("soundfile",),
     "audio_separator": ("audio_separator",),
-    "demucs": ("demucs",),
     "pyannote": ("pyannote.audio",),
     "onnxruntime": ("onnxruntime",),
     "openai": ("openai",),

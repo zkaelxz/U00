@@ -57,17 +57,17 @@ test('model cache delete is two-step, PC-only and refreshes the list', async ({ 
     hf_cache: [{ repo_id: 'org/model', repo_type: 'model', revision: REV, size_bytes: 2048 }],
     hf_total_bytes: 2048,
     model_files: [
-      { folder: 'torch' as const, name: 'htdemucs.th', size_bytes: 512 },
+      { folder: 'torch' as const, name: 'model.pt', size_bytes: 512 },
       { folder: 'torch' as const, name: 'other.th', size_bytes: 256 },
     ],
     model_files_total_bytes: 768,
   }
   await page.route('**/api/diagnostics/model-cache', (r) => r.fulfill({ json: cache }))
   const sent: Request[] = []
-  await page.route('**/api/diagnostics/model-cache/files/torch/htdemucs.th/delete', (r) => {
+  await page.route('**/api/diagnostics/model-cache/files/torch/model.pt/delete', (r) => {
     sent.push(r.request())
     cache = { ...cache, model_files: cache.model_files.slice(1), model_files_total_bytes: 256 }
-    return r.fulfill({ json: { deleted: true, name: 'htdemucs.th' } })
+    return r.fulfill({ json: { deleted: true, name: 'model.pt' } })
   })
   await page.route(`**/api/diagnostics/model-cache/hf/${REV}/delete`, (r) => {
     sent.push(r.request())
@@ -82,13 +82,13 @@ test('model cache delete is two-step, PC-only and refreshes the list', async ({ 
   expect(sent[0].postDataJSON()).toEqual({ confirm: true })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
   await expect(page.getByRole('list', { name: 'Downloaded models' })).toHaveCount(0)
-  await expect(page.getByRole('list', { name: 'Model files' })).toContainText('htdemucs.th (PyTorch hub)')
-  await page.getByRole('button', { name: 'Delete htdemucs.th' }).click()
-  await page.getByRole('button', { name: 'Confirm delete htdemucs.th' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Deleted htdemucs.th.' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Model files' })).toContainText('model.pt (PyTorch hub)')
+  await page.getByRole('button', { name: 'Delete model.pt' }).click()
+  await page.getByRole('button', { name: 'Confirm delete model.pt' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Deleted model.pt.' })).toBeVisible()
   expect(sent[1].headers()['x-baihe-local']).toBe('1')
   // Something stays listed, so the section (and its notice) is still on screen.
-  await expect(page.getByRole('list', { name: 'Model files' })).not.toContainText('htdemucs.th')
+  await expect(page.getByRole('list', { name: 'Model files' })).not.toContainText('model.pt')
   expect(unmocked).toEqual([])
 })
 

@@ -94,6 +94,12 @@ class TestWholeChapterCapture:
         assert out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg"]
         assert len(out["sent"]) == 1
 
+    def test_a_capture_reports_elapsed_time_while_running_and_at_the_end(self):
+        out = _run("content", "capture_tainted_img_fetches_in_worker")
+        import re
+        assert any(re.search(r" · \d+:\d\d$", text) for text in out["progress"])
+        assert re.search(r" Took \d+:\d\d\.$", out["message"])
+
     def test_capture_asks_for_the_site_instead_of_scrolling_for_nothing(self):
         out = _run("content", "capture_tainted_img_needs_permission")
         assert out["code"] == "NEEDS_SITE_ACCESS" and out["origins"] == ["https://s1.bzcdn.net"]

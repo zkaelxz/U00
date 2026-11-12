@@ -233,8 +233,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("warning", str(exc)))
         boxes = detect_bubbles_cv(image_path, image=page)
     boxes = merge_fragment_boxes(boxes, gray)
-    if gray is not None:
-        boxes = [part for box in boxes for part in split_separate_lettering(gray, box)]
+    boxes, split_parts = _split_frames(boxes, gray)
 
     captions = None
     if not boxes:
@@ -264,6 +263,10 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
             ocr_failed += 1
         if _is_thought_dots(b["source_text"], source_language):
             continue
+        # A block cut out of a frame that reads as nothing is a curl of its
+        # ornament, not lettering; it would only be an empty row to review.
+        if (b["x"], b["y"], b["w"], b["h"]) in split_parts and not b["source_text"].strip():
+            continue
         b["source_text"] = strip_stray_sfx_mark(b["source_text"], b.get("kind"))
         b["language"] = detect_script_language(b["source_text"], b["language"])
         # Classical-CV style guess (see sample_text_style()), reviewable
@@ -281,6 +284,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     flag_katakana_effects(bubbles)
     flag_site_marks(bubbles)
     flag_english_text(bubbles, source_language)
+    flag_bare_numbers(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
     if art_captions:
         bubbles += (captions if captions is not None
@@ -319,6 +323,39 @@ def flag_english_text(regions: list, source_language: str) -> int:
             region["skip"] = True
             flagged += 1
     return flagged
+
+
+_BARE_NUMBER = re.compile(r"(?=.*[0-9０-９])[0-9０-９\s.,:;!?！？…%％/\-–—]+")
+
+
+def flag_bare_numbers(regions: list, source_language: str) -> int:
+    """Sets skip on a region whose whole text is a number. It reads the same in
+    English, so translating it changes nothing, and OCR of a face or a pattern in
+    the art ("610" over a character's face) gave such a number its own region that
+    was then painted over the drawing. Returns how many it flagged."""
+    if source_language not in ("ja", "zh", "ko"):
+        return 0
+    flagged = 0
+    for region in regions:
+        if not region.get("skip") and _BARE_NUMBER.fullmatch((region.get("source_text") or "").strip()):
+            region["skip"] = True
+            flagged += 1
+    return flagged
+
+
+def _split_frames(boxes: list, gray) -> tuple:
+    """`boxes` with each large one cut into its blocks of lettering, and the set
+    of (x, y, w, h) of the blocks that came from a cut."""
+    split_parts = set()
+    if gray is None:
+        return boxes, split_parts
+    pieces = []
+    for box in boxes:
+        parts = split_separate_lettering(gray, box)
+        if len(parts) > 1:
+            split_parts.update((p["x"], p["y"], p["w"], p["h"]) for p in parts)
+        pieces.extend(parts)
+    return pieces, split_parts
 
 
 def _is_thought_dots(text: str, source_language: str) -> bool:
