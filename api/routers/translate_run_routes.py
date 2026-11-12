@@ -28,7 +28,8 @@ from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
 from api.schemas import (EpisodeSummaryGenerate, LibraryPreset, ProfileEditorFields, EpisodeSummaryGenerated, EpisodeSummaryOptions,
                          GlossaryFlaggedRedoStart, GlossaryFlaggedRedoStarted,
                          RetryFailedLinesStart, RetryFailedLinesStarted, GlossaryAffectedPreview, GlossaryAffectedRunStart,
-                         GlossaryAffectedRunStarted, SourceChangedRetranslateStart,
+                         GlossaryAffectedRunStarted, NovelChapterRetranslatePreview,
+                         NovelChapterRetranslateStart, SourceChangedRetranslateStart,
                          SourceChangedRetranslateStarted, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
                          TranslatePresetApplied, TranslatePresetApply,
@@ -38,7 +39,8 @@ from api.schemas import (EpisodeSummaryGenerate, LibraryPreset, ProfileEditorFie
                          WorkflowTierApplied, WorkflowTierApply, error_responses)
 from api.llm_slots import llm_slot
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
-                      glossary_retranslate_service, ownership_service, settings_service,
+                      glossary_retranslate_service, novel_chapter_retranslate_service,
+                      ownership_service, settings_service,
                       source_change_service,
                       translate_preset_service, translate_run_service,
                       translate_thinking_service)
@@ -152,6 +154,41 @@ def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request
         fallback_chain=[f.model_dump() for f in body.fallback_chain]
         if body.fallback_chain else None,
         reflect=body.reflect, default_female_pronouns=body.default_female_pronouns,
+        include_genre_notes=body.include_genre_notes,
+        allow_paid_summary=holds_paid_engines(request))
+
+
+@router.get("/dramas/{drama_id}/chapters/{number}/retranslate", dependencies=[require_permission("lines.read")],
+            response_model=NovelChapterRetranslatePreview,
+            summary="Preview translating one novel chapter again, with a cost estimate",
+            responses=error_responses(400, 404, 422))
+def get_chapter_retranslate(drama_id: int = Path(ge=1), number: int = Path(ge=1),
+                            engine: Optional[str] = Query(None, max_length=40),
+                            model: Optional[str] = Query(None, max_length=200),
+                            gemini_free_tier: Optional[bool] = None,
+                            job_cost_cap_usd: Optional[float] = Query(None, ge=0)):
+    return novel_chapter_retranslate_service.preview(
+        drama_id, number, engine_name=engine, model=model,
+        gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd)
+
+
+@router.post("/dramas/{drama_id}/chapters/{number}/retranslate/run", dependencies=[require_permission("jobs.start")],
+             response_model=GlossaryAffectedRunStarted,
+             summary="Translate one novel chapter again",
+             responses=error_responses(400, 404, 409, 422, 503))
+def start_chapter_retranslate(body: NovelChapterRetranslateStart, request: Request,
+                              drama_id: int = Path(ge=1), number: int = Path(ge=1)):
+    engine = body.engine or translate_run_service.run_engine_name(drama_id)   # "Default (...)"
+    require_engines_allowed(request, engine)
+    require_cloud_model_allowed(request, (engine, body.model))
+    return translate_thinking_service.start_with_thinking(
+        novel_chapter_retranslate_service.start, drama_id, body.thinking,
+        _may_remember(request, body), number, body.include_hand_edited,
+        engine_name=engine, model=body.model, style_preset=body.style_preset,
+        style_note=body.style_note, locale=body.locale, context_window=body.context_window,
+        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
+        gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
+        default_female_pronouns=body.default_female_pronouns,
         include_genre_notes=body.include_genre_notes,
         allow_paid_summary=holds_paid_engines(request))
 

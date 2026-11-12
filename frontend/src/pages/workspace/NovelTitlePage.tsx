@@ -16,6 +16,7 @@ import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 import { NovelInstructionsTab } from './NovelInstructionsTab'
 import { NovelLinkStart } from './NovelLinkStart'
+import { NovelChapterRetranslate } from './stages/NovelChapterRetranslate'
 import { mainButton } from './novelLinkChain'
 import { chaptersHeadline, lineProgress, readerPageOf, rowMeta, rowTitle } from './stages/novelChapters'
 import './stages/novelChapters.css'
@@ -84,6 +85,8 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
       cancelled = true
     }
   }, [id, tick])
+
+  const [again, setAgain] = useState<number | null>(null)
 
   // One page at a time: the API refuses a page above its own maximum, so a long novel can't be fetched in one call.
   const showMore = () =>
@@ -178,6 +181,26 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
                   >
                     Read
                   </a>
+                )}
+                {lineRows.has(r.number) && lineRows.get(r.number)!.translated > 0 && (
+                  <button
+                    type="button"
+                    className={buttonClass('ghost', 'sm')}
+                    aria-label={`Translate chapter ${r.number} again: ${rowTitle(r)}`}
+                    disabled={again !== null}
+                    onClick={() => setAgain(r.number)}
+                  >
+                    Translate again
+                  </button>
+                )}
+                {again === r.number && (
+                  <NovelChapterRetranslate
+                    dramaId={id}
+                    number={r.number}
+                    title={rowTitle(r)}
+                    onClose={() => setAgain(null)}
+                    onStarted={() => setTick((n) => n + 1)}
+                  />
                 )}
               </li>
             ))}
