@@ -46,6 +46,16 @@ def _upload(local_client, did, route, data=SRT, name="a.srt", **fields):
                        data={k: (str(v).lower() if isinstance(v, bool) else v) for k, v in fields.items()})
 
 
+def test_alignment_is_bounded_and_clusters_align_alone(monkeypatch):
+    # Far-apart repeats never share a table, so 20,000 of one text stays cheap.
+    starts = [float(i * 10) for i in range(20000)]
+    assert svc._align_in_order(starts, starts) == [(i, i) for i in range(20000)]
+    # A dense cluster over the cell cap still pairs in order, within the window.
+    monkeypatch.setattr(svc, "MAX_ALIGN_CELLS", 4)
+    olds, news = [1.0, 1.1, 1.2], [1.05, 1.15, 1.25]
+    assert svc._align_in_order(olds, news) == [(0, 0), (1, 1), (2, 2)]
+
+
 class TestSourceImport:
     def test_into_an_empty_title(self, local_client):
         did = _drama()
