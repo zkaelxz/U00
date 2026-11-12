@@ -5,8 +5,10 @@ cleanup rules every novel import shares (site chrome lines, ruby readings,
 OCR line joins, chapter headings, legacy encodings).
 """
 
+import json
 import os
 import re
+import tempfile
 
 
 # A line that's a chapter heading of its own: 第十二章 / 第3回 / 第二卷 /
@@ -383,6 +385,44 @@ def tidy_ocr_text(text: str) -> str:
 # Where the novel's source text is saved beside its title: narration and the
 # translate pipeline both read it, so it lives here and not with the dub code.
 NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
+
+
+# Text appended to the translation text that has no lines yet: {"chars": appended characters waiting,
+# "length": the text's length when they were appended}. It lets a failed "add chapters" be finished
+# without re-cutting the whole text (which would drop lines edited in Review).
+PENDING_LINES_FILENAME = "novel_pending_lines.json"
+
+
+def read_pending_lines(drama_dir: str):
+    """(chars, length) waiting for lines, or None when nothing is."""
+    try:
+        with open(os.path.join(drama_dir, PENDING_LINES_FILENAME), encoding="utf-8") as f:
+            data = json.load(f)
+        chars, length = int(data["chars"]), int(data["length"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return (chars, length) if chars > 0 and length >= chars else None
+
+
+def write_pending_lines(drama_dir: str, chars: int, length: int) -> None:
+    fd, tmp = tempfile.mkstemp(prefix=".pending_", suffix=".part", dir=drama_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"chars": chars, "length": length}, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, os.path.join(drama_dir, PENDING_LINES_FILENAME))
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
+def clear_pending_lines(drama_dir: str) -> None:
+    try:
+        os.remove(os.path.join(drama_dir, PENDING_LINES_FILENAME))
+    except FileNotFoundError:
+        pass
 
 
 def narration_paragraph_ends(lines, drama_dir: str):
