@@ -392,10 +392,11 @@ def post_restore_glossary_proposals(payload: GlossaryDismissRequest, drama_id: i
 @router.post("/dramas/{drama_id}/from-lines", dependencies=[require_permission("jobs.start")], response_model=LinesGlossaryRunResult,
              summary="Start proposing glossary terms from this drama's source lines",
              responses=error_responses(400, 403, 404, 409, 503))
-def post_start_lines_glossary(request: Request, drama_id: int = Path(ge=1)):
+def post_start_lines_glossary(request: Request, drama_id: int = Path(ge=1),
+                              chapter: Optional[int] = Query(None, ge=1, description="Scan only this saved chapter")):
     engine_name = glossary_service.lines_glossary_engine(drama_id)
     require_engines_allowed(request, engine_name)
-    return glossary_service.start_lines_glossary_run(drama_id, engine_name=engine_name)
+    return glossary_service.start_lines_glossary_run(drama_id, engine_name=engine_name, chapter=chapter)
 
 
 @router.get("/dramas/{drama_id}/from-lines", dependencies=[require_permission("library.read")], response_model=NovelGlossaryStatus,

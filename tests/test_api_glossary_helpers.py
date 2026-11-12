@@ -405,6 +405,18 @@ class TestLinesGlossaryRoutes:
         assert r.json()["added"] == ["青云宗"]
         assert isolated_db.list_glossary_terms(sid)[0]["term_translation"] == "Azure Cloud Sect"
 
+    def test_a_chapter_scan_reads_only_that_chapters_lines(self, local_client, isolated_db, monkeypatch,
+                                                           fake_engine):
+        did, _ = _lines_drama(isolated_db, zh=("第一章", "青云宗来了", "第二章", "沈清走了", "她笑了"))
+        seen = []
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda lines, *a, **kw: seen.append(list(lines)) or [])
+        r = local_client.post(_gl(did) + "?chapter=2")
+        assert r.status_code == 200 and r.json()["line_count"] == 3, r.text
+        wait_for_job(f"lines_glossary_{did}", timeout=4.0)
+        assert seen == [["第二章", "沈清走了", "她笑了"]]
+        r = local_client.post(_gl(did) + "?chapter=9")
+        assert r.status_code == 404
+
     def test_error_status_never_contains_key(self, local_client, isolated_db, monkeypatch,
                                              fake_engine):
         did, _ = _lines_drama(isolated_db)

@@ -42045,7 +42045,10 @@ export interface operations {
     };
     post_start_lines_glossary_api_glossary_dramas__drama_id__from_lines_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Scan only this saved chapter */
+                chapter?: number | null;
+            };
             header?: never;
             path: {
                 drama_id: number;

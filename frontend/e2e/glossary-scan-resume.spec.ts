@@ -207,3 +207,26 @@ test('the all-titles name check stays open across a reload', async ({ page }) =>
   await page.reload()
   await expect(glossary(page).getByRole('region', { name: 'Name check across all titles' })).toBeVisible()
 })
+
+test('Scan this chapter starts a scan of the chosen chapter only', async ({ page }) => {
+  await glossarySetup(page)
+  const urls: string[] = []
+  await page.route(/\/api\/glossary\/dramas\/1\/from-lines(\?.*)?$/, (route) => {
+    if (route.request().method() === 'POST') {
+      urls.push(route.request().url())
+      return route.fulfill({ json: { job_id: 'scan_1', engine: 'claude', line_count: 3 } })
+    }
+    return route.fulfill({ json: { job_id: '', status: 'idle', progress: 0, message: '', proposals: null, run_id: null } })
+  })
+  await page.route('**/api/novel/dramas/1/line-chapters', (route) => route.fulfill({
+    json: { drama_id: 1, source: 'saved', total_lines: 8, chapters: [
+      { number: 1, title: 'Start', first_idx: 0, line_count: 4, translated: 0, reviewed: 0 },
+      { number: 2, title: 'Fox', first_idx: 4, line_count: 4, translated: 0, reviewed: 0 }] },
+  }))
+  await page.goto('/#/drama/1/translate')
+  await glossaryTab(page, 'Find terms')
+  await page.getByRole('combobox', { name: 'Scan scope' }).selectOption({ label: '2. Fox' })
+  await page.getByRole('region', { name: 'Glossary' }).getByRole('button', { name: 'Scan this chapter' }).click()
+  await expect.poll(() => urls.length).toBe(1)
+  expect(urls[0]).toMatch(/from-lines\?chapter=2$/)
+})
