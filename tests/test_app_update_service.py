@@ -652,6 +652,15 @@ def test_a_kept_update_or_unchanged_rollback_is_not_unknown(env, monkeypatch):
     assert us.status()["app_rollback_library_unknown"] is False
 
 
+def test_a_record_without_the_library_layout_says_it_couldnt_tell(env):
+    db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.1.0", "attempts": ["0.2.0"],
+                                               "layout": "x" * 64, "backup_name": None,
+                                               "backup_at": None})
+    s = _rolled_back(env)
+    assert s["app_rollback_library_unknown"] is True
+    assert s["app_rollback_library_changed"] is False
+
+
 def test_a_record_from_another_update_is_not_used(env, monkeypatch):
     db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.0.9", "attempts": ["0.1.0"],
                                                "layout": "x" * 64, "backup_name": None,

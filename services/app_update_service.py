@@ -315,7 +315,8 @@ def _rollback_library_check(result) -> dict:
     try:
         before = db.get_app_setting(BEFORE_UPDATE_KEY, None)
         if not (isinstance(before, dict) and before.get("old") == result["old"]
-                and result["new"] in (before.get("attempts") or [])):
+                and result["new"] in (before.get("attempts") or [])
+                and isinstance(before.get("library"), str)):
             return {**none, "state": "unknown"}
         library, sources = _library_layout()
     except sqlite3.Error:
