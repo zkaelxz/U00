@@ -80,6 +80,10 @@ class UpdateStatus(BaseModel):
                                                                   "rolled back after the newer "
                                                                   "version had changed the "
                                                                   "library's tables.")
+    app_rollback_library_unknown: bool = Field(False, description="The last app-only update was "
+                                                                   "rolled back and it couldn't be "
+                                                                   "told whether the newer version "
+                                                                   "changed the library.")
     app_rollback_backup_at: Optional[str] = Field(None, description="When the newest backup taken "
                                                                      "before that update started "
                                                                      "was made (ISO 8601), if that "

@@ -30862,6 +30862,12 @@ export interface components {
              * @default false
              */
             app_rollback_library_changed: boolean;
+            /**
+             * App Rollback Library Unknown
+             * @description The last app-only update was rolled back and it couldn't be told whether the newer version changed the library.
+             * @default false
+             */
+            app_rollback_library_unknown: boolean;
             /** App Size */
             app_size: number | null;
             /**
