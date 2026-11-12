@@ -146,6 +146,30 @@ def test_a_failed_line_save_changes_nothing(isolated_db, monkeypatch):
         svc.rename_chapter(did, 2, "New")
     monkeypatch.undo()
     assert _state(did) == before
+    assert not _temps(did)
+
+
+def _temps(did):
+    return [n for n in os.listdir(os.path.dirname(chapter_manifest.raw_path(did))) if n.endswith(".part")]
+
+
+@pytest.mark.parametrize("error", [OSError("disk full"),
+                                   ConflictError("The saved text changed while it was being edited; try again.")])
+def test_a_failed_write_of_the_renamed_file_leaves_the_line_and_files_as_they_were(isolated_db, monkeypatch, error):
+    did = _book(isolated_db)
+    before = _state(did)
+
+    def fail(*a, **k):
+        raise error
+    monkeypatch.setattr(svc, "_copy_range", fail)
+    with pytest.raises(type(error)):
+        svc.rename_chapter(did, 2, "A Longer Road Name")
+    monkeypatch.undo()
+    assert _state(did) == before
+    assert not _temps(did)
+    assert novel_chapters_service.list_chapters(did)["split"] is True
+    svc.rename_chapter(did, 2, "A Longer Road Name")   # a retry finishes it
+    assert db.load_lines(did)[3]["zh"] == "A Longer Road Name"
 
 
 def test_a_pending_import_retry_blocks_the_rename(isolated_db):
