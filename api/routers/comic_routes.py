@@ -11,6 +11,7 @@ services/comic_view_service.py:
 - GET  /dramas/{id}/view-prefs                   library.read
 - POST /dramas/{id}/view-prefs                   lines.edit
 - POST /dramas/{id}/pages/visibility             lines.edit
+- POST /dramas/{id}/pages/start-chapter          lines.edit
 - GET  /dramas/{id}/source-chapters              library.read
 
 Images go through Starlette's FileResponse (Range, HEAD, ETag,
@@ -26,6 +27,7 @@ from fastapi.responses import FileResponse, Response
 
 from api.auth import require_permission
 from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
+                              ComicStartChapterRequest, ComicStartChapterResult,
                               ComicViewPrefs, ComicViewPrefsView, ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import error_responses
 from services import (comic_chapters_service, comic_reader_copy_service, comic_source_chapters_service,
@@ -125,6 +127,14 @@ def post_visibility(body: ComicVisibilityRequest, drama_id: int = Path(ge=1)):
     return comic_chapters_service.set_visibility(
         drama_id, body.hidden, page_ids=body.page_ids, chapter_id=body.chapter_id,
         edge=body.edge, count=body.count)
+
+
+@router.post("/dramas/{drama_id}/pages/start-chapter", dependencies=[require_permission("lines.edit")],
+             response_model=ComicStartChapterResult,
+             summary="Start a new chapter at a page (for pages saved before chapters were recorded)",
+             responses=error_responses(404, 409, 422))
+def post_start_chapter(body: ComicStartChapterRequest, drama_id: int = Path(ge=1)):
+    return comic_chapters_service.start_chapter(drama_id, body.page_id, body.title)
 
 
 @router.get("/dramas/{drama_id}/source-chapters", dependencies=[require_permission("library.read")],
