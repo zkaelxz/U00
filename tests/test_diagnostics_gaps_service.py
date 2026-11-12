@@ -821,3 +821,84 @@ def test_a_failed_reset_keeps_the_followed_series_links(isolated_db, monkeypatch
     assert row["drama_id"] == did and src_store.imported_chapter_ids("site", "s1", did) == {"c1"}
     # The write lock is released: the next write goes straight through.
     src_store.set_tracked_drama("site", "s1", did)
+
+
+def test_reset_does_not_hold_sources_db_while_the_library_copy_is_made(isolated_db, monkeypatch):
+    from services import previous_library_service as prev
+    from sources import store as src_store
+    _no_jobs(monkeypatch)
+    order = []
+    real_begin = src_store.begin_unlink_all_dramas
+    monkeypatch.setattr(prev, "keep_before_reset", lambda: order.append("copy") or "kept")
+    monkeypatch.setattr(prev, "after_reset", lambda dest, ok: order.append(f"after {ok}"))
+    monkeypatch.setattr(src_store, "begin_unlink_all_dramas",
+                        lambda: order.append("lock") or real_begin())
+    monkeypatch.setattr(db, "reset_library", lambda: order.append("reset"))
+    admin_svc.reset_library(confirm=True)
+    assert order == ["copy", "lock", "reset", "after True"]
+
+
+def test_reset_refused_by_a_locked_sources_db_puts_the_library_copy_back(isolated_db, monkeypatch):
+    import sqlite3
+    from lib.errors import ConflictError
+    from services import previous_library_service as prev
+    from sources import store as src_store
+    _no_jobs(monkeypatch)
+    calls = []
+    monkeypatch.setattr(prev, "keep_before_reset", lambda: "kept")
+    monkeypatch.setattr(prev, "after_reset", lambda dest, ok: calls.append((dest, ok)))
+
+    def locked():
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(src_store, "begin_unlink_all_dramas", locked)
+    with pytest.raises(ConflictError):
+        admin_svc.reset_library(confirm=True)
+    assert calls == [("kept", False)]
+
+
+def test_a_rollback_that_fails_does_not_hide_the_reset_error(isolated_db, monkeypatch):
+    import sqlite3
+    from sources import store as src_store
+    _no_jobs(monkeypatch)
+
+    class Conn:
+        closed = False
+
+        def rollback(self):
+            raise sqlite3.OperationalError("disk I/O error")
+
+        def close(self):
+            self.closed = True
+    conn = Conn()
+    monkeypatch.setattr(src_store, "begin_unlink_all_dramas", lambda: conn)
+
+    def boom():
+        raise OSError("folder in use")
+    monkeypatch.setattr(db, "reset_library", boom)
+    with pytest.raises(OSError, match="folder in use"):
+        admin_svc.reset_library(confirm=True)
+    assert conn.closed
+
+
+def test_a_commit_that_fails_after_the_reset_is_retried_on_a_fresh_connection(isolated_db, monkeypatch):
+    import sqlite3
+    from sources import store as src_store
+    _no_jobs(monkeypatch)
+    did = db.create_drama(title_en="Old")
+    src_store.track_series("site", "s1", "Followed")
+    src_store.set_tracked_drama("site", "s1", did)
+    real = src_store.begin_unlink_all_dramas
+
+    def failing_commit():
+        conn = real()
+
+        class Wrapper:
+            def commit(self):
+                raise sqlite3.OperationalError("disk I/O error")
+
+            def __getattr__(self, name):
+                return getattr(conn, name)
+        return Wrapper()
+    monkeypatch.setattr(src_store, "begin_unlink_all_dramas", failing_commit)
+    assert admin_svc.reset_library(confirm=True)["ok"] is True
+    assert src_store.list_tracked_series()[0]["drama_id"] is None
