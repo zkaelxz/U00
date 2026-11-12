@@ -95,6 +95,8 @@ const ERROR_WORDS: Record<string, string> = {
   not_translated: 'not translated yet',
   not_aligned: 'not aligned',
   engine_changed: 'its engine changed',
+  not_allowed: 'not yours to move',
+  conflict: 'refused by that series',
 }
 const reasonText = (code: string | null | undefined) => ERROR_WORDS[code ?? ''] ?? 'failed'
 
