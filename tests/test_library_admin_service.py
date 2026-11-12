@@ -82,6 +82,36 @@ def test_storage_cleanup_wrong_confirm_changes_nothing(isolated_db):
 
 # ---- bulk writes ----------------------------------------------------------
 
+def test_bulk_set_series_existing_new_and_remove(isolated_db):
+    a, b = _new("A"), _new("B")
+    sid = db.get_or_create_series("Saga")
+    r = las.bulk_set_series([a, 999999, b], series_id=sid)
+    assert r["updated"] == 2
+    assert r["results"][1]["error"] == "not_found"
+    assert db.get_drama(a)["series_id"] == db.get_drama(b)["series_id"] == sid
+
+    # One series is created for the whole pick, not one per title.
+    las.bulk_set_series([a, b], new_series_name=" Fresh ")
+    ids = {db.get_drama(a)["series_id"], db.get_drama(b)["series_id"]}
+    assert len(ids) == 1 and ids != {sid}
+    assert sorted(x["name"] for x in db.list_series()) == ["Fresh", "Saga"]
+
+    las.bulk_set_series([a, b], series_id=0)
+    assert db.get_drama(a)["series_id"] is None and db.get_drama(b)["series_id"] is None
+
+
+def test_bulk_set_series_rejects_bad_input_and_unknown_series(isolated_db):
+    a = _new("A")
+    with pytest.raises(InvalidInputError):
+        las.bulk_set_series([a])
+    with pytest.raises(InvalidInputError):
+        las.bulk_set_series([a], series_id=1, new_series_name="X")
+    with pytest.raises(InvalidInputError):
+        las.bulk_set_series([a], new_series_name="  ")
+    r = las.bulk_set_series([a], series_id=424242)
+    assert r["updated"] == 0 and r["results"][0]["error"] == "not_found"
+
+
 def test_bulk_set_status_per_id_results(isolated_db):
     a, b = _new("A", translated=True), _new("B", translated=True)
     r = las.bulk_set_status([a, 999999, b], "translated")

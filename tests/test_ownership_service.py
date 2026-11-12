@@ -594,3 +594,18 @@ def test_title_search_lists_only_what_the_viewer_may_see(people):
     ids = lambda principal: {d["id"] for d in library_service.list_library_dramas(search="moon", principal=principal)}
     assert ids(people["b"]) == {shared}
     assert ids(people["a"]) == {shared, private}
+
+
+def test_bulk_series_refuses_a_members_private_title_for_an_admin_away_from_the_pc(people):
+    from services import library_admin_service as las
+    away = _p(people["admin"]["user_id"], admin=True, override=False)
+    private = db.create_drama(title_zh="p", owner_user_id=people["a_id"], is_private=1)
+    shared = db.create_drama(title_zh="s", owner_user_id=people["a_id"], is_private=0)
+    sid = db.get_or_create_series("Saga")
+
+    r = las.bulk_set_series([private, shared, 10**6], principal=away, series_id=sid)
+
+    assert [x.get("error") for x in r["results"]] == ["not_allowed", None, "not_found"]
+    assert r["updated"] == 1
+    assert db.get_drama(private)["series_id"] is None and db.get_drama(private)["is_private"] == 1
+    assert db.get_drama(shared)["series_id"] == sid

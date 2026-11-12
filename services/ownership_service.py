@@ -374,7 +374,10 @@ def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:
 def assign_drama_series(principal, drama_id, series_id) -> None:
     """Moves an existing drama into a series under `check_series_assignment`,
     with the private-series rule re-checked in the same write. Clears the
-    drama's own private flag (user decision 4)."""
+    drama's own private flag (user decision 4). The title must be one the
+    principal may change: moving it clears that flag, so an admin away from
+    the PC must not be able to publish a member's private title this way."""
+    require_editable(principal, "drama", drama_id)
     drama = db.get_item_ownership("drama", _item_id(drama_id))
     if not drama:
         raise NotFoundError("Title not found.")

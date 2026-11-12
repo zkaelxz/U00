@@ -333,6 +333,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/admin/backup` | local_only() |
 | `POST /api/library/admin/backup/user` | local_only() |
 | `POST /api/library/admin/bulk/delete` | local_only() |
+| `POST /api/library/admin/bulk/series` | admin.library |
 | `POST /api/library/admin/bulk/status` | admin.library |
 | `POST /api/library/admin/bulk/tags` | admin.library |
 | `POST /api/library/admin/bulk/translate` | jobs.start |
