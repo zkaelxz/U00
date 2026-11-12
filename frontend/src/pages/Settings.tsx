@@ -23,7 +23,7 @@ import { useFeatures } from '../hooks/useFeatures'
 import { featureOn, type FeatureName } from '../api/features'
 import { refreshReadiness, useReadiness } from '../hooks/useReadiness'
 import { canReadSettings, useSession } from '../hooks/useSession'
-import { useRoute } from '../router'
+import { routeHref, useRoute } from '../router'
 import { NeedsInstall } from './readiness/NeedsInstall'
 import { gpuOnText, gpuSettingNote } from './readiness/needs'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
@@ -53,7 +53,7 @@ import { TranscriptionExperimentsCard } from './settings/TranscriptionExperiment
 import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
-import { filterSettings, PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS, tabFoldKeys, tabOfCard, type SettingsTab } from './settings/settingsIndex'
+import { filterElsewhere, filterSettings, PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS, tabFoldKeys, tabOfCard, type SettingsTab } from './settings/settingsIndex'
 import { FoldControls, FoldSignalsProvider, SettingsCard, SettingsSearch, VisibleCardsProvider, type FoldSignals } from './settings/SettingsSearch'
 import { Tabs } from '../components/Tabs'
 import { seedPageTabFolds } from '../components/sectionStorage'
@@ -215,7 +215,8 @@ export default function SettingsPage() {
 
   // A card that renders nothing for this person must not draw search hits to its tab.
   const ownKeyShown = showOllamaKey(useSession())
-  const remote = usePcOnly() === 'remote'
+  const pcMode = usePcOnly()
+  const remote = pcMode === 'remote'
   const features = useFeatures()
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
@@ -226,6 +227,12 @@ export default function SettingsPage() {
   const shown = (id: string) => available.has(id)
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])
+  const canDiagnostics = useHolds('admin.diagnostics')
+  const canLibrary = useHolds('library.read')
+  const elsewhere = useMemo(
+    () => filterElsewhere(query, (entry) => (entry.requires === 'admin.diagnostics' ? canDiagnostics : canLibrary) && (!entry.pcOnly || pcMode === 'local')),
+    [query, canDiagnostics, canLibrary, pcMode],
+  )
   const visibleTabs = SETTINGS_TABS.filter((t) => (loaded || t.id === MEMBER_TAB) && t.cards.some((c) => shown(c.id)))
   const stored = visibleTabs.some((t) => t.id === storedTab) ? storedTab : visibleTabs[0].id
   // A search shows its hits even when they are on another tab; the saved tab is left alone.
@@ -284,6 +291,16 @@ export default function SettingsPage() {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {(!loaded || !schema) && <RetryBanner error={loadError} onRetry={() => setLoadTry((n) => n + 1)} />}
       {searching && match.total === 0 && <p className="settings-note">No settings match “{query.trim()}”.</p>}
+      {elsewhere.length > 0 && (
+        <nav className="settings-elsewhere" aria-label="On other pages">
+          <p className="settings-note">On other pages:</p>
+          <ul>
+            {elsewhere.map((entry) => (
+              <li key={`${entry.page}-${entry.label}`}><a href={routeHref(entry.to)}>{entry.page}: {entry.label}</a></li>
+            ))}
+          </ul>
+        </nav>
+      )}
       <FoldSignalsProvider value={signals}>
       <VisibleCardsProvider value={searching ? match.cardIds : null}>
         {settings && prefProps && panel('translation', (

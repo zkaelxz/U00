@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { listenApi, listenTrackUrl } from '../../api/listen'
 import { usePersistedState } from '../../hooks/usePersistedState'
+import { scrollBehavior } from '../../hooks/useMediaQuery'
 import { listAllLines } from '../../api/review'
 import type { ReviewLine } from '../../types/review'
 import { activeIndex, alongLines, type AlongLine } from './readAlongLogic'
@@ -33,7 +34,7 @@ export function ReadAlong({ dramaId, version, onError }: { dramaId: number; vers
   const current = useMemo(() => (lines ? activeIndex(lines, time) : null), [lines, time])
 
   useEffect(() => {
-    active.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    active.current?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() })
   }, [current])
 
   const jump = (start: number) => {

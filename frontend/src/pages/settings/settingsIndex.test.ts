@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import settingsSource from '../Settings.tsx?raw'
-import { settingsCardStartsOpen, filterSettings, SETTINGS_INDEX, SETTINGS_TABS, tabOfCard } from './settingsIndex'
+import { settingsCardStartsOpen, filterElsewhere, filterSettings, SETTINGS_INDEX, SETTINGS_TABS, tabOfCard } from './settingsIndex'
 
 const all = new Set(SETTINGS_INDEX.map((entry) => entry.cardId))
 
@@ -96,5 +96,28 @@ describe('filterSettings', () => {
   it('matches nothing for an empty query and ignores cards that are not on the page', () => {
     expect(filterSettings('  ', all).total).toBe(0)
     expect(filterSettings('ollama', new Set(['sharing'])).total).toBe(0)
+  })
+})
+
+describe('filterElsewhere', () => {
+  const everyone = () => true
+  const labels = (q: string, allowed: Parameters<typeof filterElsewhere>[1] = everyone) =>
+    filterElsewhere(q, allowed).map((entry) => `${entry.page}: ${entry.label}`)
+
+  it('points a search for models at Diagnostics, where the model cards live', () => {
+    expect(labels('models')).toContain('Diagnostics: Models')
+    expect(filterElsewhere('loaded models', everyone).map((entry) => entry.to)).toEqual([{ name: 'diagnostics', card: 'loaded-models' }])
+  })
+
+  it('points a search for backup at the Library tools backup tab', () => {
+    expect(filterElsewhere('backup', everyone).map((entry) => entry.to)).toEqual([{ name: 'library-tools', tab: 'backup' }])
+  })
+
+  it('leaves out what the caller says this person cannot open', () => {
+    expect(labels('models', (entry) => entry.page !== 'Diagnostics')).toEqual([])
+  })
+
+  it('matches nothing for an empty query', () => {
+    expect(filterElsewhere('  ', everyone)).toEqual([])
   })
 })
