@@ -48,6 +48,41 @@ test('with lines, each chapter row shows how far it is translated and a Read lin
   await expect(items.nth(1).getByRole('link', { name: /^Read chapter 2/ })).toHaveAttribute('href', '#/read/2?page=2')
 })
 
+test('Translate again previews one chapter, counts hand edits, and runs only after confirming', async ({ page }) => {
+  const posted: unknown[] = []
+  const est = (usd: number) => ({ estimated_usd: usd, target_line_count: 40, engine: 'fake', model: null, free: false,
+    cap_applies: false, effective_cap_usd: null, estimate_above_cap: false, estimate_is_lower_bound: false,
+    monthly_refusal: false, thinking: false })
+  await mockChapters(page, listBody([row(1), row(2)]))
+  await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(80) }))
+  await page.route('**/api/novel/dramas/2/line-chapters', (route) => route.fulfill({ json: {
+    drama_id: 2, total_lines: 80, source: 'saved',
+    chapters: [
+      { number: 1, title: 'One', first_idx: 0, line_count: 40, translated: 40, reviewed: 0 },
+      { number: 2, title: 'Two', first_idx: 40, line_count: 40, translated: 0, reviewed: 0 },
+    ] } }))
+  await page.route('**/api/translate-run/dramas/2/chapters/1/retranslate', (route) => route.fulfill({ json: {
+    drama_id: 2, number: 1, line_count: 40, hand_edited_count: 3, estimate: est(0.5), estimate_with_hand_edited: est(0.6) } }))
+  await page.route('**/api/translate-run/dramas/2/chapters/1/retranslate/run', (route) => {
+    posted.push(route.request().postDataJSON())
+    return route.fulfill({ json: { job_id: 'translate_2', drama_id: 2, engine: 'fake', target_line_count: 37,
+      line_ids: [1], skipped_hand_edited_count: 3 } })
+  })
+  await page.goto('/#/drama/2')
+  const items = page.getByRole('list', { name: 'Saved chapters' }).getByRole('listitem')
+  await expect(items.nth(1).getByRole('button', { name: /Translate chapter 2 again/ })).toHaveCount(0)
+  await items.first().getByRole('button', { name: /Translate chapter 1 again/ }).click()
+  const form = page.getByRole('form', { name: 'Translate chapter 1 again' })
+  await expect(form).toContainText('37 of its 40 lines')
+  await expect(form).toContainText('$0.50')
+  expect(posted).toEqual([])
+  await form.getByRole('checkbox').check()
+  await expect(form).toContainText('40 of its 40 lines')
+  await form.getByRole('button', { name: 'Translate again' }).click()
+  await expect(form).toHaveCount(0)
+  expect(posted).toEqual([{ include_hand_edited: true }])
+})
+
 test('Translate is a button (it runs the link chain) while the novel has chapters but no lines, and Read still opens the Reader', async ({ page }) => {
   await mockChapters(page, listBody([row(1)]))
   await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(0) }))

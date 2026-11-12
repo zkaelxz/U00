@@ -11422,6 +11422,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/translate-run/dramas/{drama_id}/chapters/{number}/retranslate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview translating one novel chapter again, with a cost estimate */
+        get: operations["get_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/translate-run/dramas/{drama_id}/chapters/{number}/retranslate/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Translate one novel chapter again */
+        post: operations["start_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/translate-run/dramas/{drama_id}/config": {
         parameters: {
             query?: never;
@@ -22531,6 +22565,66 @@ export interface components {
              * @default false
              */
             translation_text_updated: boolean;
+        };
+        /**
+         * NovelChapterRetranslatePreview
+         * @description One chapter's lines before translating it again; estimate is None when
+         *     every line was edited by hand.
+         */
+        NovelChapterRetranslatePreview: {
+            /** Drama Id */
+            drama_id: number;
+            estimate: components["schemas"]["TranslateRunEstimate"] | null;
+            estimate_with_hand_edited: components["schemas"]["TranslateRunEstimate"];
+            /** Hand Edited Count */
+            hand_edited_count: number;
+            /** Line Count */
+            line_count: number;
+            /** Number */
+            number: number;
+        };
+        /**
+         * NovelChapterRetranslateStart
+         * @description Translate one chapter again with the Translate form's run options.
+         */
+        NovelChapterRetranslateStart: {
+            /** Batch Size */
+            batch_size?: number | null;
+            /** Context Window */
+            context_window?: number | null;
+            /** Context Window Ahead */
+            context_window_ahead?: number | null;
+            /** Default Female Pronouns */
+            default_female_pronouns?: boolean | null;
+            /** Engine */
+            engine?: string | null;
+            /** Gemini Free Tier */
+            gemini_free_tier?: boolean | null;
+            /** Include Genre Notes */
+            include_genre_notes?: boolean | null;
+            /**
+             * Include Hand Edited
+             * @default false
+             */
+            include_hand_edited?: boolean;
+            /** Job Cost Cap Usd */
+            job_cost_cap_usd?: number | null;
+            /**
+             * Locale
+             * @default en-US
+             */
+            locale?: string;
+            /** Model */
+            model?: string | null;
+            /**
+             * Style Note
+             * @default
+             */
+            style_note?: string;
+            /** Style Preset */
+            style_preset?: string | null;
+            /** Thinking */
+            thinking?: boolean | null;
         };
         /** NovelChapterRow */
         NovelChapterRow: {
@@ -65568,6 +65662,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_get: {
+        parameters: {
+            query?: {
+                job_cost_cap_usd?: number | null;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelChapterRetranslatePreview"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_chapter_retranslate_api_translate_run_dramas__drama_id__chapters__number__retranslate_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelChapterRetranslateStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryAffectedRunStarted"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

@@ -67,13 +67,29 @@ def _starts_from_headings(rows: list) -> list:
     return starts
 
 
-def line_chapters(drama_id: int) -> dict:
-    ownership_service.require_drama(drama_id)
+def _split(drama_id: int) -> tuple:
+    """(lines, chapter starts, source): the lines and where each chapter begins."""
     rows = db.load_lines(drama_id)
     starts = starts_from_manifest(drama_id, [norm(r.get("zh")) for r in rows])
     source = "saved"
     if not starts:
         starts, source = _starts_from_headings(rows), "headings"
+    return rows, starts, source
+
+
+def chapter_lines(drama_id: int, number: int) -> list:
+    """The lines of chapter `number` as the title page counts them; empty
+    when there is no such chapter."""
+    rows, starts, _source = _split(drama_id)
+    for n, (num, _title, first) in enumerate(starts):
+        if num == number:
+            return rows[first:starts[n + 1][2] if n + 1 < len(starts) else len(rows)]
+    return []
+
+
+def line_chapters(drama_id: int) -> dict:
+    ownership_service.require_drama(drama_id)
+    rows, starts, source = _split(drama_id)
     chapters = []
     for n, (number, title, first) in enumerate(starts):
         end = starts[n + 1][2] if n + 1 < len(starts) else len(rows)

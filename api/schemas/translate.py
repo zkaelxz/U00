@@ -40,6 +40,8 @@ __all__ = [
     "GlossaryAffectedMatch",
     "GlossaryAffectedLine",
     "GlossaryAffectedPreview",
+    "NovelChapterRetranslatePreview",
+    "NovelChapterRetranslateStart",
     "GlossaryAffectedRunStart",
     "GlossaryAffectedRunStarted",
     "SourceChangedRetranslateStart",
@@ -343,6 +345,36 @@ class GlossaryAffectedRunStart(BaseModel):
 class GlossaryAffectedRunStarted(TranslateRunStarted):
     line_ids: List[int]
     skipped_hand_edited_count: int
+
+
+class NovelChapterRetranslatePreview(BaseModel):
+    """One chapter's lines before translating it again; estimate is None when
+    every line was edited by hand."""
+    drama_id: int
+    number: int
+    line_count: int
+    hand_edited_count: int
+    estimate: Optional[TranslateRunEstimate] = None
+    estimate_with_hand_edited: TranslateRunEstimate
+
+
+class NovelChapterRetranslateStart(BaseModel):
+    """Translate one chapter again with the Translate form's run options."""
+    model_config = ConfigDict(extra="forbid")
+    include_hand_edited: bool = False
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    style_preset: Optional[str] = Field(None, max_length=40)
+    style_note: str = Field("", max_length=4000)
+    locale: str = Field("en-US", max_length=10)
+    context_window: Optional[int] = Field(None, ge=0, le=100)
+    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
+    batch_size: Optional[int] = Field(None, ge=1, le=200)
+    gemini_free_tier: Optional[bool] = None
+    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    default_female_pronouns: Optional[bool] = None
+    include_genre_notes: Optional[bool] = None
+    thinking: Optional[bool] = None
 
 
 class SourceChangedRetranslateStart(BaseModel):

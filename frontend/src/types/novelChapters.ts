@@ -14,3 +14,5 @@ export type NovelLineChapters = Schemas['NovelLineChapters']
 
 export type NovelChapterMoved = Schemas['NovelChapterMoved']
 export type NovelChapterRenamed = Schemas['NovelChapterRenamed']
+export type NovelChapterRetranslatePreview = components['schemas']['NovelChapterRetranslatePreview']
+export type NovelChapterRetranslateStarted = components['schemas']['GlossaryAffectedRunStarted']
