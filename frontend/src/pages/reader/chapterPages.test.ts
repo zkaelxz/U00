@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { chapterAt, chapterPage } from './ReaderChapters'
+import { chapterAt, chapterPage } from './chapterPages'
 
 const rows = [
   { number: 1, title: 'Start', first_idx: 0, line_count: 50, translated: 50, reviewed: 10 },
