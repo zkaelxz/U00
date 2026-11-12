@@ -110,15 +110,28 @@ def _rollback_quietly(conn) -> None:
         logger.warning("Could not roll back the followed-series unlink", exc_info=True)
 
 
-def _unlink_after_reset() -> None:
+def _undo_copy_quietly(prev, kept) -> None:
+    """Puts the media back after a failed reset; a failure here is logged so it
+    doesn't replace the reset's own error."""
+    try:
+        prev.after_reset(kept, ok=False)
+    except Exception:
+        logger.warning("Could not put the library copy back after a failed reset", exc_info=True)
+
+
+def _unlink_after_reset() -> str | None:
     """The library is already gone and can't be restored, so the unlink is
-    retried on a fresh connection once the failed one has released sources.db."""
+    retried on a fresh connection once the failed one has released sources.db.
+    Returns a sentence for the user when it still fails."""
     from sources import store as src_store
     try:
         src_store.unlink_all_dramas()
     except sqlite3.Error:
         logger.error("Library reset done but the followed-series links could not be cleared; "
                      "followed series may point at new titles", exc_info=True)
+        return ("The library was reset, but the followed-series links could not be cleared "
+                "(sources.db is locked or damaged). Unfollow and follow those series again.")
+    return None
 
 
 def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dict:
@@ -136,6 +149,7 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
     if not job_launch.acquire_exclusive("Library reset"):
         raise AdminActionJobsRunning(
             "A job, restore or cleanup is in progress; try again when it ends.")
+    warning = None
     try:
         from services import library_admin_service
         if library_admin_service.any_job_running():     # re-check under the hold
@@ -150,16 +164,17 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
         # and a new title gets id 1 again. The unlink is opened first and
         # committed only once the reset has succeeded: if it can't be opened the
         # reset is refused with the library untouched, and if the reset fails
-        # the links are rolled back rather than lost with it. The library copy
-        # is made before it opens, so sources.db's write lock isn't held while
-        # the snapshot and media move run.
-        from services import previous_library_service
+        # the links are rolled back rather than lost with it. The slow snapshot
+        # is made before the lock is taken, and the media is moved only after
+        # it is held: a refusal then displaces nothing, and nothing can recreate
+        # dramas/ between the move and the reset's own rename.
+        from services import previous_library_service as prev
         from sources import store as src_store
-        kept = previous_library_service.keep_before_reset()
+        kept = prev.snapshot_before_reset()
         try:
             unlink = src_store.begin_unlink_all_dramas()
         except BaseException as exc:
-            previous_library_service.after_reset(kept, ok=False)
+            prev.discard_snapshot(kept)
             if not isinstance(exc, sqlite3.Error):
                 raise
             logger.warning("Library reset refused: could not unlink followed series", exc_info=True)
@@ -169,11 +184,12 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
         committed = False
         try:
             try:
+                prev.move_media_before_reset(kept)
                 db.reset_library()
             except BaseException:
-                previous_library_service.after_reset(kept, ok=False)
+                _undo_copy_quietly(prev, kept)
                 raise
-            previous_library_service.after_reset(kept, ok=True)
+            prev.after_reset(kept, ok=True)
         except BaseException:
             _rollback_quietly(unlink)
             raise
@@ -187,11 +203,14 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
         finally:
             unlink.close()
         if not committed:
-            _unlink_after_reset()
+            warning = _unlink_after_reset()
         background_jobs.clear_all_jobs()
     finally:
         job_launch.release_exclusive()
-    return {"ok": True, "reset_at": time.time()}
+    result = {"ok": True, "reset_at": time.time()}
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 # ---------------------------------------------------------------------------

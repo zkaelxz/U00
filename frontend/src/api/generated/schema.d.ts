@@ -17046,6 +17046,11 @@ export interface components {
             ok: boolean;
             /** Reset At */
             reset_at: number;
+            /**
+             * Warning
+             * @description Set when the reset worked but followed-series links could not be cleared.
+             */
+            warning: string | null;
         };
         /** DiagnosticsSetupBrowser */
         DiagnosticsSetupBrowser: {

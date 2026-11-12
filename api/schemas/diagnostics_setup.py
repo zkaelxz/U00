@@ -310,6 +310,8 @@ class DiagnosticsResetRequest(BaseModel):
 class DiagnosticsResetResult(BaseModel):
     ok: bool
     reset_at: float
+    warning: Optional[str] = Field(
+        default=None, description="Set when the reset worked but followed-series links could not be cleared.")
 
 
 # ---------------------------------------------------------------------------

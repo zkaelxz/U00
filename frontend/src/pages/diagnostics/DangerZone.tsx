@@ -55,6 +55,7 @@ function ResetBlock({ jobsActive, busy, onBusy, onReset, onOpenChange }: {
   const [statsError, setStatsError] = useState<unknown>(null)
   const [error, setError] = useState<unknown>(null)
   const [done, setDone] = useState(false)
+  const [warning, setWarning] = useState<string | null>(null)
   const [formKey, setFormKey] = useState(0)
   const doneRef = useRef<HTMLParagraphElement>(null)
   // Unmounting (e.g. the tab turns remote) stops the page's job polling too.
@@ -86,8 +87,9 @@ function ResetBlock({ jobsActive, busy, onBusy, onReset, onOpenChange }: {
     onBusy({ kind: 'reset', name: 'library' })
     setError(null)
     resetLibrary().then(
-      () => {
+      (result) => {
         onBusy(null)
+        setWarning(result.warning ?? null)
         setDone(true)
         setFormKey((k) => k + 1)
         onReset()
@@ -105,6 +107,7 @@ function ResetBlock({ jobsActive, busy, onBusy, onReset, onOpenChange }: {
       {done && (
         <p ref={doneRef} tabIndex={-1} role="status" data-testid="reset-done">
           Library reset. <a href={routeHref({ name: 'library' })}>Go to Library</a>
+          {warning && <span className="error"> {warning}</span>}
         </p>
       )}
       <ErrorBanner error={statsError} onDismiss={() => setStatsError(null)} />

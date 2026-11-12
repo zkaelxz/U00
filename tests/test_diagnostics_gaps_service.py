@@ -223,7 +223,9 @@ def _no_jobs(monkeypatch, running=False):
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: running)
     # These tests fake the reset itself; the copy kept before it would move the
     # session library's media away for good.
-    monkeypatch.setattr(previous_library_service, "keep_before_reset", lambda: None)
+    monkeypatch.setattr(previous_library_service, "snapshot_before_reset", lambda: None)
+    monkeypatch.setattr(previous_library_service, "move_media_before_reset", lambda dest: None)
+    monkeypatch.setattr(previous_library_service, "discard_snapshot", lambda dest: None)
     monkeypatch.setattr(previous_library_service, "after_reset", lambda kept, ok: None)
 
 
@@ -823,37 +825,90 @@ def test_a_failed_reset_keeps_the_followed_series_links(isolated_db, monkeypatch
     src_store.set_tracked_drama("site", "s1", did)
 
 
-def test_reset_does_not_hold_sources_db_while_the_library_copy_is_made(isolated_db, monkeypatch):
+def test_reset_snapshots_before_the_lock_and_moves_media_only_while_holding_it(isolated_db, monkeypatch):
     from services import previous_library_service as prev
     from sources import store as src_store
     _no_jobs(monkeypatch)
     order = []
     real_begin = src_store.begin_unlink_all_dramas
-    monkeypatch.setattr(prev, "keep_before_reset", lambda: order.append("copy") or "kept")
+    monkeypatch.setattr(prev, "snapshot_before_reset", lambda: order.append("snapshot") or "kept")
+    monkeypatch.setattr(prev, "move_media_before_reset", lambda dest: order.append("move media"))
     monkeypatch.setattr(prev, "after_reset", lambda dest, ok: order.append(f"after {ok}"))
     monkeypatch.setattr(src_store, "begin_unlink_all_dramas",
                         lambda: order.append("lock") or real_begin())
     monkeypatch.setattr(db, "reset_library", lambda: order.append("reset"))
     admin_svc.reset_library(confirm=True)
-    assert order == ["copy", "lock", "reset", "after True"]
+    assert order == ["snapshot", "lock", "move media", "reset", "after True"]
 
 
-def test_reset_refused_by_a_locked_sources_db_puts_the_library_copy_back(isolated_db, monkeypatch):
+def test_reset_refused_by_a_locked_sources_db_moves_no_media_and_drops_the_snapshot(isolated_db, monkeypatch):
     import sqlite3
     from lib.errors import ConflictError
     from services import previous_library_service as prev
     from sources import store as src_store
     _no_jobs(monkeypatch)
     calls = []
-    monkeypatch.setattr(prev, "keep_before_reset", lambda: "kept")
-    monkeypatch.setattr(prev, "after_reset", lambda dest, ok: calls.append((dest, ok)))
+    monkeypatch.setattr(prev, "snapshot_before_reset", lambda: "kept")
+    monkeypatch.setattr(prev, "move_media_before_reset", lambda dest: calls.append("moved"))
+    monkeypatch.setattr(prev, "discard_snapshot", lambda dest: calls.append(("discard", dest)))
 
     def locked():
         raise sqlite3.OperationalError("database is locked")
     monkeypatch.setattr(src_store, "begin_unlink_all_dramas", locked)
     with pytest.raises(ConflictError):
         admin_svc.reset_library(confirm=True)
-    assert calls == [("kept", False)]
+    assert calls == [("discard", "kept")]
+
+
+def test_a_refused_reset_leaves_every_titles_media_in_place(isolated_db, monkeypatch):
+    import sqlite3
+    from lib.errors import ConflictError
+    from sources import store as src_store
+    did = db.create_drama(title_en="Old")
+    media = os.path.join(db.DRAMAS_DIR, str(did), "audio.mp3")
+    os.makedirs(os.path.dirname(media))
+    with open(media, "wb") as fh:
+        fh.write(b"a")
+    from services import library_admin_service
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
+
+    def locked():
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(src_store, "begin_unlink_all_dramas", locked)
+    with pytest.raises(ConflictError):
+        admin_svc.reset_library(confirm=True)
+    assert os.path.isfile(media)
+    assert _kept_copies() == []
+
+
+def test_failed_reset_puts_media_back_even_when_an_empty_dramas_folder_was_recreated(isolated_db, monkeypatch):
+    from services import previous_library_service as prev
+    did = db.create_drama(title_en="Old")
+    media = os.path.join(db.DRAMAS_DIR, str(did), "audio.mp3")
+    os.makedirs(os.path.dirname(media))
+    with open(media, "wb") as fh:
+        fh.write(b"a")
+    dest = prev.snapshot_before_reset()
+    prev.move_media_before_reset(dest)
+    os.makedirs(db.DRAMAS_DIR)          # a request recreated it empty meanwhile
+    prev.after_reset(dest, ok=False)
+    assert os.path.isfile(media)
+    assert not os.path.exists(dest)
+
+
+def test_a_failing_copy_restore_does_not_hide_the_reset_error(isolated_db, monkeypatch):
+    from services import previous_library_service as prev
+    _no_jobs(monkeypatch)
+
+    def broken(dest, ok):
+        raise OSError("cannot rename back")
+    monkeypatch.setattr(prev, "after_reset", broken)
+
+    def boom():
+        raise PermissionError("library.db is in use")
+    monkeypatch.setattr(db, "reset_library", boom)
+    with pytest.raises(PermissionError, match="library.db is in use"):
+        admin_svc.reset_library(confirm=True)
 
 
 def test_a_rollback_that_fails_does_not_hide_the_reset_error(isolated_db, monkeypatch):
@@ -902,3 +957,28 @@ def test_a_commit_that_fails_after_the_reset_is_retried_on_a_fresh_connection(is
     monkeypatch.setattr(src_store, "begin_unlink_all_dramas", failing_commit)
     assert admin_svc.reset_library(confirm=True)["ok"] is True
     assert src_store.list_tracked_series()[0]["drama_id"] is None
+
+
+def test_a_commit_failure_whose_retry_also_fails_tells_the_user(isolated_db, monkeypatch):
+    import sqlite3
+    from sources import store as src_store
+    _no_jobs(monkeypatch)
+    real = src_store.begin_unlink_all_dramas
+
+    def failing_commit():
+        conn = real()
+
+        class Wrapper:
+            def commit(self):
+                raise sqlite3.OperationalError("disk I/O error")
+
+            def __getattr__(self, name):
+                return getattr(conn, name)
+        return Wrapper()
+
+    def still_locked():
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(src_store, "begin_unlink_all_dramas", failing_commit)
+    monkeypatch.setattr(src_store, "unlink_all_dramas", still_locked)
+    result = admin_svc.reset_library(confirm=True)
+    assert result["ok"] is True and "followed-series links" in result["warning"]
