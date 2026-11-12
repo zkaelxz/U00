@@ -370,6 +370,33 @@ class TestGlossaryInScanlateTranslation:
                                         glossary_terms=HONORIFIC)
         assert engine.calls[0][1]["glossary_terms"] == HONORIFIC
 
+    def test_a_page_picture_is_sent_with_the_regions_scaled_to_it(self, monkeypatch):
+        seen = {}
+
+        def with_image(regions, image, mime, engine, drama_meta, **kwargs):
+            seen.update(regions=regions, image=image, mime=mime, engine=engine, kwargs=kwargs)
+            return {"0": "Hello"}, "ctx"
+        monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+        bubbles = [{"source_text": "你好", "x": 10, "y": 20, "w": 30, "h": 40}]
+        picture_engine = object()
+        context = scanlate_translate.translate_page_bubbles(
+            bubbles, _FakeLLM(), {}, character_notes="Mei: she/her",
+            page_image={"data": b"jpg", "mime": "image/jpeg", "scale": 0.5, "engine": picture_engine})
+        assert context == "ctx" and bubbles[0]["translated_text"] == "Hello"
+        assert seen["regions"][0]["box"] == {"x": 5, "y": 10, "w": 15, "h": 20}
+        assert seen["engine"] is picture_engine
+        assert seen["kwargs"]["character_notes"] == "Mei: she/her"
+
+    def test_a_failed_picture_request_falls_back_to_the_text(self, monkeypatch):
+        def broken(*args, **kwargs):
+            raise RuntimeError("the provider refused the picture")
+        monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", broken)
+        engine = _RecordingMT()
+        bubbles = [{"source_text": "师姐", "x": 1, "y": 2, "w": 3, "h": 4}]
+        scanlate_translate.translate_page_bubbles(
+            bubbles, engine, {}, page_image={"data": b"jpg", "mime": "image/jpeg", "scale": 1.0})
+        assert engine.calls, "the text-only request was not made"
+
     def test_glossary_block_matches_workspace_style_guidelines(self):
         import translation_guide
         block = translation_guide.build_glossary_block(HONORIFIC)
@@ -738,3 +765,35 @@ def test_a_box_that_was_not_split_keeps_its_empty_region_for_hand_entry(tmp_path
     monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **kw: "")
     bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
     assert len(bubbles) == 1
+
+
+def _two_lobe_balloon():
+    """One speech balloon drawn as two overlapping lobes, three lines of lettering in each, at the
+    size and position of a real Naver page where the detector gave the pair a single region."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((900, 690), 245, np.uint8)
+    for center, axes in (((220, 500), (175, 130)), ((430, 690), (170, 140))):
+        cv2.ellipse(page, center, axes, 0, 0, 360, 255, -1)
+        cv2.ellipse(page, center, axes, 0, 0, 360, 0, 3)
+    first = [(103, 458, 8), (165, 503, 4), (128, 550, 6)]
+    second = [(395, 640, 4), (330, 690, 7), (325, 735, 7)]
+    for left, top, glyphs in first + second:
+        for k in range(glyphs):
+            cv2.rectangle(page, (left + k * 31, top), (left + k * 31 + 24, top + 34), 30, -1)
+    return page
+
+
+def test_a_two_lobe_balloon_becomes_one_region_per_lobe():
+    page = _two_lobe_balloon()
+    box = {"x": 41, "y": 339, "w": 570, "h": 514, "kind": "bubble"}
+    parts = scanlate_regions.split_separate_lettering(page, box)
+    assert len(parts) == 2
+    upper, lower = sorted(parts, key=lambda p: p["y"])
+
+    def holds(part, left, top, right, bottom):
+        return (part["x"] <= left and part["y"] <= top and part["x"] + part["w"] >= right
+                and part["y"] + part["h"] >= bottom)
+
+    assert holds(upper, 103, 458, 340, 584) and holds(lower, 325, 640, 551, 769)
+    assert not holds(upper, 325, 640, 551, 769) and not holds(lower, 103, 458, 340, 584)
+    assert all(p["kind"] == "bubble" for p in parts)

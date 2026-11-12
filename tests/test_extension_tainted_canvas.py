@@ -129,6 +129,24 @@ class TestWorkerDownload:
         out = _run("background", "referrer_is_only_the_page_origin")
         assert out == {"referrer": "https://reader.example/", "referrerPolicy": "origin"}
 
+    def test_a_403_is_retried_once_with_the_page_origin_as_a_temporary_referer_rule(self):
+        out = _run("background", "referer_retry")
+        retried = out["retried"]
+        assert retried["ok"] is True and retried["fetches"] == 2
+        add, remove = retried["rules"]
+        rule = add["addRules"][0]
+        assert rule["action"]["requestHeaders"] == [
+            {"header": "referer", "operation": "set", "value": "https://reader.example/"}]
+        # Narrow: this host only, requests the extension itself makes, removed afterwards.
+        assert rule["condition"]["requestDomains"] == ["s1.bzcdn.net"]
+        assert rule["condition"]["initiatorDomains"] == ["extid"]
+        assert remove == {"removeRuleIds": [rule["id"]]}
+        # No rule unless a 403 says it is needed, and none for other errors or an unknown page.
+        assert out["notNeeded"]["rules"] == [] and out["notNeeded"]["fetches"] == 1
+        assert out["otherError"]["rules"] == [] and out["otherError"]["error"].endswith("HTTP 404")
+        assert out["noPage"]["rules"] == [] and out["noPage"]["ok"] is False
+        assert out["noPermission"]["rules"] == [] and out["noPermission"]["fetches"] == 2
+
     def test_no_referrer_is_sent_when_the_page_is_unknown(self):
         assert _run("background", "no_referrer_without_a_page")["keys"] == ["credentials", "redirect", "signal"]
 

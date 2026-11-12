@@ -7,6 +7,7 @@ Thin: the rules live in `services/device_token_service.py`.
     POST /api/auth/device-tokens/{device_token_id}/revoke
                                                      authenticated()   revoke one of mine
     GET  /api/extension/devices                      local_only()      everyone's
+    POST /api/extension/devices                      local_only()      add one for an admin account
     POST /api/extension/devices/{device_token_id}/revoke
                                                      local_only()      revoke anyone's
 
@@ -27,7 +28,7 @@ from fastapi import APIRouter, Path, Request
 from api.auth import (authenticated, client_ip, is_auth_enabled, is_local_request, local_only,
                       require_permission)
 from api.no_store import no_store_json
-from api.schemas import (AdminDeviceTokenList, DeviceTokenCreated, DeviceTokenCreateRequest,
+from api.schemas import (AdminDeviceTokenCreateRequest, AdminDeviceTokenList, DeviceTokenCreated, DeviceTokenCreateRequest,
                          DeviceTokenList, DeviceTokenRevoked, error_responses)
 from services import device_token_service as svc
 from lib.errors import NotFoundError
@@ -76,6 +77,14 @@ def revoke_own(request: Request, device_token_id: int = _TokenId):
             response_model=AdminDeviceTokenList, summary="PC only: every browser-extension device")
 def admin_list():
     return no_store_json(AdminDeviceTokenList(tokens=svc.admin_list()))
+
+
+@router.post("/api/extension/devices", dependencies=[local_only()], response_model=DeviceTokenCreated,
+             summary="PC only: add an extension device for an admin account (token shown once)",
+             responses=error_responses(404, 409, 422, 429))
+def admin_create(body: AdminDeviceTokenCreateRequest, request: Request):
+    return no_store_json(DeviceTokenCreated(**svc.create_token_at_pc(
+        body.label, body.expires_in_days, user_id=body.user_id, ip=client_ip(request))))
 
 
 @router.post("/api/extension/devices/{device_token_id}/revoke", dependencies=[local_only()],
