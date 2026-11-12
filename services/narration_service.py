@@ -304,7 +304,9 @@ def _save_lines(job_id, drama_id, lines, notice=None):
     _carry_over_existing(lines, existing)
     # Full sync on purpose: the list is the drama's lines now; text that is
     # gone loses its row, unchanged text keeps its row through the carry-over.
-    db.save_lines(drama_id, lines)
+    # expect_unchanged: cancel_line_jobs doesn't wait, and a Review edit saved
+    # after the read above would otherwise be overwritten by the carried-over copy.
+    db.save_lines(drama_id, lines, expect_unchanged=existing)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)
     novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))   # the whole text was cut

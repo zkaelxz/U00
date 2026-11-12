@@ -764,3 +764,21 @@ def test_an_install_refreshes_the_import_caches_so_the_new_package_is_found(monk
     monkeypatch.setattr(importlib, "invalidate_caches", lambda: calls.append(1))
     packages_svc._clear_update_cache()
     assert calls == [1]
+
+
+def test_reset_unlinks_followed_series_from_the_old_titles(isolated_db, monkeypatch):
+    """sources.db outlives a reset, but the titles it names do not: the first new title
+    gets id 1 again, and a chapter check would import into it."""
+    from sources import store as src_store
+    _no_jobs(monkeypatch)
+    old = db.create_drama(title_en="Old")
+    src_store.track_series("site", "s1", "Followed")
+    src_store.set_tracked_drama("site", "s1", old)
+    src_store.record_imported("site", "s1", "c1", old)
+    src_store.record_import_retry("site", "s1", old, [("c2", "t", "failed", "x")])
+    admin_svc.reset_library(confirm=True)
+    new = db.create_drama(title_en="Unrelated")
+    row = src_store.list_tracked_series()[0]
+    assert row["series_id"] == "s1" and row["drama_id"] is None
+    assert src_store.imported_chapter_ids("site", "s1", new) == set()
+    assert src_store.import_retry_rows("site", "s1", new) == []

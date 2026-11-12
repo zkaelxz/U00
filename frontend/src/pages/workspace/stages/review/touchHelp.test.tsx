@@ -78,3 +78,39 @@ describe('novel line row', () => {
     expect(html).not.toContain('review-time')
   })
 })
+
+describe('help that would otherwise be hover-only', () => {
+  const actions = new Proxy({}, { get: () => vi.fn() }) as RowActions
+  const render = (line: ReviewLine, active: boolean, isPhone: boolean, timingSnap: { new_start: number; new_end: number } | null = null) =>
+    renderToStaticMarkup(
+      <LineRow
+        dramaId={1} line={line} sourceLanguage="zh" active={active} selected={false} isPhone={isPhone} hasMedia jobRunning={false}
+        limited={false} edit={null} ai={null} tm={null} issue={null} actions={actions} timingSnap={timingSnap as never}
+      />,
+    )
+  const shaky = { ...LINE, flag: null, confidence: 0.4 }
+
+  it('spells the Shaky reason out under the active row on a phone, whose meta line has no room for a button', () => {
+    const html = render(shaky, true, true)
+    expect(html).toMatch(/data-testid="badge-reasons">Whisper was unsure of this line\.<\/p>/)
+    expect(html).not.toContain('Help: Shaky')
+  })
+
+  it('gives the active row a help tip for the Shaky badge on a wider screen', () => {
+    expect(render(shaky, true, false)).toContain('aria-label="Help: Shaky"')
+  })
+
+  it('adds neither to other rows, so only the active row has Tab stops', () => {
+    for (const isPhone of [true, false]) {
+      const html = render(shaky, false, isPhone)
+      expect(html).not.toContain('Help: Shaky')
+      expect(html).not.toContain('badge-reasons')
+    }
+  })
+
+  it('shows the Snap to speech times as text on a phone', () => {
+    const html = render({ ...LINE, flag: 'timing_uncertain' }, true, true, { new_start: 1, new_end: 2 })
+    expect(html).toContain('Snap to speech')
+    expect(html).toMatch(/<span class="muted" id="timing-snap-times-7">Sets .*saves a history snapshot first<\/span>/)
+  })
+})

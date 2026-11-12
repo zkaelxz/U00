@@ -60,7 +60,9 @@ must be a top-level picklable function whose last parameter is a
 The row is the cross-process record of a job; the dict stays the authority for a job
 this process runs. Besides the public fields the row carries `kind` (`thread`,
 `process`), `owner_pid` and `owner_instance` (`job_store.INSTANCE_ID`, random per process,
-so a restarted server that reuses a pid is never the live owner of an old row),
+so a restarted server that reuses a pid is never the live owner of an old row; after a
+dot it carries the owner's OS start stamp, `lib.pid.process_start_token`: the creation
+FILETIME on Windows, boot id plus start ticks on Linux, none on macOS),
 `cancel_requested_at` (the requester's time, which the owner adopts when it hears the
 cancel, so Force stop is judged from the moment the user asked),
 `detail_state` (why a final state was reached by someone other than the worker:
@@ -160,12 +162,17 @@ same id starts. The protections:
   jobs are unchanged since a sweep that closed nothing, for up to
   `jobs_service._SWEEP_REPEAT_SECONDS` (10 s).
 - A `queued`/`running` row is stale when its owner pid is gone (`owner_pid`, via
-  `owner_process_alive`), or when `updated_at` is older than `STALE_JOB_SECONDS` (15 min)
+  `owner_process_alive`), or now names a different process than the start stamp in
+  `owner_instance` says (`job_store.pid_reused`; no clocks are compared, so a clock
+  change can't make a live owner look gone), or when `updated_at` is older than `STALE_JOB_SECONDS` (15 min)
   and its owner pid is not another live process (`job_store.owner_alive_elsewhere`): a
   paused owner (laptop lid, debugger) rewrites its row when it wakes, so heartbeat age
   alone closes only a row with no `owner_pid`. That protection lasts
   `STALE_ALIVE_CEILING_SECONDS` (6 h): a row quiet for longer closes even though its
   pid is alive, because after a hard kill and reboot Windows can reuse the dead server's pid.
+  It matters only for rows with no start stamp (written by an older version, or where the
+  OS refused the probe); the stamp is kept in `owner_instance` rather than a new column so
+  the schema is unchanged and a rolled-back version still opens the library.
   `jobs_service.is_stale` and the sweep skip any job live in this process. Each close
   is one conditional `UPDATE` (`job_store.close_if_owner_gone`, `job_store.close_stale`),
   so a live owner's heartbeat, `done` or new run always wins.
