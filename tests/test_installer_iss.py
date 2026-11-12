@@ -287,6 +287,10 @@ class TestUninstall:
                          r"AddLine\(Removed, 'your settings and API keys \(\.env\)'\)\s+else\s+"
                          r"AddLine\(Left, 'your settings and API keys \(\.env\) - couldn''t be deleted", step)
         assert re.search(r"if DeleteModels then\s+DeleteTree\(UninstDataDir \+ '\\model_cache'", step)
+        # The two big app-made folders go only with "Remove everything", never with a single box.
+        assert re.search(r"if CleanAll then\s+begin\s+DeleteTree\(UninstDataDir \+ '\\voice_engines'[^\n]*\n"
+                         r"\s*DeleteTree\(UninstDataDir \+ '\\playwright_browsers'[^\n]*\n\s*end;", step)
+        assert step.count("'\\voice_engines'") == 1 and step.count("'\\playwright_browsers'") == 1
         # The whole data folder only on a clean uninstall of a folder Setup created.
         assert re.search(r"if CleanAll and UninstDataDirCreated then\s+begin\s+(//[^\n]*\s+)*"
                          r"DeleteTree\(UninstDataDir,", step)
