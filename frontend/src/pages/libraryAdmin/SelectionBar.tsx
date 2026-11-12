@@ -2,14 +2,17 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { ApiError } from '../../api/client'
 import { addQueueBulk } from '../../api/queue'
-import { bulkDelete, bulkSetStatus, bulkSetTag, bulkTranslate, startExport } from '../../api/libraryAdmin'
+import { listAllSeries, type SeriesListItem } from '../../api/series'
+import { bulkDelete, bulkSetSeries, bulkSetStatus, bulkSetTag, bulkTranslate, startExport } from '../../api/libraryAdmin'
 import type { DramaSummary } from '../../api/types'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { TypedConfirm } from '../../components/TypedConfirm'
 import { routeHref } from '../../router'
+import { useCancellableEffect } from '../../hooks/useCancellableEffect'
 import { useHolds } from '../../hooks/useHolds'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { statusLabel, tagLabel } from '../../labels'
+import { NEW_SERIES } from '../workspace/detailsForm'
 import {
   ADMIN_JOB_IDS, LIBRARY_LIST_TAGS, LIBRARY_STATUSES, type LibraryListTag, type LibraryStatus,
 } from '../../types/libraryAdmin'
@@ -72,6 +75,9 @@ export function SelectionBar({
   const menuRef = useRef<HTMLDetailsElement>(null)
   const summaryRef = useRef<HTMLElement>(null)
   const translate = useAdminJob(ADMIN_JOB_IDS.translate)
+  const [seriesList, setSeriesList] = useState<SeriesListItem[]>([])
+  const [seriesChoice, setSeriesChoice] = useState('')
+  const [newSeriesName, setNewSeriesName] = useState('')
 
   const ids = selected.map((d) => d.id)
   const toTranslate = translatableIds(selected)
@@ -83,6 +89,19 @@ export function SelectionBar({
   const name = (id: number) => {
     const d = items.find((x) => x.id === id)
     return d ? titleOf(d) : `#${id}`
+  }
+
+  // Same permission the server asks of the bulk series route.
+  useCancellableEffect((cancelled) => {
+    if (!canEdit) return
+    // A failed list leaves the picker with "+ New series…" and "No series" only.
+    listAllSeries().then((r) => !cancelled() && setSeriesList(r.items), () => {})
+  }, [canEdit])
+
+  const applySeries = (call: () => ReturnType<typeof bulkSetSeries>) => {
+    run(call, describeBulkResult)
+    setSeriesChoice('')
+    setNewSeriesName('')
   }
 
   const closeMenu = (refocus: boolean) => {
@@ -211,6 +230,33 @@ export function SelectionBar({
             {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={`remove:${t}`}>Remove from {tagLabel(t)}</option>)}
           </optgroup>
         </select>
+      </div>
+      <div className="bar-group">
+        <select
+          aria-label="Series"
+          value={seriesChoice}
+          disabled={busy || !n}
+          onChange={(e) => {
+            const v = e.target.value
+            if (v === NEW_SERIES || v === '') setSeriesChoice(v)
+            else applySeries(() => bulkSetSeries(ids, { series_id: Number(v) }))
+          }}
+        >
+          <option value="">Series…</option>
+          <option value="0">No series</option>
+          {seriesList.map((x) => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
+          <option value={NEW_SERIES}>+ New series…</option>
+        </select>
+        {seriesChoice === NEW_SERIES && (
+          <>
+            <input aria-label="New series name" value={newSeriesName} maxLength={300} placeholder="Series name"
+              onChange={(e) => setNewSeriesName(e.target.value)} />
+            <button type="button" disabled={busy || !n || !newSeriesName.trim()}
+              onClick={() => applySeries(() => bulkSetSeries(ids, { new_series_name: newSeriesName.trim() }))}>
+              Create and add
+            </button>
+          </>
+        )}
       </div>
       </>}
       {phone && editReason}

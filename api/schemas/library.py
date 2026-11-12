@@ -77,6 +77,7 @@ __all__ = [
     "LibraryArtifactKind",
     "LibraryBulkStatusRequest",
     "LibraryBulkTagRequest",
+    "LibraryBulkSeriesRequest",
     "LibraryBulkDeleteRequest",
     "LibraryBulkTranslateRequest",
     "LibraryExportRequest",
@@ -691,6 +692,21 @@ class LibraryBulkTagRequest(BaseModel):
     present: StrictBool
 
 
+class LibraryBulkSeriesRequest(BaseModel):
+    """Puts every picked title in one series: `series_id` (0 takes them out)
+    or `new_series_name`, exactly one."""
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    series_id: Optional[StrictInt] = Field(default=None, ge=0, le=2**31 - 1)
+    new_series_name: Optional[str] = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if (self.series_id is None) == (self.new_series_name is None):
+            raise ValueError("Pass series_id or new_series_name.")
+        return self
+
+
 class LibraryBulkDeleteRequest(BaseModel):
     """Needs confirm=true and confirm_text "DELETE"."""
     model_config = ConfigDict(extra="forbid")
@@ -741,7 +757,7 @@ class LibraryStorageCleanRequest(BaseModel):
 
 class LibraryBulkItem(BaseModel):
     """One requested drama's outcome. error: not_found, job_running,
-    delete_failed, not_translated or no_translated_lines."""
+    delete_failed, not_translated, no_translated_lines, not_allowed or conflict."""
     drama_id: int
     ok: bool
     error: Optional[str] = None

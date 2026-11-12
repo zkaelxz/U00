@@ -4974,6 +4974,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/admin/bulk/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put several dramas in one series, or take them out (per-id results) */
+        post: operations["post_bulk_series_api_library_admin_bulk_series_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/admin/bulk/status": {
         parameters: {
             query?: never;
@@ -20353,7 +20370,7 @@ export interface components {
         /**
          * LibraryBulkItem
          * @description One requested drama's outcome. error: not_found, job_running,
-         *     delete_failed, not_translated or no_translated_lines.
+         *     delete_failed, not_translated, no_translated_lines, not_allowed or conflict.
          */
         LibraryBulkItem: {
             /** Drama Id */
@@ -20375,6 +20392,19 @@ export interface components {
             results: components["schemas"]["LibraryBulkItem"][];
             /** Updated */
             updated: number;
+        };
+        /**
+         * LibraryBulkSeriesRequest
+         * @description Puts every picked title in one series: `series_id` (0 takes them out)
+         *     or `new_series_name`, exactly one.
+         */
+        LibraryBulkSeriesRequest: {
+            /** Drama Ids */
+            drama_ids: number[];
+            /** New Series Name */
+            new_series_name?: string | null;
+            /** Series Id */
+            series_id?: number | null;
         };
         /** LibraryBulkStatusRequest */
         LibraryBulkStatusRequest: {
@@ -45665,6 +45695,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_bulk_series_api_library_admin_bulk_series_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryBulkSeriesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryBulkResult"];
                 };
             };
             /** @description Unprocessable Content */
