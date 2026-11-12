@@ -137,7 +137,7 @@ def _dist_version_in(venv_py: str, pip_name: str, cancel=None):
         out = proc_run.run_captured(
             [venv_py, "-c", "import importlib.metadata, sys; "
                             "print(importlib.metadata.version(sys.argv[1]))", pip_name],
-            60, cancel=cancel)
+            60, cancel=cancel, env=proc_run.secretless_env(drop_prefixes=()))
     except OSError:
         return None
     return out.stdout.strip() if out.returncode == 0 else None

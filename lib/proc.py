@@ -33,15 +33,16 @@ _CAPTURE_LIMIT_CHARS = 4_000_000
 _EOF = object()
 
 
-_SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL|COOKIE|SESSION|AUTH", re.IGNORECASE)
+_SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL|COOKIE|SESSION|AUTH|WEBHOOK|NTFY", re.IGNORECASE)
 
 
-def secretless_env(drop_prefixes: tuple = ("BAIHE_",)) -> dict:
+def secretless_env(drop_prefixes: tuple = ("BAIHE_",), keep: tuple = ()) -> dict:
     """The parent's environment minus anything secret-looking and Baihe's own
     settings, for a child that runs third-party code: API keys set as
-    environment variables must not reach it."""
+    environment variables must not reach it. `keep` names variables that look
+    secret by name but carry none (a desktop session address)."""
     return {k: v for k, v in os.environ.items()
-            if not _SECRET_ENV.search(k) and not k.upper().startswith(drop_prefixes)}
+            if (k in keep or not _SECRET_ENV.search(k)) and not k.upper().startswith(drop_prefixes)}
 
 
 def group_kwargs(own_group: bool = True) -> dict:

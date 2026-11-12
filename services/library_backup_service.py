@@ -219,7 +219,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                      progress=None, should_cancel=None, left_out=None):
     """Writes a backup zip to `dest`: sanitized library.db and sources.db snapshots and,
     with include_media, every other library file except the excluded
-    top-level entries (backups/, sign-ins, source profiles, extension
+    top-level entries (backups/, logs/, sign-ins, source profiles, extension
     token, source_cache/), the live database files, symlinks and any `.env`. `manifest`,
     if given, is called with the snapshot's path and returns bytes stored
     as manifest.json (so it describes exactly the database in the zip).
