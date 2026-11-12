@@ -57,6 +57,10 @@ def _state(did):
         return _raw(did), f.read(), [(r["id"], r["idx"], r["zh"], r["en"]) for r in db.load_lines(did)]
 
 
+def _state_lines(did):
+    return [(r["id"], r["idx"], r["zh"], r["en"]) for r in db.load_lines(did)]
+
+
 def test_moving_a_chapter_reorders_text_list_and_lines_and_keeps_translations(isolated_db):
     did = _book(isolated_db)
     before_ids = {r["zh"]: (r["id"], r["en"]) for r in db.load_lines(did)}
@@ -81,9 +85,14 @@ def test_a_failed_file_swap_puts_the_lines_back(isolated_db, monkeypatch):
     did = _book(isolated_db)
     before = _state(did)
 
-    def boom(tmp, dest):
-        raise OSError("disk")
-    monkeypatch.setattr(svc.edit, "_swap_in", boom)
+    real, calls = svc.edit._swap_in, []
+
+    def first_fails(tmp, dest):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("disk")
+        return real(tmp, dest)
+    monkeypatch.setattr(svc.edit, "_swap_in", first_fails)
     with pytest.raises(OSError):
         svc.move_chapter(did, 2, 1)
     monkeypatch.undo()
@@ -182,7 +191,10 @@ def test_a_raw_file_that_cannot_be_restored_still_gets_the_lines_put_back(isolat
         svc.move_chapter(did, 2, 1)
     monkeypatch.undo()
     assert ".before-edit" in err.value.message
-    assert _state(did)[2] == before_lines
+    assert _state_lines(did) == before_lines
+    # The old chapter list must not stay valid over the moved text: no list reads as unsplit text.
+    assert not os.path.exists(chapter_manifest.manifest_path(did))
+    assert novel_chapters_service.list_chapters(did)["split"] is False
 
 
 def test_refusals(isolated_db):

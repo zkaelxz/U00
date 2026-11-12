@@ -28,8 +28,8 @@ from sources import chapter_manifest as manifest
 from sources import pipeline, store
 
 _NOT_ALIGNED = ("The chapters and the lines do not line up (a chapter's title line is missing or "
-                "out of order), so the chapters can't be moved safely. Split the text into lines "
-                "again first.")
+                "out of order, or a line was edited), so the chapters can't be moved safely. Restore "
+                "the lines from the line history, or undo the edits, and try again.")
 _TIMED = ("These lines have their own times, so reordering chapters would put them out of step "
           "with the audio. Only untimed novel lines can be reordered.")
 
@@ -161,21 +161,43 @@ def _checked(drama_id: int, number: int, to_number: int):
     return found[0], chapters, sep
 
 
-def _roll_back(drama_id: int, raw: str, folder: str, raw_swapped: bool, lines_saved: bool,
-               rows: list) -> None:
+def _restore_manifest(drama_id: int, folder: str) -> None:
+    path = manifest.manifest_path(drama_id)
+    fd, tmp = tempfile.mkstemp(prefix=".chapters_", suffix=".part", dir=folder)
+    os.close(fd)
+    try:
+        shutil.copyfile(path + edit.BACKUP_SUFFIX, tmp)
+        edit._swap_in(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _roll_back(drama_id: int, raw: str, folder: str, raw_swapped: bool, manifest_removed: bool,
+               lines_saved: bool, moved: list, rows: list) -> None:
     """Undoes whatever a failed move had done. Each step runs on its own, so a file that cannot
     be restored does not stop the lines being put back. Raises only when something is left
     half-done, saying which part."""
     stuck = []
+    raw_back = True
     if raw_swapped:
         try:
             edit._restore_raw(raw, folder)
         except Exception:
+            raw_back = False
             stuck.append("The saved text could not be put back in its old order; its earlier copy "
                          "is kept beside it as a .before-edit file.")
+    # The old chapter list is only valid for the old text, so it is put back only once that is
+    # back; without it the chapters read as one unsplit text, which is safe.
+    if manifest_removed and raw_back:
+        try:
+            _restore_manifest(drama_id, folder)
+        except Exception:
+            stuck.append("The chapter list could not be put back; the chapters show as one "
+                         "unsplit text until the text is imported again.")
     if lines_saved:
         try:
-            db.save_lines(drama_id, _as_read(rows))
+            db.save_lines(drama_id, _as_read(rows), expect_unchanged=moved)
         except Exception:
             stuck.append("The lines could not be put back in their old order. Restore them from "
                          "the line history (\u201cbefore moving a chapter\u201d).")
@@ -202,13 +224,18 @@ def _move_locked(drama_id: int, number: int, to_number: int) -> dict:
     narration_is_copy = os.path.isfile(narration) and filecmp.cmp(raw, narration, shallow=False)
 
     tmp_raw, tmp_man = _write_moved(raw, folder, chapters, order, sep)
-    lines_saved = raw_swapped = False
+    lines_saved = raw_swapped = manifest_removed = False
     try:
         db.save_line_history_snapshot(drama_id, originals, "before moving a chapter")
         db.save_lines(drama_id, moved, expect_unchanged=originals)
         lines_saved = True
         for path in (raw, manifest.manifest_path(drama_id)):
             shutil.copyfile(path, path + edit.BACKUP_SUFFIX)
+        # A move keeps the file's size, which is what makes the old chapter list look valid, so
+        # it is dropped first: a stop between the two swaps then reads as unsplit text, never
+        # as the old chapters over the new text.
+        os.remove(manifest.manifest_path(drama_id))
+        manifest_removed = True
         edit._swap_in(tmp_raw, raw)
         raw_swapped = True
         edit._swap_in(tmp_man, manifest.manifest_path(drama_id))
@@ -216,7 +243,7 @@ def _move_locked(drama_id: int, number: int, to_number: int) -> dict:
         for tmp in (tmp_raw, tmp_man):
             if os.path.exists(tmp):
                 os.remove(tmp)
-        _roll_back(drama_id, raw, folder, raw_swapped, lines_saved, rows)
+        _roll_back(drama_id, raw, folder, raw_swapped, manifest_removed, lines_saved, moved, rows)
         raise
     translation_updated = narration_is_copy and edit._copy_to_translation_text(raw, narration, folder)
     return {"drama_id": drama_id, "number": number, "to_number": to_number,
