@@ -189,7 +189,6 @@ def test_the_typeset_page_comes_back_as_a_jpeg_to_draw_over_the_reader(token, fa
 
 def test_an_oversized_typeset_page_stays_in_the_library_but_is_not_sent_back(
         token, fake_pipeline, drama, monkeypatch):
-    from services import extension_bridge_service
     _writing_render(monkeypatch)
     monkeypatch.setattr(page_capture_checks, "PREVIEW_MAX_BYTES", 10)
     page = _send(token, drama, typeset=True).payload["pages"][0]
