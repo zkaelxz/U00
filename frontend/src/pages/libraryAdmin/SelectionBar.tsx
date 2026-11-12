@@ -9,6 +9,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { TypedConfirm } from '../../components/TypedConfirm'
 import { routeHref } from '../../router'
 import { useCancellableEffect } from '../../hooks/useCancellableEffect'
+import { buttonClass } from '../../components/uiClasses'
 import { useHolds } from '../../hooks/useHolds'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { statusLabel, tagLabel } from '../../labels'
@@ -356,7 +357,7 @@ export function SelectionBar({
           <p>{pendingSeries.text}</p>
           <div className="actions">
             <button type="button" disabled={busy} onClick={confirmSeries}>Confirm</button>
-            <button type="button" className="link" onClick={() => { setPendingSeries(null); setSeriesChoice('') }}>Cancel</button>
+            <button type="button" className={buttonClass('ghost')} onClick={() => { setPendingSeries(null); setSeriesChoice('') }}>Cancel</button>
           </div>
         </div>
       )}
