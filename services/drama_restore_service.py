@@ -26,7 +26,7 @@ import sensitivity_preset
 import storage
 from db import fsync_dir as _fsync_dir
 from lib import gzip_text
-from services import delete_service
+from services import delete_service, word_replacement_service
 from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import library_restore_service as lrs
@@ -250,7 +250,9 @@ def _insert_series(src, dst, series_id, row, counts) -> tuple:
     for table in SERIES_CHILDREN:
         live_cols = columns(dst, table)
         n = 0
-        for child in table_rows(src, table, "series_id = ?", (series_id,)):
+        for child in table_rows(src, table, "series_id = ? ORDER BY id", (series_id,)):
+            if table == "word_replacements" and n >= word_replacement_service.MAX_REPLACEMENTS:
+                break  # the editor refuses more, so a crafted file can't push a series past it
             old = child.pop("id", None)
             child["series_id"] = live_id
             new = _insert(dst, table, child, live_cols)
