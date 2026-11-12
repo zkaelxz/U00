@@ -3761,7 +3761,8 @@ export interface paths {
         /** PC only: every browser-extension device */
         get: operations["admin_list_api_extension_devices_get"];
         put?: never;
-        post?: never;
+        /** PC only: add an extension device for an admin account (token shown once) */
+        post: operations["admin_create_api_extension_devices_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3779,6 +3780,23 @@ export interface paths {
         put?: never;
         /** PC only: revoke anyone's extension device */
         post: operations["admin_revoke_api_extension_devices__device_token_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/extension/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** PC only: the browser extension as a zip to unpack and load */
+        get: operations["get_download_api_extension_download_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11964,6 +11982,18 @@ export interface components {
             user_id: number;
             /** User Name */
             user_name: string;
+        };
+        /** AdminDeviceTokenCreateRequest */
+        AdminDeviceTokenCreateRequest: {
+            /**
+             * Expires In Days
+             * @default 90
+             */
+            expires_in_days?: number | null;
+            /** Label */
+            label: string;
+            /** User Id */
+            user_id?: number | null;
         };
         /** AdminDeviceTokenList */
         AdminDeviceTokenList: {
@@ -41250,6 +41280,66 @@ export interface operations {
             };
         };
     };
+    admin_create_api_extension_devices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminDeviceTokenCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceTokenCreated"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     admin_revoke_api_extension_devices__device_token_id__revoke_post: {
         parameters: {
             query?: never;
@@ -41277,6 +41367,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_download_api_extension_download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

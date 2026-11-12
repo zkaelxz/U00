@@ -76,15 +76,16 @@ def _evict_idle_chains():
         _contexts.pop(key, None)
 
 
-def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb):
+def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb, **extras):
     """Translates one page as the next link of its title's context chain.
-    Other titles never wait on this title's lock."""
+    Other titles never wait on this title's lock. `extras` (character_notes,
+    page_image) go to `translate_page_bubbles` as given."""
     import scanlate_translate
     key = _chain_key(drama_id, source_url)
     if key is None:
         scanlate_translate.translate_page_bubbles(
             bubbles, engine, drama or {}, previous_context="",
-            glossary_terms=glossary, usage_cb=usage_cb)
+            glossary_terms=glossary, usage_cb=usage_cb, **extras)
         return
     with _context_lock:
         chain = _chain_locks.get(key)
@@ -100,7 +101,7 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
                 previous = _contexts.get(key, "") if linked else ""
             new_context = scanlate_translate.translate_page_bubbles(
                 bubbles, engine, drama or {}, previous_context=previous,
-                glossary_terms=glossary, usage_cb=usage_cb)
+                glossary_terms=glossary, usage_cb=usage_cb, **extras)
             if linked:
                 with _context_lock:
                     _contexts[key] = new_context

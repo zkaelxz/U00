@@ -370,6 +370,33 @@ class TestGlossaryInScanlateTranslation:
                                         glossary_terms=HONORIFIC)
         assert engine.calls[0][1]["glossary_terms"] == HONORIFIC
 
+    def test_a_page_picture_is_sent_with_the_regions_scaled_to_it(self, monkeypatch):
+        seen = {}
+
+        def with_image(regions, image, mime, engine, drama_meta, **kwargs):
+            seen.update(regions=regions, image=image, mime=mime, engine=engine, kwargs=kwargs)
+            return {"0": "Hello"}, "ctx"
+        monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+        bubbles = [{"source_text": "你好", "x": 10, "y": 20, "w": 30, "h": 40}]
+        picture_engine = object()
+        context = scanlate_translate.translate_page_bubbles(
+            bubbles, _FakeLLM(), {}, character_notes="Mei: she/her",
+            page_image={"data": b"jpg", "mime": "image/jpeg", "scale": 0.5, "engine": picture_engine})
+        assert context == "ctx" and bubbles[0]["translated_text"] == "Hello"
+        assert seen["regions"][0]["box"] == {"x": 5, "y": 10, "w": 15, "h": 20}
+        assert seen["engine"] is picture_engine
+        assert seen["kwargs"]["character_notes"] == "Mei: she/her"
+
+    def test_a_failed_picture_request_falls_back_to_the_text(self, monkeypatch):
+        def broken(*args, **kwargs):
+            raise RuntimeError("the provider refused the picture")
+        monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", broken)
+        engine = _RecordingMT()
+        bubbles = [{"source_text": "师姐", "x": 1, "y": 2, "w": 3, "h": 4}]
+        scanlate_translate.translate_page_bubbles(
+            bubbles, engine, {}, page_image={"data": b"jpg", "mime": "image/jpeg", "scale": 1.0})
+        assert engine.calls, "the text-only request was not made"
+
     def test_glossary_block_matches_workspace_style_guidelines(self):
         import translation_guide
         block = translation_guide.build_glossary_block(HONORIFIC)

@@ -79,11 +79,32 @@ test("the owner at the PC sees everyone's devices and can revoke any", async ({ 
   const card = page.getByRole('region', { name: TITLE })
   const all = card.getByTestId('all-extension-devices')
   await expect(all).toContainText('Home desktop (Jane)')
-  await expect(card.getByLabel('Device name')).toHaveCount(0) // the owner has no account of their own
+  await expect(card.getByRole('heading', { name: 'Your devices' })).toHaveCount(0) // the owner has no account of their own
   await all.getByRole('button', { name: 'Revoke Home desktop (Jane)' }).click()
   await all.getByRole('button', { name: 'Confirm revoke Home desktop (Jane)' }).click()
   await expect(all).toContainText('Revoked Home desktop (Jane).')
   expect(s.sent.map((r) => new URL(r.url()).pathname)).toEqual(['/api/extension/devices/21/revoke'])
+  expect(s.unmocked).toEqual([])
+})
+
+test('the owner at the PC adds a computer for the admin account and sees its token once', async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-ext', url: baseURL! }])
+  const s = await mockExtensionDevices(page, ME.authOff)
+  await page.route('**/api/meta', (r) =>
+    r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Account and display')
+  const card = page.getByRole('region', { name: TITLE })
+  await expect(card.getByRole('heading', { name: 'Add a computer for the admin account' })).toBeVisible()
+  await card.getByLabel('Device name').fill('Server laptop')
+  await card.getByRole('button', { name: 'Add device' }).click()
+  const shown = card.getByRole('group', { name: 'New token for Server laptop' })
+  await expect(shown.getByRole('textbox', { name: 'Token for Server laptop' })).toHaveValue(NEW_TOKEN)
+  await shown.getByRole('button', { name: 'Done' }).click()
+  await expect(page.locator('body')).not.toContainText(NEW_TOKEN)
+  await expect(card.getByTestId('all-extension-devices')).toContainText('Server laptop (Owner)')
+  expect(s.sent.map((r) => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual(['POST /api/extension/devices'])
+  expect(s.sent[0].postDataJSON()).toEqual({ label: 'Server laptop', expires_in_days: 90 })
   expect(s.unmocked).toEqual([])
 })
 

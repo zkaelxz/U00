@@ -20,6 +20,7 @@ __all__ = [
     "DeviceToken",
     "DeviceTokenList",
     "DeviceTokenCreateRequest",
+    "AdminDeviceTokenCreateRequest",
     "DeviceTokenCreated",
     "DeviceTokenRevoked",
     "AdminDeviceToken",
@@ -111,6 +112,11 @@ class DeviceTokenCreateRequest(BaseModel):
     label: StrictStr = Field(..., min_length=1, max_length=40)
     # Omitted means 90 days; an explicit null means the token never expires.
     expires_in_days: Optional[StrictInt] = Field(90, ge=1, le=365)
+
+
+class AdminDeviceTokenCreateRequest(DeviceTokenCreateRequest):
+    # The admin account the device is for; omitted, the only active admin.
+    user_id: Optional[StrictInt] = Field(None, ge=1)
 
 
 class DeviceTokenCreated(BaseModel):

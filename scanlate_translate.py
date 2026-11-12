@@ -228,7 +228,8 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
 
 
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
-                           glossary_terms=None, usage_cb=None, character_notes: str = "") -> str:
+                           glossary_terms=None, usage_cb=None, character_notes: str = "",
+                           page_image: dict | None = None) -> str:
     """Translates a page's bubbles from their CURRENT source_text -- so an
     OCR mistake fixed by hand in the review step is what
     reaches the translation call, not the raw OCR output. Skipped regions
@@ -242,7 +243,12 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     short, padded, reordered-by-position or naming an unknown id) no bubble is
     touched; when only some chunks of a dense page failed, the rest are
     applied. Either way it raises ValueError, naming how many regions were
-    left untranslated."""
+    left untranslated.
+
+    `page_image` ({"data", "mime", "scale"}, optionally "engine" and "usage_cb" for
+    a picture engine other than `engine`) sends the page with its regions first,
+    as a Scanlate run does; any failure of that request falls back to the text
+    alone, so a picture can only add to the translation."""
     eligible = [b for b in bubbles
                 if not b.get("skip") and not region_excluded_from_auto(b)
                 and (b.get("source_text") or "").strip()]
@@ -252,10 +258,27 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     # key -> region map (translate_regions_by_id): a short, reordered or
     # padded answer applies nothing, never a shifted one.
     by_key = {str(i): b for i, b in enumerate(eligible)}
-    result, new_context = translate_regions_by_id(
-        {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
-        previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
-        character_notes=character_notes)
+    result = None
+    new_context = previous_context
+    if page_image is not None and len(by_key) <= REGIONS_PER_CALL:
+        scale = page_image["scale"]
+        regions = [{"id": k, "text": b["source_text"],
+                    "box": {n: round(b[n] * scale) for n in ("x", "y", "w", "h")},
+                    **({"sound_effect": True} if b.get("kind") == "sfx" else {})}
+                   for k, b in by_key.items()]
+        try:
+            result, new_context = translate_regions_with_image(
+                regions, page_image["data"], page_image["mime"],
+                page_image.get("engine") or engine, drama_meta, previous_context=previous_context,
+                usage_cb=page_image.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
+                character_notes=character_notes)
+        except Exception:
+            result, new_context = None, previous_context
+    if result is None:
+        result, new_context = translate_regions_by_id(
+            {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
+            previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
+            character_notes=character_notes)
     if result is None:
         raise ValueError("The translation service's answer couldn't be matched to the bubbles "
                          "by id (unreadable, short, padded or with unknown ids) -- not applied, "

@@ -14,7 +14,9 @@ It reaches pages the adapters can't (blob-protected chapters, tile-scrambled rea
    bridge** switch. It's off by default because it opens a port
    (`127.0.0.1:8756`). Turning it off again closes that port straight away.
 2. Pick the engine extension pages should be translated with. It uses
-   that engine's configured key. With no key set, pages
+   that engine's configured key. Until you pick one, it follows Scanlate's
+   default engine (OpenAI when its key works, otherwise the cheapest engine
+   that can run); choose "None" to keep it OCR only. With no key set, pages
    still come back with their original text read by OCR, clearly marked
    as untranslated.
 3. Copy the **token** shown there.
@@ -204,6 +206,8 @@ and counts in `already_stored`. Its saved bubbles are never re-read or
 overwritten; only bubbles still untranslated are translated, or a note points
 to Scanlate when no engine is set. Capture sends no chapter labels, so an
 identical page shared by two chapters (credits) is reused too, not duplicated.
+
+A translated page gets what a Scanlate run sends with it: the series cast's pronouns and voice notes, and, for the Claude, Gemini, OpenAI and Ollama engines while *Show the comic page to the translator* is on, the page's picture (a Claude engine reads it with Haiku 5.5, as Scanlate does). That setting's cost note applies: a page with its picture costs several times the text alone. If the picture request fails, the page is translated from its text.
 
 Everything funnels into the existing, tested pipeline
 (`scanlate.detect_and_ocr_page` → `scanlate_translate.translate_page_bubbles`) and
