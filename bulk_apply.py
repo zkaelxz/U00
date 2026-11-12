@@ -13,6 +13,7 @@ import emotion
 import source_change
 from engine_backends import pricing, shared, flag_reasons
 import translation_guide as tguide
+import word_replacements
 from lib.errors import NotFoundError
 from translation_finish import mark_translated_if_complete, untranslated_line_count
 
@@ -109,7 +110,8 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
-    substitute_terms = tguide.build_hard_term_substituter(enforced)
+    substitute_terms, fixes_text = word_replacements.with_replacements(
+        tguide.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "missing": 0, "failed_requests": 0, "unknown_requests": 0}
 
@@ -150,7 +152,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
             if (ln.en or "") != (row_by_id[lid]["en_at_submit"] or ""):
                 counts["kept_your_edit"] += 1
                 continue
-            if enforced:
+            if fixes_text:
                 translation = substitute_terms(translation)
             ln.en = translation
             source_change.clear_for_new_english(ln)

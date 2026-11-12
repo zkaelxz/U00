@@ -149,4 +149,5 @@ EXPECTED_TOP_LEVEL_FILES = [
     "whisper_models.py",
     "whisper_transcribe.py",
     "word_align.py",
+    "word_replacements.py",
 ]

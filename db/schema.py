@@ -120,6 +120,21 @@ def _create_library_tables(conn):
     """)
 
 
+def _create_word_replacement_table(conn):
+    conn.executescript("""
+        -- Whole-word replacements applied to every line a translation run writes
+        -- (a model's habitual wording the person wants swapped, e.g. "thee" -> "you").
+        CREATE TABLE IF NOT EXISTS word_replacements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            find_text TEXT NOT NULL,
+            replace_text TEXT NOT NULL,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+            UNIQUE(series_id, find_text)
+        );
+    """)
+
+
 def _create_series_tables(conn):
     conn.executescript("""
 
@@ -684,6 +699,7 @@ def _create_core_indexes(conn):
         CREATE INDEX IF NOT EXISTS idx_known_titles_lang ON known_titles(language);
         CREATE INDEX IF NOT EXISTS idx_field_provenance_drama ON metadata_field_provenance(drama_id);
         CREATE INDEX IF NOT EXISTS idx_glossary_series ON glossary_terms(series_id);
+        CREATE INDEX IF NOT EXISTS idx_word_replacements_series ON word_replacements(series_id);
         CREATE INDEX IF NOT EXISTS idx_tm_series ON translation_memory(series_id);
         CREATE INDEX IF NOT EXISTS idx_series_characters_series ON series_characters(series_id);
         CREATE INDEX IF NOT EXISTS idx_vocab_drama ON vocab_lookups(drama_id);

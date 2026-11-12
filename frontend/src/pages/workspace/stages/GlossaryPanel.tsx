@@ -33,6 +33,7 @@ import { revealForm } from './revealForm'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
 import { scanBanner, scanSummary, sourceToShow } from './glossaryScan'
+import { WordReplacementsTab } from './GlossaryReplacements'
 import { GLOSSARY_TABS, emptyTabText, instructionsSummary, type GlossaryTab } from './glossaryTabs'
 import { loadGlossaryUi, saveGlossaryUi } from './glossaryUi'
 import { noneAsNull } from './glossaryTermForm'
@@ -560,11 +561,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       ))}
       {panel('packs', (
         <>
-      <LanguagePacks
-        glossarySources={(terms ?? []).map((t) => t.term_original)}
-        hasSeries={seriesId != null}
-        onAdded={() => setReloads((n) => n + 1)}
-      />
+      <LanguagePacks glossarySources={(terms ?? []).map((t) => t.term_original)} hasSeries={seriesId != null}
+        onAdded={() => setReloads((n) => n + 1)} />
       <VtuberNames />
         </>
       ))}
@@ -595,6 +593,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           )}
         </>
       ) : <p className="muted" role="status">Loading instructions…</p>)}
+      {panel('replacements', <WordReplacementsTab />)}
       {panel('retranslate', <RetranslateTab retranslate={retranslate} />)}
       </div>
     </Section>

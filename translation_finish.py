@@ -11,6 +11,7 @@ import db
 import source_change
 from engine_backends import engine_registry, pricing, llm_tasks
 import translation_guide as tguide
+import word_replacements
 
 
 def untranslated_line_count(drama_id: int) -> int:
@@ -152,7 +153,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # which the compare-and-set on this run's English would then refuse.
     source_change.save_cleared_flags(drama_id, lines)
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
-    substitute_terms = tguide.build_hard_term_substituter(enforced)
+    substitute_terms, fixes_text = word_replacements.with_replacements(
+        tguide.build_hard_term_substituter(enforced), drama_id, bool(enforced))
     # One load only: the substitution's compare-and-set guards against
     # edits after this read, so deciding which lines are still the run's
     # from a second, earlier read would let an edit in between through.
@@ -166,7 +168,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     kept = {ln.id: ln.en for ln in fresh if ln.id not in landed}
     for ln in lines:
         ln.en = kept.get(ln.id, ln.en)
-    if enforced:
+    if fixes_text:
         substituted = {}
         for ln in own_fresh:
             if ln.en:

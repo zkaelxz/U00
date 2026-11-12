@@ -149,6 +149,7 @@ export interface GlossaryAffectedRunStarted extends TranslateRunStarted {
 }
 
 export type GlossaryTerm = Schemas['GlossaryTerm']
+export type WordReplacement = Schemas['WordReplacement']
 
 export type GlossaryTermUpsert = Partial<Omit<GlossaryTerm, 'id'>> & { id?: number }
 

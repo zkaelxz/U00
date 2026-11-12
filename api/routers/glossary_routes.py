@@ -41,8 +41,9 @@ from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSave
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
                          LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
-                         NovelGlossaryStatus, error_responses)
-from services import (address_terms_service, export_service, glossary_name_report_service, glossary_service, name_fix_service,
+                         NovelGlossaryStatus, WordReplacement, WordReplacementDeleteResult,
+                         WordReplacementWrite, error_responses)
+from services import (address_terms_service, word_replacement_service, export_service, glossary_name_report_service, glossary_service, name_fix_service,
                       glossary_spelling_service, glossary_variants_service)
 from lib.errors import ForbiddenError, InvalidInputError
 
@@ -106,6 +107,29 @@ def get_glossary_csv(drama_id: int = Path(ge=1)):
 
 
 # lines.read, not library.read: the examples are source line text.
+@router.get("/dramas/{drama_id}/word-replacements", dependencies=[require_permission("library.read")],
+            response_model=List[WordReplacement],
+            summary="The series' word replacements, applied to every line a translation writes",
+            responses=error_responses(404))
+def get_word_replacements(drama_id: int = Path(ge=1)):
+    return word_replacement_service.list_word_replacements(drama_id)
+
+
+@router.post("/dramas/{drama_id}/word-replacements", dependencies=[require_permission("lines.edit")],
+             response_model=WordReplacement,
+             summary="Add a word replacement, or change the one for the same word",
+             responses=error_responses(400, 404, 422))
+def post_word_replacement(payload: WordReplacementWrite, drama_id: int = Path(ge=1)):
+    return word_replacement_service.save_word_replacement(drama_id, payload.find_text, payload.replace_text)
+
+
+@router.delete("/dramas/{drama_id}/word-replacements/{replacement_id}",
+               dependencies=[require_permission("lines.edit")], response_model=WordReplacementDeleteResult,
+               summary="Delete one word replacement", responses=error_responses(404))
+def delete_word_replacement(drama_id: int = Path(ge=1), replacement_id: int = Path(ge=1)):
+    return word_replacement_service.delete_word_replacement(drama_id, replacement_id)
+
+
 @router.get("/dramas/{drama_id}/variants", dependencies=[require_permission("lines.read")],
             response_model=GlossaryVariants,
             summary="Spellings in the source lines that sound like a term (read-only, offline)",
