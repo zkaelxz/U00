@@ -407,7 +407,9 @@ async function load() {
     els.textDirection.value = directionValue;
   }
 
-  say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
+  const stale = staleExtensionNote(data);
+  if (stale) say(stale, true);
+  else say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
 }
 
 let pageRunInFlight = false;

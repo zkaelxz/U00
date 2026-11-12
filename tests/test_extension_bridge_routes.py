@@ -321,3 +321,10 @@ def test_the_pcs_own_token_gets_a_404_for_an_out_of_range_title_id(isolated_db):
         with pytest.raises(page_server.EndpointError) as exc:
             page_server.translate_image(buf.getvalue(), "image/png", drama_id=bad)
         assert (exc.value.status, str(exc.value)) == (404, "no such drama"), bad
+
+
+def test_health_reports_the_shipped_extension_version():
+    import json
+    from services import extension_bridge_service as svc
+    with open(svc._MANIFEST, encoding="utf-8") as f:
+        assert svc.bundled_extension_version() == json.load(f)["version"]

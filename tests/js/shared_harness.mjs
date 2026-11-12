@@ -39,7 +39,7 @@ async function loadOptions({ stored = {}, reply, granted = true }) {
         set: async (value) => { calls.set.push(value); },
       } },
       permissions: { request: async (value) => { calls.asked.push(value); return granted; } },
-      runtime: { sendMessage: async (message) => { calls.sent.push(message); return reply; } },
+      runtime: { getManifest: () => ({ version: "1.2.0" }), sendMessage: async (message) => { calls.sent.push(message); return reply; } },
     },
   };
   vm.createContext(sandbox);
@@ -92,6 +92,13 @@ async function options(scenario) {
       const page = await loadOptions({ reply: {
         ok: true, data: { dramas: [{}], engine_configured: scenario === "connected_one_drama" } } });
       page.els.token.value = "  tok  ";
+      await page.click();
+      return snapshot(page);
+    }
+    case "stale_extension": {
+      const page = await loadOptions({ reply: {
+        ok: true, data: { dramas: [], engine_configured: true, extension_version: "1.3.0" } } });
+      page.els.token.value = "tok";
       await page.click();
       return snapshot(page);
     }
