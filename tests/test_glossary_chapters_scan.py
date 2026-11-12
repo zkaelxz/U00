@@ -88,3 +88,8 @@ def test_a_title_without_chapters_is_refused(local_client, isolated_db, fake_eng
     flat, _ = _novel(isolated_db, ("她来了", "他走了"))
     r = local_client.post(f"/api/glossary/dramas/{flat}/from-chapters")
     assert r.status_code == 400 and error_of(r)["code"] == "unsupported_operation"
+
+
+def test_a_running_scan_blocks_deleting_the_title():
+    import background_jobs
+    assert "chapters_glossary_" in background_jobs.DRAMA_JOB_PREFIXES
