@@ -15,7 +15,7 @@ EMPTY_ANSWER = "The engine sent back an empty answer."
 
 
 def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: int = 300,
-                     chat_history=None):
+                     chat_history=None, usage_cb=None):
     """
     lines: the drama's Line objects (zh + en) to use as grounding context.
     Capped at max_lines to keep the prompt a reasonable size -- for a
@@ -47,7 +47,7 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
     messages = list(chat_history or [])
     messages.append({"role": "user", "content": question})
 
-    return dispatch_chat(system_prompt, messages, engine)
+    return dispatch_chat(system_prompt, messages, engine, usage_cb=usage_cb)
 
 
 def dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 1000,
