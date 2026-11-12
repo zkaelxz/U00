@@ -13,7 +13,8 @@ describe('describeError', () => {
     'validation_error', 'not_found', 'conflict', 'unsupported_operation',
     'dependency_unavailable', 'application_error', 'internal_error', 'network_error',
   ])('has plain text for %s', (code) => {
-    const { title } = describeError(err(code))
+    // No server sentence, so this reads the generic text for the code.
+    const { title } = describeError(err(code, ''))
     expect(title.length).toBeGreaterThan(10)
     expect(title).not.toContain(code)
   })
