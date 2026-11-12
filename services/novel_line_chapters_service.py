@@ -91,11 +91,20 @@ def line_chapters(drama_id: int) -> dict:
     ownership_service.require_drama(drama_id)
     rows, starts, source = _split(drama_id)
     chapters = []
+    volume, scanned = "", 0
     for n, (number, title, first) in enumerate(starts):
         end = starts[n + 1][2] if n + 1 < len(starts) else len(rows)
+        # A volume heading sits just before the first chapter it covers, so the
+        # scan runs through this chapter's title line and carries the last one
+        # seen forward to the chapters after it.
+        for r in rows[scanned:first + 1]:
+            if novel_text.is_volume_heading_text(r.get("zh")):
+                volume = (r.get("zh") or "").strip()
+        scanned = first + 1
         part = rows[first:end]
         chapters.append({
             "number": number, "title": title, "first_idx": rows[first]["idx"],
+            "title_en": (rows[first].get("en") or "").strip(), "part": volume,
             "line_count": len(part),
             "translated": sum(1 for r in part if (r.get("en") or "").strip()),
             "reviewed": sum(1 for r in part if r.get("reviewed"))})
