@@ -132,6 +132,11 @@ def http(isolated_db, monkeypatch, tmp_path):
     monkeypatch.delenv(us.REPO_ENV, raising=False)
     from services import settings_service
     monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
+    # A backup from today, so the install tests reach what they test; the
+    # backup check before Setup has its own tests.
+    from services import app_update_service
+    monkeypatch.setattr(app_update_service, "_offer_schema", None)
+    monkeypatch.setattr(app_update_service, "_recent_backup", lambda now=None: True)
     return fake
 
 
@@ -1230,3 +1235,40 @@ def test_a_setup_copy_held_by_another_program_says_so_and_keeps_the_download(ver
     with pytest.raises(DependencyUnavailableError, match="open in another program"):
         us.install()
     assert us.status()["verified"] is True
+
+
+# --- the backup check before Setup ------------------------------------------------
+
+@pytest.fixture
+def no_backup(verified, monkeypatch):
+    from services import app_update_service
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    monkeypatch.setattr(app_update_service, "_recent_backup", lambda now=None: False)
+    return app_update_service
+
+
+def test_setup_needs_a_backup_when_the_schema_change_is_unknown(no_backup):
+    # A release without the app zip's manifest copy says nothing about the schema.
+    with pytest.raises(ConflictError, match="may change the library database.*Back up the library first"):
+        us.install()
+    assert FakePopen.calls == []
+
+
+def test_setup_needs_a_backup_when_the_release_changes_the_schema(no_backup, monkeypatch):
+    monkeypatch.setattr(no_backup, "_offer_schema", ("0.2.0", "0" * 64))
+    with pytest.raises(ConflictError, match="changes the library database"):
+        us.install()
+    assert FakePopen.calls == []
+    monkeypatch.setattr(no_backup, "_recent_backup", lambda now=None: True)
+    assert us.install()["launched"] is True
+
+
+def test_setup_needs_no_backup_when_the_schema_is_unchanged(no_backup, monkeypatch):
+    monkeypatch.setattr(no_backup, "_offer_schema", ("0.2.0", no_backup._library_schema()))
+    assert us.install()["launched"] is True
+
+
+def test_another_versions_schema_does_not_count_for_setup(no_backup, monkeypatch):
+    monkeypatch.setattr(no_backup, "_offer_schema", ("0.1.9", no_backup._library_schema()))
+    with pytest.raises(ConflictError, match="Back up the library first"):
+        us.install()
