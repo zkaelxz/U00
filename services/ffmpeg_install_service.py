@@ -177,7 +177,7 @@ def _download_one(url, part, size, expected, progress, cancelled):
     # The cap is the pinned size, so a longer body is cut off by lib.http itself.
     session = http.session(timeout=TIMEOUT, guard=_guard, max_bytes=size, max_redirects=MAX_REDIRECTS)
     try:
-        resp = session.get(url, headers={"User-Agent": "BaiheStudio-tools"})
+        resp = session.get(url, headers={"User-Agent": "BaiheStudio-tools"}, timeout=TIMEOUT)
         try:
             if resp.status_code != 200:
                 raise DependencyUnavailableError(
