@@ -15,7 +15,7 @@ import { featureOn } from '../../../api/features'
 import { useFeatures } from '../../../hooks/useFeatures'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getRawChapterText, getRawChapters, renameRawChapter } from '../../../api/novelChapters'
+import { getRawChapterText, getRawChapters, moveRawChapter, renameRawChapter } from '../../../api/novelChapters'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
@@ -57,6 +57,11 @@ export function NovelChaptersPanel() {
   const requestId = useRef(0)
   // The new title being typed for the open chapter; null while not renaming.
   const [renaming, setRenaming] = useState<string | null>(null)
+  // The chapter number a move is waiting to be confirmed for, and whether one is running.
+  const [movingTo, setMovingTo] = useState<number | null>(null)
+  const [moveBusy, setMoveBusy] = useState(false)
+  // A message to show once the reload that follows a move has cleared the old notice.
+  const afterReload = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -78,7 +83,9 @@ export function NovelChaptersPanel() {
   useEffect(() => {
     requestId.current += 1
     setPreview(null)
-    setNotice(null)
+    setMovingTo(null)
+    setNotice(afterReload.current)
+    afterReload.current = null
   }, [dramaId, reloads, filesVersion])
 
   const more = useCallback(() => {
@@ -135,6 +142,22 @@ export function NovelChaptersPanel() {
     } catch (e) {
       setError(e)
     }
+  }
+
+  const move = async () => {
+    if (!preview || movingTo === null || moveBusy) return
+    setMoveBusy(true)
+    try {
+      const done = await moveRawChapter(dramaId, preview.number, movingTo)
+      afterReload.current = done.translation_text_stale
+        ? 'Moved. The translation text was not changed because it is not a copy of the saved chapters, so splitting it into lines again would bring the old order back.'
+        : 'Moved.'
+      setReloads((n) => n + 1)
+    } catch (e) {
+      setError(e)
+      setMovingTo(null)
+    }
+    setMoveBusy(false)
   }
 
   const copy = async () => {
@@ -236,11 +259,27 @@ export function NovelChaptersPanel() {
                 <button type="button" className={buttonClass('secondary')} onClick={() => setRenaming(null)}>Cancel</button>
               </form>
             )}
+            {movingTo !== null && (
+              <form className="actions" aria-label="Confirm move" onSubmit={(e) => { e.preventDefault(); void move() }}>
+                <span>
+                  Move chapter {preview.number} to place {movingTo}? Its lines and their translations move with it.
+                  Lines with their own times can't be moved.
+                </span>
+                <button type="submit" className={buttonClass('primary')} disabled={moveBusy}>Move chapter</button>
+                <button type="button" className={buttonClass('secondary')} disabled={moveBusy} onClick={() => setMovingTo(null)}>Cancel</button>
+              </form>
+            )}
             <div className="chapters-text" tabIndex={0} data-testid="chapters-text">{preview.text}</div>
             <div className="actions">
               <button type="button" onClick={copy}>Copy</button>
               {preview.head.title && !preview.head.unsplit && renaming === null && (
                 <button type="button" onClick={() => setRenaming(preview.head.title)}>Rename</button>
+              )}
+              {list?.split && !preview.head.unsplit && (
+                <>
+                  <button type="button" disabled={!prev || moveBusy || movingTo !== null} onClick={() => setMovingTo(prev)}>Move earlier</button>
+                  <button type="button" disabled={!following || moveBusy || movingTo !== null} onClick={() => setMovingTo(following)}>Move later</button>
+                </>
               )}
               {preview.next !== null && (
                 <button type="button" disabled={loading} onClick={showAll}>Show all</button>

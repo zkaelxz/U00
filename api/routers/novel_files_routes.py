@@ -19,11 +19,13 @@ from pydantic import ValidationError
 
 from api.auth import local_only, require_permission
 from api.schemas import (DeleteConfirm, NovelFileStatus, NovelFileTextRequest,
-                         NovelChapterList, NovelChapterRenameRequest, NovelChapterRenamed,
+                         NovelChapterList, NovelChapterMoved, NovelChapterMoveRequest,
+                         NovelChapterRenameRequest, NovelChapterRenamed,
                          NovelChapterText, NovelLineChapters, NovelFileUploadResult,
                          NovelReferenceRemoveResult, error_responses)
 from services import novel_chapters_service as chapters_svc
-from services import novel_chapter_edit_service, novel_line_chapters_service
+from services import (novel_chapter_edit_service, novel_chapter_move_service,
+                      novel_line_chapters_service)
 from services import novel_files_service as svc
 from lib.errors import InvalidInputError
 
@@ -113,6 +115,15 @@ def get_line_chapters(drama_id: int = Path(ge=1)):
 def post_rename_chapter(payload: NovelChapterRenameRequest, drama_id: int = Path(ge=1),
                         number: int = Path(ge=1)):
     return novel_chapter_edit_service.rename_chapter(drama_id, number, payload.title)
+
+
+@router.post("/dramas/{drama_id}/raw-novel/chapters/{number}/move",
+             dependencies=[require_permission("lines.edit")],
+             response_model=NovelChapterMoved, responses=_ERR,
+             summary="Move one saved chapter to another position, with its lines (409 if they do not line up)")
+def post_move_chapter(payload: NovelChapterMoveRequest, drama_id: int = Path(ge=1),
+                      number: int = Path(ge=1)):
+    return novel_chapter_move_service.move_chapter(drama_id, number, payload.to_number)
 
 
 @router.get("/dramas/{drama_id}/raw-novel/chapters/{number}",
