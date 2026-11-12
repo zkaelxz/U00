@@ -132,30 +132,13 @@ def _record_run_notes(result: dict) -> None:
         db.update_page(int(page_id), run_notes=pages_svc.notes_to_json(notes))
 
 
-# A typeset page is sent back to be drawn over the reader's own image, so it goes as a JPEG:
-# a long strip is a few hundred KB that way, where its PNG is megabytes, and a chapter of
-# twelve pages per request stays a reasonable size. Over the cap the page is still typeset
-# in the library and the extension falls back to its boxes.
-PREVIEW_MAX_BYTES = 1_500_000
-
-
 def _typeset_preview(drama_id: int, page: dict) -> str:
     """The page's typeset image as a data: URL, or "" when it cannot be sent."""
-    import base64
-    import io
-
-    from PIL import Image
-
     from services import comic_view_service
     found = comic_view_service.safe_file(drama_id, page.get("rendered_filename"))
     if found is None:
         return ""
-    with Image.open(found[0]) as image:
-        buffer = io.BytesIO()
-        image.convert("RGB").save(buffer, format="JPEG", quality=85)
-    if buffer.tell() > PREVIEW_MAX_BYTES:
-        return ""
-    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    return page_capture_checks.jpeg_data_url(found[0])
 
 
 def _typeset_stored_page(result: dict, drama_id, member: bool) -> None:
@@ -241,7 +224,7 @@ def run_images(payload, images, principal=None) -> dict:
     import base64
     drama_id = payload.get("drama_id")
     store = bool(payload.get("store", True))
-    typeset = store and payload.get("typeset") is True
+    typeset = payload.get("typeset") is True
     require_drama_access(principal, drama_id)
     source_url = str(payload.get("source_url") or "")
     source_language = str(payload.get("source_language") or "")
@@ -298,7 +281,7 @@ def run_images(payload, images, principal=None) -> dict:
             result = page_server.translate_image(
                 image["content"], image["content_type"], drama_id=drama_id,
                 source_url=source_url, source_language=source_language, store=store,
-                member=principal is not None)
+                member=principal is not None, typeset=typeset and not store)
         except page_server.EndpointError as e:
             if len(decoded) == 1 and e.status in (404, 413, 415):
                 raise
@@ -317,7 +300,7 @@ def run_images(payload, images, principal=None) -> dict:
                 stopped = page_capture_checks.page_failure_message(e)
                 break
             continue
-        if typeset:
+        if typeset and store:
             typeset_started = time.monotonic()
             _typeset_stored_page(result, drama_id, member=principal is not None)
             result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)

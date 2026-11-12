@@ -134,6 +134,33 @@ def create_token(principal: dict, label, expires_in_days: int | None = DEFAULT_E
     if PERMISSION not in principal.get("permissions", ()):
         raise ForbiddenError("Not allowed.")
     _require_pc_for_admin(bool(principal.get("is_admin")), at_pc)
+    return _mint(user_id, label, expires_in_days, ip, now, session_principal=principal)
+
+
+def create_token_at_pc(label, expires_in_days: int | None = DEFAULT_EXPIRY_DAYS,
+                       user_id: int | None = None, ip: str = "", now: float | None = None) -> dict:
+    """The owner at the main PC adds a device for an admin account. The owner
+    there has no account of their own (sign-in is off on that listener), and an
+    admin's own session may not add one from away, so this is the one way an
+    admin account gets a device. Being at the PC is the proof the admin rule
+    asks for; the caller's route is local_only(). `user_id` names the admin
+    account; omitted, the only active admin account is used. The token still
+    acts with member rights only (`_principal_for`). 404 for an account that
+    isn't an active admin, 422 when `user_id` is needed to choose."""
+    admins = [u for u in db.auth_list_users() if u["is_admin"] and u["is_active"]]
+    if user_id is None:
+        if len(admins) != 1:
+            raise InvalidInputError("There is more than one admin account; say which one." if admins
+                                    else "There is no active admin account to add a device for.")
+        account_id: int = admins[0]["id"]
+    elif user_id in {u["id"] for u in admins}:
+        account_id = user_id
+    else:
+        raise NotFoundError("Not found.")
+    return _mint(account_id, label, expires_in_days, ip, now, session_principal=None)
+
+
+def _mint(user_id: int, label, expires_in_days, ip: str, now, session_principal) -> dict:
     label = _clean_label(label)
     if expires_in_days is not None and not (
             isinstance(expires_in_days, int) and 1 <= expires_in_days <= MAX_EXPIRY_DAYS):
@@ -154,11 +181,19 @@ def create_token(principal: dict, label, expires_in_days: int | None = DEFAULT_E
     # Likewise a "Sign out everywhere" (or "other devices") that signed the
     # asking session out meanwhile: its token revoke ran before this row too.
     if (PERMISSION not in auth_service.effective_permissions(user_id)
-            or not _session_still_signed_in(principal, user_id)):
+            or (session_principal is not None
+                and not _session_still_signed_in(session_principal, user_id))):
         device_tokens.revoke(token_id, now, user_id=user_id)
         raise ForbiddenError("Not allowed.")
-    auth_service.write_audit(user_id, "device_token.create",
-                             f"token {token_id} ip {auth_service.ip_prefix(ip)}")
+    # At the PC nobody signed in did this (the owner has no account), so, like
+    # admin_revoke, no user is the actor and the admin it was added for is named.
+    if session_principal is not None:
+        auth_service.write_audit(user_id, "device_token.create",
+                                 f"token {token_id} ip {auth_service.ip_prefix(ip)}")
+    else:
+        auth_service.write_audit(None, "device_token.create",
+                                 f"token {token_id} user {user_id} ip "
+                                 f"{auth_service.ip_prefix(ip)} at the PC")
     row = device_tokens.get(token_id)
     if row is None:
         raise NotFoundError("The new device token is gone.")

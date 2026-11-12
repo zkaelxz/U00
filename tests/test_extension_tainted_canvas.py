@@ -38,6 +38,28 @@ class TestPageSideFallback:
         assert out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg"]
         assert out["sent"][0]["content_type"] == "image/png"
 
+    def test_the_worker_takes_a_tab_picture_only_when_the_switch_is_on(self):
+        out = _run("background", "tab_picture")
+        assert out["off"] == {"ok": False, "code": "OFF", "error": "screenshots are off"}
+        assert out["on"] == {"ok": True, "data": {"data": "QUJD"}, "windowId": 7}
+        assert out["noTab"]["ok"] is False
+        assert out["blocked"]["ok"] is False and "click the extension icon" in out["blocked"]["error"]
+
+    def test_a_screenshot_stands_in_only_when_the_switch_is_on_and_the_page_fits_the_window(self):
+        out = _run("content", "canvas_screenshot")
+        # Baihe's own boxes and chip are hidden for exactly the length of the picture.
+        assert out["on"]["ok"] is True and len(out["on"]["sent"]) == 1
+        assert out["on"]["sent"][0]["content_type"] == "image/png"
+        assert out["on"]["shots"] == [["set data-baihe-shot"]]
+        assert out["on"]["marks"] == ["set data-baihe-shot", "remove data-baihe-shot"]
+        # Off: no picture, no page sent, and the page is not scrolled for nothing.
+        assert out["off"]["shots"] == [] and out["off"]["sent"] == []
+        # Too tall for the window: refused with the reason, nothing sent.
+        assert out["tall"]["shots"] == [] and out["tall"]["sent"] == []
+        assert "zoom the browser out" in out["tall"]["error"]
+        assert "would not take a picture" in out["refused"]["error"] and out["refused"]["sent"] == []
+        assert out["refused"]["marks"][-1] == "remove data-baihe-shot"
+
     def test_a_tainted_canvas_uses_a_data_attribute_url(self):
         out = _run("content", "canvas_tainted_url_from_data_attribute")
         assert out["ok"] is True and len(out["sent"]) == 1
@@ -128,6 +150,24 @@ class TestWorkerDownload:
     def test_the_referrer_is_only_the_origin_of_the_page(self):
         out = _run("background", "referrer_is_only_the_page_origin")
         assert out == {"referrer": "https://reader.example/", "referrerPolicy": "origin"}
+
+    def test_a_403_is_retried_once_with_the_page_origin_as_a_temporary_referer_rule(self):
+        out = _run("background", "referer_retry")
+        retried = out["retried"]
+        assert retried["ok"] is True and retried["fetches"] == 2
+        add, remove = retried["rules"]
+        rule = add["addRules"][0]
+        assert rule["action"]["requestHeaders"] == [
+            {"header": "referer", "operation": "set", "value": "https://reader.example/"}]
+        # Narrow: this host only, requests the extension itself makes, removed afterwards.
+        assert rule["condition"]["requestDomains"] == ["s1.bzcdn.net"]
+        assert rule["condition"]["initiatorDomains"] == ["extid"]
+        assert remove == {"removeRuleIds": [rule["id"]]}
+        # No rule unless a 403 says it is needed, and none for other errors or an unknown page.
+        assert out["notNeeded"]["rules"] == [] and out["notNeeded"]["fetches"] == 1
+        assert out["otherError"]["rules"] == [] and out["otherError"]["error"].endswith("HTTP 404")
+        assert out["noPage"]["rules"] == [] and out["noPage"]["ok"] is False
+        assert out["noPermission"]["rules"] == [] and out["noPermission"]["fetches"] == 2
 
     def test_no_referrer_is_sent_when_the_page_is_unknown(self):
         assert _run("background", "no_referrer_without_a_page")["keys"] == ["credentials", "redirect", "signal"]

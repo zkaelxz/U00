@@ -50,17 +50,27 @@ function container(children) {
   return parent;
 }
 
-function loadContent({ images = [], canvases = [], fetchImage }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null }) {
   const sent = [];
+  const shots = [];
+  const marks = [];
   const progress = [];
   const fetched = [];
   let listener = null;
+  // Canvases the script makes itself can be exported when a screenshot is being cropped; the
+  // page's own (tainted) canvases, made by the tests, never can.
+  const cropCanvas = () => {
+    const c = fakeCanvas();
+    if (screenshot) c.toBlob = (cb) => cb(new Blob([PNG], { type: "image/png" }));
+    return c;
+  };
   const document = {
     title: "", body: { innerText: "", appendChild() {} },
-    documentElement: { appendChild() {}, scrollHeight: 800 },
+    documentElement: { appendChild() {}, scrollHeight: 800,
+      setAttribute: (name) => marks.push(`set ${name}`), removeAttribute: (name) => marks.push(`remove ${name}`) },
     images, head: { appendChild() {} },
     querySelectorAll: (sel) => (sel === "canvas" ? canvases : []),
-    createElement: (tag) => (tag === "canvas" ? fakeCanvas() : { style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
+    createElement: (tag) => (tag === "canvas" ? cropCanvas() : { style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
     getElementById: () => null,
   };
   const sandbox = {
@@ -83,6 +93,11 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
             fetched.push(message.url);
             return fetchImage(message);
           }
+          if (message.type === "getSettings") return { ok: true, data: { screenshot: !!(screenshot && screenshot.on) } };
+          if (message.type === "captureTab") {
+            shots.push(marks.slice());
+            return screenshot.reply || { ok: true, data: { data: Buffer.from(PNG).toString("base64") } };
+          }
           if (message.type === "send") { sent.push(message); return { ok: true, data: { pages: [] } }; }
           if (message.type === "progress") progress.push(message);
           return { ok: true };
@@ -101,7 +116,8 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
   vm.createContext(sandbox);
   vm.runInContext(read("content.js"), sandbox);
   const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
-  return { ask, sent, fetched, progress, sandbox };
+  sandbox.innerWidth = 800;
+  return { ask, sent, fetched, progress, sandbox, shots, marks };
 }
 
 const okImage = (bytes = JPEG, type = "image/jpeg") => async () => ({
@@ -153,6 +169,24 @@ async function content(scenario) {
       canvas.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
       return run(visible, { canvases: [canvas], fetchImage: okImage() });
     }
+    case "canvas_screenshot": {
+      const shoot = async (opts, size = [800, 700]) => {
+        const canvas = placed(fakeCanvas(...size), 40);
+        canvas.scrollIntoView = () => {};
+        container([canvas]);
+        const h = loadContent({ canvases: [canvas], fetchImage: okImage(), bitmap: { width: 800, height: 800 }, ...opts });
+        h.sandbox.__bitmap = { width: 800, height: 800 };
+        const result = await h.ask(visible);
+        return { ok: result.ok, error: result.error, shots: h.shots, marks: h.marks,
+                 sent: h.sent.flatMap((m) => m.images.map((i) => ({ content_type: i.content_type, bytes: Buffer.from(i.data, "base64").length }))) };
+      };
+      return {
+        on: await shoot({ screenshot: { on: true } }),
+        off: await shoot({ screenshot: { on: false } }),
+        tall: await shoot({ screenshot: { on: true } }, [800, 1200]),
+        refused: await shoot({ screenshot: { on: true, reply: { ok: false, error: "the browser would not take a picture of the tab" } } }),
+      };
+    }
     case "canvas_tainted_no_url": {
       const canvas = fakeCanvas(800, 1200);
       container([canvas]);
@@ -203,7 +237,7 @@ async function content(scenario) {
   throw new Error(`unknown scenario ${scenario}`);
 }
 
-function loadBackground({ granted, response, fetchImpl, stored = {} }) {
+function loadBackground({ granted, response, fetchImpl, stored = {}, chromeExtra = {}, sandboxExtra = {} }) {
   let listener = null;
   const fetchCalls = [];
   const sandbox = {
@@ -214,10 +248,13 @@ function loadBackground({ granted, response, fetchImpl, stored = {} }) {
       return response();
     },
     chrome: {
-      runtime: { onInstalled: { addListener() {} }, onMessage: { addListener: (fn) => { listener = fn; } } },
+      ...chromeExtra,
+      runtime: { onInstalled: { addListener() {} }, onMessage: { addListener: (fn) => { listener = fn; } },
+                 ...(chromeExtra.runtime || {}) },
       storage: { local: { remove() {}, get: async () => stored, set: async () => {} } },
       permissions: { contains: async ({ origins }) => granted(origins) },
     },
+    ...sandboxExtra,
   };
   sandbox.importScripts = (name) => vm.runInContext(read(name), sandbox);
   vm.createContext(sandbox);
@@ -345,6 +382,47 @@ async function background(scenario) {
       const o = h.fetchCalls[0].options;
       return { referrer: o.referrer, referrerPolicy: o.referrerPolicy };
     }
+    case "tab_picture": {
+      const ask = async (stored, sender, fail = false) => {
+        let windowId = null;
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t", ...stored },
+          chromeExtra: { tabs: { captureVisibleTab: async (id) => { windowId = id; if (fail) throw new Error("no"); return "data:image/png;base64,QUJD"; } } },
+        });
+        const r = await h.ask({ type: "captureTab" }, sender);
+        return { ...r, ...(r.ok ? { windowId } : {}) };
+      };
+      return {
+        off: await ask({}, { tab: { id: 1, windowId: 7 } }),
+        on: await ask({ screenshot: true }, { tab: { id: 1, windowId: 7 } }),
+        noTab: await ask({ screenshot: true }, {}),
+        blocked: await ask({ screenshot: true }, { tab: { id: 1, windowId: 7 } }, true),
+      };
+    }
+    case "referer_retry": {
+      const run = async ({ firstStatus, sender, rules = true }) => {
+        const calls = [];
+        let n = 0;
+        const dnr = { updateSessionRules: async (change) => { calls.push(change); } };
+        const h = loadBackground({
+          granted: () => true,
+          chromeExtra: rules ? { declarativeNetRequestWithHostAccess: undefined, declarativeNetRequest: dnr,
+                                 runtime: { id: "extid" } } : { runtime: { id: "extid" } },
+          fetchImpl: async () => { n += 1; return n === 1 ? new Response("", { status: firstStatus })
+            : image(JPEG)(); },
+        });
+        const r = await h.ask({ type: "fetchImage", url }, sender);
+        return { ok: r.ok, error: r.error, fetches: h.fetchCalls.length, rules: calls };
+      };
+      const page = { url: "https://reader.example/ch/1?token=secret" };
+      return {
+        retried: await run({ firstStatus: 403, sender: page }),
+        notNeeded: await run({ firstStatus: 200, sender: page }),
+        otherError: await run({ firstStatus: 404, sender: page }),
+        noPage: await run({ firstStatus: 403, sender: {} }),
+        noPermission: await run({ firstStatus: 403, sender: page, rules: false }),
+      };
+    }
     case "no_referrer_without_a_page": {
       const h = loadBackground({ granted: () => true, response: image(JPEG) });
       await h.ask({ type: "fetchImage", url });
@@ -385,7 +463,7 @@ async function background(scenario) {
 // A novel reader: paragraphs under one container, an optional selection, no page images
 // unless given. Returns the content script's API and what it asked the worker to send.
 function loadNovelPage({ paragraphs = [], selection = "", images = [], heading = "第三章 夜雨", og = "",
-  tabTitle = null, lang = "" }) {
+  tabTitle = null, lang = "", links = [], relNext = [], passwords = [], notices = [] }) {
   const sent = [];
   const box = { tagName: "DIV", parentElement: null };
   const ps = paragraphs.map((text, i) => ({
@@ -394,10 +472,20 @@ function loadNovelPage({ paragraphs = [], selection = "", images = [], heading =
     compareDocumentPosition(other) { return other.index > this.index ? 4 : 2; },
   }));
   const h1 = { textContent: `  ${heading}  ` };
+  const attrs = (item) => ({ childElementCount: 0, href: item.href, textContent: item.text || "",
+    getAttribute: (name) => (name === "href" ? item.href : name === "aria-label" ? item.label || "" : ""),
+    getBoundingClientRect: () => ({ top: 0, left: 0, width: 10, height: 10 }) });
   const document = {
     title: tabTitle === null ? `${heading}_书名_小说网` : tabTitle, body: { innerText: "", appendChild() {} },
     documentElement: { appendChild() {}, lang }, images, head: { appendChild() {} },
-    querySelectorAll: (sel) => (sel === "p" ? ps : []),
+    querySelectorAll: (sel) => {
+      if (sel === "p") return ps;
+      if (sel === 'a[rel~="next"], link[rel~="next"]') return relNext.map(attrs);
+      if (sel === "a[href]") return links.map(attrs);
+      if (sel === 'input[type="password"]') return passwords.map(attrs);
+      if (sel.startsWith("a, button")) return notices.map(attrs);
+      return [];
+    },
     querySelector: (sel) => (sel === "h1" ? (heading ? h1 : null)
       : sel === 'meta[property="og:title"]' && og ? { content: og } : null),
     createElement: () => ({ style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
@@ -410,7 +498,8 @@ function loadNovelPage({ paragraphs = [], selection = "", images = [], heading =
     getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1" }),
     MutationObserver: class { observe() {} disconnect() {} },
     ResizeObserver: class { observe() {} disconnect() {} },
-    location: { href: "https://novel.example/ch/3", host: "novel.example" },
+    location: { href: "https://novel.example/ch/3", host: "novel.example", origin: "https://novel.example",
+                pathname: "/ch/3", search: "" },
     chrome: { runtime: { onMessage: { addListener() {} },
       sendMessage: async (message) => { sent.push(message); return { ok: true, data: { saved: true } }; } } },
   };
@@ -479,6 +568,33 @@ async function novel(scenario) {
         return calls[0];
       };
       return { public: await post("https://novel.example/ch/3"), private: await post("http://192.168.1.5/ch/3") };
+    }
+    case "next_chapter": {
+      const url = (opts) => loadNovelPage({ paragraphs: [], ...opts }).api.nextChapterUrl();
+      const own = { href: "https://novel.example/ch/3", text: "Next" };
+      return {
+        rel: url({ relNext: [{ href: "/ch/4" }] }),
+        text: url({ links: [{ href: "/ch/9", text: "Table of contents" }, { href: "/ch/4", text: "Next chapter »" }] }),
+        korean: url({ links: [{ href: "/ch/4", text: "다음화" }] }),
+        japanese: url({ links: [{ href: "/ch/4", text: "次の話" }] }),
+        chinese: url({ links: [{ href: "/ch/4", text: "下一章" }] }),
+        label: url({ links: [{ href: "/ch/4", text: "", label: "Next" }] }),
+        sentence: url({ links: [{ href: "/ch/4", text: "Read the next chapter of our newsletter for more" }] }),
+        nextPage: url({ links: [{ href: "/ch/3_2", text: "下一页" }, { href: "/ch/3_2", text: "下一頁" }, { href: "/ch/3_2", text: "Next page" }, { href: "/ch/3_2", text: "다음" }, { href: "/ch/3_2", text: "次へ" }] }),
+        otherSite: url({ links: [{ href: "https://elsewhere.example/ch/4", text: "Next" }] }),
+        samePage: url({ links: [own] }),
+        none: url({}),
+      };
+    }
+    case "gated": {
+      const gated = (opts) => loadNovelPage({ paragraphs: [], ...opts }).api.looksGated();
+      return {
+        password: gated({ passwords: [{}] }),
+        notice: gated({ notices: [{ text: "로그인이 필요합니다" }] }),
+        purchase: gated({ notices: [{ text: "Purchase this chapter to keep reading" }] }),
+        plain: gated({}),
+        prose: loadNovelPage({ paragraphs: ["雨下了一整夜。".repeat(60)], notices: [{ text: "Sign in" }] }).api.looksGated(),
+      };
     }
     case "page_facts": {
       const facts = (opts) => loadNovelPage({ paragraphs: [], ...opts }).api.pageFacts();
@@ -562,6 +678,91 @@ async function novel(scenario) {
       const reply = await sending;
       await new Promise((r) => setTimeout(r, 20));
       return { aborted, reply, sentRun: (bodies["/page"] || {}).run_id, cancelledRun: (bodies["/cancel"] || {}).run_id };
+    }
+    case "worker_series": {
+      // A site of numbered chapters; `pages` says what each chapter's page does when asked.
+      const run = async ({ chapters, limit, kind = "novel", saved = new Set(), gatedAt = 0, brokenAt = 0, loop = false }) => {
+        let at = 1;
+        const calls = [];
+        const updated = [];
+        const messages = [];
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t" },
+          sandboxExtra: { setTimeout: (fn) => setTimeout(fn, 0) },
+          chromeExtra: {
+            runtime: { sendMessage: async (m) => { messages.push(m); } },
+            scripting: { executeScript: async () => { calls.push(["inject", at]); } },
+            tabs: {
+              onUpdated: { addListener: (fn) => updated.push(fn), removeListener: (fn) => updated.splice(updated.indexOf(fn), 1) },
+              update: async (tabId, { url }) => {
+                at = loop ? 1 : Number(url.split("/").pop());
+                calls.push(["goto", at]);
+                for (const fn of [...updated]) fn(tabId, { status: "complete" });
+              },
+              sendMessage: async (tabId, m) => {
+                calls.push([m.type, at]);
+                if (m.type === "nextChapter") {
+                  return { ok: true, data: { url: at < chapters ? `https://novel.example/ch/${at + 1}` : "",
+                    here: `https://novel.example/ch/${at}`, heading: `Chapter ${at}`, gated: at === gatedAt } };
+                }
+                if (m.type === "saveNovelText") {
+                  if (at === brokenAt) return { ok: false, error: "No chapter text found here." };
+                  const fresh = !saved.has(at); saved.add(at);
+                  return { ok: true, data: { saved: fresh } };
+                }
+                if (m.type === "captureChapter") return { ok: true, data: { stored: 12, translated: 12, reason: "end", message: "ok" } };
+                return { ok: true, data: {} };
+              },
+            },
+          },
+        });
+        const started = await h.ask({ type: "startSeries", tabId: 5, kind, dramaId: 4, store: true, limit });
+        // The run goes on after the answer; wait for its closing message.
+        for (let i = 0; i < 200 && !messages.some((m) => m.type === "seriesDone"); i += 1) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        return { started, done: messages.find((m) => m.type === "seriesDone"), calls };
+      };
+      const cancelled = await (async () => {
+        let at = 1;
+        const messages = [];
+        let release;
+        const gate = new Promise((r) => { release = r; });
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t" },
+          sandboxExtra: { setTimeout: (fn) => setTimeout(fn, 0) },
+          chromeExtra: {
+            runtime: { sendMessage: async (m) => { messages.push(m); } },
+            scripting: { executeScript: async () => {} },
+            tabs: {
+              onUpdated: { addListener() {}, removeListener() {} }, update: async () => { at += 1; },
+              sendMessage: async (tabId, m) => {
+                if (m.type === "nextChapter") return { ok: true, data: { url: "https://novel.example/ch/9", here: `https://novel.example/ch/${at}`, heading: "h", gated: false } };
+                if (m.type === "saveNovelText") { await gate; return { ok: true, data: { saved: true } }; }
+                return { ok: true, data: {} };
+              },
+            },
+          },
+        });
+        await h.ask({ type: "startSeries", tabId: 5, kind: "novel", dramaId: 4, limit: 5 });
+        const second = await h.ask({ type: "startSeries", tabId: 5, kind: "novel", dramaId: 4, limit: 5 });
+        await h.ask({ type: "cancelSeries" });
+        release();
+        for (let i = 0; i < 200 && !messages.some((m) => m.type === "seriesDone"); i += 1) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        return { second, done: messages.find((m) => m.type === "seriesDone") };
+      })();
+      return {
+        three: await run({ chapters: 5, limit: 3 }),
+        end: await run({ chapters: 2, limit: 5 }),
+        duplicate: await run({ chapters: 3, limit: 3, saved: new Set([2]) }),
+        gated: await run({ chapters: 5, limit: 5, gatedAt: 3 }),
+        broken: await run({ chapters: 5, limit: 5, brokenAt: 2 }),
+        loop: await run({ chapters: 5, limit: 5, loop: true }),
+        comic: await run({ chapters: 2, limit: 2, kind: "comic" }),
+        cancelled,
+      };
     }
     case "worker_get_settings": {
       const h = loadBackground({ granted: () => true, stored: { token: "SECRET-TOKEN", serverUrl: "https://baihe.example" } });

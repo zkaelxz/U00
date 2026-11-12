@@ -207,6 +207,80 @@
   // descrambled onto a canvas, is just pixels here -- the browser has
   // done the work, and nothing is being decrypted or unscrambled.
   async function extractBytes(el) {
+    try {
+      return await extractPixels(el);
+    } catch (e) {
+      // Only when the person has switched the fallback on, and only for a page the browser would
+      // not let the script read; any other failure is reported as it was.
+      if ((e && e.code === "NEEDS_PERMISSION") || /hasn't finished loading/.test(errorText(e))
+          || !(await screenshotEnabled())) throw e;
+      return extractViaScreenshot(el, e);
+    }
+  }
+
+  // A picture of the tab, cropped to the page element. Hidden Baihe boxes and the capture chip keep
+  // their own drawing out of the picture. It sees only what is on screen, so a page taller than the
+  // window is refused rather than cut. The browser allows about two tab pictures a second.
+  const SCREENSHOT_GAP_MS = 600;
+  let screenshotAsked = { at: 0, on: false };
+
+  // Asked once in a while rather than per page, and before the page is scrolled, so a switch that
+  // is off costs nothing.
+  async function screenshotEnabled() {
+    if (Date.now() - screenshotAsked.at > 5000) {
+      let on = false;
+      try {
+        const reply = await chrome.runtime.sendMessage({ type: "getSettings" });
+        on = !!(reply && reply.ok && reply.data.screenshot === true);
+      } catch (e) { /* worker asleep: off */ }
+      screenshotAsked = { at: Date.now(), on };
+    }
+    return screenshotAsked.on;
+  }
+
+  let lastShotAt = 0;
+
+  async function extractViaScreenshot(el, original) {
+    const refuse = (why) => { const err = new Error(`${errorText(original)}; ${why}`); err.code = original && original.code; return err; };
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    await sleep(250);
+    const rect = el.getBoundingClientRect();
+    if (rect.height > window.innerHeight + 2 || rect.width > window.innerWidth + 2) {
+      throw refuse("a screenshot cannot take a page taller than the window, so zoom the browser out");
+    }
+    const wait = SCREENSHOT_GAP_MS - (Date.now() - lastShotAt);
+    if (wait > 0) await sleep(wait);
+    document.documentElement.setAttribute("data-baihe-shot", "1");
+    let response;
+    try {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      response = await chrome.runtime.sendMessage({ type: "captureTab" });
+    } finally {
+      document.documentElement.removeAttribute("data-baihe-shot");
+      lastShotAt = Date.now();
+    }
+    if (!response || !response.ok) throw response && response.code === "OFF" ? original : refuse(response && response.error || "the screenshot failed");
+    const raw = atob(response.data.data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+    const shot = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const scale = shot.width / window.innerWidth;
+    const width = Math.max(1, Math.round(rect.width * scale));
+    const height = Math.max(1, Math.round(rect.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(shot, Math.round(rect.left * scale), Math.round(rect.top * scale),
+                                      width, height, 0, 0, width, height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw refuse("the screenshot could not be cropped");
+    const buffer = await blob.arrayBuffer();
+    taintedCanvases.add(el);
+    return { data: base64(buffer), content_type: "image/png", width, height, hash: await sha256Hex(buffer),
+             url: el.currentSrc || el.src || location.href, screenshot: true };
+  }
+
+  async function extractPixels(el) {
     const { width, height } = elementSize(el);
     if (!width || !height) throw new Error("that image hasn't finished loading");
     await waitForStableSignature(el);
@@ -423,6 +497,7 @@
     style.textContent = `
       .baihe-layer { position: absolute; top: 0; left: 0; pointer-events: none;
                      z-index: 2147483000; }
+      html[data-baihe-shot] .baihe-layer, html[data-baihe-shot] .baihe-toast { visibility: hidden !important; }
       .baihe-box { position: absolute; box-sizing: border-box; display: flex;
                    align-items: center; justify-content: center; text-align: center;
                    background: rgba(255,255,255,0.93); color: #111;
@@ -767,6 +842,56 @@
       .slice(0, MAX_TITLE_CANDIDATE_CHARS);
     return { url: location.href, language: document.documentElement.lang || "", titles, siteName,
              chapterLinks: chapterLinks() };
+  }
+
+  // The site's own "next chapter" link, for a run that carries on chapter after chapter. Only a
+  // link on the same site counts, never the page itself, and the match is on the link's own short
+  // label so a body-text sentence containing "next" is not followed.
+  // Chapter words only. "Next page", 下一页/下一頁, a bare 다음 or 次へ often move to the next piece of
+  // the same chapter on novel sites, which would save every piece as a chapter of its own.
+  const NEXT_LABEL = /^(?:next(?:\s+(?:chapter|episode|ch\.?|ep\.?))?|다음\s*(?:화|회|편|회차)|次(?:の話|話|章)|下一[章话話回]|下[章话話回])$/i;
+
+  function nextChapterUrl() {
+    const here = location.origin + location.pathname + location.search;
+    const usable = (href) => {
+      try {
+        const url = new URL(href, location.href);
+        if (!/^https?:$/.test(url.protocol) || url.host !== location.host) return "";
+        return url.origin + url.pathname + url.search === here ? "" : url.href;
+      } catch (e) {
+        return "";
+      }
+    };
+    for (const el of document.querySelectorAll('a[rel~="next"], link[rel~="next"]')) {
+      const found = usable(el.getAttribute("href"));
+      if (found) return found;
+    }
+    for (const a of document.querySelectorAll("a[href]")) {
+      const label = ((a.textContent || "") + " " + (a.getAttribute("aria-label") || "") + " " +
+                     (a.getAttribute("title") || "")).replace(/[»›>→▶▷\s]+/g, " ").trim();
+      const text = (a.textContent || "").replace(/[»›>→▶▷]+/g, "").replace(/\s+/g, " ").trim();
+      if (!(NEXT_LABEL.test(text) || NEXT_LABEL.test(label))) continue;
+      const found = usable(a.href);
+      if (found) return found;
+    }
+    return "";
+  }
+
+  // A sign-in or purchase wall instead of a chapter: a visible password field, or no pages and no
+  // prose with a short sign-in / purchase notice. A run that carries on stops here rather than
+  // looking for a way past it.
+  const GATE_NOTICE = /sign\s*in|log\s*in|login required|로그인|登录|登入|ログイン|購入|구매|유료|付费|需要购买|unlock|purchase/i;
+  function looksGated() {
+    for (const input of document.querySelectorAll('input[type="password"]')) {
+      if (isVisible(input)) return true;
+    }
+    if (candidateElements().length || isTextPage()) return false;
+    for (const el of document.querySelectorAll("a, button, h1, h2, h3, p, span, div")) {
+      if (el.childElementCount) continue;
+      const text = (el.textContent || "").trim();
+      if (text && text.length <= 60 && GATE_NOTICE.test(text) && isVisible(el)) return true;
+    }
+    return false;
   }
 
   // Chapter links on the page (a series page's list, or a chapter page's previous/next),
@@ -1858,6 +1983,10 @@
           case "saveNovelText":
             respond(await saveNovelText(message));
             break;
+          case "nextChapter":
+            respond({ ok: true, data: { url: nextChapterUrl(), here: location.origin + location.pathname + location.search,
+                                        heading: chapterHeading(), gated: looksGated() } });
+            break;
           case "pageFacts":
             respond({ ok: true, data: pageFacts() });
             break;
@@ -1904,5 +2033,5 @@
                      isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, keepWaiting, unreadableLog, placeBox, regionsByKey, requestCancel,
-                     completenessLine };
+                     completenessLine, nextChapterUrl, looksGated };
 })();

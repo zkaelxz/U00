@@ -344,6 +344,16 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     return page
 
 
+def _page_extras(drama, config: dict, engine, image: bytes) -> dict:
+    """Character notes and the page picture, as a Scanlate run sends them. A
+    failure here only costs that quality, never the translation."""
+    from services import extension_service
+    try:
+        return extension_service.page_extras(drama, config, engine, image)
+    except Exception:
+        return {}
+
+
 def _lines_without_english(bubbles) -> list:
     """The lines translation should have covered but left empty: text read, not skipped, not a
     sound effect left to the art. A partly answered reply (a short line, a name the model dropped)
@@ -354,7 +364,8 @@ def _lines_without_english(bubbles) -> list:
             and (b.get("source_text") or "").strip() and not (b.get("translated_text") or "").strip()]
 
 
-def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member) -> float:
+def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
+                         image: bytes = b"") -> float:
     """Translates a freshly read page, asks once more for any lines left empty, and returns the
     seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
     retry, so they are counted rather than silently shown as the source text."""
@@ -371,8 +382,10 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     glossary = (db.list_effective_glossary_terms(drama["series_id"])
                 if drama and drama.get("series_id") else None)
     usage = _usage_cb(drama, config, engine)
+    extras = _page_extras(drama, config, engine, image)
     try:
-        page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage)
+        page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage,
+                                      **extras)
     except Exception as e:
         # The OCR text is still real and still useful, so it is returned rather than thrown
         # away -- the same choice the Scanlate pipeline makes on this failure.
@@ -383,7 +396,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         try:
             scanlate_translate.translate_page_bubbles(
                 missing, engine, drama or {}, previous_context="", glossary_terms=glossary,
-                usage_cb=usage)
+                usage_cb=usage, character_notes=extras.get("character_notes", ""))
         except Exception:
             pass  # the first call's own note already says why; this is a second chance only
         left = len(_lines_without_english(bubbles))
@@ -394,7 +407,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
 
 
 def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, source_url: str,
-                       config: dict, member: bool = False) -> list:
+                       config: dict, member: bool = False, image: bytes = b"") -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
 
@@ -409,7 +422,8 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
     originals = page_capture_checks.snapshot_texts(missing)
     try:
         page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,
-                                      _usage_cb(drama, config, engine))
+                                      _usage_cb(drama, config, engine),
+                                      **_page_extras(drama, config, engine, image))
     except Exception as e:
         return [["warning", f"translation failed ({failure_detail(e, member)})"]]
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
@@ -439,9 +453,40 @@ def _drama_or_404(drama_id):
     return drama
 
 
+def _remove_quietly(path) -> None:
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool) -> str:
+    """The cleaned, typeset page as a data: URL for an overlay-only page (nothing is
+    stored, so there is no library page to render from), or "" when it cannot be sent.
+    The page keeps its plain boxes then, so a failure here only costs the nicer picture."""
+    import scanlate_render
+    if not any((b.get("translated_text") or "").strip() and not b.get("skip") for b in bubbles):
+        return ""
+    import tempfile
+    fd, out_path = tempfile.mkstemp(suffix=".png", prefix="baihe_typeset_")
+    os.close(fd)
+    try:
+        with PIPELINE_LOCK:
+            scanlate_render.process_page(image_path, bubbles, out_path)
+        return page_capture_checks.jpeg_data_url(out_path)
+    except Exception as e:
+        page_capture_checks.log_page_failure(e)
+        notes.append(["warning", "typeset failed: " + ("the page was kept" if member else
+                     f"{type(e).__name__}; the page was kept")])
+        return ""
+    finally:
+        _remove_quietly(out_path)
+
+
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
-                    store: bool = True, member: bool = False) -> dict:
+                    store: bool = True, member: bool = False, typeset: bool = False) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
@@ -468,6 +513,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     newly_stored = False
     reused_rev = 0
     temp_path = None
+    typeset_image = ""
 
     reuse_saved = None
     busy = None
@@ -509,25 +555,17 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     notes.append(["warning", "no drama chosen, so this page was not saved"])
 
             if reuse_saved is None and busy is None:
-                try:
-                    lang = _page_source_language(drama, source_language)
-                    read_started = time.monotonic()
-                    bubbles, detect_notes = scanlate.detect_and_ocr_page(
-                        image_path, lang,
-                        detect_backend=config.get("detect_backend") or "auto",
-                        hf_token=config.get("hf_token") or None,
-                        ocr_backend=config.get("ocr_backend") or None,
-                        tesseract_cmd=config.get("tesseract_cmd") or None,
-                        prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
-                        page_id=(page or {}).get("id"))
-                    read_seconds = time.monotonic() - read_started
-                finally:
-                    if temp_path:
-                        try:
-                            os.remove(temp_path)
-                        except OSError:
-                            pass
-
+                lang = _page_source_language(drama, source_language)
+                read_started = time.monotonic()
+                bubbles, detect_notes = scanlate.detect_and_ocr_page(
+                    image_path, lang,
+                    detect_backend=config.get("detect_backend") or "auto",
+                    hf_token=config.get("hf_token") or None,
+                    ocr_backend=config.get("ocr_backend") or None,
+                    tesseract_cmd=config.get("tesseract_cmd") or None,
+                    prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
+                    page_id=(page or {}).get("id"))
+                read_seconds = time.monotonic() - read_started
                 # Saved before release so a re-capture or Redo finds the read.
                 if page is not None:
                     read_notes = page_capture_checks.save_read_bubbles(
@@ -549,7 +587,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
-            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member)
+            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member,
+                                          image=data)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
@@ -557,17 +596,21 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         # the saved HF token now reaches that call, so redact them.
         notes.extend(_detect_notes(detect_notes, member))
         translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                 notes, member)
+                                                 notes, member, data)
+        if typeset and temp_path and page is None:
+            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member)
         if page is not None:
             notes.extend(read_notes)
             notes.extend(page_capture_checks.save_translations_of_read(
                 page["id"], stored_bubbles, bubbles))
     finally:
+        _remove_quietly(temp_path)
         if claim is not None:
             page_turns.release_page(*claim)
 
     width, height = page_capture_checks.image_size(data)
     return {
+        **({"typeset": True, "typeset_image": typeset_image} if typeset_image else {}),
         "width": width, "height": height,
         "regions": page_capture_checks.regions_for_response(bubbles),
         "notes": notes,
