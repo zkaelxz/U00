@@ -784,18 +784,19 @@ def test_reset_unlinks_followed_series_from_the_old_titles(isolated_db, monkeypa
     assert src_store.import_retry_rows("site", "s1", new) == []
 
 
-def test_reset_still_succeeds_when_sources_db_cannot_be_unlinked(isolated_db, monkeypatch):
-    """The library is already reset by then; a locked sources.db must not report the
-    reset as failed or skip clearing the job table."""
+def test_reset_is_refused_untouched_when_sources_db_cannot_be_unlinked(isolated_db, monkeypatch):
+    """Resetting anyway would leave links that name the old titles, and the next chapter
+    check could import into a new title that reuses an id. Replaces the earlier test that
+    pinned ok:true with a logged failure."""
     import sqlite3
+    from lib.errors import ConflictError
     from sources import store as src_store
     _no_jobs(monkeypatch)
-    cleared = []
-    monkeypatch.setattr(admin_svc.background_jobs, "clear_all_jobs", lambda: cleared.append(1))
 
     def locked():
         raise sqlite3.OperationalError("database is locked")
     monkeypatch.setattr(src_store, "unlink_all_dramas", locked)
-    db.create_drama(title_en="Old")
-    assert admin_svc.reset_library(confirm=True)["ok"] is True
-    assert cleared == [1] and db.list_dramas() == []
+    did = db.create_drama(title_en="Old")
+    with pytest.raises(ConflictError):
+        admin_svc.reset_library(confirm=True)
+    assert [d["id"] for d in db.list_dramas()] == [did]

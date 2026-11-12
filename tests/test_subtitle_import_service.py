@@ -104,6 +104,18 @@ class TestSourceImport:
         by_id = {n["line_id"]: n["note"] for n in db.list_translation_notes(did)}
         assert by_id == {ids[0]: "first", ids[1]: "second"}
 
+    def test_a_dropped_repeat_does_not_shift_notes_onto_the_wrong_row(self, local_client):
+        did = _drama([Line(idx=0, start=1.0, end=1.5, zh="嗯", en=""), Line(idx=1, start=2.0, end=2.5, zh="嗯", en="")])
+        ids = [x["id"] for x in db.load_lines(did)]
+        db.save_translation_notes(did, [{"line_id": ids[0], "line_idx": 0, "term": "嗯", "note": "first"},
+                                        {"line_id": ids[1], "line_idx": 1, "term": "嗯", "note": "second"}])
+        srt = "1\n00:00:01,900 --> 00:00:02,300\n嗯\n".encode()  # the file dropped the first repeat
+        r = _upload(local_client, did, "apply", data=srt, confirm_replace_lines=True)
+        assert r.status_code == 200, r.text
+        rows = db.load_lines(did)
+        assert [x["id"] for x in rows] == [ids[1]]
+        assert [n["note"] for n in db.list_translation_notes(did)] == ["second"]
+
     def test_a_start_just_past_one_second_is_not_the_same_line(self, local_client):
         did = _drama([Line(idx=0, start=1.0, end=2.0, zh="一", en=""), Line(idx=1, start=5.0, end=6.0, zh="二", en="")])
         ids = [x["id"] for x in db.load_lines(did)]

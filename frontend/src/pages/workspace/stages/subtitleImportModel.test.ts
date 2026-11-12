@@ -42,7 +42,7 @@ describe('preview wording', () => {
 
   it('warns when notes or emotion tags would be deleted, and says which lines keep theirs', () => {
     expect(impactLine(preview({ replaces_lines: 3, kept_lines: 2, notes_removed: 1 }))).toBe(
-      "Replaces this title's 3 lines with 10 from the file. 2 with the same text and time keep their notes, tags, English text and other settings; a dub clip keeps its old timing."
+      "Replaces this title's 3 lines with 10 from the file. 2 with the same text and time keep their notes, tags, speaker and other settings (and their English text, unless the file has a translation); a dub clip keeps its old timing."
       + ' 1 line has notes or emotion tags that nothing in the file matches; they are deleted and Undo cannot bring them back.')
   })
 

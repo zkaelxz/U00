@@ -74,6 +74,36 @@ def _kept_headers(stored, header) -> str:
     return json.dumps({"headers": dict(list(headers.items())[-KEPT_ASS_HEADERS:])}, ensure_ascii=False)
 
 
+def _align_in_order(old_starts: list, new_starts: list) -> list:
+    """Pairs (old position, new position) of two time-sorted lists of the same
+    text: the most pairs whose starts are within KEEP_MATCH_SECONDS, then the
+    least total time gap, never crossing. Either side may skip entries, so a
+    repeat the file dropped doesn't shift every later pairing onto the wrong
+    row (and its notes)."""
+    n, m = len(old_starts), len(new_starts)
+    # best[i][j] = (pairs, -total gap) for old[i:] against new[j:]
+    best = [[(0, 0.0)] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            top = max(best[i + 1][j], best[i][j + 1])
+            gap = abs(old_starts[i] - new_starts[j])
+            if gap <= KEEP_MATCH_SECONDS:
+                take = best[i + 1][j + 1]
+                top = max(top, (take[0] + 1, take[1] - gap))
+            best[i][j] = top
+    pairs, i, j = [], 0, 0
+    while i < n and j < m:
+        gap = abs(old_starts[i] - new_starts[j])
+        if gap <= KEEP_MATCH_SECONDS and best[i][j] == (best[i + 1][j + 1][0] + 1, best[i + 1][j + 1][1] - gap):
+            pairs.append((i, j))
+            i, j = i + 1, j + 1
+        elif best[i][j] == best[i + 1][j]:
+            i += 1
+        else:
+            j += 1
+    return pairs
+
+
 def _keep_matching_lines(new_lines: list, translations, lines: list) -> int:
     """Gives each new line the id of the current line that has the same text at
     about the same time, and its other fields (notes, emotion tags, speaker,
@@ -88,19 +118,12 @@ def _keep_matching_lines(new_lines: list, translations, lines: list) -> int:
         new_by_text.setdefault(new.zh.strip(), []).append(i)
     kept = 0
     for text, indexes in new_by_text.items():
-        # Walk both sides in time order so repeated identical texts (an
-        # interjection said twice) pair first-to-first; nearest-first matching
-        # could swap two such rows and move their notes to the other line.
         olds = sorted(old_by_text.get(text, []), key=lambda o: o.start)
-        o = 0
-        for i in sorted(indexes, key=lambda k: new_lines[k].start):
+        indexes = sorted(indexes, key=lambda k: new_lines[k].start)
+        for o, k in _align_in_order(
+                [x.start for x in olds], [new_lines[i].start for i in indexes]):
+            best, i = olds[o], indexes[k]
             new = new_lines[i]
-            while o < len(olds) and olds[o].start < new.start - KEEP_MATCH_SECONDS:
-                o += 1
-            if o == len(olds) or olds[o].start > new.start + KEEP_MATCH_SECONDS:
-                continue
-            best = olds[o]
-            o += 1
             keeper = copy.copy(best)
             keeper.orig = dict(best.orig) if best.orig is not None else None
             keeper.merged_ids = []

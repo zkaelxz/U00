@@ -126,6 +126,19 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
         if not job_runner.wait_for_job_threads(10.0):
             raise AdminActionJobsRunning(
                 "A background job is still finishing; try again in a moment.")
+        # Before anything is deleted: sources.db survives the reset but its title
+        # ids are the old library's, and a new title gets id 1 again. If the links
+        # can't be cleared, a reset that went ahead would let the next chapter
+        # check import into an unrelated title, so refuse it with the library
+        # untouched.
+        from sources import store as src_store
+        try:
+            src_store.unlink_all_dramas()
+        except sqlite3.Error:
+            logger.warning("Library reset refused: could not unlink followed series", exc_info=True)
+            raise ConflictError(
+                "Couldn't clear the followed-series links (sources.db is locked or damaged), "
+                "so nothing was reset. Try again in a moment.") from None
         from services import previous_library_service
         kept = previous_library_service.keep_before_reset()
         try:
@@ -136,14 +149,6 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
         previous_library_service.after_reset(kept, ok=True)
         # sources.db survives the reset but its title ids are the old library's;
         # the new titles start again from id 1.
-        from sources import store as src_store
-        try:
-            src_store.unlink_all_dramas()
-        except sqlite3.Error:
-            # The library is already reset and cannot be undone here, so a
-            # locked or damaged sources.db must not turn this into a failure
-            # that skips the job clean-up below.
-            logger.warning("Library reset: could not unlink followed series from the old titles", exc_info=True)
         background_jobs.clear_all_jobs()
     finally:
         job_launch.release_exclusive()
