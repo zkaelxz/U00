@@ -9,6 +9,9 @@ import zipfile
 import portable
 from lib.errors import ConflictError, DependencyUnavailableError, NotFoundError, ServiceError
 
+# A top-level folder of the data folder: installer/service_layout.APP_STATE_ENTRIES must list it,
+# or Setup refuses the data folder once a phone-app build has been fetched.
+FOLDER_NAME = "android"
 APK_NAME = "baihe-shell.apk"
 VERSION_NAME = "baihe-shell.version"
 # Android's versionCode is a signed 32-bit int.
@@ -26,7 +29,7 @@ _fetch_lock = threading.Lock()
 
 
 def _folder() -> str:
-    return os.path.join(portable.data_dir(), "android")
+    return os.path.join(portable.data_dir(), FOLDER_NAME)
 
 
 def apk_path() -> str | None:
