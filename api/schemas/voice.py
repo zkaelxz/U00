@@ -56,6 +56,9 @@ class NarrationRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(default=None, max_length=40)
     model: Optional[str] = Field(default=None, max_length=200)
+    # Adding chapters to a title that has lines: cut only the text the add left without lines (the server
+    # holds how much) and append its lines after the saved ones.
+    append: bool = False
 
 
 class NarrationRunResult(BaseModel):

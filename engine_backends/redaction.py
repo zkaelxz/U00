@@ -13,7 +13,16 @@ import re
 # includes the request URL, and that message is what gets stored on
 # dramas.last_translate_errors and shown in the UI.
 _SECRET_PATTERNS = [
-    re.compile(r'([?&]key=)[^&\s"\']+', re.IGNORECASE),
+    re.compile(r'([?&](?:key|api[_-]?key|access[_-]?token|token)=)[^&\s"\']+', re.IGNORECASE),
+    # Key names written out in error text or a repr of headers/params/JSON. A
+    # value stops at whitespace or a quote, so an unclosed quote cannot swallow
+    # the rest of the message, and the 8-char floor leaves "token=5" alone.
+    re.compile(r'(\b(?:x-api-key|x-emby-token|x-mediabrowser-token|api[_-]?key|apikey)'
+               r'["\']?\s*[:=]\s*["\']?)[^\s"\',;&)]{8,}', re.IGNORECASE),
+    # Jellyfin/Emby send the key as MediaBrowser Token="..."; the authorization
+    # pattern below would stop at the word MediaBrowser and leave the token.
+    re.compile(r'(\b(?:[A-Za-z]+[_-]){0,3}(?:token|secret)\s*=\s*["\']?)[^\s"\',;&)]{8,}', re.IGNORECASE),
+    re.compile(r'(["\'](?:[A-Za-z]+[_-]){0,3}(?:token|secret)["\']\s*:\s*["\'])[^"\'\s]+', re.IGNORECASE),
     re.compile(r'(authorization["\']?\s*[:=]\s*["\']?(?:Bearer\s+)?)[A-Za-z0-9_\-\.]{10,}',
                re.IGNORECASE),
     re.compile(r'\bsk-[A-Za-z0-9_-]{10,}\b'),
@@ -53,7 +62,7 @@ _SECRET_PATTERNS = [
 # scheme://user:pass@host or scheme://token@host: the userinfo is the secret,
 # host and path stay readable. Greedy so a raw "@" inside the password is
 # still covered.
-_URL_USERINFO_PATTERN = re.compile(r'(\b[a-z][a-z0-9+.-]*://)[^\s/?#"\'<>]+@', re.IGNORECASE)
+_URL_USERINFO_PATTERN = re.compile(r'(\b[a-z][a-z0-9+.-]{0,31}://)[^\s/?#"\'<>]+@', re.IGNORECASE)
 
 
 def redact_secrets(text: str) -> str:

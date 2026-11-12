@@ -578,3 +578,181 @@ def test_attaching_chapters_imported_from_sources_counts_them_in_the_status(clie
     assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
     s = client.get(f"/api/novel/dramas/{did}/status").json()
     assert s["has_novel_text"] and s["chapters"] == 2
+
+
+def _novel_text(did):
+    import db
+    with open(os.path.join(db.drama_dir(did), "novel_narration_source.txt"), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_adding_new_chapters_appends_only_the_new_text_to_a_copied_translation_text(client):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    before = _novel_text(did)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={})
+    assert r.status_code == 200 and r.json()["added_chars"] > 0
+    after = _novel_text(did)
+    assert after.startswith(before) and after.endswith("丙走了。") and "第二章 继续" in after
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).json()["added_chars"] == 0
+    assert _novel_text(did) == after
+
+
+def test_adding_new_chapters_refuses_a_translation_text_that_was_edited_and_changes_nothing(client):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    with open(os.path.join(__import__("db").drama_dir(did), "novel_narration_source.txt"), "a", encoding="utf-8") as f:
+        f.write("\n\n我自己加的。")
+    edited = _novel_text(did)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={})
+    assert r.status_code == 409 and "not a copy" in r.json()["error"]["message"]
+    assert _novel_text(did) == edited
+
+
+def test_adding_new_chapters_needs_chapters_and_a_translation_text(client):
+    from sources import pipeline
+    did = _drama()
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 404
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 409
+
+
+def test_adding_new_chapters_refuses_a_cut_translation_text_and_a_removed_chapter(client):
+    import db
+    from sources import pipeline
+    did = _drama()
+    for n, (title, body) in enumerate([("第一章 开始", "甲说了话。\n\n乙回答了。"), ("第二章 继续", "丙走了。")]):
+        pipeline.append_novel_chapter_once(did, body, title, source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    full = _novel_text(did)
+    path = os.path.join(db.drama_dir(did), "novel_narration_source.txt")
+    pipeline.append_novel_chapter_once(did, "丁来了。", "第三章 新", source="x")
+
+    def write(text):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    cut = full[:full.index("乙回答了。") + 2]                 # cut in the middle of a paragraph
+    write(cut)
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 409
+    assert _novel_text(did) == cut
+    removed = full[:full.index("第二章")].strip()                # chapter 2 removed on purpose
+    write(removed)
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={"from_chapter": 3})
+    assert r.status_code == 409 and _novel_text(did) == removed
+
+
+def test_adding_new_chapters_refuses_a_same_length_edit(client):
+    import db
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    edited = _novel_text(did).replace("甲", "乙")
+    with open(os.path.join(db.drama_dir(did), "novel_narration_source.txt"), "w", encoding="utf-8") as f:
+        f.write(edited)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 409
+    assert _novel_text(did) == edited
+
+
+def test_adding_new_chapters_joins_with_exactly_one_blank_line_and_checks_the_expected_chapter(client):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    first = _novel_text(did)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={"from_chapter": 2})
+    assert r.status_code == 200
+    assert _novel_text(did) == first + "\n\n第二章 继续\n\n丙走了。"
+
+
+def test_adding_new_chapters_reads_the_saved_chapters_under_the_page_lock(client, monkeypatch):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    held = []
+    real = svc._saved_chapters
+
+    def spy(drama_id):
+        held.append(pipeline._page_lock(drama_id).locked())
+        return real(drama_id)
+    monkeypatch.setattr(svc, "_saved_chapters", spy)
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 200
+    assert held == [True]
+
+
+def test_adding_chapters_records_what_waits_for_lines_and_a_retry_still_reports_it(client):
+    import db
+    import novel_text
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    assert novel_text.read_pending_lines(db.drama_dir(did)) is None
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    first = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).json()
+    assert first["pending_chars"] == first["added_chars"] + 2 > 0
+    # The lines step failed: asking again adds nothing but still says text is waiting for lines.
+    again = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).json()
+    assert again["added_chars"] == 0 and again["pending_chars"] == first["pending_chars"]
+    # Another chapter before the lines were made: the waiting amount covers both.
+    pipeline.append_novel_chapter_once(did, "丁来了。", "第三章 新", source="x")
+    more = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).json()
+    assert more["pending_chars"] == first["pending_chars"] + more["added_chars"] + 2
+    text = _novel_text(did)
+    assert text[-more["pending_chars"]:].strip().startswith("第二章 继续") and text.endswith("丁来了。")
+    # Replacing the whole text makes nothing wait.
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    assert novel_text.read_pending_lines(db.drama_dir(did)) is None
+
+
+def test_a_text_edit_after_chapters_were_added_blocks_more_instead_of_losing_their_lines(client):
+    import db
+    import novel_text
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 200
+    waiting = novel_text.read_pending_lines(db.drama_dir(did))
+    path = os.path.join(db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n")   # a whitespace-only edit changes the length the marker was written against
+    pipeline.append_novel_chapter_once(did, "丁来了。", "第三章 新", source="x")
+    before = _novel_text(did)
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 409
+    assert _novel_text(did) == before
+    assert novel_text.read_pending_lines(db.drama_dir(did)) == waiting
+
+
+def test_a_failed_replace_keeps_the_marker_of_the_old_text(client, monkeypatch):
+    import db
+    import novel_text
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 200
+    waiting = novel_text.read_pending_lines(db.drama_dir(did))
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(os, "replace", boom)
+    c = client
+    try:
+        r = c.post(f"/api/novel/dramas/{did}/attach-from-sources", json={})
+        assert r.status_code >= 400
+    finally:
+        monkeypatch.undo()
+    assert novel_text.read_pending_lines(db.drama_dir(did)) == waiting

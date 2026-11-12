@@ -116,6 +116,163 @@ class TestJob:
         assert after[0].en == "He said: hello." and after[0].reviewed
         assert after[-1].zh == "新的一章。" and after[-1].en == ""
 
+    def _add_text(self, db, did, added):
+        """What the add step leaves behind: the text with `added` appended and the pending marker."""
+        import novel_text
+        path = os.path.join(db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        text = text.rstrip() + "\n\n" + added
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        novel_text.write_pending_lines(db.drama_dir(did), len(added) + 2, len(text))
+        return text
+
+    def _tagger(self, monkeypatch, label="Bob", fail=False):
+        from engine_backends import llm_tasks, engine_registry
+        seen = []
+
+        def tag(chunks, engine, known, **k):
+            if fail:
+                raise RuntimeError("engine down")
+            seen.append(dict(chunks))
+            return {i: label for i in chunks}
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", tag)
+        return seen
+
+    def _snapshot(self, db, did):
+        return [(ln.id, ln.idx, ln.zh, ln.en, ln.reviewed, ln.speaker, ln.flag_note) for ln in db.load_line_objects(did)]
+
+    def test_append_run_leaves_saved_lines_alone_and_tags_only_the_new_text(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        lines = isolated_db.load_line_objects(did)
+        lines[0].zh, lines[0].en, lines[0].reviewed = "他说：你好！（我改过）", "He said hi.", True   # edited in Review
+        lines[1].flag_note = "check"
+        isolated_db.save_lines(did, lines)
+        before = self._snapshot(isolated_db, did)
+        added = "新的一章。"
+        text = self._add_text(isolated_db, did, added)
+        seen = self._tagger(monkeypatch)
+        narration_service._run_narration_job(
+            f"narration_{did}", did, narration_service._pending_tail(did, text), "claude", "k", None, append=True)
+        after = self._snapshot(isolated_db, did)
+        assert after[:len(before)] == before
+        assert [(a[2], a[3], a[5]) for a in after[len(before):]] == [(added, "", "Bob")]
+        assert after[-1][1] == len(before) and [list(c.values()) for c in seen] == [[added]]
+        assert any("before adding chapters" in h["label"] for h in isolated_db.list_line_history(did))
+        import novel_text
+        assert novel_text.read_pending_lines(isolated_db.drama_dir(did)) is None
+
+    def test_append_start_takes_the_amount_from_the_server_and_refuses_when_nothing_waits(self, isolated_db, key, monkeypatch):
+        did = _drama(isolated_db)
+        with pytest.raises(InvalidInputError):                      # nothing waiting
+            narration_service.start_narration_run(did, append=True)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {})
+        with pytest.raises(InvalidInputError):                      # still nothing waiting
+            narration_service.start_narration_run(did, append=True)
+        added = "新的一章。"
+        self._add_text(isolated_db, did, added)
+        calls = []
+        monkeypatch.setattr(job_launch, "start_job", lambda job_id, target, *a, **k: calls.append((a, k)) or True)
+        narration_service.start_narration_run(did, append=True)
+        assert calls[0][0][2] == "\n\n" + added and calls[0][1]["append"] is True
+
+    def test_append_start_refuses_when_the_text_changed_since_the_add(self, isolated_db, key, monkeypatch):
+        import novel_text
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {})
+        self._add_text(isolated_db, did, "新的一章。")
+        with open(os.path.join(isolated_db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME), "a", encoding="utf-8") as f:
+            f.write("又改了。")
+        with pytest.raises(ConflictError):
+            narration_service.start_narration_run(did, append=True)
+
+    def test_a_line_changed_while_the_append_job_runs_is_a_conflict_and_nothing_is_lost(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        text = self._add_text(isolated_db, did, "新的一章。")
+        self._tagger(monkeypatch)
+        tail = narration_service._pending_tail(did, text)
+        real = isolated_db.save_lines
+
+        def racy(drama_id, lines, **kw):
+            # A person edits a line in Review between the job's read and its save.
+            edited = isolated_db.load_line_objects(drama_id)
+            edited[0].en = "typed just now"
+            real(drama_id, edited, fields=("en",))
+            return real(drama_id, lines, **kw)
+        monkeypatch.setattr(isolated_db, "save_lines", racy)
+        with pytest.raises(ConflictError):
+            narration_service._run_narration_job(f"narration_{did}", did, tail, "claude", "k", None, append=True)
+        monkeypatch.undo()
+        rows = isolated_db.load_line_objects(did)
+        assert rows[0].en == "typed just now" and all(r.zh != "新的一章。" for r in rows)
+        import novel_text
+        assert novel_text.read_pending_lines(isolated_db.drama_dir(did)) is not None   # still waiting: a retry can finish it
+
+    def test_a_stop_between_saving_the_lines_and_clearing_the_marker_does_not_add_them_twice(
+            self, isolated_db, monkeypatch):
+        import novel_text
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        before = self._snapshot(isolated_db, did)
+        text = self._add_text(isolated_db, did, "新的一章。")
+        self._tagger(monkeypatch)
+
+        def stop(_dir):
+            raise OSError("disk went away")
+        monkeypatch.setattr(novel_text, "clear_pending_lines", stop)
+        with pytest.raises(OSError):
+            narration_service._run_narration_job(
+                f"narration_{did}", did, narration_service._pending_tail(did, text), "claude", "k", None, append=True)
+        monkeypatch.undo()
+        saved = self._snapshot(isolated_db, did)
+        assert [r[2] for r in saved[len(before):]] == ["新的一章。"]   # the lines were committed
+        assert novel_text.read_pending_lines(isolated_db.drama_dir(did)) is not None   # the marker was not cleared
+        with pytest.raises(InvalidInputError):   # the retry sees they are there
+            narration_service._pending_tail(did, text)
+        assert novel_text.read_pending_lines(isolated_db.drama_dir(did)) is None
+        assert self._snapshot(isolated_db, did) == saved
+
+    def test_edited_lines_after_a_failed_save_do_not_look_like_an_applied_append(self, isolated_db, monkeypatch):
+        import novel_text
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        text = self._add_text(isolated_db, did, "新的一章。")
+        novel_text.write_pending_lines(isolated_db.drama_dir(did), len("新的一章。") + 2, len(text), 1, 1)
+        assert narration_service._pending_tail(did, text).strip() == "新的一章。"
+
+    def test_a_failed_append_keeps_the_marker_and_a_retry_adds_the_lines_once(self, isolated_db, monkeypatch):
+        import novel_text
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        before = self._snapshot(isolated_db, did)
+        text = self._add_text(isolated_db, did, "新的一章。")
+        self._tagger(monkeypatch, fail=True)
+        with pytest.raises(RuntimeError):
+            narration_service._run_narration_job(
+                f"narration_{did}", did, narration_service._pending_tail(did, text), "claude", "k", None, append=True)
+        assert self._snapshot(isolated_db, did) == before
+        assert novel_text.read_pending_lines(isolated_db.drama_dir(did)) is not None
+        self._tagger(monkeypatch)
+        narration_service._run_narration_job(
+            f"narration_{did}", did, narration_service._pending_tail(did, text), "claude", "k", None, append=True)
+        assert [r[2] for r in self._snapshot(isolated_db, did)[len(before):]] == ["新的一章。"]
+
+    def test_a_repeated_append_is_refused_and_adds_no_second_copy(self, isolated_db, key, monkeypatch):
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        text = self._add_text(isolated_db, did, "新的一章。")
+        self._tagger(monkeypatch)
+        narration_service._run_narration_job(
+            f"narration_{did}", did, narration_service._pending_tail(did, text), "claude", "k", None, append=True)
+        count = len(isolated_db.load_lines(did))
+        with pytest.raises(InvalidInputError):
+            narration_service.start_narration_run(did, append=True)
+        assert len(isolated_db.load_lines(did)) == count
+
     def test_no_key_cuts_locally_and_marks_every_line_narrator(self, isolated_db, monkeypatch):
         from engine_backends import llm_tasks, engine_registry
 

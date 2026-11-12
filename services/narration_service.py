@@ -85,7 +85,8 @@ def get_narration_config(drama_id: int) -> dict:
 
 
 def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
-                        model: Optional[str] = None, fresh: bool = False) -> dict:
+                        model: Optional[str] = None, fresh: bool = False,
+                        append: bool = False) -> dict:
     """Starts the chunk-and-tag job; returns {"job_id"}. NotFoundError for
     an unknown drama, InvalidInputError for no novel text or an engine that
     cannot tag speakers, ConflictError if a run is already active.
@@ -95,7 +96,14 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
     A re-run over the same text, engine, model and known characters
     resumes after the batches an interrupted run already tagged;
-    fresh=True drops those and tags everything again."""
+    fresh=True drops those and tags everything again.
+
+    append (adding chapters to a title that has lines): only the text an add left
+    without lines (novel_text.read_pending_lines, held by the server, never the
+    client) is cut and tagged, and its lines are appended after the saved ones.
+    The saved lines, whatever was edited, merged or split in Review, are not
+    touched. InvalidInputError when nothing is waiting, ConflictError when the
+    text changed since."""
     ownership_service.require_drama(drama_id)
     engine_name = engine_name or DEFAULT_ENGINE
     if engine_name not in TAG_ENGINES:
@@ -104,16 +112,46 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     text = _read_novel(drama_id)
     if not text.strip():
         raise InvalidInputError("This title has no novel text attached yet.")
+    if append:
+        text = _pending_tail(drama_id, text)
     api_key = _api_key(engine_name)
 
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
         gpu_touching=engine_local.ollama_touches_local_gpu(engine_name, model),
-        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh), line_fields=db.FULL_SYNC)
+        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh),
+        append=bool(append), line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
     return {"job_id": job_id}
+
+
+def _pending_tail(drama_id: int, text: str) -> str:
+    """The end of `text` that an add left without lines, checked against what the add recorded."""
+    waiting = novel_text.read_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
+    if waiting is None:
+        raise InvalidInputError("No added chapters are waiting for lines.")
+    chars, length = waiting.chars, waiting.length
+    if length != len(text):
+        raise ConflictError("The translation text changed after the chapters were added, so their lines "
+                            "can't be cut on their own. Run chunk & tag again from the Source stage.")
+    saved = db.load_lines(drama_id)
+    if not saved:
+        raise InvalidInputError("This title has no lines to add to; run chunk & tag first.")
+    if lines_already_added(waiting, text, [ln["zh"] if isinstance(ln, dict) else ln.zh for ln in saved]):
+        # A stop between saving the lines and clearing the marker: adding them again would repeat them.
+        novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
+        raise InvalidInputError("These chapters already have their lines.")
+    return text[-chars:]
+
+
+def lines_already_added(waiting, text: str, line_texts: list) -> bool:
+    """Whether the lines a stopped append was adding are already saved: the marker says how many lines
+    the title had and how many were being added, and those last lines hold the waiting text."""
+    return (waiting.base is not None and waiting.added is not None
+            and len(line_texts) == waiting.base + waiting.added
+            and novel_text.lines_hold_tail(line_texts, text[-waiting.chars:], waiting.added))
 
 
 def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
@@ -158,7 +196,7 @@ def _raise_if_cancelled(job_id):
         raise background_jobs.JobCancelled(job_id)
 
 
-def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False):
+def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False, append=False):
     job_timing_service.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
     chunks = novel_text.chunk_novel_text(text, MAX_CHUNK_CHARS)
@@ -170,7 +208,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     if not api_key:
         for ln in lines:
             ln.speaker = "Narrator"
-        _save_lines(job_id, drama_id, lines, notice=NO_KEY_NOTICE)
+        (_append_lines if append else _save_lines)(job_id, drama_id, lines, notice=NO_KEY_NOTICE)
         return
 
     job_timing_service.mark_stage(job_id, "Tag speakers")
@@ -201,7 +239,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
-    _save_lines(job_id, drama_id, lines)
+    (_append_lines if append else _save_lines)(job_id, drama_id, lines)
 
 
 def _carry_over_existing(lines, existing):
@@ -225,6 +263,35 @@ def _carry_over_existing(lines, existing):
             ln.speaker, ln.speaker_manual = old.speaker, True
 
 
+def _append_lines(job_id, drama_id, lines, notice=None):
+    """Adds the new chunks after the saved lines, which are written back exactly as read, so edits
+    made in Review survive. Refuses (ConflictError) if the lines changed while the job ran."""
+    job_timing_service.mark_stage(job_id, "Save")
+    background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
+    background_jobs.cancel_line_jobs(drama_id)
+    existing = db.load_line_objects(drama_id)
+    first = max((ln.idx for ln in existing), default=-1) + 1
+    for n, ln in enumerate(lines):
+        ln.idx = first + n
+        ln.start, ln.end = float(ln.idx), float(ln.idx) + 1.0
+    for label in sorted({ln.speaker or "Narrator" for ln in lines}):
+        db.upsert_character(drama_id, label, character_name=label)
+    db.save_line_history_snapshot(drama_id, existing, "before adding chapters")
+    drama_dir = os.path.join(db.DRAMAS_DIR, str(drama_id))
+    waiting = novel_text.read_pending_lines(drama_dir)
+    if waiting:
+        # Written before the lines are, so a stop after they are saved and before the marker is cleared
+        # is recognised by the next retry instead of appending them a second time.
+        novel_text.write_pending_lines(drama_dir, waiting.chars, waiting.length, len(existing), len(lines))
+    db.save_lines(drama_id, existing + lines, expect_unchanged=existing)
+    finish_tagging_checkpoint(drama_id)
+    novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
+    result = {"line_count": len(existing) + len(lines), "added_lines": len(lines)}
+    if notice:
+        result["notice"] = notice
+    background_jobs.set_result(job_id, result)
+
+
 def _save_lines(job_id, drama_id, lines, notice=None):
     job_timing_service.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
@@ -240,6 +307,7 @@ def _save_lines(job_id, drama_id, lines, notice=None):
     db.save_lines(drama_id, lines)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)
+    novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))   # the whole text was cut
     result = {"line_count": len(lines)}
     if notice:
         result["notice"] = notice

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { getNovelGlossary } from '../../api/autotuneGlossary'
 import { getLineChapters, getRawChapters } from '../../api/novelChapters'
 import { getWorkflowProgress } from '../../api/workspace'
 import type { DramaDetail } from '../../api/types'
@@ -15,7 +16,9 @@ import type { NovelChapterList, NovelChapterRow, NovelLineChapterRow } from '../
 import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 import { NovelInstructionsTab } from './NovelInstructionsTab'
+import { NovelAddChapters } from './NovelAddChapters'
 import { NovelLinkStart } from './NovelLinkStart'
+import { NovelCastCard } from './stages/NovelCastCard'
 import { NovelChapterRetranslate } from './stages/NovelChapterRetranslate'
 import { mainButton } from './novelLinkChain'
 import { chaptersHeadline, lineProgress, readerPageOf, rowMeta, rowTitle } from './stages/novelChapters'
@@ -37,6 +40,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
   const [tab, setTab] = useState<'chapters' | 'instructions'>('chapters')
   // Lines with no translation yet: the link box stays until translating has begun, so a chain cut off before the glossary can resume.
   const [untranslated, setUntranslated] = useState(0)
+  const [scanDone, setScanDone] = useState(false)
   // Bumped while the link chain works so the list and counts follow what the server now holds.
   const [tick, setTick] = useState(0)
   // Raised by Translate when the title has chapters but no lines, so the link chain starts from where the title is.
@@ -68,6 +72,18 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
         setUntranslated(p.untranslated_count)
       },
       () => !cancelled && setLineCount(null),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [id, tick])
+
+  useEffect(() => {
+    let cancelled = false
+    // The cast card reads the finished glossary scan; without one there is nothing to offer.
+    getNovelGlossary(id).then(
+      (g) => !cancelled && setScanDone(g.status === 'done'),
+      () => !cancelled && setScanDone(false),
     )
     return () => {
       cancelled = true
@@ -116,6 +132,9 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
         </div>
         <TitleViewSwitch view="simple" onChange={onView} />
       </header>
+      {list && lineCount !== null && lineCount > 0 && untranslated < lineCount && (
+        <NovelAddChapters id={id} chapters={list.total} defaultUrl="" onProgress={refresh} />
+      )}
       {list && lineCount !== null && (
         <NovelLinkStart
           id={id}
@@ -127,6 +146,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
           onProgress={refresh}
         />
       )}
+      <NovelCastCard dramaId={id} scanDone={scanDone} />
       <div className="actions">
         {allTranslated && <ButtonLink href={stage('review')} variant="primary">Review</ButtonLink>}
         {hasLines || !list || list.total === 0 ? (

@@ -62,6 +62,10 @@ class NovelLineChapterRow(BaseModel):
     # running count when chapters were found from headings in the lines.
     number: int
     title: str
+    # The translation of the chapter's title line; "" until it is translated.
+    title_en: str = ""
+    # The volume heading the chapter falls under ("" when the text has none).
+    part: str = ""
     first_idx: int
     line_count: int
     translated: int

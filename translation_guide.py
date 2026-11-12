@@ -16,6 +16,7 @@ depend on context only a person reading the story can settle.
 """
 
 import difflib
+import json
 import re
 import unicodedata
 from core import LANGUAGE_NAMES
@@ -824,6 +825,52 @@ def _novel_glossary_prompt(lang_name: str, categories_desc: str, policies_desc: 
     )
 
 
+def _array_reply(text: str):
+    """(entries, cut_off): the JSON array a reply holds, or ([], True) when it
+    starts an array it never closes (the engine hit its output limit)."""
+    body = re.sub(r"^```json|^```|```$", "", (text or "").strip(), flags=re.MULTILINE).strip()
+    try:
+        value = json.loads(body)
+    except json.JSONDecodeError:
+        return [], body.startswith("[")
+    return (value if isinstance(value, list) else []), False
+
+
+def _halve_window(sample: str):
+    """The window cut in two at the paragraph break nearest its middle, or
+    None when it is too short to be worth a second call."""
+    if len(sample) < 1200:
+        return None
+    mid = len(sample) // 2
+    cuts = [m.start() for m in re.finditer(r"\n", sample)]
+    at = min(cuts, key=lambda c: abs(c - mid)) if cuts else mid
+    if not 200 < at < len(sample) - 200:
+        at = mid
+    return sample[:at], sample[at:]
+
+
+def _novel_window_entries(sample, build_prompt, engine, usage_cb, response_cache, halved=False):
+    """One window's cleaned entries. A reply cut off at the output limit has no
+    closed array, so the window is asked again as two halves (once) rather than
+    losing every term in it; a window already halved keeps what it got. Raises
+    TranslateRunStopped like the call it makes."""
+    prompt = build_prompt(sample)
+    text = response_cache[0](prompt) if response_cache else None
+    cached = text is not None
+    if text is None:
+        text = call_llm_json(engine, prompt, max_tokens=6000, fallback="[]",
+                             usage_cb=usage_cb, expect="json_array")
+    entries, cut_off = _array_reply(text)
+    if cut_off and not halved:
+        halves = _halve_window(sample)
+        if halves:
+            return [e for half in halves for e in _novel_window_entries(
+                half, build_prompt, engine, usage_cb, response_cache, halved=True)]
+    if response_cache and not cached and any(isinstance(e, dict) and e.get("term") for e in entries):
+        response_cache[1](prompt, text)
+    return _clean_window_entries(entries, sample)
+
+
 def extract_glossary_from_novel(novel_text: str, engine, source_language: str = "zh",
                                  english_translation: str = "", known_terms=None,
                                  progress_cb=None, usage_cb=None, response_cache=None,
@@ -889,22 +936,15 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
                       f"(use it to find how each term was ACTUALLY rendered -- prefer that "
                       f"wording over inventing your own):\n{en_samples[i]}")
 
-        prompt = _novel_glossary_prompt(lang_name, categories_desc, policies_desc,
-                                        known_block + conventions_block + paired, sample)
-
-        text = response_cache[0](prompt) if response_cache else None
-        cached = text is not None
-        if text is None:
-            try:
-                text = call_llm_json(engine, prompt, max_tokens=6000, fallback="[]",
-                                     usage_cb=usage_cb, expect="json_array")
-            except TranslateRunStopped:
-                break  # the terms from earlier windows are still returned
-        entries = parse_json_array(text, 0)
-        if (response_cache and not cached and isinstance(entries, list)
-                and any(isinstance(e, dict) and e.get("term") for e in entries)):
-            response_cache[1](prompt, text)
-        _merge_novel_entries(all_terms, _clean_window_entries(entries, sample))
+        context = known_block + conventions_block + paired
+        try:
+            entries = _novel_window_entries(
+                sample, lambda part: _novel_glossary_prompt(
+                    lang_name, categories_desc, policies_desc, context, part),
+                engine, usage_cb, response_cache)
+        except TranslateRunStopped:
+            break  # the terms from earlier windows are still returned
+        _merge_novel_entries(all_terms, entries)
         if progress_cb:
             progress_cb((i + 1) / total)
     return list(all_terms.values())
