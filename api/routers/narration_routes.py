@@ -29,4 +29,4 @@ def post_start_narration(payload: NarrationRunRequest, request: Request,
     require_engines_allowed(request, payload.engine, model=payload.model)
     return narration_service.start_narration_run(
         drama_id, engine_name=payload.engine, model=payload.model, fresh=fresh,
-        append_chars=payload.append_chars)
+        append=payload.append)

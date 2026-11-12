@@ -22398,8 +22398,11 @@ export interface components {
         };
         /** NarrationRunRequest */
         NarrationRunRequest: {
-            /** Append Chars */
-            append_chars?: number | null;
+            /**
+             * Append
+             * @default false
+             */
+            append?: boolean;
             /** Engine */
             engine?: string | null;
             /** Model */
@@ -22708,6 +22711,11 @@ export interface components {
             added_chars: number;
             /** Char Count */
             char_count: number;
+            /**
+             * Pending Chars
+             * @default 0
+             */
+            pending_chars: number;
         };
         /** NovelFileStatus */
         NovelFileStatus: {
