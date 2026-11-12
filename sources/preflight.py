@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 
 from . import ai_extract as ax
 from . import ai_extract_novel as axn
-from . import detect, front_door, profiles
+from . import detect, front_door, profiles, registry, site_terms
 from .models import SourceError, TermsProhibited
 
 UNKNOWN = front_door.UNKNOWN
@@ -66,6 +66,7 @@ class Preflight:
     confidence: str = ""
     problems: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    terms_notes: list = field(default_factory=list)
     next_link: bool = False
     previous_link: bool = False
     toc_links: int = 0
@@ -77,6 +78,38 @@ class Preflight:
 
     def summary(self) -> str:
         return self.verdict
+
+
+def _terms_notes(url: str) -> list:
+    """The recorded terms findings for this site, worded as information.
+    Terms enforcement is off (`ladder.check_terms`), so nothing here changes
+    `permitted` or `ok`: it only tells the person what was written down."""
+    caps = site_terms.capabilities_for(url)
+    if caps is None:
+        cls = registry.adapter_class_for_url(url)
+        if cls is not None:
+            try:
+                caps = cls().capabilities()
+            except Exception:
+                caps = None
+    if caps is None:
+        return []
+    restricted = caps.terms_restrictions()
+    if not restricted:
+        return []
+    site = caps.platform or "This site"
+    notes = []
+    if "automation_permission" in restricted:
+        notes.append(f"{site}'s terms of service restrict automated access. This is recorded "
+                     "for your information; the app does not refuse the import because of it.")
+    if "ai_ml_use" in restricted:
+        notes.append(f"{site}'s terms of service restrict AI/ML use of its content. This is "
+                     "recorded for your information; the app does not refuse the import "
+                     "because of it.")
+    clause = (caps.terms or {}).get("clause")
+    if clause:
+        notes.append(f"What the terms say: {clause}")
+    return notes
 
 
 def _describe_profile(url: str, kind: str) -> str:
@@ -174,6 +207,7 @@ def preflight(url: str, client=None, rendered_fetch=None, allow_signed_in: bool 
         result.note(str(e))
         return result
 
+    result.terms_notes = _terms_notes(url)
     result.adapter = preview.adapter
     result.title = preview.title or ""
     result.content_type = preview.content_type
