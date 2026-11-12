@@ -718,6 +718,16 @@ def _merge_novel_entries(all_terms: dict, entries) -> None:
 _PRONOUN_LEAD = re.compile(r"^\s*(she/her|he/him|they/them)", re.IGNORECASE)
 _EVIDENCE_MIN_MATCH = 0.75
 _EVIDENCE_MIN_RUN = 0.5
+# A quote that sits in the excerpt but names no pronoun, title or kinship term
+# proves nothing about gender (a model once cited "narrow eyes smiled slyly").
+# Chinese only: the pronoun instruction below names 她/他, and a Japanese or
+# Korean quote would never contain them. Bare 男/女 are left out on purpose, so
+# "a woman lay there" (女子) does not vouch for THIS character.
+_GENDER_MARKER = re.compile(
+    "她|他|牠|祂|妳|公主|王妃|皇后|太后|夫人|小姐|姑娘|女皇|女王|娘子|妻|媳婦|媳妇|"
+    "少爺|少爷|王爺|王爷|老爺|老爷|太子|皇帝|國王|国王|丈夫|相公|公子|娘|爹|先生|"
+    "兒子|儿子|女兒|女儿|兄|"
+    "媽|妈|母親|母亲|父親|父亲|爸|姐|妹|哥|弟|姑|姨|嬸|婶|嫂|奶奶|爺爺|爷爷|叔")
 
 
 def _quote_is_in(quote: str, text: str) -> bool:
@@ -752,7 +762,7 @@ def _window_aliases(entry: dict, window_text: str) -> list:
     return found
 
 
-def _clean_window_entries(entries, window_text: str) -> list:
+def _clean_window_entries(entries, window_text: str, require_marker: bool = True) -> list:
     """The usable entries of one window's reply. A term the model did not copy
     from the excerpt is dropped (a normalized or invented spelling would never
     match the novel when the glossary is applied). A pronoun claim needs a quoted
@@ -770,6 +780,7 @@ def _clean_window_entries(entries, window_text: str) -> list:
         reason = str(e.get("reason") or "")
         evidence = e.get("evidence")
         if _PRONOUN_LEAD.match(reason) and not (isinstance(evidence, str)
+                                                 and (not require_marker or _GENDER_MARKER.search(evidence))
                                                  and _quote_is_in(evidence, window_text)):
             e["reason"] = _PRONOUN_LEAD.sub("unclear", reason, count=1)
         alt = e.get("alt")
@@ -849,7 +860,8 @@ def _halve_window(sample: str):
     return sample[:at], sample[at:]
 
 
-def _novel_window_entries(sample, build_prompt, engine, usage_cb, response_cache, halved=False):
+def _novel_window_entries(sample, build_prompt, engine, usage_cb, response_cache, halved=False,
+                          require_marker=True):
     """One window's cleaned entries. A reply cut off at the output limit has no
     closed array, so the window is asked again as two halves (once) rather than
     losing every term in it; a window already halved keeps what it got. Raises
@@ -865,10 +877,11 @@ def _novel_window_entries(sample, build_prompt, engine, usage_cb, response_cache
         halves = _halve_window(sample)
         if halves:
             return [e for half in halves for e in _novel_window_entries(
-                half, build_prompt, engine, usage_cb, response_cache, halved=True)]
+                half, build_prompt, engine, usage_cb, response_cache, halved=True,
+                require_marker=require_marker)]
     if response_cache and not cached and any(isinstance(e, dict) and e.get("term") for e in entries):
         response_cache[1](prompt, text)
-    return _clean_window_entries(entries, sample)
+    return _clean_window_entries(entries, sample, require_marker)
 
 
 def extract_glossary_from_novel(novel_text: str, engine, source_language: str = "zh",
@@ -941,7 +954,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
             entries = _novel_window_entries(
                 sample, lambda part: _novel_glossary_prompt(
                     lang_name, categories_desc, policies_desc, context, part),
-                engine, usage_cb, response_cache)
+                engine, usage_cb, response_cache, require_marker=source_language == "zh")
         except TranslateRunStopped:
             break  # the terms from earlier windows are still returned
         _merge_novel_entries(all_terms, entries)

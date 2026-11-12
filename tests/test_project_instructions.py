@@ -161,6 +161,38 @@ class TestNovelGlossaryReplyCleaning:
         assert kept[1]["reason"] == "unclear"
         assert kept[2]["reason"] == "unclear"
 
+    def test_a_quote_without_a_pronoun_or_title_does_not_support_a_gender(self):
+        import translation_guide as tguide
+        window = "戚聞溪看了他一眼，她笑了。眯着的小眼睛裏露出一抹邪笑。阿姨端來茶。"
+        kept = tguide._clean_window_entries([
+            {"term": "戚聞溪", "reason": "she/her", "evidence": "眯着的小眼睛裏露出一抹邪笑"},
+            {"term": "阿姨", "reason": "she/her", "evidence": "阿姨端來茶"},
+            {"term": "戚聞溪", "reason": "he/him", "evidence": "戚聞溪看了他一眼"},
+        ], window)
+        assert [e["reason"] for e in kept] == ["unclear", "she/her", "he/him"]
+
+    def test_more_titles_and_kinship_terms_count_as_a_marker(self):
+        import translation_guide as tguide
+        for quote in ("公子看了她一眼", "他兒子來了", "先生請坐", "爹爹笑了", "兄長說話"):
+            assert tguide._GENDER_MARKER.search(quote), quote
+
+    def test_japanese_and_korean_quotes_are_not_held_to_the_chinese_markers(self, monkeypatch):
+        import json
+        import translation_guide as tguide
+        class Engine:
+            supports_reference = True
+        def run(language, text, term, quote):
+            reply = [{"term": term, "reason": "she/her", "evidence": quote,
+                      "suggested_translation": "X", "category": "person_name"}]
+            monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: [text])
+            monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps(reply))
+            (e,) = tguide.extract_glossary_from_novel("x", Engine(), source_language=language)
+            return e["reason"]
+        # a Chinese-only marker list would reset every ja/ko claim
+        assert run("ja", "花子は微笑んだ。彼女は笑った。", "花子", "彼女は笑った") == "she/her"
+        assert run("ko", "하나는 웃었다. 그녀는 갔다.", "하나", "그녀는 갔다") == "she/her"
+        assert run("zh", "林燕然笑了。眯着的小眼睛。", "林燕然", "眯着的小眼睛") == "unclear"
+
     def test_a_quote_retyped_with_a_variant_character_or_ascii_punctuation_still_counts(self):
         import translation_guide as tguide
         window = "陳詩這才回神，揚起笑臉。馮怡說：“随她去吧，只要她開心就好。”"
