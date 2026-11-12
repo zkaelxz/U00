@@ -91,3 +91,34 @@ def test_it_uses_the_engine_the_extension_is_set_up_with_not_the_default(token, 
     patch_setting(monkeypatch, "default_engine", "openai")
     _resolve(token)
     assert seen == ["claude"]
+
+
+def test_two_new_titles_at_once_cannot_both_pass_a_cap_with_room_for_one(token, ai, monkeypatch):
+    # The spend is only recorded once the reply is back, so a check that runs while another title's
+    # call is still out sees room that call is about to use.
+    import threading
+    from services import extension_title_service
+    spent, entered, other_entered = [], [], threading.Event()
+
+    def refuse(*a, **k):
+        if spent:
+            raise UnsupportedOperationError("The monthly cap is used up.")
+    monkeypatch.setattr(translate_run_service, "refuse_when_cap_spent", refuse)
+
+    def slow(engine, prompt, **kwargs):
+        entered.append(prompt)
+        if len(entered) == 1:
+            other_entered.wait(1.0)
+        else:
+            other_entered.set()
+        spent.append(prompt)
+        return '{"title": "My Husband Hid the Child"}'
+    monkeypatch.setattr(llm_tasks, "call_llm_json", slow)
+    ids = [db.create_drama(title_zh=f"남편 {n}", source_language="ko") for n in (1, 2)]
+    threads = [threading.Thread(target=extension_title_service._translate_title_once,
+                                args=(drama_id, "남편이 아이를 숨겼다", "ko")) for drama_id in ids]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert len(entered) == 1
