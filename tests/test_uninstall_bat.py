@@ -173,5 +173,5 @@ def test_app_made_folders_next_to_the_library_are_listed_and_never_deleted():
     bat = _bat()
     listing = bat[bat.index("Left on this PC"):bat.index("echo Done.")]
     for name in ("voice_engines", "playwright_browsers", "saved_comics", "baihe_trash", "android", "pending_install"):
-        assert f'call :leftover' in listing and f'!APP_DIR!{name}"' in listing, name
+        assert 'call :leftover' in listing and f'!APP_DIR!{name}"' in listing, name
         assert not re.search(rf'(rmdir|\bdel\b|call :remove\w*)[^\n]*{name}', bat), name
