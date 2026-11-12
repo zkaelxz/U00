@@ -343,3 +343,65 @@ def test_replace_gives_up_after_the_attempts(drama, monkeypatch):
     monkeypatch.setattr(comic_chapters.time, "sleep", lambda s: None)
     with pytest.raises(PermissionError):
         comic_chapters.set_hidden(drama, ["pages/a.png"], True)
+
+
+def _start(client, drama, page_id, title=""):
+    return client.post(f"/api/scanlate/dramas/{drama}/pages/start-chapter",
+                       json={"page_id": page_id, "title": title})
+
+
+def test_start_chapter_cuts_an_unlabelled_title_in_two(client, drama):
+    _add(drama, None, 5)
+    ids = [p["id"] for p in _pages(client, drama)["pages"]]
+    r = _start(client, drama, ids[2], "Chapter 2")
+    assert r.status_code == 200 and r.json() == {"changed": 3}
+    body = _pages(client, drama)
+    assert [(c["title"], c["known"], c["first_page"], c["page_count"]) for c in body["chapters"]] == [
+        ("", False, 1, 2), ("Chapter 2", True, 3, 3)]
+    assert [p["chapter_page"] for p in body["pages"]] == [1, 2, 1, 2, 3]
+
+
+def test_start_chapter_cuts_a_known_chapter_and_keeps_pages_out_of_both(client, drama):
+    _add(drama, ("c1", "One", "src"), 4)
+    ids = [p["id"] for p in _pages(client, drama)["pages"]]
+    assert _start(client, drama, ids[1]).status_code == 200
+    body = _pages(client, drama)
+    assert [(c["title"], c["page_count"]) for c in body["chapters"]] == [("One", 1), ("", 3)]
+    manifest = comic_chapters.load(drama)
+    assert sum(len(c["files"]) for c in manifest["chapters"]) == 4
+
+
+def test_start_chapter_at_the_top_of_the_unknown_run_names_it(client, drama):
+    _add(drama, None, 3)
+    first = _pages(client, drama)["pages"][0]["id"]
+    assert _start(client, drama, first, "Prologue").status_code == 200
+    assert [(c["title"], c["known"], c["page_count"]) for c in _pages(client, drama)["chapters"]] == [
+        ("Prologue", True, 3)]
+
+
+def test_start_chapter_refuses_the_first_page_of_a_named_chapter(client, drama):
+    _add(drama, ("c1", "One", "src"), 2)
+    first = _pages(client, drama)["pages"][0]["id"]
+    assert _start(client, drama, first).status_code == 409
+    assert [c["page_count"] for c in _pages(client, drama)["chapters"]] == [2]
+
+
+def test_start_chapter_leaves_the_hidden_flags(client, drama):
+    _add(drama, None, 3)
+    ids = [p["id"] for p in _pages(client, drama)["pages"]]
+    client.post(f"/api/scanlate/dramas/{drama}/pages/visibility", json={"hidden": True, "page_ids": [ids[2]]})
+    _start(client, drama, ids[1])
+    assert [p["hidden"] for p in _pages(client, drama)["pages"]] == [False, False, True]
+
+
+def test_start_chapter_rejects_other_titles_pages_and_unreadable_data(client, drama, isolated_db):
+    _add(drama, None, 2)
+    other = isolated_db.create_drama(title_en="O", media_type="manga")
+    _add(other, None, 1)
+    foreign = isolated_db.list_pages(other)[0]["id"]
+    assert _start(client, drama, foreign).status_code == 404
+    assert _start(client, 999, 1).status_code == 404
+    with open(os.path.join(isolated_db.drama_dir(drama), comic_chapters.MANIFEST_NAME), "w") as f:
+        f.write("{not json")
+    second = isolated_db.list_pages(drama)[1]["id"]
+    assert _start(client, drama, second).status_code == 409
