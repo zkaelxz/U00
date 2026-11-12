@@ -29348,10 +29348,14 @@ export interface components {
             existing_line_count: number;
             /** Format */
             format: string;
+            /** Kept Lines */
+            kept_lines: number;
             /** Matched Lines */
             matched_lines: number;
             /** Mode */
             mode: string;
+            /** Notes Removed */
+            notes_removed: number;
             /** Overwrites */
             overwrites: number;
             /** Problems */
@@ -29371,6 +29375,8 @@ export interface components {
             encoding: string;
             /** Format */
             format: string;
+            /** Kept Lines */
+            kept_lines: number;
             /** Line Ids */
             line_ids: number[];
             /** Lines Written */

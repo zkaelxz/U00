@@ -149,6 +149,22 @@ def set_tracked_drama(source: str, series_id: str, drama_id,
         return cur.rowcount > 0
 
 
+def forget_drama_links(conn) -> None:
+    """Drops every link from a followed series to a title, and the records of
+    which chapters went into which title. Title ids are only meaningful
+    inside the library.db they came from; once that library is gone or
+    replaced, a new title can be handed the same id, and the next chapter
+    check would import into it."""
+    conn.execute("UPDATE tracked_series SET drama_id=NULL, linked_by_user_id=NULL")
+    conn.execute("DELETE FROM imported_chapters")
+    conn.execute("DELETE FROM import_retry")
+
+
+def unlink_all_dramas() -> None:
+    with connect() as conn:
+        forget_drama_links(conn)
+
+
 def set_tracked_save(source: str, series_id: str, on: bool, by_user_id: int | None = None) -> bool:
     """Whether the chapter check saves a tracked series' new chapters as
     CBZ files, saved as `by_user_id`'s. Turning it off drops the chapters
