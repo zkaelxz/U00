@@ -30810,6 +30810,17 @@ export interface components {
             app_last_result: string | null;
             /** App Last Result At */
             app_last_result_at: number | null;
+            /**
+             * App Rollback Backup At
+             * @description When the newest backup before that update finished (ISO 8601), if there was one.
+             */
+            app_rollback_backup_at: string | null;
+            /**
+             * App Rollback Library Changed
+             * @description The last app-only update was rolled back after the newer version had changed the library's tables.
+             * @default false
+             */
+            app_rollback_library_changed: boolean;
             /** App Size */
             app_size: number | null;
             /**

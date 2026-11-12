@@ -76,6 +76,13 @@ class UpdateStatus(BaseModel):
     app_last_result: Optional[str] = Field(None, description="The last app-only update's outcome, "
                                                              "in plain words.")
     app_last_result_at: Optional[float] = None
+    app_rollback_library_changed: bool = Field(False, description="The last app-only update was "
+                                                                  "rolled back after the newer "
+                                                                  "version had changed the "
+                                                                  "library's tables.")
+    app_rollback_backup_at: Optional[str] = Field(None, description="When the newest backup before "
+                                                                     "that update finished (ISO "
+                                                                     "8601), if there was one.")
 
 
 class UpdateSettingsRequest(BaseModel):

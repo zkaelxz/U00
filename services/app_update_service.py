@@ -40,6 +40,7 @@ import hmac
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,14 @@ RESULT_MESSAGES = {
     "broken": ("The update to {new} couldn't be finished or undone. Run the Baihe Studio "
                "installer again to repair it; your library and settings are kept."),
 }
+
+# The library as an app-only update found it, so the version a rollback puts
+# back can tell whether the newer one changed the tables before it stopped.
+BEFORE_UPDATE_KEY = "app_update.before"
+ROLLED_BACK_CODES = ("rolled_back_health", "recovered")
+LIBRARY_CHANGED = (" Version {new} had already changed the library's tables before it stopped, "
+                   "and {old} may not read those changes correctly. To be safe, restore the backup "
+                   "from before the update (Library tools > Backup > Restore).")
 
 _lock = threading.Lock()
 # offer: "none" | "available" | "needs_full_installer"
@@ -196,8 +205,38 @@ def last_result():
     result = app_swap.read_result(install_root()) if us._is_installed() else None
     if result is None:
         return None
-    return {"outcome": result["code"], "at": result["at"],
-            "message": RESULT_MESSAGES[result["code"]].format(old=result["old"], new=result["new"])}
+    changed, backup_at = _rollback_changed_library(result)
+    message = RESULT_MESSAGES[result["code"]] + (LIBRARY_CHANGED if changed else "")
+    return {"outcome": result["code"], "at": result["at"], "library_changed": changed,
+            "backup_at": backup_at if changed else None,
+            "message": message.format(old=result["old"], new=result["new"])}
+
+
+def _remember_library(old, new) -> None:
+    from services import auto_backup_service
+    try:
+        backup_at = auto_backup_service.settings_overview().get("last_run_at")
+    except (ServiceError, AttributeError):
+        backup_at = None
+    db.set_app_setting(BEFORE_UPDATE_KEY, {
+        "old": old, "new": new, "schema": _library_schema(),
+        "backup_at": backup_at if isinstance(backup_at, str) else None})
+
+
+def _rollback_changed_library(result):
+    """(changed, backup_at): whether the version that was rolled back left the
+    library's tables different from how this update found them."""
+    if result["code"] not in ROLLED_BACK_CODES:
+        return False, None
+    try:
+        before = db.get_app_setting(BEFORE_UPDATE_KEY, None)
+        if not (isinstance(before, dict) and before.get("old") == result["old"]
+                and before.get("new") == result["new"]):
+            return False, None
+        changed = _library_schema() != before.get("schema")
+    except sqlite3.Error:
+        return False, None
+    return changed, before.get("backup_at")
 
 
 def status_fields() -> dict:
@@ -221,7 +260,9 @@ def status_fields() -> dict:
             "can_apply_app": (verified and offer == "available" and us._is_windows()
                               and can_switch_here() and s["download"] != "downloading"),
             "app_last_result": result["message"] if result else None,
-            "app_last_result_at": result["at"] if result else None}
+            "app_last_result_at": result["at"] if result else None,
+            "app_rollback_library_changed": bool(result and result["library_changed"]),
+            "app_rollback_backup_at": result["backup_at"] if result else None}
 
 
 # --- download -----------------------------------------------------------------
@@ -513,10 +554,11 @@ def _apply() -> dict:
     try:
         # INSTALLED names this PC's data folder; it never ships in the zip.
         shutil.copyfile(os.path.join(us._APP_DIR, "INSTALLED"), dest / "INSTALLED")
+        _remember_library(old, verified["version"])
         app_swap.write_journal(root, app_swap.STAGED, old, verified["version"], base,
                                port=_server_port())
         _start_helper(root)
-    except (OSError, ValueError, app_swap.SwapError):
+    except (OSError, ValueError, sqlite3.Error, app_swap.SwapError):
         app_swap.clear_journal(root)
         with contextlib.suppress(OSError, app_swap.SwapError):
             app_swap.remove_folder(dest, root)
@@ -548,6 +590,10 @@ def _hand_to_updater(verified, installed) -> dict:
         raise ConflictError("This update was built for a different Python, packages or "
                             "Caddy than this install has. Use the full installer.")
     _check_database(manifest)
+    try:
+        _remember_library(us.current_version(), verified["version"])
+    except sqlite3.Error:
+        raise DependencyUnavailableError(_START_FAILED) from None
     folder = us.updates_dir()
     try:
         with open(os.path.join(folder, verified["name"] + ".sig"), "w", encoding="ascii") as fh:

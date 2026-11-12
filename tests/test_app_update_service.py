@@ -5,6 +5,7 @@ and Windows are faked; the zip, the install folder and the library are real
 files under tmp_path.
 """
 
+import contextlib
 import datetime
 import hashlib
 import json
@@ -16,6 +17,7 @@ import pytest
 
 pytest.importorskip("cryptography")
 
+import db  # noqa: E402
 from installer import app_swap  # noqa: E402
 from lib import release_signature as rs  # noqa: E402
 from services import app_update_service as aus  # noqa: E402
@@ -456,6 +458,57 @@ def test_the_last_swap_is_reported_in_plain_words(env):
     assert s["app_last_result"] == "Version 0.2.0 didn't start, so Baihe Studio went back to 0.1.0."
     for code in app_swap.RESULT_CODES:
         assert code in aus.RESULT_MESSAGES
+
+
+def _roll_back_after(env, monkeypatch, change_tables, backup_at="2026-11-12T10:00:00+00:00"):
+    """Starts an update (which records the library as it was), then the new
+    version optionally adds a column, and app_swap reports a rollback."""
+    from services import auto_backup_service
+    monkeypatch.setattr(auto_backup_service, "settings_overview", lambda: {"last_run_at": backup_at})
+    _serve(env)
+    us.check()
+    _download(env)
+    assert aus.apply()["started"] is True
+    if change_tables:
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("ALTER TABLE dramas ADD COLUMN from_the_newer_version TEXT")
+            conn.commit()
+    app_swap.clear_journal(env["root"])
+    app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", "0.2.0")
+    return us.status()
+
+
+def test_a_rollback_after_the_tables_changed_says_so_and_names_the_backup(env, monkeypatch):
+    s = _roll_back_after(env, monkeypatch, change_tables=True)
+    assert s["app_rollback_library_changed"] is True
+    assert s["app_rollback_backup_at"] == "2026-11-12T10:00:00+00:00"
+    assert "had already changed the library's tables" in s["app_last_result"]
+    assert "restore the backup from before the update" in s["app_last_result"]
+
+
+def test_a_rollback_with_the_tables_unchanged_adds_nothing(env, monkeypatch):
+    s = _roll_back_after(env, monkeypatch, change_tables=False)
+    assert s["app_rollback_library_changed"] is False and s["app_rollback_backup_at"] is None
+    assert s["app_last_result"] == "Version 0.2.0 didn't start, so Baihe Studio went back to 0.1.0."
+
+
+def test_a_rollback_with_no_backup_still_warns(env, monkeypatch):
+    s = _roll_back_after(env, monkeypatch, change_tables=True, backup_at=None)
+    assert s["app_rollback_library_changed"] is True and s["app_rollback_backup_at"] is None
+
+
+def test_a_record_from_another_update_is_not_used(env, monkeypatch):
+    db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.0.9", "new": "0.1.0", "schema": "x" * 64,
+                                               "backup_at": None})
+    app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", "0.2.0")
+    assert us.status()["app_rollback_library_changed"] is False
+
+
+def test_a_kept_update_never_warns_about_the_library(env, monkeypatch):
+    db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.1.0", "new": "0.2.0", "schema": "x" * 64,
+                                               "backup_at": None})
+    app_swap.write_result(env["root"], "updated", "0.1.0", "0.2.0")
+    assert us.status()["app_rollback_library_changed"] is False
 
 
 def test_status_never_carries_a_path_or_url(env):
