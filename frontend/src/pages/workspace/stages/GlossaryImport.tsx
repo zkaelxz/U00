@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { glossaryCsvUrl, importGlossary } from '../../../api/translateStage'
+import { glossaryCsvUrl, glossaryJsonUrl, importGlossary } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
@@ -123,7 +123,10 @@ export function GlossaryImport({ hasTerms, onImported, openSignal = 0 }: { hasTe
           </button>
         )}
         {hasTerms && (
-          <a className={buttonClass('ghost')} href={glossaryCsvUrl(dramaId)} download>Download glossary as CSV</a>
+          <>
+            <a className={buttonClass('ghost')} href={glossaryCsvUrl(dramaId)} download>Download glossary as CSV</a>
+            <a className={buttonClass('ghost')} href={glossaryJsonUrl(dramaId)} download>Download glossary as JSON</a>
+          </>
         )}
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}

@@ -106,6 +106,16 @@ def get_glossary_csv(drama_id: int = Path(ge=1)):
                         drama_id, "glossary", "en", "csv")})
 
 
+@router.get("/dramas/{drama_id}/export.json", dependencies=[require_permission("library.read")],
+            summary="The series glossary as JSON (download)",
+            responses=error_responses(404))
+def get_glossary_json(drama_id: int = Path(ge=1)):
+    return Response(content=glossary_service.glossary_json(drama_id),
+                    media_type="application/json; charset=utf-8",
+                    headers={"Content-Disposition": export_service.drama_disposition(
+                        drama_id, "glossary", "en", "json")})
+
+
 # lines.read, not library.read: the examples are source line text.
 @router.get("/dramas/{drama_id}/word-replacements", dependencies=[require_permission("library.read")],
             response_model=List[WordReplacement],
