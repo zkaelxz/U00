@@ -255,11 +255,11 @@ def test_cancel_says_so_at_once_aborts_the_request_in_flight_and_stays_cancelled
     assert out["sends"] == 0 and out["outcome"] is True
 
 
-def _complete(found, entries, repeats=(), unreadable=(), counts=None, timing=None):
+def _complete(found, entries, repeats=(), unreadable=(), counts=None, timing=None, expected=0):
     counts = counts or {"untranslatedLines": 0}
     timing = timing or {"read": 0, "translate": 0, "typeset": 0, "pages": 0}
     expression = ("window.__baihe.completenessLine(" + ", ".join(json.dumps(a) for a in (
-        found, list(entries), list(repeats), list(unreadable), counts, timing)) + ")")
+        found, list(entries), list(repeats), list(unreadable), counts, timing, expected)) + ")")
     return _node("content_expression", expression)
 
 
@@ -287,3 +287,22 @@ def test_a_clean_capture_says_all_saved_and_names_nothing_missing():
     entries = [{"position": i, "status": "saved"} for i in range(1, 4)]
     text = _complete(3, entries)
     assert text == "Saved 3 of 3 pages"
+
+
+def test_the_closing_line_says_when_the_reader_shows_more_pages_than_were_found():
+    entries = [{"position": 1, "status": "saved"}, {"position": 2, "status": "saved"}]
+    assert "the reader shows 80 pages, found 2" in _complete(2, entries, expected=80)
+    assert "the reader shows" not in _complete(2, entries, expected=2)
+    assert "the reader shows" not in _complete(2, entries)
+
+
+@pytest.mark.parametrize("found, expected, loading, tries, wait", [
+    (12, 80, 0, 0, True),    # the counter says more pages exist
+    (12, 0, 3, 0, True),     # no counter, images still loading
+    (80, 80, 0, 0, False),   # everything found and loaded
+    (12, 80, 0, 3, False),   # bounded: a wrong counter cannot hold the run forever
+])
+def test_the_run_waits_for_more_pages_only_while_something_says_they_are_coming(
+        found, expected, loading, tries, wait):
+    expression = f"window.__baihe.keepWaiting({found}, {expected}, {loading}, {tries})"
+    assert _node("content_expression", expression) is wait
