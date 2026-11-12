@@ -19,9 +19,10 @@ from pydantic import ValidationError
 
 from api.auth import local_only, require_permission
 from api.schemas import (DeleteConfirm, NovelFileStatus, NovelFileTextRequest,
-                         NovelChapterList, NovelChapterText, NovelFileUploadResult,
+                         NovelChapterList, NovelChapterText, NovelLineChapters, NovelFileUploadResult,
                          NovelReferenceRemoveResult, error_responses)
 from services import novel_chapters_service as chapters_svc
+from services import novel_line_chapters_service
 from services import novel_files_service as svc
 from lib.errors import InvalidInputError
 
@@ -95,6 +96,13 @@ def get_raw_novel_chapters(drama_id: int = Path(ge=1), offset: int = Query(0, ge
                            limit: int = Query(chapters_svc.DEFAULT_PAGE, ge=1,
                                               le=chapters_svc.MAX_PAGE)):
     return chapters_svc.list_chapters(drama_id, offset, limit)
+
+
+@router.get("/dramas/{drama_id}/line-chapters", dependencies=[require_permission("lines.read")],
+            response_model=NovelLineChapters, responses=_NOT_FOUND,
+            summary="Which lines belong to which chapter, with translated and checked counts")
+def get_line_chapters(drama_id: int = Path(ge=1)):
+    return novel_line_chapters_service.line_chapters(drama_id)
 
 
 @router.get("/dramas/{drama_id}/raw-novel/chapters/{number}",

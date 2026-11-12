@@ -6478,6 +6478,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/novel/dramas/{drama_id}/line-chapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which lines belong to which chapter, with translated and checked counts */
+        get: operations["get_line_chapters_api_novel_dramas__drama_id__line_chapters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/novel/dramas/{drama_id}/lncrawl": {
         parameters: {
             query?: never;
@@ -22472,6 +22489,32 @@ export interface components {
             run_id: string | null;
             /** Status */
             status: string;
+        };
+        /** NovelLineChapterRow */
+        NovelLineChapterRow: {
+            /** First Idx */
+            first_idx: number;
+            /** Line Count */
+            line_count: number;
+            /** Number */
+            number: number;
+            /** Reviewed */
+            reviewed: number;
+            /** Title */
+            title: string;
+            /** Translated */
+            translated: number;
+        };
+        /** NovelLineChapters */
+        NovelLineChapters: {
+            /** Chapters */
+            chapters: components["schemas"]["NovelLineChapterRow"][];
+            /** Drama Id */
+            drama_id: number;
+            /** Source */
+            source: string;
+            /** Total Lines */
+            total_lines: number;
         };
         /** NovelOcrResult */
         NovelOcrResult: {
@@ -49392,6 +49435,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_line_chapters_api_novel_dramas__drama_id__line_chapters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelLineChapters"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
