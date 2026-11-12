@@ -362,6 +362,22 @@ def _note_missing_cjk_font(notes, regions) -> None:
         notes.append(("warning", "cjk_font_missing", CJK_FONT_MISSING_NOTE))
 
 
+def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_layout: bool):
+    """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline."""
+    laid_out = _layout_in_rectangle(draw, text, mask, font_size, load_font) if rect_layout else None
+    return laid_out or _layout_in_mask(draw, text, mask, font_size, load_font)
+
+
+def _draw_laid_out(draw, box: dict, laid_out, align: str, fill) -> None:
+    font, placed = laid_out
+    for line, left, right, top in placed:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        line_w = bbox[2] - bbox[0]
+        lx = left + (max(0, (right - left - line_w) // 2) if align == "center" else 0)
+        # textbbox's own left offset, so the ink starts where it was measured
+        draw.text((box["x"] + lx - bbox[0], box["y"] + top), line, font=font, fill=fill)
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
@@ -401,21 +417,11 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     if mask is not None:
         load_font = (lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
                      else ImageFont.load_default(sz))
-        laid_out = None
-        if rect_layout:
-            laid_out = _layout_in_rectangle(draw, text, mask, font_size, load_font)
-        if laid_out is None:
-            laid_out = _layout_in_mask(draw, text, mask, font_size, load_font)
+        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout)
         if laid_out is not None:
-            font, placed = laid_out
             if report is not None:
-                report["size"] = font.size
-            for line, left, right, top in placed:
-                bbox = draw.textbbox((0, 0), line, font=font)
-                line_w = bbox[2] - bbox[0]
-                lx = left + (max(0, (right - left - line_w) // 2) if align == "center" else 0)
-                # textbbox's own left offset, so the ink starts where it was measured
-                draw.text((box["x"] + lx - bbox[0], box["y"] + top), line, font=font, fill=fill)
+                report["size"] = laid_out[0].size
+            _draw_laid_out(draw, box, laid_out, align, fill)
             return image
 
     def wrap_and_measure(sz, hyphenate):
