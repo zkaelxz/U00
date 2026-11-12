@@ -8629,6 +8629,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scanlate/dramas/{drama_id}/pages/start-chapter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a new chapter at a page (for pages saved before chapters were recorded) */
+        post: operations["post_start_chapter_api_scanlate_dramas__drama_id__pages_start_chapter_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scanlate/dramas/{drama_id}/pages/visibility": {
         parameters: {
             query?: never;
@@ -15962,6 +15979,24 @@ export interface components {
              * @default
              */
             source: string;
+        };
+        /**
+         * ComicStartChapterRequest
+         * @description Start a new chapter at this page; a blank title is numbered by the reader.
+         */
+        ComicStartChapterRequest: {
+            /** Page Id */
+            page_id: number;
+            /**
+             * Title
+             * @default
+             */
+            title?: string;
+        };
+        /** ComicStartChapterResult */
+        ComicStartChapterResult: {
+            /** Changed */
+            changed: number;
         };
         /**
          * ComicViewPrefs
@@ -56948,6 +56983,59 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_start_chapter_api_scanlate_dramas__drama_id__pages_start_chapter_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicStartChapterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicStartChapterResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
