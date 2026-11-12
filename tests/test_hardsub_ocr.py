@@ -467,7 +467,7 @@ class TestHardsubBackendRouting:
                                 lambda backend, *a, **k: None if installed else object())
         return set_installed
 
-    @pytest.mark.parametrize("language", ["zh", "ko"])
+    @pytest.mark.parametrize("language", ["zh", "ko", "ja"])
     def test_auto_picks_rapidocr_when_installed(self, run, monkeypatch, rapidocr_installed, language):
         rapidocr_installed(True)
         monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: True)
@@ -475,7 +475,7 @@ class TestHardsubBackendRouting:
         assert calls == [(language, "rapidocr")]
         assert info == {"backend": "rapidocr", "note": None, "dropped_frames": 0}
 
-    @pytest.mark.parametrize("language,rapid", [("zh", False), ("ko", False), ("ja", True)])
+    @pytest.mark.parametrize("language,rapid", [("zh", False), ("ko", False), ("ja", False)])
     def test_auto_picks_paddle_when_rapidocr_cannot_read_it(self, run, monkeypatch, rapidocr_installed,
                                                             language, rapid):
         rapidocr_installed(rapid)
