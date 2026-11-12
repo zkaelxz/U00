@@ -48,7 +48,6 @@ import tempfile
 import threading
 import time
 import zipfile
-from pathlib import Path
 
 import background_jobs
 import db
@@ -208,12 +207,14 @@ def last_result():
     result = app_swap.read_result(install_root()) if us._is_installed() else None
     if result is None:
         return None
-    changed, backup_at = _rollback_changed_library(result)
-    message = (RESULT_MESSAGES[result["code"]] + (LIBRARY_CHANGED if changed else "")
-               + (RESTORE_BACKUP if backup_at else ""))
+    changed, backup_at, changed_by = _rollback_changed_library(result)
+    message = RESULT_MESSAGES[result["code"]].format(old=result["old"], new=result["new"])
+    if changed:
+        message += LIBRARY_CHANGED.format(old=result["old"], new=changed_by)
+    if backup_at:
+        message += RESTORE_BACKUP
     return {"outcome": result["code"], "at": result["at"], "library_changed": changed,
-            "backup_at": backup_at,
-            "message": message.format(old=result["old"], new=result["new"])}
+            "backup_at": backup_at, "message": message}
 
 
 def _remember_library(old, new) -> None:
@@ -239,7 +240,7 @@ def _newest_backup() -> dict:
     except (ServiceError, OSError, AttributeError):
         copies = []
     for c in copies:
-        if isinstance(c, dict) and c.get("readable") and isinstance(c.get("name"), str):
+        if _restorable_copy(c) and isinstance(c.get("name"), str):
             return {"backup_name": c["name"], "backup_at": c.get("created_at")}
     return {"backup_name": None, "backup_at": None}
 
@@ -250,8 +251,14 @@ def _backup_still_there(name) -> bool:
         copies = auto_backup_service.settings_overview().get("copies") or []
     except (ServiceError, OSError, AttributeError):
         return False
-    return any(isinstance(c, dict) and c.get("name") == name and c.get("readable")
-               for c in copies)
+    return any(_restorable_copy(c) and c.get("name") == name for c in copies)
+
+
+def _restorable_copy(c) -> bool:
+    """A readable copy of this library itself: not another library's copy in a
+    shared folder, nor one kept only for its sources.db."""
+    return (isinstance(c, dict) and bool(c.get("readable")) and c.get("managed") is True
+            and c.get("kept_as") != "sources")
 
 
 def _library_layout() -> str:
@@ -264,32 +271,37 @@ def _library_layout() -> str:
     with contextlib.closing(db.get_conn()) as conn:
         parts += [repr(tuple(r)) for r in conn.execute(
             "SELECT 'library', type, name, tbl_name, sql FROM sqlite_master")]
-    path = store.db_path()
-    if os.path.isfile(path):
-        with contextlib.closing(sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)) as conn:
+    # connect() creates and migrates sources.db on first use, so it exists by
+    # the time either side of the comparison is taken; a damaged one counts
+    # the same each time rather than blocking the update.
+    try:
+        with contextlib.closing(store.connect()) as conn:
             parts += [repr(tuple(r)) for r in conn.execute(
                 "SELECT 'sources', type, name, tbl_name, sql FROM sqlite_master")]
+    except (sqlite3.Error, OSError):
+        parts.append("sources: unreadable")
     return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()
 
 
 def _rollback_changed_library(result):
-    """(changed, backup_at): whether a version that was rolled back left the
-    library different from how the first update attempt since found it, and
-    when the backup from before it was taken, if that copy is still there."""
+    """(changed, backup_at, changed_by): whether a version that was rolled back
+    left the library different from how the first update attempt since found
+    it, when the backup from before it was taken (if that copy is still
+    there), and that first attempt's version, which made the change."""
     if result["code"] not in ROLLED_BACK_CODES:
-        return False, None
+        return False, None, None
     try:
         before = db.get_app_setting(BEFORE_UPDATE_KEY, None)
         if not (isinstance(before, dict) and before.get("old") == result["old"]
                 and result["new"] in (before.get("attempts") or [])):
-            return False, None
+            return False, None, None
         changed = _library_layout() != before.get("layout")
     except sqlite3.Error:
-        return False, None
+        return False, None, None
     if not changed:
-        return False, None
+        return False, None, None
     backup_at = before.get("backup_at") if _backup_still_there(before.get("backup_name")) else None
-    return True, backup_at if isinstance(backup_at, str) else None
+    return True, backup_at if isinstance(backup_at, str) else None, before["attempts"][0]
 
 
 def status_fields() -> dict:

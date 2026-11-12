@@ -463,8 +463,8 @@ def test_the_last_swap_is_reported_in_plain_words(env):
 def _backups(monkeypatch, created_at="2026-11-12T10:00:00+00:00"):
     """The backup copies the update sees; tests drop entries to stand in for rotation."""
     from services import auto_backup_service
-    copies = ([{"name": "baihe-auto-1.zip", "created_at": created_at, "readable": True}]
-              if created_at else [])
+    copies = ([{"name": "baihe-auto-1.zip", "created_at": created_at, "readable": True,
+                "managed": True, "kept_as": None}] if created_at else [])
     monkeypatch.setattr(auto_backup_service, "settings_overview", lambda: {"copies": copies})
     return copies
 
@@ -543,7 +543,7 @@ def test_a_backup_rotated_away_since_is_not_named(env, monkeypatch):
     _start_update(env)
     _change_library()
     copies[:] = [{"name": "baihe-auto-2.zip", "created_at": "2026-11-13T10:00:00+00:00",
-                  "readable": True}]
+                  "readable": True, "managed": True, "kept_as": None}]
     s = _rolled_back(env)
     assert s["app_rollback_library_changed"] is True and s["app_rollback_backup_at"] is None
 
@@ -562,6 +562,41 @@ def test_a_later_attempt_keeps_the_warning_from_the_first(env, monkeypatch):
     s = _rolled_back(env)
     assert s["app_rollback_library_changed"] is True
     assert s["app_rollback_backup_at"] == "2026-11-12T10:00:00+00:00"
+
+
+def test_only_this_librarys_own_copy_is_named(env, monkeypatch):
+    copies = _backups(monkeypatch)
+    copies[:0] = [{"name": "other-library.zip", "created_at": "2026-11-12T11:00:00+00:00",
+                   "readable": True, "managed": False, "kept_as": None},
+                  {"name": "baihe-auto-0.zip", "created_at": "2026-11-12T10:30:00+00:00",
+                   "readable": True, "managed": True, "kept_as": "sources"}]
+    _start_update(env)
+    _change_library()
+    assert _rolled_back(env)["app_rollback_backup_at"] == "2026-11-12T10:00:00+00:00"
+
+
+def test_sources_db_created_after_the_rollback_is_not_a_change(env, monkeypatch):
+    from sources import store
+    _backups(monkeypatch)
+    assert not os.path.exists(store.db_path())
+    _start_update(env)
+    os.remove(store.db_path())
+    store._initialised.clear()
+    with contextlib.closing(store.connect()):
+        pass
+    assert _rolled_back(env)["app_rollback_library_changed"] is False
+
+
+def test_a_later_rollback_names_the_version_that_changed_the_library(env, monkeypatch):
+    _backups(monkeypatch)
+    _start_update(env)
+    _change_library()
+    _rolled_back(env)
+    aus._remember_library("0.1.0", "0.3.0")
+    s = _rolled_back(env, new="0.3.0")
+    assert s["app_rollback_library_changed"] is True
+    assert "Version 0.2.0 had already changed the library's tables" in s["app_last_result"]
+    assert s["app_last_result"].startswith("Version 0.3.0 didn't start")
 
 
 def test_a_record_from_another_update_is_not_used(env, monkeypatch):
