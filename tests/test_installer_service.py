@@ -257,12 +257,31 @@ class TestFolders:
         import browser_support
         import pending_install
         import voice_venv
-        from services import sources_save_service, vdb_names_service
+        from services import android_app_service, sources_save_service, vdb_names_service
         for name in (os.path.basename(pending_install.state_dir()), browser_support.FOLDER_NAME,
-                     sources_save_service.SAVE_DIRNAME, voice_venv.VENVS_DIRNAME):
+                     sources_save_service.SAVE_DIRNAME, voice_venv.VENVS_DIRNAME,
+                     android_app_service.FOLDER_NAME):
             (layout.data / name).mkdir()
         (layout.data / vdb_names_service.FILE_NAME).write_text("{}", encoding="utf-8")
         assert service_layout.data_folder_contents_problem(layout.data) == ""
+
+    def test_every_top_level_folder_named_in_the_source_is_allowed(self):
+        """A folder the app writes straight under the data folder but the
+        installer doesn't list makes Setup refuse the data folder on the next
+        upgrade. Only literal names can be found this way; one built from a
+        constant is covered by the test above."""
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        joined = re.compile(r"""portable\.data_dir\(\),\s*["']([^"'/\\]+)["']""")
+        allowed = {n.lower() for n in service_layout.DATA_FOLDER_ENTRIES | service_layout.APP_STATE_ENTRIES}
+        missing = {}
+        for path in [*root.glob("*.py"), *(root / "services").glob("*.py")]:
+            for name in joined.findall(path.read_text(encoding="utf-8")):
+                if name.lower() not in allowed:
+                    missing.setdefault(name, path.name)
+        assert not missing, f"not in installer/service_layout.py: {missing}"
 
     def test_copies_kept_by_a_restore_or_reset_are_not_foreign(self, layout):
         for name in ("library.pre_restore_1700000000", "library.pre_reset_1700000000",
