@@ -93,11 +93,19 @@ class TestUpdateIsFastForwardOnly:
         assert "fetch --quiet origin baihe-subtitler" in line
         assert "set GIT_TERMINAL_PROMPT=0" in _code()
 
-    def test_merge_is_ff_only_from_fetch_head(self):
+    def test_merge_is_ff_only_to_the_newest_commit_that_passed_its_tests(self):
         merges = [ln for ln in _code() if "git merge " in ln]
         assert len(merges) == 1
         assert "--ff-only" in merges[0]
-        assert "FETCH_HEAD" in merges[0]
+        assert "%UPD_NEW%" in merges[0]
+        code = _code()
+        target = next(i for i, ln in enumerate(code) if "tools.update_target %UPD_OLD% %UPD_NEW%" in ln)
+        fetched = next(i for i, ln in enumerate(code) if "git rev-parse FETCH_HEAD" in ln)
+        moved = next(i for i, ln in enumerate(code) if ln.strip() == 'set "UPD_NEW=!UPD_WHY!"')
+        refused = next(i for i, ln in enumerate(code)
+                       if ln.strip() == 'if not "%UPD_STATE%"=="ok" goto :update_not_green')
+        merge = code.index(merges[0])
+        assert fetched < target < refused < moved < merge
 
     def test_never_rewrites_or_deletes_files(self):
         text = "\n".join(_lines(True)).lower()

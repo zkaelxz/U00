@@ -368,6 +368,8 @@ def _stage_sources_db(staging_dir: str, library_dir: str, from_upload: bool, own
             if not src_store.snapshot_to(staged_src, source=live_src):
                 return
             src_store.migrate_file(staged_src)
+            # The live links name the replaced library's titles, not the restored ones.
+            library_restore_sql.unlink_dramas(staged_src)
         except sqlite3.Error:
             raise ValueError(message) from None
     _require_quick_check(staged_src, message)

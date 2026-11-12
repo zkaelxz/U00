@@ -144,7 +144,7 @@ def _release_script() -> str:
     # required reviewer; a repository secret still reaches the job.
     assert wf["jobs"]["release"]["environment"] == "release"
     # A later step uploads the signed files as an artifact; only the one that runs the script is checked.
-    (step,) = [s for s in wf["jobs"]["release"]["steps"] if "run" in s]
+    (step,) = [s for s in wf["jobs"]["release"]["steps"] if s.get("name", "").startswith("Attach")]
     assert step["env"]["BAIHE_RELEASE_SIGNING_KEY"] == "${{ secrets.BAIHE_RELEASE_SIGNING_KEY }}"
     assert "uses" not in step
     return step["run"]
@@ -199,6 +199,45 @@ def _run_release(tmp_path, key, fake_gh=FAKE_GH, committed_public=None,
     proc.stdout = "\n".join(line for line in proc.stdout.splitlines()
                              if not line.startswith("::add-mask::"))
     return proc, (log.read_text().splitlines() if log.exists() else None), work
+
+
+def _ci_check_script() -> str:
+    yaml = pytest.importorskip("yaml")
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "windows-installer.yml")
+                        .read_text(encoding="utf-8"))
+    steps = wf["jobs"]["release"]["steps"]
+    # First, so a red commit never reaches the signing key.
+    assert steps[0]["name"] == "Check that Tests passed at the tagged commit"
+    return steps[0]["run"]
+
+
+FAKE_GH_CHECKS = """#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" > "$GH_LOG"
+printf '%s\\n' "$GH_CONCLUSION"
+"""
+
+
+@pytest.mark.parametrize("conclusion,ok", [
+    ("success", True), ("failure", False), ("cancelled", False), ("null", False),
+    ("missing", False)])
+def test_release_job_publishes_only_when_tests_passed_at_the_commit(tmp_path, conclusion, ok):
+    if os.name == "nt" or not shutil.which("bash"):
+        pytest.skip("needs bash (the release job runs on ubuntu)")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "gh").write_text(FAKE_GH_CHECKS, encoding="utf-8")
+    (bindir / "gh").chmod(0o755)
+    env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "GITHUB_REPOSITORY": "o/r",
+           "GITHUB_SHA": "a" * 40, "GH_TOKEN": "t", "GH_LOG": str(tmp_path / "gh.log"),
+           "GH_CONCLUSION": conclusion}
+    proc = subprocess.run(["bash", "-c", _ci_check_script()], env=env, capture_output=True,
+                          text=True, timeout=60)
+    assert (proc.returncode == 0) is ok, proc.stdout + proc.stderr
+    assert f"repos/o/r/commits/{'a' * 40}/check-runs?check_name=test" in (
+        tmp_path / "gh.log").read_text()
+    if not ok:
+        assert "Nothing was published" in proc.stdout
 
 
 def test_release_job_signs_what_the_app_verifies(tmp_path, keys):

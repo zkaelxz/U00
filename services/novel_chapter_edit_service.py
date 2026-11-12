@@ -8,8 +8,9 @@ stops matching. The raw file and its manifest are rewritten through temp files a
 under the title's page lock, with the previous pair kept beside them as `.before-edit`.
 The manifest is only trusted while it matches the file's size (sources/chapter_manifest.py),
 so a manifest that is missing or out of date is refused, never guessed at.
-A failed swap restores the raw file and the line, so the chapter list never turns unsplit;
-a rename is refused while an interrupted import still holds a retry offset into the file.
+A failed temp write changes nothing, and a failed swap restores the raw file and the line,
+so the chapter list never turns unsplit; a rename is refused while an interrupted import
+still holds a retry offset into the file.
 
 Returns the number, the new title and booleans only; never a path. No FastAPI import.
 """
@@ -180,19 +181,22 @@ def _rename_locked(drama_id: int, number: int, new_title: str) -> dict:
     # hand-edited one is left alone, since a rewrite would lose the edits.
     narration_is_copy = os.path.isfile(narration) and filecmp.cmp(raw, narration, shallow=False)
 
-    # The line goes first: it is the one step that can fail on its own, and nothing else
-    # has changed yet if it does. It is put back if the file swap fails.
-    lines = db.load_lines(drama_id)
-    mapped = novel_line_chapters_service.starts_from_manifest(
-        drama_id, [novel_line_chapters_service.norm(r.get("zh")) for r in lines])
-    title_pos = next((pos for n, _t, pos in mapped if n == number), None)
-    line_updated = (title_pos is not None
-                    and _set_line_title(drama_id, title_pos, lines, old_line, new_title))
-
+    # The renamed files are written to temps before the line changes, so a failure there
+    # (disk full, or the text changing underneath) leaves the line and the files as they were.
     tmp_raw, tmp_man = _write_renamed(raw, folder, size, chapters, number, first, old_line,
                                       new_title, drama_id)
+    title_pos = None
+    line_updated = False
     raw_swapped = False
     try:
+        # The line goes before the swap: nothing the reader sees has changed yet if its save
+        # fails, and it is put back if the swap fails.
+        lines = db.load_lines(drama_id)
+        mapped = novel_line_chapters_service.starts_from_manifest(
+            drama_id, [novel_line_chapters_service.norm(r.get("zh")) for r in lines])
+        title_pos = next((pos for n, _t, pos in mapped if n == number), None)
+        line_updated = (title_pos is not None
+                        and _set_line_title(drama_id, title_pos, lines, old_line, new_title))
         for path in (raw, manifest.manifest_path(drama_id)):
             shutil.copyfile(path, path + BACKUP_SUFFIX)
         _swap_in(tmp_raw, raw)

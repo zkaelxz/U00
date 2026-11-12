@@ -239,7 +239,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       </div>
       </div>
       <Sheet open={phone && moreOpen} title="Title actions" hideTitle onClose={() => setMoreOpen(false)}>
-        <div onClick={() => setMoreOpen(false)}>
+        {/* Open folder keeps the sheet open: closing it unmounts the button and drops the path it shows when the PC can't open the folder. */}
+        <div onClick={(e) => { if (!(e.target as Element).closest('.ws-folder, .open-folder-notice')) setMoreOpen(false) }}>
           {twoViews && <TitleViewSwitch view={view} onChange={chooseView} />}
           {actions}
         </div>

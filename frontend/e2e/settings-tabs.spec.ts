@@ -113,6 +113,15 @@ test('a search with no hits says so', async ({ page }) => {
   await expect(page.getByText('No settings match')).toBeVisible()
 })
 
+test('a search for setup kept on Diagnostics links there', async ({ page }) => {
+  await page.goto('/#/settings')
+  await page.getByRole('searchbox', { name: 'Search settings' }).fill('loaded models')
+  const others = page.getByRole('navigation', { name: 'On other pages' })
+  await others.getByRole('link', { name: 'Diagnostics: Loaded models' }).click()
+  await expect(page).toHaveURL(/#\/diagnostics\?card=loaded-models$/)
+  await expect(page.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
+})
+
 test('deep links land on the Performance and advanced tab with the card open', async ({ page }) => {
   await page.goto('/#/settings?section=developer-mode')
   await expect(tab(page, 'Performance and advanced')).toHaveAttribute('aria-selected', 'true')
