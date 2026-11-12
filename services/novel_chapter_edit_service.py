@@ -88,6 +88,43 @@ def _set_line_title(drama_id: int, pos: int, lines: list, old: str, title: str) 
     return True
 
 
+def _write_renamed(raw: str, folder: str, size: int, chapters: list, number: int, first: bytes,
+                   old_line: str, new_title: str, drama_id: int):
+    """Writes the renamed raw file and its manifest to temp files (nothing is swapped in
+    yet) and returns (raw temp, manifest temp). The temps are removed if writing fails."""
+    block = chapters[number - 1]
+    new_first = new_title.encode("utf-8")
+    delta = len(new_first) - len(first)
+    fd, tmp_raw = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=folder)
+    fd2, tmp_man = tempfile.mkstemp(prefix=".chapters_", suffix=".part", dir=folder)
+    os.close(fd2)
+    try:
+        with open(raw, "rb") as src, os.fdopen(fd, "wb") as out:
+            _copy_range(src, out, 0, block["start"])
+            out.write(new_first)
+            _copy_range(src, out, block["start"] + len(first), size - block["start"] - len(first))
+            out.flush()
+            os.fsync(out.fileno())
+        rows = []
+        for n, c in enumerate(chapters, 1):
+            row = dict(c)
+            if n == number:
+                row["title"] = new_title[:manifest._MAX_TITLE]
+                row["length"] += delta
+                row["chars"] += len(new_title) - len(old_line)
+            elif n > number:
+                row["start"] += delta
+            rows.append(row)
+        with open(tmp_man, "w", encoding="utf-8") as f:
+            f.write(manifest.serialise(size + delta, rows))
+    except BaseException:
+        for tmp in (tmp_raw, tmp_man):
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        raise
+    return tmp_raw, tmp_man
+
+
 def _rename_locked(drama_id: int, number: int, new_title: str) -> dict:
     found = manifest.safe_file(drama_id, manifest.RAW_NOVEL_FILENAME)
     known = manifest.load(drama_id)
@@ -135,31 +172,10 @@ def _rename_locked(drama_id: int, number: int, new_title: str) -> dict:
     line_updated = (title_pos is not None
                     and _set_line_title(drama_id, title_pos, lines, old_line, new_title))
 
-    new_first = new_title.encode("utf-8")
-    delta = len(new_first) - len(first)
-    fd, tmp_raw = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=folder)
-    fd2, tmp_man = tempfile.mkstemp(prefix=".chapters_", suffix=".part", dir=folder)
-    os.close(fd2)
+    tmp_raw, tmp_man = _write_renamed(raw, folder, size, chapters, number, first, old_line,
+                                      new_title, drama_id)
     raw_swapped = False
     try:
-        with open(raw, "rb") as src, os.fdopen(fd, "wb") as out:
-            _copy_range(src, out, 0, block["start"])
-            out.write(new_first)
-            _copy_range(src, out, block["start"] + len(first), size - block["start"] - len(first))
-            out.flush()
-            os.fsync(out.fileno())
-        rows = []
-        for n, c in enumerate(chapters, 1):
-            row = dict(c)
-            if n == number:
-                row["title"] = new_title[:manifest._MAX_TITLE]
-                row["length"] += delta
-                row["chars"] += len(new_title) - len(old_line)
-            elif n > number:
-                row["start"] += delta
-            rows.append(row)
-        with open(tmp_man, "w", encoding="utf-8") as f:
-            f.write(manifest.serialise(size + delta, rows))
         for path in (raw, manifest.manifest_path(drama_id)):
             shutil.copyfile(path, path + BACKUP_SUFFIX)
         _swap_in(tmp_raw, raw)
