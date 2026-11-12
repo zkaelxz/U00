@@ -609,3 +609,15 @@ def test_bulk_series_refuses_a_members_private_title_for_an_admin_away_from_the_
     assert r["updated"] == 1
     assert db.get_drama(private)["series_id"] is None and db.get_drama(private)["is_private"] == 1
     assert db.get_drama(shared)["series_id"] == sid
+
+
+def test_bulk_series_with_every_title_refused_creates_no_new_series(people):
+    from services import library_admin_service as las
+    away = _p(people["admin"]["user_id"], admin=True, override=False)
+    own.set_share_by_default(away, True)   # the pre-check passes; only the edit check refuses
+    private = db.create_drama(title_zh="p", owner_user_id=people["a_id"], is_private=1)
+
+    r = las.bulk_set_series([private], principal=away, new_series_name="Brand New")
+
+    assert [x.get("error") for x in r["results"]] == ["not_allowed"]
+    assert db.get_series_id_by_name("Brand New") is None

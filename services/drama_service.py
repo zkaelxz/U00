@@ -342,6 +342,9 @@ def _move_series(principal, drama_id, series_id, new_series_name):
     """Applies a series change; returns the series the drama moved into, or
     None when it stayed put or left its series."""
     if new_series_name is not None:   # first: a refused move writes nothing
+        # Checked before the series exists: assign_drama_series refuses later,
+        # which would leave a freshly named series empty.
+        ownership_service.require_editable(principal, "drama", drama_id)
         series_id = ownership_service.get_or_create_series_for(principal, new_series_name)
     if series_id == 0:
         ownership_service.unassign_drama_series(principal, drama_id)
