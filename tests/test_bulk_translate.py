@@ -1157,6 +1157,18 @@ class TestFinishTranslationRunEpisodeSummary:
 
         assert engine.call_count == 1
 
+    def test_a_hosted_ollama_summary_is_held_to_the_monthly_cap(self, isolated_db):
+        did, lines = self._translated_drama(isolated_db)
+        isolated_db.log_usage(did, "claude", "m", "translate", estimated_cost_usd=9.0)
+        engine = _FakeSummaryEngine()
+        engine.model = "gemma4:31b-cloud"
+
+        translation_finish.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine,
+                                  summary_engine_choice="ollama", summary_monthly_cap_usd=5.0)
+
+        assert engine.call_count == 0
+
     def test_no_summary_engine_skips_generation_entirely(self, isolated_db):
         """summary_engine=None (its default) -- e.g. no engine could be
         built -- must never fail or alter the translation run itself."""
