@@ -33,7 +33,7 @@ const AUTO_TITLE_DEFAULTS = { create: true, fill: true, series: true };
 
 async function settings() {
   const stored = await chrome.storage.local.get(
-    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle", "typeset"]);
+    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle", "typeset", "screenshot"]);
   return {
     autoTitle: { ...AUTO_TITLE_DEFAULTS, ...(stored.autoTitle || {}) },
     token: stored.token || "",
@@ -42,6 +42,8 @@ async function settings() {
     overlay: stored.overlay !== false,
     // Off by default: clean-and-typeset costs seconds per page, so a person turns it on.
     typeset: stored.typeset === true,
+    // Off by default: a screenshot is only for pages the browser will not let the script read.
+    screenshot: stored.screenshot === true,
     textDirection: stored.textDirection || { source: "zh", target: "en" },
   };
 }
@@ -191,6 +193,25 @@ async function setAutoTitle({ options }) {
 async function setTypeset({ on }) {
   await chrome.storage.local.set({ typeset: on === true });
   return { ok: true, data: { typeset: on === true } };
+}
+
+async function setScreenshot({ on }) {
+  await chrome.storage.local.set({ screenshot: on === true });
+  return { ok: true, data: { screenshot: on === true } };
+}
+
+// A picture of the visible tab for the page that asked. It needs the switch on and the tab's
+// activeTab grant (the popup click); the answer is the PNG as base64, never a URL.
+async function captureTab(sender) {
+  if (!(await settings()).screenshot) return { ok: false, code: "OFF", error: "screenshots are off" };
+  const tab = sender && sender.tab;
+  if (!tab) return { ok: false, error: "no tab to take a picture of" };
+  try {
+    const url = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+    return { ok: true, data: { data: String(url).split(",")[1] || "" } };
+  } catch (e) {
+    return { ok: false, error: "the browser would not take a picture of the tab; click the extension icon on this page first" };
+  }
 }
 
 async function saveNovelText({ dramaId, heading, text, source, url }) {
@@ -643,6 +664,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "abortSends":
           respond(abortSends());
+          break;
+        case "captureTab":
+          respond(await captureTab(sender));
+          break;
+        case "setScreenshot":
+          respond(await setScreenshot(message));
           break;
         case "setTypeset":
           respond(await setTypeset(message));
