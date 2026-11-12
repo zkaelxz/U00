@@ -122,12 +122,6 @@ Every feature below is in the code today. The [User guide](docs/user-guide.md) h
 - **PC profiles**: a PIN-protected Owner and a Guest that hides private titles.
 - **Private by default**: your files and keys stay on your machine except for the direct call to the engine you chose; keys are never shown back.
 
-### Coming soon (open draft pull requests, not yet merged)
-- Open folder buttons on the simple title pages, with a copyable path for the Windows service.
-- An option to letter comic balloons in the original lettering's colour.
-- Scanlate progress counted page by page while the chapter is read first.
-- Extension imports filed under their chapter, and a new title given an English name with one small AI call.
-
 ## Install
 
 ### Windows installer (recommended)
