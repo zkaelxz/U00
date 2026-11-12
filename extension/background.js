@@ -480,6 +480,122 @@ async function fetchImage({ url }, sender) {
   }
 }
 
+// -- carrying on chapter after chapter ---------------------------------------
+// One chapter at a time in the tab: capture it, follow the site's own next-chapter link, repeat.
+// It runs here because the page's script is replaced at every navigation and the popup may close.
+// Free chapters only: a sign-in or purchase wall ends the run, nothing tries to get past it.
+const SERIES_MAX_CHAPTERS = 50;
+const SERIES_LOAD_TIMEOUT_MS = 30000;
+const SERIES_SETTLE_MS = 1500;
+const SERIES_STOPS = {
+  limit: "reached the chapter limit",
+  end: "no next-chapter link on the last chapter",
+  gated: "reached a sign-in or purchase page",
+  repeat: "the next link led back to a chapter already done",
+  failed: "a chapter failed",
+  cancelled: "cancelled",
+};
+let series = null;
+let lastSeriesLine = "";
+
+function seriesSay(text) {
+  if (series) series.text = text;
+  chrome.runtime.sendMessage({ type: "seriesProgress", text }).catch(() => {});
+}
+
+async function tabAsk(tabId, message) {
+  try {
+    return (await chrome.tabs.sendMessage(tabId, message)) || { ok: false, error: "The page did not answer." };
+  } catch (e) {
+    return { ok: false, error: `The page could not be reached (${e.message}).` };
+  }
+}
+
+async function goTo(tabId, url) {
+  // The listener is added before the navigation so a fast load cannot be missed.
+  const loaded = new Promise((resolve) => {
+    const done = () => { chrome.tabs.onUpdated.removeListener(on); clearTimeout(timer); resolve(); };
+    const on = (id, info) => { if (id === tabId && info.status === "complete") done(); };
+    const timer = setTimeout(done, SERIES_LOAD_TIMEOUT_MS);
+    chrome.tabs.onUpdated.addListener(on);
+  });
+  await chrome.tabs.update(tabId, { url });
+  await loaded;
+  await new Promise((r) => setTimeout(r, SERIES_SETTLE_MS));
+}
+
+function seriesLine(done, stop) {
+  const count = (status) => done.filter((c) => c.status === status).length;
+  const named = (status) => done.filter((c) => c.status === status).slice(0, 3)
+    .map((c) => `${c.name || `chapter ${c.number}`} (${c.reason})`).join(", ");
+  const parts = [`Chapters: saved ${count("saved")}, skipped ${count("skipped")}, failed ${count("failed")}`];
+  if (count("skipped")) parts.push(`skipped: ${named("skipped")}`);
+  if (count("failed")) parts.push(`failed: ${named("failed")}`);
+  return `${parts.join("; ")}. Stopped: ${SERIES_STOPS[stop] || stop}.`;
+}
+
+async function chapterOutcome(tabId, kind, { dramaId, store }) {
+  if (kind === "novel") {
+    const r = await tabAsk(tabId, { type: "saveNovelText", dramaId });
+    if (!r.ok) return { status: "failed", reason: r.error || "no text saved" };
+    return r.data.saved ? { status: "saved" } : { status: "skipped", reason: "already saved" };
+  }
+  const r = await tabAsk(tabId, { type: "captureChapter", dramaId, store, fromHere: false });
+  if (!r.ok) return { status: "failed", reason: r.error || "capture failed" };
+  if (r.data.reason === "cancelled") return { status: "cancelled" };
+  if (r.data.reason === "error") return { status: "failed", reason: r.data.message };
+  return (r.data.stored || r.data.translated) ? { status: "saved" }
+    : { status: "skipped", reason: "no pages found" };
+}
+
+async function runSeries({ tabId, kind, dramaId, store, limit }) {
+  if (series) return { ok: false, error: "A chapter run is already going." };
+  if (!Number.isInteger(tabId) || !["novel", "comic"].includes(kind)) {
+    return { ok: false, error: "Open the chapter's tab first." };
+  }
+  const max = Math.min(Math.max(Number(limit) || 1, 1), SERIES_MAX_CHAPTERS);
+  series = { tabId, cancelled: false, text: "Starting…" };
+  const seen = new Set();
+  const done = [];
+  let stop = "limit";
+  try {
+    for (let number = 1; number <= max; number += 1) {
+      if (series.cancelled) { stop = "cancelled"; break; }
+      await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+      const here = await tabAsk(tabId, { type: "nextChapter" });
+      if (!here.ok) { done.push({ number, status: "failed", reason: here.error }); stop = "failed"; break; }
+      if (seen.has(here.data.here)) { stop = "repeat"; break; }
+      seen.add(here.data.here);
+      if (here.data.gated) { stop = "gated"; break; }
+      seriesSay(`Chapter ${number} of up to ${max}…`);
+      const outcome = await chapterOutcome(tabId, kind, { dramaId, store });
+      done.push({ number, name: here.data.heading, ...outcome });
+      if (outcome.status === "cancelled" || series.cancelled) { stop = "cancelled"; break; }
+      if (outcome.status === "failed") { stop = "failed"; break; }
+      if (number === max) break;
+      const after = await tabAsk(tabId, { type: "nextChapter" });
+      if (!after.ok || !after.data.url) { stop = "end"; break; }
+      await goTo(tabId, after.data.url);
+    }
+  } catch (e) {
+    stop = "failed";
+    done.push({ number: done.length + 1, status: "failed", reason: e.message });
+  } finally {
+    series = null;
+  }
+  lastSeriesLine = seriesLine(done, stop);
+  chrome.runtime.sendMessage({ type: "seriesDone", text: lastSeriesLine, failed: stop === "failed" }).catch(() => {});
+  return { ok: true, data: { text: lastSeriesLine, stop, chapters: done } };
+}
+
+async function cancelSeries() {
+  if (!series) return { ok: true, data: { cancelled: false } };
+  series.cancelled = true;
+  abortSends();
+  await tabAsk(series.tabId, { type: "cancelCapture" });
+  return { ok: true, data: { cancelled: true } };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     try {
@@ -507,6 +623,23 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "resolveTitle":
           respond(await resolveTitle(message));
+          break;
+        case "startSeries": {
+          // Answered at once: the run outlasts any message port, and ends with seriesDone.
+          const wasRunning = !!series;
+          const running = runSeries(message);
+          respond(!wasRunning && series ? { ok: true, data: { started: true } } : await running);
+          break;
+        }
+        case "cancelSeries":
+          respond(await cancelSeries());
+          break;
+        case "seriesStatus":
+          respond({ ok: true, data: { running: !!series, text: series ? series.text : "", last: lastSeriesLine } });
+          break;
+        case "seriesProgress":
+        case "seriesDone":
+          respond({ ok: true });
           break;
         case "abortSends":
           respond(abortSends());

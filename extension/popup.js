@@ -20,6 +20,9 @@ const els = {
   translateText: document.getElementById("translateText"),
   novelSection: document.getElementById("novelSection"),
   saveNovel: document.getElementById("saveNovel"),
+  continueNovel: document.getElementById("continueNovel"),
+  continueComic: document.getElementById("continueComic"),
+  seriesCount: document.getElementById("seriesCount"),
   dramaTitle: document.getElementById("dramaTitle"),
   typeset: document.getElementById("typeset"),
   progress: document.getElementById("progress"),
@@ -487,6 +490,8 @@ function showCapturing(running) {
   els.cancelCapture.hidden = !running;
   els.captureChapter.disabled = running;
   els.captureFromHere.disabled = running;
+  els.continueComic.disabled = running;
+  els.continueNovel.disabled = running;
   // The page refuses a plain translate during a capture; disabling the buttons says why up front.
   els.translate.disabled = running;
   els.translateAll.disabled = running;
@@ -550,8 +555,57 @@ async function startCapture(fromHere) {
   }
 }
 
+// Carries on chapter after chapter in the active tab. The run lives in the service worker, so it
+// goes on if this popup closes; its closing line arrives as seriesDone, or is read back on reopening.
+async function runContinue(kind) {
+  if (pageRunInFlight || captureInFlight) return;
+  const tab = await activeTab();
+  if (!tab || !tab.id) return say("No active tab.", true);
+  let dramaId = els.drama.value ? Number(els.drama.value) : null;
+  if (kind === "novel" && dramaId && (dramaMedia.get(els.drama.value) || "").toLowerCase() !== "novel") {
+    return say("Pick a novel title to save the text into.", true);
+  }
+  if (!dramaId && (kind === "novel" || els.store.checked)) {
+    const made = await autoTitle(tab, kind);
+    if (!made) return;
+    dramaId = made.dramaId;
+  }
+  const limit = Math.min(Math.max(Number(els.seriesCount.value) || 1, 1), 50);
+  showCapturing(true);
+  say("Starting the first chapter…");
+  try {
+    await ensureContentScript(tab.id);
+    const result = await chrome.runtime.sendMessage({
+      type: "startSeries", tabId: tab.id, kind, dramaId, store: els.store.checked, limit });
+    if (!result || !result.ok) {
+      showCapturing(false);
+      return say((result && result.error) || "That didn't work.", true);
+    }
+  } catch (e) {
+    showCapturing(false);
+    say(`Couldn't run on this page (${e.message}).`, true);
+  }
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message) return;
+  if (message.type === "seriesProgress") say(message.text);
+  if (message.type === "seriesDone") {
+    showCapturing(false);
+    say(message.text, !!message.failed);
+  }
+});
+
 // A popup reopened mid-capture picks the run back up.
 async function syncCaptureUi() {
+  try {
+    const series = await chrome.runtime.sendMessage({ type: "seriesStatus" });
+    if (series && series.ok && series.data.running) {
+      showCapturing(true);
+      say(series.data.text);
+      return;
+    }
+  } catch (e) { /* worker not reachable */ }
   try {
     const tab = await activeTab();
     const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
@@ -654,6 +708,7 @@ els.captureFromHere.addEventListener("click", () => runCapture(true));
 els.cancelCapture.addEventListener("click", async () => {
   const tab = await activeTab();
   try {
+    await chrome.runtime.sendMessage({ type: "cancelSeries" });
     await chrome.tabs.sendMessage(tab.id, { type: "cancelCapture" });
     say("Cancelling…");
   } catch (e) {
@@ -677,6 +732,8 @@ els.retryMissed.addEventListener("click", async () => {
 });
 els.translateText.addEventListener("click", runText);
 els.saveNovel.addEventListener("click", runSaveNovel);
+els.continueNovel.addEventListener("click", () => runContinue("novel"));
+els.continueComic.addEventListener("click", () => runContinue("comic"));
 els.toggle.addEventListener("click", async () => {
   const tab = await activeTab();
   if (!tab || !tab.id) return;

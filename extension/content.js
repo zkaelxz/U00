@@ -769,6 +769,56 @@
              chapterLinks: chapterLinks() };
   }
 
+  // The site's own "next chapter" link, for a run that carries on chapter after chapter. Only a
+  // link on the same site counts, never the page itself, and the match is on the link's own short
+  // label so a body-text sentence containing "next" is not followed.
+  // Chapter words only. "Next page", 下一页/下一頁, a bare 다음 or 次へ often move to the next piece of
+  // the same chapter on novel sites, which would save every piece as a chapter of its own.
+  const NEXT_LABEL = /^(?:next(?:\s+(?:chapter|episode|ch\.?|ep\.?))?|다음\s*(?:화|회|편|회차)|次(?:の話|話|章)|下一[章话話回]|下[章话話回])$/i;
+
+  function nextChapterUrl() {
+    const here = location.origin + location.pathname + location.search;
+    const usable = (href) => {
+      try {
+        const url = new URL(href, location.href);
+        if (!/^https?:$/.test(url.protocol) || url.host !== location.host) return "";
+        return url.origin + url.pathname + url.search === here ? "" : url.href;
+      } catch (e) {
+        return "";
+      }
+    };
+    for (const el of document.querySelectorAll('a[rel~="next"], link[rel~="next"]')) {
+      const found = usable(el.getAttribute("href"));
+      if (found) return found;
+    }
+    for (const a of document.querySelectorAll("a[href]")) {
+      const label = ((a.textContent || "") + " " + (a.getAttribute("aria-label") || "") + " " +
+                     (a.getAttribute("title") || "")).replace(/[»›>→▶▷\s]+/g, " ").trim();
+      const text = (a.textContent || "").replace(/[»›>→▶▷]+/g, "").replace(/\s+/g, " ").trim();
+      if (!(NEXT_LABEL.test(text) || NEXT_LABEL.test(label))) continue;
+      const found = usable(a.href);
+      if (found) return found;
+    }
+    return "";
+  }
+
+  // A sign-in or purchase wall instead of a chapter: a visible password field, or no pages and no
+  // prose with a short sign-in / purchase notice. A run that carries on stops here rather than
+  // looking for a way past it.
+  const GATE_NOTICE = /sign\s*in|log\s*in|login required|로그인|登录|登入|ログイン|購入|구매|유료|付费|需要购买|unlock|purchase/i;
+  function looksGated() {
+    for (const input of document.querySelectorAll('input[type="password"]')) {
+      if (isVisible(input)) return true;
+    }
+    if (candidateElements().length || isTextPage()) return false;
+    for (const el of document.querySelectorAll("a, button, h1, h2, h3, p, span, div")) {
+      if (el.childElementCount) continue;
+      const text = (el.textContent || "").trim();
+      if (text && text.length <= 60 && GATE_NOTICE.test(text) && isVisible(el)) return true;
+    }
+    return false;
+  }
+
   // Chapter links on the page (a series page's list, or a chapter page's previous/next),
   // for the app's chapter list on sites it has no adapter for. Same site only; the app
   // keeps just the address without its query.
@@ -1858,6 +1908,10 @@
           case "saveNovelText":
             respond(await saveNovelText(message));
             break;
+          case "nextChapter":
+            respond({ ok: true, data: { url: nextChapterUrl(), here: location.origin + location.pathname + location.search,
+                                        heading: chapterHeading(), gated: looksGated() } });
+            break;
           case "pageFacts":
             respond({ ok: true, data: pageFacts() });
             break;
@@ -1904,5 +1958,5 @@
                      isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, keepWaiting, unreadableLog, placeBox, regionsByKey, requestCancel,
-                     completenessLine };
+                     completenessLine, nextChapterUrl, looksGated };
 })();

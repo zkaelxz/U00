@@ -412,7 +412,7 @@ async function background(scenario) {
 // A novel reader: paragraphs under one container, an optional selection, no page images
 // unless given. Returns the content script's API and what it asked the worker to send.
 function loadNovelPage({ paragraphs = [], selection = "", images = [], heading = "第三章 夜雨", og = "",
-  tabTitle = null, lang = "" }) {
+  tabTitle = null, lang = "", links = [], relNext = [], passwords = [], notices = [] }) {
   const sent = [];
   const box = { tagName: "DIV", parentElement: null };
   const ps = paragraphs.map((text, i) => ({
@@ -421,10 +421,20 @@ function loadNovelPage({ paragraphs = [], selection = "", images = [], heading =
     compareDocumentPosition(other) { return other.index > this.index ? 4 : 2; },
   }));
   const h1 = { textContent: `  ${heading}  ` };
+  const attrs = (item) => ({ childElementCount: 0, href: item.href, textContent: item.text || "",
+    getAttribute: (name) => (name === "href" ? item.href : name === "aria-label" ? item.label || "" : ""),
+    getBoundingClientRect: () => ({ top: 0, left: 0, width: 10, height: 10 }) });
   const document = {
     title: tabTitle === null ? `${heading}_书名_小说网` : tabTitle, body: { innerText: "", appendChild() {} },
     documentElement: { appendChild() {}, lang }, images, head: { appendChild() {} },
-    querySelectorAll: (sel) => (sel === "p" ? ps : []),
+    querySelectorAll: (sel) => {
+      if (sel === "p") return ps;
+      if (sel === 'a[rel~="next"], link[rel~="next"]') return relNext.map(attrs);
+      if (sel === "a[href]") return links.map(attrs);
+      if (sel === 'input[type="password"]') return passwords.map(attrs);
+      if (sel.startsWith("a, button")) return notices.map(attrs);
+      return [];
+    },
     querySelector: (sel) => (sel === "h1" ? (heading ? h1 : null)
       : sel === 'meta[property="og:title"]' && og ? { content: og } : null),
     createElement: () => ({ style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
@@ -437,7 +447,8 @@ function loadNovelPage({ paragraphs = [], selection = "", images = [], heading =
     getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1" }),
     MutationObserver: class { observe() {} disconnect() {} },
     ResizeObserver: class { observe() {} disconnect() {} },
-    location: { href: "https://novel.example/ch/3", host: "novel.example" },
+    location: { href: "https://novel.example/ch/3", host: "novel.example", origin: "https://novel.example",
+                pathname: "/ch/3", search: "" },
     chrome: { runtime: { onMessage: { addListener() {} },
       sendMessage: async (message) => { sent.push(message); return { ok: true, data: { saved: true } }; } } },
   };
@@ -506,6 +517,33 @@ async function novel(scenario) {
         return calls[0];
       };
       return { public: await post("https://novel.example/ch/3"), private: await post("http://192.168.1.5/ch/3") };
+    }
+    case "next_chapter": {
+      const url = (opts) => loadNovelPage({ paragraphs: [], ...opts }).api.nextChapterUrl();
+      const own = { href: "https://novel.example/ch/3", text: "Next" };
+      return {
+        rel: url({ relNext: [{ href: "/ch/4" }] }),
+        text: url({ links: [{ href: "/ch/9", text: "Table of contents" }, { href: "/ch/4", text: "Next chapter »" }] }),
+        korean: url({ links: [{ href: "/ch/4", text: "다음화" }] }),
+        japanese: url({ links: [{ href: "/ch/4", text: "次の話" }] }),
+        chinese: url({ links: [{ href: "/ch/4", text: "下一章" }] }),
+        label: url({ links: [{ href: "/ch/4", text: "", label: "Next" }] }),
+        sentence: url({ links: [{ href: "/ch/4", text: "Read the next chapter of our newsletter for more" }] }),
+        nextPage: url({ links: [{ href: "/ch/3_2", text: "下一页" }, { href: "/ch/3_2", text: "下一頁" }, { href: "/ch/3_2", text: "Next page" }, { href: "/ch/3_2", text: "다음" }, { href: "/ch/3_2", text: "次へ" }] }),
+        otherSite: url({ links: [{ href: "https://elsewhere.example/ch/4", text: "Next" }] }),
+        samePage: url({ links: [own] }),
+        none: url({}),
+      };
+    }
+    case "gated": {
+      const gated = (opts) => loadNovelPage({ paragraphs: [], ...opts }).api.looksGated();
+      return {
+        password: gated({ passwords: [{}] }),
+        notice: gated({ notices: [{ text: "로그인이 필요합니다" }] }),
+        purchase: gated({ notices: [{ text: "Purchase this chapter to keep reading" }] }),
+        plain: gated({}),
+        prose: loadNovelPage({ paragraphs: ["雨下了一整夜。".repeat(60)], notices: [{ text: "Sign in" }] }).api.looksGated(),
+      };
     }
     case "page_facts": {
       const facts = (opts) => loadNovelPage({ paragraphs: [], ...opts }).api.pageFacts();
@@ -584,6 +622,91 @@ async function novel(scenario) {
       const aborted = await h.ask({ type: "abortSends" });
       const reply = await sending;
       return { aborted, reply };
+    }
+    case "worker_series": {
+      // A site of numbered chapters; `pages` says what each chapter's page does when asked.
+      const run = async ({ chapters, limit, kind = "novel", saved = new Set(), gatedAt = 0, brokenAt = 0, loop = false }) => {
+        let at = 1;
+        const calls = [];
+        const updated = [];
+        const messages = [];
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t" },
+          sandboxExtra: { setTimeout: (fn) => setTimeout(fn, 0) },
+          chromeExtra: {
+            runtime: { sendMessage: async (m) => { messages.push(m); } },
+            scripting: { executeScript: async () => { calls.push(["inject", at]); } },
+            tabs: {
+              onUpdated: { addListener: (fn) => updated.push(fn), removeListener: (fn) => updated.splice(updated.indexOf(fn), 1) },
+              update: async (tabId, { url }) => {
+                at = loop ? 1 : Number(url.split("/").pop());
+                calls.push(["goto", at]);
+                for (const fn of [...updated]) fn(tabId, { status: "complete" });
+              },
+              sendMessage: async (tabId, m) => {
+                calls.push([m.type, at]);
+                if (m.type === "nextChapter") {
+                  return { ok: true, data: { url: at < chapters ? `https://novel.example/ch/${at + 1}` : "",
+                    here: `https://novel.example/ch/${at}`, heading: `Chapter ${at}`, gated: at === gatedAt } };
+                }
+                if (m.type === "saveNovelText") {
+                  if (at === brokenAt) return { ok: false, error: "No chapter text found here." };
+                  const fresh = !saved.has(at); saved.add(at);
+                  return { ok: true, data: { saved: fresh } };
+                }
+                if (m.type === "captureChapter") return { ok: true, data: { stored: 12, translated: 12, reason: "end", message: "ok" } };
+                return { ok: true, data: {} };
+              },
+            },
+          },
+        });
+        const started = await h.ask({ type: "startSeries", tabId: 5, kind, dramaId: 4, store: true, limit });
+        // The run goes on after the answer; wait for its closing message.
+        for (let i = 0; i < 200 && !messages.some((m) => m.type === "seriesDone"); i += 1) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        return { started, done: messages.find((m) => m.type === "seriesDone"), calls };
+      };
+      const cancelled = await (async () => {
+        let at = 1;
+        const messages = [];
+        let release;
+        const gate = new Promise((r) => { release = r; });
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t" },
+          sandboxExtra: { setTimeout: (fn) => setTimeout(fn, 0) },
+          chromeExtra: {
+            runtime: { sendMessage: async (m) => { messages.push(m); } },
+            scripting: { executeScript: async () => {} },
+            tabs: {
+              onUpdated: { addListener() {}, removeListener() {} }, update: async () => { at += 1; },
+              sendMessage: async (tabId, m) => {
+                if (m.type === "nextChapter") return { ok: true, data: { url: "https://novel.example/ch/9", here: `https://novel.example/ch/${at}`, heading: "h", gated: false } };
+                if (m.type === "saveNovelText") { await gate; return { ok: true, data: { saved: true } }; }
+                return { ok: true, data: {} };
+              },
+            },
+          },
+        });
+        await h.ask({ type: "startSeries", tabId: 5, kind: "novel", dramaId: 4, limit: 5 });
+        const second = await h.ask({ type: "startSeries", tabId: 5, kind: "novel", dramaId: 4, limit: 5 });
+        await h.ask({ type: "cancelSeries" });
+        release();
+        for (let i = 0; i < 200 && !messages.some((m) => m.type === "seriesDone"); i += 1) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        return { second, done: messages.find((m) => m.type === "seriesDone") };
+      })();
+      return {
+        three: await run({ chapters: 5, limit: 3 }),
+        end: await run({ chapters: 2, limit: 5 }),
+        duplicate: await run({ chapters: 3, limit: 3, saved: new Set([2]) }),
+        gated: await run({ chapters: 5, limit: 5, gatedAt: 3 }),
+        broken: await run({ chapters: 5, limit: 5, brokenAt: 2 }),
+        loop: await run({ chapters: 5, limit: 5, loop: true }),
+        comic: await run({ chapters: 2, limit: 2, kind: "comic" }),
+        cancelled,
+      };
     }
     case "worker_get_settings": {
       const h = loadBackground({ granted: () => true, stored: { token: "SECRET-TOKEN", serverUrl: "https://baihe.example" } });
