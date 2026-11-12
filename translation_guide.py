@@ -398,8 +398,14 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
         "If a name appears to be MEANINGFUL (the characters spell out something thematically "
         "relevant, or it's a pun), say so in the reason -- that's worth a translation note "
         "even if the name itself stays pinyin.\n\n"
+        "Also include nicknames and slang, including an ordinary-looking word that is used "
+        "here in an unusual sense; skip generic vocabulary and descriptions. A spelling that "
+        "looks like a transcription variant of another term goes in that term's reason. "
+        "When you are inferring a term's meaning from context rather than knowing it, set "
+        '"unsure" to true instead of presenting the guess as settled.\n\n'
         'Return ONLY a JSON array: [{"term": "...", "suggested_translation": "...", '
-        '"category": "...", "policy": "...", "reason": "brief justification"}]. '
+        '"category": "...", "policy": "...", "reason": "brief justification", '
+        '"unsure": false}]. '
         f"No preamble, no markdown fences.{known_block}\n\nText:\n{sample}"
     )
 

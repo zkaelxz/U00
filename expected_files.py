@@ -60,6 +60,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "forced_align.py",
     "gpu_probe.py",
     "gpu_wait_message.py",
+    "glossary_candidates.py",
     "glossary_io.py",
     "glossary_phonetic.py",
     "hardsub_ocr.py",
