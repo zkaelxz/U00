@@ -101,10 +101,16 @@ def test_the_unsaved_page_s_temp_files_are_removed(token, fake_pipeline, drama, 
     import tempfile
 
     import scanlate_render
+
+    def ours():
+        # Only the prefixes page_server creates: other xdist workers make baihe_test_* dirs here.
+        root = tempfile.gettempdir()
+        return set(glob.glob(root + "/baihe_typeset_*") + glob.glob(root + "/baihe_page_*"))
+
     monkeypatch.setattr(scanlate_render, "process_page", lambda *a, **k: 1 / 0)
-    before = set(glob.glob(tempfile.gettempdir() + "/baihe_*"))
+    before = ours()
     _overlay_only(token, drama, typeset=True)
-    assert set(glob.glob(tempfile.gettempdir() + "/baihe_*")) == before
+    assert ours() == before
 
 
 def test_a_failed_render_keeps_the_page_and_its_text(token, fake_pipeline, drama, monkeypatch):
