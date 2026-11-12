@@ -18107,6 +18107,8 @@ export interface components {
         };
         /** DramaFolderOpened */
         DramaFolderOpened: {
+            /** Folder */
+            folder: string | null;
             /** Opened */
             opened: boolean;
         };
@@ -26145,6 +26147,8 @@ export interface components {
         ScanlateRenderRequest: {
             /** Page Id */
             page_id?: number | null;
+            /** Page Ids */
+            page_ids?: number[] | null;
         };
         /** ScanlateRunNotes */
         ScanlateRunNotes: {
@@ -26176,13 +26180,20 @@ export interface components {
             /** Engine */
             engine?: string | null;
             /**
+             * Keep Text
+             * @default false
+             */
+            keep_text?: boolean;
+            /**
              * Mode
              * @default missing
              * @enum {string}
              */
-            mode?: "missing" | "page" | "all";
+            mode?: "missing" | "page" | "pages" | "all";
             /** Page Id */
             page_id?: number | null;
+            /** Page Ids */
+            page_ids?: number[] | null;
             /** Read Ahead From */
             read_ahead_from?: number | null;
         };
@@ -27048,6 +27059,11 @@ export interface components {
              */
             scanlate_chapter_brief: boolean;
             /**
+             * Scanlate Match Text Color
+             * @default false
+             */
+            scanlate_match_text_color: boolean;
+            /**
              * Scanlate Page Image
              * @default true
              */
@@ -27331,6 +27347,8 @@ export interface components {
             retime_window_pad_seconds?: number | null;
             /** Scanlate Chapter Brief */
             scanlate_chapter_brief?: boolean | null;
+            /** Scanlate Match Text Color */
+            scanlate_match_text_color?: boolean | null;
             /** Scanlate Page Image */
             scanlate_page_image?: boolean | null;
             /** Scanlate Sfx Gloss */

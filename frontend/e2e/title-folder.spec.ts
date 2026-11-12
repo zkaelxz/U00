@@ -12,7 +12,7 @@ test('Open folder on the title page and in Library details reaches the real rout
   const r1 = await fromTitle
   expect(r1.request().method()).toBe('POST')
   expect(r1.status()).toBe(200)
-  expect(await r1.json()).toEqual({ opened: true })
+  expect(await r1.json()).toEqual({ opened: true, folder: null })
   await expect(page.getByRole('alert')).toHaveCount(0)
 
   await page.goto('/#/library')
@@ -29,4 +29,22 @@ test('from another device the title has no Open folder button', async ({ page })
   await expect(page.getByTestId('drama-title')).toHaveText('Signal')
   await expect(page.getByRole('link', { name: 'Read' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Open folder' })).toHaveCount(0)
+})
+
+test('under a background service Open folder shows the folder path to copy, in the Simple view too', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.route(/\/api\/dramas\/3\/folder\/open$/, (route) =>
+    route.fulfill({ json: { opened: false, folder: 'E:\\U00\\library\\dramas\\3' } }))
+  await page.goto('/#/drama/3')
+  await expect(page.getByTestId('drama-title')).toHaveText('Signal')
+  await page.getByRole('button', { name: 'Open folder' }).click()
+  await expect(page.getByLabel('Folder path')).toHaveValue('E:\\U00\\library\\dramas\\3')
+  await page.getByRole('button', { name: 'Copy path' }).click()
+  await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('E:\\U00\\library\\dramas\\3')
+
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+  await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Open folder' }).click()
+  await expect(page.getByLabel('Folder path')).toHaveValue('E:\\U00\\library\\dramas\\3')
 })

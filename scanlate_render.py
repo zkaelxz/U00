@@ -453,12 +453,43 @@ def chosen_color(box: dict):
     return None
 
 
-def _text_fill(pil_img, box: dict):
-    """The hand-set colour if any; else white lettering on a dark balloon,
+# Below this spread between the strongest and weakest channel the ink is grey: anti-aliased black
+# or white lettering reads slightly tinted and must stay plain black or white.
+_INK_MIN_CHROMA = 48
+_INK_MIN_PIXELS = 30
+_INK_MIN_DISTANCE = 90
+
+
+def sampled_ink_color(page_bgr, box: dict):
+    """The typical colour of the region's original lettering as RGB, or None when it is
+    plain black or white (or too little ink was found to say). Taken from the page before
+    the lettering is erased."""
+    h, w = page_bgr.shape[:2]
+    x, y = max(0, box["x"]), max(0, box["y"])
+    roi = page_bgr[y:min(h, y + box["h"]), x:min(w, x + box["w"])]
+    if roi.size == 0:
+        return None
+    # Ink is whatever differs strongly from the balloon's own colour, so a saturated red on a
+    # dark balloon counts although its channel average is not bright.
+    background = np.median(roi.reshape(-1, 3), axis=0)
+    ink = np.abs(roi.astype(int) - background.astype(int)).max(axis=2) > _INK_MIN_DISTANCE
+    if int(ink.sum()) < _INK_MIN_PIXELS:
+        return None
+    b, g, r = (int(v) for v in np.median(roi[ink], axis=0))
+    if max(r, g, b) - min(r, g, b) < _INK_MIN_CHROMA:
+        return None
+    return (r, g, b)
+
+
+def _text_fill(pil_img, box: dict, sampled=None):
+    """The hand-set colour if any, then the colour sampled from the original lettering
+    (when the person turned that on); else white lettering on a dark balloon,
     black otherwise."""
     chosen = chosen_color(box)
     if chosen is not None:
         return chosen
+    if sampled is not None:
+        return sampled
     x, y = max(0, box["x"]), max(0, box["y"])
     roi = np.asarray(pil_img.crop((x, y, x + box["w"], y + box["h"])).convert("L"))
     if roi.size and background_is_dark(roi):
@@ -467,7 +498,8 @@ def _text_fill(pil_img, box: dict):
 
 
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
-                  custom_fonts: dict | None = None, notes: list | None = None):
+                  custom_fonts: dict | None = None, notes: list | None = None,
+                  match_color: bool = False):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -499,6 +531,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
     atomically, so two renders of the same page can't collide. With a
     `notes` list, an ML inpaint that fell back to OpenCV is recorded there
     (once) and the render goes on with the OpenCV result instead of raising.
+    `match_color` letters a balloon in the colour of its original lettering when that was
+    a real colour (see sampled_ink_color); black and white lettering stays automatic.
     """
     import tempfile
 
@@ -528,6 +562,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
         caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
                           for b, s in zip(captions, caption_styles)]
+        # The ink is read before the erase below removes it.
+        inks = [sampled_ink_color(page, b) if match_color else None for b in to_render]
         _erase_site_stamps(page, bubbles)
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
@@ -544,7 +580,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
             scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
-        _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts)
+        _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks)
         for b in bubbles:
             if scanlate_sfx.is_glossed(b):
                 scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
@@ -557,7 +593,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
 
 
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
-                     font_path: str | None, custom_fonts: dict | None) -> None:
+                     font_path: str | None, custom_fonts: dict | None, inks: list) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
     then the real pass draws with sibling balloons held to a shared ratio."""
     masks = [(bubble_shape_mask(image_path, b, image=gray,
@@ -565,23 +601,23 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
               if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
              for b in to_render]
 
-    def draw(target, b, shape_mask, size, report=None):
+    def draw(target, b, shape_mask, size, ink, report=None):
         render_text_in_box(target, b, b["translated_text"], font_size=size,
                            font_path=font_path,
                            font_category=b.get("font_category") or "regular",
                            custom_fonts=custom_fonts, mask=shape_mask,
-                           fill=_text_fill(target, b), report=report)
+                           fill=_text_fill(target, b, ink), report=report)
 
     starts = [b.get("font_size", 18) for b in to_render]
     scratch = pil_img.copy()
     fitted = []
-    for b, m, start in zip(to_render, masks, starts):
+    for b, m, start, ink in zip(to_render, masks, starts, inks):
         rep = {}
-        draw(scratch, b, m, start, rep)
+        draw(scratch, b, m, start, ink, rep)
         fitted.append(rep.get("size", start))
     sizes = sibling_size_caps(list(zip(starts, fitted)))
-    for b, m, size in zip(to_render, masks, sizes):
-        draw(pil_img, b, m, size)
+    for b, m, size, ink in zip(to_render, masks, sizes, inks):
+        draw(pil_img, b, m, size, ink)
 
 
 def _erase_site_stamps(page, bubbles: list) -> None:
