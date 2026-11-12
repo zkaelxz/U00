@@ -170,8 +170,10 @@ class TestRestoreRoundTrip:
         assert res["counts"]["word_replacements"] == 2
         with contextlib.closing(_conn()) as c:
             sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (w["a"],)).fetchone()[0]
-            assert c.execute("SELECT COUNT(*) FROM word_replacements WHERE series_id = ?",
-                             (sid,)).fetchone()[0] == 2
+            kept = [r[0] for r in c.execute("SELECT find_text FROM word_replacements WHERE series_id = ? "
+                                            "ORDER BY id", (sid,))]
+        # Three were saved (the seed's "thee" and these two); the oldest two come back.
+        assert kept == ["thee", "one"]
 
     def test_full_round_trip_series_gone(self, isolated_db):
         w = _seed_world()
