@@ -96,6 +96,8 @@ def _write_novel(drama_id: int, text: str, mode: str) -> int:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, final)
     except BaseException:
         if os.path.exists(tmp):
@@ -609,6 +611,69 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     with media_upload_service.folder_write(drama_id):
         _check_idle(drama_id)
         return {"char_count": _write_novel(drama_id, text, mode)}
+
+
+MAX_RAW_BYTES = 8 * 1024 * 1024
+
+
+def _saved_chapters(drama_id: int) -> list:
+    """The saved chapters' cleaned texts, in order, cut at the manifest's boundaries. Read inside the
+    page lock, so no import is writing the file or the manifest."""
+    from sources import chapter_manifest as manifest   # imported late: sources imports this package's neighbours
+    found = manifest.safe_file(drama_id, RAW_NOVEL_FILENAME)
+    known = manifest.load(drama_id)
+    if found is None:
+        raise NotFoundError("No chapters have been imported for this title.")
+    if known is None or known["size"] != found[1].st_size or not known["chapters"]:
+        raise ConflictError("The saved chapters are not split, so new ones can't be told apart.")
+    if found[1].st_size > MAX_RAW_BYTES:
+        raise InvalidInputError("The imported chapters are too large.")
+    with open(found[0], "rb") as f:
+        data = f.read()
+    return [_clean(data[c["start"]:c["start"] + c["length"]].decode("utf-8", errors="replace"))
+            for c in known["chapters"]]
+
+
+def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None) -> dict:
+    """Appends the saved chapters that are not yet in the translation text to it, leaving what is
+    there alone. The translation text must be exactly the first K saved chapters (joined as the text
+    is written), so a cut paragraph, an edit, or a chapter the person removed makes it refuse instead
+    of guessing; from_chapter (1-based, the first chapter the caller imported) also refuses when K is
+    not from_chapter - 1, so a chapter removed on purpose is not put back."""
+    from sources import pipeline
+    ownership_service.require_drama(drama_id)
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
+        with pipeline._page_lock(drama_id):
+            chapters = _saved_chapters(drama_id)
+        current = _read_novel(drama_id).strip()
+        if not current:
+            raise ConflictError("This title has no translation text yet; use Copy saved raw chapters first.")
+        covered = _chapters_covered(chapters, current)
+        if covered is None:
+            raise ConflictError(
+                "The translation text is not a copy of the first saved chapters (it was pasted, edited or cut), "
+                "so the new chapters can't be added to it automatically. Add them in the Source stage.")
+        if from_chapter is not None and covered != from_chapter - 1:
+            raise ConflictError(
+                f"The translation text holds {covered} saved chapters, not the {from_chapter - 1} expected, so "
+                "the new chapters can't be told apart. Add them in the Source stage.")
+        tail = "\n\n".join(chapters[covered:]).strip()
+        if not tail:
+            return {"char_count": len(current), "added_chars": 0}
+        return {"char_count": _write_novel(drama_id, tail, "append"), "added_chars": len(tail)}
+
+
+def _chapters_covered(chapters: list, current: str):
+    """K when `current` is exactly the first K chapters joined by a blank line, else None."""
+    length = -2
+    for k, text in enumerate(chapters, 1):
+        length += len(text) + 2
+        if length == len(current) and "\n\n".join(chapters[:k]) == current:
+            return k
+        if length > len(current):
+            return None
+    return None
 
 
 def _job_id(drama_id: int) -> str:

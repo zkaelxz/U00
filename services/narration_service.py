@@ -85,7 +85,8 @@ def get_narration_config(drama_id: int) -> dict:
 
 
 def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
-                        model: Optional[str] = None, fresh: bool = False) -> dict:
+                        model: Optional[str] = None, fresh: bool = False,
+                        append_chars: Optional[int] = None) -> dict:
     """Starts the chunk-and-tag job; returns {"job_id"}. NotFoundError for
     an unknown drama, InvalidInputError for no novel text or an engine that
     cannot tag speakers, ConflictError if a run is already active.
@@ -95,7 +96,12 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
     A re-run over the same text, engine, model and known characters
     resumes after the batches an interrupted run already tagged;
-    fresh=True drops those and tags everything again."""
+    fresh=True drops those and tags everything again.
+
+    append_chars (adding chapters to a title that has lines): only the last
+    `append_chars` characters of the text, the ones just added, are cut and
+    tagged, and their lines are appended after the saved ones. The saved
+    lines, whatever was edited, merged or split in Review, are not touched."""
     ownership_service.require_drama(drama_id)
     engine_name = engine_name or DEFAULT_ENGINE
     if engine_name not in TAG_ENGINES:
@@ -104,13 +110,20 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     text = _read_novel(drama_id)
     if not text.strip():
         raise InvalidInputError("This title has no novel text attached yet.")
+    if append_chars is not None:
+        if not 1 <= append_chars <= len(text):
+            raise InvalidInputError("append_chars must be the length of the text that was just added.")
+        if not db.load_lines(drama_id):
+            raise InvalidInputError("This title has no lines to add to; run chunk & tag first.")
+        text = text[-append_chars:]
     api_key = _api_key(engine_name)
 
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
         gpu_touching=engine_local.ollama_touches_local_gpu(engine_name, model),
-        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh), line_fields=db.FULL_SYNC)
+        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh),
+        append=append_chars is not None, line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
     return {"job_id": job_id}
@@ -158,7 +171,7 @@ def _raise_if_cancelled(job_id):
         raise background_jobs.JobCancelled(job_id)
 
 
-def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False):
+def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False, append=False):
     job_timing_service.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
     chunks = novel_text.chunk_novel_text(text, MAX_CHUNK_CHARS)
@@ -170,7 +183,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     if not api_key:
         for ln in lines:
             ln.speaker = "Narrator"
-        _save_lines(job_id, drama_id, lines, notice=NO_KEY_NOTICE)
+        (_append_lines if append else _save_lines)(job_id, drama_id, lines, notice=NO_KEY_NOTICE)
         return
 
     job_timing_service.mark_stage(job_id, "Tag speakers")
@@ -201,7 +214,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
-    _save_lines(job_id, drama_id, lines)
+    (_append_lines if append else _save_lines)(job_id, drama_id, lines)
 
 
 def _carry_over_existing(lines, existing):
@@ -223,6 +236,28 @@ def _carry_over_existing(lines, existing):
         ln.flag, ln.flag_note = old.flag, old.flag_note
         if old.speaker_manual:
             ln.speaker, ln.speaker_manual = old.speaker, True
+
+
+def _append_lines(job_id, drama_id, lines, notice=None):
+    """Adds the new chunks after the saved lines, which are written back exactly as read, so edits
+    made in Review survive. Refuses (ConflictError) if the lines changed while the job ran."""
+    job_timing_service.mark_stage(job_id, "Save")
+    background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
+    background_jobs.cancel_line_jobs(drama_id)
+    existing = db.load_line_objects(drama_id)
+    first = max((ln.idx for ln in existing), default=-1) + 1
+    for n, ln in enumerate(lines):
+        ln.idx = first + n
+        ln.start, ln.end = float(ln.idx), float(ln.idx) + 1.0
+    for label in sorted({ln.speaker or "Narrator" for ln in lines}):
+        db.upsert_character(drama_id, label, character_name=label)
+    db.save_line_history_snapshot(drama_id, existing, "before adding chapters")
+    db.save_lines(drama_id, existing + lines, expect_unchanged=existing)
+    finish_tagging_checkpoint(drama_id)
+    result = {"line_count": len(existing) + len(lines), "added_lines": len(lines)}
+    if notice:
+        result["notice"] = notice
+    background_jobs.set_result(job_id, result)
 
 
 def _save_lines(job_id, drama_id, lines, notice=None):

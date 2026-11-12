@@ -12,6 +12,8 @@ __all__ = [
     "ReaderPageResponse",
     "NovelAttachTextRequest",
     "NovelAttachResult",
+    "NovelAddChaptersRequest",
+    "NovelChaptersAdded",
     "NovelAttachFromSourcesRequest",
     "NovelOcrResult",
     "NovelStatus",
@@ -71,6 +73,18 @@ class NovelAttachTextRequest(BaseModel):
     # so its refusal can say so, which a schema error cannot.
     text: str = Field(max_length=8_000_000)
     mode: str = Field(default="replace", max_length=10)
+
+
+class NovelAddChaptersRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # The first chapter number the caller just imported; the server refuses if the translation text
+    # does not hold exactly the chapters before it.
+    from_chapter: Optional[int] = Field(default=None, ge=1, le=100000)
+
+
+class NovelChaptersAdded(BaseModel):
+    char_count: int
+    added_chars: int
 
 
 class NovelAttachResult(BaseModel):
