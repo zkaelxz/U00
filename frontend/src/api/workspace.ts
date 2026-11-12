@@ -143,9 +143,10 @@ export const attachNovelEpub = (
 export const attachNovelFromSources = (id: number, mode: NovelMode, f?: Fetch) =>
   postJson<NovelAttachResult>(`/api/novel/dramas/${id}/attach-from-sources`, { mode }, f)
 
-// Appends only the chapters imported since the translation text was made; 409 when that text was edited or pasted.
-export const addChaptersFromSources = (id: number, f?: Fetch) =>
-  postJson<NovelChaptersAdded>(`/api/novel/dramas/${id}/add-chapters-from-sources`, {}, f)
+// Appends the saved chapters the translation text does not hold yet; 409 when it is not exactly the first saved chapters (edited, pasted, cut).
+export const addChaptersFromSources = (id: number, fromChapter?: number, f?: Fetch) =>
+  postJson<NovelChaptersAdded>(
+    `/api/novel/dramas/${id}/add-chapters-from-sources`, fromChapter ? { from_chapter: fromChapter } : {}, f)
 
 export const startNovelOcr = (
   id: number,

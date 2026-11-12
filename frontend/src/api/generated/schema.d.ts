@@ -22398,13 +22398,10 @@ export interface components {
         };
         /** NarrationRunRequest */
         NarrationRunRequest: {
+            /** Append Chars */
+            append_chars?: number | null;
             /** Engine */
             engine?: string | null;
-            /**
-             * Keep Speakers
-             * @default false
-             */
-            keep_speakers?: boolean;
             /** Model */
             model?: string | null;
         };
@@ -22484,6 +22481,11 @@ export interface components {
             results: {
                 [key: string]: "sent" | "failed" | "refused" | "not_configured";
             };
+        };
+        /** NovelAddChaptersRequest */
+        NovelAddChaptersRequest: {
+            /** From Chapter */
+            from_chapter?: number | null;
         };
         /** NovelAttachFromSourcesRequest */
         NovelAttachFromSourcesRequest: {
@@ -50002,7 +50004,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelAddChaptersRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

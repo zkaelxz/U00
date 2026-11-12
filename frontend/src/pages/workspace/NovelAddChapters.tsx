@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -13,14 +13,16 @@ const STEP_TEXT: Record<AddStep, string> = {
 
 /**
  * The link box once translation has started: it only adds new chapters. Saved lines keep their
- * translation and speaker; nothing is translated until Translate is pressed.
+ * translation and speaker, and the new chapters become new lines after them; nothing is translated until Translate is pressed.
  */
-export function NovelAddChapters({ id, defaultUrl, onProgress }: { id: number; defaultUrl: string; onProgress: () => void }) {
+export function NovelAddChapters({ id, chapters, defaultUrl, onProgress }: { id: number; chapters: number; defaultUrl: string; onProgress: () => void }) {
   const [url, setUrl] = useState(defaultUrl)
   const [step, setStep] = useState<AddStep | null>(null)
   const [running, setRunning] = useState(false)
   const [done, setDone] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
+  // The saved chapter count before the first attempt: a retry after a failed step still expects the same translation text.
+  const baseline = useRef<number | null>(null)
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -28,8 +30,10 @@ export function NovelAddChapters({ id, defaultUrl, onProgress }: { id: number; d
     setRunning(true)
     setError(null)
     setDone(null)
-    addChaptersFromLink(id, url.trim(), (s) => { setStep(s); onProgress() }).then(
+    baseline.current ??= chapters
+    addChaptersFromLink(id, url.trim(), (s) => { setStep(s); onProgress() }, baseline.current).then(
       (added) => {
+        baseline.current = null
         setRunning(false)
         setStep(null)
         setDone(added > 0

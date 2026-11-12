@@ -118,7 +118,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
         <TitleViewSwitch view="simple" onChange={onView} />
       </header>
       {list && lineCount !== null && lineCount > 0 && untranslated < lineCount && (
-        <NovelAddChapters id={id} defaultUrl="" onProgress={refresh} />
+        <NovelAddChapters id={id} chapters={list.total} defaultUrl="" onProgress={refresh} />
       )}
       {list && lineCount !== null && (
         <NovelLinkStart

@@ -593,11 +593,11 @@ def test_adding_new_chapters_appends_only_the_new_text_to_a_copied_translation_t
     assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
     before = _novel_text(did)
     pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
-    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources")
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={})
     assert r.status_code == 200 and r.json()["added_chars"] > 0
     after = _novel_text(did)
     assert after.startswith(before) and after.endswith("丙走了。") and "第二章 继续" in after
-    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources").json()["added_chars"] == 0
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).json()["added_chars"] == 0
     assert _novel_text(did) == after
 
 
@@ -610,7 +610,7 @@ def test_adding_new_chapters_refuses_a_translation_text_that_was_edited_and_chan
         f.write("\n\n我自己加的。")
     edited = _novel_text(did)
     pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
-    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources")
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={})
     assert r.status_code == 409 and "not a copy" in r.json()["error"]["message"]
     assert _novel_text(did) == edited
 
@@ -618,6 +618,73 @@ def test_adding_new_chapters_refuses_a_translation_text_that_was_edited_and_chan
 def test_adding_new_chapters_needs_chapters_and_a_translation_text(client):
     from sources import pipeline
     did = _drama()
-    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources").status_code == 404
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 404
     pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
-    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources").status_code == 409
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 409
+
+
+def test_adding_new_chapters_refuses_a_cut_translation_text_and_a_removed_chapter(client):
+    import db
+    from sources import pipeline
+    did = _drama()
+    for n, (title, body) in enumerate([("第一章 开始", "甲说了话。\n\n乙回答了。"), ("第二章 继续", "丙走了。")]):
+        pipeline.append_novel_chapter_once(did, body, title, source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    full = _novel_text(did)
+    path = os.path.join(db.drama_dir(did), "novel_narration_source.txt")
+    pipeline.append_novel_chapter_once(did, "丁来了。", "第三章 新", source="x")
+
+    def write(text):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    cut = full[:full.index("乙回答了。") + 2]                 # cut in the middle of a paragraph
+    write(cut)
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 409
+    assert _novel_text(did) == cut
+    removed = full[:full.index("第二章")].strip()                # chapter 2 removed on purpose
+    write(removed)
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={"from_chapter": 3})
+    assert r.status_code == 409 and _novel_text(did) == removed
+
+
+def test_adding_new_chapters_refuses_a_same_length_edit(client):
+    import db
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    edited = _novel_text(did).replace("甲", "乙")
+    with open(os.path.join(db.drama_dir(did), "novel_narration_source.txt"), "w", encoding="utf-8") as f:
+        f.write(edited)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 409
+    assert _novel_text(did) == edited
+
+
+def test_adding_new_chapters_joins_with_exactly_one_blank_line_and_checks_the_expected_chapter(client):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    first = _novel_text(did)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={"from_chapter": 2})
+    assert r.status_code == 200
+    assert _novel_text(did) == first + "\n\n第二章 继续\n\n丙走了。"
+
+
+def test_adding_new_chapters_reads_the_saved_chapters_under_the_page_lock(client, monkeypatch):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    held = []
+    real = svc._saved_chapters
+
+    def spy(drama_id):
+        held.append(pipeline._page_lock(drama_id).locked())
+        return real(drama_id)
+    monkeypatch.setattr(svc, "_saved_chapters", spy)
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 200
+    assert held == [True]

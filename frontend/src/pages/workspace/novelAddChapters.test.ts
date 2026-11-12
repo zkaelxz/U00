@@ -20,13 +20,14 @@ beforeEach(() => {
 })
 
 describe('addChaptersFromLink', () => {
-  it('imports, appends the new text, then re-cuts the lines keeping saved speakers', async () => {
+  it('imports, appends the new text, then adds lines for just the new text', async () => {
     vi.mocked(addChaptersFromSources).mockResolvedValue({ char_count: 90, added_chars: 40 })
     const steps: string[] = []
-    expect(await addChaptersFromLink(5, 'https://x/2', (s) => steps.push(s))).toBe(40)
+    expect(await addChaptersFromLink(5, 'https://x/2', (s) => steps.push(s), 3)).toBe(40)
     expect(steps).toEqual(['import', 'text', 'lines'])
     expect(startNovelUrlImport).toHaveBeenCalledWith('https://x/2', 5, {})
-    expect(narrationApi.run).toHaveBeenCalledWith(5, { engine: 'claude', keep_speakers: true })
+    expect(addChaptersFromSources).toHaveBeenCalledWith(5, 4)
+    expect(narrationApi.run).toHaveBeenCalledWith(5, { engine: 'claude', append_chars: 40 })
   })
 
   it('does not touch the lines when nothing new was added', async () => {

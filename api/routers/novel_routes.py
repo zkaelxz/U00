@@ -16,7 +16,7 @@ from typing import List, Optional
 from fastapi import APIRouter, File, Form, Path, UploadFile
 from api.auth import local_only, require_permission
 from api.schemas import (LncrawlImportRequest, LncrawlStatus,
-                         NovelAttachFromSourcesRequest, NovelAttachResult, NovelChaptersAdded,
+                         NovelAddChaptersRequest, NovelAttachFromSourcesRequest, NovelAttachResult, NovelChaptersAdded,
                          NovelAttachTextRequest, NovelOcrResult, NovelStatus, error_responses)
 from services import lncrawl_service, novel_attach_service
 
@@ -52,8 +52,8 @@ def post_attach_from_sources(payload: NovelAttachFromSourcesRequest, drama_id: i
 @router.post("/dramas/{drama_id}/add-chapters-from-sources", dependencies=[local_only()],
              response_model=NovelChaptersAdded,
              summary="Append the newly imported chapters to the narration text, keeping what is there", responses=_ERR)
-def post_add_chapters_from_sources(drama_id: int = Path(ge=1)):
-    return novel_attach_service.add_new_chapters_from_sources(drama_id)
+def post_add_chapters_from_sources(payload: NovelAddChaptersRequest, drama_id: int = Path(ge=1)):
+    return novel_attach_service.add_new_chapters_from_sources(drama_id, payload.from_chapter)
 
 
 @router.post("/dramas/{drama_id}/ocr-chapter", dependencies=[local_only()], response_model=NovelOcrResult,

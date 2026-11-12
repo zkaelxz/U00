@@ -116,31 +116,45 @@ class TestJob:
         assert after[0].en == "He said: hello." and after[0].reviewed
         assert after[-1].zh == "新的一章。" and after[-1].en == ""
 
-    def test_keep_speakers_leaves_saved_lines_untagged_and_tags_only_new_chunks(self, isolated_db, monkeypatch):
+    def test_append_run_leaves_saved_lines_alone_and_tags_only_the_new_text(self, isolated_db, monkeypatch):
         did = _drama(isolated_db)
         self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
-        saved = {ln.zh: ln.speaker for ln in isolated_db.load_line_objects(did)}
-        assert set(saved.values()) == {"Ann"}
+        lines = isolated_db.load_line_objects(did)
+        lines[0].zh, lines[0].en, lines[0].reviewed = "他说：你好！（我改过）", "He said hi.", True   # edited in Review
+        lines[1].flag_note = "check"
+        isolated_db.save_lines(did, lines)
+        before = [(ln.id, ln.idx, ln.zh, ln.en, ln.reviewed, ln.speaker, ln.flag_note)
+                  for ln in isolated_db.load_line_objects(did)]
         from engine_backends import llm_tasks, engine_registry
         seen = {}
 
-        def tag(chunks, engine, known, done=None, **k):
-            seen["done"] = dict(done or {})
-            return {i: "Bob" for i in chunks}      # the model would relabel everything
+        def tag(chunks, engine, known, **k):
+            seen["chunks"] = dict(chunks)
+            return {i: "Bob" for i in chunks}
         monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
         monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", tag)
+        added = "新的一章。"
         narration_service._run_narration_job(
-            f"narration_{did}", did, NOVEL + "\n\n新的一章。", "claude", "k", None, keep_speakers=True)
-        after = isolated_db.load_line_objects(did)
-        assert {ln.zh: ln.speaker for ln in after if ln.zh in saved} == saved
-        assert after[-1].zh == "新的一章。" and after[-1].speaker == "Bob"
-        assert set(seen["done"].values()) == {"Ann"} and len(seen["done"]) == len(saved)
+            f"narration_{did}", did, added, "claude", "k", None, append=True)
+        after = [(ln.id, ln.idx, ln.zh, ln.en, ln.reviewed, ln.speaker, ln.flag_note)
+                 for ln in isolated_db.load_line_objects(did)]
+        assert after[:len(before)] == before
+        assert [(a[2], a[3], a[5]) for a in after[len(before):]] == [(added, "", "Bob")]
+        assert after[-1][1] == len(before) and list(seen["chunks"].values()) == [added]
+        assert any("before adding chapters" in h["label"] for h in isolated_db.list_line_history(did))
 
-    def test_without_keep_speakers_a_rerun_retags_everything(self, isolated_db, monkeypatch):
+    def test_append_start_validates_and_cuts_only_the_tail(self, isolated_db, key, monkeypatch):
         did = _drama(isolated_db)
-        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
-        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Bob" for i in ch})
-        assert {ln.speaker for ln in isolated_db.load_line_objects(did)} == {"Bob"}
+        with pytest.raises(InvalidInputError):                      # no lines yet
+            narration_service.start_narration_run(did, append_chars=3)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {})
+        with pytest.raises(InvalidInputError):
+            narration_service.start_narration_run(did, append_chars=len(NOVEL) + 1)
+        calls = []
+        monkeypatch.setattr(job_launch, "start_job",
+                            lambda job_id, target, *a, **k: calls.append((a, k)) or True)
+        narration_service.start_narration_run(did, append_chars=4)
+        assert calls[0][0][2] == NOVEL[-4:] and calls[0][1]["append"] is True
 
     def test_no_key_cuts_locally_and_marks_every_line_narrator(self, isolated_db, monkeypatch):
         from engine_backends import llm_tasks, engine_registry
