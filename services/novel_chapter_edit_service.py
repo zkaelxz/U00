@@ -84,8 +84,25 @@ def _set_line_title(drama_id: int, pos: int, lines: list, old: str, title: str) 
         return False
     ln = line_from_row(row)
     ln.zh = title
-    db.save_lines(drama_id, [ln], fields=("zh",))
-    return True
+    # Checked against the value read above inside the save, so an edit made in Review since
+    # then is kept (the id comes back unwritten) instead of overwritten.
+    return not db.save_lines(drama_id, [ln], fields=("zh",), only_if_unchanged=True)
+
+
+def _copy_to_translation_text(raw: str, narration: str, folder: str) -> bool:
+    """Best effort: the rename itself is done, so a failure here only leaves the translation
+    text with the old title, as before the rename. No temp file is left behind."""
+    fd, tmp = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=folder)
+    os.close(fd)
+    try:
+        shutil.copyfile(raw, tmp)
+        _swap_in(tmp, narration)
+        return True
+    except OSError:
+        return False
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def _write_renamed(raw: str, folder: str, size: int, chapters: list, number: int, first: bytes,
@@ -192,19 +209,14 @@ def _rename_locked(drama_id: int, number: int, new_title: str) -> dict:
         if line_updated:
             try:
                 _set_line_title(drama_id, title_pos, db.load_lines(drama_id), new_title, old_line)
-            except Exception:
-                pass
+            except Exception as put_back:
+                raise ConflictError(
+                    f"The rename failed and its line could not be put back. Set that line's text "
+                    f"back to \u201c{old_line}\u201d in Review.") from put_back
         raise
 
     translation_updated = False
     if narration_is_copy:
-        try:
-            fd3, tmp_n = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=folder)
-            os.close(fd3)
-            shutil.copyfile(raw, tmp_n)
-            _swap_in(tmp_n, narration)
-            translation_updated = True
-        except OSError:
-            pass
+        translation_updated = _copy_to_translation_text(raw, narration, folder)
     return {"drama_id": drama_id, "number": number, "title": new_title,
             "line_updated": line_updated, "translation_text_updated": translation_updated}

@@ -182,3 +182,59 @@ def test_a_translation_text_that_copies_the_raw_chapters_follows_the_rename(isol
         f.write("\n手改")
     assert svc.rename_chapter(did, 2, "Road")["translation_text_updated"] is False
     assert "手改" in open(copy, encoding="utf-8").read()
+
+
+def test_a_review_edit_made_during_the_rename_is_kept(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    real = db.load_lines
+
+    def load_then_edit(drama_id, *a, **k):
+        rows = real(drama_id, *a, **k)
+        edited = [dict(r) for r in rows]
+        # The person edits the title line in Review after it was read here.
+        ln = Line(idx=3, start=3.0, end=4.0, zh="The Road (edited)", en="e3")
+        ln.id = rows[3]["id"]
+        monkeypatch.setattr(db, "load_lines", real)
+        db.save_lines(drama_id, [ln], fields=("zh",))
+        return edited
+    monkeypatch.setattr(db, "load_lines", load_then_edit)
+    out = svc.rename_chapter(did, 2, "New Road")
+    assert out["line_updated"] is False
+    assert db.load_lines(did)[3]["zh"] == "The Road (edited)"
+
+
+def test_a_line_that_cannot_be_put_back_is_reported(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    real_save = db.save_lines
+    saves = []
+
+    def second_save_fails(*a, **k):
+        saves.append(1)
+        if len(saves) > 1:
+            raise RuntimeError("db")
+        return real_save(*a, **k)
+    monkeypatch.setattr(db, "save_lines", second_save_fails)
+    real_swap = svc._swap_in
+    monkeypatch.setattr(svc, "_swap_in", lambda tmp, dest: (_ for _ in ()).throw(OSError("disk"))
+                        if dest.endswith(".txt") else real_swap(tmp, dest))
+    with pytest.raises(ConflictError) as err:
+        svc.rename_chapter(did, 2, "New Road")
+    assert "The Road" in err.value.message
+
+
+def test_a_failed_translation_text_copy_leaves_no_temp_file(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    folder = os.path.dirname(chapter_manifest.raw_path(did))
+    with open(chapter_manifest.raw_path(did), "rb") as f, \
+            open(os.path.join(folder, "novel_narration_source.txt"), "wb") as g:
+        g.write(f.read())
+    real_copy = svc.shutil.copyfile
+
+    def copy(src, dst, *a, **k):
+        if os.path.basename(dst).startswith(".novel_"):
+            raise OSError("disk")
+        return real_copy(src, dst, *a, **k)
+    monkeypatch.setattr(svc.shutil, "copyfile", copy)
+    out = svc.rename_chapter(did, 1, "Gate")
+    assert out["translation_text_updated"] is False
+    assert not [n for n in os.listdir(folder) if n.endswith(".part")]
