@@ -19,12 +19,14 @@ import threading
 from urllib.parse import parse_qsl, urlsplit
 
 import comic_chapter_links
+import comic_chapters
 import db
 import db.dramas
 import page_server
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, ServiceError
 from services import (drama_service, extension_novel_service, link_details_service, ownership_service,
                       source_link_service)
+from lib import clock
 from services.series_service import term_key
 from engine_backends.shared import redact_secrets
 
@@ -295,3 +297,31 @@ def resolve_from_bridge(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
         import applog
         applog.get_logger().warning("Setting up an extension title failed", exc_info=True)
         raise page_server.EndpointError(500, _FAILED) from None
+
+
+# Query keys and path words that carry a chapter's own number. A bare `id` is not here: on many
+# sites it names the series, and a number taken from it would file every chapter under one label.
+_CHAPTER_QUERY_KEYS = ("no", "episode_no", "episode", "chapter", "chapter_no", "ep", "cno")
+_CHAPTER_PATH = re.compile(r"(?:^|/)(?:chapter|chap|episode|ep|ch)[-_/]?(\d+(?:\.\d+)?)(?:/|$)", re.IGNORECASE)
+
+
+def capture_chapter_ref(source_url: str, run_id: str | None):
+    """The chapter label for pages a capture just saved, or None when nothing names one.
+    The number comes from the page address when it carries one. Otherwise the whole capture
+    (every batch of one run shares `run_id`) is one chapter stamped with its import time, so
+    imported chapters stay in the order they were captured and never fall into "unknown"."""
+    parts = urlsplit(str(source_url or ""))
+    host = (parts.hostname or "")[:40]
+    number = next((v for k, v in parse_qsl(parts.query) if k.lower() in _CHAPTER_QUERY_KEYS
+                   and re.fullmatch(r"\d+(?:\.\d+)?", v)), None)
+    if number is None:
+        found = _CHAPTER_PATH.search(parts.path)
+        number = found.group(1) if found else None
+    if number is not None:
+        return comic_chapters.chapter_ref(chapter_id=number, title=f"Chapter {number}",
+                                          source=host, url=source_url)
+    if not run_id:
+        return None
+    stamp = clock.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return comic_chapters.chapter_ref(chapter_id=f"run-{run_id}", title=f"Imported {stamp}",
+                                      source=host, url=source_url)
