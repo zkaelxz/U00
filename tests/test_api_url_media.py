@@ -993,8 +993,24 @@ def test_up_to_three_run_at_once_and_the_fourth_waits_in_line(client, env):
     assert svc._queued_total() == 0
 
 
+class _TakesRecorded(set):
+    """The slot set, noting when each job took its slot: the spacing is kept
+    between slot takes, and what a job does after (the URL recheck, reaching
+    yt-dlp) takes a varying time on a busy runner."""
+
+    def __init__(self):
+        super().__init__()
+        self.takes = []
+
+    def add(self, job_id):
+        self.takes.append(svc._clock())
+        super().add(job_id)
+
+
 def test_starts_are_spaced_apart(client, env, monkeypatch):
     monkeypatch.setattr(svc, "START_SPACING_SECONDS", 0.5)
+    running = _TakesRecorded()
+    monkeypatch.setattr(svc, "_running", running)
     gate = Gate()
     a, b = _drama(), _drama()
     assert _start(client, a, url=_link(1)).status_code == 200
@@ -1002,7 +1018,8 @@ def test_starts_are_spaced_apart(client, env, monkeypatch):
     _until(lambda: len(gate.starts) == 1)
     _until(lambda: _message(b) == "Queued: 1st in line")
     _until(lambda: len(gate.starts) == 2)
-    assert gate.starts[1][0] - gate.starts[0][0] >= 0.45
+    assert len(running.takes) == 2
+    assert running.takes[1] - running.takes[0] >= 0.45
     gate.open()
     assert wait_for_job(f"urlmedia_{b}", missing_ok=True)["status"] == "done"
 
