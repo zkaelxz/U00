@@ -204,6 +204,27 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     _save_lines(job_id, drama_id, lines)
 
 
+def _carry_over_existing(lines, existing):
+    """Gives each new line the id, translation and review state of the saved
+    line with the same source text. Chunking is deterministic per paragraph, so
+    after chapters are added the old text re-chunks identically and keeps its
+    English, notes and checked marks; only text that changed or is new starts
+    empty. Matching is by text in order (duplicate lines pair off one by one),
+    never by position, since appended chapters shift every later index."""
+    pool = {}
+    for old in existing:
+        pool.setdefault(old.zh, []).append(old)
+    for ln in lines:
+        queue = pool.get(ln.zh)
+        if not queue:
+            continue
+        old = queue.pop(0)
+        ln.id, ln.en, ln.reviewed = old.id, old.en, old.reviewed
+        ln.flag, ln.flag_note = old.flag, old.flag_note
+        if old.speaker_manual:
+            ln.speaker, ln.speaker_manual = old.speaker, True
+
+
 def _save_lines(job_id, drama_id, lines, notice=None):
     job_timing_service.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
@@ -213,8 +234,9 @@ def _save_lines(job_id, drama_id, lines, notice=None):
     existing = db.load_line_objects(drama_id)
     if existing:
         db.save_line_history_snapshot(drama_id, existing, "before chunk & tag speakers")
-    # Full sync on purpose: these brand-new lines replace the drama's lines.
-    # Line jobs were cancelled and the old lines snapshotted just above.
+    _carry_over_existing(lines, existing)
+    # Full sync on purpose: the list is the drama's lines now; text that is
+    # gone loses its row, unchanged text keeps its row through the carry-over.
     db.save_lines(drama_id, lines)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)

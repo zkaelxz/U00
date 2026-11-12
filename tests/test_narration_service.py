@@ -100,6 +100,22 @@ class TestJob:
         labels = {c["speaker_label"] for c in isolated_db.list_characters(did)}
         assert {"Ann", "Narrator"} <= labels
 
+    def test_added_chapter_keeps_existing_translation_and_row_ids(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {})
+        first = isolated_db.load_line_objects(did)
+        first[0].en, first[0].reviewed = "He said: hello.", True
+        isolated_db.save_lines(did, first)
+        ids = [ln.id for ln in first]
+        from engine_backends import llm_tasks, engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", lambda chunks, engine, known, **k: {})
+        narration_service._run_narration_job(f"narration_{did}", did, NOVEL + "\n\n新的一章。", "claude", "k", None)
+        after = isolated_db.load_line_objects(did)
+        assert [ln.id for ln in after[:len(ids)]] == ids
+        assert after[0].en == "He said: hello." and after[0].reviewed
+        assert after[-1].zh == "新的一章。" and after[-1].en == ""
+
     def test_no_key_cuts_locally_and_marks_every_line_narrator(self, isolated_db, monkeypatch):
         from engine_backends import llm_tasks, engine_registry
 
