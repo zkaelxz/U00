@@ -556,7 +556,7 @@ def test_a_silent_pip_still_keeps_the_lock_fresh(data, monkeypatch):
     assert pi.status()["result"]["status"] == "interrupted"
     clock = iter([0.0, 31.0, 32.0])
     monkeypatch.setattr(pi.time, "monotonic", lambda: next(clock))
-    def silent_pip(argv, timeout, cancel):
+    def silent_pip(argv, timeout, cancel, env=None):
         cancel()
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(pi, "stream_tree", silent_pip)
@@ -567,7 +567,7 @@ def test_a_silent_pip_still_keeps_the_lock_fresh(data, monkeypatch):
 
 def test_run_capture_does_not_reset_stop(monkeypatch):
     seen = []
-    monkeypatch.setattr(pi, "stream_tree", lambda argv, timeout, cancel: iter(
+    monkeypatch.setattr(pi, "stream_tree", lambda argv, timeout, cancel, env=None: iter(
         [seen.append(cancel()) or {"returncode": 0, "timed_out": False}]))
     pi._CURRENT["stop"] = True
     try:
@@ -672,7 +672,7 @@ def test_a_silent_pip_keeps_a_held_lock_fresh_through_its_fd(data, monkeypatch):
     utimes = []
     monkeypatch.setattr(pi.os, "utime", lambda *a, **k: utimes.append(a))
 
-    def silent_pip(argv, timeout, cancel):
+    def silent_pip(argv, timeout, cancel, env=None):
         cancel()
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(pi, "stream_tree", silent_pip)
@@ -688,7 +688,7 @@ def test_the_lock_refresh_survives_the_watchdog_emptying_the_holder(data, monkey
     clock = iter([0.0, 31.0, 32.0])
     monkeypatch.setattr(pi.time, "monotonic", lambda: next(clock))
 
-    def silent_pip(argv, timeout, cancel):
+    def silent_pip(argv, timeout, cancel, env=None):
         cancel()
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(pi, "stream_tree", silent_pip)

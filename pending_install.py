@@ -38,7 +38,7 @@ import portable
 from lib.atomic_write import atomic_write
 from lib import storage_errors
 from lib.pid import pid_alive
-from lib.proc import run_captured, stream_tree
+from lib.proc import run_captured, secretless_env, stream_tree
 
 SCHEMA = 1
 PIP_SECONDS = 40 * 60
@@ -368,7 +368,8 @@ def run_capture(argv: list, timeout: float, echo: bool = False):
                 pass
         return _CURRENT["stop"]
 
-    for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=cancel):
+    for event in stream_tree(argv, timeout=max(1.0, timeout), cancel=cancel,
+                             env=secretless_env(drop_prefixes=())):
         if "line" in event:
             lines.append(event["line"])
             del lines[:-CAPTURE_LINES]

@@ -680,7 +680,8 @@ def _restore(before: dict, skip: set, cancel):
     with pending_install.restore_commands(safe) as argvs:
         for argv in argvs:
             for event in proc_run.stream_tree(argv, max(1.0, end - time.monotonic()), cancel=cancel,
-                                              warn=job_process_kill._warn_via_jobs):
+                                              warn=job_process_kill._warn_via_jobs,
+                                              env=proc_run.secretless_env(drop_prefixes=())):
                 stopped = stopped or bool(event.get("cancelled"))
             now = pending_install.snapshot()
             if stopped:

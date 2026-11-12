@@ -490,7 +490,10 @@ def scratch_env(job_id=None):
     done. A killed pip leaves its pip-unpack-* folders behind, and in the
     shared system temp nothing sweeps them."""
     with job_workdir(job_id) as path:
-        env = dict(os.environ)
+        # pip runs third-party build scripts, so API keys set as real
+        # environment variables stay out of its environment.
+        from lib import proc
+        env = proc.secretless_env(drop_prefixes=())
         env.update(TMPDIR=path, TEMP=path, TMP=path)
         yield env
 

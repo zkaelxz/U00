@@ -41,6 +41,7 @@ HARD_MAX_DURATION_SECONDS = 12 * 60 * 60
 SOCKET_TIMEOUT = 30
 PROGRESS_SECONDS = 0.5
 _PREFIX = "@@ytdlp-"
+_DESKTOP_SESSION_ENV = ("DBUS_SESSION_BUS_ADDRESS", "DESKTOP_SESSION", "KDE_SESSION_VERSION", "XAUTHORITY")
 _SPEC_NAME = "ytdlp_spec.json"
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -414,7 +415,12 @@ def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_ch
     with open(spec_path, "w", encoding="utf-8") as f:
         json.dump(dict(spec, tmp=tmp_dir, nonce=nonce), f)
     cmd = [sys.executable, "-m", "services.ytdlp_child", spec_path]
-    stream = proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel, on_start=on_start)
+    # yt-dlp runs site-supplied extractor logic: no API keys from the environment.
+    # The desktop-session names stay: on Linux, reading Chromium cookies goes
+    # through the session D-Bus (Secret Service or KWallet).
+    stream = proc.stream_tree(cmd, timeout, cwd=_ROOT,
+                              env=proc.secretless_env(drop_prefixes=(), keep=_DESKTOP_SESSION_ENV),
+                              cancel=cancel, on_start=on_start)
     try:
         for item in stream:
             line = item.get("line")

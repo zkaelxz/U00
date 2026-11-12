@@ -163,8 +163,10 @@ def _backup_excluded_top_level() -> tuple:
     """Top-level library entries a backup never contains: old backups and
     exports, saved site sign-ins, approved source profiles (a restore keeps
     the current ones either way), the browser-extension token and the
-    sources raw-content cache (rebuildable: a missing file is a cache miss)."""
-    return lrs.restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
+    sources raw-content cache (rebuildable: a missing file is a cache miss),
+    and the logs folder: the Windows service writes the server's raw output
+    there, which the app's redacting log handler never sees."""
+    return lrs.restore_kept_names() + (os.path.basename(src_store.cache_dir()), "logs")
 
 
 def _backup_files(library_dir: str, skip: set, excluded: tuple) -> list:
@@ -217,7 +219,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                      progress=None, should_cancel=None, left_out=None):
     """Writes a backup zip to `dest`: sanitized library.db and sources.db snapshots and,
     with include_media, every other library file except the excluded
-    top-level entries (backups/, sign-ins, source profiles, extension
+    top-level entries (backups/, logs/, sign-ins, source profiles, extension
     token, source_cache/), the live database files, symlinks and any `.env`. `manifest`,
     if given, is called with the snapshot's path and returns bytes stored
     as manifest.json (so it describes exactly the database in the zip).
