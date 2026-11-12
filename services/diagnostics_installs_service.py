@@ -439,7 +439,12 @@ def _unpack_binary(zip_path: str):
 # Q06: package install and GPU PyTorch setup
 # ---------------------------------------------------------------------------
 
-_READ_ONLY_HINT = "Stop the service and start Baihe from the Start menu to install packages."
+# The check is on the folder's permissions, not on whether the services run: Setup locks the
+# install folder while the Baihe service is installed, and stopping a service does not unlock it.
+_READ_ONLY_HINT = ("Baihe's install folder is locked, so packages can't be installed from here. "
+                   "That happens while Baihe is set up as a Windows service; turning the services off "
+                   "does not unlock it. See \"Locked install folder\" in docs/runbook.md, or reinstall "
+                   "Baihe without the service.")
 
 
 def get_dependency_install() -> dict:
