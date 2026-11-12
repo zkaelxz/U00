@@ -148,7 +148,7 @@ describe('reader error copy', () => {
   it('shows the dictionary download message from an application_error', () => {
     const msg = 'The CC-CEDICT download failed; check the connection and try again.'
     const e = new ApiError(500, { code: 'application_error', message: msg })
-    expect(readerErrorText(e).detail).toBe(msg)
+    expect(readerErrorText(e)).toMatchObject({ title: msg, detail: null })
   })
 
   it('uses the paid copy for a 403 on a paid engine', () => {
