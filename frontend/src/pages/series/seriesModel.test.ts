@@ -58,12 +58,15 @@ describe('series page model', () => {
   })
 
   it('words the copy preview and result', () => {
-    const p = { series_id: 1, source_series_id: 2, new_terms: [], skipped_terms: [] }
+    const p = { series_id: 1, source_series_id: 2, new_terms: [], skipped_terms: [], replacements_new: 0 }
     expect(copyPreviewText({ ...p, new_count: 3, skipped_count: 2 }))
       .toBe('3 new terms will be added, 2 are already there and are skipped.')
     expect(copyPreviewText({ ...p, new_count: 1, skipped_count: 0 })).toBe('1 new term will be added.')
     expect(copyPreviewText({ ...p, new_count: 0, skipped_count: 4 })).toBe('Nothing to add: all 4 terms are already there.')
-    expect(copyResultText({ added: 2, skipped: 1 })).toBe('Added 2 terms; skipped 1 already there.')
+    expect(copyResultText({ added: 2, skipped: 1, replacements_added: 0 })).toBe('Added 2 terms; skipped 1 already there.')
+    expect(copyPreviewText({ ...p, new_count: 0, skipped_count: 4, replacements_new: 2 }))
+      .toBe('0 new terms and 2 word replacements will be added, 4 are already there and are skipped.')
+    expect(copyResultText({ added: 1, skipped: 0, replacements_added: 2 })).toBe('Added 1 term and 2 word replacements.')
   })
 
   it('turns the defaults form into settings, leaving blanks unset', () => {

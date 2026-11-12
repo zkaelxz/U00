@@ -85,6 +85,8 @@ class NovelAddChaptersRequest(BaseModel):
 class NovelChaptersAdded(BaseModel):
     char_count: int
     added_chars: int
+    # Characters of the translation text that still have no lines (the add can be finished by running chunk & tag with append).
+    pending_chars: int = 0
 
 
 class NovelAttachResult(BaseModel):

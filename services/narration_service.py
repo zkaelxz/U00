@@ -86,7 +86,7 @@ def get_narration_config(drama_id: int) -> dict:
 
 def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
                         model: Optional[str] = None, fresh: bool = False,
-                        append_chars: Optional[int] = None) -> dict:
+                        append: bool = False) -> dict:
     """Starts the chunk-and-tag job; returns {"job_id"}. NotFoundError for
     an unknown drama, InvalidInputError for no novel text or an engine that
     cannot tag speakers, ConflictError if a run is already active.
@@ -98,10 +98,12 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     resumes after the batches an interrupted run already tagged;
     fresh=True drops those and tags everything again.
 
-    append_chars (adding chapters to a title that has lines): only the last
-    `append_chars` characters of the text, the ones just added, are cut and
-    tagged, and their lines are appended after the saved ones. The saved
-    lines, whatever was edited, merged or split in Review, are not touched."""
+    append (adding chapters to a title that has lines): only the text an add left
+    without lines (novel_text.read_pending_lines, held by the server, never the
+    client) is cut and tagged, and its lines are appended after the saved ones.
+    The saved lines, whatever was edited, merged or split in Review, are not
+    touched. InvalidInputError when nothing is waiting, ConflictError when the
+    text changed since."""
     ownership_service.require_drama(drama_id)
     engine_name = engine_name or DEFAULT_ENGINE
     if engine_name not in TAG_ENGINES:
@@ -110,12 +112,8 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     text = _read_novel(drama_id)
     if not text.strip():
         raise InvalidInputError("This title has no novel text attached yet.")
-    if append_chars is not None:
-        if not 1 <= append_chars <= len(text):
-            raise InvalidInputError("append_chars must be the length of the text that was just added.")
-        if not db.load_lines(drama_id):
-            raise InvalidInputError("This title has no lines to add to; run chunk & tag first.")
-        text = text[-append_chars:]
+    if append:
+        text = _pending_tail(drama_id, text)
     api_key = _api_key(engine_name)
 
     job_id = f"narration_{drama_id}"
@@ -123,10 +121,24 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
         gpu_touching=engine_local.ollama_touches_local_gpu(engine_name, model),
         description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh),
-        append=append_chars is not None, line_fields=db.FULL_SYNC)
+        append=bool(append), line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
     return {"job_id": job_id}
+
+
+def _pending_tail(drama_id: int, text: str) -> str:
+    """The end of `text` that an add left without lines, checked against what the add recorded."""
+    waiting = novel_text.read_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
+    if waiting is None:
+        raise InvalidInputError("No added chapters are waiting for lines.")
+    chars, length = waiting
+    if length != len(text):
+        raise ConflictError("The translation text changed after the chapters were added, so their lines "
+                            "can't be cut on their own. Run chunk & tag again from the Source stage.")
+    if not db.load_lines(drama_id):
+        raise InvalidInputError("This title has no lines to add to; run chunk & tag first.")
+    return text[-chars:]
 
 
 def tagging_checkpoint(drama_id, text, engine_name, model, known, fresh=False,
@@ -254,6 +266,7 @@ def _append_lines(job_id, drama_id, lines, notice=None):
     db.save_line_history_snapshot(drama_id, existing, "before adding chapters")
     db.save_lines(drama_id, existing + lines, expect_unchanged=existing)
     finish_tagging_checkpoint(drama_id)
+    novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     result = {"line_count": len(existing) + len(lines), "added_lines": len(lines)}
     if notice:
         result["notice"] = notice
@@ -275,6 +288,7 @@ def _save_lines(job_id, drama_id, lines, notice=None):
     db.save_lines(drama_id, lines)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)
+    novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))   # the whole text was cut
     result = {"line_count": len(lines)}
     if notice:
         result["notice"] = notice

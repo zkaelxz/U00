@@ -111,7 +111,8 @@ export type AddStep = 'import' | 'text' | 'lines'
  * the new text to the translation text (the server refuses when that text was edited), then cuts just
  * that text into lines after the saved ones, which are not touched. It starts no translation.
  * `chaptersBefore` is how many chapters were saved before the import; the server refuses if the
- * translation text does not hold exactly those. Resolves to the number of characters added.
+ * translation text does not hold exactly those. A retry after a failed lines step finishes the lines
+ * the first attempt left. Resolves to the number of characters added or finished.
  */
 export async function addChaptersFromLink(
   id: number, url: string, onStep: (s: AddStep) => void, chaptersBefore?: number,
@@ -120,12 +121,14 @@ export async function addChaptersFromLink(
   const started = await startNovelUrlImport(url, id, {})
   await waitForJob(started.job_id || sourceImportJobId(id))
   onStep('text')
-  const added = (await addChaptersFromSources(id, chaptersBefore === undefined ? undefined : chaptersBefore + 1)).added_chars ?? 0
-  if (added > 0) {
+  const result = await addChaptersFromSources(id, chaptersBefore === undefined ? undefined : chaptersBefore + 1)
+  // Text an earlier attempt added but did not get lines for is finished here too: the server holds how much.
+  const waiting = result.pending_chars ?? 0
+  if (waiting > 0) {
     onStep('lines')
     const cfg = await narrationApi.config(id)
     const engine = cfg.engines.find((e) => e.key_configured)?.key ?? cfg.default_engine
-    await waitForJob((await narrationApi.run(id, { engine, append_chars: added })).job_id)
+    await waitForJob((await narrationApi.run(id, { engine, append: true })).job_id)
   }
-  return added
+  return Math.max(result.added_chars, waiting)
 }

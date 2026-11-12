@@ -92,6 +92,8 @@ def _write_novel(drama_id: int, text: str, mode: str) -> int:
         raise InvalidInputError(
             f"The combined novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
     final = _novel_path(drama_id, create=True)
+    if mode == "replace":
+        novel_text.clear_pending_lines(os.path.dirname(final))   # the whole text is new: nothing is waiting
     fd, tmp = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=os.path.dirname(final))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -659,9 +661,17 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
                 f"The translation text holds {covered} saved chapters, not the {from_chapter - 1} expected, so "
                 "the new chapters can't be told apart. Add them in the Source stage.")
         tail = "\n\n".join(chapters[covered:]).strip()
+        folder = db.drama_dir(drama_id)
+        waiting = novel_text.read_pending_lines(folder)
         if not tail:
-            return {"char_count": len(current), "added_chars": 0}
-        return {"char_count": _write_novel(drama_id, tail, "append"), "added_chars": len(tail)}
+            return {"char_count": len(current), "added_chars": 0, "pending_chars": waiting[0] if waiting else 0}
+        before = len(_read_novel(drama_id))
+        count = _write_novel(drama_id, tail, "append")
+        # Recorded after the text is saved, so a stop in between only leaves text without a marker
+        # (which the Source stage's chunk & tag still covers); the added text is never lost track of.
+        pending = (waiting[0] if waiting and waiting[1] == before else 0) + len(tail) + 2
+        novel_text.write_pending_lines(folder, pending, count)
+        return {"char_count": count, "added_chars": len(tail), "pending_chars": pending}
 
 
 def _chapters_covered(chapters: list, current: str):

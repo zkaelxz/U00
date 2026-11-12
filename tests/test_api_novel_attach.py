@@ -688,3 +688,28 @@ def test_adding_new_chapters_reads_the_saved_chapters_under_the_page_lock(client
     monkeypatch.setattr(svc, "_saved_chapters", spy)
     assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).status_code == 200
     assert held == [True]
+
+
+def test_adding_chapters_records_what_waits_for_lines_and_a_retry_still_reports_it(client):
+    import db
+    import novel_text
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    assert novel_text.read_pending_lines(db.drama_dir(did)) is None
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    first = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).json()
+    assert first["pending_chars"] == first["added_chars"] + 2 > 0
+    # The lines step failed: asking again adds nothing but still says text is waiting for lines.
+    again = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).json()
+    assert again["added_chars"] == 0 and again["pending_chars"] == first["pending_chars"]
+    # Another chapter before the lines were made: the waiting amount covers both.
+    pipeline.append_novel_chapter_once(did, "丁来了。", "第三章 新", source="x")
+    more = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources", json={}).json()
+    assert more["pending_chars"] == first["pending_chars"] + more["added_chars"] + 2
+    text = _novel_text(did)
+    assert text[-more["pending_chars"]:].strip().startswith("第二章 继续") and text.endswith("丁来了。")
+    # Replacing the whole text makes nothing wait.
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    assert novel_text.read_pending_lines(db.drama_dir(did)) is None
