@@ -20,7 +20,13 @@ from lib import pid as pid_lib
 
 # Tells this server apart from an earlier one that had the same pid, so a
 # restarted server never counts as the live owner of a row it did not write.
-INSTANCE_ID = secrets.token_hex(8)
+# After the dot, this process's OS start stamp (lib.pid.process_start_token):
+# another process can then tell that a pid now names a different process
+# without comparing clocks, and versions that treat the id as opaque still
+# work. It rides in owner_instance rather than a column of its own, so the
+# library's schema is unchanged and an older version can still open it.
+_START_TOKEN = pid_lib.process_start_token(os.getpid())
+INSTANCE_ID = secrets.token_hex(8) + (f".{_START_TOKEN}" if _START_TOKEN else "")
 
 ACTIVE = ("queued", "running")
 _WRITE_TRIES = 3
@@ -28,15 +34,10 @@ _RETRY_DELAY = 0.05
 EXIT_FLUSH_SECONDS = 2.0
 # A paused owner (laptop lid, debugger) wakes within hours and rewrites its
 # row; a server killed without its exit hook never does, and after a reboot
-# Windows may hand its pid to an unrelated process that looks like it. The
-# ceiling is the backstop for when that process's start time is unknown
-# (pid_started_after settles most such rows at once).
+# Windows may hand its pid to an unrelated process that looks like it. With
+# a start stamp in the row's owner_instance, pid_reused settles that at once;
+# this ceiling covers rows without one (older versions, a refused probe).
 STALE_ALIVE_CEILING_SECONDS = 6 * 3600
-# A process start time comes from the OS clock and updated_at from
-# time.time(): a clock stepped back after the owner started would make its
-# own later writes look older than it, and a live owner must never be judged
-# gone. A pid reused inside this window falls back to the ceiling.
-PID_START_SLACK_SECONDS = 60
 # A write under job_table._lock waits no longer than this for another
 # process's write lock: every get_status waits on that lock too.
 UNDER_LOCK_BUSY_SECONDS = 0.5
@@ -382,20 +383,21 @@ def owner_gone(record: dict) -> bool:
         # delete) settles it, and closing it here would race them.
         with job_table._lock:
             return record.get("job_id") not in _pending
-    return not bj.owner_process_alive(pid) or pid_started_after(pid, record.get("updated_at"))
+    return not bj.owner_process_alive(pid) or pid_reused(pid, record.get("owner_instance"))
 
 
-def pid_started_after(pid, written_at) -> bool:
-    """True when the process now holding `pid` started after the row was
-    last written (only its owner writes updated_at), so it cannot be the
-    owner: the owner died and the pid was handed to someone else."""
-    if not written_at:
+def pid_reused(pid, owner_instance) -> bool:
+    """True when `pid` now names a different process from the one that wrote
+    `owner_instance`: the owner died and the pid went to someone else (after
+    a hard kill, often across a reboot). Unknown either side is no evidence."""
+    _, dot, stamp = (owner_instance or "").partition(".")
+    if not dot or not stamp:
         return False
     try:
-        started = pid_lib.process_started_at(int(pid))
+        now = pid_lib.process_start_token(int(pid))
     except Exception:
-        return False    # an unreadable start time is no evidence the owner is gone
-    return started is not None and started > written_at + PID_START_SLACK_SECONDS
+        return False
+    return now is not None and now != stamp
 
 
 def _close(conn, job_id, condition, params, message=None) -> bool:
@@ -440,8 +442,7 @@ def owner_alive_elsewhere(pid, updated_at, now=None) -> bool:
     now = time.time() if now is None else now
     if (updated_at or 0) < now - STALE_ALIVE_CEILING_SECONDS:
         return False
-    return (pid is not None and pid != os.getpid() and bj.owner_process_alive(pid)
-            and not pid_started_after(pid, updated_at))
+    return pid is not None and pid != os.getpid() and bj.owner_process_alive(pid)
 
 
 def close_stale(job_id: str, cutoff: float) -> bool:

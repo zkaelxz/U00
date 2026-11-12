@@ -106,29 +106,30 @@ def test_the_launcher_shares_the_probe():
     assert launcher._pid_alive is pid_lib.pid_alive
 
 
-def test_our_own_start_time_is_in_the_past():
+
+def test_our_own_start_stamp_is_the_same_each_time():
     if os.name != "nt" and not os.path.isdir("/proc/self"):
-        pytest.skip("no start-time probe on this OS")
-    import time
-    started = pid_lib.process_started_at(os.getpid())
-    assert started is not None and time.time() - 24 * 3600 < started <= time.time() + 2
+        pytest.skip("no start-stamp probe on this OS")
+    stamp = pid_lib.process_start_token(os.getpid())
+    assert stamp and stamp == pid_lib.process_start_token(os.getpid())
 
 
 @pytest.mark.skipif(not os.path.isdir("/proc/self"), reason="Linux /proc probe")
-def test_an_exited_child_has_no_start_time():
+def test_an_exited_child_has_no_start_stamp():
     proc = subprocess.Popen([sys.executable, "-c", "pass"])
     proc.wait()
-    assert pid_lib.process_started_at(proc.pid) is None
+    assert pid_lib.process_start_token(proc.pid) is None
 
 
-def test_linux_start_time_counts_fields_from_the_last_parenthesis(tmp_path):
-    (tmp_path / "stat").write_text("cpu  1 2 3\nbtime 1000\n")
+def test_linux_stamp_counts_fields_from_the_last_parenthesis(tmp_path):
+    (tmp_path / "sys" / "kernel" / "random").mkdir(parents=True)
+    (tmp_path / "sys" / "kernel" / "random" / "boot_id").write_text("b00t\n")
     (tmp_path / "42").mkdir()
     # A command name may hold ") " itself; starttime is field 22.
-    fields = ["S"] + [str(n) for n in range(4, 22)] + [str(7 * os.sysconf("SC_CLK_TCK")), "0"]
+    fields = ["S"] + [str(n) for n in range(4, 22)] + ["777", "0"]
     (tmp_path / "42" / "stat").write_text("42 (odd) name) " + " ".join(fields) + "\n")
-    assert pid_lib._linux_started_at(42, str(tmp_path)) == 1007
-    assert pid_lib._linux_started_at(43, str(tmp_path)) is None
+    assert pid_lib._linux_start_token(42, str(tmp_path)) == "lb00t-777"
+    assert pid_lib._linux_start_token(43, str(tmp_path)) is None
 
 
 class _TimesK32(_K32):
@@ -142,14 +143,13 @@ class _TimesK32(_K32):
         return self.times_ok
 
 
-def test_windows_start_time_converts_filetime_to_unix_time():
-    unix = 1_800_000_000
-    k32 = _TimesK32((unix + pid_lib._FILETIME_UNIX_OFFSET) * 10_000_000)
-    assert pid_lib._windows_started_at(5, k32) == unix
+def test_windows_stamp_is_the_creation_filetime():
+    k32 = _TimesK32(0x01DB_1234_5678_9ABC)
+    assert pid_lib._windows_start_token(5, k32) == f"w{0x01DB_1234_5678_9ABC}"
     assert k32.closed == [1]
 
 
 @pytest.mark.parametrize("k32", [_TimesK32(10**17, ok=False), _TimesK32(10**17, handle=0),
                                  _TimesK32(0)])
-def test_windows_start_time_unknown_is_none(k32):
-    assert pid_lib._windows_started_at(5, k32) is None
+def test_windows_stamp_unknown_is_none(k32):
+    assert pid_lib._windows_start_token(5, k32) is None
