@@ -1,4 +1,4 @@
-import type { NovelChapterList, NovelChapterText } from '../types/novelChapters'
+import type { NovelChapterList, NovelChapterText, NovelLineChapters } from '../types/novelChapters'
 import { getJson, type Fetch } from './client'
 
 // api/routers/novel_files_routes.py: library.read, bounded (a list page is
@@ -11,3 +11,7 @@ export const getRawChapterText = (dramaId: number, number: number, offset = 0, l
     `/api/novel/dramas/${dramaId}/raw-novel/chapters/${number}?offset=${offset}&limit=${limit}`,
     f,
   )
+
+// api/routers/novel_files_routes.py: lines.read. Which lines belong to which saved chapter, with counts.
+export const getLineChapters = (dramaId: number, f?: Fetch) =>
+  getJson<NovelLineChapters>(`/api/novel/dramas/${dramaId}/line-chapters`, f)

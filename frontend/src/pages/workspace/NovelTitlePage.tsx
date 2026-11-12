@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { getRawChapters } from '../../api/novelChapters'
+import { getLineChapters, getRawChapters } from '../../api/novelChapters'
 import { getWorkflowProgress } from '../../api/workspace'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
@@ -8,14 +8,16 @@ import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Tabs } from '../../components/Tabs'
+import { browserStorage } from '../../hooks/usePersistedState'
+import { loadPrefs } from '../reader/readerPrefsStore'
 import { routeHref } from '../../router'
-import type { NovelChapterList, NovelChapterRow } from '../../types/novelChapters'
+import type { NovelChapterList, NovelChapterRow, NovelLineChapterRow } from '../../types/novelChapters'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 import { NovelInstructionsTab } from './NovelInstructionsTab'
 import { NovelLinkStart } from './NovelLinkStart'
 import { mainButton } from './novelLinkChain'
-import { chaptersHeadline, rowMeta, rowTitle } from './stages/novelChapters'
+import { chaptersHeadline, lineProgress, readerPageOf, rowMeta, rowTitle } from './stages/novelChapters'
 import './stages/novelChapters.css'
 
 const PAGE = 100
@@ -29,6 +31,8 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
   const [error, setError] = useState<unknown>(null)
   // Unknown until answered, then the title's line count: with no lines yet, Translate and Read have nothing to open.
   const [lineCount, setLineCount] = useState<number | null>(null)
+  // Per saved chapter: how many of its lines are translated. Empty until the title has lines.
+  const [lineRows, setLineRows] = useState<Map<number, NovelLineChapterRow>>(new Map())
   const [tab, setTab] = useState<'chapters' | 'instructions'>('chapters')
   // Lines with no translation yet: the link box stays until translating has begun, so a chain cut off before the glossary can resume.
   const [untranslated, setUntranslated] = useState(0)
@@ -69,6 +73,18 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
     }
   }, [id, tick])
 
+  useEffect(() => {
+    let cancelled = false
+    getLineChapters(id).then(
+      (l) => !cancelled && setLineRows(new Map(l.chapters.map((c) => [c.number, c]))),
+      // The counts are an extra: without them the rows fall back to the raw-text mark.
+      () => !cancelled && setLineRows(new Map()),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [id, tick])
+
   // One page at a time: the API refuses a page above its own maximum, so a long novel can't be fetched in one call.
   const showMore = () =>
     getRawChapters(id, rows.length, PAGE).then(
@@ -76,6 +92,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
       (e: unknown) => setError(e),
     )
   const marks = !!list && list.translation_chars > 0
+  const readerSize = loadPrefs(browserStorage()).chapterSize
   // With no lines yet the Translate tab has nothing to translate, so Translate runs the link chain (lines, speakers, glossary scan) instead.
   const hasLines = lineCount !== null && lineCount > 0
   // Everything has English: the next move is Review, so it takes the primary styling.
@@ -141,12 +158,27 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
                   <span className="chapters-meta muted">
                     {r.chars.toLocaleString()} chars{rowMeta(r) ? ` · ${rowMeta(r)}` : ''}
                   </span>
-                  {marks && (
-                    <span className={`chapters-mark${r.in_translation ? ' chapters-mark-in' : ''}`}>
-                      {r.in_translation ? 'In translation text' : 'Not in translation text'}
+                  {lineRows.has(r.number) ? (
+                    <span className={`chapters-mark${lineRows.get(r.number)!.translated > 0 ? ' chapters-mark-in' : ''}`}>
+                      {lineProgress(lineRows.get(r.number)!)}
                     </span>
+                  ) : (
+                    marks && (
+                      <span className={`chapters-mark${r.in_translation ? ' chapters-mark-in' : ''}`}>
+                        {r.in_translation ? 'In translation text' : 'Not in translation text'}
+                      </span>
+                    )
                   )}
                 </a>
+                {lineRows.has(r.number) && (
+                  <a
+                    className="source-link"
+                    href={routeHref({ name: 'read', id, page: readerPageOf(lineRows.get(r.number)!.first_idx, readerSize) })}
+                    aria-label={`Read chapter ${r.number}: ${rowTitle(r)}`}
+                  >
+                    Read
+                  </a>
+                )}
               </li>
             ))}
           </ul>
