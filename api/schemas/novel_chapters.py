@@ -5,10 +5,11 @@ Counts, titles and text, plus each chapter's display-safe source page link
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 __all__ = ["NovelChapterRow", "NovelChapterList", "NovelChapterText", "NovelLineChapterRow",
-           "NovelLineChapters"]
+           "NovelLineChapters", "NovelChapterRenameRequest",
+           "NovelChapterRenamed"]
 
 
 class NovelChapterRow(BaseModel):
@@ -74,3 +75,17 @@ class NovelLineChapters(BaseModel):
     # headings in the lines; "": no chapters could be told apart.
     source: str
     chapters: List[NovelLineChapterRow]
+
+
+class NovelChapterRenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=1000)
+
+
+class NovelChapterRenamed(BaseModel):
+    drama_id: int
+    number: int
+    title: str
+    # False when no line of the title held the old chapter title (nothing to change there).
+    line_updated: bool
+    # True when the translation text was a copy of the saved chapters and was updated too.
+    translation_text_updated: bool = False

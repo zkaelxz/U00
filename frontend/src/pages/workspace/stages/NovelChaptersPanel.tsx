@@ -15,7 +15,7 @@ import { featureOn } from '../../../api/features'
 import { useFeatures } from '../../../hooks/useFeatures'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getRawChapterText, getRawChapters } from '../../../api/novelChapters'
+import { getRawChapterText, getRawChapters, renameRawChapter } from '../../../api/novelChapters'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
@@ -55,6 +55,8 @@ export function NovelChaptersPanel() {
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const requestId = useRef(0)
+  // The new title being typed for the open chapter; null while not renaming.
+  const [renaming, setRenaming] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -122,6 +124,17 @@ export function NovelChaptersPanel() {
       if (id === requestId.current) setError(e)
     }
     if (id === requestId.current) setLoading(false)
+  }
+
+  const saveRename = async () => {
+    if (!preview || renaming === null || !renaming.trim()) return
+    try {
+      await renameRawChapter(dramaId, preview.number, renaming.trim())
+      setRenaming(null)
+      setReloads((n) => n + 1)
+    } catch (e) {
+      setError(e)
+    }
   }
 
   const copy = async () => {
@@ -216,9 +229,19 @@ export function NovelChaptersPanel() {
               {loadedLabel(preview.text.length, preview.head.chars)}
               {preview.head.in_translation ? ' · in the translation text' : ''}
             </p>
+            {renaming !== null && (
+              <form className="actions" aria-label="Rename chapter" onSubmit={(e) => { e.preventDefault(); void saveRename() }}>
+                <input aria-label="Chapter title" value={renaming} maxLength={200} onChange={(e) => setRenaming(e.target.value)} />
+                <button type="submit" className={buttonClass('primary')} disabled={!renaming.trim()}>Save name</button>
+                <button type="button" className={buttonClass('secondary')} onClick={() => setRenaming(null)}>Cancel</button>
+              </form>
+            )}
             <div className="chapters-text" tabIndex={0} data-testid="chapters-text">{preview.text}</div>
             <div className="actions">
               <button type="button" onClick={copy}>Copy</button>
+              {preview.head.title && !preview.head.unsplit && renaming === null && (
+                <button type="button" onClick={() => setRenaming(preview.head.title)}>Rename</button>
+              )}
               {preview.next !== null && (
                 <button type="button" disabled={loading} onClick={showAll}>Show all</button>
               )}

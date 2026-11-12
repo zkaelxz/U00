@@ -19,11 +19,11 @@ import novel_text
 from services import novel_chapters_service, ownership_service
 
 
-def _norm(text) -> str:
+def norm(text) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
-def _starts_from_manifest(drama_id: int, norm_lines: list) -> list:
+def starts_from_manifest(drama_id: int, norm_lines: list) -> list:
     """[(chapter number, title, first line position)] for each saved chapter whose
     title line was found, in order. A chapter whose title line is not found (an
     untitled one, or its title line was edited) is skipped without moving the scan, so
@@ -39,7 +39,7 @@ def _starts_from_manifest(drama_id: int, norm_lines: list) -> list:
         positions.setdefault(text, []).append(pos)
     starts, cursor = [], 0
     for number, block in enumerate(blocks, 1):
-        title = _norm(block["title"])
+        title = norm(block["title"])
         found = positions.get(title) if title else None
         if not found:
             continue
@@ -70,7 +70,7 @@ def _starts_from_headings(rows: list) -> list:
 def line_chapters(drama_id: int) -> dict:
     ownership_service.require_drama(drama_id)
     rows = db.load_lines(drama_id)
-    starts = _starts_from_manifest(drama_id, [_norm(r.get("zh")) for r in rows])
+    starts = starts_from_manifest(drama_id, [norm(r.get("zh")) for r in rows])
     source = "saved"
     if not starts:
         starts, source = _starts_from_headings(rows), "headings"
