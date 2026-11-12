@@ -19,7 +19,7 @@ import difflib
 import re
 import unicodedata
 from core import LANGUAGE_NAMES
-from glossary_io import TERM_CATEGORIES, TERM_POLICIES, alias_note, confirmed_aliases
+from glossary_io import MIN_ALIAS_LEN, TERM_CATEGORIES, TERM_POLICIES, alias_note, confirmed_aliases
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import load_json_reply
 from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
@@ -710,6 +710,7 @@ def _merge_novel_entries(all_terms: dict, entries) -> None:
             if alt not in renderings:
                 renderings.append(alt)
         e["renderings"] = renderings
+        e["aliases"] = list(dict.fromkeys((seen.get("aliases") if seen else []) + (e.get("aliases") or [])))
         all_terms[e["term"]] = e
 
 
@@ -737,6 +738,19 @@ def _quote_is_in(quote: str, text: str) -> bool:
     return sum(sizes) / len(quote) >= _EVIDENCE_MIN_MATCH and max(sizes) / len(quote) >= _EVIDENCE_MIN_RUN
 
 
+def _window_aliases(entry: dict, window_text: str) -> list:
+    """The other spellings the model gave for a term, kept only when each is
+    written in the excerpt (an invented one would never match the novel) and is
+    long enough to be a spelling rather than a single character."""
+    raw = entry.get("aliases")
+    found = []
+    for a in raw if isinstance(raw, list) else []:
+        a = a.strip() if isinstance(a, str) else ""
+        if len(a) >= MIN_ALIAS_LEN and a != entry["term"] and a in window_text and a not in found:
+            found.append(a)
+    return found
+
+
 def _clean_window_entries(entries, window_text: str) -> list:
     """The usable entries of one window's reply. A term the model did not copy
     from the excerpt is dropped (a normalized or invented spelling would never
@@ -759,6 +773,7 @@ def _clean_window_entries(entries, window_text: str) -> list:
             e["reason"] = _PRONOUN_LEAD.sub("unclear", reason, count=1)
         alt = e.get("alt")
         e["extra_renderings"] = [alt.strip()] if isinstance(alt, str) and alt.strip() else []
+        e["aliases"] = _window_aliases(e, window_text)
         out.append(e)
     return out
 
@@ -802,7 +817,8 @@ def _novel_glossary_prompt(lang_name: str, categories_desc: str, policies_desc: 
         f"{_PERSON_PRONOUN_INSTRUCTION}\n\n"
         'Return ONLY a JSON array: [{"term": "...", "suggested_translation": "...", '
         '"category": "...", "policy": "...", "reason": "brief justification", '
-        '"evidence": "quote, people only", "alt": "other reading, only if ambiguous"}]. '
+        '"evidence": "quote, people only", "alt": "other reading, only if ambiguous", '
+        '"aliases": ["another spelling or nickname of the same term, copied exactly from the excerpt, only if it appears there"]}]. '
         f"No preamble, no markdown fences.{extras}\n\n"
         f"Excerpt:\n{sample}"
     )

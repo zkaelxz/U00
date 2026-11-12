@@ -22717,6 +22717,8 @@ export interface components {
         };
         /** NovelGlossaryProposal */
         NovelGlossaryProposal: {
+            /** Aliases */
+            aliases: string[];
             /** Already In Glossary */
             already_in_glossary: boolean;
             /** Alternatives */

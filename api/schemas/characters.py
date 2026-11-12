@@ -278,6 +278,8 @@ class NovelGlossaryProposal(BaseModel):
     already_in_glossary: bool
     occurrences: int = 0
     alternatives: List[str] = Field(default_factory=list)
+    # Other spellings of the term the excerpt itself shows; saved as its aliases.
+    aliases: List[str] = Field(default_factory=list)
     confidence: Literal["high", "low"] = "low"
 
 
