@@ -1,5 +1,5 @@
 // Pure wording for NovelChaptersPanel (the chapters saved in the raw novel).
-import type { NovelChapterList, NovelChapterRow } from '../../../types/novelChapters'
+import type { NovelChapterList, NovelChapterRow, NovelLineChapterRow } from '../../../types/novelChapters'
 
 const EMPTY_CHAPTERS = 'No chapters saved yet. Import from Sources or paste text.'
 
@@ -58,4 +58,16 @@ export function neighbour(number: number, total: number, step: -1 | 1): number |
 /** A selector entry: "3. Chapter title". */
 export function optionLabel(row: NovelChapterRow): string {
   return `${row.number}. ${rowTitle(row)}`
+}
+
+/** How far a chapter's lines are translated: "Not translated", "12 of 40 lines translated" or "Translated". */
+export function lineProgress(row: Pick<NovelLineChapterRow, 'line_count' | 'translated'>): string {
+  if (row.translated <= 0) return 'Not translated'
+  if (row.translated >= row.line_count) return 'Translated'
+  return `${row.translated.toLocaleString()} of ${row.line_count.toLocaleString()} lines translated`
+}
+
+/** The Reader page (1-based) that holds line `firstIdx` when a page is `chapterSize` lines. */
+export function readerPageOf(firstIdx: number, chapterSize: number): number {
+  return Math.floor(Math.max(0, firstIdx) / Math.max(1, chapterSize)) + 1
 }
