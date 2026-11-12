@@ -13,7 +13,10 @@ import re
 # includes the request URL, and that message is what gets stored on
 # dramas.last_translate_errors and shown in the UI.
 _SECRET_PATTERNS = [
-    re.compile(r'([?&]key=)[^&\s"\']+', re.IGNORECASE),
+    re.compile(r'([?&](?:key|api_key|access_token|token)=)[^&\s"\']+', re.IGNORECASE),
+    # Jellyfin/Emby send the key as MediaBrowser Token="..."; the authorization
+    # pattern below would stop at the word MediaBrowser and leave the token.
+    re.compile(r'(\bToken\s*=\s*")[^"]+', re.IGNORECASE),
     re.compile(r'(authorization["\']?\s*[:=]\s*["\']?(?:Bearer\s+)?)[A-Za-z0-9_\-\.]{10,}',
                re.IGNORECASE),
     re.compile(r'\bsk-[A-Za-z0-9_-]{10,}\b'),

@@ -13,6 +13,9 @@ SECRETS = {
     "openai": "sk-" + "Ab12Cd34Ef56Gh78Ij90Kl12",
     "openai_proj": "sk-proj-" + "Ab12Cd34Ef56Gh78Ij90Kl12_x-y",
     "anthropic": "sk-ant-api03-" + "Ab12Cd34Ef56Gh78Ij90Kl12",
+    "jellyfin_header": 'Token="' + "0123456789abcdef0123456789abcdef" + '"',
+    "api_key_param": "?api_key=" + "0123456789abcdef0123456789abcdef",
+    "token_param": "&access_token=" + "0123456789abcdef0123456789abcdef",
 }
 
 REDACTORS = [shared.redact_secrets, diagnostics_report.redact_for_support]
