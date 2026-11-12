@@ -378,31 +378,67 @@ set -eu
 printf '%s\\n' "$*" >> "$GH_LOG"
 case "$1 $2" in
   "api repos/o/r/environments/release-main") printf '%s\\n' "$GH_RULES" ;;
+  "api repos/o/r/commits/"*) printf '%s\\n' "${GH_COMMIT}" ;;
+  "api -H")
+    case "$*" in
+      *"contents/installer/release_public_key.txt?ref=$GH_COMMIT") printf '# comment\\n%s\\n' "$GH_KEY" ;;
+      *) exit 1 ;;
+    esac ;;
   "release view")
     case "$*" in
       *isDraft*) printf '%s\\n' "$GH_STATE" ;;
       *assets*) printf '%s\\n' $GH_ASSETS ;;
     esac ;;
+  "release download")
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --dir) d="$2"; mkdir -p "$d"; shift ;;
+        --pattern) [ -f "$GH_FILES/$2" ] && cp "$GH_FILES/$2" "$d/"; shift ;;
+      esac
+      shift
+    done ;;
   "release edit") ;;
   *) exit 1 ;;
 esac
 """
 
 SIGNED = f"{NAME} {NAME}.sha256 {NAME}.sig"
+APP = "BaiheStudio-App-0.2.0.zip"
 
 
-def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=SIGNED):
-    if os.name == "nt" or not shutil.which("bash"):
-        pytest.skip("needs bash (the promote job runs on ubuntu)")
+def _release_files(folder, seed, tamper=None):
+    """The installer and app zip with their .sha256 and real .sig files, as
+    the tag's run published them; `tamper` names a file changed afterwards."""
+    folder.mkdir()
+    for name, body in ((NAME, b"MZ fake installer"), (APP, b"PK fake app")):
+        sha = hashlib.sha256(body).hexdigest()
+        (folder / name).write_bytes(body + (b" changed" if tamper == name else b""))
+        (folder / (name + ".sha256")).write_text(f"{sha}  {name}\n", encoding="ascii")
+        (folder / (name + ".sig")).write_text(rs.format_signature(rs.sign(seed, name, sha)) + "\n",
+                                              encoding="ascii")
+    if tamper and tamper.endswith(".sha256"):
+        (folder / tamper).write_text("0" * 64 + "  x\n", encoding="ascii")
+
+
+def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=SIGNED,
+                 tamper=None, key=None, sign_with=None):
+    if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
+                               and shutil.which("base64")):
+        pytest.skip("needs bash, openssl and coreutils (the promote job runs on ubuntu)")
     script = _promote_job()
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "gh").write_text(FAKE_GH_PROMOTE, encoding="utf-8")
     (bindir / "gh").chmod(0o755)
+    private, public = rs.generate()
+    seed = rs.parse_private_key(sign_with or private)
+    _release_files(tmp_path / "assets", seed, tamper)
     log = tmp_path / "gh.log"
     env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "TAG": tag,
            "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t", "GH_LOG": str(log),
-           "GH_RULES": rules, "GH_STATE": state, "GH_ASSETS": assets}
+           "GH_RULES": rules, "GH_STATE": state, "GH_ASSETS": assets, "GH_COMMIT": "c" * 40,
+           "GH_KEY": public if key is None else key, "GH_FILES": str(tmp_path / "assets"),
+           "TMPDIR": str(tmp_path)}
     proc = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True,
                           timeout=60)
     calls = log.read_text().splitlines() if log.exists() else []
@@ -413,9 +449,6 @@ def test_promote_makes_the_tested_pre_release_the_full_release(tmp_path):
     proc, edits = _run_promote(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert edits == ["release edit v0.2.0 --repo o/r --prerelease=false --latest"]
-
-
-APP = "BaiheStudio-App-0.2.0.zip"
 
 
 def test_promote_checks_the_app_zip_files_when_the_release_has_one(tmp_path):
@@ -443,6 +476,29 @@ def test_promote_refuses_and_changes_nothing(tmp_path, change, says):
     proc, edits = _run_promote(tmp_path, **change)
     assert proc.returncode != 0 and edits == []
     assert says in proc.stdout and "Nothing was promoted" in proc.stdout
+
+
+@pytest.mark.parametrize("change,says", [
+    ({"tamper": NAME}, f"{NAME} doesn't match its .sha256 file"),
+    ({"tamper": NAME + ".sha256"}, f"{NAME} doesn't match its .sha256 file"),
+    ({"tamper": APP, "assets": f"{SIGNED} {APP} {APP}.sha256 {APP}.sig "
+                               "BaiheStudio-App-0.2.0.json"}, f"{APP} doesn't match"),
+    # Signed, and the hash matches, but by a key other than the tag's own.
+    ({"sign_with": rs.generate()[0]}, f"{NAME}.sig is not a valid signature"),
+    ({"key": ""}, "holds no release public key"),
+    ({"key": "ed25519-public:bm90IGEga2V5"}, "isn't a valid public key"),
+])
+def test_promote_verifies_the_files_and_signatures(tmp_path, change, says):
+    proc, edits = _run_promote(tmp_path, **change)
+    assert proc.returncode != 0 and edits == []
+    assert says in proc.stdout and "Nothing was promoted" in proc.stdout
+
+
+def test_promote_checks_the_signature_of_every_signed_file(tmp_path):
+    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP} {APP}.sha256 {APP}.sig "
+                                                "BaiheStudio-App-0.2.0.json")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert f"Verified {NAME}" in proc.stdout and f"Verified {APP}" in proc.stdout
 
 
 def test_the_release_body_is_the_tags_notes_file(tmp_path, keys):

@@ -29,7 +29,7 @@ jobs:
   # release that the tag's own run published.
   promote:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     environment: release-main
     permissions:
       contents: write
@@ -70,6 +70,47 @@ jobs:
               echo "::error::$TAG has no $name. Finish the release first (docs/runbook.md, section 1a). Nothing was promoted."
               exit 1
             fi
+          done
+          # The files must still be the ones that were signed: a .sig only proves
+          # something when it is checked, and a release's files can be replaced
+          # after the tag's run. The key is the one committed at the tagged commit,
+          # the same line the release job signed against, read through the API.
+          signed=("$setup")
+          if printf '%s\n' "$names" | grep -Fqx "$app"; then signed+=("$app"); fi
+          commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
+          key="$(gh api -H 'Accept: application/vnd.github.raw' \
+            "repos/$GITHUB_REPOSITORY/contents/installer/release_public_key.txt?ref=$commit" \
+            | grep -v '^#' | tr -d '[:space:]')"
+          case "$key" in
+            ed25519-public:*) ;;
+            *) echo "::error::installer/release_public_key.txt at $TAG holds no release public key, so the signatures can't be checked. Nothing was promoted."
+               exit 1 ;;
+          esac
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          # SubjectPublicKeyInfo wrapping of a raw Ed25519 public key: a fixed 12-byte header, then the 32 bytes.
+          { printf '\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00'
+            printf '%s' "${key#ed25519-public:}" | base64 -d 2>/dev/null; } > "$work/pub.der" || true
+          if [ "$(stat -c %s "$work/pub.der")" -ne 44 ]; then
+            echo "::error::installer/release_public_key.txt at $TAG isn't a valid public key. Nothing was promoted."
+            exit 1
+          fi
+          for name in "${signed[@]}"; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$work/files" \
+              --pattern "$name" --pattern "$name.sha256" --pattern "$name.sig"
+            sha="$(sha256sum "$work/files/$name" | cut -d ' ' -f 1)"
+            if [ "$(cut -d ' ' -f 1 < "$work/files/$name.sha256")" != "$sha" ]; then
+              echo "::error::$name doesn't match its .sha256 file. Nothing was promoted."
+              exit 1
+            fi
+            printf 'baihe-studio-release-signature-v1\nname: %s\nsha256: %s\n' "$name" "$sha" > "$work/message"
+            if ! tr -d '[:space:]' < "$work/files/$name.sig" | base64 -d > "$work/sig.bin" 2>/dev/null \
+                || ! openssl pkeyutl -verify -rawin -pubin -keyform DER -inkey "$work/pub.der" \
+                  -in "$work/message" -sigfile "$work/sig.bin" > /dev/null 2>&1; then
+              echo "::error::$name.sig is not a valid signature of $name by the release key at $TAG. Nothing was promoted."
+              exit 1
+            fi
+            echo "Verified $name against its .sha256 and its signature."
           done
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
           echo "Promoted $TAG to a full release; its files were not changed."
