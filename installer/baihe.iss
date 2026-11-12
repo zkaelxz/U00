@@ -611,7 +611,6 @@ begin
 end;
 
 // Base64 of S as UTF-16LE, the form powershell.exe's -EncodedCommand takes.
-// S must be ASCII (checked by the caller).
 function Utf16Base64(const S: String): String;
 const
   Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -623,8 +622,8 @@ begin
   SetLength(Bytes, N + 2);
   for I := 1 to Length(S) do
   begin
-    Bytes[(I - 1) * 2] := Ord(S[I]);
-    Bytes[(I - 1) * 2 + 1] := 0;
+    Bytes[(I - 1) * 2] := Ord(S[I]) and 255;
+    Bytes[(I - 1) * 2 + 1] := (Ord(S[I]) shr 8) and 255;
   end;
   Bytes[N] := 0;
   Bytes[N + 1] := 0;
@@ -648,13 +647,13 @@ begin
   end;
 end;
 
-function PowerShellQuoted(const S: String): String;
-var
-  Quoted: String;
+// A value as PowerShell code that decodes it. Quoting would not do: a path may hold
+// characters PowerShell treats as quotes (U+2018 and its kin are legal in a Windows
+// folder name), and base64 has none of them.
+function PowerShellValue(const S: String): String;
 begin
-  Quoted := S;
-  StringChangeEx(Quoted, '''', '''''', True);
-  Result := '''' + Quoted + '''';
+  Result := '[System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String(''' +
+    Utf16Base64(S) + '''))';
 end;
 
 // The service step of a fresh install or an update, run from files the user
@@ -688,12 +687,12 @@ begin
       Log('Service step: stage_service.ps1 is not ASCII.');
       Exit;
     end;
-  Script := '$Source = ' + PowerShellQuoted(ExpandConstant('{app}\service')) + #13#10 +
-    '$Staging = ' + PowerShellQuoted(AdminDir() + '.staging') + #13#10 +
+  Script := '$Source = ' + PowerShellValue(ExpandConstant('{app}\service')) + #13#10 +
+    '$Staging = ' + PowerShellValue(AdminDir() + '.staging') + #13#10 +
     '$Digest = ''{#ServiceTreeDigest}''' + #13#10 +
-    '$Root = ' + PowerShellQuoted(ExpandConstant('{app}')) + #13#10 +
-    '$Data = ' + PowerShellQuoted(DataDir()) + #13#10 +
-    '$Extra = ' + PowerShellQuoted(Extra) + #13#10 + Body;
+    '$Root = ' + PowerShellValue(ExpandConstant('{app}')) + #13#10 +
+    '$Data = ' + PowerShellValue(DataDir()) + #13#10 +
+    '$Extra = ' + PowerShellValue(Extra) + #13#10 + Body;
   Log('Running the staged service step.');
   Result := RunElevated(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -NonInteractive -EncodedCommand ' + Utf16Base64(Script));

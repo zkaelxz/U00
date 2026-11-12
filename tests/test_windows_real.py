@@ -107,7 +107,11 @@ def _run_staging_script(tmp_path, source, digest):
     import base64
     from pathlib import Path
     body = (Path(__file__).resolve().parent.parent / "installer" / "stage_service.ps1").read_text(encoding="ascii")
-    header = "".join(f"${name} = '{value}'\r\n" for name, value in (
+    def value(text):  # as RunStagedServiceInstall passes it
+        raw = base64.b64encode(str(text).encode("utf-16-le")).decode("ascii")
+        return f"[System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('{raw}'))"
+
+    header = "".join(f"${name} = {value(text)}\r\n" for name, text in (
         ("Source", source), ("Staging", tmp_path / "staging"), ("Digest", digest),
         ("Root", tmp_path / "app"), ("Data", tmp_path / "data"), ("Extra", "")))
     encoded = base64.b64encode((header + body).encode("utf-16-le")).decode("ascii")

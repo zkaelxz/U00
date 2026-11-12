@@ -502,6 +502,9 @@ class TestBootService:
         assert "{#StageScriptSha256}" in staged and "{#ServiceTreeDigest}" in staged
         assert "-EncodedCommand" in staged and "-File" not in staged
         assert "AdminDir() + '.staging'" in staged
+        # Values reach the script as base64, never as quoted text a path could break out of.
+        assert "PowerShellQuoted" not in iss and "FromBase64String" in _func(iss, "PowerShellValue")
+        assert staged.count("PowerShellValue(") == 5
         assert "#error" in iss and "ServiceTreeDigest is not defined" in iss
         # Nothing but the admin folder's own copy is ever run through RunServiceHelper.
         for call in re.findall(r"RunServiceHelper\((?!const)([^,]+),", iss):
@@ -513,6 +516,11 @@ class TestBootService:
         assert ps1.index("Get-TreeDigest $Staging") < ps1.index("Start-Process")
         assert "exit 3" in ps1 or "' 3" in ps1
         assert "ReparsePoint" in ps1 and "StringComparer]::Ordinal" in ps1
+        # The copy is locked to SYSTEM and Administrators before anything is put in it, and only
+        # system modules may load.
+        assert ps1.index("icacls.exe") < ps1.index("Copy-Unlinked $Source $Staging")
+        assert "$env:PSModulePath = Join-Path $PSHOME 'Modules'" in ps1
+        assert "-isnot [int]" in ps1
         # Only the copy is run, never $Source.
         assert "Join-Path $Staging 'helper\\python\\python.exe'" in ps1
         assert "Join-Path $Source" not in ps1
@@ -527,7 +535,8 @@ class TestBootService:
             n = len(text) * 2
             data = [0] * (n + 2)
             for i, ch in enumerate(text):
-                data[i * 2] = ord(ch)
+                data[i * 2] = ord(ch) & 255
+                data[i * 2 + 1] = (ord(ch) >> 8) & 255
             out, i = "", 0
             while i < n:
                 group = (data[i] << 16) | (data[i + 1] << 8)
@@ -539,7 +548,9 @@ class TestBootService:
                 i += 3
             return out
 
-        for text in ("", "a", "ab", "abc", "$Root = 'C:\\Program Files'\r\n"):
+        # A user name in another script, and the typographic quotes PowerShell reads as quotes.
+        for text in ("", "a", "ab", "abc", "$Root = 'C:\\Program Files'\r\n",
+                     "C:\\Users\u674e\u660e\\Baihe", "C:\\Users\\Jo\u2019; calc; \u2018"):
             assert encode(text) == base64.b64encode(text.encode("utf-16-le")).decode(), text
 
     def test_install_runs_from_a_checked_copy_the_rest_from_the_admin_folder(self, iss):

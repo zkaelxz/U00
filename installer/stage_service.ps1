@@ -11,6 +11,8 @@
 #   $Digest   the tree digest compiled into Setup (build_installer.service_tree_digest)
 #   $Root $Data $Extra   the install folder, the data folder and optional service.py options
 $ErrorActionPreference = 'Stop'
+# The elevated process inherits the user's module path; only the system's modules may load here.
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 
 function Stop-Setup($Why, $Code) {
     Write-Host $Why
@@ -42,6 +44,23 @@ function Get-TreeDigest($Dir) {
     return (($hash | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 
+# Walks the source itself and stops at any link, instead of letting Copy-Item follow one swapped in
+# after the check below.
+function Copy-Unlinked($From, $To) {
+    foreach ($item in Get-ChildItem -LiteralPath $From -Force) {
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            Stop-Setup 'Setup''s service files contain a link, so nothing was installed.' 3
+        }
+        $target = Join-Path $To $item.Name
+        if ($item.PSIsContainer) {
+            New-Item -ItemType Directory -Path $target | Out-Null
+            Copy-Unlinked $item.FullName $target
+        } else {
+            Copy-Item -LiteralPath $item.FullName -Destination $target
+        }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
     Stop-Setup 'Setup''s service files are missing.' 3
 }
@@ -60,7 +79,13 @@ if (Test-Path -LiteralPath $Staging) {
     }
 }
 New-Item -ItemType Directory -Path $Staging | Out-Null
-Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Staging -Recurse -Force
+# Program Files lets Users read what is created in it; nothing of the copy may be readable or
+# changeable by them, whatever the source turns out to hold (S-1-5-18 SYSTEM, S-1-5-32-544 Administrators).
+& icacls.exe $Staging /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Stop-Setup 'The staging folder could not be locked down.' 3
+}
+Copy-Unlinked $Source $Staging
 
 if ((Get-TreeDigest $Staging) -ne $Digest) {
     Stop-Setup 'Setup''s service files do not match this installer, so nothing was installed.' 3
@@ -72,4 +97,9 @@ $arguments = '-I -S "' + $service + '" --install-root "' + $Root + '" --data-dir
 $run = Start-Process -FilePath $python -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
 $code = $run.ExitCode
 Remove-Item -LiteralPath $Staging -Recurse -Force -ErrorAction SilentlyContinue
+# Start-Process can leave ExitCode empty, and "exit $null" would report success.
+if ($code -isnot [int]) {
+    Write-Host 'The service step gave no exit code.'
+    exit 5
+}
 exit $code
