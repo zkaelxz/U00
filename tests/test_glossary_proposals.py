@@ -40,6 +40,16 @@ class TestNormalize:
         (p,) = gs._normalize_proposals([_prop("师尊", "")], [], "师尊" * 9)
         assert p["confidence"] == "low"
 
+    def test_a_term_the_model_is_unsure_of_is_never_high(self):
+        (sure, unsure) = gs._normalize_proposals(
+            [_prop("敲", "get wasted", unsure=False), _prop("敲敲", "hit it", unsure=True)], [], "敲" * 5 + "敲敲" * 5)
+        assert sure["confidence"] == "high"
+        assert unsure["occurrences"] >= 3 and unsure["confidence"] == "low"
+
+    def test_a_non_boolean_unsure_does_not_lower_confidence(self):
+        (p,) = gs._normalize_proposals([_prop("师尊", "Teacher", unsure="false")], [], "师尊" * 3)
+        assert p["confidence"] == "high"
+
     def test_bad_renderings_are_ignored(self):
         (p,) = gs._normalize_proposals([_prop("师尊", "Teacher", renderings="oops")], [], "师尊" * 3)
         assert p["alternatives"] == [] and p["confidence"] == "high"
