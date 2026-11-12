@@ -422,7 +422,7 @@ def _schedule(row, c, now) -> None:
 
 # --- what a check leads to ---------------------------------------------------
 
-def _gate_refusal(engine, model=None) -> str:
+def _gate_refusal(engine, model) -> str:
     """Why an automatic start may not happen now, else ""."""
     from services import line_ai_service, live_service, paid_job_service, settings_service
     from lib.errors import ServiceError

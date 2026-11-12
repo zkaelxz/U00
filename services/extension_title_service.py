@@ -312,7 +312,8 @@ def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
         if engine_cls is None or not getattr(engine_cls, "supports_reference", False):
             return False
         translate_run_service.refuse_when_cap_spent(
-            engine_name, bool(config.get("free_tier")) and engine_name == "gemini")
+            engine_name, bool(config.get("free_tier")) and engine_name == "gemini",
+            config.get("model"))
         engine = page_server._build_engine(config)
         if engine is None:
             return False

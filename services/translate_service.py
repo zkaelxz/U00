@@ -294,7 +294,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     if api_key is None:
         raise MissingKeyError(engine_name)
 
-    translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier)
+    translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier, model)
     engine = engine_registry.get_engine(
         engine_name, api_key, model, free_tier=use_free_tier,
         base_url=(settings_service.ollama_url()

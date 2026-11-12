@@ -344,7 +344,7 @@ def get_options() -> dict:
     }
 
 
-def _cap_applies(engine: str, model=None) -> bool:
+def _cap_applies(engine: str, model) -> bool:
     return translate_run_service.engine_cap_applies(
         engine, bool(settings_service.get("gemini_free_tier")), model)
 

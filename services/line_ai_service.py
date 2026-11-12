@@ -49,7 +49,7 @@ def tool_engine_name(drama_id: int, engine_name: str | None = None) -> str:
     return engine_routing_service.line_tool_engine(ownership_service.require_drama(drama_id))
 
 
-def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool, model=None) -> None:
+def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool, model) -> None:
     """Refuses a paid call once this month's spending cap is used up, as the
     review jobs do (a single short call can't be stopped part way, so there
     is no per-call cap; only the used-up refusal applies)."""
@@ -81,7 +81,7 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
             and model in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
     if check_cap:
-        refuse_if_over_monthly_cap(engine_name, gemini_free_tier)
+        refuse_if_over_monthly_cap(engine_name, gemini_free_tier, model)
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)

@@ -181,7 +181,7 @@ class TestSending:
         from lib.errors import UnsupportedOperationError
         from services import translate_run_service
 
-        def spent(name, free=False):
+        def spent(name, free=False, model=None):
             raise UnsupportedOperationError("This month's spending cap is used up.")
         monkeypatch.setattr(translate_run_service, "refuse_when_cap_spent", spent)
         r = _client().post(f"{BASE}/text", headers=_auth(token), json={"text": "你好"})

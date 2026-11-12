@@ -64,15 +64,16 @@ def month_cap_usd() -> float:
     return settings_service.get_monthly_cap_usd()
 
 
-def engine_cap_applies(engine_name: str, gemini_free_tier: bool = False, model=None) -> bool:
+def engine_cap_applies(engine_name: str, gemini_free_tier: bool, model) -> bool:
     """Ollama is a free engine, but its hosted tags are billed per token, so the
-    cap covers them: callers that know the model must pass it."""
+    cap covers them. `model` has no default so a caller cannot forget it; pass
+    None only where the engine runs its default (local) model."""
     if engine_name == "ollama" and engine_local.is_ollama_cloud_model(model):
         return True
     return engine_name in _CAP_ENGINES and not (engine_name == "gemini" and gemini_free_tier)
 
 
-def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False, model=None) -> None:
+def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool, model) -> None:
     """For a one-off LLM run with no per-run budget (glossary extraction,
     learn my style): UnsupportedOperationError when this month's spending
     cap is already used up and the engine is a capped one."""
@@ -148,7 +149,7 @@ def get_translate_config(drama_id: int) -> dict:
         # The form shows it as "X of $cap" (what the cap counts, since any
         # reset) or, with no cap, as the month's real spend.
         "month_spend": db.get_month_spend(since_reset=monthly_cap > 0),
-        "cap_applies_by_engine": {name: engine_cap_applies(name, free_tier)
+        "cap_applies_by_engine": {name: engine_cap_applies(name, free_tier, None)
                                   for name in engine_registry.ENGINES},
         "bulk_supported_engines": [e for e in bulk_translate.BULK_ENGINES
                                    if not (e == "gemini" and free_tier)],
@@ -621,8 +622,8 @@ def resume_bulk_translations(drama_id: int) -> dict:
             "jobs": [{"bulk_job_id": k, "state": v} for k, v in sorted(out.items())]}
 
 
-def _spend_cap_used_up(engine_name: str) -> bool:
-    if not engine_cap_applies(engine_name, bool(settings_service.get("gemini_free_tier"))):
+def _spend_cap_used_up(engine_name: str, model) -> bool:
+    if not engine_cap_applies(engine_name, bool(settings_service.get("gemini_free_tier")), model):
         return False
     monthly = month_cap_usd()
     _cap, refusal = pricing.resolve_cost_cap(
@@ -652,7 +653,7 @@ def resume_interrupted_at_startup() -> dict:
         why = {}
 
         def factory(engine_name, model):
-            if _spend_cap_used_up(engine_name):
+            if _spend_cap_used_up(engine_name, model):
                 why[engine_name] = "the monthly spending cap is used up"
                 return None
             try:
