@@ -43,10 +43,11 @@ QWEN3_VL_REPOS = {"qwen3_vl_4b": "Qwen/Qwen3-VL-4B-Instruct", "qwen3_vl_8b": "Qw
 
 
 def default_hardsub_backend(source_language: str) -> str:
-    """Auto for Chinese and Korean, so RapidOCR (on real hard-sub frames it read Chinese
+    """Auto for Chinese, Korean and Japanese, so RapidOCR (on real hard-sub frames it read Chinese
     captions as well as PaddleOCR and kept lines whole where PaddleOCR split them) is used
-    only where installed and a title that read fine on PaddleOCR or Tesseract still does."""
-    return "auto" if source_language in ("zh", "ko") else "tesseract"
+    only where installed and a title that read fine on PaddleOCR or Tesseract still does.
+    Tesseract stays the last fallback and an explicit choice; it is optional and a manual install."""
+    return "auto" if source_language in ("zh", "ko", "ja") else "tesseract"
 
 
 def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
