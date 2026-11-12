@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from 'react'
 
+import { OpenFolderButton } from '../../components/OpenFolderButton'
+import { openDramaFolder } from '../../api/library'
 import type { DramaDetail } from '../../api/types'
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
@@ -49,6 +51,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
         <h1 data-testid="drama-title" title={title}>{title}</h1>
         <JobPill dramaId={id} onFinished={refetch} />
         <TitleViewSwitch view="simple" onChange={onView} />
+        <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />
         <SourceLink href={drama.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
         {!safeHref(drama.source_url) && (
           <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
