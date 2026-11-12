@@ -462,7 +462,11 @@ def test_open_folder_from_a_background_service_says_so(client, monkeypatch):
     monkeypatch.setattr(file_manager, "open_folder", no_desktop)
     drama_id = db.create_drama(title_en="A")
     r = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
-    assert r.status_code == 400 and "background service" in _error(r)["message"]
+    message = _error(r)["message"]
+    assert r.status_code == 400 and "background service" in message
+    assert f"named {drama_id}" in message and str(db.DRAMAS_DIR) not in message
+    again = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
+    assert again.status_code == 400
 
 
 def test_duplicate_makes_an_independent_copy(client):
