@@ -223,8 +223,9 @@ _URL_PATTERN = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 # name set follows sources/ai_extract._SENSITIVE_PARAM, without its need for
 # a preceding ?/&. Group 1 is the name and "=".
 CREDENTIAL_PARAM_PATTERN = re.compile(
-    r"(?i)(?<![\w.\-])((?:[\w.\-]*(?:token|sig|auth|session|secret|credential|passw|key|jwt|"
-    r"ticket|hmac|policy)[\w.\-]*|x-amz-[\w.\-]+)=)[^&#\s\"'<>\\;,]*")
+    r"(?i)(?<![\w.\-])((?=x-amz-[\w.\-]|[\w.\-]*?(?:token|sig|auth|session|secret|credential|passw|key|jwt|"
+    r"ticket|hmac|policy))[\w.\-]+=)[^&#\s\"'<>\\;,]*")
+
 # A name counts only between non-alphanumerics: matching inside a word would
 # turn a short name like "li" into "[USER]brary", while "_", "-", "@" and "."
 # still end one ("bob@bob-laptop", "bob_notes.txt").

@@ -16,6 +16,8 @@ SECRETS = {
     "jellyfin_header": 'Token="' + "0123456789abcdef0123456789abcdef" + '"',
     "jellyfin_single_quoted": "Token='" + "0123456789abcdef0123456789abcdef" + "'",
     "jellyfin_unquoted": "Token=" + "0123456789abcdef0123456789abcdef",
+    "long_prefixed_token": "google_oauth_refresh_access_token=" + "0123456789abcdef0123456789abcdef",
+    "long_prefixed_json": '"my-long-prefixed-client-secret": "' + "0123456789abcdef0123456789abcdef" + '"',
     "refresh_token_assign": "refresh_token=" + "0123456789abcdef0123456789abcdef",
     "json_token": '"token":"' + "0123456789abcdef0123456789abcdef" + '"',
     "dict_repr_token": "'access_token': '" + "0123456789abcdef0123456789abcdef" + "'",
@@ -97,7 +99,7 @@ def test_short_or_unrelated_token_params_are_left_readable(text):
 
 
 @pytest.mark.parametrize("redactor", REDACTORS)
-@pytest.mark.parametrize("filler", ["a-", "a_", 'x"a-', "a-" * 3 + "token="])
+@pytest.mark.parametrize("filler", ["a-", "a_", 'x"a-', "a-" * 3 + "token=", 'a-"', "a_token_"])
 def test_a_long_run_of_prefix_like_text_is_redacted_in_linear_time(redactor, filler):
     import time
     text = filler * (40_000 // len(filler))

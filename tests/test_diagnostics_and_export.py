@@ -1040,3 +1040,13 @@ class TestCheckCuda:
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
         monkeypatch.setitem(sys.modules, "torch", None)  # forces ImportError on `import torch`
         assert diagnostics.check_cuda() == {"torch_installed": True, "cuda_available": None}
+
+
+@pytest.mark.parametrize("filler", ["a-", "token-", "a-token-", "x-amz-a-", "key.sig-"])
+def test_credential_param_pattern_is_linear_on_a_long_name_without_an_equals_sign(filler):
+    import time
+    text = filler * (40_000 // len(filler))
+    started = time.perf_counter()
+    diagnostics_report.CREDENTIAL_PARAM_PATTERN.sub(r"\1[REDACTED]", text)
+    # A nested name match backtracked quadratically here (about 2 s for 40 KB).
+    assert time.perf_counter() - started < 1.0
