@@ -678,6 +678,7 @@ async function batching(scenarioJson) {
       if (pathname === "/health") {
         return { ok: true, status: 200, json: async () => ({ max_images_per_request: scenario.cap }) };
       }
+      if (pathname === "/cancel") return { ok: true, status: 200, json: async () => ({ cancelled: true }) };
       const body = JSON.parse(init.body);
       requests.push({ path: pathname, keys: body.images.map((i) => i.key) });
       const reply = scenario.reply(requests.length, body);
@@ -689,7 +690,7 @@ async function batching(scenarioJson) {
       return { ok: reply.status === 200, status: reply.status, json: async () => reply.body };
     },
     console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
-    setTimeout, clearTimeout, AbortController,
+    setTimeout, clearTimeout, AbortController, crypto: globalThis.crypto,
   };
   sandbox.globalThis = sandbox;
   sandbox.importScripts = (name) => vm.runInContext(read(name), sandbox);
