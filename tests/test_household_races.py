@@ -6,6 +6,7 @@ import contextlib
 import io
 import os
 import threading
+import time
 
 import pytest
 
@@ -327,7 +328,7 @@ def test_bulk_delete_calls_a_busy_scanlate_job_a_job(isolated_db, monkeypatch):
     assert db.get_drama(did) is not None
 
 
-def test_a_token_still_being_written_without_hard_links_is_not_replaced(isolated_db):
+def test_a_token_still_being_written_without_hard_links_is_not_replaced(isolated_db, monkeypatch):
     # Without hard links another request's link_new leaves an empty file in
     # place for a moment before its token lands there.
     path = page_server.token_path()
@@ -336,11 +337,18 @@ def test_a_token_still_being_written_without_hard_links_is_not_replaced(isolated
     def finish_writing():
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("their-token")
-    writer = threading.Timer(0.05, finish_writing)
-    writer.start()
-    try:
-        assert page_server.load_or_create_token() == "their-token"
-    finally:
-        writer.join(5.0)
+
+    # The other request finishes during the settle wait itself, not on a wall-clock
+    # timer: a loaded runner could start a timer thread after the wait had ended.
+    class _Clock:
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+        @staticmethod
+        def sleep(seconds):
+            finish_writing()
+
+    monkeypatch.setattr(page_server, "time", _Clock())
+    assert page_server.load_or_create_token() == "their-token"
     with open(path, encoding="utf-8") as fh:
         assert fh.read() == "their-token"
