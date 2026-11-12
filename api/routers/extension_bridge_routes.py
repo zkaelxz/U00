@@ -168,12 +168,13 @@ async def post_novel(request: Request):
 async def post_title(request: Request):
     principal = request.state.principal
     # Naming a new title is one AI call on the owner's extension engine, so a member who could
-    # not send a page through that engine gets the title without it.
-    try:
-        _require_engine_allowed(request)
-        may_spend = True
-    except ForbiddenError:
-        may_spend = False
+    # not send a page through that engine (engine rights, or `jobs.start`) gets the title without it.
+    may_spend = holds(request, "jobs.start")
+    if may_spend:
+        try:
+            _require_engine_allowed(request)
+        except ForbiddenError:
+            may_spend = False
     return await _handle(request, lambda payload: titles.resolve_from_bridge(
         payload, principal=principal, translate_title=may_spend), needs=_WRITE)
 

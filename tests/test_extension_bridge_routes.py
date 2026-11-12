@@ -412,3 +412,11 @@ class TestTitleNaming:
         calls = self._setup(monkeypatch, "ollama")
         _u, token = _member("a@example.com")
         assert self._title(token).status_code == 200 and len(calls) == 1
+
+    def test_a_member_without_jobs_start_gets_the_title_but_no_call(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "ollama")
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        r = self._title(token)
+        assert r.status_code == 200 and calls == []
+        assert db.get_drama(r.json()["drama_id"])["title_en"] == ""
