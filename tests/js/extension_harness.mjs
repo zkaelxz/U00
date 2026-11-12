@@ -505,6 +505,7 @@ async function novel(scenario) {
         chinese: url({ links: [{ href: "/ch/4", text: "下一章" }] }),
         label: url({ links: [{ href: "/ch/4", text: "", label: "Next" }] }),
         sentence: url({ links: [{ href: "/ch/4", text: "Read the next chapter of our newsletter for more" }] }),
+        nextPage: url({ links: [{ href: "/ch/3_2", text: "下一页" }, { href: "/ch/3_2", text: "下一頁" }, { href: "/ch/3_2", text: "Next page" }, { href: "/ch/3_2", text: "다음" }, { href: "/ch/3_2", text: "次へ" }] }),
         otherSite: url({ links: [{ href: "https://elsewhere.example/ch/4", text: "Next" }] }),
         samePage: url({ links: [own] }),
         none: url({}),

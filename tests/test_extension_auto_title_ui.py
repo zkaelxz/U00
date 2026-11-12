@@ -98,6 +98,8 @@ def test_the_next_chapter_link_is_the_sites_own_short_label_on_the_same_site():
     for key in ("text", "korean", "japanese", "chinese", "label"):
         assert out[key] == "https://novel.example/ch/4", key
     # A sentence that merely contains "next", another site, the page itself, or no link: nothing to follow.
+    # 下一页 and the like are the next piece of the same chapter, so each would be saved as a chapter.
+    assert out["nextPage"] == ""
     assert out["sentence"] == "" and out["otherSite"] == "" and out["samePage"] == "" and out["none"] == ""
 
 

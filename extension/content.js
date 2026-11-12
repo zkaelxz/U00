@@ -772,7 +772,9 @@
   // The site's own "next chapter" link, for a run that carries on chapter after chapter. Only a
   // link on the same site counts, never the page itself, and the match is on the link's own short
   // label so a body-text sentence containing "next" is not followed.
-  const NEXT_LABEL = /^(?:next(?:\s+(?:chapter|episode|ch\.?|ep\.?))?|다음\s*(?:화|회|편|회차)?|次(?:の話|話|章|へ)?|下一[章话話回页頁]?|下[章话話回])$/i;
+  // Chapter words only. "Next page", 下一页/下一頁, a bare 다음 or 次へ often move to the next piece of
+  // the same chapter on novel sites, which would save every piece as a chapter of its own.
+  const NEXT_LABEL = /^(?:next(?:\s+(?:chapter|episode|ch\.?|ep\.?))?|다음\s*(?:화|회|편|회차)|次(?:の話|話|章)|下一[章话話回]|下[章话話回])$/i;
 
   function nextChapterUrl() {
     const here = location.origin + location.pathname + location.search;
