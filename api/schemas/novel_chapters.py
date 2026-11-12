@@ -7,7 +7,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
-__all__ = ["NovelChapterRow", "NovelChapterList", "NovelChapterText"]
+__all__ = ["NovelChapterRow", "NovelChapterList", "NovelChapterText", "NovelLineChapterRow",
+           "NovelLineChapters"]
 
 
 class NovelChapterRow(BaseModel):
@@ -53,3 +54,23 @@ class NovelChapterText(BaseModel):
     text: str
     # Character offset to ask for next; null at the end of the chapter.
     next_offset: Optional[int]
+
+
+class NovelLineChapterRow(BaseModel):
+    # The saved chapter's number in the raw-novel chapter list (1-based), or a
+    # running count when chapters were found from headings in the lines.
+    number: int
+    title: str
+    first_idx: int
+    line_count: int
+    translated: int
+    reviewed: int
+
+
+class NovelLineChapters(BaseModel):
+    drama_id: int
+    total_lines: int
+    # "saved": from the saved chapters' titles; "headings": from chapter
+    # headings in the lines; "": no chapters could be told apart.
+    source: str
+    chapters: List[NovelLineChapterRow]

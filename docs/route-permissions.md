@@ -424,6 +424,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/novel/dramas/{drama_id}/attach-epub` | media.upload |
 | `POST /api/novel/dramas/{drama_id}/attach-from-sources` | local_only() |
 | `POST /api/novel/dramas/{drama_id}/attach-text` | media.upload |
+| `GET /api/novel/dramas/{drama_id}/line-chapters` | lines.read |
 | `POST /api/novel/dramas/{drama_id}/lncrawl` | local_only() |
 | `POST /api/novel/dramas/{drama_id}/ocr-chapter` | local_only() |
 | `GET /api/novel/dramas/{drama_id}/raw-novel` | library.read |
