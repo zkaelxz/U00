@@ -328,3 +328,42 @@ def test_health_reports_the_shipped_extension_version():
     from services import extension_bridge_service as svc
     with open(svc._MANIFEST, encoding="utf-8") as f:
         assert svc.bundled_extension_version() == json.load(f)["version"]
+
+
+class TestTitleNaming:
+    """A new title's English name is one AI call on the owner's extension engine."""
+
+    def _setup(self, monkeypatch, engine):
+        from engine_backends import engine_registry, llm_tasks
+        from services import translate_run_service
+        calls = []
+        page_server.set_translation_config(engine=engine, api_key="k", base_url=None, free_tier=False)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_run_service, "refuse_when_cap_spent", lambda *a, **k: None)
+        monkeypatch.setattr(llm_tasks, "call_llm_json",
+                            lambda e, prompt, **kw: calls.append(prompt) or '{"title": "Hidden Child"}')
+        return calls
+
+    def _title(self, token):
+        body = {"url": "https://comic.naver.com/webtoon/detail?titleId=1&no=1",
+                "titles": ["남편이 아이를 숨겼다 1화 - 네이버 웹툰", "네이버 웹툰"]}
+        return _client().post(f"{BASE}/title", json=body, headers=_auth(token))
+
+    def test_a_member_without_engines_paid_gets_the_title_but_no_paid_call(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "claude")
+        _u, token = _member("a@example.com")
+        r = self._title(token)
+        assert r.status_code == 200 and calls == []
+        assert db.get_drama(r.json()["drama_id"])["title_en"] == ""
+
+    def test_a_member_with_engines_paid_gets_the_name(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "claude")
+        _u, token = _member("a@example.com", paid=True)
+        r = self._title(token)
+        assert len(calls) == 1
+        assert db.get_drama(r.json()["drama_id"])["title_en"] == "Hidden Child"
+
+    def test_a_free_local_engine_is_open_to_every_member(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "ollama")
+        _u, token = _member("a@example.com")
+        assert self._title(token).status_code == 200 and len(calls) == 1
