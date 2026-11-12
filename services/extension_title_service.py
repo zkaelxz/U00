@@ -235,10 +235,11 @@ def _answer(drama_id: int, created: bool, filled: list) -> dict:
             "media_type": drama.get("media_type") or ""}
 
 
-def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
+def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL, translate_title: bool = True) -> dict:
     """Finds or creates the title for a page. `create` off only finds (422 when
     nothing matches), `fill` off creates a placeholder named after the site with
-    the page link but no names, `series` off leaves the title out of any series."""
+    the page link but no names, `series` off leaves the title out of any series. `translate_title`
+    is False for a caller who may not spend the owner's engine (see api/routers/extension_bridge_routes.py)."""
     if not isinstance(payload, dict):
         raise InvalidInputError("The request must be a JSON object.")
     page = _read(payload)
@@ -278,18 +279,67 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
         if page["series"] and series_name:
             _join_series(drama_id, series_name)
         _remember_links(drama_id, page, host)
-        return _answer(drama_id, True, [f for f in ("title_zh", "title_en") if created.get(f)]
-                       + (["source_url"] if clean_url else []))
+        filled_names = ([f for f in ("title_zh", "title_en") if created.get(f)]
+                        + (["source_url"] if clean_url else []))
+        translate = page["fill"] and original and not english
+    # Outside the lock: an AI call must not hold up the next title's lookup.
+    if translate and translate_title and _translate_title_once(drama_id, original, language):
+        filled_names.append("title_en")
+    return _answer(drama_id, True, filled_names)
+
+
+_TITLE_PROMPT = ("Translate this {language} comic or novel title into natural English, as a published "
+                 "title would read. Return ONLY a JSON object: {{\"title\": \"<the English title>\"}}. "
+                 "Title: {title}")
+
+
+def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
+    """Puts an English title on a title the capture just created from a page that gave only the
+    original name, with one small AI call on the engine the extension is set up with (the same one
+    its page translations use, so a member is held to the same permission check by the caller). Runs only at creation, so a
+    later chapter never spends again, and only fills a blank English title, so a name the person
+    typed stays. Skipped (False) when the monthly cap is used up, the engine has no key or the
+    reply is unusable; it never fails the import."""
+    try:
+        from core import LANGUAGE_NAMES
+        from engine_backends import engine_registry, llm_tasks, paid_calls
+        from engine_backends.shared import extract_first_json_value
+        import page_server
+        from services import translate_run_service
+        config = page_server.get_translation_config()
+        engine_name = (config.get("engine") or "").strip()
+        engine_cls = engine_registry.ENGINES.get(engine_name)
+        if engine_cls is None or not getattr(engine_cls, "supports_reference", False):
+            return False
+        translate_run_service.refuse_when_cap_spent(
+            engine_name, bool(config.get("free_tier")) and engine_name == "gemini")
+        engine = page_server._build_engine(config)
+        if engine is None:
+            return False
+        reply = llm_tasks.call_llm_json(
+            engine, _TITLE_PROMPT.format(language=LANGUAGE_NAMES.get(language, "source-language"),
+                                         title=original[:300]),
+            max_tokens=150, fallback=None,
+            usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extension_title_translate"))
+        data = extract_first_json_value(re.sub(r"^```json|^```|```$", "", (reply or "").strip(),
+                                               flags=re.MULTILINE).strip())
+        english = " ".join(str(data.get("title") or "").split()) if isinstance(data, dict) else ""
+        english = redact_secrets(english)[:drama_service.MAX_NAME_LEN]
+        return bool(english) and bool(db.dramas.fill_blank_fields(drama_id, {"title_en": english}))
+    except Exception as exc:
+        import applog
+        applog.get_logger().warning("Translating a new title failed: %s", redact_secrets(str(exc)))
+        return False
 
 
 _STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ForbiddenError, 403), (ConflictError, 409))
 
 
-def resolve_from_bridge(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
+def resolve_from_bridge(payload: dict, principal=_BRIDGE_PRINCIPAL, translate_title: bool = True) -> dict:
     """page_server's POST /title: `resolve_title` with its errors turned into
     the bridge's own, since a raw exception could carry a path."""
     try:
-        return resolve_title(payload, principal)
+        return resolve_title(payload, principal, translate_title)
     except ServiceError as e:
         status = next((code for cls, code in _STATUS if isinstance(e, cls)), 500)
         raise page_server.EndpointError(status, redact_secrets(e.message)) from None
