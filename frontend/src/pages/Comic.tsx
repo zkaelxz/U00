@@ -45,10 +45,7 @@ import { ShowOriginalButton } from './comic/PageOriginal'
 import { useOriginalPages } from './comic/useOriginalPages'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { ScanlatePanel } from './comic/ScanlatePanel'
-import { WarningMenu } from './comic/WarningPages'
-import { warningPages } from './comic/scanlateLogic'
-import { scanlateApi } from '../api/scanlate'
-import type { ScanlatePageNotes } from '../types/scanlate'
+import { useWarningMenu } from './comic/useWarningMenu'
 import {
   clampPage,
   comicHref,
@@ -270,29 +267,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     [count, id, visible, current, requestJump],
   )
 
-  // Run notes for the warnings menu in the bar, which stays on screen while the panel is closed or scrolled away.
-  const [runNotes, setRunNotes] = useState<ScanlatePageNotes[]>([])
-  useEffect(() => {
-    let cancelled = false
-    scanlateApi.runNotes(id).then(
-      (n) => !cancelled && setRunNotes(n.pages),
-      () => {},
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [id, data])
-  const warnings = useMemo(() => warningPages(runNotes), [runNotes])
-  const [flash, setFlash] = useState<{ page: number; boxes: number[] } | null>(null)
-  const goToWarning = useCallback(
-    (n: number, boxes: number[]) => {
-      go(n, false, true)
-      setFlash(boxes.length ? { page: n, boxes } : null)
-    },
-    [go],
-  )
-  const warningMenu = <WarningMenu all={warnings.all} groups={warnings.groups} pageNumber={current} onGo={goToWarning} />
-
+  const { warningMenu, flash, goToWarning } = useWarningMenu(id, data, current, go)
   const srcFor = useCallback(
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version, 'reader'),
     [id, prefs.typeset, original.originals],
@@ -547,8 +522,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <h1 className="reader-title">{title ?? (titleError ? 'This title' : 'Loading…')}</h1>
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
-          {!empty && warningMenu}
-          {!empty && toolsButton}
+          {!empty && <>{warningMenu}{toolsButton}</>}
           {addButton}
           {!empty && editButton}
           {view}
@@ -565,8 +539,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
             data === null && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
           )}
           {toggles}
-          {!empty && warningMenu}
-          {!empty && toolsButton}
+          {!empty && <>{warningMenu}{toolsButton}</>}
           {addButton}
           {!empty && editButton}
           {view}
