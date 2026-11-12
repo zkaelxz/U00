@@ -37,6 +37,20 @@ def is_heading_text(text: str) -> bool:
     return bool(match and (match.group("english") or not text.endswith(".")))
 
 
+# A volume heading groups chapters (第二卷, 제2권, "Volume 2: Title"); the same
+# length and punctuation limits keep an ordinary sentence from matching.
+_VOLUME_HEADING_RE = re.compile(
+    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[卷部篇]|제\s*[0-9０-９]+\s*[권부]|"
+    r"(?:volume|vol\.?|book|part)\s+[0-9ivxIVX]+)" + _HEADING_END, re.IGNORECASE)
+
+
+def is_volume_heading_text(text: str) -> bool:
+    text = (text or "").strip()
+    if not text or len(text) > _CHAPTER_HEADING_MAX_CHARS or text.endswith(_SENTENCE_END):
+        return False
+    return bool(_VOLUME_HEADING_RE.match(text))
+
+
 def is_chapter_heading(ln) -> bool:
     return is_heading_text(ln.zh) or is_heading_text(ln.en)
 

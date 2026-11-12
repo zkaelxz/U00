@@ -77,3 +77,15 @@ def test_route_returns_rows(client, isolated_db):
     _lines(did, ["第一章", "他走了。", "第二章", "路很长。"])
     r = client.get(f"/api/novel/dramas/{did}/line-chapters")
     assert r.status_code == 200 and len(r.json()["chapters"]) == 2
+
+
+def test_chapters_carry_the_translated_title_and_their_volume(isolated_db):
+    did = db.create_drama(title_en="D")
+    _import(did, 1, "The Gate", "他走了。")
+    _import(did, 2, "The Road", "路很长。")
+    _import(did, 3, "The Night", "夜深了。")
+    _lines(did, ["第一卷 起", "The Gate", "他走了。", "The Road", "路很长。", "第二卷 承", "The Night", "夜深了。"],
+           en=["", "大门", "", "", "", "", "", ""])
+    chapters = svc.line_chapters(did)["chapters"]
+    assert [(c["title_en"], c["part"]) for c in chapters] == [
+        ("大门", "第一卷 起"), ("", "第一卷 起"), ("", "第二卷 承")]
