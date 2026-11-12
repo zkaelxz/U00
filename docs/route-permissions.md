@@ -742,6 +742,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/translate-run/dramas/{drama_id}/bulk` | library.read |
 | `POST /api/translate-run/dramas/{drama_id}/bulk/resume` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/bulk/{bulk_job_id}/cancel` | jobs.cancel |
+| `GET /api/translate-run/dramas/{drama_id}/chapters/{number}/retranslate` | lines.read |
+| `POST /api/translate-run/dramas/{drama_id}/chapters/{number}/retranslate/run` | jobs.start |
 | `GET /api/translate-run/dramas/{drama_id}/config` | library.read |
 | `GET /api/translate-run/dramas/{drama_id}/episode-summary` | library.read |
 | `POST /api/translate-run/dramas/{drama_id}/episode-summary/generate` | lines.edit + lines.read |

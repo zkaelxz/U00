@@ -1,4 +1,4 @@
-import type { NovelChapterList, NovelChapterMoved, NovelChapterRenamed, NovelChapterText, NovelLineChapters } from '../types/novelChapters'
+import type { NovelChapterList, NovelChapterMoved, NovelChapterRenamed, NovelChapterRetranslatePreview, NovelChapterRetranslateStarted, NovelChapterText, NovelLineChapters } from '../types/novelChapters'
 import { getJson, postJson, type Fetch } from './client'
 
 // api/routers/novel_files_routes.py: library.read, bounded (a list page is
@@ -23,3 +23,11 @@ export const renameRawChapter = (dramaId: number, number: number, title: string,
 // api/routers/novel_files_routes.py: lines.edit. Moves one saved chapter, with its lines and their translations, to another place in the order.
 export const moveRawChapter = (dramaId: number, number: number, toNumber: number, f?: Fetch) =>
   postJson<NovelChapterMoved>(`/api/novel/dramas/${dramaId}/raw-novel/chapters/${number}/move`, { to_number: toNumber }, f)
+
+/** Read-only (lines.read): the chapter's line counts and a cost estimate; no engine call. */
+export const getChapterRetranslatePreview = (dramaId: number, number: number, f?: Fetch) =>
+  getJson<NovelChapterRetranslatePreview>(`/api/translate-run/dramas/${dramaId}/chapters/${number}/retranslate`, f)
+/** jobs.start: translates the chapter's lines again with the title's saved settings. */
+export const startChapterRetranslate = (dramaId: number, number: number, includeHandEdited: boolean, f?: Fetch) =>
+  postJson<NovelChapterRetranslateStarted>(
+    `/api/translate-run/dramas/${dramaId}/chapters/${number}/retranslate/run`, { include_hand_edited: includeHandEdited }, f)
