@@ -1016,6 +1016,10 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 .drama-detail > p, .drama-detail-summary { margin: 0; }
 .drama-detail-orig { color: var(--muted); }
 .drama-detail-summary.clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
+.drama-series { display: grid; gap: var(--space-2); }
+.drama-series-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.drama-series-label { color: var(--muted); }
+.drama-series-edit { display: grid; gap: var(--space-2); justify-items: start; }
 .drama-detail-danger { display: grid; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .drama-detail-danger > p, .drama-detail-danger > button { margin: 0; justify-self: start; }
 .delete-confirm p { margin: 0; }
