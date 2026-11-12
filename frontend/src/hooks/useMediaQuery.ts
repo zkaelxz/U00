@@ -14,3 +14,8 @@ export function useMediaQuery(query: string): boolean {
   }, [query])
   return matches
 }
+
+// An explicit `behavior: 'smooth'` overrides the stylesheet's reduced-motion rule, so scripted scrolls ask here.
+export function scrollBehavior(): ScrollBehavior {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+}

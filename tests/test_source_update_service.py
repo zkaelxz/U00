@@ -36,7 +36,9 @@ class FakeGit:
     def __init__(self, **answers):
         self.answers = {"rev-parse-head": (0, "baihe-subtitler"), "status": (0, ""), "head": (0, OLD),
                         "fetch": (0, ""), "fetch-head": (0, NEW), "merge-base": (0, ""),
-                        "rev-list": (0, "2"), "log": (0, "Fix a bug\nAdd https://x.test/y a thing")}
+                        "rev-list": (0, "2"), "log": (0, "Fix a bug\nAdd https://x.test/y a thing"),
+                        "remote": (0, "https://github.com/zkaelxz/U00.git"),
+                        "first-parent": (0, f"{NEW}\n{'c' * 40}")}
         self.answers.update(answers)
         self.calls = []
 
@@ -50,6 +52,8 @@ class FakeGit:
             return self.answers["head"]
         if args[:2] == ("rev-parse", "FETCH_HEAD"):
             return self.answers["fetch-head"]
+        if args[:2] == ("rev-list", "--first-parent"):
+            return self.answers["first-parent"]
         return self.answers.get(args[0], (0, ""))
 
 
@@ -67,6 +71,9 @@ def checkout(tmp_path, monkeypatch, isolated_db):
     monkeypatch.setattr(su, "_applying", False)
     git = FakeGit()
     monkeypatch.setattr(su, "_git", git)
+    # GitHub's answer: which commits passed Tests.
+    git.green = {NEW}
+    monkeypatch.setattr(su.github_checks, "passed", lambda repo, sha, check="test": sha in git.green)
     return git
 
 
@@ -80,6 +87,28 @@ class TestCheck:
         assert s["behind"] == 2 and s["latest"] == "b" * 10 and s["current"] == "a" * 10
         assert s["can_apply"] and s["reason"] is None
         assert s["changes"] == ["Fix a bug", "Add a thing"]
+
+    def test_a_red_newest_commit_is_skipped_for_the_newest_green_one(self, checkout):
+        green = "c" * 40
+        checkout.green = {green}
+        s = su.check()
+        assert s["latest"] == green[:10] and s["can_apply"]
+        assert ("rev-list", "--count", f"{OLD}..{green}") in checkout.calls
+
+    def test_nothing_green_yet_is_not_an_update(self, checkout):
+        checkout.green = set()
+        s = su.check()
+        assert s["reason"] == su.NO_GREEN and not s["can_apply"]
+
+    def test_github_unreachable_is_not_an_update(self, checkout, monkeypatch):
+        def down(repo, sha, check="test"):
+            raise su.github_checks.CheckUnavailable()
+        monkeypatch.setattr(su.github_checks, "passed", down)
+        assert su.check()["reason"] == su.CANT_CHECK
+
+    def test_an_origin_that_is_not_github_is_not_checked(self, checkout):
+        checkout.answers["remote"] = (0, "https://gitlab.example/x/y.git")
+        assert su.check()["reason"] == su.CANT_CHECK
 
     def test_up_to_date(self, checkout):
         checkout.answers["fetch-head"] = (0, OLD)

@@ -311,6 +311,10 @@ Edge) reach Baihe through the household address, in three parts:
    a title they can edit (anything else is a 404), sees only titles they
    can see, a title made for them is theirs, text history is theirs, the
    monthly spending cap applies, and no URL the extension sends is fetched.
+   `/page`, `/pages`, `/text`, `/novel` and `/title` also need `lines.edit`, and the
+   three that run the engine need `jobs.start`, so taking either away from a member
+   stops the extension writing for them too (403); `/health` and `/cancel` need only
+   `extension.send`.
    The early session gate lets these paths through so the bearer token is
    checked by the route. `tests/test_extension_bridge_routes.py`.
 3. **Extension (built).** The options page has a **Baihe address** next to the

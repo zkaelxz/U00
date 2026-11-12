@@ -1289,6 +1289,18 @@ def test_restore_without_sources_db_keeps_the_live_one(isolated_db):
     assert src_store.get_setting("http_proxy_url") == "http://127.0.0.1:8080"
 
 
+def test_restore_without_sources_db_drops_title_links_that_name_the_old_library(isolated_db):
+    _new("A")
+    with zipfile.ZipFile(io.BytesIO(_backup_bytes())) as src:
+        data = _zip({n: src.read(n) for n in src.namelist() if n != "sources.db"})
+    src_store.track_series("site", "s1", "Followed")
+    src_store.set_tracked_drama("site", "s1", 1)
+    src_store.record_imported("site", "s1", "c1", 1)
+    _restore(data)
+    assert [r["drama_id"] for r in src_store.list_tracked_series()] == [None]
+    assert src_store.imported_chapter_ids("site", "s1", 1) == set()
+
+
 def test_restored_sources_db_has_migrated_columns_and_wal(isolated_db):
     _new("A")
     src_store.track_series("site", "s1", "Saved as CBZ")
