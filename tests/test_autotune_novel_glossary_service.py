@@ -391,6 +391,21 @@ class TestNovelGlossary:
         t = {t["term_original"]: t for t in isolated_db.list_glossary_terms(sid)}["师尊"]
         assert t["term_translation"] == "Teacher" and t["enforce_exact"]
 
+    def test_overwrite_keeps_a_users_pronoun_note_when_the_scan_found_no_evidence(
+            self, isolated_db, monkeypatch):
+        did, sid = _novel_drama(isolated_db)
+        isolated_db.upsert_glossary_term(sid, "师尊", "Shizun", notes="she/her, my teacher")
+        isolated_db.upsert_glossary_term(sid, "青云宗", "Sect", notes="a sect")
+        _fake_done(monkeypatch, f"novel_glossary_{did}", {"proposals": [
+            {"term": "师尊", "suggested_translation": "Teacher", "category": "title",
+             "policy": "translate", "reason": "unclear", "already_in_glossary": True},
+            {"term": "青云宗", "suggested_translation": "Qingyun Sect", "category": "sect",
+             "policy": "hybrid", "reason": "unclear, a sect", "already_in_glossary": True}]})
+        gs.apply_novel_glossary(did, ["师尊", "青云宗"], overwrite_existing=True)
+        notes = {t["term_original"]: t["notes"] for t in isolated_db.list_glossary_terms(sid)}
+        assert notes["师尊"] == "she/her, my teacher"
+        assert notes["青云宗"] == "unclear, a sect"
+
     def test_run_id_names_each_run_and_a_stale_apply_writes_nothing(
             self, isolated_db, monkeypatch, fake_engine):
         """Another tab re-ran the extraction: an apply of the run the user
