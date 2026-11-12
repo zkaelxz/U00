@@ -116,6 +116,27 @@ class TestJob:
         assert after[0].en == "He said: hello." and after[0].reviewed
         assert after[-1].zh == "新的一章。" and after[-1].en == ""
 
+    def test_a_line_edited_while_the_replace_run_saves_is_a_conflict_and_the_edit_is_kept(
+            self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        before = self._snapshot(isolated_db, did)
+        real = isolated_db.save_lines
+
+        def racy(drama_id, lines, **kw):
+            # A person saves an edit in Review between the job's read and its save.
+            edited = isolated_db.load_line_objects(drama_id)
+            edited[0].en = "typed just now"
+            real(drama_id, edited, fields=("en",))
+            return real(drama_id, lines, **kw)
+        monkeypatch.setattr(isolated_db, "save_lines", racy)
+        with pytest.raises(ConflictError):
+            self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Bob" for i in ch})
+        monkeypatch.undo()
+        after = self._snapshot(isolated_db, did)
+        assert after[0][3] == "typed just now"
+        assert [r[:3] + r[4:] for r in after] == [r[:3] + r[4:] for r in before]
+
     def _add_text(self, db, did, added):
         """What the add step leaves behind: the text with `added` appended and the pending marker."""
         import novel_text
