@@ -207,6 +207,80 @@
   // descrambled onto a canvas, is just pixels here -- the browser has
   // done the work, and nothing is being decrypted or unscrambled.
   async function extractBytes(el) {
+    try {
+      return await extractPixels(el);
+    } catch (e) {
+      // Only when the person has switched the fallback on, and only for a page the browser would
+      // not let the script read; any other failure is reported as it was.
+      if ((e && e.code === "NEEDS_PERMISSION") || /hasn't finished loading/.test(errorText(e))
+          || !(await screenshotEnabled())) throw e;
+      return extractViaScreenshot(el, e);
+    }
+  }
+
+  // A picture of the tab, cropped to the page element. Hidden Baihe boxes and the capture chip keep
+  // their own drawing out of the picture. It sees only what is on screen, so a page taller than the
+  // window is refused rather than cut. The browser allows about two tab pictures a second.
+  const SCREENSHOT_GAP_MS = 600;
+  let screenshotAsked = { at: 0, on: false };
+
+  // Asked once in a while rather than per page, and before the page is scrolled, so a switch that
+  // is off costs nothing.
+  async function screenshotEnabled() {
+    if (Date.now() - screenshotAsked.at > 5000) {
+      let on = false;
+      try {
+        const reply = await chrome.runtime.sendMessage({ type: "getSettings" });
+        on = !!(reply && reply.ok && reply.data.screenshot === true);
+      } catch (e) { /* worker asleep: off */ }
+      screenshotAsked = { at: Date.now(), on };
+    }
+    return screenshotAsked.on;
+  }
+
+  let lastShotAt = 0;
+
+  async function extractViaScreenshot(el, original) {
+    const refuse = (why) => { const err = new Error(`${errorText(original)}; ${why}`); err.code = original && original.code; return err; };
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    await sleep(250);
+    const rect = el.getBoundingClientRect();
+    if (rect.height > window.innerHeight + 2 || rect.width > window.innerWidth + 2) {
+      throw refuse("a screenshot cannot take a page taller than the window, so zoom the browser out");
+    }
+    const wait = SCREENSHOT_GAP_MS - (Date.now() - lastShotAt);
+    if (wait > 0) await sleep(wait);
+    document.documentElement.setAttribute("data-baihe-shot", "1");
+    let response;
+    try {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      response = await chrome.runtime.sendMessage({ type: "captureTab" });
+    } finally {
+      document.documentElement.removeAttribute("data-baihe-shot");
+      lastShotAt = Date.now();
+    }
+    if (!response || !response.ok) throw response && response.code === "OFF" ? original : refuse(response && response.error || "the screenshot failed");
+    const raw = atob(response.data.data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+    const shot = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const scale = shot.width / window.innerWidth;
+    const width = Math.max(1, Math.round(rect.width * scale));
+    const height = Math.max(1, Math.round(rect.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(shot, Math.round(rect.left * scale), Math.round(rect.top * scale),
+                                      width, height, 0, 0, width, height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw refuse("the screenshot could not be cropped");
+    const buffer = await blob.arrayBuffer();
+    taintedCanvases.add(el);
+    return { data: base64(buffer), content_type: "image/png", width, height, hash: await sha256Hex(buffer),
+             url: el.currentSrc || el.src || location.href, screenshot: true };
+  }
+
+  async function extractPixels(el) {
     const { width, height } = elementSize(el);
     if (!width || !height) throw new Error("that image hasn't finished loading");
     await waitForStableSignature(el);
@@ -423,6 +497,7 @@
     style.textContent = `
       .baihe-layer { position: absolute; top: 0; left: 0; pointer-events: none;
                      z-index: 2147483000; }
+      html[data-baihe-shot] .baihe-layer, html[data-baihe-shot] .baihe-toast { visibility: hidden !important; }
       .baihe-box { position: absolute; box-sizing: border-box; display: flex;
                    align-items: center; justify-content: center; text-align: center;
                    background: rgba(255,255,255,0.93); color: #111;

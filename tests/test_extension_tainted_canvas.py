@@ -38,6 +38,28 @@ class TestPageSideFallback:
         assert out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg"]
         assert out["sent"][0]["content_type"] == "image/png"
 
+    def test_the_worker_takes_a_tab_picture_only_when_the_switch_is_on(self):
+        out = _run("background", "tab_picture")
+        assert out["off"] == {"ok": False, "code": "OFF", "error": "screenshots are off"}
+        assert out["on"] == {"ok": True, "data": {"data": "QUJD"}, "windowId": 7}
+        assert out["noTab"]["ok"] is False
+        assert out["blocked"]["ok"] is False and "click the extension icon" in out["blocked"]["error"]
+
+    def test_a_screenshot_stands_in_only_when_the_switch_is_on_and_the_page_fits_the_window(self):
+        out = _run("content", "canvas_screenshot")
+        # Baihe's own boxes and chip are hidden for exactly the length of the picture.
+        assert out["on"]["ok"] is True and len(out["on"]["sent"]) == 1
+        assert out["on"]["sent"][0]["content_type"] == "image/png"
+        assert out["on"]["shots"] == [["set data-baihe-shot"]]
+        assert out["on"]["marks"] == ["set data-baihe-shot", "remove data-baihe-shot"]
+        # Off: no picture, no page sent, and the page is not scrolled for nothing.
+        assert out["off"]["shots"] == [] and out["off"]["sent"] == []
+        # Too tall for the window: refused with the reason, nothing sent.
+        assert out["tall"]["shots"] == [] and out["tall"]["sent"] == []
+        assert "zoom the browser out" in out["tall"]["error"]
+        assert "would not take a picture" in out["refused"]["error"] and out["refused"]["sent"] == []
+        assert out["refused"]["marks"][-1] == "remove data-baihe-shot"
+
     def test_a_tainted_canvas_uses_a_data_attribute_url(self):
         out = _run("content", "canvas_tainted_url_from_data_attribute")
         assert out["ok"] is True and len(out["sent"]) == 1
