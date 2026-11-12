@@ -6,7 +6,7 @@ import db
 import page_server
 from engine_backends import engine_registry, llm_tasks
 from lib.errors import UnsupportedOperationError
-from services import translate_run_service, translate_service
+from services import translate_run_service
 
 from tests.test_page_server import _post
 
@@ -22,7 +22,7 @@ def token(isolated_db):
 @pytest.fixture
 def ai(monkeypatch):
     calls = []
-    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    page_server.set_translation_config(engine="claude", api_key="k", base_url=None, free_tier=False)
     monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
     monkeypatch.setattr(translate_run_service, "refuse_when_cap_spent", lambda *a, **k: None)
 
@@ -30,7 +30,8 @@ def ai(monkeypatch):
         calls.append(prompt)
         return '{"title": "My Husband Hid the Child"}'
     monkeypatch.setattr(llm_tasks, "call_llm_json", fake)
-    return calls
+    yield calls
+    page_server.set_translation_config(engine=None, api_key="", base_url=None, free_tier=False)
 
 
 def _resolve(token, **body):
@@ -71,7 +72,7 @@ def test_a_spent_monthly_cap_skips_the_call_and_the_import_goes_on(token, ai, mo
 
 
 def test_an_engine_without_a_key_skips_the_call(token, ai, monkeypatch):
-    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: None)
+    page_server.set_translation_config(engine="claude", api_key="", base_url=None, free_tier=False)
     h = _resolve(token)
     assert h.status == 200 and ai == []
 
@@ -80,3 +81,13 @@ def test_an_unusable_reply_leaves_the_name_blank(token, ai, monkeypatch):
     monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k: "sorry, no")
     h = _resolve(token)
     assert h.status == 200 and db.get_drama(h.payload["drama_id"])["title_en"] == ""
+
+
+def test_it_uses_the_engine_the_extension_is_set_up_with_not_the_default(token, ai, monkeypatch):
+    seen = []
+    monkeypatch.setattr(engine_registry, "get_engine",
+                        lambda name, *a, **k: seen.append(name) or object())
+    from tests.saved_settings import patch_setting
+    patch_setting(monkeypatch, "default_engine", "openai")
+    _resolve(token)
+    assert seen == ["claude"]
