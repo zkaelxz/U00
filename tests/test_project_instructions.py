@@ -161,6 +161,16 @@ class TestNovelGlossaryReplyCleaning:
         assert kept[1]["reason"] == "unclear"
         assert kept[2]["reason"] == "unclear"
 
+    def test_a_quote_without_a_pronoun_or_title_does_not_support_a_gender(self):
+        import translation_guide as tguide
+        window = "戚聞溪看了他一眼，她笑了。眯着的小眼睛裏露出一抹邪笑。阿姨端來茶。"
+        kept = tguide._clean_window_entries([
+            {"term": "戚聞溪", "reason": "she/her", "evidence": "眯着的小眼睛裏露出一抹邪笑"},
+            {"term": "阿姨", "reason": "she/her", "evidence": "阿姨端來茶"},
+            {"term": "戚聞溪", "reason": "he/him", "evidence": "戚聞溪看了他一眼"},
+        ], window)
+        assert [e["reason"] for e in kept] == ["unclear", "she/her", "he/him"]
+
     def test_a_quote_retyped_with_a_variant_character_or_ascii_punctuation_still_counts(self):
         import translation_guide as tguide
         window = "陳詩這才回神，揚起笑臉。馮怡說：“随她去吧，只要她開心就好。”"

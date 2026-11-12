@@ -718,6 +718,12 @@ def _merge_novel_entries(all_terms: dict, entries) -> None:
 _PRONOUN_LEAD = re.compile(r"^\s*(she/her|he/him|they/them)", re.IGNORECASE)
 _EVIDENCE_MIN_MATCH = 0.75
 _EVIDENCE_MIN_RUN = 0.5
+# A quote that sits in the excerpt but names no pronoun, title or kinship term
+# proves nothing about gender (a model once cited "narrow eyes smiled slyly").
+_GENDER_MARKER = re.compile(
+    "她|他|牠|祂|妳|公主|王妃|皇后|太后|夫人|小姐|姑娘|女皇|女王|娘子|妻|媳婦|媳妇|"
+    "少爺|少爷|王爺|王爷|老爺|老爷|太子|皇帝|國王|国王|丈夫|相公|"
+    "媽|妈|母親|母亲|父親|父亲|爸|姐|妹|哥|弟|姑|姨|嬸|婶|嫂|奶奶|爺爺|爷爷|叔")
 
 
 def _quote_is_in(quote: str, text: str) -> bool:
@@ -770,6 +776,7 @@ def _clean_window_entries(entries, window_text: str) -> list:
         reason = str(e.get("reason") or "")
         evidence = e.get("evidence")
         if _PRONOUN_LEAD.match(reason) and not (isinstance(evidence, str)
+                                                 and _GENDER_MARKER.search(evidence)
                                                  and _quote_is_in(evidence, window_text)):
             e["reason"] = _PRONOUN_LEAD.sub("unclear", reason, count=1)
         alt = e.get("alt")
