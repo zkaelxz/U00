@@ -254,12 +254,13 @@ class TestFolders:
         # the next Setup refuse the service ("files Baihe Studio didn't put there").
         import os
 
+        import app_tools
         import browser_support
         import pending_install
         import voice_venv
         from services import android_app_service, sources_save_service, vdb_names_service
         for name in (os.path.basename(pending_install.state_dir()), browser_support.FOLDER_NAME,
-                     sources_save_service.SAVE_DIRNAME, voice_venv.VENVS_DIRNAME,
+                     app_tools.FOLDER_NAME, sources_save_service.SAVE_DIRNAME, voice_venv.VENVS_DIRNAME,
                      android_app_service.FOLDER_NAME):
             (layout.data / name).mkdir()
         (layout.data / vdb_names_service.FILE_NAME).write_text("{}", encoding="utf-8")

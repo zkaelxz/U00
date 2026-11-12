@@ -8,6 +8,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "adaptive_style.py",
     "applog.py",
     "anime_whisper.py",
+    "app_tools.py",
     "asmr_vad.py",
     "asr_backend.py",
     "asr_benchmark.py",
