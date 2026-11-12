@@ -23,12 +23,13 @@ def _cap_spent(engine_name: str, engine):
     # Imported here: translate_run_service imports the job runners that use this module.
     from services import translate_run_service
     free_tier = bool(getattr(engine, "free_tier", False))
-    if not translate_run_service.engine_cap_applies(engine_name, free_tier):
+    model = getattr(engine, "model", None)
+    if not translate_run_service.engine_cap_applies(engine_name, free_tier, model):
         return None
 
     def spent() -> bool:
         try:
-            translate_run_service.refuse_when_cap_spent(engine_name, free_tier)
+            translate_run_service.refuse_when_cap_spent(engine_name, free_tier, model)
         except UnsupportedOperationError:
             return True
         return False
@@ -48,11 +49,11 @@ def _stop_job_over_member_limit(user_id, job_id) -> None:
 db.on_member_spend(_stop_job_over_member_limit)
 
 
-def require_cap_for_unattended(engine_name: str, gemini_free_tier: bool = False) -> None:
+def require_cap_for_unattended(engine_name: str, gemini_free_tier: bool = False, model=None) -> None:
     """Refuses paid work started with nobody watching (a batch submit, an
     off-peak run, a bulk series) while no monthly cap is set."""
     from services import translate_run_service
-    if (translate_run_service.engine_cap_applies(engine_name, gemini_free_tier)
+    if (translate_run_service.engine_cap_applies(engine_name, gemini_free_tier, model)
             and translate_run_service.month_cap_usd() <= 0):
         raise UnsupportedOperationError(NO_CAP_MESSAGE)
 

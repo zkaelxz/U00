@@ -64,15 +64,19 @@ def month_cap_usd() -> float:
     return settings_service.get_monthly_cap_usd()
 
 
-def engine_cap_applies(engine_name: str, gemini_free_tier: bool = False) -> bool:
+def engine_cap_applies(engine_name: str, gemini_free_tier: bool = False, model=None) -> bool:
+    """Ollama is a free engine, but its hosted tags are billed per token, so the
+    cap covers them: callers that know the model must pass it."""
+    if engine_name == "ollama" and engine_local.is_ollama_cloud_model(model):
+        return True
     return engine_name in _CAP_ENGINES and not (engine_name == "gemini" and gemini_free_tier)
 
 
-def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False) -> None:
+def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False, model=None) -> None:
     """For a one-off LLM run with no per-run budget (glossary extraction,
     learn my style): UnsupportedOperationError when this month's spending
     cap is already used up and the engine is a capped one."""
-    if not engine_cap_applies(engine_name, gemini_free_tier):
+    if not engine_cap_applies(engine_name, gemini_free_tier, model):
         return
     monthly = month_cap_usd()
     _cap, refusal = pricing.resolve_cost_cap(
@@ -212,8 +216,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
 
     free_tier = engine_name == "gemini" and gemini_free_tier
     resolved_model = model or engine_registry.effective_default_model(engine_name)
-    cap_applies = engine_cap_applies(engine_name, gemini_free_tier)
-    free = engine_name in engine_registry.FREE_ENGINES or free_tier
+    cap_applies = engine_cap_applies(engine_name, gemini_free_tier, resolved_model)
+    free = (engine_name in engine_registry.FREE_ENGINES and not cap_applies) or free_tier
 
     lines = db.load_lines(drama_id)
     targets = [ln for ln in lines if (ln.get("zh") or "").strip()
@@ -571,7 +575,7 @@ def _build_engine_chain(engine_name, model, fallback_chain, gemini_free_tier, jo
         if free_tier and c["model"] in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
             raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
         cap = None
-        if engine_cap_applies(name, gemini_free_tier):
+        if engine_cap_applies(name, gemini_free_tier, c["model"]):
             cap, refusal = pricing.resolve_cost_cap(
                 job_cost_cap_usd, monthly_cap, month_spend)
             if refusal:

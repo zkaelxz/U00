@@ -266,7 +266,8 @@ def start_fix_flagged(drama_id: int, engine_name: str | None = None, model: str 
 
     def make_args(drama, lines, eng, name):
         cap = None
-        if translate_run_service.engine_cap_applies(name, gemini_free_tier):
+        if translate_run_service.engine_cap_applies(
+                name, gemini_free_tier, getattr(eng, "model", None)):
             monthly = translate_run_service.month_cap_usd()
             cap, refusal = pricing.resolve_cost_cap(
                 job_cost_cap_usd, monthly, db.get_month_spend() if monthly else 0.0)

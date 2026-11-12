@@ -422,7 +422,7 @@ def _schedule(row, c, now) -> None:
 
 # --- what a check leads to ---------------------------------------------------
 
-def _gate_refusal(engine) -> str:
+def _gate_refusal(engine, model=None) -> str:
     """Why an automatic start may not happen now, else ""."""
     from services import line_ai_service, live_service, paid_job_service, settings_service
     from lib.errors import ServiceError
@@ -435,11 +435,13 @@ def _gate_refusal(engine) -> str:
     if engine not in engine_registry.ENGINES:
         return "not started: that engine is not available"
     try:
-        paid_job_service.require_cap_for_unattended(engine, bool(settings_service.get("gemini_free_tier")))
+        paid_job_service.require_cap_for_unattended(
+            engine, bool(settings_service.get("gemini_free_tier")), model)
     except ServiceError:
         return "not started: set a monthly spending cap in Settings first"
     try:
-        line_ai_service.refuse_if_over_monthly_cap(engine, bool(settings_service.get("gemini_free_tier")))
+        line_ai_service.refuse_if_over_monthly_cap(
+            engine, bool(settings_service.get("gemini_free_tier")), model)
     except ServiceError:
         return "not started: this month's spending cap is used up"
     return ""
@@ -459,7 +461,7 @@ def _auto_start(row, stream_id):
         opts = follows._options(row, strict=True)
     except InvalidInputError:
         return "not started: a saved Live option is no longer valid"
-    refusal = _gate_refusal(opts["engine"] or live_service.LIVE_DEFAULT_ENGINE)
+    refusal = _gate_refusal(opts["engine"] or live_service.LIVE_DEFAULT_ENGINE, opts["model"])
     if refusal:
         return refusal
     try:

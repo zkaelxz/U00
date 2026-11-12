@@ -122,7 +122,8 @@ def _month_cap_check(engine_choice, engine):
     # Imported here: translate_run_service imports this module.
     from services import translate_run_service
     if not translate_run_service.engine_cap_applies(
-            engine_choice, bool(getattr(engine, "free_tier", False))):
+            engine_choice, bool(getattr(engine, "free_tier", False)),
+            getattr(engine, "model", None)):
         return None
 
     def spent() -> bool:
@@ -478,12 +479,22 @@ def _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
     if not api_key:
         api_key = "local"
 
+    # The engine is the title's own, so the model its last run chose is this engine's.
+    last = profile_service.title_run_defaults(drama, engine_choice, engine_choice)
+    model = models.get(engine_choice)
+    if model is None and "model" in last:
+        try:
+            translate_run_service._require_offered_model(engine_choice, last["model"])
+            model = last["model"]
+        except InvalidInputError:
+            pass    # no longer offered: the engine's default
+
     # Same cap logic as Workspace's Translate button -- only the engines that bill per token and report
     # usage are subject to it, and it's re-resolved against the
     # month's spend-so-far right before each drama, not just once for
     # the whole batch, since earlier dramas in this same run add to
     # that spend too.
-    cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier)
+    cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier, model)
     cost_cap = None
     if cap_applies and not monthly_cap:
         # Unattended spend needs a ceiling; the start refuses without one,
@@ -497,15 +508,6 @@ def _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
             results["skipped_cap"].append(did)
             return None
 
-    # The engine is the title's own, so the model its last run chose is this engine's.
-    last = profile_service.title_run_defaults(drama, engine_choice, engine_choice)
-    model = models.get(engine_choice)
-    if model is None and "model" in last:
-        try:
-            translate_run_service._require_offered_model(engine_choice, last["model"])
-            model = last["model"]
-        except InvalidInputError:
-            pass    # no longer offered: the engine's default
     try:
         engine = engine_registry.get_engine(
             engine_choice, api_key, model,

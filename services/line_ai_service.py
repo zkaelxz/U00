@@ -49,11 +49,11 @@ def tool_engine_name(drama_id: int, engine_name: str | None = None) -> str:
     return engine_routing_service.line_tool_engine(ownership_service.require_drama(drama_id))
 
 
-def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool) -> None:
+def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool, model=None) -> None:
     """Refuses a paid call once this month's spending cap is used up, as the
     review jobs do (a single short call can't be stopped part way, so there
     is no per-call cap; only the used-up refusal applies)."""
-    if not translate_run_service.engine_cap_applies(engine_name, gemini_free_tier):
+    if not translate_run_service.engine_cap_applies(engine_name, gemini_free_tier, model):
         return
     monthly = translate_run_service.month_cap_usd()
     if not monthly:
