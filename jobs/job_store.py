@@ -16,6 +16,7 @@ import threading
 import time
 
 import db
+from lib import pid as pid_lib
 
 # Tells this server apart from an earlier one that had the same pid, so a
 # restarted server never counts as the live owner of a row it did not write.
@@ -27,8 +28,15 @@ _RETRY_DELAY = 0.05
 EXIT_FLUSH_SECONDS = 2.0
 # A paused owner (laptop lid, debugger) wakes within hours and rewrites its
 # row; a server killed without its exit hook never does, and after a reboot
-# Windows may hand its pid to an unrelated process that looks like it.
+# Windows may hand its pid to an unrelated process that looks like it. The
+# ceiling is the backstop for when that process's start time is unknown
+# (pid_started_after settles most such rows at once).
 STALE_ALIVE_CEILING_SECONDS = 6 * 3600
+# A process start time comes from the OS clock and updated_at from
+# time.time(): a clock stepped back after the owner started would make its
+# own later writes look older than it, and a live owner must never be judged
+# gone. A pid reused inside this window falls back to the ceiling.
+PID_START_SLACK_SECONDS = 60
 # A write under job_table._lock waits no longer than this for another
 # process's write lock: every get_status waits on that lock too.
 UNDER_LOCK_BUSY_SECONDS = 0.5
@@ -374,7 +382,20 @@ def owner_gone(record: dict) -> bool:
         # delete) settles it, and closing it here would race them.
         with job_table._lock:
             return record.get("job_id") not in _pending
-    return not bj.owner_process_alive(pid)
+    return not bj.owner_process_alive(pid) or pid_started_after(pid, record.get("updated_at"))
+
+
+def pid_started_after(pid, written_at) -> bool:
+    """True when the process now holding `pid` started after the row was
+    last written (only its owner writes updated_at), so it cannot be the
+    owner: the owner died and the pid was handed to someone else."""
+    if not written_at:
+        return False
+    try:
+        started = pid_lib.process_started_at(int(pid))
+    except Exception:
+        return False    # an unreadable start time is no evidence the owner is gone
+    return started is not None and started > written_at + PID_START_SLACK_SECONDS
 
 
 def _close(conn, job_id, condition, params, message=None) -> bool:
@@ -419,7 +440,8 @@ def owner_alive_elsewhere(pid, updated_at, now=None) -> bool:
     now = time.time() if now is None else now
     if (updated_at or 0) < now - STALE_ALIVE_CEILING_SECONDS:
         return False
-    return pid is not None and pid != os.getpid() and bj.owner_process_alive(pid)
+    return (pid is not None and pid != os.getpid() and bj.owner_process_alive(pid)
+            and not pid_started_after(pid, updated_at))
 
 
 def close_stale(job_id: str, cutoff: float) -> bool:

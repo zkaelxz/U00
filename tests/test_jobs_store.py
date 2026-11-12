@@ -45,6 +45,11 @@ def _set_row(job_id, **cols):
         conn.commit()
 
 
+def _started_long_ago(monkeypatch):
+    monkeypatch.setattr(job_store.pid_lib, "process_started_at",
+                        lambda pid: time.time() - 2 * job_store.STALE_ALIVE_CEILING_SECONDS)
+
+
 def _gpu_holders():
     with contextlib.closing(db.get_conn()) as conn:
         return {r[0] for r in conn.execute("SELECT holder FROM gpu_lock").fetchall()}
@@ -314,9 +319,12 @@ class TestRowsOfGoneOwners:
         assert (row["status"], row["detail_state"], row["error"]) == (
             "cancelled", "interrupted", bg.INTERRUPTED_MESSAGE)
 
-    def test_a_stale_heartbeat_closes_a_dead_owners_row_not_a_live_ones(self, isolated_db):
+    def test_a_stale_heartbeat_closes_a_dead_owners_row_not_a_live_ones(self, isolated_db,
+                                                                         monkeypatch):
         """A live owner that stopped heartbeating (paused, under a debugger)
         rewrites its row when it wakes, so heartbeat age must not close it."""
+        # A real owner started before it wrote the row; the child stands in for it.
+        _started_long_ago(monkeypatch)
         gone = subprocess.Popen([sys.executable, "-c", "pass"])
         gone.wait(timeout=30)
         other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
@@ -333,10 +341,13 @@ class TestRowsOfGoneOwners:
             other.wait(timeout=10)
         assert db.get_job_record("st_dead")["detail_state"] == "interrupted"
 
-    def test_a_live_pid_protects_a_quiet_row_only_up_to_the_ceiling(self, isolated_db):
+    def test_a_live_pid_protects_a_quiet_row_only_up_to_the_ceiling(self, isolated_db,
+                                                                    monkeypatch):
         """After a hard kill and reboot an unrelated process can hold the dead
-        server's pid; past the ceiling the row must close anyway."""
+        server's pid; past the ceiling the row must close anyway, even when
+        the OS won't say when that process started."""
         from services import jobs_service
+        monkeypatch.setattr(job_store.pid_lib, "process_started_at", lambda pid: None)
         other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
         try:
             ages = {"st_reused": job_store.STALE_ALIVE_CEILING_SECONDS + 60,
@@ -354,6 +365,48 @@ class TestRowsOfGoneOwners:
             other.wait(timeout=10)
         assert db.get_job_record("st_napping")["status"] == "running"
         assert db.get_job_record("st_reused")["detail_state"] == "interrupted"
+
+    def test_a_pid_taken_by_a_process_started_after_the_last_write_is_not_the_owner(
+            self, isolated_db):
+        """The owner was hard-killed and its pid went to a process that
+        started later: that process can't have written the row, so the row
+        closes at once instead of after the ceiling."""
+        from services import jobs_service
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            written = {"st_taken": time.time() - job_store.PID_START_SLACK_SECONDS - 60,
+                       "st_close_call": time.time() - job_store.PID_START_SLACK_SECONDS / 2}
+            for job_id, at in written.items():
+                db.save_job_record(job_id, "running", owner_pid=other.pid)
+                _set_row(job_id, owner_instance="another-server", updated_at=at)
+            if job_store.pid_lib.process_started_at(other.pid) is None:
+                pytest.skip("this OS gives no process start time")
+            assert job_store.owner_gone(db.get_job_record("st_taken")) is True
+            assert jobs_service.is_stale(db.get_job_record("st_taken")) is True
+            # Within the slack a clock step could explain the gap: not judged gone.
+            assert job_store.owner_gone(db.get_job_record("st_close_call")) is False
+            assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS) == 1
+        finally:
+            other.kill()
+            other.wait(timeout=10)
+        assert db.get_job_record("st_taken")["detail_state"] == "interrupted"
+        assert db.get_job_record("st_close_call")["status"] == "running"
+
+    def test_an_owner_started_before_its_row_was_written_still_counts(self, isolated_db,
+                                                                      monkeypatch):
+        db.save_job_record("st_old_owner", "running", owner_pid=os.getppid())
+        _set_row("st_old_owner", owner_instance="another-server")
+        record = db.get_job_record("st_old_owner")
+        monkeypatch.setattr(job_store.pid_lib, "process_started_at",
+                            lambda pid: record["updated_at"] - 5)
+        assert job_store.owner_gone(record) is False
+        assert job_store.owner_alive_elsewhere(os.getppid(), record["updated_at"]) is True
+
+    def test_an_unreadable_start_time_is_no_evidence(self, isolated_db, monkeypatch):
+        def boom(pid):
+            raise OSError("denied")
+        monkeypatch.setattr(job_store.pid_lib, "process_started_at", boom)
+        assert job_store.pid_started_after(os.getppid(), time.time() - 3600) is False
 
     def test_my_own_row_with_a_write_still_pending_is_not_closed(self, isolated_db):
         """A job cleared from memory while its last write is owed: the row

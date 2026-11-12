@@ -104,3 +104,52 @@ class TestOwnerProcessAlive:
 
 def test_the_launcher_shares_the_probe():
     assert launcher._pid_alive is pid_lib.pid_alive
+
+
+def test_our_own_start_time_is_in_the_past():
+    if os.name != "nt" and not os.path.isdir("/proc/self"):
+        pytest.skip("no start-time probe on this OS")
+    import time
+    started = pid_lib.process_started_at(os.getpid())
+    assert started is not None and time.time() - 24 * 3600 < started <= time.time() + 2
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc/self"), reason="Linux /proc probe")
+def test_an_exited_child_has_no_start_time():
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    assert pid_lib.process_started_at(proc.pid) is None
+
+
+def test_linux_start_time_counts_fields_from_the_last_parenthesis(tmp_path):
+    (tmp_path / "stat").write_text("cpu  1 2 3\nbtime 1000\n")
+    (tmp_path / "42").mkdir()
+    # A command name may hold ") " itself; starttime is field 22.
+    fields = ["S"] + [str(n) for n in range(4, 22)] + [str(7 * os.sysconf("SC_CLK_TCK")), "0"]
+    (tmp_path / "42" / "stat").write_text("42 (odd) name) " + " ".join(fields) + "\n")
+    assert pid_lib._linux_started_at(42, str(tmp_path)) == 1007
+    assert pid_lib._linux_started_at(43, str(tmp_path)) is None
+
+
+class _TimesK32(_K32):
+    def __init__(self, ticks, ok=True, handle=1):
+        super().__init__(handle=handle)
+        self.ticks, self.times_ok = ticks, ok
+
+    def GetProcessTimes(self, handle, created, *_rest):
+        created._obj.dwHighDateTime = self.ticks >> 32
+        created._obj.dwLowDateTime = self.ticks & 0xFFFFFFFF
+        return self.times_ok
+
+
+def test_windows_start_time_converts_filetime_to_unix_time():
+    unix = 1_800_000_000
+    k32 = _TimesK32((unix + pid_lib._FILETIME_UNIX_OFFSET) * 10_000_000)
+    assert pid_lib._windows_started_at(5, k32) == unix
+    assert k32.closed == [1]
+
+
+@pytest.mark.parametrize("k32", [_TimesK32(10**17, ok=False), _TimesK32(10**17, handle=0),
+                                 _TimesK32(0)])
+def test_windows_start_time_unknown_is_none(k32):
+    assert pid_lib._windows_started_at(5, k32) is None

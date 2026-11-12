@@ -160,12 +160,17 @@ same id starts. The protections:
   jobs are unchanged since a sweep that closed nothing, for up to
   `jobs_service._SWEEP_REPEAT_SECONDS` (10 s).
 - A `queued`/`running` row is stale when its owner pid is gone (`owner_pid`, via
-  `owner_process_alive`), or when `updated_at` is older than `STALE_JOB_SECONDS` (15 min)
+  `owner_process_alive`), or is held by a process that started more than
+  `PID_START_SLACK_SECONDS` (60 s) after the row's last write (`job_store.pid_started_after`,
+  start time from `lib.pid.process_started_at`: `GetProcessTimes` on Windows, `/proc` on
+  Linux; only the owner writes `updated_at`, so that process cannot be the owner), or when `updated_at` is older than `STALE_JOB_SECONDS` (15 min)
   and its owner pid is not another live process (`job_store.owner_alive_elsewhere`): a
   paused owner (laptop lid, debugger) rewrites its row when it wakes, so heartbeat age
   alone closes only a row with no `owner_pid`. That protection lasts
   `STALE_ALIVE_CEILING_SECONDS` (6 h): a row quiet for longer closes even though its
-  pid is alive, because after a hard kill and reboot Windows can reuse the dead server's pid.
+  pid is alive, because after a hard kill and reboot Windows can reuse the dead server's pid;
+  the start-time check settles most such rows at once, and the ceiling covers a start time
+  the OS won't give (access refused, macOS) or a pid reused within the slack.
   `jobs_service.is_stale` and the sweep skip any job live in this process. Each close
   is one conditional `UPDATE` (`job_store.close_if_owner_gone`, `job_store.close_stale`),
   so a live owner's heartbeat, `done` or new run always wins.
