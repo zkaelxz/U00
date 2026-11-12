@@ -543,7 +543,7 @@ def test_fresh_route_parameter_reaches_the_services(isolated_db, monkeypatch):
                         lambda d, engine_name=None, fresh=False: seen.update(g=fresh) or
                         {"job_id": "novel_glossary_1", "engine": "ollama", "paired": False})
     monkeypatch.setattr(narration_service, "start_narration_run",
-                        lambda d, engine_name=None, model=None, fresh=False:
+                        lambda d, engine_name=None, model=None, fresh=False, **_:
                         seen.update(n=fresh) or {"job_id": "narration_1"})
     did = isolated_db.create_drama(title_en="F")
     c = TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
