@@ -37,8 +37,13 @@ _NOT_ALIGNED = ("The chapters and the lines do not line up (a chapter's title li
 _STUCK = ("A chapter move on this title was interrupted and can't be finished or undone safely "
           "(its lines or text changed afterwards, or its record of the move is damaged). Restore the lines from the line history "
           "(\u201cbefore moving a chapter\u201d) and ask for help clearing the stopped move.")
+_NOT_SPLIT = "The saved chapters are not split, so they can't be moved."
 JOURNAL_FILENAME = ".chapter-move.json"
-_LOCK_FILENAME = ".chapter-move.lock"
+# Backups leave it out (library_backup_service, library_user_backup_service). It is never
+# removed: deleting a lock file another process is waiting on would let a third take it too.
+LOCK_FILENAME = ".chapter-move.lock"
+# A move takes seconds; past this, a start-up stops waiting on another copy's lock.
+_STARTUP_WAIT_SECONDS = 60.0
 _JOURNAL_KEYS = {"old_ids": list, "moved_ids": list, "old_sha256": str, "new_sha256": str,
                  "old_manifest": str, "new_manifest": str, "temp_files": list,
                  "narration_is_copy": bool}
@@ -48,6 +53,8 @@ _TIMED = ("These lines have their own times, so reordering chapters would put th
 
 def move_chapter(drama_id: int, number: int, to_number: int) -> dict:
     ownership_service.require_drama(drama_id)
+    if not os.path.isdir(os.path.join(db.DRAMAS_DIR, str(int(drama_id)))):
+        raise ConflictError(_NOT_SPLIT)   # nothing saved yet; also no folder for the move lock
     with media_upload_service.folder_write(drama_id):
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(edit._BUSY)
@@ -157,7 +164,7 @@ def _checked(drama_id: int, number: int, to_number: int):
     found = manifest.safe_file(drama_id, manifest.RAW_NOVEL_FILENAME)
     known = manifest.load(drama_id)
     if found is None or known is None or known["size"] != found[1].st_size:
-        raise ConflictError("The saved chapters are not split, so they can't be moved.")
+        raise ConflictError(_NOT_SPLIT)
     chapters = known["chapters"]
     if not (1 <= number <= len(chapters) and 1 <= to_number <= len(chapters)):
         raise NotFoundError("No such saved chapter.")
@@ -231,11 +238,12 @@ def _journal_path(drama_id: int) -> str:
     return os.path.join(db.DRAMAS_DIR, str(int(drama_id)), JOURNAL_FILENAME)
 
 
-def _move_lock(drama_id: int):
+def _move_lock(drama_id: int, timeout: float | None = None):
     """Held from a move's first write to its journal's removal, and by recovery. The page lock
     is per process; this one is the operating system's, so a second copy of the app starting
     up waits for a live move instead of undoing it, and a dead holder never keeps it."""
-    return file_lock.hold(os.path.join(db.DRAMAS_DIR, str(int(drama_id)), _LOCK_FILENAME))
+    return file_lock.hold(os.path.join(db.DRAMAS_DIR, str(int(drama_id)), LOCK_FILENAME),
+                          timeout=timeout)
 
 
 def _read_journal(path: str):
@@ -347,13 +355,19 @@ def recover_interrupted_moves() -> list:
         if not name.isdigit() or not os.path.exists(_journal_path(int(name))):
             continue
         try:
-            with _move_lock(int(name)):
+            with _move_lock(int(name), timeout=_STARTUP_WAIT_SECONDS):
                 # A move another copy of the app was running has finished while this waited.
                 if not os.path.exists(_journal_path(int(name))):
                     continue
                 if _recover(int(name)):
                     fixed.append(int(name))
                     continue
+        except TimeoutError:
+            logging.getLogger(__name__).warning(
+                "Interrupted chapter move on title %s not checked: another copy of the app still "
+                "holds its lock after %.0f s; the next start or move checks it", name,
+                _STARTUP_WAIT_SECONDS)
+            continue
         except Exception:
             logging.getLogger(__name__).warning("Interrupted chapter move on title %s could not be "
                                                 "put right", name, exc_info=True)

@@ -421,3 +421,43 @@ def test_a_second_copy_of_the_app_starting_waits_for_a_live_move(isolated_db, mo
     assert recovered == [[]]
     assert _state(did)[:2] == _state(done)[:2]
     assert [r[2] for r in _state(did)[2]] == [r[2] for r in _state(done)[2]]
+
+
+def test_startup_gives_up_waiting_on_a_move_lock_that_is_never_let_go(isolated_db, monkeypatch, caplog):
+    from lib import file_lock
+    did = _book(isolated_db)
+    _kill_at(monkeypatch, "raw")
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    monkeypatch.setattr(svc, "_STARTUP_WAIT_SECONDS", 0.1)
+    lock = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), svc.LOCK_FILENAME)
+    with file_lock.hold(lock):          # another copy of the app holding it, stuck
+        assert svc.recover_interrupted_moves() == []
+    assert svc.JOURNAL_FILENAME in _leftovers(did)
+    assert any("still holds" in r.getMessage() for r in caplog.records)
+    assert svc.recover_interrupted_moves() == [did]   # the next start puts it right
+
+
+def test_a_title_with_no_folder_refuses_the_move_instead_of_crashing(isolated_db):
+    import shutil
+    did = db.create_drama(title_en="No folder")
+    shutil.rmtree(os.path.join(db.DRAMAS_DIR, str(did)), ignore_errors=True)
+    with pytest.raises(ConflictError):
+        svc.move_chapter(did, 2, 1)
+
+
+def test_the_move_lock_is_not_put_in_backups(isolated_db, tmp_path):
+    import zipfile
+    from services import library_backup_service, library_user_backup_service
+    did = _book(isolated_db)
+    svc.move_chapter(did, 3, 1)
+    lock = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), svc.LOCK_FILENAME)
+    assert os.path.exists(lock)
+    full = str(tmp_path / "full.zip")
+    library_backup_service.write_backup_zip(full)
+    names = zipfile.ZipFile(full).namelist()
+    assert any(n.endswith(chapter_manifest.RAW_NOVEL_FILENAME) for n in names)
+    assert not any(n.endswith(svc.LOCK_FILENAME) for n in names)
+    assert not any(p.endswith(svc.LOCK_FILENAME)
+                   for p, _ in library_user_backup_service._drama_media_files(did))
