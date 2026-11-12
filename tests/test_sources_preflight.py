@@ -84,6 +84,22 @@ class TestAReadableNovelPage:
         assert result.summary() == result.verdict
 
 
+class TestRecordedTermsAreInformationOnly:
+    NOVELPIA = "https://novelpia.com/viewer/7"
+
+    def test_a_site_with_a_recorded_restriction_shows_it_and_is_still_checked(self, isolated_db):
+        result = _run({self.NOVELPIA: _chapter_html()}, url=self.NOVELPIA)
+        assert any("restrict automated access" in n for n in result.terms_notes)
+        assert any("does not refuse" in n for n in result.terms_notes)
+        # Nothing is refused: the check judges the page like any other.
+        assert result.permitted is True
+        assert result.ok is True
+        assert result.reachable is True
+
+    def test_a_site_with_no_recorded_finding_shows_none(self, isolated_db):
+        assert _run({URL: _chapter_html()}).terms_notes == []
+
+
 class TestEveryOrdinaryNoIsAnAnswerNotAnException:
     def test_prohibited_terms_are_reported_not_raised(self, isolated_db, monkeypatch):
         """A written restriction is the single most important thing a
