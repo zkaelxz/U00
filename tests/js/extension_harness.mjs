@@ -203,7 +203,7 @@ async function content(scenario) {
   throw new Error(`unknown scenario ${scenario}`);
 }
 
-function loadBackground({ granted, response, fetchImpl, stored = {} }) {
+function loadBackground({ granted, response, fetchImpl, stored = {}, chromeExtra = {}, sandboxExtra = {} }) {
   let listener = null;
   const fetchCalls = [];
   const sandbox = {
@@ -214,10 +214,13 @@ function loadBackground({ granted, response, fetchImpl, stored = {} }) {
       return response();
     },
     chrome: {
-      runtime: { onInstalled: { addListener() {} }, onMessage: { addListener: (fn) => { listener = fn; } } },
+      ...chromeExtra,
+      runtime: { onInstalled: { addListener() {} }, onMessage: { addListener: (fn) => { listener = fn; } },
+                 ...(chromeExtra.runtime || {}) },
       storage: { local: { remove() {}, get: async () => stored, set: async () => {} } },
       permissions: { contains: async ({ origins }) => granted(origins) },
     },
+    ...sandboxExtra,
   };
   sandbox.importScripts = (name) => vm.runInContext(read(name), sandbox);
   vm.createContext(sandbox);
@@ -344,6 +347,30 @@ async function background(scenario) {
       await h.ask({ type: "fetchImage", url }, { url: "https://reader.example/ch/1?token=secret" });
       const o = h.fetchCalls[0].options;
       return { referrer: o.referrer, referrerPolicy: o.referrerPolicy };
+    }
+    case "referer_retry": {
+      const run = async ({ firstStatus, sender, rules = true }) => {
+        const calls = [];
+        let n = 0;
+        const dnr = { updateSessionRules: async (change) => { calls.push(change); } };
+        const h = loadBackground({
+          granted: () => true,
+          chromeExtra: rules ? { declarativeNetRequestWithHostAccess: undefined, declarativeNetRequest: dnr,
+                                 runtime: { id: "extid" } } : { runtime: { id: "extid" } },
+          fetchImpl: async () => { n += 1; return n === 1 ? new Response("", { status: firstStatus })
+            : image(JPEG)(); },
+        });
+        const r = await h.ask({ type: "fetchImage", url }, sender);
+        return { ok: r.ok, error: r.error, fetches: h.fetchCalls.length, rules: calls };
+      };
+      const page = { url: "https://reader.example/ch/1?token=secret" };
+      return {
+        retried: await run({ firstStatus: 403, sender: page }),
+        notNeeded: await run({ firstStatus: 200, sender: page }),
+        otherError: await run({ firstStatus: 404, sender: page }),
+        noPage: await run({ firstStatus: 403, sender: {} }),
+        noPermission: await run({ firstStatus: 403, sender: page, rules: false }),
+      };
     }
     case "no_referrer_without_a_page": {
       const h = loadBackground({ granted: () => true, response: image(JPEG) });

@@ -394,6 +394,33 @@ function senderOrigin(sender) {
   }
 }
 
+// Rule ids are only live for the length of one request; a counter keeps two at once apart.
+let refererRuleId = 1;
+
+// The same request again with the Referer set to the page's origin, as the browser would have
+// sent it for the page's own image. The rule is limited to this host, to requests the extension
+// itself makes, and is removed as soon as the request ends. Without the permission it does nothing.
+async function retryWithReferer(href, options, pageOrigin) {
+  const rules = chrome.declarativeNetRequest;
+  if (!rules || !rules.updateSessionRules) return fetch(href, options);
+  const id = refererRuleId;
+  refererRuleId = refererRuleId % 1000 + 1;
+  const host = new URL(href).hostname;
+  await rules.updateSessionRules({
+    removeRuleIds: [id],
+    addRules: [{
+      id, priority: 1,
+      action: { type: "modifyHeaders", requestHeaders: [{ header: "referer", operation: "set", value: `${pageOrigin}/` }] },
+      condition: { requestDomains: [host], initiatorDomains: [chrome.runtime.id], resourceTypes: ["xmlhttprequest", "other"] },
+    }],
+  });
+  try {
+    return await fetch(href, options);
+  } finally {
+    await rules.updateSessionRules({ removeRuleIds: [id] });
+  }
+}
+
 async function fetchImage({ url }, sender) {
   let parsed;
   try {
@@ -426,7 +453,10 @@ async function fetchImage({ url }, sender) {
     // The result reports parsed.href, not response.url, so a redirect target can never reach the page.
     // redirect "error" because a redirect target would be requested before it
     // could be checked, letting a granted origin bounce the fetch to a LAN address.
-    const response = await fetch(parsed.href, options);
+    let response = await fetch(parsed.href, options);
+    // A worker's fetch cannot set a cross-origin referrer, so a CDN that checks it answers 403;
+    // only then is the header set by rule, for this one request.
+    if (response.status === 403 && pageOrigin) response = await retryWithReferer(parsed.href, options, pageOrigin);
     if (!response.ok) return { ok: false, error: `the image server answered HTTP ${response.status}` };
     const declared = Number(response.headers.get("content-length") || 0);
     if (declared > FETCH_IMAGE_MAX_BYTES) {
