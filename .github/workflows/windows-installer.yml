@@ -541,19 +541,24 @@ jobs:
     permissions:
       contents: write
       actions: read
-      checks: read
     steps:
       # CI runs on pushes to baihe-subtitler, not on tags: without this a tag on
       # a commit whose Tests run failed would still publish.
       - name: Check that Tests passed at the tagged commit
         env:
           GH_TOKEN: ${{ github.token }}
+          RUNS_FILTER: >-
+            [.workflow_runs[] | select(.head_sha == env.GITHUB_SHA and .event == "push"
+            and .head_branch == "baihe-subtitler" and .path == ".github/workflows/tests.yml")]
+            | sort_by(.created_at) | last | .conclusion // "missing"
         run: |
           set -euo pipefail
-          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=test&per_page=100" \
-            --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.started_at) | last | .conclusion // "missing"')"
+          # Only the push run on baihe-subtitler counts: a pull request's run
+          # tests a merge with the base, not this commit, and anyone can open one.
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$GITHUB_SHA&event=push&branch=baihe-subtitler&per_page=100" \
+            --jq "$RUNS_FILTER")"
           if [ "$conclusion" != "success" ]; then
-            echo "::error::The Tests workflow's test check at $GITHUB_SHA is $conclusion, not success. Tag a commit whose Tests run passed, or wait for it to finish and re-run this job. Nothing was published."
+            echo "::error::The Tests run on baihe-subtitler at $GITHUB_SHA is $conclusion, not success. Tag a commit whose Tests run on baihe-subtitler passed, or wait for it to finish and re-run this job. Nothing was published."
             exit 1
           fi
           echo "Tests passed at $GITHUB_SHA."

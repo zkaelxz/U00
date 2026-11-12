@@ -6,6 +6,7 @@ the workflow steps run for real with a fake `gh` on PATH.
 """
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -207,14 +208,18 @@ def _run_release(tmp_path, key, fake_gh=FAKE_GH, committed_public=None,
     return proc, (log.read_text().splitlines() if log.exists() else None), work
 
 
-def _ci_check_script() -> str:
+def _ci_check_step() -> dict:
     yaml = pytest.importorskip("yaml")
     wf = yaml.safe_load((ROOT / ".github" / "workflows" / "windows-installer.yml")
                         .read_text(encoding="utf-8"))
     steps = wf["jobs"]["release"]["steps"]
     # First, so a red commit never reaches the signing key.
     assert steps[0]["name"] == "Check that Tests passed at the tagged commit"
-    return steps[0]["run"]
+    return steps[0]
+
+
+def _ci_check_script() -> str:
+    return _ci_check_step()["run"]
 
 
 FAKE_GH_CHECKS = """#!/usr/bin/env bash
@@ -236,14 +241,46 @@ def test_release_job_publishes_only_when_tests_passed_at_the_commit(tmp_path, co
     (bindir / "gh").chmod(0o755)
     env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "GITHUB_REPOSITORY": "o/r",
            "GITHUB_SHA": "a" * 40, "GH_TOKEN": "t", "GH_LOG": str(tmp_path / "gh.log"),
-           "GH_CONCLUSION": conclusion}
+           "GH_CONCLUSION": conclusion, "RUNS_FILTER": _ci_check_step()["env"]["RUNS_FILTER"]}
     proc = subprocess.run(["bash", "-c", _ci_check_script()], env=env, capture_output=True,
                           text=True, timeout=60)
     assert (proc.returncode == 0) is ok, proc.stdout + proc.stderr
-    assert f"repos/o/r/commits/{'a' * 40}/check-runs?check_name=test" in (
-        tmp_path / "gh.log").read_text()
+    asked = (tmp_path / "gh.log").read_text()
+    assert (f"repos/o/r/actions/workflows/tests.yml/runs?head_sha={'a' * 40}"
+            "&event=push&branch=baihe-subtitler") in asked
     if not ok:
         assert "Nothing was published" in proc.stdout
+
+
+def _run_of(conclusion, created="2026-11-12T10:00:00Z", sha="a" * 40, event="push",
+            branch="baihe-subtitler", path=".github/workflows/tests.yml"):
+    return {"conclusion": conclusion, "created_at": created, "head_sha": sha, "event": event,
+            "head_branch": branch, "path": path}
+
+
+@pytest.mark.parametrize("runs,expected", [
+    ([_run_of("success")], "success"),
+    ([], "missing"),
+    ([_run_of("failure")], "failure"),
+    # A pull request's run tests a merge with the base, not this commit.
+    ([_run_of("success", event="pull_request")], "missing"),
+    ([_run_of("success", branch="someone-elses-branch")], "missing"),
+    ([_run_of("success", path=".github/workflows/windows-installer.yml")], "missing"),
+    ([_run_of("success", sha="b" * 40)], "missing"),
+    # The newest run counts, so a later failure is not hidden by an earlier pass.
+    ([_run_of("success", "2026-11-12T10:00:00Z"), _run_of("failure", "2026-11-12T11:00:00Z")],
+     "failure"),
+    ([_run_of(None)], "missing"),
+])
+def test_release_job_counts_only_the_push_run_on_the_branch(runs, expected):
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("needs jq (gh's --jq takes the same filter)")
+    proc = subprocess.run([jq, "-r", _ci_check_step()["env"]["RUNS_FILTER"]],
+                          input=json.dumps({"workflow_runs": runs}), capture_output=True,
+                          text=True, timeout=30, env={**os.environ, "GITHUB_SHA": "a" * 40})
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == expected
 
 
 def test_release_job_signs_what_the_app_verifies(tmp_path, keys):
