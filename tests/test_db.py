@@ -2964,6 +2964,81 @@ def test_a_source_checkout_neither_checks_nor_records_a_version(isolated_db, mon
     assert _stored_version() == "9.9.9"
 
 
+def _start_server_as(monkeypatch, running):
+    """The server's own library opening, up to where it would start listening."""
+    import api.__main__ as entry
+    monkeypatch.setattr(db, "_running_app_version", lambda: running)
+    entry._open_library(db)
+
+
+def test_an_update_that_fails_before_answering_leaves_the_library_to_the_old_version(
+        isolated_db, monkeypatch):
+    # app_swap rolls back a version that never answered /api/health; the
+    # version it puts back must still open the library.
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+    _start_server_as(monkeypatch, "2.1.0")
+    assert _stored_version() == "2.0.5"
+    _open_as(monkeypatch, "2.0.5")
+
+
+def test_the_server_records_its_version_once_it_answers(isolated_db, monkeypatch):
+    from lib.errors import NewerDatabaseError
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+    _start_server_as(monkeypatch, "2.1.0")
+    db.record_app_version()
+    assert _stored_version() == "2.1.0"
+    with pytest.raises(NewerDatabaseError):
+        _open_as(monkeypatch, "2.0.5")
+
+
+def test_a_start_that_changes_the_tables_records_its_version_at_once(isolated_db, monkeypatch):
+    # The old version can't be trusted with a column it doesn't know, so it
+    # must keep refusing even though the new version never answered.
+    from lib.errors import NewerDatabaseError
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+
+    def add_a_column():
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("ALTER TABLE dramas ADD COLUMN from_a_newer_version TEXT")
+            conn.commit()
+
+    monkeypatch.setattr(db, "_migrate_step26e_profiles", add_a_column)
+    _start_server_as(monkeypatch, "2.1.0")
+    assert _stored_version() == "2.1.0"
+    with pytest.raises(NewerDatabaseError):
+        _open_as(monkeypatch, "2.0.5")
+
+
+def test_a_later_migration_that_fails_leaves_the_library_to_the_old_version(
+        isolated_db, monkeypatch):
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+
+    def fail():
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(db, "_migrate_line_refs_to_ids", fail)
+    with pytest.raises(sqlite3.OperationalError):
+        _start_server_as(monkeypatch, "2.1.0")
+    assert _stored_version() == "2.0.5"
+
+
+def test_a_held_back_version_never_replaces_a_newer_record(isolated_db, monkeypatch):
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+    _start_server_as(monkeypatch, "2.1.0")
+    db.set_app_setting(db.APP_VERSION_SETTING, "3.0.0")
+    db.record_app_version()
+    assert _stored_version() == "3.0.0"
+
+
+def test_after_the_server_answered_a_later_open_records_at_once(isolated_db, monkeypatch):
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+    _start_server_as(monkeypatch, "2.1.0")
+    db.record_app_version()
+    db.set_app_setting(db.APP_VERSION_SETTING, "2.0.5")
+    _open_as(monkeypatch, "2.1.0")
+    assert _stored_version() == "2.1.0"
+
+
 def test_installed_app_version_comes_from_the_install_manifest(tmp_path, monkeypatch):
     import portable
     app = tmp_path / "app"

@@ -46,6 +46,7 @@ def _open_library(db):
     import sqlite3
     from lib import sqlite_check
     from lib.errors import NewerDatabaseError
+    db.defer_version_record()
     try:
         db.init_db()
     except NewerDatabaseError as e:
@@ -109,6 +110,7 @@ def _serve():
             settings = replace(settings, household_port=0)
     _warn_single_port_sign_in(settings)
     if settings.is_development:
+        db.record_app_version()   # no app update ever waits on a development server
         uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True,
                     access_log=not settings.auth_enabled)
         return
@@ -138,9 +140,10 @@ def _serve():
     # window holds) can't keep a clean stop past the launcher's grace period.
     # No access log with sign-in on: the callback's request line carries the
     # Google code and state in its query string.
-    server = uvicorn.Server(uvicorn.Config("api.server:app", host=settings.host,
-                                           port=settings.port, timeout_graceful_shutdown=3,
-                                           access_log=not settings.auth_enabled))
+    server = _app_server(uvicorn.Config("api.server:app", host=settings.host,
+                                        port=settings.port, timeout_graceful_shutdown=3,
+                                        access_log=not settings.auth_enabled),
+                         on_started=db.record_app_version)
     shutdown_service.register_stopper(lambda: setattr(server, "should_exit", True))
     try:
         server.run()
@@ -185,11 +188,15 @@ def _serve_with_household(settings):
     # proxy on this PC. No uvicorn access log for the household app: its
     # lines carry the query string, which on the sign-in callback holds the
     # Google code and state.
-    servers = [_quiet_server(uvicorn.Config(app, host=settings.host, port=port,
-                                            proxy_headers=True, forwarded_allow_ips="127.0.0.1",
-                                            timeout_graceful_shutdown=3, access_log=access_log))
-               for app, port, access_log in ((admin_app, settings.port, True),
-                                             (household_app, settings.household_port, False))]
+    import db
+    # The admin listener is the one the app-update check waits on.
+    servers = [_app_server(uvicorn.Config(app, host=settings.host, port=port,
+                                          proxy_headers=True, forwarded_allow_ips="127.0.0.1",
+                                          timeout_graceful_shutdown=3, access_log=access_log),
+                           on_started=on_started, quiet=True)
+               for app, port, access_log, on_started in (
+                   (admin_app, settings.port, True, db.record_app_version),
+                   (household_app, settings.household_port, False, None))]
     shutdown_service.register_stopper(lambda: _stop_all(servers))
     failed = _run_servers(servers)
     shutdown_service.clean_shutdown()
@@ -197,18 +204,26 @@ def _serve_with_household(settings):
         raise SystemExit(1)
 
 
-def _quiet_server(config):
-    """A uvicorn.Server that leaves signal handling to _run_servers: two
-    servers each installing (and on exit restoring and re-raising) their
-    own handlers would stop only one of them on Ctrl+C."""
+def _app_server(config, on_started=None, quiet=False):
+    """A uvicorn.Server that calls `on_started` once it listens and its
+    startup has run, which is when /api/health first answers. `quiet`
+    leaves signal handling to _run_servers: two servers each installing (and
+    on exit restoring and re-raising) their own handlers would stop only one
+    of them on Ctrl+C."""
     import contextlib
     import uvicorn
 
-    class QuietServer(uvicorn.Server):
-        @contextlib.contextmanager
-        def capture_signals(self):
-            yield
-    return QuietServer(config)
+    class AppServer(uvicorn.Server):
+        async def startup(self, sockets=None):
+            await super().startup(sockets=sockets)
+            if self.started and on_started is not None:
+                on_started()
+
+        if quiet:
+            @contextlib.contextmanager
+            def capture_signals(self):
+                yield
+    return AppServer(config)
 
 
 def _stop_all(servers, force=False):

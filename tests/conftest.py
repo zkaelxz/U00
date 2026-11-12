@@ -346,10 +346,19 @@ def isolated_db(_template_library):
     temp_dir = os.path.join(parent_dir, "library")
     shutil.copytree(_template_library, temp_dir, ignore=shutil.ignore_patterns("*-wal", "*-shm"))
     db.configure_library_dir(temp_dir)
+    _forget_held_version_record()
     db.init_db()
     yield db
+    _forget_held_version_record()
     db.configure_library_dir(previous)
     _rmtree_retrying(parent_dir)
+
+
+def _forget_held_version_record():
+    """A test that runs api.__main__._serve with a fake uvicorn leaves the
+    server's held-back version record set, since nothing ever starts."""
+    db._defer_version_record = False
+    db._unrecorded_version = None
 
 
 def _reset_background_jobs_memory():

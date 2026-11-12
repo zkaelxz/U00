@@ -297,11 +297,90 @@ def _refuse_newer_database(conn, running):
             "(the backups folder inside your Baihe data folder).")
 
 
+# A server holds the record back until it answers (defer_version_record):
+# an app update that fails before then is rolled back by app_swap, and the
+# previous version must still open the library. A start that changed the
+# tables keeps the record, since the previous version can't read them.
+_defer_version_record = False
+_unrecorded_version = None
+
+
+def defer_version_record():
+    global _defer_version_record
+    _defer_version_record = True
+
+
+def record_app_version():
+    """Writes the running version held back since init_db. Called once the
+    server answers; later init_db calls record at once again."""
+    global _defer_version_record, _unrecorded_version
+    _defer_version_record = False
+    version, _unrecorded_version = _unrecorded_version, None
+    if version is None:
+        return
+    with contextlib.closing(get_conn()) as conn:
+        try:
+            stored_v = _version_tuple(json.loads(_stored_version(conn) or "null"))
+        except ValueError:
+            stored_v = None
+        # Never over a newer version's record: that one must keep refusing this.
+        if stored_v and stored_v > (_version_tuple(version) or ()):
+            return
+        _write_version(conn, version)
+        conn.commit()
+
+
+def _stored_version(conn):
+    """The raw JSON text stored for the version, or None."""
+    try:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?",
+                           (APP_VERSION_SETTING,)).fetchone()
+    except sqlite3.OperationalError:
+        return None   # a brand-new database has no app_settings yet
+    return None if row is None else row[0]
+
+
+def _write_version(conn, version):
+    conn.execute("""
+        INSERT INTO app_settings (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    """, (APP_VERSION_SETTING, json.dumps(version)))
+
+
+def _table_columns(conn):
+    return frozenset((table, row[1])
+                     for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE "
+                                                  "type = 'table' AND name NOT LIKE 'sqlite_%'")
+                     for row in conn.execute(f'PRAGMA table_info("{table}")'))
+
+
+def _hold_back_version_record(running, previous, columns_before):
+    """Puts the stored version back to what it was before this start when
+    the tables and columns are unchanged. A failure leaves the new version
+    recorded, which only blocks a rollback, as before the record was held."""
+    global _unrecorded_version
+    if previous == json.dumps(running):
+        return
+    with contextlib.suppress(sqlite3.Error), contextlib.closing(get_conn()) as conn:
+        if _table_columns(conn) != columns_before:
+            return
+        if previous is None:
+            conn.execute("DELETE FROM app_settings WHERE key = ?", (APP_VERSION_SETTING,))
+        else:
+            conn.execute("UPDATE app_settings SET value = ? WHERE key = ?",
+                         (previous, APP_VERSION_SETTING))
+        conn.commit()
+        _unrecorded_version = running
+
+
 def init_db():
     running = _running_app_version()
+    held = None
     with contextlib.closing(get_conn()) as conn:
         if running:
             _refuse_newer_database(conn, running)
+            if _defer_version_record:
+                held = (_stored_version(conn), _table_columns(conn))
         # Order matters: later steps read tables and columns that earlier
         # ones create (the ownership step needs users and app_settings).
         _create_library_tables(conn)
@@ -334,16 +413,17 @@ def init_db():
         member_keys.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
         if running:
-            conn.execute("""
-                INSERT INTO app_settings (key, value) VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """, (APP_VERSION_SETTING, json.dumps(running)))
+            _write_version(conn, running)
         conn.commit()
-    _init_benchmark_lab_schema()
-    _migrate_gpu_lock_slots()
-    _migrate_line_refs_to_ids()
-    _create_line_ref_indexes()
-    _migrate_step26e_profiles()
+    try:
+        _init_benchmark_lab_schema()
+        _migrate_gpu_lock_slots()
+        _migrate_line_refs_to_ids()
+        _create_line_ref_indexes()
+        _migrate_step26e_profiles()
+    finally:
+        if held is not None:
+            _hold_back_version_record(running, *held)
 
 
 from db.schema import (  # noqa: E402,F401

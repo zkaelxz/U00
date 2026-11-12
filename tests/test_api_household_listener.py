@@ -1274,6 +1274,42 @@ class TestRunServers:
         _run_servers([a, b])
         assert signal.getsignal(signal.SIGINT) is before
 
+    @staticmethod
+    def _run_app_server(app, lifespan):
+        import asyncio
+        import uvicorn
+        from api.__main__ import _app_server
+        seen = []
+        server = _app_server(uvicorn.Config(app, host="127.0.0.1", port=0, lifespan=lifespan,
+                                            log_level="critical"),
+                             on_started=lambda: seen.append(server.started), quiet=True)
+
+        async def run():
+            task = asyncio.create_task(server.serve())
+            while not seen and not task.done():
+                await asyncio.sleep(0.01)
+            server.should_exit = True
+            await task
+        try:
+            asyncio.run(asyncio.wait_for(run(), 10))
+        except SystemExit:   # how uvicorn ends a failed startup
+            pass
+        return seen
+
+    def test_the_app_server_reports_once_it_listens(self):
+        # The library's version is recorded then: a start that never gets
+        # this far is rolled back by the app update and must leave it.
+        async def app(scope, receive, send):
+            pass
+        assert self._run_app_server(app, "off") == [True]
+
+    def test_a_failed_startup_never_reports(self):
+        async def app(scope, receive, send):
+            if scope["type"] == "lifespan":
+                await receive()
+                await send({"type": "lifespan.startup.failed", "message": "router import"})
+        assert self._run_app_server(app, "on") == []
+
     def _serve(self, monkeypatch, env):
         import process_guard
         import uvicorn
@@ -1297,11 +1333,9 @@ class TestRunServers:
         class Single:
             def __init__(self, config):
                 self.config, self.should_exit = config, False
-                if type(self) is Single:     # not _quiet_server's subclass
-                    single.append(config)
 
             def run(self):
-                pass
+                single.append(self.config)   # _run_servers is faked, so only the single port runs
         monkeypatch.setattr(uvicorn, "Server", Single)
         monkeypatch.setattr(main_mod, "_run_servers", lambda servers: ran.append(servers))
         main_mod._serve()
