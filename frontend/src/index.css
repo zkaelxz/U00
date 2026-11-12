@@ -445,6 +445,12 @@ dd { margin: 0; }
 }
 /* A banner that is a sentence: as a flex row its bold lead-in and the text after it become separate columns and the lead-in breaks mid-word. */
 .banner.banner-prose { display: block; }
+/* Fixed to the viewport, not left in the button row: there it was squeezed beside neighbouring buttons into a
+   few characters per line. Below the sticky bars (z 3-5 here) would hide it, so it sits above them. */
+.open-folder-notice { position: fixed; z-index: 7; inset-inline: var(--space-3); bottom: var(--space-3); max-width: 28rem; margin-inline: auto; box-shadow: var(--shadow-pop); }
+.open-folder-notice-body { min-width: 0; flex: 1 1 auto; display: grid; gap: var(--space-2); justify-items: start; }
+.open-folder-notice-body input { min-width: 0; justify-self: stretch; }
+.open-folder-notice > button.link { flex-shrink: 0; white-space: nowrap; align-self: flex-start; }
 .error-banner { border-color: var(--bad); color: var(--bad); }
 /* A long message must not squeeze Dismiss into a one-letter column. */
 .error-banner > button.link { flex-shrink: 0; white-space: nowrap; align-self: flex-start; }
