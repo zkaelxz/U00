@@ -87,3 +87,5 @@ class NovelChapterRenamed(BaseModel):
     title: str
     # False when no line of the title held the old chapter title (nothing to change there).
     line_updated: bool
+    # True when the translation text was a copy of the saved chapters and was updated too.
+    translation_text_updated: bool = False

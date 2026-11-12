@@ -18,7 +18,7 @@ from core import Line
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import novel_chapter_edit_service as svc
 from services import novel_chapters_service, novel_line_chapters_service
-from sources import chapter_manifest, pipeline
+from sources import chapter_manifest, pipeline, store
 from sources.models import ChapterInfo
 
 
@@ -31,6 +31,8 @@ def client(isolated_db):
 def _import(did, n, title, body):
     ch = ChapterInfo(source="xbanxia", series_id="s1", chapter_id=f"c{n}", title=title)
     assert pipeline._append_chapter_text("xbanxia", ch, did, body) == ""
+    # A finished import clears its retry marker; the marker is what a rename must refuse on.
+    pipeline._clear_in_flight("xbanxia", ch, did)
 
 
 def _book(isolated_db):
@@ -104,3 +106,79 @@ def test_route_renames(client, isolated_db):
     assert r.status_code == 200 and r.json()["title"] == "Gate"
     assert client.post(f"/api/novel/dramas/{did}/raw-novel/chapters/9/rename",
                        json={"title": "Gate"}).status_code == 404
+
+
+def _state(did):
+    return (_raw(did), open(chapter_manifest.manifest_path(did), encoding="utf-8").read(),
+            [r["zh"] for r in db.load_lines(did)])
+
+
+def test_a_failed_manifest_swap_restores_the_raw_file_and_the_line(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    before = _state(did)
+    real = svc._swap_in
+    calls = []
+
+    def flaky(tmp, dest):
+        calls.append(dest)
+        if dest.endswith(chapter_manifest.MANIFEST_FILENAME):
+            raise OSError("disk")
+        return real(tmp, dest)
+    monkeypatch.setattr(svc, "_swap_in", flaky)
+    with pytest.raises(OSError):
+        svc.rename_chapter(did, 2, "A Longer Road Name")
+    monkeypatch.setattr(svc, "_swap_in", real)
+    assert _state(did) == before
+    assert novel_chapters_service.list_chapters(did)["split"] is True
+    assert not [n for n in os.listdir(os.path.dirname(chapter_manifest.raw_path(did))) if n.endswith(".part")]
+    svc.rename_chapter(did, 2, "A Longer Road Name")   # a retry finishes it
+    assert novel_chapters_service.list_chapters(did)["chapters"][1]["title"] == "A Longer Road Name"
+
+
+def test_a_failed_line_save_changes_nothing(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    before = _state(did)
+
+    def boom(*a, **k):
+        raise RuntimeError("db")
+    monkeypatch.setattr(db, "save_lines", boom)
+    with pytest.raises(RuntimeError):
+        svc.rename_chapter(did, 2, "New")
+    monkeypatch.undo()
+    assert _state(did) == before
+
+
+def test_a_pending_import_retry_blocks_the_rename(isolated_db):
+    did = _book(isolated_db)
+    store.mark_text_in_flight("xbanxia", "s1", did, "c9", "Later", "Interrupted.", 123)
+    before = _state(did)
+    with pytest.raises(ConflictError):
+        svc.rename_chapter(did, 2, "New")
+    assert _state(did) == before
+
+
+def test_renaming_to_the_same_title_keeps_the_only_backup(isolated_db):
+    did = _book(isolated_db)
+    svc.rename_chapter(did, 1, "Gate")
+    backup = chapter_manifest.raw_path(did) + svc.BACKUP_SUFFIX
+    with open(backup, "rb") as f:
+        first_backup = f.read()
+    out = svc.rename_chapter(did, 1, "Gate")
+    assert out["line_updated"] is False
+    with open(backup, "rb") as f:
+        assert f.read() == first_backup
+
+
+def test_a_translation_text_that_copies_the_raw_chapters_follows_the_rename(isolated_db):
+    did = _book(isolated_db)
+    folder = os.path.dirname(chapter_manifest.raw_path(did))
+    copy = os.path.join(folder, "novel_narration_source.txt")
+    with open(chapter_manifest.raw_path(did), "rb") as f, open(copy, "wb") as g:
+        g.write(f.read())
+    assert svc.rename_chapter(did, 1, "Gate")["translation_text_updated"] is True
+    with open(copy, encoding="utf-8", newline="") as f:
+        assert f.read() == _raw(did)
+    with open(copy, "a", encoding="utf-8") as f:   # a hand edit is never overwritten
+        f.write("\n手改")
+    assert svc.rename_chapter(did, 2, "Road")["translation_text_updated"] is False
+    assert "手改" in open(copy, encoding="utf-8").read()

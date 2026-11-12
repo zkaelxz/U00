@@ -8,19 +8,24 @@ stops matching. The raw file and its manifest are rewritten through temp files a
 under the title's page lock, with the previous pair kept beside them as `.before-edit`.
 The manifest is only trusted while it matches the file's size (sources/chapter_manifest.py),
 so a manifest that is missing or out of date is refused, never guessed at.
+A failed swap restores the raw file and the line, so the chapter list never turns unsplit;
+a rename is refused while an interrupted import still holds a retry offset into the file.
 
 Returns the number, the new title and booleans only; never a path. No FastAPI import.
 """
+import filecmp
 import os
 import shutil
 import tempfile
 
 import db
+import novel_text
 from core import line_from_row
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import (drama_service, extension_novel_service, media_upload_service,
                       novel_line_chapters_service, ownership_service)
 from sources import chapter_manifest as manifest
+from sources import store
 from sources import pipeline
 
 _BUSY = "A job is running for this title. Wait for it to finish or cancel it."
@@ -57,6 +62,32 @@ def rename_chapter(drama_id: int, number: int, title) -> dict:
             return _rename_locked(drama_id, number, new_title)
 
 
+def _restore_raw(raw: str, folder: str) -> None:
+    """Puts the backup of the raw file back, through a temp file so a failure here
+    cannot leave a half-written file."""
+    fd, tmp = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=folder)
+    os.close(fd)
+    try:
+        shutil.copyfile(raw + BACKUP_SUFFIX, tmp)
+        _swap_in(tmp, raw)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _set_line_title(drama_id: int, pos: int, lines: list, old: str, title: str) -> bool:
+    """Writes `title` into line `pos` only while it still holds `old` (the lines are
+    read just before, and a person editing in Review may have changed it); field-scoped
+    so nothing else on the line is touched."""
+    row = lines[pos]
+    if novel_line_chapters_service.norm(row.get("zh")) != novel_line_chapters_service.norm(old):
+        return False
+    ln = line_from_row(row)
+    ln.zh = title
+    db.save_lines(drama_id, [ln], fields=("zh",))
+    return True
+
+
 def _rename_locked(drama_id: int, number: int, new_title: str) -> dict:
     found = manifest.safe_file(drama_id, manifest.RAW_NOVEL_FILENAME)
     known = manifest.load(drama_id)
@@ -81,18 +112,35 @@ def _rename_locked(drama_id: int, number: int, new_title: str) -> dict:
     old_line = first.decode("utf-8", errors="replace")
     if extension_novel_service.one_line_name(old_line) != extension_novel_service.one_line_name(block["title"]):
         raise ConflictError(_NOT_TITLED)
+    if extension_novel_service.one_line_name(old_line) == new_title:
+        return {"drama_id": drama_id, "number": number, "title": new_title,
+                "line_updated": False, "translation_text_updated": False}
+    if store.has_text_retry_marker(drama_id):
+        raise ConflictError("A chapter import for this title was interrupted and still has a "
+                            "retry waiting, which would point at the wrong text after a rename. "
+                            "Finish or clear that retry first.")
 
+    folder = os.path.dirname(raw)
+    narration = os.path.join(folder, novel_text.NOVEL_SOURCE_FILENAME)
+    # A translation text that is a verbatim copy of the raw chapters is kept in step; a
+    # hand-edited one is left alone, since a rewrite would lose the edits.
+    narration_is_copy = os.path.isfile(narration) and filecmp.cmp(raw, narration, shallow=False)
+
+    # The line goes first: it is the one step that can fail on its own, and nothing else
+    # has changed yet if it does. It is put back if the file swap fails.
     lines = db.load_lines(drama_id)
     mapped = novel_line_chapters_service.starts_from_manifest(
         drama_id, [novel_line_chapters_service.norm(r.get("zh")) for r in lines])
     title_pos = next((pos for n, _t, pos in mapped if n == number), None)
+    line_updated = (title_pos is not None
+                    and _set_line_title(drama_id, title_pos, lines, old_line, new_title))
 
     new_first = new_title.encode("utf-8")
     delta = len(new_first) - len(first)
-    folder = os.path.dirname(raw)
     fd, tmp_raw = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=folder)
     fd2, tmp_man = tempfile.mkstemp(prefix=".chapters_", suffix=".part", dir=folder)
     os.close(fd2)
+    raw_swapped = False
     try:
         with open(raw, "rb") as src, os.fdopen(fd, "wb") as out:
             _copy_range(src, out, 0, block["start"])
@@ -113,22 +161,34 @@ def _rename_locked(drama_id: int, number: int, new_title: str) -> dict:
         with open(tmp_man, "w", encoding="utf-8") as f:
             f.write(manifest.serialise(size + delta, rows))
         for path in (raw, manifest.manifest_path(drama_id)):
-            if os.path.exists(path):
-                shutil.copyfile(path, path + BACKUP_SUFFIX)
+            shutil.copyfile(path, path + BACKUP_SUFFIX)
         _swap_in(tmp_raw, raw)
+        raw_swapped = True
         _swap_in(tmp_man, manifest.manifest_path(drama_id))
     except BaseException:
         for tmp in (tmp_raw, tmp_man):
             if os.path.exists(tmp):
                 os.remove(tmp)
+        # The old manifest is still in place; the old raw file has to match it again, or
+        # the list would read as unsplit.
+        if raw_swapped:
+            _restore_raw(raw, folder)
+        if line_updated:
+            try:
+                _set_line_title(drama_id, title_pos, db.load_lines(drama_id), new_title, old_line)
+            except Exception:
+                pass
         raise
 
-    line_updated = False
-    if title_pos is not None:
-        row = lines[title_pos]
-        ln = line_from_row(row)
-        ln.zh = new_title
-        db.save_lines(drama_id, [ln], fields=("zh",))
-        line_updated = True
+    translation_updated = False
+    if narration_is_copy:
+        try:
+            fd3, tmp_n = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=folder)
+            os.close(fd3)
+            shutil.copyfile(raw, tmp_n)
+            _swap_in(tmp_n, narration)
+            translation_updated = True
+        except OSError:
+            pass
     return {"drama_id": drama_id, "number": number, "title": new_title,
-            "line_updated": line_updated}
+            "line_updated": line_updated, "translation_text_updated": translation_updated}

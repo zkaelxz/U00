@@ -22370,6 +22370,11 @@ export interface components {
             number: number;
             /** Title */
             title: string;
+            /**
+             * Translation Text Updated
+             * @default false
+             */
+            translation_text_updated: boolean;
         };
         /** NovelChapterRow */
         NovelChapterRow: {

@@ -115,6 +115,15 @@ def import_text_offset(source: str, series_id: str, drama_id: int, chapter_id: s
     return None if row is None else row["text_offset"]
 
 
+def has_text_retry_marker(drama_id: int) -> bool:
+    """True while any text chapter of this drama has a retry offset recorded: the
+    offset is a byte position in the raw-novel file, so a rewrite of that file
+    that shifts bytes would leave it pointing into the wrong text."""
+    with connect() as conn:
+        return conn.execute("SELECT 1 FROM import_retry WHERE drama_id=? AND text_offset IS NOT NULL "
+                            "LIMIT 1", (int(drama_id),)).fetchone() is not None
+
+
 def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:
     """The manifest's chapters still waiting for a retry, oldest first. A
     chapter imported since (by any path, e.g. the auto-import) is left out."""
