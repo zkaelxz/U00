@@ -92,6 +92,8 @@
     observer: null,
     // The running chapter capture ({cancelled, text}), or null.
     capture: null,
+    visible: null,
+    missed: null,
   };
 
   // -- collecting ------------------------------------------------------
@@ -429,11 +431,16 @@
                    line-height: 1.12; pointer-events: auto; cursor: help;
                    white-space: pre-wrap; word-break: break-word; }
       .baihe-box[data-kind="narration"] { border-radius: 2px; }
+      .baihe-box { background: rgba(255,255,255,0.98); }
+      .baihe-typeset { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                       pointer-events: none; }
+      .baihe-box.baihe-untranslated { outline: 2px dashed #c0392b; outline-offset: -2px; }
       .baihe-box.baihe-bold { font-weight: 700; }
       .baihe-box.baihe-showing-original { background: rgba(255,244,214,0.96);
                                           font-style: italic; }
       .baihe-hidden { display: none !important; }
       .baihe-capture-chip { display: flex; align-items: center; gap: 10px; }
+      .baihe-capture-chip progress { width: 90px; height: 6px; }
       .baihe-capture-chip button { font: inherit; cursor: pointer; background: rgba(255,255,255,0.18);
                                    color: #fff; border: none; border-radius: 5px; padding: 3px 9px; }
       .baihe-toast { position: fixed; bottom: 18px; right: 18px; z-index: 2147483600;
@@ -480,14 +487,29 @@
 
   function drawOverlay(el, regions) {
     const entry = layerFor(el);
-    entry.regions = regions;
     entry.naturalWidth = elementSize(el).width;
     entry.layer.textContent = "";
+    if (regions.typesetImage) {
+      // Baihe's own cleaned and typeset page replaces the preview boxes: it erases the lettering,
+      // fits the text to each balloon's real shape and leaves sound effects alone.
+      const image = document.createElement("img");
+      image.className = "baihe-typeset";
+      image.src = regions.typesetImage;
+      image.alt = "";
+      entry.regions = [];
+      entry.layer.appendChild(image);
+      positionOverlay(el);
+      return;
+    }
+    entry.regions = regions;
     for (const region of regions) {
       if (!region.translated_text && !region.source_text) continue;
+      // Sound effects and skipped regions keep their original lettering, as in the typeset page.
+      if (region.left_alone) continue;
       const box = document.createElement("div");
       box.className = "baihe-box" +
-        (region.font_category === "bold" ? " baihe-bold" : "");
+        (region.font_category === "bold" ? " baihe-bold" : "") +
+        (region.untranslated ? " baihe-untranslated" : "");
       box.dataset.kind = region.kind || "bubble";
       box.dataset.translated = region.translated_text || "";
       box.dataset.original = region.source_text || "";
@@ -526,16 +548,44 @@
     layer.style.height = `${rect.height}px`;
     layer.classList.toggle("baihe-hidden", !state.overlaysVisible);
     const boxes = layer.children;
-    for (let i = 0; i < boxes.length && i < entry.regions.length; i += 1) {
-      const region = entry.regions[i];
-      const box = boxes[i];
-      box.style.left = `${region.x * scaleX}px`;
-      box.style.top = `${region.y * scaleY}px`;
-      box.style.width = `${region.w * scaleX}px`;
-      box.style.height = `${region.h * scaleY}px`;
-      // Font size follows the box, so a zoomed page keeps readable text
-      // instead of overflowing its bubble.
-      box.style.fontSize = `${Math.max(8, Math.min(region.h * scaleY * 0.32, 22))}px`;
+    const visible = entry.regions.filter((r) => (r.translated_text || r.source_text) && !r.left_alone);
+    for (let i = 0; i < boxes.length && i < visible.length; i += 1) {
+      placeBox(boxes[i], visible[i], scaleX, scaleY, rect.width, rect.height);
+    }
+  }
+
+  // A box the page is cropped around (the edge of the image) would clip its text, so it is
+  // kept inside the page; the text is then shrunk until it fits what is left.
+  function placeBox(box, region, scaleX, scaleY, maxW, maxH) {
+    const left = Math.max(0, region.x * scaleX);
+    const top = Math.max(0, region.y * scaleY);
+    const width = Math.max(1, Math.min(region.w * scaleX, maxW - left));
+    const height = Math.max(1, Math.min(region.h * scaleY, maxH - top));
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    // An ellipse only has about 70% of its bounding box to write in; narration stays a rounded box.
+    const round = box.dataset.kind === "bubble" || box.dataset.kind === "thought";
+    box.style.borderRadius = round ? "50%" : "";
+    const inset = round ? 0.15 : 0;
+    box.style.padding = `${Math.max(2, height * inset)}px ${Math.max(2, width * inset)}px`;
+    // Scrolling repositions every box; measuring text on each scroll would stall the page, so
+    // the fit is redone only when the box's size changed.
+    const sizeKey = `${Math.round(width)}x${Math.round(height)}`;
+    if (box.dataset.fitted !== sizeKey) {
+      box.dataset.fitted = sizeKey;
+      fitText(box, Math.max(8, Math.min(region.h * scaleY * 0.32, 22)));
+    }
+  }
+
+  // Largest size, down to a legible floor, at which the whole text sits inside the box.
+  function fitText(box, start) {
+    let size = start;
+    box.style.fontSize = `${size}px`;
+    while (size > 7 && (box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1)) {
+      size -= 1;
+      box.style.fontSize = `${size}px`;
     }
   }
 
@@ -863,12 +913,15 @@
   // the background's {ok, data|error, status}; `onBatch(batch, data)`
   // handles each successful reply and may return true to stop the run.
   // Stops at the first hard error.
-  async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST) {
+  async function sendInBatches(items, send, onBatch, limit = MAX_IMAGES_PER_REQUEST,
+                               isCancelled = () => false) {
     let done = 0;
     let sentAny = false;
     let retriedLimit = false;
     let size = limit;
     while (done < items.length) {
+      // Checked between requests: one already sent finishes and is kept.
+      if (isCancelled()) return { sentAny, limit: size, failure: null, cancelled: true, done };
       const batch = items.slice(done, done + size);
       const range = { from: done + 1, to: done + batch.length, total: items.length };
       const response = await send(batch, range) ||
@@ -877,11 +930,13 @@
         sentAny = true;
         const halt = await onBatch(batch, response.data || {});
         done += batch.length;
+        if (response.data && response.data.cancelled) return { sentAny, limit: size, failure: null, cancelled: true, done };
         // The app stopped the whole request (every later page would fail
         // the same way); sending the rest would only repeat that.
         if (halt === true) return { sentAny, limit: size, failure: null, halted: true };
         continue;
       }
+      if (response.cancelled) return { sentAny, limit: size, failure: null, cancelled: true, done };
       const match = response.status === 413 && /at most (\d+) images/.exec(response.error || "");
       if (match && !retriedLimit && Number(match[1]) > 0 && Number(match[1]) < batch.length) {
         retriedLimit = true;
@@ -904,9 +959,9 @@
 
   // The popup shows this while a long chapter is in flight. It is only
   // ever a hint, so a popup that has closed (or no listener) is ignored.
-  function reportProgress(text) {
+  function reportProgress(text, fraction = null) {
     try {
-      chrome.runtime.sendMessage({ type: "progress", text }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "progress", text, fraction }).catch(() => {});
     } catch (e) { /* nobody is listening */ }
   }
 
@@ -930,15 +985,40 @@
 
   function regionsByKey(data) {
     const byKey = new Map();
-    for (const page of data.pages || []) byKey.set(page.key, page.regions || []);
+    for (const page of data.pages || []) {
+      const regions = page.regions || [];
+      // Rides on the array so every place that caches or redraws a page's regions carries it too.
+      regions.typesetImage = typeof page.typeset_image === "string" ? page.typeset_image : "";
+      byKey.set(page.key, regions);
+    }
     return byKey;
   }
 
-  async function translateVisible({ dramaId, store, all }) {
+  async function translateVisible(options) {
     // A capture sends the same pages itself; running both would save a page twice.
     if (state.capture) {
       return { ok: false, error: "A chapter capture is running on this page; wait for it or cancel it first." };
     }
+    if (state.visible) {
+      return { ok: false, error: "This page is already being translated; wait for it or cancel it first." };
+    }
+    const run = { cancelled: false, text: "Reading pages…", startedAt: Date.now() };
+    state.visible = run;
+    let done = { failed: true, text: "Translating the page's images stopped unexpectedly." };
+    try {
+      const result = await translateVisibleRun(options, run);
+      done = result.ok
+        ? { failed: false, text: (result.data.stopped && result.data.stopped.message) || "Finished." }
+        : { failed: true, text: result.error };
+      return result;
+    } finally {
+      state.visible = null;
+      // A popup reopened mid-run waits for this to hide its Cancel button.
+      try { chrome.runtime.sendMessage({ type: "captureDone", ...done }).catch(() => {}); } catch (e) { /* popup closed */ }
+    }
+  }
+
+  async function translateVisibleRun({ dramaId, store, all }, run) {
     if (looksLikeChallengePage()) {
       return {
         ok: false, code: "CHALLENGE_DETECTED",
@@ -1008,7 +1088,8 @@
     let drawn = 0;
     let serverStop = "";
     const outcome = await sendInBatches(images, async (batch, range) => {
-      reportProgress(`Translating ${range.from}-${range.to} of ${range.total}...`);
+      run.text = `Translating ${range.from}-${range.to} of ${range.total}...`;
+      reportProgress(run.text, (range.from - 1) / range.total);
       // A deliberate single send is the image the person pointed at, so
       // the server's page filter shouldn't second-guess it. The server
       // applies the filter to each request on its own, so a batch is
@@ -1039,7 +1120,7 @@
       totals.alreadyStored += Number.isFinite(data.alreadyStored) ? data.alreadyStored : 0;
       if (data.stopped) serverStop = String(data.stopped);
       return !!data.stopped;
-    });
+    }, undefined, () => run.cancelled);
 
     if (outcome.sentAny) watchForPageChanges();
     const data = { pages, skipped, failed: failedPages, ...totals, drawn,
@@ -1060,6 +1141,11 @@
     }
     if (serverStop) {
       data.stopped = { reason: serverStop, message: `Stopped early: ${serverStop}` };
+    }
+    if (outcome.cancelled) {
+      data.stopped = { reason: "cancelled",
+                       message: `Cancelled after ${pages.length + skipped.length + failedPages.length} ` +
+                                `of ${images.length} pages; the pages already saved are kept.` };
     }
     return { ok: true, data };
   }
@@ -1266,6 +1352,14 @@
     return `${el.currentSrc || el.src}|${width}x${height}`;
   }
 
+  function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const seconds = String(total % 60).padStart(2, "0");
+    return total >= 3600
+      ? `${Math.floor(total / 3600)}:${String(Math.floor(total / 60) % 60).padStart(2, "0")}:${seconds}`
+      : `${Math.floor(total / 60)}:${seconds}`;
+  }
+
   function showCaptureChip(run) {
     ensureStyles();
     const chip = document.createElement("div");
@@ -1274,13 +1368,21 @@
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.textContent = "Cancel";
-    cancel.addEventListener("click", () => {
-      run.cancelled = true;
-      label.textContent = "Stopping…";
-    });
-    chip.append(label, cancel);
+    cancel.addEventListener("click", () => requestCancel(run));
+    const bar = document.createElement("progress");
+    bar.max = 1;
+    bar.hidden = true;
+    chip.append(label, bar, cancel);
     document.documentElement.appendChild(chip);
-    return { chip, set: (text) => { if (!run.cancelled) label.textContent = text; } };
+    return {
+      chip,
+      // A null fraction (the reader shows no page counter) hides the bar rather than guessing.
+      set: (text, fraction = null) => {
+        label.textContent = text;
+        bar.hidden = fraction === null;
+        if (fraction !== null) bar.value = fraction;
+      },
+    };
   }
 
   async function captureChapter({ dramaId, store, fromHere }) {
@@ -1294,9 +1396,12 @@
                "then try again.",
       };
     }
-    const run = { cancelled: false, text: "Starting…" };
+    const run = { cancelled: false, text: "Starting…", startedAt: Date.now(), tick: null };
     state.capture = run;
     const ui = showCaptureChip(run);
+    run.ui = ui;
+    // A batch can take a minute (more with typeset on), so the clock keeps moving between reports.
+    const ticker = setInterval(() => { if (run.tick) run.tick(); }, 1000);
     const scroller = makeScroller();
     const startTop = scroller.top();
     // A popup reopened mid-run waits for this, so every exit path sends it.
@@ -1308,6 +1413,7 @@
         : { failed: true, text: result.error };
       return result;
     } finally {
+      clearInterval(ticker);
       scroller.to(startTop);
       ui.chip.remove();
       state.capture = null;
@@ -1317,13 +1423,22 @@
 
   // The closing line of a chapter capture: every page found is either
   // counted in it or named as unreadable, so a shortfall is never silent.
-  function captureTally(found, counts, firstFailure, unreadablePages) {
+  function captureTally(found, counts, firstFailure, unreadablePages, firstSkip = "", englishProblem = "") {
     const tally = [`${found} page${found === 1 ? "" : "s"} found`];
     if (counts.translated) tally.push(`${counts.translated} translated`);
     if (counts.cached) tally.push(`${counts.cached} already done`);
     if (counts.alreadyStored) tally.push(`${counts.alreadyStored} already in library`);
-    if (counts.skipped) tally.push(`${counts.skipped} skipped as not a page`);
+    if (counts.skipped) {
+      tally.push(`${counts.skipped} skipped as not a page (${firstSkip || "no reason was given"})`);
+    }
+    if (counts.noText) tally.push(`${counts.noText} saved with no text found on them (notice pages and art without lettering look like this)`);
+    if (counts.noEnglish) {
+      tally.push(`${counts.noEnglish} saved with text read but no English back` +
+                 (englishProblem ? ` (${englishProblem})` : " (check the engine under Settings > Browser extension)"));
+    }
     if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
+    // An image identical to an earlier page (a repeated credit card, a banner) is sent once.
+    if (counts.duplicates) tally.push(`${counts.duplicates} identical to a page already read`);
     if (counts.unverified) tally.push(`${counts.unverified} read from the page's source image, not checked against what is drawn`);
     if (unreadablePages.length) {
       const named = unreadablePages.slice(0, 3)
@@ -1331,7 +1446,60 @@
       const more = unreadablePages.length > 3 ? `; and ${unreadablePages.length - 3} more` : "";
       tally.push(`${unreadablePages.length} unreadable (${named}${more})`);
     }
+    // Every page found must land in one bucket above; the rest were never answered for (a stop
+    // part-way, a cancel, or a reply that left a page out), and saying so keeps a short count from
+    // looking like a complete one.
+    const accounted = counts.translated + counts.cached + counts.alreadyStored + counts.skipped +
+                      counts.failed + unreadablePages.length;
+    if (found > accounted) tally.push(`${found - accounted} not sent or not answered`);
     return tally.join(", ");
+  }
+
+  // The line that accounts for every page found: saved, typeset, and each one that is neither, by
+  // its place in the chapter and the reason, so a short count is never unexplained.
+  function completenessLine(found, entries, repeats, unreadable, counts, timing) {
+    const place = (list, why) => list.slice(0, 6).map((e) => `page ${e.position} (${why(e)})`).join(", ") +
+                                 (list.length > 6 ? `, and ${list.length - 6} more` : "");
+    const saved = entries.filter((e) => e.status === "saved" || e.status === "read").length;
+    const parts = [`Saved ${saved} of ${found} pages`];
+    const drawn = entries.filter((e) => e.typeset !== undefined);
+    if (drawn.length) parts.push(`typeset ${drawn.filter((e) => e.typeset === true).length} of ${drawn.length}`);
+    const missed = entries.filter((e) => e.status !== "saved" && e.status !== "read")
+                          .sort((a, b) => a.position - b.position);
+    const reasons = { skipped: (e) => `skipped: ${e.reason || "not judged a page"}`,
+                      failed: (e) => `failed: ${e.reason || "no reason given"}`,
+                      queued: () => "never sent or no answer" };
+    if (missed.length) parts.push(`${missed.length} missed: ${place(missed, (e) => reasons[e.status](e))}`);
+    if (unreadable.length) parts.push(`${unreadable.length} unreadable: ${place(unreadable, (u) => u.error)}`);
+    const plain = drawn.filter((e) => e.typeset === false);
+    if (plain.length) {
+      parts.push(`${plain.length} saved without a typeset image: ` +
+                 place(plain, (e) => (e.noText ? "no text found" : "typeset failed")));
+    }
+    if (repeats.length) parts.push(`${repeats.length} repeat${repeats.length === 1 ? "" : "s"} of an earlier page left out`);
+    if (counts.untranslatedLines) parts.push(`${counts.untranslatedLines} line${counts.untranslatedLines === 1 ? "" : "s"} with no English`);
+    if (timing.pages) {
+      const average = (total) => (total / timing.pages).toFixed(1);
+      parts.push(`per page: read text ${average(timing.read)}s, translate ${average(timing.translate)}s` +
+                 (timing.typeset ? `, typeset ${average(timing.typeset)}s` : ""));
+    }
+    return parts.join("; ");
+  }
+
+  // Sends the pages a finished capture could not save once more, without the page filter's judgement.
+  async function retryMissed() {
+    const missed = state.missed;
+    if (!missed || !missed.items.length) return { ok: false, error: "No missed pages to retry." };
+    if (state.capture || state.visible) return { ok: false, error: "Wait for the running capture to finish first." };
+    let saved = 0;
+    const outcome = await sendInBatches(missed.items, (items) =>
+      sendBatch(items, { dramaId: missed.dramaId, store: missed.store, filterPages: false }),
+    (items, data) => { saved += (data.pages || []).length; return !!data.stopped; });
+    const left = missed.items.length - saved;
+    state.missed = left > 0 && outcome.failure ? { ...missed, items: missed.items.slice(saved) } : null;
+    const why = outcome.failure ? ` (${outcome.failure.reason})` : "";
+    return { ok: true, data: { message: `Retried ${missed.items.length} missed pages: ${saved} saved, ${Math.max(0, left)} still missing${why}.`,
+                               missedCount: state.missed ? state.missed.items.length : 0 } };
   }
 
   async function runCapture(run, ui, scroller, { dramaId, store, fromHere }) {
@@ -1340,8 +1508,15 @@
     const seen = new Set();
     const handled = new WeakMap();
     const queue = [];
-    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0 };
+    // Every distinct page met, by hash: where it sits, and what became of it. This is what lets the
+    // closing line say which pages are not saved, and why, instead of only how many.
+    const ledger = new Map();
+    const repeats = [];
+    const timing = { read: 0, translate: 0, typeset: 0, pages: 0 };
+    const counts = { translated: 0, stored: 0, alreadyStored: 0, cached: 0, skipped: 0, failed: 0, drawn: 0, unverified: 0, duplicates: 0, noText: 0, noEnglish: 0, untranslatedLines: 0 };
     let firstFailure = "";
+    let firstSkip = "";
+    let firstEnglishProblem = "";
     let serverStop = "";
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
@@ -1357,13 +1532,24 @@
     const unreadableAs = unreadableLog();
     let failure = "";
 
+    let line = "";
+    let fraction = null;
+    const emit = () => {
+      // After a cancel the line stays "Cancelling…" however late a batch reports back.
+      if (run.cancelled) return;
+      run.text = `${line} · ${formatElapsed(Date.now() - run.startedAt)}`;
+      ui.set(run.text, fraction);
+      reportProgress(run.text, fraction);
+    };
+    run.tick = emit;
+    line = fromHere ? "Looking for pages from here" : "Scrolling to the top to start";
+    emit();
     const report = (suffix = "") => {
       const counter = readerCounter();
-      const base = counter ? `Page ${counter.current} of ${counter.total}`
-                           : `${seen.size} page${seen.size === 1 ? "" : "s"} found`;
-      run.text = base + suffix;
-      ui.set(run.text);
-      reportProgress(run.text);
+      line = (counter ? `Page ${counter.current} of ${counter.total}`
+                      : `${seen.size} page${seen.size === 1 ? "" : "s"} found`) + suffix;
+      fraction = counter ? counter.current / counter.total : null;
+      emit();
     };
 
     // New pages among the currently mounted elements, in DOM order. Reads
@@ -1400,10 +1586,15 @@
         if (key !== null) handled.set(el, key);
         const cached = state.cache.get(extracted.hash);
         if (seen.has(extracted.hash)) {
+          counts.duplicates += 1;
+          repeats.push(ledger.get(extracted.hash)?.position);
           if (cached && el.isConnected) drawOverlay(el, cached);
           continue;
         }
         seen.add(extracted.hash);
+        // A page answered earlier in this tab was saved by that run.
+        const entry = { position: seen.size, status: cached ? "saved" : "queued", item: null };
+        ledger.set(extracted.hash, entry);
         found += 1;
         if (extracted.unverified) counts.unverified += 1;
         if (cached) {
@@ -1412,8 +1603,9 @@
           continue;
         }
         seq += 1;
-        queue.push({ extracted, elements: [el], srcKey: drawTargetKey(el, extracted.hash), seq,
-                     order: { index: readerIndexOf(el), pos: scroller.positionOf(el) } });
+        entry.item = { extracted, elements: [el], srcKey: drawTargetKey(el, extracted.hash), seq,
+                       order: { index: readerIndexOf(el), pos: scroller.positionOf(el) } };
+        queue.push(entry.item);
       }
       return found;
     }
@@ -1421,45 +1613,105 @@
     // Sends queued pages in reading order, a batch at a time, through the
     // same sendInBatches the visible-pages path uses. Returns a failure
     // reason, or "".
+    const sendRange = async (items, range) => {
+      report(` — translating ${range.from}-${range.to} of ${range.total}`);
+      return sendBatch(items, { dramaId, store, filterPages: items.length > 1 });
+    };
+    const onBatch = async (items, data) => {
+      recordAnswers(data);
+      const byHash = regionsByKey(data);
+      for (const { extracted, elements, srcKey } of items) {
+        const regions = byHash.get(extracted.hash);
+        if (!regions) continue;
+        state.cache.set(extracted.hash, regions);
+        // A virtualised reader may have recycled the element for a
+        // later page while this batch was in flight; drawing then
+        // would put these bubbles on the wrong page.
+        for (const el of elements) {
+          if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
+            drawOverlay(el, regions);
+            counts.drawn += 1;
+          }
+        }
+      }
+      const reused = (data.pages || []).filter((p) => p.already_stored).length;
+      counts.translated += (data.pages || []).length - reused;
+      counts.alreadyStored += reused;
+      counts.stored += (data.pages || []).filter((p) => p.stored).length;
+      counts.skipped += (data.skipped || []).length;
+      counts.failed += (data.failed || []).length;
+      // A saved page is only "translated" in the line if English came back, so the three ways
+      // it can come back without it are told apart: no text read, no engine answer, or both.
+      for (const page of data.pages || []) {
+        const regions = page.regions || [];
+        if (!regions.length) {
+          counts.noText += 1;
+        } else if (regions.some((r) => r.untranslated)) {
+          counts.noEnglish += 1;
+          if (!firstEnglishProblem) {
+            const note = (page.notes || []).find((n) => /translat|engine|key/i.test(String(n[1])));
+            firstEnglishProblem = note ? String(note[1]) : "";
+          }
+        }
+      }
+      if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
+      if (!firstSkip && (data.skipped || []).length) firstSkip = data.skipped[0].reason || "";
+      if (data.stopped) serverStop = String(data.stopped);
+      return !!data.stopped;
+    };
+
+    // Records what each answered page became, so the closing line can account for every page.
+    function recordAnswers(data) {
+      for (const page of data.pages || []) {
+        const entry = ledger.get(page.key);
+        if (!entry) continue;
+        entry.status = page.stored || page.already_stored ? "saved" : "read";
+        entry.typeset = page.typeset;
+        entry.noText = !(page.regions || []).length;
+        entry.item = null;
+        counts.untranslatedLines += page.untranslated_lines || 0;
+        const seconds = page.seconds || {};
+        timing.read += seconds.read || 0;
+        timing.translate += seconds.translate || 0;
+        timing.typeset += seconds.typeset || 0;
+        timing.pages += 1;
+      }
+      for (const item of data.skipped || []) {
+        const entry = ledger.get(item.key);
+        if (entry) Object.assign(entry, { status: "skipped", reason: item.reason || "" });
+      }
+      for (const item of data.failed || []) {
+        const entry = ledger.get(item.key);
+        if (entry) Object.assign(entry, { status: "failed", reason: item.error || "" });
+      }
+    }
+
     async function flush(force) {
       while (!run.cancelled && (queue.length >= limit || (force && queue.length))) {
         queue.sort(byReadingOrder);
         const batch = queue.splice(0, limit);
-        const outcome = await sendInBatches(batch, async (items, range) => {
-          report(` — translating ${range.from}-${range.to} of ${range.total}`);
-          return sendBatch(items, { dramaId, store, filterPages: items.length > 1 });
-        }, async (items, data) => {
-          const byHash = regionsByKey(data);
-          for (const { extracted, elements, srcKey } of items) {
-            const regions = byHash.get(extracted.hash);
-            if (!regions) continue;
-            state.cache.set(extracted.hash, regions);
-            // A virtualised reader may have recycled the element for a
-            // later page while this batch was in flight; drawing then
-            // would put these bubbles on the wrong page.
-            for (const el of elements) {
-              if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
-                drawOverlay(el, regions);
-                counts.drawn += 1;
-              }
-            }
-          }
-          const reused = (data.pages || []).filter((p) => p.already_stored).length;
-          counts.translated += (data.pages || []).length - reused;
-          counts.alreadyStored += reused;
-          counts.stored += (data.pages || []).filter((p) => p.stored).length;
-          counts.skipped += (data.skipped || []).length;
-          counts.failed += (data.failed || []).length;
-          if (!firstFailure && (data.failed || []).length) firstFailure = data.failed[0].error;
-          if (data.stopped) serverStop = String(data.stopped);
-          return !!data.stopped;
-        }, limit);
+        const outcome = await sendInBatches(batch, sendRange, onBatch, limit, () => run.cancelled);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
+        if (outcome.cancelled || run.cancelled) return "";
         if (outcome.failure) return outcome.failure.reason;
         if (serverStop) return serverStop;
       }
       return "";
+    }
+
+    // One more try for pages that failed on delivery (a dropped connection, a busy app), without the
+    // page filter's judgement, before the closing line reports them as missed.
+    async function retryFailed() {
+      const again = [...ledger.values()].filter((e) => e.status === "failed" && e.item).map((e) => e.item);
+      if (!again.length || run.cancelled) return;
+      counts.failed = Math.max(0, counts.failed - again.length);
+      for (const item of again) ledger.get(item.extracted.hash).status = "queued";
+      await sendInBatches(again, async (items, range) => {
+        report(` — retrying ${range.from}-${range.to} of ${range.total} missed`);
+        return sendBatch(items, { dramaId, store, filterPages: false });
+      }, onBatch, limit, () => run.cancelled);
+      // Whatever is still unanswered stays queued; the closing line names it.
     }
 
     if (!fromHere) {
@@ -1511,6 +1763,8 @@
       failure = await flush(true);
       if (failure) reason = "error";
       else if (run.cancelled) reason = "cancelled";
+      else await retryFailed();
+      if (run.cancelled) reason = "cancelled";
     }
 
     if (!seen.size) {
@@ -1519,19 +1773,38 @@
         ? unreadableResult(unreadable, needAccess)
         : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
-    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages);
-    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${tally}.`;
+    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip, firstEnglishProblem);
+    const entries = [...ledger.values()];
+    const complete = completenessLine(seen.size, entries, repeats, unreadablePages, counts, timing);
+    const missedItems = entries.filter((e) => e.status !== "saved" && e.status !== "read" && e.item)
+                               .map((e) => e.item);
+    state.missed = missedItems.length ? { items: missedItems, dramaId, store } : null;
+    const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${complete} (${tally}). ` +
+                    `Took ${formatElapsed(Date.now() - run.startedAt)}.`;
     reportProgress(message);
     // A failure text can name the server's address, which a page's own scripts could read from the DOM.
     if (CAPTURE_STOP_MESSAGES[reason]) toast(message, 8000);
     return { ok: true, data: { reason, message, found: seen.size, ...counts,
+                               missedCount: missedItems.length,
                                unreadable: unreadablePages, pages: [],
                                ...accessNeeded(needAccess) } };
   }
 
+  // The one way a run is cancelled, from the page's chip or the popup: the label and the popup's
+  // line change at once, and the request in flight is dropped instead of waited for.
+  function requestCancel(run) {
+    if (run.cancelled) return;
+    run.cancelled = true;
+    run.text = "Cancelling… stopping the request in flight";
+    if (run.ui) run.ui.set(run.text, null);
+    reportProgress(run.text, null);
+    try { chrome.runtime.sendMessage({ type: "abortSends" }).catch(() => {}); } catch (e) { /* worker asleep */ }
+  }
+
   function cancelCapture() {
-    if (!state.capture) return false;
-    state.capture.cancelled = true;
+    const running = state.capture || state.visible;
+    if (!running) return false;
+    requestCancel(running);
     return true;
   }
 
@@ -1547,6 +1820,9 @@
             break;
           case "captureChapter":
             respond(await captureChapter(message));
+            break;
+          case "retryMissed":
+            respond(await retryMissed());
             break;
           case "saveNovelText":
             respond(await saveNovelText(message));
@@ -1569,6 +1845,8 @@
               translated: state.active.size,
               overlaysVisible: state.overlaysVisible,
               capture: state.capture ? { running: true, text: state.capture.text } : null,
+              // The popup shows Cancel for either kind of run, on any tab, and again when reopened.
+              visibleRun: state.visible ? { running: true, text: state.visible.text } : null,
               textPage: isTextPage(),
               hasSelection: !!selectedText(),
               // The page's own host. The popup uses this to key "which
@@ -1594,5 +1872,6 @@
                      translatePageText, collectPageText, mainContentBlock,
                      isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture, captureTally, unreadableLog };
+                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox, regionsByKey, requestCancel,
+                     completenessLine };
 })();

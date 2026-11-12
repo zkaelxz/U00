@@ -9,6 +9,7 @@ title list to what they can see and sends only into a title they can edit.
 """
 
 import json
+import time
 
 import page_capture_checks
 import page_server
@@ -109,12 +110,100 @@ def run_text(payload, principal=None) -> dict:
                                 user_id=_user_id(principal), member=principal is not None)
 
 
+def _record_run_notes(result: dict) -> None:
+    """Keeps on a newly saved page what the capture said about it, so a page that came back with
+    no text (an OCR miss, or art with no lettering) can be told apart from one never reached."""
+    from services import scanlate_pages_service as pages_svc
+    import db
+    page_id = result.get("page_id")
+    if not (result.get("stored") and page_id) or result.get("already_stored"):
+        return
+    notes = [(n[0], n[-1]) for n in result.get("notes") or []]
+    seconds = result.get("seconds") or {}
+    if seconds:
+        notes.append(("info", "Time: read text " + f"{seconds.get('read', 0)}s, translate "
+                      f"{seconds.get('translate', 0)}s" +
+                      (f", typeset {seconds['typeset']}s." if "typeset" in seconds else ".")))
+    if not result.get("regions"):
+        notes.append(("warning", "No text was found on this page when the extension saved it."))
+    if notes:
+        db.update_page(int(page_id), run_notes=pages_svc.notes_to_json(notes))
+
+
+# A typeset page is sent back to be drawn over the reader's own image, so it goes as a JPEG:
+# a long strip is a few hundred KB that way, where its PNG is megabytes, and a chapter of
+# twelve pages per request stays a reasonable size. Over the cap the page is still typeset
+# in the library and the extension falls back to its boxes.
+PREVIEW_MAX_BYTES = 1_500_000
+
+
+def _typeset_preview(drama_id: int, page: dict) -> str:
+    """The page's typeset image as a data: URL, or "" when it cannot be sent."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    from services import comic_view_service
+    found = comic_view_service.safe_file(drama_id, page.get("rendered_filename"))
+    if found is None:
+        return ""
+    with Image.open(found[0]) as image:
+        buffer = io.BytesIO()
+        image.convert("RGB").save(buffer, format="JPEG", quality=85)
+    if buffer.tell() > PREVIEW_MAX_BYTES:
+        return ""
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _typeset_stored_page(result: dict, drama_id, member: bool) -> None:
+    """Cleans and typesets a page the capture just saved, so Typeset is already on when the
+    title opens, and attaches the result for the extension to draw. A page that already has a
+    typeset image is left alone: it was drawn from the same regions, and a re-capture must not
+    redo work or replace what was fixed in Scanlate. A failure keeps the saved page and its
+    text and says so in the notes."""
+    import db
+    from services import scanlate_render_service as render_svc
+    page_id = result.get("page_id")
+    if not (result.get("stored") and page_id and drama_id):
+        return
+    page = db.get_page(int(page_id), int(drama_id))
+    if page is None:
+        return
+    notes = []
+    if not page.get("rendered_filename"):
+        try:
+            rendered = bool(render_svc.render_page(int(drama_id), int(page_id), notes)["rendered"])
+        except Exception as e:
+            page_capture_checks.log_page_failure(e)
+            result["typeset"] = False
+            # The detail (a path, a model name) stays in the log; only the PC's owner sees it.
+            result.setdefault("notes", []).append(
+                ["warning", "typeset failed: " + ("the page was kept" if member else
+                 f"{type(e).__name__}; the page was kept")])
+            return
+        result["typeset"] = rendered
+        page = db.get_page(int(page_id), int(drama_id)) or page
+    else:
+        result["typeset"] = True
+    if result["typeset"]:
+        try:
+            preview = _typeset_preview(int(drama_id), page)
+        except Exception as e:
+            page_capture_checks.log_page_failure(e)
+            preview = ""
+        if preview:
+            result["typeset_image"] = preview
+    result.setdefault("notes", []).extend([n[0], n[-1]] for n in notes if not member)
+
+
 def run_images(payload, images, principal=None) -> dict:
     """principal None is the PC's own token (the local owner); a device
     token passes its member, who may only send into a title they can edit."""
     import base64
     drama_id = payload.get("drama_id")
     store = bool(payload.get("store", True))
+    typeset = store and payload.get("typeset") is True
     require_drama_access(principal, drama_id)
     source_url = str(payload.get("source_url") or "")
     source_language = str(payload.get("source_language") or "")
@@ -186,6 +275,11 @@ def run_images(payload, images, principal=None) -> dict:
                 stopped = page_capture_checks.page_failure_message(e)
                 break
             continue
+        if typeset:
+            typeset_started = time.monotonic()
+            _typeset_stored_page(result, drama_id, member=principal is not None)
+            result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
+        _record_run_notes(result)
         result["key"] = image["key"]
         result["url"] = image["url"]
         results.append(result)
