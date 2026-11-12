@@ -97,6 +97,7 @@ import { EngineGateNote } from './EngineGateNote'
 import { translateBlocker } from './stageBlockers'
 import { useEngineGate } from './useEngineGate'
 import './translate.css'
+import { recommendedModelNote } from '../recommendedModel'
 import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
@@ -378,7 +379,7 @@ function RunPanel({
   const basics = (
     <>
       <div className="translate-basics">
-        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
+        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${recommendedModelNote(titleKind(drama.media_type, drama.content_mode))} ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
           <select className="engine-select" value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
             <option value="">Default ({engineLabel(config.translation_engine)})</option>
             {config.engines.map((e) => (
