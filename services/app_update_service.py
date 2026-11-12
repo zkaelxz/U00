@@ -92,6 +92,9 @@ _lock = threading.Lock()
 _state = {"offer": "none", "offer_version": None, "size": None, "download": "idle",
           "downloaded_bytes": 0, "download_error": None}
 _release = None     # internal: the release's "app" record plus "version"
+# (version, db_schema_sha256) from the last manifest copy read, for the full
+# installer's backup check: it has no manifest of its own.
+_offer_schema = None
 _verified = None    # internal: {"version", "name", "path", "sha256", "signature"}
 _download_thread = None
 _applying = False   # one apply at a time: a second would delete the first's staged folder
@@ -125,9 +128,9 @@ def _manifest_ok(manifest, version) -> bool:
 def refresh_offer(release) -> None:
     """Called after each check with the release it found (or None). Reads
     the release's manifest copy; any failure means no app-only offer."""
-    global _release, _verified
+    global _release, _verified, _offer_schema
     app = (release or {}).get("app")
-    offer, size = "none", None
+    offer, size, schema = "none", None, None
     if app is not None and us._is_installed():
         try:
             data = us._read_capped(us._open(app["manifest_url"], us.DOWNLOAD_HOSTS,
@@ -138,7 +141,9 @@ def refresh_offer(release) -> None:
         if _manifest_ok(manifest, release["version"]):
             offer = "available" if _base_matches(manifest) else "needs_full_installer"
             size = app["size"]
+            schema = (release["version"], manifest.get("db_schema_sha256"))
     with _lock:
+        _offer_schema = schema
         _release = (dict(app, version=release["version"])
                     if offer == "available" and app is not None else None)
         if _verified is not None and (_release is None
@@ -355,10 +360,27 @@ def _check_database(manifest) -> None:
         return
     if _recent_backup():
         return
-    raise ConflictError("This update changes the library database, and going back to the "
-                        "current version afterwards would need a backup. Back up the library "
-                        "first (Settings > Notifications and backups > Automatic backups > Back up now), then "
-                        "update again.")
+    raise ConflictError(_BACKUP_FIRST)
+
+
+def check_database_before_setup(version) -> None:
+    """The same rule for the full installer, which upgrades the same library.
+    Without the release's manifest copy Baihe can't tell whether the schema
+    changes, so it asks for the backup."""
+    with _lock:
+        known = _offer_schema
+    if known is not None and known[0] == version:
+        _check_database({"db_schema_sha256": known[1]})
+    elif not _recent_backup():
+        raise ConflictError(_BACKUP_FIRST_UNKNOWN)
+
+
+_BACKUP_STEPS = ("Back up the library first (Settings > Notifications and backups > Automatic "
+                 "backups > Back up now), then update again.")
+_BACKUP_FIRST = ("This update changes the library database, and going back to the current version "
+                 "afterwards would need a backup. " + _BACKUP_STEPS)
+_BACKUP_FIRST_UNKNOWN = ("This update may change the library database, and going back to the "
+                         "current version afterwards would need a backup. " + _BACKUP_STEPS)
 
 
 def _private_copy(verified, public_key) -> str:
