@@ -4,6 +4,7 @@ except in one test that needs OpenCV."""
 import pytest
 
 import db
+import page_capture_checks
 import page_server
 from services import scanlate_render_service as render_svc
 
@@ -48,11 +49,62 @@ def test_a_saved_page_is_typeset_when_asked(token, fake_pipeline, drama, monkeyp
     assert calls == [(drama, page["page_id"])] and page["typeset"] is True
 
 
-def test_nothing_is_typeset_when_the_page_is_not_saved(token, fake_pipeline, drama, monkeypatch):
+def _overlay_only(token, drama, **extra):
+    return _post(token, {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
+                         "drama_id": drama, "store": False, **extra}).payload["pages"][0]
+
+
+def test_a_page_that_is_not_saved_never_goes_through_the_library_render(token, fake_pipeline, drama, monkeypatch):
     calls = _recording_render(monkeypatch)
-    page = _post(token, {"images": [{"data": _b64(_png_bytes()), "content_type": "image/png"}],
-                         "drama_id": drama, "store": False, "typeset": True}).payload["pages"][0]
-    assert calls == [] and "typeset" not in page
+    page = _overlay_only(token, drama, typeset=True)
+    assert calls == [] and page["stored"] is False
+
+
+def test_an_unsaved_page_gets_a_typeset_image_when_asked(token, fake_pipeline, drama, monkeypatch):
+    import scanlate_render
+    seen = {}
+
+    def fake_process(image_path, bubbles, out_path, **kwargs):
+        from PIL import Image
+        seen["read"] = Image.open(image_path).size
+        seen["texts"] = [b["translated_text"] for b in bubbles]
+        Image.new("RGB", (4, 4), "white").save(out_path)
+        return out_path, []
+
+    monkeypatch.setattr(scanlate_render, "process_page", fake_process)
+    page = _overlay_only(token, drama, typeset=True)
+    assert page["typeset"] is True and page["typeset_image"].startswith("data:image/jpeg;base64,")
+    assert seen["texts"] == ["the translation"]
+
+
+def test_an_unsaved_page_is_not_typeset_unless_asked(token, fake_pipeline, drama, monkeypatch):
+    import scanlate_render
+    monkeypatch.setattr(scanlate_render, "process_page", lambda *a, **k: 1 / 0)
+    page = _overlay_only(token, drama)
+    assert "typeset_image" not in page
+
+
+def test_a_failed_overlay_render_keeps_the_boxes_and_hides_the_detail(token, fake_pipeline, drama, monkeypatch):
+    import scanlate_render
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("C:\\secret\\model.pt missing")
+
+    monkeypatch.setattr(scanlate_render, "process_page", broken)
+    page = _overlay_only(token, drama, typeset=True)
+    assert "typeset_image" not in page and page["regions"][0]["translated_text"] == "the translation"
+    assert any("typeset failed" in n[1] for n in page["notes"])
+
+
+def test_the_unsaved_page_s_temp_files_are_removed(token, fake_pipeline, drama, monkeypatch):
+    import glob
+    import tempfile
+
+    import scanlate_render
+    monkeypatch.setattr(scanlate_render, "process_page", lambda *a, **k: 1 / 0)
+    before = set(glob.glob(tempfile.gettempdir() + "/baihe_*"))
+    _overlay_only(token, drama, typeset=True)
+    assert set(glob.glob(tempfile.gettempdir() + "/baihe_*")) == before
 
 
 def test_a_failed_render_keeps_the_page_and_its_text(token, fake_pipeline, drama, monkeypatch):
@@ -139,7 +191,7 @@ def test_an_oversized_typeset_page_stays_in_the_library_but_is_not_sent_back(
         token, fake_pipeline, drama, monkeypatch):
     from services import extension_bridge_service
     _writing_render(monkeypatch)
-    monkeypatch.setattr(extension_bridge_service, "PREVIEW_MAX_BYTES", 10)
+    monkeypatch.setattr(page_capture_checks, "PREVIEW_MAX_BYTES", 10)
     page = _send(token, drama, typeset=True).payload["pages"][0]
     assert page["typeset"] is True and "typeset_image" not in page
     assert db.get_page(page["page_id"])["rendered_filename"]

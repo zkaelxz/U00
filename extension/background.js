@@ -270,7 +270,7 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
         store: store !== false,
         filter_pages: filterPages !== false,
         // Only sent when on, so an older app never sees the key.
-        ...(typeset && store !== false ? { typeset: true } : {}),
+        ...(typeset ? { typeset: true } : {}),
       },
     });
     // The app refuses a whole filtered batch with 422 when none of it looks
