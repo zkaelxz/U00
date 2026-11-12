@@ -263,6 +263,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/glossary/dramas/{drama_id}/dismissals` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/dismissals/restore` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/export.csv` | library.read |
+| `GET /api/glossary/dramas/{drama_id}/export.json` | library.read |
 | `GET /api/glossary/dramas/{drama_id}/from-chapters` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/from-chapters` | jobs.start |
 | `POST /api/glossary/dramas/{drama_id}/from-chapters/cancel` | jobs.cancel |

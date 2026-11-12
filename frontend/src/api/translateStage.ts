@@ -153,6 +153,7 @@ export const importGlossary = (id: number, body: GlossaryImportBody, f?: Fetch) 
   postJson<GlossaryImportResult>(`/api/glossary/dramas/${id}/import`, body, f)
 /** A plain download link (Content-Disposition: attachment). */
 export const glossaryCsvUrl = (id: number) => apiUrl(`/api/glossary/dramas/${id}/export.csv`)
+export const glossaryJsonUrl = (id: number) => apiUrl(`/api/glossary/dramas/${id}/export.json`)
 export const getGlossaryCatalogues = (f?: Fetch) =>
   getJson<GlossaryCatalogues>('/api/glossary/catalogues', f)
 export const getInstructions = (id: number, f?: Fetch) =>

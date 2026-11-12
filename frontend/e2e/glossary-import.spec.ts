@@ -35,6 +35,7 @@ test('imports pasted text, asks before replacing, and offers the CSV', async ({ 
   const glossary = await openGlossary(page)
   await glossary.getByText('Import or export').click()
   await expect(glossary.getByRole('link', { name: 'Download glossary as CSV' })).toHaveAttribute('href', /\/api\/glossary\/dramas\/1\/export\.csv$/)
+  await expect(glossary.getByRole('link', { name: 'Download glossary as JSON' })).toHaveAttribute('href', /\/api\/glossary\/dramas\/1\/export\.json$/)
 
   await glossary.getByRole('button', { name: 'Import', exact: true }).click()
   await expect(glossary.getByRole('alert').filter({ hasText: 'Paste a glossary' })).toBeVisible()

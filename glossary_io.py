@@ -212,3 +212,19 @@ def glossary_to_csv(terms) -> str:
             t.get("aliases") or "", t.get("banned_translations") or "",
         ])
     return buf.getvalue()
+
+
+def glossary_to_json(terms) -> str:
+    """The glossary as JSON the importer reads back: the CSV's columns, with the pipe-separated
+    aliases and banned renderings as lists and enforce_exact as a boolean."""
+    return json.dumps([{
+        "term_original": t.get("term_original", ""), "term_translation": t.get("term_translation", ""),
+        "category": t.get("category") or "", "policy": t.get("policy") or "",
+        "enforce_exact": bool(t.get("enforce_exact")), "notes": t.get("notes") or "",
+        "aliases": _pipe_list(t.get("aliases")),
+        "banned_translations": _pipe_list(t.get("banned_translations")),
+    } for t in terms], ensure_ascii=False, indent=2)
+
+
+def _pipe_list(value) -> list:
+    return [p.strip() for p in str(value or "").split("|") if p.strip()]
