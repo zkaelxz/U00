@@ -30812,7 +30812,7 @@ export interface components {
             app_last_result_at: number | null;
             /**
              * App Rollback Backup At
-             * @description When the newest backup before that update finished (ISO 8601), if there was one.
+             * @description When the newest backup taken before that update started was made (ISO 8601), if that copy is still there.
              */
             app_rollback_backup_at: string | null;
             /**

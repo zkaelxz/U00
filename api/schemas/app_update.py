@@ -80,9 +80,10 @@ class UpdateStatus(BaseModel):
                                                                   "rolled back after the newer "
                                                                   "version had changed the "
                                                                   "library's tables.")
-    app_rollback_backup_at: Optional[str] = Field(None, description="When the newest backup before "
-                                                                     "that update finished (ISO "
-                                                                     "8601), if there was one.")
+    app_rollback_backup_at: Optional[str] = Field(None, description="When the newest backup taken "
+                                                                     "before that update started "
+                                                                     "was made (ISO 8601), if that "
+                                                                     "copy is still there.")
 
 
 class UpdateSettingsRequest(BaseModel):

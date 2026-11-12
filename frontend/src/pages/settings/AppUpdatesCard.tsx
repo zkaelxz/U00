@@ -156,8 +156,10 @@ function AppUpdatesControls() {
           )}
           {status.app_rollback_library_changed && (
             <p data-testid="update-app-rollback-backup">
-              {rollbackBackupLine(status.app_rollback_backup_at)}{' '}
-              <a href="#/library-tools?tab=backup">Open Backup to restore it</a>
+              {rollbackBackupLine(status.app_rollback_backup_at)}
+              {status.app_rollback_backup_at && (
+                <>{' '}<a href="#/library-tools?tab=backup">Open Backup to restore it</a></>
+              )}
             </p>
           )}
           {appLine && <p data-testid="update-app-line">{appLine}</p>}

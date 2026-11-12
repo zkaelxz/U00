@@ -42,9 +42,9 @@ export function checkLine(s: UpdateStatus): string {
 export function rollbackBackupLine(backupAt: string | null | undefined, locale?: string): string {
   const when = backupAt ? new Date(backupAt) : null
   if (!when || Number.isNaN(when.getTime())) {
-    return 'No backup finished before the update started. Back up now, before you change anything.'
+    return 'No backup from before the update is left to restore.'
   }
-  return `The newest backup from before the update finished ${when.toLocaleString(locale)}.`
+  return `The newest backup from before the update was taken ${when.toLocaleString(locale)}.`
 }
 
 export function downloadLine(s: UpdateStatus): string | null {

@@ -36,6 +36,7 @@ Status holds names, numbers, booleans and fixed sentences: never a URL or a path
 
 import contextlib
 import datetime
+import hashlib
 import hmac
 import json
 import os
@@ -47,6 +48,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from pathlib import Path
 
 import background_jobs
 import db
@@ -93,8 +95,9 @@ RESULT_MESSAGES = {
 BEFORE_UPDATE_KEY = "app_update.before"
 ROLLED_BACK_CODES = ("rolled_back_health", "recovered")
 LIBRARY_CHANGED = (" Version {new} had already changed the library's tables before it stopped, "
-                   "and {old} may not read those changes correctly. To be safe, restore the backup "
-                   "from before the update (Library tools > Backup > Restore).")
+                   "and {old} may not read those changes correctly.")
+RESTORE_BACKUP = (" To be safe, restore the backup from before the update "
+                  "(Library tools > Backup > Restore).")
 
 _lock = threading.Lock()
 # offer: "none" | "available" | "needs_full_installer"
@@ -206,37 +209,87 @@ def last_result():
     if result is None:
         return None
     changed, backup_at = _rollback_changed_library(result)
-    message = RESULT_MESSAGES[result["code"]] + (LIBRARY_CHANGED if changed else "")
+    message = (RESULT_MESSAGES[result["code"]] + (LIBRARY_CHANGED if changed else "")
+               + (RESTORE_BACKUP if backup_at else ""))
     return {"outcome": result["code"], "at": result["at"], "library_changed": changed,
-            "backup_at": backup_at if changed else None,
+            "backup_at": backup_at,
             "message": message.format(old=result["old"], new=result["new"])}
 
 
 def _remember_library(old, new) -> None:
+    previous = db.get_app_setting(BEFORE_UPDATE_KEY, None)
+    result = app_swap.read_result(install_root()) if us._is_installed() else None
+    if isinstance(previous, dict) and result is not None and _rollback_changed_library(result)[0]:
+        # The library is still the one an earlier rolled-back version changed.
+        # This attempt must not replace the record from before that change,
+        # or a failure that writes no result of its own would hide the warning.
+        previous["attempts"] = [*previous["attempts"], new]
+        db.set_app_setting(BEFORE_UPDATE_KEY, previous)
+        return
+    db.set_app_setting(BEFORE_UPDATE_KEY, {
+        "old": old, "attempts": [new], "layout": _library_layout(), **_newest_backup()})
+
+
+def _newest_backup() -> dict:
+    """The newest readable backup copy right now, by name, so a later check
+    can tell whether rotation has since deleted it."""
     from services import auto_backup_service
     try:
-        backup_at = auto_backup_service.settings_overview().get("last_run_at")
-    except (ServiceError, AttributeError):
-        backup_at = None
-    db.set_app_setting(BEFORE_UPDATE_KEY, {
-        "old": old, "new": new, "schema": _library_schema(),
-        "backup_at": backup_at if isinstance(backup_at, str) else None})
+        copies = auto_backup_service.settings_overview().get("copies") or []
+    except (ServiceError, OSError, AttributeError):
+        copies = []
+    for c in copies:
+        if isinstance(c, dict) and c.get("readable") and isinstance(c.get("name"), str):
+            return {"backup_name": c["name"], "backup_at": c.get("created_at")}
+    return {"backup_name": None, "backup_at": None}
+
+
+def _backup_still_there(name) -> bool:
+    from services import auto_backup_service
+    try:
+        copies = auto_backup_service.settings_overview().get("copies") or []
+    except (ServiceError, OSError, AttributeError):
+        return False
+    return any(isinstance(c, dict) and c.get("name") == name and c.get("readable")
+               for c in copies)
+
+
+def _library_layout() -> str:
+    """Every table, index and trigger definition in library.db and sources.db.
+    Stricter than the release fingerprint (names only), so a table rebuilt
+    under the same column names, or a new index, still counts as a change.
+    A migration that only rewrites rows is not seen."""
+    from sources import store
+    parts = []
+    with contextlib.closing(db.get_conn()) as conn:
+        parts += [repr(tuple(r)) for r in conn.execute(
+            "SELECT 'library', type, name, tbl_name, sql FROM sqlite_master")]
+    path = store.db_path()
+    if os.path.isfile(path):
+        with contextlib.closing(sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)) as conn:
+            parts += [repr(tuple(r)) for r in conn.execute(
+                "SELECT 'sources', type, name, tbl_name, sql FROM sqlite_master")]
+    return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()
 
 
 def _rollback_changed_library(result):
-    """(changed, backup_at): whether the version that was rolled back left the
-    library's tables different from how this update found them."""
+    """(changed, backup_at): whether a version that was rolled back left the
+    library different from how the first update attempt since found it, and
+    when the backup from before it was taken, if that copy is still there."""
     if result["code"] not in ROLLED_BACK_CODES:
         return False, None
     try:
         before = db.get_app_setting(BEFORE_UPDATE_KEY, None)
         if not (isinstance(before, dict) and before.get("old") == result["old"]
-                and before.get("new") == result["new"]):
+                and result["new"] in (before.get("attempts") or [])):
             return False, None
-        changed = _library_schema() != before.get("schema")
+        changed = _library_layout() != before.get("layout")
     except sqlite3.Error:
         return False, None
-    return changed, before.get("backup_at")
+    if not changed:
+        return False, None
+    backup_at = before.get("backup_at") if _backup_still_there(before.get("backup_name")) else None
+    return True, backup_at if isinstance(backup_at, str) else None
 
 
 def status_fields() -> dict:

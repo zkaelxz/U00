@@ -33,9 +33,9 @@ afterEach(() => resetPcModeForTests())
 
 describe('updateModel', () => {
   it('names the backup to restore after a rollback changed the library', () => {
-    expect(rollbackBackupLine('2026-11-12T10:00:00Z', 'en-GB')).toMatch(/^The newest backup from before the update finished .*2026/)
+    expect(rollbackBackupLine('2026-11-12T10:00:00Z', 'en-GB')).toMatch(/^The newest backup from before the update was taken .*2026/)
     for (const none of [null, undefined, 'not a date']) {
-      expect(rollbackBackupLine(none)).toBe('No backup finished before the update started. Back up now, before you change anything.')
+      expect(rollbackBackupLine(none)).toBe('No backup from before the update is left to restore.')
     }
   })
 
