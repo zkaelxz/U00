@@ -27160,6 +27160,7 @@ export interface components {
              * @default false
              */
             scanlate_rect_layout: boolean;
+            stream_plain_prompt: boolean;
             /**
              * Scanlate Sfx Gloss
              * @default false
@@ -27445,6 +27446,7 @@ export interface components {
             scanlate_page_image?: boolean | null;
             /** Scanlate Rect Layout */
             scanlate_rect_layout?: boolean | null;
+            stream_plain_prompt?: boolean | null;
             /** Scanlate Sfx Gloss */
             scanlate_sfx_gloss?: boolean | null;
             /** Scene Aware Batches */
