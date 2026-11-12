@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId, startSeries, untrackSeries } from '../api/sources'
 import { PageShell } from '../components/PageShell'
+import { FindSwitch } from './FindSwitch'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
@@ -255,6 +256,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
         />
       )}
     >
+      <FindSwitch current="sources" />
       <ErrorBanner error={loadError} />
 
       {panel('find', (

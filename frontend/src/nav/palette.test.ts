@@ -21,12 +21,12 @@ const entry = (label: string, keywords = ''): PaletteEntry => ({ id: label, labe
 describe('paletteEntries', () => {
   it('lists the menu pages and always Library and Settings', () => {
     const l = labels(paletteEntries(member, { name: 'library' }))
-    expect(l).toEqual(expect.arrayContaining(['Library', 'Settings', 'Discover', 'Sources']))
+    expect(l).toEqual(expect.arrayContaining(['Library', 'Settings', 'Find']))
   })
 
   it('leaves out pages the person hid, but never Library or Settings', () => {
     const l = labels(paletteEntries({ ...member, hidden: ['discover', 'library', 'settings'] }, { name: 'library' }))
-    expect(l).not.toContain('Discover')
+    expect(l).not.toContain('Find')
     expect(l).toContain('Library')
     expect(l).toContain('Settings')
   })
@@ -109,6 +109,12 @@ const owner_: NavContext = {
 }
 
 describe('page keywords', () => {
+  it('finds Find by the old names Sources and Discover', () => {
+    const entries = paletteEntries(owner_, { name: 'library' })
+    expect(labels(filterEntries(entries, 'sources'))).toContain('Find')
+    expect(labels(filterEntries(entries, 'discover'))).toContain('Find')
+  })
+
   it('finds Make subtitles by what people type', () => {
     const entries = paletteEntries(owner_, { name: 'library' })
     expect(labels(filterEntries(entries, 'srt'))).toContain('Make subtitles')

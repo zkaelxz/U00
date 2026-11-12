@@ -8,7 +8,7 @@ export type MediaTab = 'add' | 'transcribe' | 'details'
 
 const TABS: { id: MediaTab; label: string }[] = [
   { id: 'add', label: 'Add media' },
-  { id: 'transcribe', label: 'Transcribe' },
+  { id: 'transcribe', label: 'Run' },
   { id: 'details', label: 'Details' },
 ]
 

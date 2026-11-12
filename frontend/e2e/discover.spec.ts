@@ -18,7 +18,7 @@ const catalogueTest = test
 catalogueTest('nav entry, empty catalogue loads starter titles, search and filters @catalogue', async ({ page }) => {
   const s = await mockDiscover(page, { titles: [] })
   await page.goto('/#/discover')
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Discover' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Find' })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('catalog-count')).toHaveText('Your catalogue is empty.')
   await page.getByRole('button', { name: 'Load starter titles' }).click()
   await expect(page.getByText('Added 2 starter titles.')).toBeVisible()

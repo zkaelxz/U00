@@ -34,7 +34,7 @@ test('an empty Library has one primary button, says "No titles yet" once and sho
   const main = page.locator('.library-page')
   await expect(main.getByText('No titles yet')).toHaveCount(1)
   await expect(main.locator('.btn-primary:visible')).toHaveCount(1)
-  await expect(main.getByRole('link', { name: 'Start', exact: true })).toHaveClass(/btn-primary/)
+  await expect(main.getByRole('link', { name: 'Make subtitles', exact: true })).toHaveClass(/btn-primary/)
   await expect(main.getByRole('button', { name: 'New title' })).toHaveClass(/btn-secondary/)
   await expect(page.getByRole('search')).toBeHidden()
   await page.getByRole('button', { name: 'Hide' }).first().click()

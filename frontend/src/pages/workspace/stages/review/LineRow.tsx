@@ -202,7 +202,7 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
       {actions.checkTiming && jobRunning && <span className="muted review-reason" id={`timing-check-reason-${lineId}`}>{JOB_RUNNING_MESSAGE}</span>}
       <span className="muted">
         Re-transcribe with Whisper large-v3-turbo for word timings:{' '}
-        <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source', tab: 'transcribe' })}>open Transcribe</a>
+        <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source', tab: 'transcribe' })}>open Transcribe → Run</a>
       </span>
     </div>
   )
