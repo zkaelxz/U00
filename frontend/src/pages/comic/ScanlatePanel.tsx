@@ -6,7 +6,7 @@
  * finishes, onChanged() lets the viewer reload its pages so the typeset
  * images show. Server notes are rendered as text only.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { scanlateApi, scanlateExportUrl } from '../../api/scanlate'
 import { engineOptionLabel, engineShortName } from '../../api/translate'
@@ -43,7 +43,9 @@ import {
   toolsSummary,
   uploadResultText,
   usableEngines,
+  warningPages,
 } from './scanlateLogic'
+import { WarningPages } from './WarningPages'
 import { AI_ENGINE_LABEL } from '../../helpText'
 import type { ScopeCounts } from './chapterLogic'
 
@@ -73,12 +75,6 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
 
 // The form is remembered per title, so leaving the page does not reset the engine, detector and scope.
 const SCANLATE_DRAFT = { engine: '', detector: 'auto' as string, slice: true, scope: 'all' as string }
-
-// A page's first note line, short enough to scan in a list.
-function firstLine(message: string): string {
-  const line = message.split('\n')[0]
-  return line.length > 140 ? `${line.slice(0, 139)}…` : line
-}
 
 export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, scopes, onChanged, onJob, onGoToPage }: Props) {
   const canUpload = useCanUpload()
@@ -262,7 +258,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
   }
 
   const pageNotes = notes.find((n) => n.page_id === pageId)?.notes ?? []
-  const problemPages = notes.filter((n) => n.page_id !== pageId && n.notes.some((x) => x.level !== 'info'))
+  const warnings = useMemo(() => warningPages(notes), [notes])
   const limits = config?.upload_limits
   const accept = limits?.pdf === false
     ? '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'
@@ -377,28 +373,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
           </ul>
         </div>
       )}
-      {problemPages.length > 0 && (
-        <details className="scanlate-problem-pages">
-          <summary>
-            {problemPages.length} other page{problemPages.length === 1 ? ' has' : 's have'} warnings
-          </summary>
-          <ul>
-            {problemPages.map((p) => {
-              const worst = p.notes.find((x) => x.level === 'error') ?? p.notes.find((x) => x.level !== 'info')
-              return (
-                <li key={p.page_id}>
-                  <button type="button" className={buttonClass('secondary')} onClick={() => onGoToPage?.(p.ordinal)}>
-                    Page {p.ordinal}
-                  </button>{' '}
-                  <span className={worst?.level === 'error' ? 'error' : 'warn'}>
-                    {firstLine(worst?.message ?? '')}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </details>
-      )}
+      <WarningPages all={warnings.all} groups={warnings.groups} pageNumber={pageNumber} onGoToPage={onGoToPage} />
 
       <div className="actions scanlate-export">
         <button

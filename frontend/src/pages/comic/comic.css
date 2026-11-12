@@ -232,3 +232,9 @@
 }
 
 .comic-line-edit { display: grid; gap: var(--space-3); }
+
+/* Warning list: scrolls inside the panel so the Previous/Next buttons above it stay in view. */
+.scanlate-problem-pages h3, .scanlate-problem-pages h4 { margin: 0; }
+.scanlate-problem-pages ul { margin: 0; padding-left: 0; list-style: none; display: grid; gap: var(--space-1); }
+.scanlate-problem-pages li { overflow-wrap: anywhere; }
+.scanlate-warning-groups { display: grid; gap: var(--space-2); max-height: 24rem; overflow-y: auto; }
