@@ -22786,10 +22786,20 @@ export interface components {
             line_count: number;
             /** Number */
             number: number;
+            /**
+             * Part
+             * @default
+             */
+            part: string;
             /** Reviewed */
             reviewed: number;
             /** Title */
             title: string;
+            /**
+             * Title En
+             * @default
+             */
+            title_en: string;
             /** Translated */
             translated: number;
         };
