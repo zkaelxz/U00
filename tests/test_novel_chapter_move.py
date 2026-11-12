@@ -334,3 +334,90 @@ def test_startup_finishes_interrupted_moves(isolated_db, monkeypatch):
     with TestClient(create_app(ApiSettings(background_services=True))):
         pass
     assert ran == [1]
+
+
+def test_a_move_killed_after_the_list_swap_is_finished_at_the_next_start(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    done = _book(isolated_db)
+    svc.move_chapter(done, 3, 1)
+    copy = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), "novel_narration_source.txt")
+    with open(chapter_manifest.raw_path(did), "rb") as f, open(copy, "wb") as g:
+        g.write(f.read())
+    monkeypatch.setattr(svc.edit, "_copy_to_translation_text",
+                        lambda *a, **k: (_ for _ in ()).throw(_Killed()))
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    assert svc.recover_interrupted_moves() == [did]
+    assert _state(did)[:2] == _state(done)[:2]
+    with open(copy, encoding="utf-8", newline="") as f:
+        assert f.read() == _raw(did)
+    assert _leftovers(did) == []
+
+
+def test_a_recovery_killed_part_way_is_finished_by_the_next_one(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    before = _state(did)
+    _kill_at(monkeypatch, "raw")       # lines moved, chapter list removed, old text
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    # The recovery puts the lines back and is then killed writing the chapter list.
+    monkeypatch.setattr(svc, "_write_durably", lambda *a, **k: (_ for _ in ()).throw(_Killed()))
+    with pytest.raises(_Killed):
+        with svc._move_lock(did):
+            svc._recover(did)
+    monkeypatch.undo()
+    assert not os.path.exists(chapter_manifest.manifest_path(did))
+    assert svc.recover_interrupted_moves() == [did]
+    assert _state(did) == before
+    assert _leftovers(did) == []
+
+
+def test_a_damaged_journal_is_a_clear_refusal_not_a_crash(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    _kill_at(monkeypatch, "raw")
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    with open(os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), svc.JOURNAL_FILENAME),
+              "w", encoding="utf-8") as f:
+        f.write('{"old_ids": [1, 2')
+    assert svc.recover_interrupted_moves() == []
+    with pytest.raises(ConflictError) as err:
+        svc.move_chapter(did, 1, 2)
+    assert "damaged" in err.value.message
+
+
+def test_a_second_copy_of_the_app_starting_waits_for_a_live_move(isolated_db, monkeypatch):
+    """Startup recovery in another process must not undo a move that is still running: it
+    waits on the move's lock, then finds the move finished."""
+    import threading
+    did = _book(isolated_db)
+    done = _book(isolated_db)
+    svc.move_chapter(done, 3, 1)
+    real, calls = svc.edit._swap_in, []
+    at_list_swap, go_on = threading.Event(), threading.Event()
+
+    def pause_before_list_swap(tmp, dest):
+        calls.append(dest)
+        if len(calls) == 2:          # the text is swapped; the chapter list is next
+            at_list_swap.set()
+            assert go_on.wait(10)
+        return real(tmp, dest)
+    monkeypatch.setattr(svc.edit, "_swap_in", pause_before_list_swap)
+    mover = threading.Thread(target=svc.move_chapter, args=(did, 3, 1))
+    mover.start()
+    assert at_list_swap.wait(10)
+    recovered = []
+    # lib.file_lock: separate open() calls conflict even inside one process, as two processes do.
+    starter = threading.Thread(target=lambda: recovered.append(svc.recover_interrupted_moves()))
+    starter.start()
+    starter.join(0.5)
+    assert starter.is_alive()        # waiting for the move, not undoing it
+    go_on.set()
+    mover.join(10)
+    starter.join(10)
+    assert recovered == [[]]
+    assert _state(did)[:2] == _state(done)[:2]
+    assert [r[2] for r in _state(did)[2]] == [r[2] for r in _state(done)[2]]

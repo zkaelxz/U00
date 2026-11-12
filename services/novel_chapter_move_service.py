@@ -24,6 +24,7 @@ import tempfile
 import db
 import novel_text
 from core import line_from_row
+from lib import file_lock
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import (drama_service, media_upload_service, novel_chapter_edit_service as edit,
                       novel_line_chapters_service as mapping, ownership_service)
@@ -33,10 +34,14 @@ from sources import pipeline, store
 _NOT_ALIGNED = ("The chapters and the lines do not line up (a chapter's title line is missing or "
                 "out of order, or a line was edited), so the chapters can't be moved safely. Restore "
                 "the lines from the line history, or undo the edits, and try again.")
-_STUCK = ("A chapter move on this title was interrupted and its lines or text changed afterwards, "
-          "so it can't be finished or undone safely. Restore the lines from the line history "
+_STUCK = ("A chapter move on this title was interrupted and can't be finished or undone safely "
+          "(its lines or text changed afterwards, or its record of the move is damaged). Restore the lines from the line history "
           "(\u201cbefore moving a chapter\u201d) and ask for help clearing the stopped move.")
 JOURNAL_FILENAME = ".chapter-move.json"
+_LOCK_FILENAME = ".chapter-move.lock"
+_JOURNAL_KEYS = {"old_ids": list, "moved_ids": list, "old_sha256": str, "new_sha256": str,
+                 "old_manifest": str, "new_manifest": str, "temp_files": list,
+                 "narration_is_copy": bool}
 _TIMED = ("These lines have their own times, so reordering chapters would put them out of step "
           "with the audio. Only untimed novel lines can be reordered.")
 
@@ -46,7 +51,7 @@ def move_chapter(drama_id: int, number: int, to_number: int) -> dict:
     with media_upload_service.folder_write(drama_id):
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(edit._BUSY)
-        with pipeline._page_lock(drama_id):
+        with pipeline._page_lock(drama_id), _move_lock(drama_id):
             if not _recover(drama_id):
                 raise ConflictError(_STUCK)
             return _move_locked(drama_id, number, to_number)
@@ -226,6 +231,26 @@ def _journal_path(drama_id: int) -> str:
     return os.path.join(db.DRAMAS_DIR, str(int(drama_id)), JOURNAL_FILENAME)
 
 
+def _move_lock(drama_id: int):
+    """Held from a move's first write to its journal's removal, and by recovery. The page lock
+    is per process; this one is the operating system's, so a second copy of the app starting
+    up waits for a live move instead of undoing it, and a dead holder never keeps it."""
+    return file_lock.hold(os.path.join(db.DRAMAS_DIR, str(int(drama_id)), _LOCK_FILENAME))
+
+
+def _read_journal(path: str):
+    """The journal, or None when it can't be read or isn't shaped as this module writes it."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            journal = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(journal, dict) or any(
+            not isinstance(journal.get(k), t) for k, t in _JOURNAL_KEYS.items()):
+        return None
+    return journal
+
+
 def _write_durably(path: str, text: str) -> None:
     """Writes `text` to `path` through a temp file in the same folder, so a stop leaves the old
     file or the new one, never half of one."""
@@ -276,8 +301,9 @@ def _recover(drama_id: int) -> bool:
     path = _journal_path(drama_id)
     if not os.path.exists(path):
         return True
-    with open(path, encoding="utf-8") as f:
-        journal = json.load(f)
+    journal = _read_journal(path)
+    if journal is None:
+        return False
     raw = manifest.raw_path(drama_id)
     folder = os.path.dirname(raw)
     man = manifest.manifest_path(drama_id)
@@ -311,7 +337,7 @@ def _recover(drama_id: int) -> bool:
 def recover_interrupted_moves() -> list:
     """Run at start, before any request: finishes or undoes every chapter move a hard kill
     stopped. Returns the ids of the titles put right; one that can't be is logged and left
-    for move_chapter to refuse."""
+    for move_chapter to refuse. Waits for a move another copy of the app is running."""
     fixed = []
     try:
         names = os.listdir(db.DRAMAS_DIR)
@@ -321,15 +347,20 @@ def recover_interrupted_moves() -> list:
         if not name.isdigit() or not os.path.exists(_journal_path(int(name))):
             continue
         try:
-            if _recover(int(name)):
-                fixed.append(int(name))
-                continue
+            with _move_lock(int(name)):
+                # A move another copy of the app was running has finished while this waited.
+                if not os.path.exists(_journal_path(int(name))):
+                    continue
+                if _recover(int(name)):
+                    fixed.append(int(name))
+                    continue
         except Exception:
             logging.getLogger(__name__).warning("Interrupted chapter move on title %s could not be "
                                                 "put right", name, exc_info=True)
             continue
         logging.getLogger(__name__).warning("Interrupted chapter move on title %s left as it "
-                                            "is: its lines or text changed since", name)
+                                            "is: its lines or text changed since, or its "
+                                            "journal is damaged", name)
     return sorted(fixed)
 
 
