@@ -18,7 +18,8 @@ name: Windows Installer
 # has passed the release job attaches the installer and the app-only update
 # zip (with its manifest copy), each with its SHA-256 and (when the
 # BAIHE_RELEASE_SIGNING_KEY secret is set) its Ed25519 signature, to a
-# GitHub Release named after the tag; the version is the tag without "v".
+# GitHub pre-release named after the tag; the version is the tag without "v".
+# promote-release.yml later makes a tested one the full release.
 on:
   workflow_dispatch:
     inputs:
@@ -638,8 +639,9 @@ jobs:
               echo "Signed $name with $public"
             done
           fi
-          flags=""
-          case "$version" in *-*) flags="--prerelease" ;; esac
+          # Always a pre-release first: only copies with "Include pre-releases" on
+          # (the test PCs) are offered it until Promote Release makes it the full
+          # release (docs/runbook.md, section 1).
           # Fixed short notes: generated notes list every commit since the previous
           # release, and GitHub refuses a body over 125000 characters (the first
           # release has no previous one, so it lists the whole history).
@@ -649,7 +651,7 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
           else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --verify-tag $flags \
+              --verify-tag --prerelease \
               --title "Baihe Studio $version" \
               --notes "Baihe Studio $version. Check the installer against its .sha256 file before you run it." \
               "${assets[@]}"

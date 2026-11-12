@@ -1,0 +1,75 @@
+name: Promote Release
+
+# The second half of a release (docs/runbook.md, section 1). A v* tag's
+# release job publishes it as a GitHub pre-release, which installed copies
+# only see with "Include pre-releases" on: the test PCs. Once they have run
+# the checklist, this turns the same release, with the same files, hashes and
+# signatures, into a full release that every copy is offered.
+#
+# It runs only behind the `release-main` environment, which must have a
+# required reviewer, and refuses when that rule is missing: GitHub creates
+# an environment named in a job on first use, without any rule, so a typo or
+# a deleted environment would otherwise promote without anyone approving.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The pre-release to promote (e.g. v0.1.5)"
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs nothing from the repository (no checkout): only gh against the
+  # release that the tag's own run published.
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: release-main
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check the pre-release and make it the full release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]{1,6}\.[0-9]{1,6}(\.[0-9]{1,6})?$'; then
+            echo "::error::$TAG is not a release tag such as v0.1.5. A tag with a - (a beta) stays a pre-release. Nothing was promoted."
+            exit 1
+          fi
+          rules="$(gh api "repos/$GITHUB_REPOSITORY/environments/release-main" \
+            --jq '[.protection_rules[]?.type] | map(select(. == "required_reviewers")) | length')"
+          if [ "$rules" != "1" ]; then
+            echo "::error::The release-main environment has no required reviewer, so this run was not approved by anyone. Add one (docs/runbook.md, section 1). Nothing was promoted."
+            exit 1
+          fi
+          state="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"')"
+          if [ "$state" != "false true" ]; then
+            echo "::error::$TAG is not a published pre-release (draft, pre-release: $state). Nothing was promoted."
+            exit 1
+          fi
+          version="${TAG#v}"
+          names="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          setup="BaiheStudio-Setup-$version.exe"
+          app="BaiheStudio-App-$version.zip"
+          wanted=("$setup" "$setup.sha256" "$setup.sig")
+          if printf '%s\n' "$names" | grep -Fqx "$app"; then
+            wanted+=("$app.sha256" "$app.sig" "BaiheStudio-App-$version.json")
+          fi
+          for name in "${wanted[@]}"; do
+            if ! printf '%s\n' "$names" | grep -Fqx "$name"; then
+              echo "::error::$TAG has no $name. Finish the release first (docs/runbook.md, section 1a). Nothing was promoted."
+              exit 1
+            fi
+          done
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
+          echo "Promoted $TAG to a full release; its files were not changed."
