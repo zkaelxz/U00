@@ -2,7 +2,7 @@
 api/routers/extension_routes.py -- PC-only control for the browser-extension
 bridge (page_server): status, on/off, and showing its token (user decision 2026-09-29). Thin: see services/extension_service.py.
 
-All three are `local_only()`: the bridge and its token belong to the owner
+All of these but the engine read are `local_only()`: the bridge and its token belong to the owner
 at the PC. The status never carries the port or the token. The token is
 returned only by `POST /token` with `confirm=true`, with
 `Cache-Control: no-store`; nothing here logs it.
@@ -29,6 +29,14 @@ router = APIRouter(prefix="/api/extension", tags=["extension"])
             summary="PC only: is the extension bridge enabled / running (no port, no token)")
 def get_status():
     return svc.get_status()
+
+
+@router.get("/download", dependencies=[local_only()], response_class=Response,
+            responses={200: {"content": {"application/zip": {}}}, **error_responses(404)},
+            summary="PC only: the browser extension as a zip to unpack and load")
+def get_download():
+    return Response(svc.extension_zip(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="baihe-extension.zip"'})
 
 
 @router.post("/enabled", dependencies=[local_only()], response_model=ExtensionEnabledResult,

@@ -273,6 +273,15 @@ def _page_image(drama_id: int, page_id: int, engine_name: str):
         page = db.get_page(page_id, drama_id=drama_id) or {}
         with open(render_svc.original_path(drama_id, page), "rb") as handle:
             content = handle.read()
+    except Exception:
+        return None
+    return page_picture(content)
+
+
+def page_picture(content: bytes):
+    """_page_image's (bytes, mime, scale) for a page already in memory, or None
+    when it can't be prepared. The caller has checked the setting and the engine."""
+    try:
         _fmt, width, _height = page_import_limits.check_image(content)
         data, mime, sent_width, _sent_height = image_text_service.prepare_picture(content)
     except Exception:
