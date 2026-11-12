@@ -55,6 +55,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   const shots = [];
   const marks = [];
   const progress = [];
+  const summaries = [];
   const fetched = [];
   let listener = null;
   // Canvases the script makes itself can be exported when a screenshot is being cropped; the
@@ -100,6 +101,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
           }
           if (message.type === "send") { sent.push(message); return { ok: true, data: { pages: [] } }; }
           if (message.type === "progress") progress.push(message);
+          if (message.type === "captureSummary") summaries.push(message);
           return { ok: true };
         },
       },
@@ -117,7 +119,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   vm.runInContext(read("content.js"), sandbox);
   const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
   sandbox.innerWidth = 800;
-  return { ask, sent, fetched, progress, sandbox, shots, marks };
+  return { ask, sent, fetched, progress, summaries, sandbox, shots, marks };
 }
 
 const okImage = (bytes = JPEG, type = "image/jpeg") => async () => ({
@@ -141,6 +143,7 @@ async function content(scenario) {
     ok: result.ok, code: result.code, origins: result.origins, error: result.error,
     message: result.data && result.data.message,
     progress: h.progress.map((m) => m.text),
+    summaries: h.summaries,
     partialOrigins: result.data && result.data.origins, unverified: result.data && result.data.unverified,
     fetched: h.fetched,
     sent: h.sent.flatMap((m) => m.images.map((i) => ({ content_type: i.content_type, url: i.url, bytes: Buffer.from(i.data, "base64").length }))),
@@ -225,6 +228,10 @@ async function content(scenario) {
       return run(capture, { canvases: [canvas], fetchImage: byUrl });
     }
     case "capture_tainted_img_fetches_in_worker":
+      return run(capture, { images: [img()], fetchImage: okImage() });
+    case "capture_saved_into_a_title_sends_its_summary":
+      return run({ ...capture, dramaId: 5, store: true }, { images: [img()], fetchImage: okImage() });
+    case "capture_not_saved_sends_no_summary":
       return run(capture, { images: [img()], fetchImage: okImage() });
     case "capture_tainted_img_needs_permission":
       return run(capture, { images: [img()], fetchImage: needsPermission });

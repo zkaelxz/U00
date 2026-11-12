@@ -188,6 +188,11 @@ async function resolveTitle({ url, titles, siteName, language, kind, chapterLink
   });
 }
 
+// The closing line of a chapter capture, kept in the app's log: the popup's copy is gone once the next capture starts.
+async function captureSummary({ dramaId, message }) {
+  return call("/capture-summary", { method: "POST", body: { drama_id: dramaId || null, summary: String(message || "").slice(0, 2000) } });
+}
+
 async function setAutoTitle({ options }) {
   const next = { ...(await settings()).autoTitle };
   for (const key of Object.keys(AUTO_TITLE_DEFAULTS)) {
@@ -662,6 +667,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "resolveTitle":
           respond(await resolveTitle(message));
+          break;
+        case "captureSummary":
+          respond(await captureSummary(message));
           break;
         case "startSeries": {
           // Answered at once: the run outlasts any message port, and ends with seriesDone.

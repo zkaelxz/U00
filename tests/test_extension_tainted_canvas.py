@@ -250,3 +250,14 @@ class TestTaintedCanvasOverlayKey:
         assert out["twoCanvasesDiffer"] is True
         assert out["resizedDiffers"] is True
         assert out["emptyUrl"] is None
+
+
+class TestCaptureSummaryIsKept:
+    def test_a_chapter_saved_into_a_title_sends_its_closing_line_to_the_app(self):
+        out = _run("content", "capture_saved_into_a_title_sends_its_summary")
+        assert len(out["summaries"]) == 1
+        sent = out["summaries"][0]
+        assert sent["dramaId"] == 5 and sent["message"] == out["message"] and "Took " in sent["message"]
+
+    def test_a_capture_that_is_not_saved_sends_nothing(self):
+        assert _run("content", "capture_not_saved_sends_no_summary")["summaries"] == []

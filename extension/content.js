@@ -1938,6 +1938,9 @@
     const message = `${reason === "error" ? failure : CAPTURE_STOP_MESSAGES[reason]} ${complete} (${tally}). ` +
                     `Took ${formatElapsed(Date.now() - run.startedAt)}.`;
     reportProgress(message);
+    if (store && dramaId) {
+      try { chrome.runtime.sendMessage({ type: "captureSummary", dramaId, message }).catch(() => {}); } catch (e) { /* worker asleep */ }
+    }
     // A failure text can name the server's address, which a page's own scripts could read from the DOM.
     if (CAPTURE_STOP_MESSAGES[reason]) toast(message, 8000);
     return { ok: true, data: { reason, message, found: seen.size, ...counts,
