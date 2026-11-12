@@ -98,8 +98,20 @@ export function SelectionBar({
     listAllSeries().then((r) => !cancelled() && setSeriesList(r.items), () => {})
   }, [canEdit])
 
-  const applySeries = (call: () => ReturnType<typeof bulkSetSeries>) => {
-    run(call, describeBulkResult)
+  // A move applies the series' defaults to the titles; moving back does not undo them.
+  const [pendingSeries, setPendingSeries] = useState<{ text: string, call: () => ReturnType<typeof bulkSetSeries> } | null>(null)
+  const askSeries = (target: string, call: () => ReturnType<typeof bulkSetSeries>) => {
+    setPendingSeries({
+      text: target === ''
+        ? `Take ${n} title${n === 1 ? '' : 's'} out of their series? Their glossaries stop being shared with it.`
+        : `Move ${n} title${n === 1 ? '' : 's'} into ${target}? They take the series' defaults for settings left blank, and moving them out again does not undo that.`,
+      call,
+    })
+  }
+  const confirmSeries = () => {
+    if (!pendingSeries) return
+    run(pendingSeries.call, describeBulkResult)
+    setPendingSeries(null)
     setSeriesChoice('')
     setNewSeriesName('')
   }
@@ -239,7 +251,7 @@ export function SelectionBar({
           onChange={(e) => {
             const v = e.target.value
             if (v === NEW_SERIES || v === '') setSeriesChoice(v)
-            else applySeries(() => bulkSetSeries(ids, { series_id: Number(v) }))
+            else askSeries(v === '0' ? '' : (seriesList.find((x) => String(x.id) === v)?.name ?? 'that series'), () => bulkSetSeries(ids, { series_id: Number(v) }))
           }}
         >
           <option value="">Series…</option>
@@ -252,7 +264,7 @@ export function SelectionBar({
             <input aria-label="New series name" value={newSeriesName} maxLength={300} placeholder="Series name"
               onChange={(e) => setNewSeriesName(e.target.value)} />
             <button type="button" disabled={busy || !n || !newSeriesName.trim()}
-              onClick={() => applySeries(() => bulkSetSeries(ids, { new_series_name: newSeriesName.trim() }))}>
+              onClick={() => askSeries(`“${newSeriesName.trim()}”`, () => bulkSetSeries(ids, { new_series_name: newSeriesName.trim() }))}>
               Create and add
             </button>
           </>
@@ -339,6 +351,15 @@ export function SelectionBar({
       <ErrorBanner error={queueError} />
       {local && <AdminJobLine job={exporter} busyText="Exporting…" artifact="export" showLink={exporter.done} />}
       {local && <ErrorBanner error={exporter.startError} describe={PC_ONLY_ERR} />}
+      {pendingSeries && (
+        <div role="alertdialog" aria-label="Confirm series change" data-testid="series-confirm">
+          <p>{pendingSeries.text}</p>
+          <div className="actions">
+            <button type="button" disabled={busy} onClick={confirmSeries}>Confirm</button>
+            <button type="button" className="link" onClick={() => { setPendingSeries(null); setSeriesChoice('') }}>Cancel</button>
+          </div>
+        </div>
+      )}
       {deleting && local && (
         <TypedConfirm
           word="DELETE"

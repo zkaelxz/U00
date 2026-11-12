@@ -20370,7 +20370,7 @@ export interface components {
         /**
          * LibraryBulkItem
          * @description One requested drama's outcome. error: not_found, job_running,
-         *     delete_failed, not_translated, no_translated_lines, not_allowed or conflict.
+         *     delete_failed, not_translated, no_translated_lines, not_allowed, conflict or failed.
          */
         LibraryBulkItem: {
             /** Drama Id */

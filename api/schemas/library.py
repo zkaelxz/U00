@@ -757,7 +757,7 @@ class LibraryStorageCleanRequest(BaseModel):
 
 class LibraryBulkItem(BaseModel):
     """One requested drama's outcome. error: not_found, job_running,
-    delete_failed, not_translated, no_translated_lines, not_allowed or conflict."""
+    delete_failed, not_translated, no_translated_lines, not_allowed, conflict or failed."""
     drama_id: int
     ok: bool
     error: Optional[str] = None
