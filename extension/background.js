@@ -67,7 +67,14 @@ const STILL_WORKING = "Baihe is still working; send the rest later.";
 // Requests in flight, so a Cancel can end the wait for them at once instead of after the app answers.
 const inflight = new Set();
 
+// Runs the app is still working on. Dropping the connection does not stop the app, so a
+// cancel also names each of them to it.
+const activeRuns = new Set();
+
 function abortSends() {
+  for (const runId of activeRuns) {
+    call("/cancel", { method: "POST", body: { run_id: runId } }).catch(() => {});
+  }
   for (const controller of inflight) {
     controller.userAbort = true;
     controller.abort();
@@ -271,7 +278,17 @@ function planBatches(images, cap, minSize = 1) {
 // A whole chapter is many requests, never one: the bridge caps a request, and
 // one failing batch must not hide the pages that did arrive. The totals let
 // the popup show sent vs. received vs. stored instead of a bare page count.
-async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
+async function sendImages(message) {
+  const runId = crypto.randomUUID();
+  activeRuns.add(runId);
+  try {
+    return await sendImagesRun(message, runId);
+  } finally {
+    activeRuns.delete(runId);
+  }
+}
+
+async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages }, runId) {
   if (!images || !images.length) {
     return { ok: false, error: "No page images were found on this page." };
   }
@@ -290,6 +307,7 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
         source_url: sourceUrl || "",
         store: store !== false,
         filter_pages: filterPages !== false,
+        run_id: runId,
         // Only sent when on, so an older app never sees the key.
         ...(typeset ? { typeset: true } : {}),
       },

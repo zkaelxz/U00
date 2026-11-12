@@ -92,6 +92,11 @@ def test_cancel_drops_the_request_in_flight_instead_of_waiting_for_the_app():
     assert out["reply"] == {"ok": False, "cancelled": True, "error": "Cancelled."}
 
 
+def test_cancelling_names_the_running_batch_to_the_app_so_it_stops_too():
+    out = _node("worker_abort_send")
+    assert out["sentRun"] and out["sentRun"] == out["cancelledRun"]
+
+
 def test_the_next_chapter_link_is_the_sites_own_short_label_on_the_same_site():
     out = _node("next_chapter")
     assert out["rel"] == "https://novel.example/ch/4"
