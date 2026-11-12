@@ -627,9 +627,20 @@ jobs:
           # Always a pre-release first: only copies with "Include pre-releases" on
           # (the test PCs) are offered it until Promote Release makes it the full
           # release (docs/runbook.md, section 1).
-          # Fixed short notes: generated notes list every commit since the previous
-          # release, and GitHub refuses a body over 125000 characters (the first
-          # release has no previous one, so it lists the whole history).
+          # The notes are release/v<version>-notes.md at the tagged commit, read
+          # through the API (this job runs no repository code); the update card
+          # shows the body. Without that file, a fixed line: generated notes list
+          # every commit since the previous release, and GitHub refuses a body
+          # over 125000 characters.
+          notes="$(mktemp)"
+          if ! gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/$GITHUB_REPOSITORY/contents/release/v$version-notes.md?ref=$GITHUB_SHA" \
+              > "$notes" 2>/dev/null || [ ! -s "$notes" ]; then
+            echo "::warning::release/v$version-notes.md is not in the tagged commit; the release gets a one-line note."
+            printf 'Baihe Studio %s.\n' "$version" > "$notes"
+          fi
+          head -c 100000 "$notes" > "$notes.body"
+          printf '\nCheck the installer against its .sha256 file before you run it.\n' >> "$notes.body"
           # A re-run after a failure that came once the release existed adds the
           # files to it instead of failing on "already exists".
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
@@ -638,7 +649,7 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --prerelease \
               --title "Baihe Studio $version" \
-              --notes "Baihe Studio $version. Check the installer against its .sha256 file before you run it." \
+              --notes-file "$notes.body" \
               "${assets[@]}"
           fi
 
