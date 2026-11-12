@@ -191,7 +191,8 @@ def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge
     return scanlate_run_service.start_run(
         drama_id, mode=body.mode, page_id=body.page_id, confirm=body.confirm, engine=engine,
         detect_backend=body.detect_backend, chapter_id=body.chapter_id,
-        art_captions=body.art_captions, read_ahead_from=body.read_ahead_from)
+        art_captions=body.art_captions, read_ahead_from=body.read_ahead_from,
+        page_ids=body.page_ids, keep_text=body.keep_text)
 
 
 @router.post("/dramas/{drama_id}/render", dependencies=[require_permission("jobs.start")],
@@ -201,7 +202,8 @@ def post_render(body: ScanlateRenderRequest, request: Request,
                 drama_id: int = Path(ge=1, le=2**31 - 1)):
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_scanlate_render)
-    return scanlate_render_service.start_render(drama_id, page_id=body.page_id)
+    return scanlate_render_service.start_render(drama_id, page_id=body.page_id,
+                                                page_ids=body.page_ids)
 
 
 @router.post("/dramas/{drama_id}/export", dependencies=[require_permission("jobs.start")],

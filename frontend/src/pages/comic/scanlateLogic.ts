@@ -77,3 +77,18 @@ export function firstPageNote(kind: 'run' | 'export' | null, job: JobRecord | nu
   if (kind !== 'run' || !job || isTerminalStatus(job.status) || !/^Page 1 of /.test(job.message)) return undefined
   return 'The first page also loads the OCR and detector models, which can take a few minutes.'
 }
+
+/** "5-20, 30" -> [5..20, 30] (1-based, ascending, no repeats); null for empty text, a page
+ *  outside 1..max, or anything that is not numbers, commas and ranges. */
+export function parsePageRanges(text: string, max: number): number[] | null {
+  const found = new Set<number>()
+  for (const part of text.split(',')) {
+    const m = /^\s*(\d+)\s*(?:[-–]\s*(\d+)\s*)?$/.exec(part)
+    if (!m) return null
+    const from = Number(m[1])
+    const to = m[2] === undefined ? from : Number(m[2])
+    if (from < 1 || to < from || to > max) return null
+    for (let n = from; n <= to; n += 1) found.add(n)
+  }
+  return found.size ? [...found].sort((a, b) => a - b) : null
+}

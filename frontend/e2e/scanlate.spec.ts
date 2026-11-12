@@ -55,7 +55,7 @@ test('closing the panel while a job runs still loads the typeset pages when it f
   expect(s.unmocked).toEqual([])
 })
 
-test('redo this page, redo all needs a second press, export gives a download', async ({ page }) => {
+test('redo pages needs a second press, export gives a download', async ({ page }) => {
   const s = await mockScanlate(page, { pageCount: 3, lastPage: 1 })
   await page.goto('/#/comic/7?page=2')
   // Wait for the pages before clicking: while they load, the pager appears in
@@ -66,23 +66,33 @@ test('redo this page, redo all needs a second press, export gives a download', a
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
   // A page's hand-edited text boxes are replaced, so the first press only asks.
-  await panel.getByRole('button', { name: 'Redo page 2' }).click()
+  await panel.getByRole('button', { name: 'Redo pages' }).click()
   expect(s.runs).toEqual([])
-  await panel.getByRole('button', { name: 'Redo page 2' }).press('Escape')
-  await expect(panel.getByRole('button', { name: 'Replace text on page 2' })).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Redo pages' }).press('Escape')
+  await expect(panel.getByRole('button', { name: 'Redo page 2' })).toHaveCount(0)
   expect(s.runs).toEqual([])
+  await panel.getByLabel('How', { exact: true }).selectOption('full')
+  await panel.getByRole('button', { name: 'Redo pages' }).click()
   await panel.getByRole('button', { name: 'Redo page 2' }).click()
-  await panel.getByRole('button', { name: 'Replace text on page 2' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
   expect(s.runs.at(-1)).toMatchObject({ mode: 'page', page_id: 7 * 100 + 2 })
+  expect(s.runs.at(-1)).not.toHaveProperty('keep_text')
 
-  await panel.getByText('Advanced').click()
-  await panel.getByRole('button', { name: /Redo all/ }).click()
+  await panel.getByLabel('Pages', { exact: true }).selectOption('all')
+  await panel.getByLabel('How', { exact: true }).selectOption('keep_text')
+  await panel.getByRole('button', { name: 'Redo pages' }).click()
   expect(s.runs).toHaveLength(1)
-  await panel.getByRole('button', { name: 'Replace text on every page' }).click()
+  await panel.getByRole('button', { name: 'Redo all pages' }).click()
   await expect.poll(() => s.runs.length).toBe(2)
-  expect(s.runs.at(-1)).toMatchObject({ mode: 'all', confirm: true })
+  expect(s.runs.at(-1)).toMatchObject({ mode: 'all', confirm: true, keep_text: true })
   await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
+
+  await panel.getByLabel('Pages', { exact: true }).selectOption('chosen')
+  await panel.getByLabel('Which pages', { exact: true }).fill('1-2')
+  await panel.getByRole('button', { name: 'Redo pages' }).click()
+  await panel.getByRole('button', { name: 'Redo the chosen pages' }).click()
+  await expect.poll(() => s.runs.length).toBe(3)
+  expect(s.runs.at(-1)).toMatchObject({ mode: 'pages', page_ids: [701, 702], confirm: true })
 
   await panel.getByRole('button', { name: 'Export ZIP' }).click()
   await expect(panel.getByRole('link', { name: 'Download ZIP' })).toHaveAttribute(

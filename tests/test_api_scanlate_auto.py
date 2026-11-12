@@ -1514,3 +1514,35 @@ def test_waiting_for_the_pipeline_lock_is_said_in_the_job_message(isolated_db, m
         assert [m for _, m in messages] == [run_svc._WAITING_NOTE]
     t.join(5)
     assert not t.is_alive()
+
+
+def test_redo_of_chosen_pages_runs_them_in_reading_order_without_hidden_ones(client, monkeypatch):
+    started = _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(5)]
+    import comic_chapters
+    comic_chapters.set_hidden(did, [db.get_page(ids[3])["filename"]], True)
+    run_svc.start_run(did, mode="pages", page_ids=[ids[4], ids[3], ids[1]], confirm=True,
+                      engine="claude", keep_text=True)
+    assert started["targets"] == [ids[1], ids[4]]
+
+
+def test_typeset_only_redo_covers_the_chosen_pages_that_have_regions(client, monkeypatch):
+    from services import scanlate_render_service as render_svc
+    from lib.errors import InvalidInputError, UnsupportedOperationError
+    jobs = {}
+    monkeypatch.setattr(pages_svc, "start_drama_job",
+                        lambda did, fn, jid, *args, description: jobs.update(ids=args[1]) or {"job_id": jid})
+    did = _drama()
+    ids = [_page(did, i) for i in range(4)]
+    for pid in (ids[0], ids[2]):
+        db.save_bubbles(pid, [{"x": 1, "y": 1, "w": 5, "h": 5, "source_text": "a",
+                               "translated_text": "b", "kind": "bubble"}])
+    render_svc.start_render(did, page_ids=[ids[3], ids[2], ids[0]])
+    assert jobs["ids"] == [ids[0], ids[2]]
+    with pytest.raises(UnsupportedOperationError):
+        render_svc.start_render(did, page_ids=[ids[1]])
+    with pytest.raises(InvalidInputError):
+        render_svc.start_render(did, page_id=ids[0], page_ids=[ids[0]])
+    with pytest.raises(InvalidInputError):
+        render_svc.start_render(did, page_ids=[999999])
