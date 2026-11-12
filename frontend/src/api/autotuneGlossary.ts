@@ -45,8 +45,10 @@ export const applyNovelGlossary = (id: number, body: GlossaryProposalsApplyReque
 export const getLinesGlossary = (id: number, f?: Fetch) =>
   getJson<NovelGlossaryStatus>(`/api/glossary/dramas/${id}/from-lines`, f)
 
-export const startLinesGlossary = (id: number, f?: Fetch) =>
-  postJson<LinesGlossaryRunResult>(`/api/glossary/dramas/${id}/from-lines`, undefined, f)
+// chapter: only that saved chapter (numbered as GET line-chapters), else the whole title.
+export const startLinesGlossary = (id: number, f?: Fetch, chapter?: number) =>
+  postJson<LinesGlossaryRunResult>(
+    `/api/glossary/dramas/${id}/from-lines${chapter ? `?chapter=${chapter}` : ''}`, undefined, f)
 
 export const applyLinesGlossary = (id: number, body: GlossaryProposalsApplyRequest, f?: Fetch) =>
   postJson<NovelGlossaryApplyResult>(`/api/glossary/dramas/${id}/from-lines/apply`, body, f)

@@ -1,3 +1,4 @@
+import { ChapterScope } from './ChapterScope'
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { hasStatus } from '../../../api/client'
@@ -83,6 +84,8 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
   // null = the default selection for the current proposals.
   const { picked, setPicked, edits, setEdits } = useRunSelection(dramaId, source, run)
   const [overwrite, setOverwrite] = useState(false)
+  // From lines only: scan one saved chapter instead of the whole title.
+  const [chapter, setChapter] = useState<number | null>(null)
   // From novel only; not remembered, so a paid re-run is always a choice.
   const [fresh, setFresh] = useState(false)
   const [confirming, setConfirming] = useRunScoped(run, false)
@@ -121,7 +124,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
     setPicked(null)
     setEdits({})
     setConfirming(false)
-    startExtraction(dramaId, source, { fresh: source === 'novel' && fresh })
+    startExtraction(dramaId, source, { fresh: source === 'novel' && fresh, chapter: source === 'lines' ? chapter ?? undefined : undefined })
       .then((r) => {
         setProblem(r.problem)
         setError(r.error)
@@ -214,9 +217,10 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       <div className="suggest-bar">
         <span className="suggest-bar-label">Suggest terms from</span>
         {picker}
+        {source === 'lines' && <ChapterScope dramaId={dramaId} value={chapter} onChange={setChapter} />}
         {!active && (
           <button type="button" className={buttonClass('secondary')} disabled={!!blocker || !ready || busy} onClick={start}>
-            {suggestButtonLabel(proposals.length > 0 || hasTerms)}
+            {chapter ? 'Scan this chapter' : suggestButtonLabel(proposals.length > 0 || hasTerms)}
           </button>
         )}
       </div>
