@@ -203,7 +203,8 @@ if errorlevel 1 (
 )
 
 REM --- Auto-update (git working copy only) ------------------------------------
-REM Fast-forwards a git clone to origin/baihe-subtitler before launch so
+REM Fast-forwards a git clone to the newest commit of origin/baihe-subtitler
+REM whose Tests run passed, before launch, so
 REM nobody has to update by hand. Every skip path below
 REM just prints one line (or nothing) and carries on with the version
 REM already on disk; nothing here may fail the launch. Only a fast-forward
@@ -260,9 +261,20 @@ if "%UPD_NEW%"=="%UPD_OLD%" goto :update_done
 git merge-base --is-ancestor %UPD_OLD% %UPD_NEW% >nul 2>nul
 if errorlevel 1 goto :update_not_ff
 
+REM About one push in ten fails its tests: move only as far as the newest
+REM commit whose Tests run on GitHub passed.
+set "UPD_STATE="
+set "UPD_WHY="
+for /f "tokens=1,*" %%A in ('%PY% -m tools.update_target %UPD_OLD% %UPD_NEW% 2^>nul') do (
+    set "UPD_STATE=%%A"
+    set "UPD_WHY=%%B"
+)
+if not "%UPD_STATE%"=="ok" goto :update_not_green
+set "UPD_NEW=!UPD_WHY!"
+
 set "BAIHE_UPDATE_OLD=%UPD_OLD%"
 set "UPD_WHY="
-(for /f "delims=" %%L in ('git merge --ff-only --quiet FETCH_HEAD 2^>^&1') do set "UPD_WHY=!UPD_WHY! %%L") & git merge-base --is-ancestor %UPD_NEW% HEAD >nul 2>nul && (call "%~f0" %* & exit /b !errorlevel!)
+(for /f "delims=" %%L in ('git merge --ff-only --quiet %UPD_NEW% 2^>^&1') do set "UPD_WHY=!UPD_WHY! %%L") & git merge-base --is-ancestor %UPD_NEW% HEAD >nul 2>nul && (call "%~f0" %* & exit /b !errorlevel!)
 set "BAIHE_UPDATE_OLD="
 if exist ".git\index.lock" (
     echo Not updated: git is busy, or an earlier git command was cut off and left ".git\index.lock" behind. Close other git programs; if none is running, delete that file. Starting the version on this PC.
@@ -291,6 +303,11 @@ goto :update_done
 :update_fetch_failed
 set "GIT_TERMINAL_PROMPT="
 echo Not updated: could not reach GitHub ^(offline?^). Starting the version on this PC.
+goto :update_done
+
+:update_not_green
+if not defined UPD_WHY set "UPD_WHY=Couldn't check which versions passed their tests."
+echo Not updated: !UPD_WHY! Starting the version on this PC.
 goto :update_done
 
 :update_not_ff
