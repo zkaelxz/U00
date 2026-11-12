@@ -47,6 +47,7 @@ import {
 } from './scanlateLogic'
 import { WarningPages } from './WarningPages'
 import { AI_ENGINE_LABEL } from '../../helpText'
+import { recommendedModelNote } from '../workspace/recommendedModel'
 import type { ScopeCounts } from './chapterLogic'
 
 interface Props {
@@ -410,7 +411,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
           <div className="scanlate-run-row">
             <Field
               label={AI_ENGINE_LABEL}
-              help={`Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
+              help={`${recommendedModelNote('comic')} Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
             >
               <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={!usable.length}>
                 {usable.length === 0 && <option value="">No engine has a key</option>}
