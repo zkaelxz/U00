@@ -12,6 +12,7 @@ import db
 import emotion
 import source_change
 from engine_backends import pricing, shared, flag_reasons
+from engine_backends.translation_guard import allowed_source_runs, unusable_reply
 import translation_guide as tguide
 import word_replacements
 from lib.errors import NotFoundError
@@ -54,6 +55,25 @@ def _log_generic_usage(job: dict, usage: dict, usage_kind: str):
                 usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0))
             * BATCH_PRICE_FACTOR,
             cache_read_tokens=usage.get("cache_read_tokens", 0))
+
+
+def junk_check(job: dict):
+    """A function (line, reply) -> why that reply can't be written as the line's
+    English, or None: the same per-reply check the live path runs (empty, JSON,
+    reasoning text, source script, absurd length). A batch result has no
+    re-ask, so a rejected line stays blank and is flagged for the next run.
+    The Translate "check replies" setting set to off turns it off here too."""
+    args = job.get("translate_args") or {}
+    if args.get("check_replies") is False:
+        return lambda ln, reply: None
+    runs = allowed_source_runs(args.get("glossary_terms"), args.get("style_guidelines", ""))
+    return lambda ln, reply: unusable_reply(ln.zh, reply, runs)
+
+
+def flag_rejected(ln, reason: str) -> None:
+    if not ln.flag:
+        ln.flag = "uncertain_translation"
+        ln.flag_note = f"check: the model's reply for this line was unusable ({reason})"
 
 
 def _parse_strict(text: str, expected_ids: list) -> dict:
@@ -103,9 +123,33 @@ def _save_applied_english(job: dict, current: list, counts: dict, label: str):
     return kept
 
 
+def _english_landed(bulk_job_id: int, drama_id: int) -> bool:
+    """Whether any submitted line's English differs from what it was at
+    submission: an apply that failed after that point must not run again."""
+    row_by_id = {r["line_id"]: r for r in db.list_bulk_job_lines(bulk_job_id)}
+    return any((ln.en or "") != (row_by_id[ln.id]["en_at_submit"] or "")
+               for ln in db.load_line_objects(drama_id) if ln.id in row_by_id)
+
+
 def apply_bulk_results(bulk_job_id: int, results) -> dict:
     """Applies (request_key, text, usage, error) results to the drama's
-    CURRENT lines, by line id. Returns counts of what happened."""
+    CURRENT lines, by line id. Returns counts of what happened.
+
+    The results are already paid for, so an apply that fails before any
+    English was written (a locked database) is run once more from the same
+    results in memory; usage already logged is not logged twice. After English
+    has landed it is never repeated."""
+    results = list(results)
+    logged = set()
+    try:
+        return _apply_bulk_results_once(bulk_job_id, results, logged)
+    except Exception:
+        if _english_landed(bulk_job_id, require_bulk_job(bulk_job_id)["drama_id"]):
+            raise
+    return _apply_bulk_results_once(bulk_job_id, results, logged)
+
+
+def _apply_bulk_results_once(bulk_job_id: int, results: list, logged: set) -> dict:
     job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     args = job.get("translate_args") or {}
@@ -113,10 +157,12 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
     substitute_terms, fixes_text = word_replacements.with_replacements(
         tguide.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
-              "kept_your_edit": 0, "missing": 0, "failed_requests": 0, "unknown_requests": 0}
+              "kept_your_edit": 0, "missing": 0, "failed_requests": 0, "unknown_requests": 0,
+              "rejected": 0}
+    unusable = junk_check(job)
 
     for key, text, usage, error in results:
-        if usage and usage.get("input_tokens"):
+        if usage and usage.get("input_tokens") and key not in logged:
             db.log_usage(
                 job["drama_id"], job["engine"], job["model"], "translate_bulk",
                 usage.get("input_tokens", 0), usage.get("output_tokens", 0),
@@ -125,6 +171,7 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
                     usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0))
                 * BATCH_PRICE_FACTOR,
                 cache_read_tokens=usage.get("cache_read_tokens", 0))
+            logged.add(key)
         if key not in ids_by_key:
             counts["unknown_requests"] += 1
             continue
@@ -133,7 +180,13 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
             counts["failed_requests"] += 1
             counts["missing"] += len(request_ids)
             continue
-        parsed = _parse_strict(text, request_ids)
+        try:
+            parsed = _parse_strict(text, request_ids)
+        except Exception:
+            # One unreadable reply must not throw away the paid replies beside it.
+            counts["failed_requests"] += 1
+            counts["missing"] += len(request_ids)
+            continue
         for lid in request_ids:
             translation = (parsed.get(str(lid)) or "").strip()
             if not translation:
@@ -151,6 +204,10 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
                 continue
             if (ln.en or "") != (row_by_id[lid]["en_at_submit"] or ""):
                 counts["kept_your_edit"] += 1
+                continue
+            if reason := unusable(ln, translation):
+                counts["rejected"] += 1
+                flag_rejected(ln, reason)
                 continue
             if fixes_text:
                 translation = substitute_terms(translation)

@@ -4,7 +4,7 @@ applying each stage's results and submitting the next stage.
 """
 import uuid
 
-from bulk_apply import (require_bulk_job, _load_apply_context, _log_generic_usage, _parse_strict,
+from bulk_apply import (junk_check, flag_rejected, require_bulk_job, _load_apply_context, _log_generic_usage, _parse_strict,
                         _save_applied_english, _save_flags, _stale_line)
 from bulk_providers import make_provider
 from bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
@@ -510,6 +510,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
     substitute_terms, fixes_text = word_replacements.with_replacements(
         tguide.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
+    unusable = junk_check(job)
     notes = []
     for lid, text in text_by_id.items():
         row = row_by_id[lid]
@@ -522,6 +523,10 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
             continue
         translation = (text or "").strip()
         if not translation:
+            continue
+        if reason := unusable(ln, translation):
+            counts["rejected"] = counts.get("rejected", 0) + 1
+            flag_rejected(ln, reason)
             continue
         if fixes_text:
             translation = substitute_terms(translation)
