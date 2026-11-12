@@ -302,6 +302,12 @@ export function fmtTs(sec: number): string {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }
 
+/** Local clock time (HH:MM) a chat message was sent, from its epoch seconds; empty when the message carried none. */
+export function fmtSentAt(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return ''
+  return new Date(sec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 /** The session to show on load: an active one, else the most recent (list is oldest first). */
 export function pickSession(list: LiveSessionSummary[]): string | null {
   const active = list.find((s) => isActive(s.status))

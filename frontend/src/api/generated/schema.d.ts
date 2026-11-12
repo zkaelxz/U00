@@ -21266,6 +21266,11 @@ export interface components {
              * @default
              */
             paid: string;
+            /**
+             * Sent At
+             * @default 0
+             */
+            sent_at: number;
             /** State */
             state: string;
             /** Text */

@@ -21,7 +21,7 @@ test('read chat is sent with Start and the chat shows beside the lines', async (
   const m = await mockLive(page)
   m.state.status = 'running'
   m.state.chat = { state: 'reading', message: 'Reading the chat.', next_id: 2, messages: [
-    { id: 1, author: 'Ann', text: '今天好开心', paid: '', translation: 'So happy today', state: 'done' },
+    { id: 1, author: 'Ann', text: '今天好开心', paid: '', sent_at: 0, translation: 'So happy today', state: 'done' },
     { id: 2, author: 'Bo', text: '加油', paid: '$5.00', translation: '', state: 'pending' },
   ] }
   const live = await openLive(page)
