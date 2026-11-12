@@ -11,6 +11,8 @@ diagnostics_packages_service and diagnostics_gpu_torch_service.
 No HTTP types: the refusals are ServiceError subclasses the API maps by type.
 """
 
+import logging
+import sqlite3
 import time
 
 import background_jobs
@@ -18,6 +20,8 @@ from jobs import job_launch, job_runner
 import db
 import diagnostics
 from lib.errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Admin actions (router: local_only). Each requires confirm=True and
@@ -133,7 +137,13 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
         # sources.db survives the reset but its title ids are the old library's;
         # the new titles start again from id 1.
         from sources import store as src_store
-        src_store.unlink_all_dramas()
+        try:
+            src_store.unlink_all_dramas()
+        except sqlite3.Error:
+            # The library is already reset and cannot be undone here, so a
+            # locked or damaged sources.db must not turn this into a failure
+            # that skips the job clean-up below.
+            logger.warning("Library reset: could not unlink followed series from the old titles", exc_info=True)
         background_jobs.clear_all_jobs()
     finally:
         job_launch.release_exclusive()

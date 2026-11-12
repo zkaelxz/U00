@@ -90,6 +90,39 @@ class TestSourceImport:
         assert {n["note"] for n in db.list_translation_notes(did)} == {"n1", "n3"}
         assert db.load_emotions(did)
 
+    def test_repeated_identical_lines_keep_their_own_notes(self, local_client):
+        did = _drama([Line(idx=0, start=1.0, end=1.5, zh="嗯", en=""), Line(idx=1, start=1.6, end=2.0, zh="嗯", en="")])
+        ids = [x["id"] for x in db.load_lines(did)]
+        db.save_translation_notes(did, [{"line_id": ids[0], "line_idx": 0, "term": "嗯", "note": "first"},
+                                        {"line_id": ids[1], "line_idx": 1, "term": "嗯", "note": "second"}])
+        # The first cue is nearer the second row (1.6) than the first (1.0), the swap a nearest-first match makes.
+        srt = ("1\n00:00:01,500 --> 00:00:01,800\n嗯\n\n2\n00:00:02,200 --> 00:00:02,500\n嗯\n").encode()
+        r = _upload(local_client, did, "apply", data=srt, confirm_replace_lines=True)
+        assert r.status_code == 200, r.text
+        rows = db.load_lines(did)
+        assert [x["id"] for x in rows] == ids
+        by_id = {n["line_id"]: n["note"] for n in db.list_translation_notes(did)}
+        assert by_id == {ids[0]: "first", ids[1]: "second"}
+
+    def test_a_start_just_past_one_second_is_not_the_same_line(self, local_client):
+        did = _drama([Line(idx=0, start=1.0, end=2.0, zh="一", en=""), Line(idx=1, start=5.0, end=6.0, zh="二", en="")])
+        ids = [x["id"] for x in db.load_lines(did)]
+        srt = ("1\n00:00:02,000 --> 00:00:03,000\n一\n\n2\n00:00:06,001 --> 00:00:07,000\n二\n").encode()
+        pv = _upload(local_client, did, "preview", data=srt)
+        assert pv.json()["kept_lines"] == 1  # 1.0 s away still counts, 1.001 s does not
+        r = _upload(local_client, did, "apply", data=srt, confirm_replace_lines=True)
+        assert r.status_code == 200, r.text
+        assert [x["id"] for x in db.load_lines(did)][0] == ids[0] and db.load_lines(did)[1]["id"] != ids[1]
+
+    def test_a_translation_cue_replaces_the_english_on_a_kept_line(self, local_client):
+        did = _drama([Line(idx=0, start=1.0, end=2.0, zh="你好", en="old")])
+        lid = db.load_lines(did)[0]["id"]
+        data = b"1\n00:00:01,000 --> 00:00:02,000\n\xe4\xbd\xa0\xe5\xa5\xbd\nHello\n"
+        r = _upload(local_client, did, "apply", data=data, confirm_replace_lines=True, split_bilingual=True)
+        assert r.status_code == 200, r.text
+        row = db.load_lines(did)[0]
+        assert row["id"] == lid and row["en"] == "Hello"
+
     def test_preview_and_refusal_count_notes_the_import_would_delete(self, local_client):
         did = _drama(_three_lines())
         ids = [x["id"] for x in db.load_lines(did)]

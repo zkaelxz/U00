@@ -81,24 +81,34 @@ def _keep_matching_lines(new_lines: list, translations, lines: list) -> int:
     emotion tags live on the row, not on the Line, so a line given a new id
     would lose them with no undo (the history snapshot holds line fields only).
     Returns how many were kept."""
-    unused = {}
+    old_by_text, new_by_text = {}, {}
     for old in lines:
-        unused.setdefault((old.zh or "").strip(), []).append(old)
-    kept = 0
+        old_by_text.setdefault((old.zh or "").strip(), []).append(old)
     for i, new in enumerate(new_lines):
-        candidates = unused.get(new.zh.strip(), [])
-        best = min(candidates, key=lambda o: abs(o.start - new.start), default=None)
-        if best is None or abs(best.start - new.start) > KEEP_MATCH_SECONDS:
-            continue
-        candidates.remove(best)
-        keeper = copy.copy(best)
-        keeper.orig = dict(best.orig) if best.orig is not None else None
-        keeper.merged_ids = []
-        keeper.idx, keeper.start, keeper.end, keeper.ass_event = new.idx, new.start, new.end, new.ass_event
-        if translations:
-            keeper.en = new.en
-        new_lines[i] = keeper
-        kept += 1
+        new_by_text.setdefault(new.zh.strip(), []).append(i)
+    kept = 0
+    for text, indexes in new_by_text.items():
+        # Walk both sides in time order so repeated identical texts (an
+        # interjection said twice) pair first-to-first; nearest-first matching
+        # could swap two such rows and move their notes to the other line.
+        olds = sorted(old_by_text.get(text, []), key=lambda o: o.start)
+        o = 0
+        for i in sorted(indexes, key=lambda k: new_lines[k].start):
+            new = new_lines[i]
+            while o < len(olds) and olds[o].start < new.start - KEEP_MATCH_SECONDS:
+                o += 1
+            if o == len(olds) or olds[o].start > new.start + KEEP_MATCH_SECONDS:
+                continue
+            best = olds[o]
+            o += 1
+            keeper = copy.copy(best)
+            keeper.orig = dict(best.orig) if best.orig is not None else None
+            keeper.merged_ids = []
+            keeper.idx, keeper.start, keeper.end, keeper.ass_event = new.idx, new.start, new.end, new.ass_event
+            if translations:
+                keeper.en = new.en
+            new_lines[i] = keeper
+            kept += 1
     return kept
 
 
