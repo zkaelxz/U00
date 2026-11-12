@@ -66,6 +66,7 @@ USER_BACKUP_TABLES = {
     "bubbles": ("page", ""),
     "glossary_terms": ("series", ""), "series_characters": ("series", ""),
     "translation_memory": ("series", ""), "glossary_dismissals": ("series", ""),
+    "word_replacements": ("series", ""),
     "shared_glossary_groups": ("empty", "household-wide groups; a copy would link series to ids "
                                         "of another library"),
     "shared_glossary_terms": ("empty", "belongs to shared_glossary_groups"),
