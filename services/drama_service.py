@@ -435,9 +435,9 @@ def open_drama_folder(drama_id: int, principal) -> dict:
     try:
         file_manager.open_folder(folder)
     except file_manager.NoDesktopError:
-        raise UnsupportedOperationError("Baihe is running as a background service on this PC, so it "
-                                        "can't open a window. Open File Explorer yourself, go to the 'library\\dramas' folder "
-                                        f"inside Baihe's data folder, and open the folder named {int(drama_id)}.") from None
+        # An error sentence is capped and path-filtered by the UI, so the folder rides in the body
+        # for the PC owner to copy. Comics keep their pages in this same per-title folder.
+        return {"opened": False, "folder": folder}
     except OSError:
         raise UnsupportedOperationError("This PC has no file manager the app can open.") from None
     return {"opened": True}

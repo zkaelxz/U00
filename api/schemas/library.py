@@ -911,6 +911,9 @@ class RomanizeCreditsResult(BaseModel):
 
 class DramaFolderOpened(BaseModel):
     opened: bool
+    # Set only when opened is false because the server has no desktop: the PC owner's own
+    # folder to open by hand. The route is local_only, so the path never leaves the PC.
+    folder: Optional[str] = None
 
 
 class DramaSourceLink(BaseModel):

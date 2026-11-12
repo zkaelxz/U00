@@ -70,7 +70,7 @@ export const getSourceLink = (id: number, f?: Fetch) =>
 
 // PC only: opens the title's folder in the PC's file manager.
 export const openDramaFolder = (id: number, f?: Fetch) =>
-  postJson<{ opened: boolean }>(`/api/dramas/${id}/folder/open`, {}, pcOnlyFetch(f))
+  postJson<{ opened: boolean; folder?: string | null }>(`/api/dramas/${id}/folder/open`, {}, pcOnlyFetch(f))
 
 // The API refuses unless both confirmation params match; the typed-word
 // check in the UI is a second gate on top of that.

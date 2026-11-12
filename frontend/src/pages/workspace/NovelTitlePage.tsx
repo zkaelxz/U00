@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { OpenFolderButton } from '../../components/OpenFolderButton'
+import { openDramaFolder } from '../../api/library'
 import { getNovelGlossary } from '../../api/autotuneGlossary'
 import { getLineChapters, getRawChapters } from '../../api/novelChapters'
 import { getWorkflowProgress } from '../../api/workspace'
@@ -131,6 +133,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
           <Badge kind="mediaType" value={drama.media_type} />
         </div>
         <TitleViewSwitch view="simple" onChange={onView} />
+        <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />
       </header>
       {list && lineCount !== null && lineCount > 0 && untranslated < lineCount && (
         <NovelAddChapters id={id} chapters={list.total} defaultUrl="" onProgress={refresh} />

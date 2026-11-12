@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { OpenFolderButton } from '../../components/OpenFolderButton'
+import { openDramaFolder } from '../../api/library'
 import { getSeriesPage } from '../../api/series'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
@@ -71,6 +73,7 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
         </div>
         <JobPill dramaId={id} onFinished={() => undefined} />
         <TitleViewSwitch view="simple" onChange={onView} />
+        <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />
       </header>
       {comic ? (
         <div className="actions">
