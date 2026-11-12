@@ -193,8 +193,7 @@ def _chat(system_prompt: str, messages: list, engine) -> str:
                            details={"reason": _failure_reason(e)}) from None
     finally:
         # Written for a failed request too: a paid provider may have billed it.
-        for usage in logged or [None]:
-            paid_calls.record_call(engine, name, "assistant", usage)
+        paid_calls.record_chat_calls(engine, name, "assistant", logged)
 
 
 def _failure_reason(exc) -> str:

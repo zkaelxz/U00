@@ -815,6 +815,5 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list | None = No
             question, lines, drama, engine, chat_history=history, usage_cb=logged.append))
     finally:
         # Written for a failed request too: a paid provider may have billed it.
-        for usage in logged or [None]:
-            paid_calls.record_call(engine, name, "reader_ask", usage, drama_id=drama_id)
+        paid_calls.record_chat_calls(engine, name, "reader_ask", logged, drama_id=drama_id)
     return {"drama_id": drama_id, "answer": answer}
