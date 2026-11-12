@@ -163,8 +163,10 @@ def _backup_excluded_top_level() -> tuple:
     """Top-level library entries a backup never contains: old backups and
     exports, saved site sign-ins, approved source profiles (a restore keeps
     the current ones either way), the browser-extension token and the
-    sources raw-content cache (rebuildable: a missing file is a cache miss)."""
-    return lrs.restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
+    sources raw-content cache (rebuildable: a missing file is a cache miss),
+    and the logs folder: the Windows service writes the server's raw output
+    there, which the app's redacting log handler never sees."""
+    return lrs.restore_kept_names() + (os.path.basename(src_store.cache_dir()), "logs")
 
 
 def _backup_files(library_dir: str, skip: set, excluded: tuple) -> list:

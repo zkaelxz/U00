@@ -414,7 +414,9 @@ def run_download(tmp_dir: str, spec: dict, timeout: float, cancel, max_output_ch
     with open(spec_path, "w", encoding="utf-8") as f:
         json.dump(dict(spec, tmp=tmp_dir, nonce=nonce), f)
     cmd = [sys.executable, "-m", "services.ytdlp_child", spec_path]
-    stream = proc.stream_tree(cmd, timeout, cwd=_ROOT, cancel=cancel, on_start=on_start)
+    # yt-dlp runs site-supplied extractor logic: no API keys from the environment.
+    stream = proc.stream_tree(cmd, timeout, cwd=_ROOT, env=proc.secretless_env(drop_prefixes=()),
+                              cancel=cancel, on_start=on_start)
     try:
         for item in stream:
             line = item.get("line")
