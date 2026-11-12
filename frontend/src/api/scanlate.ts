@@ -45,8 +45,9 @@ export const scanlateApi = {
     postJson<ScanlatePageDetail>(`${root(id)}/pages/${pageId}/regions/${regionId}/redo`, { expected_rev: expectedRev, mode: 'both' }, f),
   run: (id: number, body: ScanlateRunRequest, f?: Fetch) =>
     postJson<ScanlateJobStarted>(`${root(id)}/run`, body, f),
-  render: (id: number, pageId: number | null, f?: Fetch) =>
-    postJson<ScanlateJobStarted>(`${root(id)}/render`, pageId ? { page_id: pageId } : {}, f),
+  // pageIds: only those pages (the ones with text boxes); without it, pageId's page or every page.
+  render: (id: number, pageId: number | null, f?: Fetch, pageIds?: number[]) =>
+    postJson<ScanlateJobStarted>(`${root(id)}/render`, pageIds ? { page_ids: pageIds } : pageId ? { page_id: pageId } : {}, f),
   // typeset=false exports the original pages; the server's default is the typeset ones.
   export: (id: number, formats: ScanlateExportFormat[], f?: Fetch, typeset = true) =>
     postJson<ScanlateJobStarted>(`${root(id)}/export`, typeset ? { formats } : { formats, typeset }, f),

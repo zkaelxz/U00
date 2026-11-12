@@ -26147,6 +26147,8 @@ export interface components {
         ScanlateRenderRequest: {
             /** Page Id */
             page_id?: number | null;
+            /** Page Ids */
+            page_ids?: number[] | null;
         };
         /** ScanlateRunNotes */
         ScanlateRunNotes: {
@@ -26178,13 +26180,20 @@ export interface components {
             /** Engine */
             engine?: string | null;
             /**
+             * Keep Text
+             * @default false
+             */
+            keep_text?: boolean;
+            /**
              * Mode
              * @default missing
              * @enum {string}
              */
-            mode?: "missing" | "page" | "all";
+            mode?: "missing" | "page" | "pages" | "all";
             /** Page Id */
             page_id?: number | null;
+            /** Page Ids */
+            page_ids?: number[] | null;
             /** Read Ahead From */
             read_ahead_from?: number | null;
         };

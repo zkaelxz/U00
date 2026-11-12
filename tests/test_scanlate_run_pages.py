@@ -16,6 +16,7 @@ import db
 import scanlate
 import scanlate_detect
 from services import scanlate_run_service as run_svc
+from lib.errors import ConflictError, InvalidInputError
 from tests.saved_settings import patch_setting
 
 PAGE_H = 80
@@ -406,3 +407,36 @@ def test_a_single_page_run_reads_no_brief(harness, monkeypatch):
     prompts = _llm_calls(monkeypatch)
     run_svc._run_job("j", did, "all", [p1], "llm", _LLM(), "auto")
     assert not any("comic chapter" in p for p in prompts)
+
+
+def test_a_redo_that_keeps_the_text_does_not_detect_or_read_again(harness, monkeypatch):
+    did, p1, p2, detected = _two_pages(monkeypatch)
+    db.save_bubbles(p1, [_region("你好", translated_text="Old hello", skip=False)])
+    engine = _MT()
+    run_svc._run_job("j", did, "all", [p1], "mt", engine, "auto", keep_text=True)
+    assert detected == []
+    assert _texts(p1) == {"你好": "Hello"}
+    assert engine.calls == ["你好"]
+    assert "reused" in json.dumps(json.loads(db.get_page(p1)["run_notes"]))
+
+
+def test_a_redo_that_keeps_the_text_still_reads_a_page_with_no_text(harness, monkeypatch):
+    did, p1, p2, detected = _two_pages(monkeypatch)
+    run_svc._run_job("j", did, "all", [p1, p2], "mt", _MT(), "auto", keep_text=True)
+    assert sorted(detected) == [p1, p2]
+
+
+def test_start_run_pages_needs_a_confirm_and_pages_of_this_title(isolated_db, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    other = db.create_drama(title_en="Other", source_language="zh")
+    pid, foreign = _page(did, 0), _page(other, 0)
+    with pytest.raises(ConflictError):
+        run_svc.start_run(did, mode="pages", page_ids=[pid])
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="pages", page_ids=[foreign], confirm=True)
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="pages", confirm=True)
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="all", page_ids=[pid], confirm=True)
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="missing", keep_text=True)
