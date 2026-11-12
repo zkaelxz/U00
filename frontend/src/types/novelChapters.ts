@@ -11,3 +11,5 @@ export type NovelChapterText = Omit<Schemas['NovelChapterText'], 'url'> & { url?
 
 export type NovelLineChapterRow = Schemas['NovelLineChapterRow']
 export type NovelLineChapters = Schemas['NovelLineChapters']
+
+export type NovelChapterRenamed = Schemas['NovelChapterRenamed']
