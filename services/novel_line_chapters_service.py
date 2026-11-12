@@ -17,7 +17,6 @@ import re
 import db
 import novel_text
 from services import novel_chapters_service, ownership_service
-from sources import chapter_manifest as manifest
 
 
 def _norm(text) -> str:
