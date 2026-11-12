@@ -6,6 +6,7 @@ glossary_service describes the contract; import these names from there.
 
 No FastAPI import.
 """
+import re
 import threading
 import uuid
 from typing import Optional
@@ -482,8 +483,14 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
         if current is not None and not overwrite_existing:
             report["skipped_existing"].append(term)
             continue
+        notes = p["reason"]
+        # "unclear" means the scan found no evidence, not that the user's
+        # pronoun note is wrong, so overwriting must not erase it.
+        if (current is not None and re.match(r"\s*unclear", notes, re.IGNORECASE)
+                and tguide._PRONOUN_LEAD.match(current.get("notes") or "")):
+            notes = current["notes"]
         db.upsert_glossary_term(
-            sid, term, translation, notes=p["reason"],
+            sid, term, translation, notes=notes,
             category=edit.get("category", p["category"]),
             policy=edit.get("policy", p["policy"]),
             enforce_exact=bool(current.get("enforce_exact")) if current else False,
