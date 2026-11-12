@@ -20,6 +20,7 @@ const saved: SettingsPreferences = {
   scanlate_page_image: true,
   scanlate_sfx_gloss: false,
   scanlate_match_text_color: false,
+  scanlate_rect_layout: false,
   episode_brief: true,
   translate_reply_guard: 'auto',
   claude_reasoning: 'default',
