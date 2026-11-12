@@ -335,3 +335,13 @@ def test_invisible_characters_do_not_split_one_series(token):
                      titles=["一​人之﻿下 第13话 - 腾讯漫画"]).payload
     assert again["matched"] is True and again["drama_id"] == first["drama_id"]
     assert len(db.list_series()) == 1
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("【第1話】作品名 - コミックウォーカー", "作品名"),
+    ("Name 【第1話】 - Site", "Name"),
+    ("[Ch. 5] One-Punch Man | Site", "One-Punch Man"),
+    ("【無料】作品名 第3話 | Site", "【無料】作品名"),
+])
+def test_a_chapter_mark_inside_brackets_does_not_cut_the_name(raw, expected):
+    assert titles._clean_candidate(raw, {"site"}) == expected
