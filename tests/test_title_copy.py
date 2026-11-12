@@ -99,3 +99,15 @@ def test_failed_copy_leaves_no_title(isolated_db, monkeypatch):
 def test_missing_title(isolated_db):
     with pytest.raises(NotFoundError):
         tcs.duplicate_title(999)
+
+
+def test_copy_leaves_out_a_stuck_chapter_move_journal_and_lock(isolated_db):
+    did, _ = _source(isolated_db)
+    folder = db.drama_dir(did)
+    for name in (".chapter-move.json", ".chapter-move.lock"):
+        with open(os.path.join(folder, name), "w") as f:
+            f.write("{}")
+    new_folder = os.path.join(db.DRAMAS_DIR, str(tcs.duplicate_title(did)["id"]))
+    assert os.path.exists(os.path.join(new_folder, "a.mp3"))
+    assert not os.path.exists(os.path.join(new_folder, ".chapter-move.json"))
+    assert not os.path.exists(os.path.join(new_folder, ".chapter-move.lock"))

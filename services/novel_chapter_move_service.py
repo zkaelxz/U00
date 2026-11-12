@@ -13,6 +13,7 @@ offset into the file, which a reorder would leave pointing at the wrong text.
 
 Returns the numbers and booleans only; never a path. No FastAPI import.
 """
+import contextlib
 import filecmp
 import hashlib
 import json
@@ -38,12 +39,14 @@ _STUCK = ("A chapter move on this title was interrupted and can't be finished or
           "(its lines or text changed afterwards, or its record of the move is damaged). Restore the lines from the line history "
           "(\u201cbefore moving a chapter\u201d) and ask for help clearing the stopped move.")
 _NOT_SPLIT = "The saved chapters are not split, so they can't be moved."
-JOURNAL_FILENAME = ".chapter-move.json"
-# Backups leave it out (library_backup_service, library_user_backup_service). It is never
-# removed: deleting a lock file another process is waiting on would let a third take it too.
-LOCK_FILENAME = ".chapter-move.lock"
-# A move takes seconds; past this, a start-up stops waiting on another copy's lock.
+JOURNAL_FILENAME = novel_text.CHAPTER_MOVE_JOURNAL_FILENAME
+# Never removed: deleting a lock file another process is waiting on would let a third take it too.
+LOCK_FILENAME = novel_text.CHAPTER_MOVE_LOCK_FILENAME
+# A move takes seconds; past this, a start-up or a move request stops waiting on another
+# copy's lock (a hung copy must not hold a request open for ever).
 _STARTUP_WAIT_SECONDS = 60.0
+_MOVE_WAIT_SECONDS = 60.0
+_LOCK_BUSY = ("Another copy of the app is working on this title's chapters. Try again in a minute.")
 _JOURNAL_KEYS = {"old_ids": list, "moved_ids": list, "old_sha256": str, "new_sha256": str,
                  "old_manifest": str, "new_manifest": str, "temp_files": list,
                  "narration_is_copy": bool}
@@ -58,7 +61,11 @@ def move_chapter(drama_id: int, number: int, to_number: int) -> dict:
     with media_upload_service.folder_write(drama_id):
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(edit._BUSY)
-        with pipeline._page_lock(drama_id), _move_lock(drama_id):
+        with pipeline._page_lock(drama_id), contextlib.ExitStack() as held:
+            try:
+                held.enter_context(_move_lock(drama_id, timeout=_MOVE_WAIT_SECONDS))
+            except file_lock.LockTimeout:
+                raise ConflictError(_LOCK_BUSY) from None
             if not _recover(drama_id):
                 raise ConflictError(_STUCK)
             return _move_locked(drama_id, number, to_number)
@@ -355,19 +362,23 @@ def recover_interrupted_moves() -> list:
         if not name.isdigit() or not os.path.exists(_journal_path(int(name))):
             continue
         try:
-            with _move_lock(int(name), timeout=_STARTUP_WAIT_SECONDS):
+            with contextlib.ExitStack() as held:
+                try:
+                    held.enter_context(_move_lock(int(name), timeout=_STARTUP_WAIT_SECONDS))
+                except file_lock.LockTimeout:
+                    # Only the wait is reported as a held lock; a TimeoutError from the
+                    # recovery itself falls to the generic clause below.
+                    logging.getLogger(__name__).warning(
+                        "Interrupted chapter move on title %s not checked: another copy of the "
+                        "app still holds its lock after %.0f s; the next start or move checks "
+                        "it", name, _STARTUP_WAIT_SECONDS)
+                    continue
                 # A move another copy of the app was running has finished while this waited.
                 if not os.path.exists(_journal_path(int(name))):
                     continue
                 if _recover(int(name)):
                     fixed.append(int(name))
                     continue
-        except TimeoutError:
-            logging.getLogger(__name__).warning(
-                "Interrupted chapter move on title %s not checked: another copy of the app still "
-                "holds its lock after %.0f s; the next start or move checks it", name,
-                _STARTUP_WAIT_SECONDS)
-            continue
         except Exception:
             logging.getLogger(__name__).warning("Interrupted chapter move on title %s could not be "
                                                 "put right", name, exc_info=True)
