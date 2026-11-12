@@ -25,6 +25,7 @@ from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,
+    NotFoundError,
     UnsupportedOperationError,
 )
 
@@ -568,10 +569,24 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
                                         "run_id": run_id, **paid_job_service.stop_fields(limits)})
 
 
-def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -> dict:
+def _chapter_source_lines(drama_id: int, chapter: int) -> list:
+    """The source lines of one saved chapter, by the numbering GET line-chapters shows."""
+    from services import novel_line_chapters_service
+
+    found = next((c for c in novel_line_chapters_service.line_chapters(drama_id)["chapters"]
+                  if c["number"] == chapter), None)
+    if found is None:
+        raise NotFoundError("That chapter was not found in this title.")
+    rows = [r for r in db.load_lines(drama_id) if r["idx"] >= found["first_idx"]][:found["line_count"]]
+    return [r["zh"] for r in rows if (r.get("zh") or "").strip()]
+
+
+def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
+                             chapter: Optional[int] = None) -> dict:
     """Starts proposing glossary terms from this drama's saved source lines
     (`tguide.extract_terms_llm`, which samples up to 400 lines across the
-    whole drama). One LLM call on the drama's translation_engine; the
+    whole drama), or only chapter `chapter` of GET line-chapters when given
+    (NotFoundError when there is no such chapter). One LLM call on the drama's translation_engine; the
     engine_name rule is start_novel_glossary_run's. Refused before starting
     when this month's spending cap is already used up (capped engines only,
     as translate_run_service). Paid-engine spend: yes, unless the engine is
@@ -585,10 +600,14 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
 
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
-    source_lines = [r["zh"] for r in db.load_lines(drama_id) if (r.get("zh") or "").strip()]
+    if chapter is not None:
+        source_lines = _chapter_source_lines(drama_id, chapter)
+    else:
+        source_lines = [r["zh"] for r in db.load_lines(drama_id) if (r.get("zh") or "").strip()]
     if not source_lines:
         raise UnsupportedOperationError(
-            "This title has no source lines yet; transcribe or import them first.")
+            "This title has no source lines yet; transcribe or import them first."
+            if chapter is None else "That chapter has no source lines.")
     engine_name, engine = _glossary_engine(drama, engine_name)
     translate_run_service.refuse_when_cap_spent(engine_name,
                                                 bool(settings_service.get("gemini_free_tier")))

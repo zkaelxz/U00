@@ -89,12 +89,13 @@ interface StartOutcome {
 // is either a run already going (attach to it) or the drama's engine
 // changed since the gate checked it. runId is read from the status right
 // after the start, so a caller can tell its run from an earlier one.
-// fresh (novel only) skips the replies cached by an earlier run.
+// fresh (novel only) skips the replies cached by an earlier run; chapter (lines only) scans that
+// saved chapter alone.
 // Never rejects.
 export function startExtraction(
   dramaId: number,
   source: GlossarySource,
-  opts: { fresh?: boolean } = {},
+  opts: { fresh?: boolean; chapter?: number } = {},
 ): Promise<StartOutcome> {
   const api = GLOSSARY_API[source]
   const ok = (runId: string | null): StartOutcome => {
@@ -102,7 +103,8 @@ export function startExtraction(
     return { problem: null, error: null, runId }
   }
   const changed = { problem: ENGINE_CHANGED_TEXT, error: null, runId: null }
-  const started = source === 'novel' ? startNovelGlossary(dramaId, undefined, opts) : api.start(dramaId)
+  const started = source === 'novel' ? startNovelGlossary(dramaId, undefined, opts)
+    : startLinesGlossary(dramaId, undefined, opts.chapter)
   return started.then(
     () => api.get(dramaId).then((s) => ok(s.run_id), (e: unknown) => ({ ...ok(null), error: e })),
     (e: unknown) => {
