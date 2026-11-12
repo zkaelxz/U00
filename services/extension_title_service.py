@@ -40,6 +40,7 @@ _BRIDGE_PRINCIPAL = extension_novel_service._BRIDGE_PRINCIPAL
 # One send at a time: two popups (or a double click) on the same new series would
 # otherwise both find nothing and each create it.
 _resolve_lock = threading.Lock()
+_title_spend_lock = threading.Lock()
 
 _FAILED = "Could not set up a title for this page; pick one by hand."
 _NO_TITLE = ("No existing title matches this page. Pick a drama, or turn on creating new titles.")
@@ -311,17 +312,20 @@ def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
         engine_cls = engine_registry.ENGINES.get(engine_name)
         if engine_cls is None or not getattr(engine_cls, "supports_reference", False):
             return False
-        translate_run_service.refuse_when_cap_spent(
-            engine_name, bool(config.get("free_tier")) and engine_name == "gemini",
-            config.get("model"))
         engine = page_server._build_engine(config)
         if engine is None:
             return False
-        reply = llm_tasks.call_llm_json(
-            engine, _TITLE_PROMPT.format(language=LANGUAGE_NAMES.get(language, "source-language"),
-                                         title=original[:300]),
-            max_tokens=150, fallback=None,
-            usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extension_title_translate"))
+        # The spend is logged only once the reply is back, so the cap check and the call share one
+        # hold: otherwise members creating titles at once could each pass a cap with room for one.
+        with _title_spend_lock:
+            translate_run_service.refuse_when_cap_spent(
+                engine_name, bool(config.get("free_tier")) and engine_name == "gemini",
+                config.get("model"))
+            reply = llm_tasks.call_llm_json(
+                engine, _TITLE_PROMPT.format(language=LANGUAGE_NAMES.get(language, "source-language"),
+                                             title=original[:300]),
+                max_tokens=150, fallback=None,
+                usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extension_title_translate"))
         data = extract_first_json_value(re.sub(r"^```json|^```|```$", "", (reply or "").strip(),
                                                flags=re.MULTILINE).strip())
         english = " ".join(str(data.get("title") or "").split()) if isinstance(data, dict) else ""

@@ -439,6 +439,8 @@ class LiveChatMessage(BaseModel):
     text: str
     # A Super Chat's amount as YouTube wrote it ("$5.00"); empty for an ordinary message.
     paid: str = ""
+    # When the chatter sent it, epoch seconds as YouTube stamped it; 0 when the message carried none.
+    sent_at: float = 0
     translation: str
     state: str   # pending | done | failed | skipped (shown as written)
 
