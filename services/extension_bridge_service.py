@@ -128,6 +128,25 @@ def run_text(payload, principal=None) -> dict:
                                 user_id=_user_id(principal), member=principal is not None)
 
 
+def _record_chapter(drama_id, results: list, source_url: str, run_id) -> None:
+    """Files the pages this capture newly saved under their chapter, so the reader's chapter list
+    shows them instead of "Chapter unknown". Never raises: a label is a convenience and must
+    not fail the import."""
+    import db
+    import comic_chapters
+    from services import extension_title_service
+    try:
+        page_ids = [r["page_id"] for r in results
+                    if r.get("stored") and r.get("page_id") and not r.get("already_stored")]
+        ref = extension_title_service.capture_chapter_ref(source_url, run_id) if page_ids else None
+        if ref is None:
+            return
+        pages = [db.get_page(pid, int(drama_id)) for pid in page_ids]
+        comic_chapters.record_pages(int(drama_id), ref, [p["filename"] for p in pages if p])
+    except Exception as exc:
+        page_capture_checks.log_page_failure(exc)
+
+
 def _record_run_notes(result: dict) -> None:
     """Keeps on a newly saved page what the capture said about it, so a page that came back with
     no text (an OCR miss, or art with no lettering) can be told apart from one never reached."""
@@ -324,6 +343,8 @@ def run_images(payload, images, principal=None) -> dict:
         result["key"] = image["key"]
         result["url"] = image["url"]
         results.append(result)
+    if store:
+        _record_chapter(drama_id, results, source_url, run_id)
     return {"pages": results, "skipped": skipped, "failed": failed,
             "received": len(images),
             "stored": sum(1 for r in results if r.get("stored")),
