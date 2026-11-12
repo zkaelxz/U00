@@ -18,7 +18,7 @@ import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
 import { COMIC_STAGE_TITLE, ComicStageNotice, isLineStageForComic } from './ComicStageNotice'
 import { STAGE_COMPONENTS } from './stageRegistry'
-import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage, isCastTab } from './stages'
+import { STAGE_IDS, STAGE_STATE_WORDS, stageLabel, type StageId, stageCount, nextAction, stageStates, startStage, isCastTab } from './stages'
 import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
 import { isPopOutWindow } from '../../nav/popOut'
 import { JobPill } from './JobPill'
@@ -89,6 +89,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // A Simple page's buttons open these stages; the stage tab strip would drop a Simple reader into the full workspace.
   // Kept out of the branch condition: inline, it makes React Compiler skip the ctx memo below.
   const slimStage = !!kind && opensSimpleStage(kind, active)
+  // A separate titleKind call: passing `kind` itself to stageLabel makes React Compiler think it may be mutated and skip the ctx memo below.
+  const stageNames = Object.fromEntries(STAGE_IDS.map((s) => [s, stageLabel(s, drama ? titleKind(drama.media_type, drama.content_mode) : null)])) as Record<StageId, string>
   const chooseView = (v: TitleView) => store(v)
   const linked = parseRoute(window.location.hash)
   const comicNotice = comic && isLineStageForComic(active) && !(linked.name === 'drama' && linked.id === id && isCastTab(linked.tab))
@@ -209,7 +211,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
               aria-current={s === active ? 'page' : undefined}
               data-state={st}
               data-comic-skipped={skipped ? 'true' : undefined}
-              title={desc ? `${STAGE_LABELS[s]}: ${desc}` : undefined}
+              title={desc ? `${stageNames[s]}: ${desc}` : undefined}
             >
               {st ? (
                 <span className="stage-mark" aria-hidden="true">
@@ -218,7 +220,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
               ) : (
                 <span className="stage-mark-slot" aria-hidden="true">○</span>
               )}
-              <span className="stage-label" data-label={STAGE_LABELS[s]}>{STAGE_LABELS[s]}</span>
+              <span className="stage-label" data-label={stageNames[s]}>{stageNames[s]}</span>
               {st === 'blocked' && <span className="visually-hidden"> (blocked)</span>}
               {count ? (
                 <span className="stage-count" aria-hidden="true">
@@ -245,7 +247,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           {actions}
         </div>
       </Sheet>
-      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
+      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{stageNames[active]}: {activeDesc}</p>}
       {drama ? (
         <ErrorBanner error={error} />
       ) : (

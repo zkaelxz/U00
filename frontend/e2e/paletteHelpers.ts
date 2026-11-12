@@ -10,7 +10,7 @@ export const paletteInput = (page: Page) => palette(page).getByRole('combobox')
 export async function expectFilterAndEnter(page: Page, open: () => Promise<void>) {
   await page.goto('/#/library')
   await open()
-  await expect(palette(page).getByRole('option', { name: /^Discover/ })).toBeVisible()
+  await expect(palette(page).getByRole('option', { name: /^Find/ })).toBeVisible()
   await paletteInput(page).fill('JOB')
   // Settings cards that mention jobs are listed too; the page itself is still the one page hit and ranks first.
   await expect(palette(page).getByRole('option', { name: /Page$/ })).toHaveCount(1)
@@ -34,7 +34,7 @@ export async function expectHiddenItemNotListed(page: Page, open: () => Promise<
   await open()
   await expect(palette(page).getByRole('option', { name: /^Library Page/ })).toBeVisible()
   await expect(palette(page).getByRole('option', { name: /^Settings Page/ })).toBeVisible()
-  await expect(palette(page).getByRole('option', { name: /^Discover/ })).toHaveCount(0)
+  await expect(palette(page).getByRole('option', { name: /^Find/ })).toHaveCount(0)
   await paletteInput(page).fill('discover')
   await expect(palette(page).getByRole('status')).toContainText('No matches')
   // Hiding is tidiness only: the address still opens.
