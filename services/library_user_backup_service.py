@@ -63,6 +63,7 @@ USER_BACKUP_TABLES = {
     "wiki_entries": ("drama", ""), "edit_samples": ("drama", ""),
     "line_provenance": ("drama", ""), "metadata_research_results": ("drama", ""),
     "metadata_field_provenance": ("drama", ""),
+    "capture_notes": ("drama", ""),
     "voice_suggestion_dismissals": ("series_character", ""),
     "bubbles": ("page", ""),
     "glossary_terms": ("series", ""), "series_characters": ("series", ""),

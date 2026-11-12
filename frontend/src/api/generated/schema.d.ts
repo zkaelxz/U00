@@ -5181,6 +5181,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/dramas/{drama_id}/capture-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The closing lines of the title's latest extension captures */
+        get: operations["get_capture_notes_api_library_dramas__drama_id__capture_notes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/filter-options": {
         parameters: {
             query?: never;
@@ -15402,6 +15419,21 @@ export interface components {
             requires: string;
             /** Unset Label */
             unset_label: string | null;
+        };
+        /** CaptureNote */
+        CaptureNote: {
+            /** Created At */
+            created_at: string;
+            /** Summary */
+            summary: string;
+        };
+        /** CaptureNoteList */
+        CaptureNoteList: {
+            /**
+             * Items
+             * @description Newest first, at most 5.
+             */
+            items: components["schemas"]["CaptureNote"][];
         };
         /** CastApplyEntry */
         CastApplyEntry: {
@@ -46133,6 +46165,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DramaDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_capture_notes_api_library_dramas__drama_id__capture_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureNoteList"];
                 };
             };
             /** @description Not Found */

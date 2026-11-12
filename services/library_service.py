@@ -116,6 +116,13 @@ def get_library_drama(drama_id: int) -> dict:
     return drama
 
 
+def list_capture_notes(drama_id: int, principal=None) -> list:
+    """Closing lines of the title's latest extension captures, newest first;
+    a title the principal can't see is a 404 like the rest of the detail."""
+    ownership_service.require_visible(principal, "drama", drama_id)
+    return db.list_capture_notes(drama_id)
+
+
 # ---------------------------------------------------------------------------
 # Migration E0: the Library pages' remaining read views plus preset /
 # voice-bank rename. Plain dicts; no file paths or clip filenames leave here.

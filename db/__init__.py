@@ -644,6 +644,9 @@ from db.line_history import (  # noqa: E402,F401
     save_line_history_snapshot)
 
 
+from db.capture_notes import add_capture_note, list_capture_notes  # noqa: E402,F401
+
+
 # ---------------------------------------------------------------------------
 # Vocab lookups (persisted Reader click-to-define history, for export)
 # ---------------------------------------------------------------------------

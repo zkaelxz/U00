@@ -686,6 +686,17 @@ def _create_metadata_research_tables(conn):
             status TEXT NOT NULL,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+
+        -- The closing line of each chapter capture the extension saved into a
+        -- title (cleaned text only), newest kept up to a few per title.
+        CREATE TABLE IF NOT EXISTS capture_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drama_id INTEGER NOT NULL,
+            summary TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_capture_notes_drama ON capture_notes(drama_id, id);
     """)
 
 

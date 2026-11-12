@@ -76,3 +76,7 @@ export const openDramaFolder = (id: number, f?: Fetch) =>
 // check in the UI is a second gate on top of that.
 export const deleteDrama = (id: number, f?: Fetch) =>
   deleteJson<DramaDeleteResult>(`/api/dramas/${id}?confirm=true&confirm_text=DELETE`, pcOnlyFetch(f))
+
+export type CaptureNote = { summary: string; created_at: string }
+export const getCaptureNotes = (id: number, f?: Fetch) =>
+  getJson<{ items: CaptureNote[] }>(`/api/library/dramas/${id}/capture-notes`, f)
