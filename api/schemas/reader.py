@@ -12,6 +12,7 @@ __all__ = [
     "ReaderPageResponse",
     "NovelAttachTextRequest",
     "NovelAttachResult",
+    "NovelChaptersAdded",
     "NovelAttachFromSourcesRequest",
     "NovelOcrResult",
     "NovelStatus",
@@ -71,6 +72,11 @@ class NovelAttachTextRequest(BaseModel):
     # so its refusal can say so, which a schema error cannot.
     text: str = Field(max_length=8_000_000)
     mode: str = Field(default="replace", max_length=10)
+
+
+class NovelChaptersAdded(BaseModel):
+    char_count: int
+    added_chars: int
 
 
 class NovelAttachResult(BaseModel):

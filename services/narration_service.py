@@ -85,7 +85,8 @@ def get_narration_config(drama_id: int) -> dict:
 
 
 def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
-                        model: Optional[str] = None, fresh: bool = False) -> dict:
+                        model: Optional[str] = None, fresh: bool = False,
+                        keep_speakers: bool = False) -> dict:
     """Starts the chunk-and-tag job; returns {"job_id"}. NotFoundError for
     an unknown drama, InvalidInputError for no novel text or an engine that
     cannot tag speakers, ConflictError if a run is already active.
@@ -95,7 +96,10 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
     A re-run over the same text, engine, model and known characters
     resumes after the batches an interrupted run already tagged;
-    fresh=True drops those and tags everything again."""
+    fresh=True drops those and tags everything again.
+    keep_speakers=True (adding chapters to a title that has lines): a chunk
+    that matches a saved line keeps that line's speaker and is not tagged
+    again; only new chunks are tagged."""
     ownership_service.require_drama(drama_id)
     engine_name = engine_name or DEFAULT_ENGINE
     if engine_name not in TAG_ENGINES:
@@ -110,7 +114,8 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
         gpu_touching=engine_local.ollama_touches_local_gpu(engine_name, model),
-        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh), line_fields=db.FULL_SYNC)
+        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh), keep_speakers=bool(keep_speakers),
+        line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
     return {"job_id": job_id}
@@ -158,7 +163,8 @@ def _raise_if_cancelled(job_id):
         raise background_jobs.JobCancelled(job_id)
 
 
-def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False):
+def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False,
+                       keep_speakers=False):
     job_timing_service.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
     chunks = novel_text.chunk_novel_text(text, MAX_CHUNK_CHARS)
@@ -166,10 +172,11 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         background_jobs.set_result(job_id, {"failed_reason": "empty"})
         return
     lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
+    kept = _kept_speakers(lines, db.load_line_objects(drama_id)) if keep_speakers else {}
 
     if not api_key:
         for ln in lines:
-            ln.speaker = "Narrator"
+            ln.speaker = kept.get(ln.idx) or "Narrator"
         _save_lines(job_id, drama_id, lines, notice=NO_KEY_NOTICE)
         return
 
@@ -182,6 +189,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     known = [c["character_name"] for c in db.list_characters(drama_id) if c["character_name"]]
     done, _checkpoint = tagging_checkpoint(
         drama_id, text, engine_name, getattr(engine, "model", model), known, fresh=fresh)
+    done = {**done, **kept}
     if done:
         background_jobs.update_progress(
             job_id, 0.2, f"Resuming: {len(done)} of {len(lines)} chunks already tagged...")
@@ -199,9 +207,29 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         raise RuntimeError(f"{str(stop).rstrip('.')}. Chunks already tagged are kept; run it again to continue.") from None
     _raise_if_cancelled(job_id)
     for ln in lines:
-        ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
+        ln.speaker = kept.get(ln.idx) or (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
     _save_lines(job_id, drama_id, lines)
+
+
+def _pair_with_existing(lines, existing):
+    """[(new line, saved line with the same source text)]: matched by text in order, so
+    duplicate lines pair off one by one and appended chapters shifting every later index
+    changes nothing."""
+    pool = {}
+    for old in existing:
+        pool.setdefault(old.zh, []).append(old)
+    pairs = []
+    for ln in lines:
+        queue = pool.get(ln.zh)
+        if queue:
+            pairs.append((ln, queue.pop(0)))
+    return pairs
+
+
+def _kept_speakers(lines, existing) -> dict:
+    """{new line idx: speaker} for chunks that match a saved line which has one."""
+    return {ln.idx: old.speaker for ln, old in _pair_with_existing(lines, existing) if old.speaker}
 
 
 def _carry_over_existing(lines, existing):
@@ -211,14 +239,7 @@ def _carry_over_existing(lines, existing):
     English, notes and checked marks; only text that changed or is new starts
     empty. Matching is by text in order (duplicate lines pair off one by one),
     never by position, since appended chapters shift every later index."""
-    pool = {}
-    for old in existing:
-        pool.setdefault(old.zh, []).append(old)
-    for ln in lines:
-        queue = pool.get(ln.zh)
-        if not queue:
-            continue
-        old = queue.pop(0)
+    for ln, old in _pair_with_existing(lines, existing):
         ln.id, ln.en, ln.reviewed = old.id, old.en, old.reviewed
         ln.flag, ln.flag_note = old.flag, old.flag_note
         if old.speaker_manual:

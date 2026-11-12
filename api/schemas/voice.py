@@ -56,6 +56,8 @@ class NarrationRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(default=None, max_length=40)
     model: Optional[str] = Field(default=None, max_length=200)
+    # Adding chapters to a title that has lines: saved lines keep their speaker; only new chunks are tagged.
+    keep_speakers: bool = False
 
 
 class NarrationRunResult(BaseModel):

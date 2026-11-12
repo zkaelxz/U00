@@ -50,6 +50,7 @@ export interface JobStarted {
 }
 
 export type NovelAttachResult = Schemas['NovelAttachResult']
+export type NovelChaptersAdded = Schemas['NovelChaptersAdded']
 
 // POST /api/metadata/dramas/{id}/romanize-credits
 export type RomanizeCreditsResult = Schemas['RomanizeCreditsResult']

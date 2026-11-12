@@ -578,3 +578,46 @@ def test_attaching_chapters_imported_from_sources_counts_them_in_the_status(clie
     assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
     s = client.get(f"/api/novel/dramas/{did}/status").json()
     assert s["has_novel_text"] and s["chapters"] == 2
+
+
+def _novel_text(did):
+    import db
+    with open(os.path.join(db.drama_dir(did), "novel_narration_source.txt"), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_adding_new_chapters_appends_only_the_new_text_to_a_copied_translation_text(client):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    before = _novel_text(did)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources")
+    assert r.status_code == 200 and r.json()["added_chars"] > 0
+    after = _novel_text(did)
+    assert after.startswith(before) and after.endswith("丙走了。") and "第二章 继续" in after
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources").json()["added_chars"] == 0
+    assert _novel_text(did) == after
+
+
+def test_adding_new_chapters_refuses_a_translation_text_that_was_edited_and_changes_nothing(client):
+    from sources import pipeline
+    did = _drama()
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={}).status_code == 200
+    with open(os.path.join(__import__("db").drama_dir(did), "novel_narration_source.txt"), "a", encoding="utf-8") as f:
+        f.write("\n\n我自己加的。")
+    edited = _novel_text(did)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    r = client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources")
+    assert r.status_code == 409 and "not a copy" in r.json()["error"]["message"]
+    assert _novel_text(did) == edited
+
+
+def test_adding_new_chapters_needs_chapters_and_a_translation_text(client):
+    from sources import pipeline
+    did = _drama()
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources").status_code == 404
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    assert client.post(f"/api/novel/dramas/{did}/add-chapters-from-sources").status_code == 409

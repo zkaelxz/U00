@@ -116,6 +116,32 @@ class TestJob:
         assert after[0].en == "He said: hello." and after[0].reviewed
         assert after[-1].zh == "新的一章。" and after[-1].en == ""
 
+    def test_keep_speakers_leaves_saved_lines_untagged_and_tags_only_new_chunks(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        saved = {ln.zh: ln.speaker for ln in isolated_db.load_line_objects(did)}
+        assert set(saved.values()) == {"Ann"}
+        from engine_backends import llm_tasks, engine_registry
+        seen = {}
+
+        def tag(chunks, engine, known, done=None, **k):
+            seen["done"] = dict(done or {})
+            return {i: "Bob" for i in chunks}      # the model would relabel everything
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", tag)
+        narration_service._run_narration_job(
+            f"narration_{did}", did, NOVEL + "\n\n新的一章。", "claude", "k", None, keep_speakers=True)
+        after = isolated_db.load_line_objects(did)
+        assert {ln.zh: ln.speaker for ln in after if ln.zh in saved} == saved
+        assert after[-1].zh == "新的一章。" and after[-1].speaker == "Bob"
+        assert set(seen["done"].values()) == {"Ann"} and len(seen["done"]) == len(saved)
+
+    def test_without_keep_speakers_a_rerun_retags_everything(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Ann" for i in ch})
+        self._run(isolated_db, did, monkeypatch, lambda ch: {i: "Bob" for i in ch})
+        assert {ln.speaker for ln in isolated_db.load_line_objects(did)} == {"Bob"}
+
     def test_no_key_cuts_locally_and_marks_every_line_narrator(self, isolated_db, monkeypatch):
         from engine_backends import llm_tasks, engine_registry
 

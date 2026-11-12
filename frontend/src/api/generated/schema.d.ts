@@ -6531,6 +6531,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/novel/dramas/{drama_id}/add-chapters-from-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append the newly imported chapters to the narration text, keeping what is there */
+        post: operations["post_add_chapters_from_sources_api_novel_dramas__drama_id__add_chapters_from_sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/novel/dramas/{drama_id}/attach-epub": {
         parameters: {
             query?: never;
@@ -22383,6 +22400,11 @@ export interface components {
         NarrationRunRequest: {
             /** Engine */
             engine?: string | null;
+            /**
+             * Keep Speakers
+             * @default false
+             */
+            keep_speakers?: boolean;
             /** Model */
             model?: string | null;
         };
@@ -22677,6 +22699,13 @@ export interface components {
              * @default
              */
             url: string;
+        };
+        /** NovelChaptersAdded */
+        NovelChaptersAdded: {
+            /** Added Chars */
+            added_chars: number;
+            /** Char Count */
+            char_count: number;
         };
         /** NovelFileStatus */
         NovelFileStatus: {
@@ -49960,6 +49989,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotificationList"];
+                };
+            };
+        };
+    };
+    post_add_chapters_from_sources_api_novel_dramas__drama_id__add_chapters_from_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NovelChaptersAdded"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

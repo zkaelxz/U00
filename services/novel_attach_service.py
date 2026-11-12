@@ -611,6 +611,35 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
         return {"char_count": _write_novel(drama_id, text, mode)}
 
 
+def add_new_chapters_from_sources(drama_id: int) -> dict:
+    """Appends the chapters imported since the translation text was made to it, leaving what is
+    there alone. Refuses unless the translation text is still exactly the start of the saved
+    chapters: replacing it would wipe pasted or edited text, and appending to text that is not
+    their start would put the new chapters in the wrong place."""
+    ownership_service.require_drama(drama_id)
+    path = os.path.join(db.DRAMAS_DIR, str(drama_id), RAW_NOVEL_FILENAME)
+    if not os.path.isfile(path):
+        raise NotFoundError("No chapters have been imported for this title.")
+    with open(path, encoding="utf-8", errors="replace") as f:
+        raw = f.read(MAX_TEXT_CHARS + 1)
+    if len(raw) > MAX_TEXT_CHARS:
+        raise InvalidInputError("The imported chapters are too large.")
+    saved = _clean(raw)
+    with media_upload_service.folder_write(drama_id):
+        _check_idle(drama_id)
+        current = _read_novel(drama_id).strip()
+        if not current:
+            raise ConflictError("This title has no translation text yet; use Copy saved raw chapters first.")
+        if not saved.startswith(current):
+            raise ConflictError(
+                "The translation text is not a copy of the saved chapters (it was pasted or edited), "
+                "so the new chapters can't be added to it automatically. Add them in the Source stage.")
+        tail = saved[len(current):].strip()
+        if not tail:
+            return {"char_count": len(current), "added_chars": 0}
+        return {"char_count": _write_novel(drama_id, tail, "append"), "added_chars": len(tail)}
+
+
 def _job_id(drama_id: int) -> str:
     return f"ocrchapter_{drama_id}"
 

@@ -15,6 +15,7 @@ import type { NovelChapterList, NovelChapterRow, NovelLineChapterRow } from '../
 import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 import { NovelInstructionsTab } from './NovelInstructionsTab'
+import { NovelAddChapters } from './NovelAddChapters'
 import { NovelLinkStart } from './NovelLinkStart'
 import { NovelChapterRetranslate } from './stages/NovelChapterRetranslate'
 import { mainButton } from './novelLinkChain'
@@ -116,6 +117,9 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
         </div>
         <TitleViewSwitch view="simple" onChange={onView} />
       </header>
+      {list && lineCount !== null && lineCount > 0 && untranslated < lineCount && (
+        <NovelAddChapters id={id} defaultUrl="" onProgress={refresh} />
+      )}
       {list && lineCount !== null && (
         <NovelLinkStart
           id={id}

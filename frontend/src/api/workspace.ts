@@ -21,6 +21,7 @@ import type {
   MediaStatus,
   MediaUploadResult,
   NovelAttachResult,
+  NovelChaptersAdded,
   NovelMode,
   NovelStatus,
   GapAddLinesRequest,
@@ -141,6 +142,10 @@ export const attachNovelEpub = (
 // The chapters imported in Sources (raw_novel_context.txt) become the narration text.
 export const attachNovelFromSources = (id: number, mode: NovelMode, f?: Fetch) =>
   postJson<NovelAttachResult>(`/api/novel/dramas/${id}/attach-from-sources`, { mode }, f)
+
+// Appends only the chapters imported since the translation text was made; 409 when that text was edited or pasted.
+export const addChaptersFromSources = (id: number, f?: Fetch) =>
+  postJson<NovelChaptersAdded>(`/api/novel/dramas/${id}/add-chapters-from-sources`, {}, f)
 
 export const startNovelOcr = (
   id: number,

@@ -5,7 +5,7 @@ import { getRawChapters } from '../../api/novelChapters'
 import { sourceImportJobId } from '../../api/sourcesImport'
 import { startNovelUrlImport } from '../../api/sourcesExtraction'
 import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
-import { attachNovelFromSources, getNovelStatus, getWorkflowProgress } from '../../api/workspace'
+import { addChaptersFromSources, attachNovelFromSources, getNovelStatus, getWorkflowProgress } from '../../api/workspace'
 import { isActiveStatus, isTerminalStatus } from '../../types/jobs'
 import { defaultTermSelection } from './stages/autotuneGlossary'
 import { applyRequest } from './stages/glossaryExtract'
@@ -102,4 +102,27 @@ export async function translateWithoutReview(id: number, hasSeries: boolean): Pr
   const config = await getTranslateConfig(id)
   const form = applyStartToForm(initialForm(config, loadPresetStart(id)), config.translate_start, config)
   return (await startTranslateRun(id, buildRunBody(form))).job_id
+}
+
+export type AddStep = 'import' | 'text' | 'lines'
+
+/**
+ * Adds chapters from a link to a title that is already being translated: imports them, appends only
+ * the new text to the translation text (the server refuses when that text was edited), then re-cuts the
+ * lines keeping every saved line's translation and speaker and tagging only the new chunks. It starts no translation.
+ * Resolves to the number of characters added.
+ */
+export async function addChaptersFromLink(id: number, url: string, onStep: (s: AddStep) => void): Promise<number> {
+  onStep('import')
+  const started = await startNovelUrlImport(url, id, {})
+  await waitForJob(started.job_id || sourceImportJobId(id))
+  onStep('text')
+  const added = (await addChaptersFromSources(id)).added_chars ?? 0
+  if (added > 0) {
+    onStep('lines')
+    const cfg = await narrationApi.config(id)
+    const engine = cfg.engines.find((e) => e.key_configured)?.key ?? cfg.default_engine
+    await waitForJob((await narrationApi.run(id, { engine, keep_speakers: true })).job_id)
+  }
+  return added
 }
