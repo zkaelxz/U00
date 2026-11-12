@@ -61,9 +61,10 @@ jobs:
           names="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           setup="BaiheStudio-Setup-$version.exe"
           app="BaiheStudio-App-$version.zip"
+          manifest="BaiheStudio-App-$version.json"
           wanted=("$setup" "$setup.sha256" "$setup.sig")
           if printf '%s\n' "$names" | grep -Fqx "$app"; then
-            wanted+=("$app.sha256" "$app.sig" "BaiheStudio-App-$version.json")
+            wanted+=("$app.sha256" "$app.sig" "$manifest" "$manifest.sha256" "$manifest.sig")
           fi
           for name in "${wanted[@]}"; do
             if ! printf '%s\n' "$names" | grep -Fqx "$name"; then
@@ -76,7 +77,7 @@ jobs:
           # after the tag's run. The key is the one committed at the tagged commit,
           # the same line the release job signed against, read through the API.
           signed=("$setup")
-          if printf '%s\n' "$names" | grep -Fqx "$app"; then signed+=("$app"); fi
+          if printf '%s\n' "$names" | grep -Fqx "$app"; then signed+=("$app" "$manifest"); fi
           commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
           key="$(gh api -H 'Accept: application/vnd.github.raw' \
             "repos/$GITHUB_REPOSITORY/contents/installer/release_public_key.txt?ref=$commit" \

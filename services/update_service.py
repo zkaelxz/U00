@@ -370,7 +370,8 @@ def _parse_app_assets(assets, version):
     name = f"BaiheStudio-App-{version}.zip"
     found = {key: assets.get(asset_name) for key, asset_name in (
         ("zip", name), ("hash", name + ".sha256"), ("sig", name + ".sig"),
-        ("manifest", f"BaiheStudio-App-{version}.json"))}
+        ("manifest", f"BaiheStudio-App-{version}.json"),
+        ("manifest_sig", f"BaiheStudio-App-{version}.json.sig"))}
     urls = {key: a["browser_download_url"] for key, a in found.items()
             if a and isinstance(a.get("browser_download_url"), str)}
     if "zip" not in urls or "hash" not in urls or "manifest" not in urls:
@@ -378,6 +379,7 @@ def _parse_app_assets(assets, version):
     size = found["zip"].get("size")
     return {"name": name, "url": urls["zip"], "hash_url": urls["hash"],
             "sig_url": urls.get("sig"), "manifest_url": urls["manifest"],
+            "manifest_sig_url": urls.get("manifest_sig"),
             "size": size if isinstance(size, int) and size > 0 else None}
 
 

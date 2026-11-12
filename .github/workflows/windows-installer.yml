@@ -577,7 +577,13 @@ jobs:
           # copy, when the build made them: hashed and signed like the installer.
           appzip="$(find out -name "BaiheStudio-App-$version.zip" | head -n 1)"
           signed=("$exe")
-          if [ -n "$appzip" ]; then signed+=("$appzip"); fi
+          # The manifest copy is signed too: the full installer's backup gate
+          # reads its schema hash before anything is downloaded.
+          if [ -n "$appzip" ]; then
+            manifest="$(dirname "$appzip")/BaiheStudio-App-$version.json"
+            test -f "$manifest"
+            signed+=("$appzip" "$manifest")
+          fi
           assets=()
           for file in "${signed[@]}"; do
             name="$(basename "$file")"
@@ -587,14 +593,12 @@ jobs:
             # In the log of this tag's own run, out of reach of a later edit to
             # the release's assets: what the owner checks a download against.
             label="Installer"
-            case "$name" in BaiheStudio-App-*) label="App update" ;; esac
+            case "$name" in
+              BaiheStudio-App-*.json) label="App update manifest" ;;
+              BaiheStudio-App-*) label="App update" ;;
+            esac
             echo "$label: $name sha256 $(sha256sum "$file" | cut -d ' ' -f 1)"
           done
-          if [ -n "$appzip" ]; then
-            manifest="$(dirname "$appzip")/BaiheStudio-App-$version.json"
-            test -f "$manifest"
-            assets+=("$manifest")
-          fi
           if [ -z "${BAIHE_RELEASE_SIGNING_KEY:-}" ]; then
             case "$version" in
               *-*) ;;

@@ -341,8 +341,10 @@ def test_release_job_signs_the_app_zip_too(tmp_path, keys):
     app = "BaiheStudio-App-0.2.0.zip"
     assert sorted(Path(a).name for a in gh_args if a.startswith("out/")) == sorted([
         NAME, NAME + ".sha256", NAME + ".sig", app, app + ".sha256", app + ".sig",
-        "BaiheStudio-App-0.2.0.json"])
-    for name in (NAME, app):
+        "BaiheStudio-App-0.2.0.json", "BaiheStudio-App-0.2.0.json.sha256",
+        "BaiheStudio-App-0.2.0.json.sig"])
+    # The manifest copy too: the full installer's backup gate reads its schema.
+    for name in (NAME, app, "BaiheStudio-App-0.2.0.json"):
         data = (out / name).read_bytes()
         sig = rs.parse_signature((out / (name + ".sig")).read_bytes())
         assert rs.verify(public, sig, name, hashlib.sha256(data).hexdigest())
@@ -404,13 +406,16 @@ esac
 
 SIGNED = f"{NAME} {NAME}.sha256 {NAME}.sig"
 APP = "BaiheStudio-App-0.2.0.zip"
+MANIFEST = "BaiheStudio-App-0.2.0.json"
+APP_SIGNED = (f"{APP} {APP}.sha256 {APP}.sig {MANIFEST} {MANIFEST}.sha256 {MANIFEST}.sig")
 
 
 def _release_files(folder, seed, tamper=None):
     """The installer and app zip with their .sha256 and real .sig files, as
     the tag's run published them; `tamper` names a file changed afterwards."""
     folder.mkdir()
-    for name, body in ((NAME, b"MZ fake installer"), (APP, b"PK fake app")):
+    for name, body in ((NAME, b"MZ fake installer"), (APP, b"PK fake app"),
+                       (MANIFEST, b"{}")):
         sha = hashlib.sha256(body).hexdigest()
         (folder / name).write_bytes(body + (b" changed" if tamper == name else b""))
         (folder / (name + ".sha256")).write_text(f"{sha}  {name}\n", encoding="ascii")
@@ -458,8 +463,7 @@ def test_promote_checks_the_app_zip_files_when_the_release_has_one(tmp_path):
 
 
 def test_promote_takes_a_release_with_a_signed_app_zip(tmp_path):
-    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP} {APP}.sha256 {APP}.sig "
-                                                "BaiheStudio-App-0.2.0.json")
+    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP_SIGNED}")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert len(edits) == 1
 
@@ -481,8 +485,11 @@ def test_promote_refuses_and_changes_nothing(tmp_path, change, says):
 @pytest.mark.parametrize("change,says", [
     ({"tamper": NAME}, f"{NAME} doesn't match its .sha256 file"),
     ({"tamper": NAME + ".sha256"}, f"{NAME} doesn't match its .sha256 file"),
-    ({"tamper": APP, "assets": f"{SIGNED} {APP} {APP}.sha256 {APP}.sig "
-                               "BaiheStudio-App-0.2.0.json"}, f"{APP} doesn't match"),
+    ({"tamper": APP, "assets": f"{SIGNED} {APP_SIGNED}"}, f"{APP} doesn't match"),
+    # The full installer's backup gate believes the manifest only when it is signed.
+    ({"tamper": MANIFEST, "assets": f"{SIGNED} {APP_SIGNED}"}, f"{MANIFEST} doesn't match"),
+    ({"assets": f"{SIGNED} {APP} {APP}.sha256 {APP}.sig {MANIFEST} {MANIFEST}.sha256"},
+     f"no {MANIFEST}.sig"),
     # Signed, and the hash matches, but by a key other than the tag's own.
     ({"sign_with": rs.generate()[0]}, f"{NAME}.sig is not a valid signature"),
     ({"key": ""}, "holds no release public key"),
@@ -495,10 +502,10 @@ def test_promote_verifies_the_files_and_signatures(tmp_path, change, says):
 
 
 def test_promote_checks_the_signature_of_every_signed_file(tmp_path):
-    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP} {APP}.sha256 {APP}.sig "
-                                                "BaiheStudio-App-0.2.0.json")
+    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP_SIGNED}")
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert f"Verified {NAME}" in proc.stdout and f"Verified {APP}" in proc.stdout
+    for name in (NAME, APP, MANIFEST):
+        assert f"Verified {name}" in proc.stdout
 
 
 def test_the_release_body_is_the_tags_notes_file(tmp_path, keys):
