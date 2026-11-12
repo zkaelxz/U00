@@ -94,3 +94,22 @@ def test_an_unclosed_quote_does_not_hide_the_rest_of_the_message(redactor):
 def test_short_or_unrelated_token_params_are_left_readable(text):
     # redact_for_support scrubs every credential-looking param on purpose, so only the shared redactor is held to this.
     assert shared.redact_secrets(text) == text
+
+
+@pytest.mark.parametrize("redactor", REDACTORS)
+@pytest.mark.parametrize("filler", ["a-", "a_", 'x"a-', "a-" * 3 + "token="])
+def test_a_long_run_of_prefix_like_text_is_redacted_in_linear_time(redactor, filler):
+    import time
+    text = filler * (40_000 // len(filler))
+    started = time.perf_counter()
+    redactor(text)
+    # Unbounded prefix repeats backtracked quadratically (20 KB took ~5 s); a linear pass takes milliseconds.
+    assert time.perf_counter() - started < 1.0
+
+
+def test_a_long_run_of_token_words_is_redacted_in_linear_time_by_the_shared_redactor():
+    import time
+    text = "token-" * 6_000
+    started = time.perf_counter()
+    shared.redact_secrets(text)
+    assert time.perf_counter() - started < 1.0

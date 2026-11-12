@@ -21,8 +21,8 @@ _SECRET_PATTERNS = [
                r'["\']?\s*[:=]\s*["\']?)[^\s"\',;&)]{8,}', re.IGNORECASE),
     # Jellyfin/Emby send the key as MediaBrowser Token="..."; the authorization
     # pattern below would stop at the word MediaBrowser and leave the token.
-    re.compile(r'(\b(?:[A-Za-z]+[_-])*(?:token|secret)\s*=\s*["\']?)[^\s"\',;&)]{8,}', re.IGNORECASE),
-    re.compile(r'(["\'](?:[A-Za-z]+[_-])*(?:token|secret)["\']\s*:\s*["\'])[^"\'\s]+', re.IGNORECASE),
+    re.compile(r'(\b(?:[A-Za-z]+[_-]){0,3}(?:token|secret)\s*=\s*["\']?)[^\s"\',;&)]{8,}', re.IGNORECASE),
+    re.compile(r'(["\'](?:[A-Za-z]+[_-]){0,3}(?:token|secret)["\']\s*:\s*["\'])[^"\'\s]+', re.IGNORECASE),
     re.compile(r'(authorization["\']?\s*[:=]\s*["\']?(?:Bearer\s+)?)[A-Za-z0-9_\-\.]{10,}',
                re.IGNORECASE),
     re.compile(r'\bsk-[A-Za-z0-9_-]{10,}\b'),
@@ -62,7 +62,7 @@ _SECRET_PATTERNS = [
 # scheme://user:pass@host or scheme://token@host: the userinfo is the secret,
 # host and path stay readable. Greedy so a raw "@" inside the password is
 # still covered.
-_URL_USERINFO_PATTERN = re.compile(r'(\b[a-z][a-z0-9+.-]*://)[^\s/?#"\'<>]+@', re.IGNORECASE)
+_URL_USERINFO_PATTERN = re.compile(r'(\b[a-z][a-z0-9+.-]{0,31}://)[^\s/?#"\'<>]+@', re.IGNORECASE)
 
 
 def redact_secrets(text: str) -> str:
