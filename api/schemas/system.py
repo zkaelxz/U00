@@ -283,7 +283,7 @@ class SettingsPreferences(TimingPreferences):
     episode_brief: bool = True
     translate_reply_guard: str = "auto"
     claude_reasoning: str = "default"
-    openai_reasoning: str = "default"
+    openai_reasoning: str = "less"
     translate_alignment_check: bool = False
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
