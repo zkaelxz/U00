@@ -20,6 +20,8 @@ async function expectInside(inner: Locator, outer: Locator, slack = 1) {
   const outerHandle = await outer.elementHandle()
   expect(outerHandle).toBeTruthy()
   const [a, b] = await inner.evaluate((el, o) => [el.getBoundingClientRect(), o.getBoundingClientRect()], outerHandle!)
+  // A hidden (display:none) element reads as an all-zero box, which would pass every check below; boundingBox() returned null for it.
+  expect(a.width > 0 && a.height > 0 && b.width > 0 && b.height > 0).toBeTruthy()
   expect(a.x).toBeGreaterThanOrEqual(b.x - slack)
   expect(a.y).toBeGreaterThanOrEqual(b.y - slack)
   expect(a.x + a.width).toBeLessThanOrEqual(b.x + b.width + slack)
