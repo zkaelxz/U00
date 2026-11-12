@@ -453,9 +453,40 @@ def _drama_or_404(drama_id):
     return drama
 
 
+def _remove_quietly(path) -> None:
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool) -> str:
+    """The cleaned, typeset page as a data: URL for an overlay-only page (nothing is
+    stored, so there is no library page to render from), or "" when it cannot be sent.
+    The page keeps its plain boxes then, so a failure here only costs the nicer picture."""
+    import scanlate_render
+    if not any((b.get("translated_text") or "").strip() and not b.get("skip") for b in bubbles):
+        return ""
+    import tempfile
+    fd, out_path = tempfile.mkstemp(suffix=".png", prefix="baihe_typeset_")
+    os.close(fd)
+    try:
+        with PIPELINE_LOCK:
+            scanlate_render.process_page(image_path, bubbles, out_path)
+        return page_capture_checks.jpeg_data_url(out_path)
+    except Exception as e:
+        page_capture_checks.log_page_failure(e)
+        notes.append(["warning", "typeset failed: " + ("the page was kept" if member else
+                     f"{type(e).__name__}; the page was kept")])
+        return ""
+    finally:
+        _remove_quietly(out_path)
+
+
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
-                    store: bool = True, member: bool = False) -> dict:
+                    store: bool = True, member: bool = False, typeset: bool = False) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
@@ -482,6 +513,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     newly_stored = False
     reused_rev = 0
     temp_path = None
+    typeset_image = ""
 
     reuse_saved = None
     busy = None
@@ -523,25 +555,17 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     notes.append(["warning", "no drama chosen, so this page was not saved"])
 
             if reuse_saved is None and busy is None:
-                try:
-                    lang = _page_source_language(drama, source_language)
-                    read_started = time.monotonic()
-                    bubbles, detect_notes = scanlate.detect_and_ocr_page(
-                        image_path, lang,
-                        detect_backend=config.get("detect_backend") or "auto",
-                        hf_token=config.get("hf_token") or None,
-                        ocr_backend=config.get("ocr_backend") or None,
-                        tesseract_cmd=config.get("tesseract_cmd") or None,
-                        prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
-                        page_id=(page or {}).get("id"))
-                    read_seconds = time.monotonic() - read_started
-                finally:
-                    if temp_path:
-                        try:
-                            os.remove(temp_path)
-                        except OSError:
-                            pass
-
+                lang = _page_source_language(drama, source_language)
+                read_started = time.monotonic()
+                bubbles, detect_notes = scanlate.detect_and_ocr_page(
+                    image_path, lang,
+                    detect_backend=config.get("detect_backend") or "auto",
+                    hf_token=config.get("hf_token") or None,
+                    ocr_backend=config.get("ocr_backend") or None,
+                    tesseract_cmd=config.get("tesseract_cmd") or None,
+                    prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
+                    page_id=(page or {}).get("id"))
+                read_seconds = time.monotonic() - read_started
                 # Saved before release so a re-capture or Redo finds the read.
                 if page is not None:
                     read_notes = page_capture_checks.save_read_bubbles(
@@ -573,16 +597,20 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         notes.extend(_detect_notes(detect_notes, member))
         translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
                                                  notes, member, data)
+        if typeset and temp_path and page is None:
+            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member)
         if page is not None:
             notes.extend(read_notes)
             notes.extend(page_capture_checks.save_translations_of_read(
                 page["id"], stored_bubbles, bubbles))
     finally:
+        _remove_quietly(temp_path)
         if claim is not None:
             page_turns.release_page(*claim)
 
     width, height = page_capture_checks.image_size(data)
     return {
+        **({"typeset": True, "typeset_image": typeset_image} if typeset_image else {}),
         "width": width, "height": height,
         "regions": page_capture_checks.regions_for_response(bubbles),
         "notes": notes,

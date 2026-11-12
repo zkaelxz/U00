@@ -78,11 +78,11 @@ def test_a_token_the_app_refuses_is_not_reported_as_the_app_being_down():
     assert out["down"] == "Can't reach Baihe on this PC."
 
 
-def test_typeset_is_off_by_default_and_only_sent_when_on_and_saving():
+def test_typeset_is_off_by_default_and_sent_when_on_whether_or_not_the_page_is_saved():
     out = _node("worker_typeset")
     assert "typeset" not in out["offBody"]
     assert out["onBody"]["typeset"] is True
-    assert "typeset" not in out["notSaved"]
+    assert out["notSaved"]["typeset"] is True
     assert out["saved"] == [{"typeset": True}] and out["settings"] is True
 
 
