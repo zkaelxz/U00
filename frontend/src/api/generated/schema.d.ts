@@ -2333,6 +2333,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/ffmpeg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** ffmpeg: whether it is found, and the one-click install job */
+        get: operations["get_ffmpeg_api_diagnostics_ffmpeg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/ffmpeg/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: download ffmpeg into the app's own folder as a background job (confirm=true) */
+        post: operations["post_ffmpeg_install_api_diagnostics_ffmpeg_install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/gpu": {
         parameters: {
             query?: never;
@@ -18451,6 +18485,80 @@ export interface components {
         ExtractionRevisionRequest: {
             /** Revision */
             revision: string;
+        };
+        /** FfmpegInstallJob */
+        FfmpegInstallJob: {
+            /** Error */
+            error: string | null;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Progress
+             * @default 0
+             */
+            progress: number;
+            /** Status */
+            status: string | null;
+        };
+        /** FfmpegInstallRequest */
+        FfmpegInstallRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+        };
+        /** FfmpegInstallResult */
+        FfmpegInstallResult: {
+            /** Message */
+            message: string;
+            /** Ok */
+            ok: boolean;
+        };
+        /** FfmpegInstallStarted */
+        FfmpegInstallStarted: {
+            /** Job Id */
+            job_id: string;
+            /** Started */
+            started: boolean;
+        };
+        /** FfmpegInstallStatus */
+        FfmpegInstallStatus: {
+            /** App Ffmpeg Installed */
+            app_ffmpeg_installed: boolean;
+            /** Download Mb */
+            download_mb: number;
+            /**
+             * Found
+             * @description An ffmpeg the app can run, from the PC or its own folder.
+             */
+            found: boolean;
+            /** Free Mb */
+            free_mb: number;
+            job: components["schemas"]["FfmpegInstallJob"] | null;
+            /** Job Id */
+            job_id: string;
+            last_result: components["schemas"]["FfmpegInstallResult"] | null;
+            /**
+             * Libass
+             * @description Whether it can burn subtitles in; null if unknown.
+             */
+            libass: boolean | null;
+            /**
+             * Refusal
+             * @description Why the install can't start now, or null.
+             */
+            refusal: string | null;
+            /** Required Mb */
+            required_mb: number;
+            /**
+             * Version
+             * @description The build this app downloads.
+             */
+            version: string;
         };
         /** FileCompleteness */
         FileCompleteness: {
@@ -37094,6 +37202,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiagnosticsDependencyInstallState"];
+                };
+            };
+        };
+    };
+    get_ffmpeg_api_diagnostics_ffmpeg_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FfmpegInstallStatus"];
+                };
+            };
+        };
+    };
+    post_ffmpeg_install_api_diagnostics_ffmpeg_install_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FfmpegInstallRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FfmpegInstallStarted"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

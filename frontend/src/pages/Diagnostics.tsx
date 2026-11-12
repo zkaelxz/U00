@@ -16,6 +16,7 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref, useRoute, type Route } from '../router'
 import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { BrowserInstall } from './diagnostics/BrowserInstall'
+import { FfmpegInstall } from './diagnostics/FfmpegInstall'
 import { VoiceEngineInstall } from './diagnostics/VoiceEngineInstall'
 import { DangerZone } from './diagnostics/DangerZone'
 import { CudaRuntimeInstall } from './diagnostics/CudaRuntimeInstall'
@@ -231,6 +232,10 @@ function DiagnosticsContent() {
         <>
           {card('browser', (
             <BrowserInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('browser')}
+              onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+          ))}
+          {card('ffmpeg', (
+            <FfmpegInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('ffmpeg')}
               onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
           ))}
           {card('cuda-runtime', (

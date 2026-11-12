@@ -46,6 +46,7 @@ from api.schemas.subtitle_import import *  # noqa: F401,F403
 from api.schemas.spend_history import *  # noqa: F401,F403
 from api.schemas.pending_install import *  # noqa: F401,F403
 from api.schemas.browser import *  # noqa: F401,F403
+from api.schemas.ffmpeg_install import *  # noqa: F401,F403
 from api.schemas.voice_engines import *  # noqa: F401,F403
 from api.schemas.benchmark import *  # noqa: F401,F403
 from api.schemas.queue import *  # noqa: F401,F403

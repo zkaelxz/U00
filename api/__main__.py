@@ -22,6 +22,8 @@ print no tokens or hashes:
 
 import portable
 portable.activate_portable_mode()
+import app_tools
+app_tools.activate()
 
 import argparse
 import os

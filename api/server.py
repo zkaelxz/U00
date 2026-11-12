@@ -22,6 +22,8 @@ every reply (`api.auth.HouseholdGate`).
 # Must run before any other app import (see portable.py's docstring).
 import portable
 portable.activate_portable_mode()
+import app_tools
+app_tools.activate()
 
 import logging
 from contextlib import asynccontextmanager
@@ -53,7 +55,7 @@ from api.routers import (
     delete_routes,
     device_token_routes,
     member_key_routes,
-    diagnostics_browser_routes,
+    diagnostics_browser_routes, diagnostics_ffmpeg_routes,
     diagnostics_voice_engine_routes, voices_routes,
     diagnostics_gaps_routes,
     disk_usage_routes,
@@ -242,7 +244,7 @@ _ROUTER_MODULES = (
     auth_routes, admin_users_routes,
     device_token_routes, member_key_routes, voice_clone_routes, bug_report_routes,
     novel_files_routes, benchmark_routes, model_registry_routes, model_reeval_routes,
-    diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes,
+    diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes, diagnostics_ffmpeg_routes,
     diagnostics_voice_engine_routes, voices_routes,
     real_model_check_routes, voice_bank_audio_routes, sources_tools_routes, assistant_routes,
     sharing_routes, android_app_routes,
