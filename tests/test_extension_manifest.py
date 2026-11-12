@@ -100,7 +100,10 @@ class TestTheManifest:
         assert "permissions.request" not in _code("content.js")
 
     def test_permissions_stay_minimal(self, manifest):
-        assert set(manifest["permissions"]) == {"activeTab", "scripting", "storage"}
+        # declarativeNetRequestWithHostAccess only sets a Referer on an image download the
+        # extension retries after a 403, and only on hosts the person has allowed.
+        assert set(manifest["permissions"]) == {
+            "activeTab", "scripting", "storage", "declarativeNetRequestWithHostAccess"}
         for wide in ("<all_urls>", "tabs", "webRequest", "cookies", "history"):
             assert wide not in manifest["permissions"]
             assert wide not in manifest["host_permissions"]

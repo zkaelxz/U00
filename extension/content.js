@@ -1224,6 +1224,11 @@
   const CAPTURE_MAX_STEPS = 700;
   const CAPTURE_MUTATION_WAIT_MS = 800;
   const CAPTURE_LOAD_WAIT_MS = 1500;
+  // A slow lazy-loader can go quiet for longer than a few scroll steps. Before ending short of
+  // the page count the reader shows (or with images still loading), wait this long and sweep
+  // again, a bounded number of times so a wrong counter only costs a few seconds.
+  const CAPTURE_PATIENT_WAIT_MS = 3000;
+  const CAPTURE_PATIENT_TRIES = 3;
   // Attributes a list renderer uses to number its rows. Used only to order
   // pages, and only when every page in the comparison has one.
   const READER_INDEX_KEYS = ["pageIndex", "pageNum", "pageNumber", "page", "index", "idx"];
@@ -1314,6 +1319,13 @@
       }
     }
     return null;
+  }
+
+  // Whether the run should wait and sweep once more instead of ending: the reader's counter says
+  // more pages exist than were found, or images are still loading.
+  function keepWaiting(found, expected, loadingImages, tries) {
+    if (tries >= CAPTURE_PATIENT_TRIES) return false;
+    return (expected > found) || loadingImages > 0;
   }
 
   // After a scroll, give the reader a moment to mount and load its next
@@ -1507,11 +1519,12 @@
 
   // The line that accounts for every page found: saved, typeset, and each one that is neither, by
   // its place in the chapter and the reason, so a short count is never unexplained.
-  function completenessLine(found, entries, repeats, unreadable, counts, timing) {
+  function completenessLine(found, entries, repeats, unreadable, counts, timing, expected = 0) {
     const place = (list, why) => list.slice(0, 6).map((e) => `page ${e.position} (${why(e)})`).join(", ") +
                                  (list.length > 6 ? `, and ${list.length - 6} more` : "");
     const saved = entries.filter((e) => e.status === "saved" || e.status === "read").length;
     const parts = [`Saved ${saved} of ${found} pages`];
+    if (expected && expected !== found) parts.push(`the reader shows ${expected} pages, found ${found}`);
     const drawn = entries.filter((e) => e.typeset !== undefined);
     if (drawn.length) parts.push(`typeset ${drawn.filter((e) => e.typeset === true).length} of ${drawn.length}`);
     const missed = entries.filter((e) => e.status !== "saved" && e.status !== "read")
@@ -1773,6 +1786,8 @@
     let stalls = 0;
     let steps = 0;
     let lastMoved = true;
+    let expected = 0;
+    let patientTries = 0;
     while (!reason) {
       if (run.cancelled) { reason = "cancelled"; break; }
       if (looksLikeChallengePage()) {
@@ -1789,6 +1804,8 @@
       // Scrolling the whole chapter cannot help until the person allows the site.
       if (needAccess.size && !seen.size) { reason = "end"; break; }
       stalls = found ? 0 : stalls + 1;
+      const counter = readerCounter();
+      if (counter) expected = Math.max(expected, counter.total);
       report();
       if (queue.length >= limit) {
         failure = await flush(false);
@@ -1799,6 +1816,20 @@
       if (capHit) reason = "cap";
       else if (!found && (atBottom || !lastMoved)) reason = "end";
       else if (stalls >= CAPTURE_STALL_STEPS || steps >= CAPTURE_MAX_STEPS) reason = "stalled";
+      if ((reason === "end" || reason === "stalled") && !capHit && steps < CAPTURE_MAX_STEPS
+          && keepWaiting(seen.size, expected, [...document.images].filter((i) => !i.complete).length,
+                         patientTries)) {
+        patientTries += 1;
+        reason = "";
+        stalls = 0;
+        report(` — waiting for more pages${expected ? ` (${seen.size} of ${expected})` : ""}`);
+        await sleep(CAPTURE_PATIENT_WAIT_MS);
+        await settleForImages();
+        scroller.to(scroller.max());
+        await sleep(stepDelay());
+        lastMoved = true;
+        continue;
+      }
       if (reason) break;
       const before = scroller.top();
       scroller.to(before + Math.max(scroller.view() * CAPTURE_STEP_FRACTION, 200));
@@ -1825,7 +1856,7 @@
     }
     const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip, firstEnglishProblem);
     const entries = [...ledger.values()];
-    const complete = completenessLine(seen.size, entries, repeats, unreadablePages, counts, timing);
+    const complete = completenessLine(seen.size, entries, repeats, unreadablePages, counts, timing, expected);
     const missedItems = entries.filter((e) => e.status !== "saved" && e.status !== "read" && e.item)
                                .map((e) => e.item);
     state.missed = missedItems.length ? { items: missedItems, dramaId, store } : null;
@@ -1926,6 +1957,6 @@
                      translatePageText, collectPageText, mainContentBlock,
                      isTextPage, chapterHeading, saveNovelText, pageFacts,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
-                     captureChapter, cancelCapture, captureTally, unreadableLog, placeBox, regionsByKey, requestCancel,
+                     captureChapter, cancelCapture, captureTally, keepWaiting, unreadableLog, placeBox, regionsByKey, requestCancel,
                      completenessLine, nextChapterUrl, looksGated };
 })();

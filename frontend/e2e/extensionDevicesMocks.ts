@@ -66,6 +66,18 @@ export async function mockExtensionDevices(page: Page, me: MeBody): Promise<Toke
     const r = route.request()
     const path = new URL(r.url()).pathname
     if (r.method() === 'GET' && path === '/api/extension/devices') return route.fulfill({ json: { tokens: s.all } })
+    if (r.method() === 'POST' && path === '/api/extension/devices') {
+      s.sent.push(r)
+      const body = r.postDataJSON() as { label: string; expires_in_days: number | null }
+      const t = now()
+      const row = {
+        id: 23, label: body.label, created_at: t, last_used_at: null, last_used_ip_prefix: '',
+        expires_at: body.expires_in_days ? t + body.expires_in_days * 86400 : null, revoked_at: null,
+        status: 'active' as const, user_id: 1, user_name: 'Owner',
+      }
+      s.all = [row, ...s.all]
+      return route.fulfill({ json: { token: NEW_TOKEN, device_token: row } })
+    }
     const m = path.match(/^\/api\/extension\/devices\/(\d+)\/revoke$/)
     if (r.method() !== 'POST' || !m) return route.abort()
     s.sent.push(r)

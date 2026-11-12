@@ -106,6 +106,12 @@ function ExtensionControls() {
       <div className="diag-stack">
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={SERVER} />
         <p className="settings-note">{HELP}</p>
+        <p>
+          <a className={buttonClass()} href="/api/extension/download" download="baihe-extension.zip">
+            Download extension (.zip)
+          </a>{' '}
+          <span className="muted">Unzip it, then load the folder in Edge or Chrome (Extensions, Developer mode, Load unpacked).</span>
+        </p>
         {!status
           ? !error && <p className="muted">Loading…</p>
           : status.enabled && (
