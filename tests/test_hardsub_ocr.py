@@ -503,10 +503,20 @@ class TestHardsubBackendRouting:
     def test_rapidocr_reads_the_frame_in_the_source_language(self, run):
         assert run(language="ko", ocr_backend="rapidocr")[0] == [("ko", "rapidocr")]
 
-    def test_chinese_and_korean_default_to_auto(self):
-        assert hardsub_ocr.ocr_module.default_hardsub_backend("zh") == "auto"
-        assert hardsub_ocr.ocr_module.default_hardsub_backend("ko") == "auto"
-        assert hardsub_ocr.ocr_module.default_hardsub_backend("ja") == "tesseract"
+    def test_chinese_korean_and_japanese_default_to_auto(self):
+        for language in ("zh", "ko", "ja"):
+            assert hardsub_ocr.ocr_module.default_hardsub_backend(language) == "auto"
+        assert hardsub_ocr.ocr_module.default_hardsub_backend("en") == "tesseract"
+
+    def test_auto_reads_japanese_with_rapidocr_then_paddle_then_tesseract(self, monkeypatch):
+        monkeypatch.setattr(hardsub_ocr.ocr_module, "backend_problem", lambda b, *a, **k: None)
+        assert hardsub_ocr.resolve_backend("auto", "ja") == ("rapidocr", None)
+        monkeypatch.setattr(hardsub_ocr.ocr_module, "backend_problem",
+                            lambda b, *a, **k: object() if b == "rapidocr" else None)
+        monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: True)
+        assert hardsub_ocr.resolve_backend("auto", "ja") == ("paddle", None)
+        monkeypatch.setattr(hardsub_ocr, "paddle_installed", lambda: False)
+        assert hardsub_ocr.resolve_backend("auto", "ja") == ("tesseract", hardsub_ocr.PADDLE_MISSING_NOTE)
 
     @pytest.mark.parametrize("requested", ["paddle", "rapidocr", "tesseract"])
     def test_an_explicit_choice_is_never_overridden(self, monkeypatch, requested):

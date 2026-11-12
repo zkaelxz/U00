@@ -388,9 +388,10 @@ class TestExtractTextFromImagesUsesResolvedLang:
                             lambda backend, *a, **k: None if backend == "tesseract" else object())
         assert ocr.auto_ocr_backend("zh") == ocr.auto_ocr_backend("ko") == "tesseract"
 
-    def test_hardsub_default_is_auto_for_zh_ko(self):
-        assert ocr.default_hardsub_backend("ko") == ocr.default_hardsub_backend("zh") == "auto"
-        assert ocr.default_hardsub_backend("ja") == "tesseract"
+    def test_hardsub_default_is_auto_for_zh_ko_ja(self):
+        assert (ocr.default_hardsub_backend("ko") == ocr.default_hardsub_backend("zh")
+                == ocr.default_hardsub_backend("ja") == "auto")
+        assert ocr.default_hardsub_backend("en") == "tesseract"
 
     def test_paddle_vl_manga_backend_is_dispatched(self, monkeypatch):
         called = []
