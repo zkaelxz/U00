@@ -197,7 +197,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
     engine_name = engine or str(settings_service.get("default_engine"))
     if read_ahead_from is not None:
         paid_job_service.require_cap_for_unattended(
-            engine_name, bool(settings_service.get("gemini_free_tier")))
+            engine_name, bool(settings_service.get("gemini_free_tier")), None)  # runs the default model
     # Pure-MT engines are called once per region, outside call_llm_json.
     built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(

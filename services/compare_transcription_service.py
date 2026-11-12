@@ -253,7 +253,7 @@ def _translation_setup(drama: dict, engine_name, model, gemini_free_tier, job_co
     if api_key is None:
         raise MissingKeyError(engine_name)
     cap = None
-    if translate_run_service.engine_cap_applies(engine_name, gemini_free_tier):
+    if translate_run_service.engine_cap_applies(engine_name, gemini_free_tier, model):
         monthly = translate_run_service.month_cap_usd()
         cap, refusal = pricing.resolve_cost_cap(
             job_cost_cap_usd, monthly, db.get_month_spend() if monthly else 0.0)
@@ -293,8 +293,8 @@ def estimate_compare(drama_id: int, selection: dict, translate: bool = False,
             texts.append(ln.zh or "")
     stand_in = type("E", (), {"name": engine_name, "model": model, "free_tier": free_tier})()
     out["estimated_usd"] = float(pricing.estimate_translation_cost(stand_in, texts))
-    out["free"] = engine_name in engine_registry.FREE_ENGINES or free_tier
-    out["cap_applies"] = translate_run_service.engine_cap_applies(engine_name, gemini_free_tier)
+    out["cap_applies"] = translate_run_service.engine_cap_applies(engine_name, gemini_free_tier, model)
+    out["free"] = (engine_name in engine_registry.FREE_ENGINES and not out["cap_applies"]) or free_tier
     if out["cap_applies"]:
         monthly = translate_run_service.month_cap_usd()
         cap, refusal = pricing.resolve_cost_cap(

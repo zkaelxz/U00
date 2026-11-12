@@ -321,8 +321,8 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
 
     engine_name, engine = _glossary_engine(drama, engine_name)
     from services import settings_service, translate_run_service
-    translate_run_service.refuse_when_cap_spent(engine_name,
-                                                bool(settings_service.get("gemini_free_tier")))
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
@@ -349,8 +349,8 @@ def draft_project_instructions(drama_id: int, engine_name: Optional[str] = None)
         raise UnsupportedOperationError("Attach a novel to this title first.")
     engine_name, engine = _glossary_engine(drama, engine_name)
     from services import settings_service, translate_run_service
-    translate_run_service.refuse_when_cap_spent(engine_name,
-                                                bool(settings_service.get("gemini_free_tier")))
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
     try:
         text = tguide.draft_novel_style_instructions(
             src, engine, drama.get("source_language") or "zh",
@@ -639,8 +639,8 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
             "This title has no source lines yet; transcribe or import them first."
             if chapter is None else "That chapter has no source lines.")
     engine_name, engine = _glossary_engine(drama, engine_name)
-    translate_run_service.refuse_when_cap_spent(engine_name,
-                                                bool(settings_service.get("gemini_free_tier")))
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
 
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(

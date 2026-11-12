@@ -84,7 +84,13 @@ def _succeeded(custom_id, payload: dict, usage=None):
     return NS(custom_id=custom_id, result=NS(type="succeeded", message=msg))
 
 
-def _answer_every_request(batches: FakeClaudeBatches, fn=lambda zh: f"EN[{zh}]"):
+def _en(zh: str) -> str:
+    """A reply with no source script in it: the bulk apply rejects a reply that
+    leaves source text in the English, as a live reply is."""
+    return f"EN[line{re.search(r'[0-9]+', zh).group()}]"
+
+
+def _answer_every_request(batches: FakeClaudeBatches, fn=lambda zh: _en(zh)):
     """Builds a correct result for every submitted request -- then
     returns them in REVERSE order, with each response's keys reversed
     too, so nothing lines up by position."""
@@ -207,7 +213,7 @@ class TestApplyResults:
 
         assert bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine)) == "applied"
         for r in isolated_db.load_lines(did):
-            assert r["en"] == f"EN[{r['zh']}]"
+            assert r["en"] == _en(r['zh'])
         summary = isolated_db.get_bulk_job(bulk_id)["result_summary"]
         assert summary["applied"] == 7
 
@@ -233,7 +239,7 @@ class TestApplyResults:
         assert survivor["en"] == ""  # its source changed -- never gets line 1's old result
         assert survivor["flag"] == "bulk_source_changed"
         for r in rows[:1] + rows[2:]:
-            assert r["en"] == f"EN[{r['zh']}]"
+            assert r["en"] == _en(r['zh'])
         summary = isolated_db.get_bulk_job(bulk_id)["result_summary"]
         assert summary["dropped_deleted"] == 1
         assert summary["flagged_source_changed"] == 1
@@ -259,7 +265,7 @@ class TestApplyResults:
 
         rows = isolated_db.load_lines(did)
         assert rows[0]["en"] == "" and rows[0]["flag"] == "bulk_source_changed"
-        assert rows[1]["en"] == "EN[第1句]"
+        assert rows[1]["en"] == "EN[line1]"
 
     def test_an_english_edit_made_meanwhile_is_kept(self, isolated_db):
         engine = _claude_engine()
@@ -421,7 +427,7 @@ class TestRestartCancelAuth:
 
         assert fresh.client.messages.batches.retrieved == ["msgbatch_01"]
         assert isolated_db.get_bulk_job(bulk_id)["status"] == "applied"
-        assert all(r["en"] == f"EN[{r['zh']}]" for r in isolated_db.load_lines(did))
+        assert all(r["en"] == _en(r['zh']) for r in isolated_db.load_lines(did))
         background_jobs.clear_job(bulk_poll.poll_job_id(bulk_id))
 
     def test_resume_rebuilds_the_engine_with_the_model_id_stored_on_the_job(self, isolated_db):
@@ -570,14 +576,14 @@ class TestGeminiProvider:
             got = _numbered_lines(r["request"]["contents"][0]["parts"][0]["text"])
             responses.append({"metadata": r["metadata"], "response": {
                 "candidates": [{"content": {"parts": [{"text": json.dumps(
-                    {str(i): f"G[{zh}]" for i, zh in got.items()}, ensure_ascii=False)}]}}],
+                    {str(i): "G" + _en(zh) for i, zh in got.items()}, ensure_ascii=False)}]}}],
                 "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}}})
         done = {"name": "batches/abc", "done": True,
                 "metadata": {"state": "BATCH_STATE_SUCCEEDED"},
                 "response": {"inlinedResponses": {"inlinedResponses": list(reversed(responses))}}}
         _patch_http(monkeypatch, get=lambda url, headers=None, timeout=None, stream=None: _Resp(done))
         assert bulk_poll.check_once(bulk_id, bp.make_provider("gemini", self._engine())) == "applied"
-        assert all(r["en"] == f"G[{r['zh']}]" for r in isolated_db.load_lines(did))
+        assert all(r["en"] == "G" + _en(r["zh"]) for r in isolated_db.load_lines(did))
 
     def test_a_response_without_its_key_is_never_attributed(self, isolated_db, monkeypatch):
         _patch_http(monkeypatch, post=lambda *a, **k: _Resp({"name": "batches/abc"}))
@@ -1156,6 +1162,18 @@ class TestFinishTranslationRunEpisodeSummary:
                                   summary_engine_choice="ollama", summary_monthly_cap_usd=5.0)
 
         assert engine.call_count == 1
+
+    def test_a_hosted_ollama_summary_is_held_to_the_monthly_cap(self, isolated_db):
+        did, lines = self._translated_drama(isolated_db)
+        isolated_db.log_usage(did, "claude", "m", "translate", estimated_cost_usd=9.0)
+        engine = _FakeSummaryEngine()
+        engine.model = "gemma4:31b-cloud"
+
+        translation_finish.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine,
+                                  summary_engine_choice="ollama", summary_monthly_cap_usd=5.0)
+
+        assert engine.call_count == 0
 
     def test_no_summary_engine_skips_generation_entirely(self, isolated_db):
         """summary_engine=None (its default) -- e.g. no engine could be
@@ -2300,7 +2318,7 @@ class TestApplyKeepsEditsSavedDuringTheApply:
         monkeypatch.setattr(bulk_apply.db, "load_line_objects", load)
 
     def _apply_translation(self, monkeypatch, isolated_db, edit, prepare=None,
-                           answer=lambda zh: f"EN[{zh}]", **kw):
+                           answer=lambda zh: _en(zh), **kw):
         engine = _claude_engine()
         did = _drama(isolated_db, n=3)
         ids = [r["id"] for r in isolated_db.load_lines(did)]
@@ -2325,7 +2343,7 @@ class TestApplyKeepsEditsSavedDuringTheApply:
         ids, rows, version, summary = self._apply_translation(monkeypatch, isolated_db, edit)
         assert rows[ids[1]] == "Typed during the apply"
         assert version[ids[1]] == "Typed during the apply"
-        assert rows[ids[0]] == version[ids[0]] == "EN[第0句]"
+        assert rows[ids[0]] == version[ids[0]] == "EN[line0]"
         assert summary["kept_your_edit"] == 1 and summary["applied"] == 2
 
     def test_an_edit_to_an_unrelated_line_survives_in_the_version_too(self, monkeypatch, isolated_db):
@@ -2348,7 +2366,7 @@ class TestApplyKeepsEditsSavedDuringTheApply:
         version = {ln["id"]: ln["en"] for ln in isolated_db.get_translation_version(active["id"])["lines"]}
         rows = {r["id"]: r["en"] for r in isolated_db.load_lines(did)}
         assert rows[ids[2]] == version[ids[2]] == "Reworded during the apply"
-        assert rows[ids[0]] == "EN[第0句]"
+        assert rows[ids[0]] == "EN[line0]"
 
     def test_a_flag_set_on_a_line_during_a_flag_apply_is_kept(self, monkeypatch, isolated_db):
         engine = _claude_engine()
@@ -2376,7 +2394,7 @@ class TestApplyKeepsEditsSavedDuringTheApply:
             fresh[1].flag, fresh[1].flag_note = "slang_idiom", "mine"
         ids, rows, _version, summary = self._apply_translation(
             monkeypatch, isolated_db, edit, prepare=prepare)
-        assert rows[ids[1]] == "EN[第1句]"
+        assert rows[ids[1]] == "EN[line1]"
         row = next(r for r in isolated_db.load_lines(_drama_of(isolated_db, ids[1]))
                    if r["id"] == ids[1])
         assert (row["flag"], row["flag_note"]) == ("slang_idiom", "mine")
@@ -2389,7 +2407,7 @@ class TestApplyKeepsEditsSavedDuringTheApply:
         ids, rows, version, summary = self._apply_translation(
             monkeypatch, isolated_db, edit, fields=("zh",))
         assert rows[ids[1]] == "" and version[ids[1]] == ""
-        assert rows[ids[0]] == "EN[第0句]" and summary["applied"] == 2
+        assert rows[ids[0]] == "EN[line0]" and summary["applied"] == 2
 
     def test_no_density_flag_from_timing_changed_during_the_apply(self, monkeypatch, isolated_db):
         long_en = "A long English line nobody could read in a second and a half"
@@ -2533,3 +2551,122 @@ class TestBulkJobOutcome:
         clean = {"status": "applied", "result_summary": {"applied": 8, "failed_requests": 0}}
         assert bulk_poll.poller_outcome(job_id, clean) == {}
         background_jobs.clear_job(job_id)
+
+
+# ---------------------------------------------------------------------------
+# Junk replies and a failed apply (paid results are kept)
+# ---------------------------------------------------------------------------
+
+class TestBulkReplyChecks:
+    JUNK = {0: "<think>plan</think> Hello", 1: "第1句 hello", 2: '["a", "b"]'}
+
+    def _run(self, isolated_db, reply, args=None):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=4)
+        lines = isolated_db.load_line_objects(did)
+        bulk_id = bulk_translate.submit_bulk_translation(
+            did, lines, engine, "claude", {"drama_meta": {}}, batch_size=10,
+            translate_args={"style_preset": "audio_drama", **(args or {})})
+        batches = engine.client.messages.batches
+        _answer_every_request(batches, lambda zh: reply(int(re.search(r"\d+", zh).group())))
+        batches.status = "ended"
+        bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
+        return did, isolated_db.get_bulk_job(bulk_id)
+
+    def _reply(self, i):
+        return self.JUNK.get(i, _en(str(i)))
+
+    def test_junk_replies_are_not_written_and_the_line_is_flagged(self, isolated_db):
+        did, job = self._run(isolated_db, self._reply)
+        rows = isolated_db.load_lines(did)
+        assert [r["en"] for r in rows[:3]] == ["", "", ""]
+        assert [r["flag"] for r in rows[:3]] == ["uncertain_translation"] * 3
+        assert "unusable" in rows[0]["flag_note"]
+        assert rows[0]["flag_note"].endswith("<think>plan</think> Hello")  # kept for a hand fix
+        assert rows[3]["en"] == "EN[line3]" and not rows[3]["flag"]
+        assert job["status"] == "applied"
+        assert job["result_summary"]["rejected"] == 3 and job["result_summary"]["applied"] == 1
+
+    def test_turning_the_reply_check_off_writes_them_as_before(self, isolated_db):
+        did, job = self._run(isolated_db, self._reply, args={"check_replies": False})
+        assert [r["en"] for r in isolated_db.load_lines(did)][:3] == [
+            "<think>plan</think> Hello", "第1句 hello", '["a", "b"]']
+
+    def test_reflect_english_is_checked_too(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2)
+        jid = bulk_reflect.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude",
+                                                   {"locale": "en-US"})
+        job = isolated_db.get_bulk_job(jid)
+        rows = {r["line_id"]: r for r in isolated_db.list_bulk_job_lines(jid)}
+        ids = list(rows)
+        counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0, "kept_your_edit": 0}
+        bulk_reflect._write_reflect_english(job, rows, {ids[0]: "<think>x</think> No", ids[1]: "Fine."},
+                                            {}, counts, "t")
+        by_id = {r["id"]: r for r in isolated_db.load_lines(did)}
+        assert by_id[ids[0]]["en"] == "" and by_id[ids[0]]["flag"] == "uncertain_translation"
+        assert by_id[ids[1]]["en"] == "Fine."
+        assert counts["rejected"] == 1
+
+
+class TestPaidResultsSurviveAFailedApply:
+    def _ended(self, isolated_db, n=7):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=n)
+        bulk_id = _submit(isolated_db, did, engine)
+        batches = engine.client.messages.batches
+        _answer_every_request(batches)
+        batches.status = "ended"
+        return engine, did, bulk_id
+
+    def test_a_locked_database_before_any_english_is_written_is_retried_from_the_same_results(
+            self, isolated_db, monkeypatch):
+        engine, did, bulk_id = self._ended(isolated_db)
+        _fail_first(monkeypatch, isolated_db, "save_lines", when=lambda *a, **k: k.get("fields") == ("en",))
+
+        assert bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine)) == "applied"
+
+        assert all(r["en"] == _en(r["zh"]) for r in isolated_db.load_lines(did))
+        assert _usage_ops(isolated_db, did) == ["translate_bulk"] * 3  # one row per request, not two
+
+    def test_usage_logged_before_the_failure_is_not_logged_again(self, isolated_db, monkeypatch):
+        engine, did, bulk_id = self._ended(isolated_db)
+        _fail_first(monkeypatch, isolated_db, "log_usage",
+                    when=lambda *a, **k: len(_usage_ops(isolated_db, did)) == 1)
+
+        assert bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine)) == "applied"
+
+        assert all(r["en"] == _en(r["zh"]) for r in isolated_db.load_lines(did))
+        assert _usage_ops(isolated_db, did) == ["translate_bulk"] * 3
+
+    def test_one_unreadable_reply_does_not_cost_the_other_requests(self, isolated_db, monkeypatch):
+        engine, did, bulk_id = self._ended(isolated_db)
+        real = bulk_apply._parse_strict
+
+        def parse(text, ids):
+            if "line0" in text:
+                raise ValueError("unreadable")
+            return real(text, ids)
+        monkeypatch.setattr(bulk_apply, "_parse_strict", parse)
+
+        assert bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine)) == "applied"
+
+        rows = isolated_db.load_lines(did)
+        assert sum(1 for r in rows if r["en"]) == 4  # batches of 3: the first batch's 3 lines are missing
+        summary = isolated_db.get_bulk_job(bulk_id)["result_summary"]
+        assert summary["failed_requests"] == 1 and summary["missing"] == 3 and summary["applied"] == 4
+
+    def test_a_failure_after_the_english_was_written_is_not_applied_again(self, isolated_db, monkeypatch):
+        engine, did, bulk_id = self._ended(isolated_db)
+        saves = []
+        real = isolated_db.save_lines
+        monkeypatch.setattr(isolated_db, "save_lines",
+                            lambda *a, **k: (saves.append(k.get("fields")), real(*a, **k))[1])
+        _fail_first(monkeypatch, isolated_db, "save_translation_version")
+
+        bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
+
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "failed"
+        assert all(r["en"] == _en(r["zh"]) for r in isolated_db.load_lines(did))  # what landed stays
+        assert saves.count(("en",)) == 1  # no second apply
+        assert _usage_ops(isolated_db, did) == ["translate_bulk"] * 3

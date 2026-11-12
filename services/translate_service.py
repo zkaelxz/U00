@@ -181,7 +181,8 @@ class _UsageMeter:
 
     def _capped(self) -> bool:
         return translate_run_service.engine_cap_applies(
-            self._engine_name, bool(getattr(self._engine, "free_tier", False)))
+            self._engine_name, bool(getattr(self._engine, "free_tier", False)),
+            getattr(self._engine, "model", None))
 
     def refuse(self, batch: list, first_chunk: int, total_chunks: int) -> Optional[str]:
         """A plain stop message when sending `batch` could take this month's
@@ -248,7 +249,7 @@ def translate_metered(engine, engine_name: str, text: str, source_language: str,
     pass it, and every request logged. Shared by every path that sends pasted
     or captured text to a paid engine."""
     translate_run_service.refuse_when_cap_spent(
-        engine_name, bool(getattr(engine, "free_tier", False)))
+        engine_name, bool(getattr(engine, "free_tier", False)), getattr(engine, "model", None))
     metered = _UsageMeter(engine, engine_name)
     return engine_standalone.standalone_translate_partial(
         text, metered, source_language, target_language, REQUEST_CHUNKS, budget=metered)
@@ -293,7 +294,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     if api_key is None:
         raise MissingKeyError(engine_name)
 
-    translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier)
+    translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier, model)
     engine = engine_registry.get_engine(
         engine_name, api_key, model, free_tier=use_free_tier,
         base_url=(settings_service.ollama_url()
@@ -329,7 +330,7 @@ def estimate(text: str, engine_name: str, source_language: str, target_language:
     chunks = engine_standalone.chunk_standalone_text(text)
     requests = engine_standalone.standalone_requests(text, REQUEST_CHUNKS)
     estimated = sum(pricing.estimate_translation_cost(priced, r) for r in requests)
-    cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier)
+    cap_applies = translate_run_service.engine_cap_applies(engine_name, use_free_tier, priced.model)
     monthly = translate_run_service.month_cap_usd() if cap_applies else 0
     cap_left = max(0.0, monthly - db.get_month_spend()) if monthly else None
     return {"engine": engine_name, "model": priced.model or None, "chunks": len(chunks),

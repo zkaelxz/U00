@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
-from core import Line
+from core import Line, line_from_row
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import novel_chapter_move_service as svc
 from services import novel_chapters_service, novel_line_chapters_service
@@ -235,3 +235,229 @@ def test_route_moves_a_chapter(client, isolated_db):
     assert r.status_code == 200 and r.json()["lines_moved"] == 8
     assert client.post(f"/api/novel/dramas/{did}/raw-novel/chapters/2/move",
                        json={"to_number": 9}).status_code == 404
+
+
+class _Killed(BaseException):
+    """Stands in for the process dying: raised where the in-process undo would run, so the
+    move stops with whatever it had already written, as after a hard kill."""
+
+
+def _kill_at(monkeypatch, step):
+    """Makes the move fail at `step` and skips its undo."""
+    monkeypatch.setattr(svc, "_roll_back", lambda *a, **k: (_ for _ in ()).throw(_Killed()))
+    if step == "lines":
+        monkeypatch.setattr(db, "save_lines", lambda *a, **k: (_ for _ in ()).throw(_Killed()))
+    elif step == "backup":
+        monkeypatch.setattr(svc.shutil, "copyfile", lambda *a, **k: (_ for _ in ()).throw(_Killed()))
+    else:
+        real, calls = svc.edit._swap_in, []
+
+        def nth_fails(tmp, dest):
+            calls.append(dest)
+            if len(calls) == {"raw": 1, "manifest": 2}[step]:
+                raise _Killed()
+            return real(tmp, dest)
+        monkeypatch.setattr(svc.edit, "_swap_in", nth_fails)
+
+
+def _leftovers(did):
+    folder = os.path.dirname(chapter_manifest.raw_path(did))
+    return sorted(n for n in os.listdir(folder) if n.endswith(".part") or n == svc.JOURNAL_FILENAME)
+
+
+@pytest.mark.parametrize("step", ["lines", "backup", "raw"])
+def test_a_move_killed_before_the_text_swap_is_undone_at_the_next_start(isolated_db, monkeypatch, step):
+    did = _book(isolated_db)
+    before = _state(did)
+    _kill_at(monkeypatch, step)
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    assert svc.recover_interrupted_moves() == [did]
+    assert _state(did) == before
+    assert _leftovers(did) == []
+    svc.move_chapter(did, 3, 1)   # and the title can be moved again
+    assert _raw(did).startswith("Three")
+
+
+def test_a_move_killed_after_the_text_swap_is_finished_at_the_next_start(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    done = _book(isolated_db)
+    svc.move_chapter(done, 3, 1)
+    copy = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), "novel_narration_source.txt")
+    with open(chapter_manifest.raw_path(did), "rb") as f, open(copy, "wb") as g:
+        g.write(f.read())
+    _kill_at(monkeypatch, "manifest")
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    assert svc.recover_interrupted_moves() == [did]
+    raw, listed, lines = _state(did)
+    want_raw, want_list, want_lines = _state(done)
+    assert raw == want_raw and listed == want_list
+    assert [r[1:] for r in lines] == [r[1:] for r in want_lines]
+    assert [c["title"] for c in novel_chapters_service.list_chapters(did)["chapters"]] == [
+        "Three", "One", "Two"]
+    with open(copy, encoding="utf-8", newline="") as f:
+        assert f.read() == raw
+    assert _leftovers(did) == []
+
+
+def test_an_interrupted_move_that_cannot_be_recognised_is_left_alone_and_blocks_moves(
+        isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    _kill_at(monkeypatch, "raw")
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    rows = [line_from_row(r) for r in db.load_lines(did)]
+    db.save_lines(did, rows[1:])   # the lines changed after the stop: neither order any more
+    after = _state_lines(did)
+    assert svc.recover_interrupted_moves() == []
+    assert _state_lines(did) == after
+    assert svc.JOURNAL_FILENAME in _leftovers(did)
+    with pytest.raises(ConflictError) as err:
+        svc.move_chapter(did, 1, 2)
+    assert "line history" in err.value.message
+
+
+def test_startup_finishes_interrupted_moves(isolated_db, monkeypatch):
+    from api import background
+    from services import auth_service, jobs_service
+    for name in ("start_background_services", "start_gpu_queue_poller",
+                 "start_reeval_scheduler", "stop_gpu_queue_poller", "stop_reeval_scheduler"):
+        monkeypatch.setattr(background, name, lambda *_: None)
+    monkeypatch.setattr(jobs_service, "sweep_stale_job_records", lambda: 0)
+    monkeypatch.setattr(auth_service, "sweep_stale_sessions", lambda: 0)
+    ran = []
+    monkeypatch.setattr(svc, "recover_interrupted_moves", lambda: ran.append(1) or [])
+    with TestClient(create_app(ApiSettings(background_services=True))):
+        pass
+    assert ran == [1]
+
+
+def test_a_move_killed_after_the_list_swap_is_finished_at_the_next_start(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    done = _book(isolated_db)
+    svc.move_chapter(done, 3, 1)
+    copy = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), "novel_narration_source.txt")
+    with open(chapter_manifest.raw_path(did), "rb") as f, open(copy, "wb") as g:
+        g.write(f.read())
+    monkeypatch.setattr(svc.edit, "_copy_to_translation_text",
+                        lambda *a, **k: (_ for _ in ()).throw(_Killed()))
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    assert svc.recover_interrupted_moves() == [did]
+    assert _state(did)[:2] == _state(done)[:2]
+    with open(copy, encoding="utf-8", newline="") as f:
+        assert f.read() == _raw(did)
+    assert _leftovers(did) == []
+
+
+def test_a_recovery_killed_part_way_is_finished_by_the_next_one(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    before = _state(did)
+    _kill_at(monkeypatch, "raw")       # lines moved, chapter list removed, old text
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    # The recovery puts the lines back and is then killed writing the chapter list.
+    monkeypatch.setattr(svc, "_write_durably", lambda *a, **k: (_ for _ in ()).throw(_Killed()))
+    with pytest.raises(_Killed):
+        with svc._move_lock(did):
+            svc._recover(did)
+    monkeypatch.undo()
+    assert not os.path.exists(chapter_manifest.manifest_path(did))
+    assert svc.recover_interrupted_moves() == [did]
+    assert _state(did) == before
+    assert _leftovers(did) == []
+
+
+def test_a_damaged_journal_is_a_clear_refusal_not_a_crash(isolated_db, monkeypatch):
+    did = _book(isolated_db)
+    _kill_at(monkeypatch, "raw")
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    with open(os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), svc.JOURNAL_FILENAME),
+              "w", encoding="utf-8") as f:
+        f.write('{"old_ids": [1, 2')
+    assert svc.recover_interrupted_moves() == []
+    with pytest.raises(ConflictError) as err:
+        svc.move_chapter(did, 1, 2)
+    assert "damaged" in err.value.message
+
+
+def test_a_second_copy_of_the_app_starting_waits_for_a_live_move(isolated_db, monkeypatch):
+    """Startup recovery in another process must not undo a move that is still running: it
+    waits on the move's lock, then finds the move finished."""
+    import threading
+    did = _book(isolated_db)
+    done = _book(isolated_db)
+    svc.move_chapter(done, 3, 1)
+    real, calls = svc.edit._swap_in, []
+    at_list_swap, go_on = threading.Event(), threading.Event()
+
+    def pause_before_list_swap(tmp, dest):
+        calls.append(dest)
+        if len(calls) == 2:          # the text is swapped; the chapter list is next
+            at_list_swap.set()
+            assert go_on.wait(10)
+        return real(tmp, dest)
+    monkeypatch.setattr(svc.edit, "_swap_in", pause_before_list_swap)
+    mover = threading.Thread(target=svc.move_chapter, args=(did, 3, 1))
+    mover.start()
+    assert at_list_swap.wait(10)
+    recovered = []
+    # lib.file_lock: separate open() calls conflict even inside one process, as two processes do.
+    starter = threading.Thread(target=lambda: recovered.append(svc.recover_interrupted_moves()))
+    starter.start()
+    starter.join(0.5)
+    assert starter.is_alive()        # waiting for the move, not undoing it
+    go_on.set()
+    mover.join(10)
+    starter.join(10)
+    assert recovered == [[]]
+    assert _state(did)[:2] == _state(done)[:2]
+    assert [r[2] for r in _state(did)[2]] == [r[2] for r in _state(done)[2]]
+
+
+def test_startup_gives_up_waiting_on_a_move_lock_that_is_never_let_go(isolated_db, monkeypatch, caplog):
+    from lib import file_lock
+    did = _book(isolated_db)
+    _kill_at(monkeypatch, "raw")
+    with pytest.raises(_Killed):
+        svc.move_chapter(did, 3, 1)
+    monkeypatch.undo()
+    monkeypatch.setattr(svc, "_STARTUP_WAIT_SECONDS", 0.1)
+    lock = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), svc.LOCK_FILENAME)
+    with file_lock.hold(lock):          # another copy of the app holding it, stuck
+        assert svc.recover_interrupted_moves() == []
+    assert svc.JOURNAL_FILENAME in _leftovers(did)
+    assert any("still holds" in r.getMessage() for r in caplog.records)
+    assert svc.recover_interrupted_moves() == [did]   # the next start puts it right
+
+
+def test_a_title_with_no_folder_refuses_the_move_instead_of_crashing(isolated_db):
+    import shutil
+    did = db.create_drama(title_en="No folder")
+    shutil.rmtree(os.path.join(db.DRAMAS_DIR, str(did)), ignore_errors=True)
+    with pytest.raises(ConflictError):
+        svc.move_chapter(did, 2, 1)
+
+
+def test_the_move_lock_is_not_put_in_backups(isolated_db, tmp_path):
+    import zipfile
+    from services import library_backup_service, library_user_backup_service
+    did = _book(isolated_db)
+    svc.move_chapter(did, 3, 1)
+    lock = os.path.join(os.path.dirname(chapter_manifest.raw_path(did)), svc.LOCK_FILENAME)
+    assert os.path.exists(lock)
+    full = str(tmp_path / "full.zip")
+    library_backup_service.write_backup_zip(full)
+    names = zipfile.ZipFile(full).namelist()
+    assert any(n.endswith(chapter_manifest.RAW_NOVEL_FILENAME) for n in names)
+    assert not any(n.endswith(svc.LOCK_FILENAME) for n in names)
+    assert not any(p.endswith(svc.LOCK_FILENAME)
+                   for p, _ in library_user_backup_service._drama_media_files(did))

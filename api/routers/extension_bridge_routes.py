@@ -68,7 +68,8 @@ def _refuse_when_cap_spent() -> None:
     if not name:
         return
     try:
-        translate_run_service.refuse_when_cap_spent(name)
+        translate_run_service.refuse_when_cap_spent(
+            name, False, page_server.get_translation_config().get("model"))
     except ServiceError as e:
         raise page_server.EndpointError(429, e.message) from None
 
@@ -177,6 +178,14 @@ async def post_title(request: Request):
             may_spend = False
     return await _handle(request, lambda payload: titles.resolve_from_bridge(
         payload, principal=principal, translate_title=may_spend), needs=_WRITE)
+
+
+@router.post("/capture-summary", dependencies=[require_device_token()],
+             summary="Device token: keep a finished capture's summary line in the app log")
+async def post_capture_summary(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: extension_bridge_service.record_capture_summary(
+        payload, principal=principal))
 
 
 @router.post("/cancel", dependencies=[require_device_token()],

@@ -30,6 +30,7 @@ STATE_KEYS = {
     "pc_profile_pin.blocked_until": "wall-clock end of the PC window PIN pause, so a restart does not reset it (services/pc_profile_service.py)",
     "quick_video.profile_id": "the profile Quick video translate uses, chosen in Settings (services/quick_video_service.py)",
     "quick_video.runs": "recent Quick video translate runs and the watch-once titles to remove (services/quick_video_service.py)",
+    "app_update.before": "the library's tables and newest backup when the last app update started (app_update_service), rewritten by each update",
     "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",
     "source_update.last_result": "the last update-and-restart's outcome sentence, rewritten on every update",
     "benchmark_sweep": "the Benchmark Lab's latest settings sweep and its decision, written by benchmark_sweep_service",
@@ -467,14 +468,13 @@ def test_tracked_sees_untracked_files(tmp_path):
     assert _tracked("*.py", root=tmp_path) == ["new_module.py"]
 
 
-def test_reasoning_settings_default_to_the_providers_default_and_name_the_engine(isolated_db):
+def test_reasoning_settings_default_per_engine_and_name_the_engine(isolated_db):
     assert settings_service.reasoning_override("claude") is None
-    assert settings_service.reasoning_override("openai") is None
+    assert settings_service.reasoning_override("openai") == "less"
     settings_service.set_settings({"claude_reasoning": "less"})
     assert settings_service.reasoning_override("claude") == "less"
-    assert settings_service.reasoning_override("openai") is None
     assert settings_service.reasoning_override("deepseek") is None
-    settings_service.set_settings({"openai_reasoning": "less"})
-    assert settings_service.reasoning_override("openai") == "less"
+    settings_service.set_settings({"openai_reasoning": "default"})
+    assert settings_service.reasoning_override("openai") is None
     with pytest.raises(InvalidInputError):
         settings_service.set_settings({"openai_reasoning": "none"})

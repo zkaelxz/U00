@@ -319,7 +319,8 @@ def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
         # hold: otherwise members creating titles at once could each pass a cap with room for one.
         with _title_spend_lock:
             translate_run_service.refuse_when_cap_spent(
-                engine_name, bool(config.get("free_tier")) and engine_name == "gemini")
+                engine_name, bool(config.get("free_tier")) and engine_name == "gemini",
+                config.get("model"))
             reply = llm_tasks.call_llm_json(
                 engine, _TITLE_PROMPT.format(language=LANGUAGE_NAMES.get(language, "source-language"),
                                              title=original[:300]),
