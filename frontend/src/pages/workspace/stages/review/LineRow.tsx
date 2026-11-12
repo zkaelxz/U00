@@ -5,6 +5,7 @@ import { translateApi } from '../../../../api/translate'
 import { Badge } from '../../../../components/Badge'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
+import { HelpTip } from '../../../../components/HelpTip'
 import { humanize, humanizeValue } from '../../../../components/labels'
 import { capFirst, languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
@@ -187,10 +188,16 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
   return (
     <div className="review-flag-actions" data-testid="timing-uncertain-actions">
       {snap && actions.snapToSpeech && (
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(lineId)}
-                title={`Set ${formatTime(snap.new_start)} – ${formatTime(snap.new_end)}; saves a history snapshot first`}>
-          Snap to speech
-        </button>
+        <>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(lineId)}
+                  aria-describedby={`timing-snap-times-${lineId}`}>
+            Snap to speech
+          </button>
+          {/* Shown, not a title: phones show these actions too, and have no hover. */}
+          <span className="muted" id={`timing-snap-times-${lineId}`}>
+            Sets {formatTime(snap.new_start)} – {formatTime(snap.new_end)}; saves a history snapshot first
+          </span>
+        </>
       )}
       {actions.checkTiming && (
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={jobRunning} onClick={() => actions.checkTiming?.()}
@@ -226,17 +233,23 @@ const keepFocusInBox = (e: MouseEvent<HTMLElement>) => e.preventDefault()
 
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
+const SHAKY_HELP = 'Whisper was unsure of this line'
+const SOURCE_CHANGED_HELP = 'The source text changed after this line was translated'
+
 // One line: meta, source and translation. Only the active row's controls are Tab
 // stops (roving tabIndex; j/k moves it): with every row's buttons tabbable the
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function ShakyBadge({ line }: { line: ReviewLine }) {
+function ShakyBadge({ line, help }: { line: ReviewLine; help: boolean }) {
   if (!isShaky(line)) return null
   return (
-    <span data-testid="line-shaky" title="Whisper was unsure of this line">
-      <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
-    </span>
+    <>
+      <span data-testid="line-shaky" title={SHAKY_HELP}>
+        <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
+      </span>
+      {help && <HelpTip label="Shaky" id={`line-shaky-help-${line.id}`}>{SHAKY_HELP}</HelpTip>}
+    </>
   )
 }
 
@@ -293,6 +306,11 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
   const flagNoteId = `flag-note-${line.id}`
   const reasonId = `review-reason-${line.id}`
   const langChip = lineLangChip(line.lang, sourceLanguage)
+  // A title never shows on a touch screen. The phone's meta line doesn't wrap and has no room for a
+  // help button, so the active row spells the reasons out under it; elsewhere the active row gets a tip
+  // (active only, to keep the roving Tab order).
+  const badgeHelp = active && !isPhone
+  const badgeReasons = [isShaky(line) && SHAKY_HELP, isSourceChanged(line) && SOURCE_CHANGED_HELP].filter((r): r is string => !!r)
   const textLang = sourceTextLang(line.lang, sourceLanguage)
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -365,11 +383,14 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
-        <ShakyBadge line={line} />
+        <ShakyBadge line={line} help={badgeHelp} />
         {isSourceChanged(line) && (
-          <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
-            <Badge tone="warn">Source changed</Badge>
-          </span>
+          <>
+            <span data-testid="source-changed-badge" title={SOURCE_CHANGED_HELP}>
+              <Badge tone="warn">Source changed</Badge>
+            </span>
+            {badgeHelp && <HelpTip label="Source changed" id={`source-changed-help-${line.id}`}>{SOURCE_CHANGED_HELP}</HelpTip>}
+          </>
         )}
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
         {line.flag && isPhone && (
@@ -390,6 +411,9 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         </button>
       </div>
       {line.flag && !isPhone && <FlagNote text={flagText(line)} />}
+      {isPhone && active && badgeReasons.length > 0 && (
+        <p className="muted review-badge-reasons" data-testid="badge-reasons">{badgeReasons.join('. ')}.</p>
+      )}
       {/* A phone's meta line has no room for the number (it would move ⋯ under the tap point), so the active row shows it below. */}
       {!prose && isPhone && active && <LineCps line={line} lineAbove />}
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
