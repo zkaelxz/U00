@@ -9,6 +9,8 @@ title list to what they can see and sends only into a title they can edit.
 """
 
 import json
+import re
+import threading
 import time
 
 import page_capture_checks
@@ -197,6 +199,42 @@ def _typeset_stored_page(result: dict, drama_id, member: bool) -> None:
     result.setdefault("notes", []).extend([n[0], n[-1]] for n in notes if not member)
 
 
+# A cancelled batch keeps working on the app's side after the extension drops its connection, so
+# the extension names the run (a random id it made up) and says when to stop. Ids are short-lived
+# and unguessable, so remembering them for a while costs nothing and cannot be used to stop
+# anyone else's work.
+_RUN_ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+_CANCELLED_TTL_SECONDS = 3600
+_MAX_CANCELLED_RUNS = 1000
+_cancelled_runs: dict = {}
+_cancelled_lock = threading.Lock()
+
+
+def _run_id(payload) -> str:
+    value = (payload or {}).get("run_id")
+    return value if isinstance(value, str) and _RUN_ID.match(value) else ""
+
+
+def cancel_run(payload) -> dict:
+    """POST /cancel: the remaining pages of a batch carrying this run id are not worked on."""
+    run_id = _run_id(payload)
+    if not run_id:
+        raise page_server.EndpointError(400, "run_id must be 8 to 64 letters, digits or dashes")
+    now = time.monotonic()
+    with _cancelled_lock:
+        for key in [k for k, at in _cancelled_runs.items() if now - at > _CANCELLED_TTL_SECONDS]:
+            del _cancelled_runs[key]
+        if len(_cancelled_runs) >= _MAX_CANCELLED_RUNS:
+            del _cancelled_runs[min(_cancelled_runs, key=_cancelled_runs.get)]
+        _cancelled_runs[run_id] = now
+    return {"cancelled": True}
+
+
+def _run_cancelled(run_id: str) -> bool:
+    with _cancelled_lock:
+        return bool(run_id) and run_id in _cancelled_runs
+
+
 def run_images(payload, images, principal=None) -> dict:
     """principal None is the PC's own token (the local owner); a device
     token passes its member, who may only send into a title they can edit."""
@@ -249,7 +287,11 @@ def run_images(payload, images, principal=None) -> dict:
     results = []
     failed = []
     stopped = ""
+    run_id = _run_id(payload)
     for image in decoded:
+        if _run_cancelled(run_id):
+            stopped = "cancelled by the extension"
+            break
         try:
             if page_capture_checks.looks_blank(image["content"]):
                 raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")

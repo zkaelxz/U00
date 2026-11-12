@@ -207,7 +207,7 @@ function loadBackground({ granted, response, fetchImpl, stored = {} }) {
   let listener = null;
   const fetchCalls = [];
   const sandbox = {
-    console, setTimeout, clearTimeout, AbortController, URL, Uint8Array, btoa, Response,
+    console, setTimeout, clearTimeout, AbortController, URL, Uint8Array, btoa, Response, crypto: globalThis.crypto,
     fetch: async (url, options) => {
       fetchCalls.push({ url, options });
       if (fetchImpl) return fetchImpl(url, options);
@@ -543,10 +543,14 @@ async function novel(scenario) {
       // A request that never answers until its signal is aborted, as a batch the app is still working on.
       let started;
       const begun = new Promise((resolve) => { started = resolve; });
+      const bodies = {};
       const h = loadBackground({
         granted: () => true, stored: { token: "t" },
         fetchImpl: (target, options) => new Promise((resolve, reject) => {
-          if (new URL(target).pathname === "/health") return resolve(new Response(JSON.stringify({ max_images_per_request: 12 })));
+          const path = new URL(target).pathname;
+          if (path === "/health") return resolve(new Response(JSON.stringify({ max_images_per_request: 12 })));
+          bodies[path] = JSON.parse(options.body);
+          if (path === "/cancel") return resolve(new Response(JSON.stringify({ cancelled: true })));
           started();
           options.signal.addEventListener("abort", () => { const e = new Error("aborted"); e.name = "AbortError"; reject(e); });
         }),
@@ -556,7 +560,8 @@ async function novel(scenario) {
       await begun;
       const aborted = await h.ask({ type: "abortSends" });
       const reply = await sending;
-      return { aborted, reply };
+      await new Promise((r) => setTimeout(r, 20));
+      return { aborted, reply, sentRun: (bodies["/page"] || {}).run_id, cancelledRun: (bodies["/cancel"] || {}).run_id };
     }
     case "worker_get_settings": {
       const h = loadBackground({ granted: () => true, stored: { token: "SECRET-TOKEN", serverUrl: "https://baihe.example" } });

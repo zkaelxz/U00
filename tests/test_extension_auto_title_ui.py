@@ -90,3 +90,8 @@ def test_cancel_drops_the_request_in_flight_instead_of_waiting_for_the_app():
     out = _node("worker_abort_send")
     assert out["aborted"]["data"]["aborted"] == 1
     assert out["reply"] == {"ok": False, "cancelled": True, "error": "Cancelled."}
+
+
+def test_cancelling_names_the_running_batch_to_the_app_so_it_stops_too():
+    out = _node("worker_abort_send")
+    assert out["sentRun"] and out["sentRun"] == out["cancelledRun"]
