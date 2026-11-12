@@ -49,6 +49,7 @@ export async function glossarySetup(page: Page, opts: { terms?: object[]; novel?
   }
   await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: terms }))
+  await page.route('**/api/glossary/dramas/1/word-replacements', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/novel/dramas/1/status', (route) =>
     route.fulfill({ json: { drama_id: 1, has_novel_text: novel, char_count: novel ? 900 : 0, chapters: novel ? 3 : 0, ocr_running: false } }),
   )
