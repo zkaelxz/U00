@@ -45,6 +45,7 @@ import { ShowOriginalButton } from './comic/PageOriginal'
 import { useOriginalPages } from './comic/useOriginalPages'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { ScanlatePanel } from './comic/ScanlatePanel'
+import { useWarningMenu } from './comic/useWarningMenu'
 import {
   clampPage,
   comicHref,
@@ -266,6 +267,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     [count, id, visible, current, requestJump],
   )
 
+  const { warningMenu, flash, goToWarning } = useWarningMenu(id, data, current, go)
   const srcFor = useCallback(
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version, 'reader'),
     [id, prefs.typeset, original.originals],
@@ -400,7 +402,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       scopes={scopes}
       onChanged={refreshPages}
       onJob={setWatchedJob}
-      onGoToPage={(n) => go(n, false, true)}
+      onGoToPage={goToWarning}
     />
   )
 
@@ -478,6 +480,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               mounted={paged || inRenderWindow(n, current ?? 1)}
               regions={overlayFor(p)}
               boxText={!phone}
+              flashBoxes={flash?.page === n ? flash.boxes : undefined}
               onLineTap={canEdit ? (idx) => setEditing({ pageId: p.id, number: n, idx }) : undefined}
               onProblem={onProblem}
               figureRef={figureRef(n)}
@@ -519,7 +522,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <h1 className="reader-title">{title ?? (titleError ? 'This title' : 'Loading…')}</h1>
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
-          {!empty && toolsButton}
+          {!empty && <>{warningMenu}{toolsButton}</>}
           {addButton}
           {!empty && editButton}
           {view}
@@ -536,7 +539,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
             data === null && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
           )}
           {toggles}
-          {!empty && toolsButton}
+          {!empty && <>{warningMenu}{toolsButton}</>}
           {addButton}
           {!empty && editButton}
           {view}

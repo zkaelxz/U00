@@ -31,7 +31,7 @@ test('translate all pages, follow the job, then read the typeset pages', async (
   await expect(typeset).toBeEnabled()
   await expect.poll(() => s.images.some((i) => i.endsWith(':rendered'))).toBe(true)
   // Notes are text, never markup.
-  await expect(panel.getByText('<b>1 region</b> had no translation.')).toBeVisible()
+  await expect(panel.getByLabel('Page 1 notes').getByText('<b>1 region</b> had no translation.')).toBeVisible()
   if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/scanlate-desktop.png`, fullPage: true })
   expect(s.unmocked).toEqual([])
 })
@@ -154,4 +154,28 @@ test('opening the panel when the bar wraps to three rows leaves its heading belo
       return bar && head ? head.y - (bar.y + bar.height) : -999
     })
     .toBeGreaterThanOrEqual(0)
+})
+
+test('the warnings menu stays in the bar and jumps to a page with its box marked', async ({ page }) => {
+  await mockScanlate(page, { pageCount: 4, lastPage: 1 })
+  await page.route(/\/api\/scanlate\/dramas\/7\/run-notes$/, (route) =>
+    route.fulfill({
+      json: {
+        drama_id: 7,
+        pages: [
+          { page_id: 702, ordinal: 2, notes: [{ level: 'warning', message: 'Region 2 had no translation and was left as the original.' }] },
+          { page_id: 703, ordinal: 3, notes: [{ level: 'warning', message: 'No bubbles found on this page. That is normal for covers and splash art.' }] },
+        ],
+      },
+    }),
+  )
+  await page.goto('/#/comic/7?page=1')
+  const menu = page.locator('.comic-warning-menu')
+  await expect(menu.getByText('Warnings (2)')).toBeVisible()
+  await menu.getByText('Warnings (2)').click()
+  await expect(menu.getByRole('button', { name: 'Next warning (page 2)' })).toBeVisible()
+  await menu.getByText('Text boxes left in the original language (1)').click()
+  await expect(menu.getByText('Text box numbered 2 on the page has no translation')).toBeVisible()
+  await menu.getByRole('button', { name: 'Next warning (page 2)' }).click()
+  await expect(page.getByTestId('comic-page-label')).toHaveText('Page 2 of 4')
 })
