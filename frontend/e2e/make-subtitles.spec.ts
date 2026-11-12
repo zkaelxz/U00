@@ -93,7 +93,7 @@ test('a transcription that found no lines stops there with its reason instead of
   await c.getByRole('button', { name: 'Make subtitles' }).click()
   await expect(c.getByRole('alert')).toHaveText(NO_LINES)
   await expect(c.getByText('Failed at Transcribe.')).toBeVisible()
-  await expect(c.getByRole('link', { name: 'Fix in Media' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/source`)
+  await expect(c.getByRole('link', { name: 'Fix in Transcribe' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/source`)
   expect(m.translateRuns).toHaveLength(0)
 })
 
