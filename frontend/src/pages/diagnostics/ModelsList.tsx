@@ -89,7 +89,7 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
 
   const { rows, other } = reconcileModels(engines, cache?.hf_cache ?? [])
   return (
-    <Section title="Models" storageKey="diagnostics.models" summary={cache && hasCache ? modelCacheSummary(cache) : 'No downloads yet'} openSignal={openSignal}>
+    <Section title="Models" defaultOpen storageKey="diagnostics.models" summary={cache && hasCache ? modelCacheSummary(cache) : 'No downloads yet'} openSignal={openSignal}>
       {rows.length > 0 && (
         <>
           {cache && hasCache && <p className="muted">Downloaded: {modelCacheSummary(cache)}</p>}

@@ -26,8 +26,8 @@ from scanlate_watermark import is_site_mark_region, logo_box
 # picks OpenCV without raising, so nothing else would tell the person why
 # faint ghosts of the original lettering show under the English.
 LAMA_MISSING_NOTE = ("The LaMa-manga cleanup model is not installed, so the original text was "
-                     "erased with plain OpenCV and may show through. To install it, open Diagnostics, then "
-                     "Models, and press Download next to LaMa-manga (at the PC; about 200 MB), "
+                     "erased with plain OpenCV and may show through. To install it, open Diagnostics, the "
+                     "Models tab, and press Download on the LaMa-manga row (at the PC; about 200 MB), "
                      "then redo the page.")
 
 # One of these three, matching sample_text_style()'s "suggested_style"
