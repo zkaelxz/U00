@@ -70,10 +70,12 @@ def junk_check(job: dict):
     return lambda ln, reply: unusable_reply(ln.zh, reply, runs)
 
 
-def flag_rejected(ln, reason: str) -> None:
+def flag_rejected(ln, reply: str, reason: str) -> None:
+    """The rejected text stays in the note (as for a source-changed line), so a
+    reply the check got wrong can be copied back by hand."""
     if not ln.flag:
         ln.flag = "uncertain_translation"
-        ln.flag_note = f"check: the model's reply for this line was unusable ({reason})"
+        ln.flag_note = f"check: the model's reply for this line was unusable ({reason}): {reply[:2000]}"
 
 
 def _parse_strict(text: str, expected_ids: list) -> dict:
@@ -207,7 +209,7 @@ def _apply_bulk_results_once(bulk_job_id: int, results: list, logged: set) -> di
                 continue
             if reason := unusable(ln, translation):
                 counts["rejected"] += 1
-                flag_rejected(ln, reason)
+                flag_rejected(ln, translation, reason)
                 continue
             if fixes_text:
                 translation = substitute_terms(translation)

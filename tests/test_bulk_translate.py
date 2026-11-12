@@ -2570,6 +2570,7 @@ class TestBulkReplyChecks:
         assert [r["en"] for r in rows[:3]] == ["", "", ""]
         assert [r["flag"] for r in rows[:3]] == ["uncertain_translation"] * 3
         assert "unusable" in rows[0]["flag_note"]
+        assert rows[0]["flag_note"].endswith("<think>plan</think> Hello")  # kept for a hand fix
         assert rows[3]["en"] == "EN[line3]" and not rows[3]["flag"]
         assert job["status"] == "applied"
         assert job["result_summary"]["rejected"] == 3 and job["result_summary"]["applied"] == 1
@@ -2642,3 +2643,18 @@ class TestPaidResultsSurviveAFailedApply:
         assert sum(1 for r in rows if r["en"]) == 4  # batches of 3: the first batch's 3 lines are missing
         summary = isolated_db.get_bulk_job(bulk_id)["result_summary"]
         assert summary["failed_requests"] == 1 and summary["missing"] == 3 and summary["applied"] == 4
+
+    def test_a_failure_after_the_english_was_written_is_not_applied_again(self, isolated_db, monkeypatch):
+        engine, did, bulk_id = self._ended(isolated_db)
+        saves = []
+        real = isolated_db.save_lines
+        monkeypatch.setattr(isolated_db, "save_lines",
+                            lambda *a, **k: (saves.append(k.get("fields")), real(*a, **k))[1])
+        _fail_first(monkeypatch, isolated_db, "save_translation_version")
+
+        bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
+
+        assert isolated_db.get_bulk_job(bulk_id)["status"] == "failed"
+        assert all(r["en"] == _en(r["zh"]) for r in isolated_db.load_lines(did))  # what landed stays
+        assert saves.count(("en",)) == 1  # no second apply
+        assert _usage_ops(isolated_db, did) == ["translate_bulk"] * 3

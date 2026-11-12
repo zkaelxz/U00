@@ -526,7 +526,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
             continue
         if reason := unusable(ln, translation):
             counts["rejected"] = counts.get("rejected", 0) + 1
-            flag_rejected(ln, reason)
+            flag_rejected(ln, translation, reason)
             continue
         if fixes_text:
             translation = substitute_terms(translation)
