@@ -1397,6 +1397,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/characters/dramas/{drama_id}/cast-proposal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The people the glossary scan found, with the pronouns it read, for approval */
+        get: operations["get_cast_proposal_api_characters_dramas__drama_id__cast_proposal_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/characters/dramas/{drama_id}/cast-proposal/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set the chosen pronouns where none are set (never replaces existing ones) */
+        post: operations["post_cast_proposal_apply_api_characters_dramas__drama_id__cast_proposal_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/characters/dramas/{drama_id}/character": {
         parameters: {
             query?: never;
@@ -15283,6 +15317,64 @@ export interface components {
             requires: string;
             /** Unset Label */
             unset_label: string | null;
+        };
+        /** CastApplyEntry */
+        CastApplyEntry: {
+            /** Name */
+            name: string;
+            /**
+             * Pronouns
+             * @enum {string}
+             */
+            pronouns: "she/her" | "he/him" | "they/them";
+        };
+        /** CastApplyRequest */
+        CastApplyRequest: {
+            /** People */
+            people: components["schemas"]["CastApplyEntry"][];
+        };
+        /** CastApplyResult */
+        CastApplyResult: {
+            /** Added */
+            added: string[];
+            /** Kept */
+            kept: string[];
+            /** Not Applied */
+            not_applied: string[];
+            /** Set */
+            set: string[];
+        };
+        /**
+         * CastPerson
+         * @description One person the glossary scan found. pronouns is what the scan read from the text ("" when it
+         *     said unclear); current_pronouns is what the title or its series already has for that name.
+         */
+        CastPerson: {
+            /** Current Pronouns */
+            current_pronouns: string;
+            /** Exists */
+            exists: boolean;
+            /** Name */
+            name: string;
+            /** Occurrences */
+            occurrences: number;
+            /** Pronouns */
+            pronouns: string;
+            /** Term */
+            term: string;
+            /** Who */
+            who: string;
+        };
+        /** CastProposal */
+        CastProposal: {
+            /** Drama Id */
+            drama_id: number;
+            /** Has Series */
+            has_series: boolean;
+            /** People */
+            people: components["schemas"]["CastPerson"][];
+            /** Ready */
+            ready: boolean;
         };
         /** ChaptersGlossaryRunResult */
         ChaptersGlossaryRunResult: {
@@ -35113,6 +35205,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cast_proposal_api_characters_dramas__drama_id__cast_proposal_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CastProposal"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_cast_proposal_apply_api_characters_dramas__drama_id__cast_proposal_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CastApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CastApplyResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
