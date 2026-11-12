@@ -23,7 +23,7 @@ New here? Read [Start here](docs/user-guide.md#start-here). To see how the code 
 
 ### Windows installer (recommended)
 
-Download `BaiheStudio-Setup-<version>.exe` from the project's releases and run it. It installs for your user without admin rights, bundles Python and the interface, and keeps your library in a separate data folder that upgrades never touch. Start it from the Start menu entry **Baihe Studio**.
+Download `BaiheStudio-Setup-<version>.exe` from the project's releases and run it. It installs for your user and the default choices need no administrator prompt; if you tick **Run Baihe Studio in the background from startup** (a Windows service, off by default), Setup asks for administrator permission once. It bundles Python and the interface, and keeps your library in a separate data folder that upgrades never touch. Start it from the Start menu entry **Baihe Studio**.
 
 ### From source (Windows)
 
