@@ -18108,7 +18108,7 @@ export interface components {
         /** DramaFolderOpened */
         DramaFolderOpened: {
             /** Folder */
-            folder?: string | null;
+            folder: string | null;
             /** Opened */
             opened: boolean;
         };
