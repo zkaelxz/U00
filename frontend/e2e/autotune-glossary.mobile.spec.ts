@@ -78,7 +78,7 @@ test('glossary proposals are cards with 44px checkboxes and one primary', async 
     route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
   )
   const prop = (term: string, en: string, already = false) => ({
-    term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name in chapters 1-3', already_in_glossary: already, occurrences: 3, alternatives: [], confidence: 'high',
+    term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name in chapters 1-3', already_in_glossary: already, occurrences: 3, alternatives: [], aliases: [], confidence: 'high',
   })
   await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
     route.fulfill({
@@ -116,7 +116,7 @@ test('with 30 proposals the apply row stays in reach at the bottom', async ({ pa
   )
   const proposals = Array.from({ length: 30 }, (_, i) => ({
     term: `术语${i + 1}`, suggested_translation: `Term ${i + 1}`, category: 'term', policy: 'translate',
-    reason: 'Appears in several chapters', already_in_glossary: i % 7 === 0, occurrences: 3, alternatives: [], confidence: 'high',
+    reason: 'Appears in several chapters', already_in_glossary: i % 7 === 0, occurrences: 3, alternatives: [], aliases: [], confidence: 'high',
   }))
   await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
     route.fulfill({ json: { job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', proposals } }),
@@ -181,8 +181,8 @@ test('proposal cards show confidence, offer Ignore and Select all High at 44px',
       json: {
         job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', run_id: 'run-1',
         proposals: [
-          { term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false, occurrences: 12, alternatives: [], confidence: 'high' },
-          { term: '云深', suggested_translation: 'Cloud', category: null, policy: null, reason: '', already_in_glossary: false, occurrences: 2, alternatives: ['Deep Clouds'], confidence: 'low' },
+          { term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false, occurrences: 12, alternatives: [], aliases: [], confidence: 'high' },
+          { term: '云深', suggested_translation: 'Cloud', category: null, policy: null, reason: '', already_in_glossary: false, occurrences: 2, alternatives: ['Deep Clouds'], aliases: [], confidence: 'low' },
         ],
       },
     }),

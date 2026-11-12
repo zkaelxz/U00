@@ -244,7 +244,7 @@ test.describe('Glossary from novel', () => {
         return route.fulfill({ json: { job_id: 'novelglossary_1', status: 'running', progress: 0.42, message: '', proposals: null, run_id: 'run-1' } })
       }
       const prop = (term: string, en: string, already = false) => ({
-        term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name', already_in_glossary: already, occurrences: 3, alternatives: [], confidence: 'high',
+        term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name', already_in_glossary: already, occurrences: 3, alternatives: [], aliases: [], confidence: 'high',
       })
       return route.fulfill({
         json: {
@@ -335,7 +335,7 @@ test.describe('Glossary from novel', () => {
       route.fulfill({
         json: {
           job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', run_id: 'run-7',
-          proposals: [{ term: '江澄', suggested_translation: 'Jiang Cheng', category: null, policy: null, reason: '', already_in_glossary: true , occurrences: 3, alternatives: [], confidence: 'high'}],
+          proposals: [{ term: '江澄', suggested_translation: 'Jiang Cheng', category: null, policy: null, reason: '', already_in_glossary: true , occurrences: 3, alternatives: [], aliases: [], confidence: 'high'}],
         },
       }),
     )
@@ -366,7 +366,7 @@ test.describe('Glossary from novel', () => {
       route.fulfill({
         json: {
           job_id: 'novelglossary_1', status: 'done', progress: 1, message: '',
-          proposals: [{ term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false , occurrences: 3, alternatives: [], confidence: 'high'}],
+          proposals: [{ term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false , occurrences: 3, alternatives: [], aliases: [], confidence: 'high'}],
         },
       }),
     )
@@ -384,7 +384,7 @@ test.describe('Glossary from novel', () => {
 test.describe('Glossary proposal confidence and ignore list', () => {
   const prop = (term: string, en: string, confidence: 'high' | 'low', occurrences: number, alternatives: string[] = []) => ({
     term, suggested_translation: en, category: 'person', policy: 'keep', reason: '', already_in_glossary: false,
-    occurrences, alternatives, confidence,
+    occurrences, alternatives, aliases: [], confidence,
   })
 
   // Both proposals are listed until the ignore POST lands, as the server filters them.

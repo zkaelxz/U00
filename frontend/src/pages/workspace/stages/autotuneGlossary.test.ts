@@ -36,7 +36,7 @@ const p = (term: string, already = false): NovelGlossaryProposal => ({
   reason: '',
   already_in_glossary: already,
   occurrences: 3,
-  alternatives: [],
+  alternatives: [], aliases: [],
   confidence: 'high',
 })
 
