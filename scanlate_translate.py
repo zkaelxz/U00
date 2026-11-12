@@ -122,8 +122,9 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     if character_notes:
         glossary_block += f"\n\n{character_notes}"
     if chapter_brief:
-        glossary_block += ("\n\nBrief of the whole chapter (who is speaking, names and what "
-                           f"happens), for consistency across pages: {chapter_brief}")
+        glossary_block += ("\n\nBrief of the whole chapter (who is speaking, each speaker's voice, "
+                           "names and what happens), for consistency across pages. Write each "
+                           f"line in its speaker's voice as the brief describes it: {chapter_brief}")
     payload = json.dumps([{"id": k, "text": t} for k, t in items], ensure_ascii=False)
     # OCR of stylised lettering drops Korean word spaces and swaps look-alike
     # characters (불이 read as 붙이 turned "the school caught fire" into "got into
@@ -190,8 +191,9 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
     if character_notes:
         reference += f"\n\n{character_notes}"
     if chapter_brief:
-        reference += ("\n\nBrief of the whole chapter (who is speaking, names and what "
-                      f"happens), for consistency across pages: {chapter_brief}")
+        reference += ("\n\nBrief of the whole chapter (who is speaking, each speaker's voice, "
+                      "names and what happens), for consistency across pages. Write each "
+                      f"line in its speaker's voice as the brief describes it: {chapter_brief}")
     if any(r.get("sound_effect") for r in regions):
         # The answer is set small beside the art, so a sentence would not fit.
         reference += ("\n\nRegions marked sound_effect are onomatopoeia that stay on the art: "
@@ -314,10 +316,12 @@ def build_chapter_brief(page_texts: list, engine, drama_meta: dict, usage_cb=Non
         f"Below is all the text of one {source_name} comic chapter, page by page, read by OCR "
         "(word spaces may be missing and a character may be misread). Write a brief for the "
         "translator who will translate it page by page: who the characters are and how they "
-        "address each other, names and recurring terms with the English to use for each, and a "
-        "few sentences on what happens. Keep it under 200 words.\n\n" + source + "\n\n"
+        "address each other, each main speaker's voice and personality as the chapter shows it "
+        "(how formal, how long their lines run, their attitude and manner of speaking, judged "
+        "from what they say and do), names and recurring terms with the English to use for each, "
+        "and a few sentences on what happens. Keep it under 250 words.\n\n" + source + "\n\n"
         'Return ONLY a JSON object: {"brief": "<the brief in English>"}. No preamble, no markdown fences.')
-    text = call_llm_json(engine, prompt, max_tokens=700, fallback=None, usage_cb=usage_cb)
+    text = call_llm_json(engine, prompt, max_tokens=900, fallback=None, usage_cb=usage_cb)
     if not text:
         return ""
     data = extract_first_json_value(

@@ -365,7 +365,11 @@ def test_the_chapter_brief_reaches_each_pages_translation_and_is_cached(harness,
     page_prompts = [p for p in prompts if "comic chapter" not in p]
     assert len(prompts) - len(page_prompts) == 1
     assert page_prompts and all("Ming is the hero." in p for p in page_prompts)
-    assert "Page 1: 你好" in next(p for p in prompts if "comic chapter" in p)
+    brief_prompt = next(p for p in prompts if "comic chapter" in p)
+    assert "Page 1: 你好" in brief_prompt
+    # The voice comes from the chapter itself: the brief is asked for it and each page is told to use it.
+    assert "voice and personality" in brief_prompt
+    assert all("in its speaker's voice as the brief describes it" in p for p in page_prompts)
     # Running the same chapter again reads the brief from disk, not from the engine.
     prompts.clear()
     run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
