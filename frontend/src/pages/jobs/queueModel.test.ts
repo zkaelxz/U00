@@ -65,7 +65,7 @@ describe('saved settings panel', () => {
 
   it('links each step to the stage that holds its options', () => {
     expect(settingsStage('translate')).toEqual({ stage: 'translate', label: 'Translate' })
-    expect(settingsStage('transcribe')).toEqual({ stage: 'source', label: 'Media' })
+    expect(settingsStage('transcribe')).toEqual({ stage: 'source', label: 'Transcribe' })
     expect(settingsStage('export')).toEqual({ stage: 'export', label: 'Export' })
   })
 

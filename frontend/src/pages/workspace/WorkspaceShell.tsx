@@ -18,7 +18,7 @@ import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
 import { COMIC_STAGE_TITLE, ComicStageNotice, isLineStageForComic } from './ComicStageNotice'
 import { STAGE_COMPONENTS } from './stageRegistry'
-import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage, isCastTab } from './stages'
+import { STAGE_IDS, STAGE_STATE_WORDS, stageLabel, type StageId, stageCount, nextAction, stageStates, startStage, isCastTab } from './stages'
 import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
 import { isPopOutWindow } from '../../nav/popOut'
 import { JobPill } from './JobPill'
@@ -209,7 +209,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
               aria-current={s === active ? 'page' : undefined}
               data-state={st}
               data-comic-skipped={skipped ? 'true' : undefined}
-              title={desc ? `${STAGE_LABELS[s]}: ${desc}` : undefined}
+              title={desc ? `${stageLabel(s, kind)}: ${desc}` : undefined}
             >
               {st ? (
                 <span className="stage-mark" aria-hidden="true">
@@ -218,7 +218,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
               ) : (
                 <span className="stage-mark-slot" aria-hidden="true">○</span>
               )}
-              <span className="stage-label" data-label={STAGE_LABELS[s]}>{STAGE_LABELS[s]}</span>
+              <span className="stage-label" data-label={stageLabel(s, kind)}>{stageLabel(s, kind)}</span>
               {st === 'blocked' && <span className="visually-hidden"> (blocked)</span>}
               {count ? (
                 <span className="stage-count" aria-hidden="true">
@@ -244,7 +244,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           {actions}
         </div>
       </Sheet>
-      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
+      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{stageLabel(active, kind)}: {activeDesc}</p>}
       {drama ? (
         <ErrorBanner error={error} />
       ) : (
