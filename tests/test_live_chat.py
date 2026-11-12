@@ -74,6 +74,23 @@ def test_parse_reply_keeps_text_and_drops_custom_emotes_and_links():
     assert following == ("tok2", 3000)
 
 
+def test_parse_reply_keeps_the_send_time_and_zero_for_a_missing_or_garbled_one():
+    reply = _reply([
+        {"addChatItemAction": {"item": {"liveChatTextMessageRenderer": {
+            "id": f"m{n}", "authorName": {"simpleText": "Ann"}, "message": {"runs": [{"text": "你好"}]},
+            **({"timestampUsec": stamp} if stamp is not None else {})}}}}
+        for n, stamp in enumerate(["1762950600123456", None, "soon", "-5", "9" * 20], 1)])
+    messages, _ = live_chat.parse_reply(reply)
+    assert [m["sent_at"] for m in messages] == [pytest.approx(1762950600.123456), 0.0, 0.0, 0.0, 0.0]
+
+
+def test_board_keeps_the_send_time_with_the_message():
+    board = live_chat.ChatBoard()
+    board.add("Ann", "你好", "", "pending", 1762950600.0)
+    board.add("Bo", "加油", "", "pending")
+    assert [m["sent_at"] for m in board.snapshot()["messages"]] == [1762950600.0, 0.0]
+
+
 def test_parse_reply_with_no_continuation_means_the_chat_ended():
     messages, following = live_chat.parse_reply({"continuationContents": {"liveChatContinuation": {"actions": []}}})
     assert messages == [] and following is None
