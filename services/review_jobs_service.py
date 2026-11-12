@@ -164,9 +164,9 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     if api_key is None:
         raise MissingKeyError(engine_name)
     # Every paid run, live or bulk, is refused once the month's cap is used up.
-    translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier)
+    translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier, model)
     if bulk:
-        paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier)
+        paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier, model)
         engine = engine_registry.get_engine(engine_name, api_key, model)
         return _start_bulk(kind, drama_id, engine, engine_name, len(lines),
                            bulk_kwargs(drama) if bulk_kwargs else {})
@@ -266,7 +266,8 @@ def start_fix_flagged(drama_id: int, engine_name: str | None = None, model: str 
 
     def make_args(drama, lines, eng, name):
         cap = None
-        if translate_run_service.engine_cap_applies(name, gemini_free_tier):
+        if translate_run_service.engine_cap_applies(
+                name, gemini_free_tier, getattr(eng, "model", None)):
             monthly = translate_run_service.month_cap_usd()
             cap, refusal = pricing.resolve_cost_cap(
                 job_cost_cap_usd, monthly, db.get_month_spend() if monthly else 0.0)

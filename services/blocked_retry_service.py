@@ -138,7 +138,8 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
                 "model": None, "retried": True, "blocked": False, "reason": None,
                 "line": _reload(drama_id, line.id)}
     translate_run_service.refuse_when_cap_spent(
-        engine_name, engine_name == "gemini" and bool(settings_service.get("gemini_free_tier")))
+        engine_name, engine_name == "gemini" and bool(settings_service.get("gemini_free_tier")),
+        None)  # _build_engine runs the default model
     engine = _build_engine(engine_name)
     if isinstance(getattr(engine, "last_usage", None), dict):
         # Set only on success; a failed call must not log the last call's tokens.
