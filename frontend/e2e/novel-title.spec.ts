@@ -31,6 +31,23 @@ test('a novel opens on its chapter list with Translate, Add chapters, Glossary, 
   await expect(page.getByRole('link', { name: 'Read' })).toHaveAttribute('href', '#/read/2')
 })
 
+test('with lines, each chapter row shows how far it is translated and a Read link to its first page', async ({ page }) => {
+  await mockChapters(page, listBody([row(1, { in_translation: true }), row(2)], { translation_chars: 4001 }))
+  await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(80) }))
+  await page.route('**/api/novel/dramas/2/line-chapters', (route) => route.fulfill({ json: {
+    drama_id: 2, total_lines: 80, source: 'saved',
+    chapters: [
+      { number: 1, title: 'One', first_idx: 0, line_count: 40, translated: 40, reviewed: 0 },
+      { number: 2, title: 'Two', first_idx: 40, line_count: 40, translated: 12, reviewed: 0 },
+    ],
+  } }))
+  await page.goto('/#/drama/2')
+  const items = page.getByRole('list', { name: 'Saved chapters' }).getByRole('listitem')
+  await expect(items.first()).toContainText('Translated')
+  await expect(items.nth(1)).toContainText('12 of 40 lines translated')
+  await expect(items.nth(1).getByRole('link', { name: /^Read chapter 2/ })).toHaveAttribute('href', '#/read/2?page=2')
+})
+
 test('Translate is a button (it runs the link chain) while the novel has chapters but no lines, and Read still opens the Reader', async ({ page }) => {
   await mockChapters(page, listBody([row(1)]))
   await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(0) }))

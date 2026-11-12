@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getRawChapterText, getRawChapters } from './novelChapters'
+import { getLineChapters, getRawChapterText, getRawChapters } from './novelChapters'
 
 function fakeFetch(urls: string[]) {
   return (async (input: RequestInfo | URL) => {
@@ -19,5 +19,10 @@ describe('novel chapters API', () => {
     const urls: string[] = []
     await getRawChapterText(4, 7, 20000, 50000, fakeFetch(urls))
     expect(urls).toEqual(['/api/novel/dramas/4/raw-novel/chapters/7?offset=20000&limit=50000'])
+  })
+  it('asks which lines belong to which chapter', async () => {
+    const urls: string[] = []
+    await getLineChapters(4, fakeFetch(urls))
+    expect(urls).toEqual(['/api/novel/dramas/4/line-chapters'])
   })
 })
