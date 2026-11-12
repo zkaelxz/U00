@@ -276,8 +276,57 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
         if page["series"] and series_name:
             _join_series(drama_id, series_name)
         _remember_links(drama_id, page, host)
-        return _answer(drama_id, True, [f for f in ("title_zh", "title_en") if created.get(f)]
-                       + (["source_url"] if clean_url else []))
+        filled_names = ([f for f in ("title_zh", "title_en") if created.get(f)]
+                        + (["source_url"] if clean_url else []))
+        translate = page["fill"] and original and not english
+    # Outside the lock: an AI call must not hold up the next title's lookup.
+    if translate and _translate_title_once(drama_id, original, language):
+        filled_names.append("title_en")
+    return _answer(drama_id, True, filled_names)
+
+
+_TITLE_PROMPT = ("Translate this {language} comic or novel title into natural English, as a published "
+                 "title would read. Return ONLY a JSON object: {{\"title\": \"<the English title>\"}}. "
+                 "Title: {title}")
+
+
+def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
+    """Puts an English title on a title the capture just created from a page that gave only the
+    original name, with one small AI call on the default engine. Runs only at creation, so a
+    later chapter never spends again, and only fills a blank English title, so a name the person
+    typed stays. Skipped (False) when the monthly cap is used up, the engine has no key or the
+    reply is unusable; it never fails the import."""
+    try:
+        from core import LANGUAGE_NAMES
+        from engine_backends import engine_registry, llm_tasks, paid_calls
+        from engine_backends.shared import extract_first_json_value
+        from services import settings_service, translate_run_service, translate_service
+        engine_name = str(settings_service.get("default_engine"))
+        engine_cls = engine_registry.ENGINES.get(engine_name)
+        if engine_cls is None or not getattr(engine_cls, "supports_reference", False):
+            return False
+        free_tier = engine_name == "gemini" and bool(settings_service.get("gemini_free_tier"))
+        translate_run_service.refuse_when_cap_spent(engine_name, free_tier)
+        key = translate_service.resolve_api_key(engine_name)
+        if key is None:
+            return False
+        engine = engine_registry.get_engine(
+            engine_name, key, free_tier=free_tier,
+            base_url=settings_service.ollama_url() if engine_name == "ollama" else None)
+        reply = llm_tasks.call_llm_json(
+            engine, _TITLE_PROMPT.format(language=LANGUAGE_NAMES.get(language, "source-language"),
+                                         title=original[:300]),
+            max_tokens=150, fallback=None,
+            usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extension_title_translate"))
+        data = extract_first_json_value(re.sub(r"^```json|^```|```$", "", (reply or "").strip(),
+                                               flags=re.MULTILINE).strip())
+        english = " ".join(str(data.get("title") or "").split()) if isinstance(data, dict) else ""
+        english = redact_secrets(english)[:drama_service.MAX_NAME_LEN]
+        return bool(english) and bool(db.dramas.fill_blank_fields(drama_id, {"title_en": english}))
+    except Exception as exc:
+        import applog
+        applog.get_logger().warning("Translating a new title failed: %s", redact_secrets(str(exc)))
+        return False
 
 
 _STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ForbiddenError, 403), (ConflictError, 409))
