@@ -68,6 +68,22 @@ test('opens at page 1, pages forward and updates ?page', async ({ page }) => {
   }
 })
 
+test('the chapter list searches, shows translated state and jumps to the chapter page', async ({ page }) => {
+  const chapter = (number: number, title: string, first_idx: number, line_count: number, translated: number) =>
+    ({ number, title, first_idx, line_count, translated, reviewed: 0 })
+  await page.route('**/api/novel/dramas/2/line-chapters', (route) => route.fulfill({
+    json: { drama_id: 2, source: 'lines', total_lines: 90, chapters: [chapter(1, 'Start', 0, 50, 50), chapter(2, 'Fox', 50, 40, 10)] },
+  }))
+  await page.goto('/#/read/2?page=1')
+  await page.getByRole('button', { name: '1. Start' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Chapters' })
+  await expect(sheet.getByText('10 of 40 translated')).toBeVisible()
+  await sheet.getByLabel('Search chapters').fill('fox')
+  await expect(sheet.getByText('Translated', { exact: true })).toHaveCount(0)
+  await sheet.getByRole('button', { name: /2\. Fox/ }).click()
+  await expect(page).toHaveURL(/page=2$/)
+})
+
 test('the page opened at its own URL runs its scripts in an opaque origin, not the app’s', async ({ page }) => {
   await page.goto('/api/reader/dramas/2/page.html?page=1')
   await expect(page.locator('.line-row')).toHaveCount(40)
