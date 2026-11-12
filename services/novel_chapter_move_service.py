@@ -14,6 +14,9 @@ offset into the file, which a reorder would leave pointing at the wrong text.
 Returns the numbers and booleans only; never a path. No FastAPI import.
 """
 import filecmp
+import hashlib
+import json
+import logging
 import os
 import shutil
 import tempfile
@@ -30,6 +33,10 @@ from sources import pipeline, store
 _NOT_ALIGNED = ("The chapters and the lines do not line up (a chapter's title line is missing or "
                 "out of order, or a line was edited), so the chapters can't be moved safely. Restore "
                 "the lines from the line history, or undo the edits, and try again.")
+_STUCK = ("A chapter move on this title was interrupted and its lines or text changed afterwards, "
+          "so it can't be finished or undone safely. Restore the lines from the line history "
+          "(\u201cbefore moving a chapter\u201d) and ask for help clearing the stopped move.")
+JOURNAL_FILENAME = ".chapter-move.json"
 _TIMED = ("These lines have their own times, so reordering chapters would put them out of step "
           "with the audio. Only untimed novel lines can be reordered.")
 
@@ -40,6 +47,8 @@ def move_chapter(drama_id: int, number: int, to_number: int) -> dict:
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(edit._BUSY)
         with pipeline._page_lock(drama_id):
+            if not _recover(drama_id):
+                raise ConflictError(_STUCK)
             return _move_locked(drama_id, number, to_number)
 
 
@@ -205,6 +214,130 @@ def _roll_back(drama_id: int, raw: str, folder: str, raw_swapped: bool, manifest
         raise ConflictError("The move failed and was only partly undone. " + " ".join(stuck))
 
 
+def _sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _journal_path(drama_id: int) -> str:
+    return os.path.join(db.DRAMAS_DIR, str(int(drama_id)), JOURNAL_FILENAME)
+
+
+def _write_durably(path: str, text: str) -> None:
+    """Writes `text` to `path` through a temp file in the same folder, so a stop leaves the old
+    file or the new one, never half of one."""
+    fd, tmp = tempfile.mkstemp(prefix=".move_", suffix=".part", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _write_journal(drama_id: int, raw: str, rows: list, moved: list, tmp_raw: str,
+                   tmp_man: str, narration_is_copy: bool) -> None:
+    with open(manifest.manifest_path(drama_id), encoding="utf-8") as f:
+        old_manifest = f.read()
+    with open(tmp_man, encoding="utf-8") as f:
+        new_manifest = f.read()
+    _write_durably(_journal_path(drama_id), json.dumps({
+        "old_ids": [r["id"] for r in rows], "moved_ids": [ln.id for ln in moved],
+        "old_sha256": _sha256(raw), "new_sha256": _sha256(tmp_raw),
+        "old_manifest": old_manifest, "new_manifest": new_manifest,
+        "temp_files": [os.path.basename(tmp_raw), os.path.basename(tmp_man)],
+        "narration_is_copy": narration_is_copy}))
+
+
+def _in_order(rows: list, ids: list) -> list:
+    """The lines put in the order of `ids` and renumbered: a move changes only positions, so
+    this is all it takes to put the lines back."""
+    by_id = {r["id"]: r for r in rows}
+    out = []
+    for i, lid in enumerate(ids):
+        ln = line_from_row(by_id[lid])
+        ln.idx, ln.start, ln.end = i, float(i), float(i) + 1.0
+        out.append(ln)
+    return out
+
+
+def _recover(drama_id: int) -> bool:
+    """Finishes or undoes a move a hard kill stopped, from its journal. The lines are saved
+    before the text is swapped, so the text tells which side the move stopped on: the old text
+    means the lines go back to the old order, the new text means only the chapter list (and the
+    translation copy) is left to write. True when there was nothing to do or it was done; False
+    (journal kept) when the lines or the text are in neither state, which needs a person."""
+    path = _journal_path(drama_id)
+    if not os.path.exists(path):
+        return True
+    with open(path, encoding="utf-8") as f:
+        journal = json.load(f)
+    raw = manifest.raw_path(drama_id)
+    folder = os.path.dirname(raw)
+    man = manifest.manifest_path(drama_id)
+    rows = db.load_lines(drama_id)
+    ids = [r["id"] for r in rows]
+    text = _sha256(raw) if os.path.isfile(raw) else None
+    if text == journal["old_sha256"] and ids in (journal["old_ids"], journal["moved_ids"]):
+        if ids != journal["old_ids"]:
+            db.save_lines(drama_id, _in_order(rows, journal["old_ids"]),
+                          expect_unchanged=[line_from_row(r) for r in rows])
+        # Only missing, never stale: the list is removed before the text is swapped.
+        if not os.path.exists(man):
+            _write_durably(man, journal["old_manifest"])
+    elif text == journal["new_sha256"] and ids == journal["moved_ids"]:
+        if not os.path.exists(man):
+            _write_durably(man, journal["new_manifest"])
+        narration = os.path.join(folder, novel_text.NOVEL_SOURCE_FILENAME)
+        if journal["narration_is_copy"] and not (
+                os.path.isfile(narration) and filecmp.cmp(raw, narration, shallow=False)):
+            edit._copy_to_translation_text(raw, narration, folder)
+    else:
+        return False
+    for name in journal["temp_files"]:
+        tmp = os.path.join(folder, os.path.basename(name))
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    os.remove(path)
+    return True
+
+
+def recover_interrupted_moves() -> list:
+    """Run at start, before any request: finishes or undoes every chapter move a hard kill
+    stopped. Returns the ids of the titles put right; one that can't be is logged and left
+    for move_chapter to refuse."""
+    fixed = []
+    try:
+        names = os.listdir(db.DRAMAS_DIR)
+    except OSError:
+        return fixed
+    for name in names:
+        if not name.isdigit() or not os.path.exists(_journal_path(int(name))):
+            continue
+        try:
+            if _recover(int(name)):
+                fixed.append(int(name))
+                continue
+        except Exception:
+            logging.getLogger(__name__).warning("Interrupted chapter move on title %s could not be "
+                                                "put right", name, exc_info=True)
+            continue
+        logging.getLogger(__name__).warning("Interrupted chapter move on title %s left as it "
+                                            "is: its lines or text changed since", name)
+    return sorted(fixed)
+
+
+def _remove_journal(drama_id: int) -> None:
+    if os.path.exists(_journal_path(drama_id)):
+        os.remove(_journal_path(drama_id))
+
+
 def _move_locked(drama_id: int, number: int, to_number: int) -> dict:
     raw, chapters, sep = _checked(drama_id, number, to_number)
     rows = db.load_lines(drama_id)
@@ -226,6 +359,7 @@ def _move_locked(drama_id: int, number: int, to_number: int) -> dict:
     tmp_raw, tmp_man = _write_moved(raw, folder, chapters, order, sep)
     lines_saved = raw_swapped = manifest_removed = False
     try:
+        _write_journal(drama_id, raw, rows, moved, tmp_raw, tmp_man, narration_is_copy)
         db.save_line_history_snapshot(drama_id, originals, "before moving a chapter")
         db.save_lines(drama_id, moved, expect_unchanged=originals)
         lines_saved = True
@@ -244,8 +378,10 @@ def _move_locked(drama_id: int, number: int, to_number: int) -> dict:
             if os.path.exists(tmp):
                 os.remove(tmp)
         _roll_back(drama_id, raw, folder, raw_swapped, manifest_removed, lines_saved, moved, rows)
+        _remove_journal(drama_id)
         raise
     translation_updated = narration_is_copy and edit._copy_to_translation_text(raw, narration, folder)
+    _remove_journal(drama_id)
     return {"drama_id": drama_id, "number": number, "to_number": to_number,
             "lines_moved": len(moved), "translation_text_updated": bool(translation_updated),
             "translation_text_stale": os.path.isfile(narration) and not translation_updated}
