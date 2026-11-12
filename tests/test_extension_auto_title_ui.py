@@ -76,3 +76,17 @@ def test_a_token_the_app_refuses_is_not_reported_as_the_app_being_down():
     out = _node("popup_health_failure")
     assert out["revoked"] == out["refused"] == "Baihe didn't accept this token."
     assert out["down"] == "Can't reach Baihe on this PC."
+
+
+def test_typeset_is_off_by_default_and_only_sent_when_on_and_saving():
+    out = _node("worker_typeset")
+    assert "typeset" not in out["offBody"]
+    assert out["onBody"]["typeset"] is True
+    assert "typeset" not in out["notSaved"]
+    assert out["saved"] == [{"typeset": True}] and out["settings"] is True
+
+
+def test_cancel_drops_the_request_in_flight_instead_of_waiting_for_the_app():
+    out = _node("worker_abort_send")
+    assert out["aborted"]["data"]["aborted"] == 1
+    assert out["reply"] == {"ok": False, "cancelled": True, "error": "Cancelled."}

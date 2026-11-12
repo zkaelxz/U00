@@ -52,6 +52,7 @@ function container(children) {
 
 function loadContent({ images = [], canvases = [], fetchImage }) {
   const sent = [];
+  const progress = [];
   const fetched = [];
   let listener = null;
   const document = {
@@ -63,7 +64,7 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
     getElementById: () => null,
   };
   const sandbox = {
-    document, console, URL, setTimeout, clearTimeout, performance, crypto: globalThis.crypto,
+    document, console, URL, setTimeout, clearTimeout, setInterval, clearInterval, performance, crypto: globalThis.crypto,
     atob, btoa, Blob, Uint8Array, Promise, Map, Set, WeakMap, WeakSet, Math, Number, String, Array, Error, Date,
     requestAnimationFrame: (cb) => setTimeout(cb, 0),
     getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1", backgroundImage: "none", overflowY: "visible" }),
@@ -83,6 +84,7 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
             return fetchImage(message);
           }
           if (message.type === "send") { sent.push(message); return { ok: true, data: { pages: [] } }; }
+          if (message.type === "progress") progress.push(message);
           return { ok: true };
         },
       },
@@ -99,7 +101,7 @@ function loadContent({ images = [], canvases = [], fetchImage }) {
   vm.createContext(sandbox);
   vm.runInContext(read("content.js"), sandbox);
   const ask = (message, sender = {}) => new Promise((resolve) => { listener(message, sender, resolve); });
-  return { ask, sent, fetched, sandbox };
+  return { ask, sent, fetched, progress, sandbox };
 }
 
 const okImage = (bytes = JPEG, type = "image/jpeg") => async () => ({
@@ -121,6 +123,8 @@ async function content(scenario) {
   const img = () => fakeImg(IMG_URL);
   const summary = (h, result) => ({
     ok: result.ok, code: result.code, origins: result.origins, error: result.error,
+    message: result.data && result.data.message,
+    progress: h.progress.map((m) => m.text),
     partialOrigins: result.data && result.data.origins, unverified: result.data && result.data.unverified,
     fetched: h.fetched,
     sent: h.sent.flatMap((m) => m.images.map((i) => ({ content_type: i.content_type, url: i.url, bytes: Buffer.from(i.data, "base64").length }))),
@@ -400,7 +404,7 @@ function loadNovelPage({ paragraphs = [], selection = "", images = [], heading =
     getElementById: () => null, addEventListener() {},
   };
   const sandbox = {
-    document, console, URL, setTimeout, clearTimeout, Promise, Map, Set, WeakMap, WeakSet, Math, Number,
+    document, console, URL, setTimeout, clearTimeout, setInterval, clearInterval, Promise, Map, Set, WeakMap, WeakSet, Math, Number,
     String, Array, Error, Date, Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
     getSelection: () => ({ toString: () => selection }),
     getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1" }),
@@ -509,6 +513,51 @@ async function novel(scenario) {
         settings: settings.reply.data.autoTitle,
       };
     }
+    case "worker_typeset": {
+      const run = async (stored, store = true) => {
+        const bodies = [];
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t", ...stored },
+          fetchImpl: async (target, options) => {
+            const path = new URL(target).pathname;
+            if (path === "/page" || path === "/pages") bodies.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({ pages: [], max_images_per_request: 12 }), { status: 200 });
+          },
+        });
+        await h.ask({ type: "send", images: [{ key: "k", data: "AAAA", content_type: "image/png", url: "u" }],
+                      dramaId: 1, store, sourceUrl: "https://s/c", filterPages: false });
+        return bodies[0];
+      };
+      const saved = [];
+      const h = loadBackground({ granted: () => true, stored: { token: "t" } });
+      h.sandbox.chrome.storage.local.set = async (value) => { saved.push(value); };
+      const reply = await h.ask({ type: "setTypeset", on: true });
+      return {
+        offBody: await run({}), onBody: await run({ typeset: true }),
+        notSaved: await run({ typeset: true }, false), reply, saved,
+        settings: (await loadBackground({ granted: () => true, stored: { token: "t", typeset: true } })
+          .ask({ type: "getSettings" })).data.typeset,
+      };
+    }
+    case "worker_abort_send": {
+      // A request that never answers until its signal is aborted, as a batch the app is still working on.
+      let started;
+      const begun = new Promise((resolve) => { started = resolve; });
+      const h = loadBackground({
+        granted: () => true, stored: { token: "t" },
+        fetchImpl: (target, options) => new Promise((resolve, reject) => {
+          if (new URL(target).pathname === "/health") return resolve(new Response(JSON.stringify({ max_images_per_request: 12 })));
+          started();
+          options.signal.addEventListener("abort", () => { const e = new Error("aborted"); e.name = "AbortError"; reject(e); });
+        }),
+      });
+      const sending = h.ask({ type: "send", images: [{ key: "k", data: "AAAA", content_type: "image/png", url: "u" }],
+                              dramaId: 1, store: true, sourceUrl: "https://s/c", filterPages: false });
+      await begun;
+      const aborted = await h.ask({ type: "abortSends" });
+      const reply = await sending;
+      return { aborted, reply };
+    }
     case "worker_get_settings": {
       const h = loadBackground({ granted: () => true, stored: { token: "SECRET-TOKEN", serverUrl: "https://baihe.example" } });
       const reply = await h.ask({ type: "getSettings" }, { tab: { id: 1 } });
@@ -589,7 +638,7 @@ function popupExpression(expression) {
   return JSON.parse(sandbox.__out);
 }
 
-function contentExpression(expression) {
+async function contentExpression(expression) {
   const noop = () => {};
   const el = () => ({ addEventListener: noop, appendChild: noop, style: {}, classList: { add: noop, remove: noop } });
   const window = { addEventListener: noop, location: { href: "https://s/c" } };
@@ -607,7 +656,7 @@ function contentExpression(expression) {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(read("content.js"), sandbox);
-  return vm.runInContext(`JSON.stringify(${expression})`, sandbox);
+  return JSON.stringify(await vm.runInContext(expression, sandbox));
 }
 
 async function batching(scenarioJson) {
@@ -654,7 +703,7 @@ const [kind, scenario] = process.argv.slice(2);
 const handlers = {
   content, background, popup, novel,
   popup_expression: async (e) => popupExpression(e),
-  content_expression: async (e) => JSON.parse(contentExpression(e)),
+  content_expression: async (e) => JSON.parse(await contentExpression(e)),
   batching,
 };
 const result = await handlers[kind](scenario);

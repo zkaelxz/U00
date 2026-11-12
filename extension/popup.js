@@ -15,11 +15,14 @@ const els = {
   captureChapter: document.getElementById("captureChapter"),
   captureFromHere: document.getElementById("captureFromHere"),
   cancelCapture: document.getElementById("cancelCapture"),
+  retryMissed: document.getElementById("retryMissed"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
   novelSection: document.getElementById("novelSection"),
   saveNovel: document.getElementById("saveNovel"),
   dramaTitle: document.getElementById("dramaTitle"),
+  typeset: document.getElementById("typeset"),
+  progress: document.getElementById("progress"),
   autoCreate: document.getElementById("autoCreate"),
   autoFill: document.getElementById("autoFill"),
   autoSeries: document.getElementById("autoSeries"),
@@ -338,7 +341,9 @@ function summarizeCapture(data, { store, dramaId }) {
                 (saving && data.stored !== undefined && data.stored < pages);
   const stopped = data.stopped && data.stopped.message;
   if (stopped) parts.push(stopped);
-  const bad = problems.length > 0 || short || !!stopped || notes.some((n) => n[0] === "error");
+  // A cancel is the person's own choice, not a problem to colour red.
+  const stoppedBad = !!stopped && data.stopped.reason !== "cancelled";
+  const bad = problems.length > 0 || short || stoppedBad || notes.some((n) => n[0] === "error");
   return {
     text: parts.join(" · ") + (notes.length ? ` — ${notes[0][1]}` : ""),
     bad,
@@ -369,6 +374,7 @@ async function load() {
   else if (Number.isInteger(data.app_port)) APP_URL = `http://127.0.0.1:${data.app_port}`;
   els.drama.length = 1;
   auto = { ...auto, ...(settings.autoTitle || {}) };
+  els.typeset.checked = settings.typeset === true;
   showAutoOptions();
   const tab = await activeTab();
   const site = siteOf(tab && tab.url);
@@ -405,6 +411,7 @@ async function run(all) {
   // Claimed before any await: a second click lands while activeTab() is pending.
   if (pageRunInFlight || captureInFlight) return;
   pageRunInFlight = true;
+  els.cancelCapture.hidden = false;
   // A capture started now would send the same pages a second time.
   els.captureChapter.disabled = true;
   els.captureFromHere.disabled = true;
@@ -456,6 +463,7 @@ async function run(all) {
     say(`Couldn't run on this page (${e.message}).`, true);
   } finally {
     pageRunInFlight = false;
+    els.cancelCapture.hidden = true;
     els.captureChapter.disabled = false;
     els.captureFromHere.disabled = false;
   }
@@ -463,13 +471,19 @@ async function run(all) {
 
 // Interim status from a long translateVisible run in the page.
 chrome.runtime.onMessage.addListener((message) => {
-  if (message && message.type === "progress" && message.text) say(message.text);
+  if (message && message.type === "progress" && message.text) {
+    say(message.text);
+    const fraction = Number.isFinite(message.fraction) ? message.fraction : null;
+    els.progress.hidden = fraction === null;
+    if (fraction !== null) els.progress.value = fraction;
+  }
 });
 
 // Scrolls the reader and translates every page it mounts. The work runs in
 // the page, so it carries on if this popup closes; the page shows its own
 // progress and Cancel for that case.
 function showCapturing(running) {
+  if (!running) els.progress.hidden = true;
   els.cancelCapture.hidden = !running;
   els.captureChapter.disabled = running;
   els.captureFromHere.disabled = running;
@@ -500,7 +514,8 @@ async function startCapture(fromHere) {
     if (!made) return;
     ({ dramaId, note: autoNote } = made);
   }
-  say("Starting…");
+  say("Looking for the chapter's pages…");
+  els.retryMissed.hidden = true;
   forgetPendingAccess();
   showCapturing(true);
   try {
@@ -525,6 +540,7 @@ async function startCapture(fromHere) {
       sent: store ? stored : translated, cached: 0, store, dramaId }).join(", ");
     const line = destination ? `${message} ${destination}.` : message;
     say(autoNote ? `${autoNote} ${line}` : line, result.data.reason === "error" || result.data.failed > 0);
+    els.retryMissed.hidden = !(result.data.missedCount > 0);
     if (result.data.origins) offerSiteAccess(result.data, { kind: "capture", fromHere });
     if (store && dramaId && stored) showOpenLink(dramaId);
   } catch (e) {
@@ -539,7 +555,7 @@ async function syncCaptureUi() {
   try {
     const tab = await activeTab();
     const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
-    const capture = status && status.ok && status.data.capture;
+    const capture = status && status.ok && (status.data.capture || status.data.visibleRun);
     if (capture) {
       showCapturing(true);
       say(capture.text);
@@ -552,7 +568,7 @@ chrome.runtime.onMessage.addListener((message) => {
   showCapturing(false);
   // A popup that was closed during the run never saw the result; one that
   // started it says it itself, with the saved-destination detail.
-  if (!captureInFlight && message.text) say(message.text, !!message.failed);
+  if (!captureInFlight && !pageRunInFlight && message.text) say(message.text, !!message.failed);
 });
 
 async function runText() {
@@ -629,6 +645,8 @@ els.drama.addEventListener("change", () => {
 els.autoCreate.addEventListener("change", () => saveAutoOption("create", els.autoCreate.checked));
 els.autoFill.addEventListener("change", () => saveAutoOption("fill", els.autoFill.checked));
 els.autoSeries.addEventListener("change", () => saveAutoOption("series", els.autoSeries.checked));
+els.typeset.addEventListener("change", () =>
+  chrome.runtime.sendMessage({ type: "setTypeset", on: els.typeset.checked }));
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
 els.captureChapter.addEventListener("click", () => runCapture(false));
@@ -637,9 +655,24 @@ els.cancelCapture.addEventListener("click", async () => {
   const tab = await activeTab();
   try {
     await chrome.tabs.sendMessage(tab.id, { type: "cancelCapture" });
-    say("Stopping…");
+    say("Cancelling…");
   } catch (e) {
     say(`Couldn't reach this page (${e.message}).`, true);
+  }
+});
+els.retryMissed.addEventListener("click", async () => {
+  const tab = await activeTab();
+  els.retryMissed.disabled = true;
+  say("Retrying the missed pages…");
+  try {
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "retryMissed" });
+    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    say(result.data.message, result.data.missedCount > 0);
+    els.retryMissed.hidden = !(result.data.missedCount > 0);
+  } catch (e) {
+    say(`Couldn't reach this page (${e.message}).`, true);
+  } finally {
+    els.retryMissed.disabled = false;
   }
 });
 els.translateText.addEventListener("click", runText);
