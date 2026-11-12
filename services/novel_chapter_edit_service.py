@@ -206,7 +206,7 @@ def _rename_locked(drama_id: int, number: int, new_title: str) -> dict:
         # the list would read as unsplit.
         if raw_swapped:
             _restore_raw(raw, folder)
-        if line_updated:
+        if line_updated and title_pos is not None:
             try:
                 _set_line_title(drama_id, title_pos, db.load_lines(drama_id), new_title, old_line)
             except Exception as put_back:
