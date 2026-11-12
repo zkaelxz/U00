@@ -5,6 +5,7 @@ import { translateApi } from '../../../../api/translate'
 import { Badge } from '../../../../components/Badge'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
+import { HelpTip } from '../../../../components/HelpTip'
 import { humanize, humanizeValue } from '../../../../components/labels'
 import { capFirst, languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
@@ -187,10 +188,16 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
   return (
     <div className="review-flag-actions" data-testid="timing-uncertain-actions">
       {snap && actions.snapToSpeech && (
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(lineId)}
-                title={`Set ${formatTime(snap.new_start)} – ${formatTime(snap.new_end)}; saves a history snapshot first`}>
-          Snap to speech
-        </button>
+        <>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(lineId)}
+                  aria-describedby={`timing-snap-times-${lineId}`}>
+            Snap to speech
+          </button>
+          {/* Shown, not a title: phones show these actions too, and have no hover. */}
+          <span className="muted" id={`timing-snap-times-${lineId}`}>
+            Sets {formatTime(snap.new_start)} – {formatTime(snap.new_end)}; saves a history snapshot first
+          </span>
+        </>
       )}
       {actions.checkTiming && (
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={jobRunning} onClick={() => actions.checkTiming?.()}
@@ -226,17 +233,24 @@ const keepFocusInBox = (e: MouseEvent<HTMLElement>) => e.preventDefault()
 
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
+const SHAKY_HELP = 'Whisper was unsure of this line'
+const SOURCE_CHANGED_HELP = 'The source text changed after this line was translated'
+
 // One line: meta, source and translation. Only the active row's controls are Tab
 // stops (roving tabIndex; j/k moves it): with every row's buttons tabbable the
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function ShakyBadge({ line }: { line: ReviewLine }) {
+function ShakyBadge({ line, active }: { line: ReviewLine; active: boolean }) {
   if (!isShaky(line)) return null
   return (
-    <span data-testid="line-shaky" title="Whisper was unsure of this line">
-      <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
-    </span>
+    <>
+      <span data-testid="line-shaky" title={SHAKY_HELP}>
+        <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
+      </span>
+      {/* A title never shows on a touch screen; the tip opens on a tap. Active row only, to keep its roving Tab order. */}
+      {active && <HelpTip label="Shaky" id={`line-shaky-help-${line.id}`}>{SHAKY_HELP}</HelpTip>}
+    </>
   )
 }
 
@@ -365,11 +379,14 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
-        <ShakyBadge line={line} />
+        <ShakyBadge line={line} active={active} />
         {isSourceChanged(line) && (
-          <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
-            <Badge tone="warn">Source changed</Badge>
-          </span>
+          <>
+            <span data-testid="source-changed-badge" title={SOURCE_CHANGED_HELP}>
+              <Badge tone="warn">Source changed</Badge>
+            </span>
+            {active && <HelpTip label="Source changed" id={`source-changed-help-${line.id}`}>{SOURCE_CHANGED_HELP}</HelpTip>}
+          </>
         )}
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
         {line.flag && isPhone && (
