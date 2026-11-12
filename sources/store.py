@@ -570,7 +570,7 @@ def recent_attempts(source: str | None = None, limit: int = 50) -> list:
 from sources.store_tracking import (  # noqa: E402,F401
     _KEEP_LINK_OWNER, track_series, record_imported, imported_chapter_ids, RETRY_STATUSES,
     MANIFEST_STATUSES, record_import_retry, mark_text_in_flight, import_text_offset, has_text_retry_marker,
-    import_retry_rows, set_tracked_drama, set_tracked_save, MAX_SAVE_PENDING, save_pending_ids,
+    import_retry_rows, set_tracked_drama, forget_drama_links, unlink_all_dramas, set_tracked_save, MAX_SAVE_PENDING, save_pending_ids,
     set_save_pending, untrack_series, known_chapters, move_tracked_series, chapters_waiting, poll_validators,
     save_poll_validators, list_tracked_series,
     known_chapter_ids, record_new_chapters, CHECK_CYCLE_LEASE_KEY, _setting_float,

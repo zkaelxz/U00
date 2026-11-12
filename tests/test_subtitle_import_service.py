@@ -71,6 +71,37 @@ class TestSourceImport:
         assert [x["zh"] for x in db.load_lines(did)] == ["first", "second", "third"]
         assert db.list_line_history(did)  # the old lines are restorable
 
+    def test_lines_that_match_keep_their_notes_and_emotions(self, local_client):
+        did = _drama(_three_lines())
+        ids = [x["id"] for x in db.load_lines(did)]
+        db.save_translation_notes(did, [{"line_id": ids[0], "line_idx": 0, "term": "一", "note": "n1"},
+                                        {"line_id": ids[2], "line_idx": 2, "term": "三", "note": "n3"}])
+        db.save_emotions(did, {0: {"emotion": "angry"}}, id_by_idx={0: ids[0]})
+        srt = ("1\n00:00:01,000 --> 00:00:02,000\n一\n\n"
+               "2\n00:00:03,000 --> 00:00:04,000\n新的\n\n"
+               "3\n00:00:05,000 --> 00:00:06,000\n三\n").encode()
+        r = _upload(local_client, did, "apply", data=srt, confirm_replace_lines=True)
+        assert r.status_code == 200, r.text
+        rows = db.load_lines(did)
+        assert [x["zh"] for x in rows] == ["一", "新的", "三"]
+        # The matched lines keep their rows, so their notes and tags stay.
+        assert rows[0]["id"] == ids[0] and rows[2]["id"] == ids[2] and rows[1]["id"] not in ids
+        assert (rows[0]["start"], rows[0]["end"]) == (1.0, 2.0)
+        assert {n["note"] for n in db.list_translation_notes(did)} == {"n1", "n3"}
+        assert db.load_emotions(did)
+
+    def test_preview_and_refusal_count_notes_the_import_would_delete(self, local_client):
+        did = _drama(_three_lines())
+        ids = [x["id"] for x in db.load_lines(did)]
+        db.save_translation_notes(did, [{"line_id": ids[1], "line_idx": 1, "term": "二", "note": "gone"}])
+        pv = _upload(local_client, did, "preview")  # SRT cues match none of 一二三
+        assert pv.status_code == 200
+        assert (pv.json()["kept_lines"], pv.json()["notes_removed"]) == (0, 1)
+        r = _upload(local_client, did, "apply")
+        assert r.status_code == 422
+        assert r.json()["error"]["details"]["notes_removed"] == 1
+        assert [x["id"] for x in db.load_lines(did)] == ids and db.list_translation_notes(did)
+
     def test_bilingual_split_fills_translation_too(self, local_client):
         data = b"1\n00:00:01,000 --> 00:00:02,000\n\xe4\xbd\xa0\xe5\xa5\xbd\nHello\n"
         did = _drama()

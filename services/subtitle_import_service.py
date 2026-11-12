@@ -17,6 +17,7 @@ Re-aligning the new lines against the audio is the existing Re-time job, which
 the caller starts from the returned `line_ids`.
 """
 
+import copy
 import hashlib
 import json
 from typing import Optional
@@ -35,6 +36,9 @@ from lib.errors import InvalidInputError
 MODES = ("source", "translation")
 SAMPLE_CUES = 5
 SNAPSHOT_LABEL = "before subtitle import"
+# How far a cue's start may sit from a current line with the same text and
+# still count as that line (a re-exported file's times drift by rounding).
+KEEP_MATCH_SECONDS = 1.0
 # As many imports' ASS headers as line history keeps snapshots, so undoing
 # back to any of them finds its header.
 KEPT_ASS_HEADERS = 10
@@ -70,7 +74,35 @@ def _kept_headers(stored, header) -> str:
     return json.dumps({"headers": dict(list(headers.items())[-KEPT_ASS_HEADERS:])}, ensure_ascii=False)
 
 
-def _plan(parsed, mode: str, split_bilingual: bool, translation_first: bool, lines: list) -> dict:
+def _keep_matching_lines(new_lines: list, translations, lines: list) -> int:
+    """Gives each new line the id of the current line that has the same text at
+    about the same time, and its other fields (notes, emotion tags, speaker,
+    flags, dub clip), so a full sync updates that row in place. Notes and
+    emotion tags live on the row, not on the Line, so a line given a new id
+    would lose them with no undo (the history snapshot holds line fields only).
+    Returns how many were kept."""
+    unused = {}
+    for old in lines:
+        unused.setdefault((old.zh or "").strip(), []).append(old)
+    kept = 0
+    for i, new in enumerate(new_lines):
+        candidates = unused.get(new.zh.strip(), [])
+        best = min(candidates, key=lambda o: abs(o.start - new.start), default=None)
+        if best is None or abs(best.start - new.start) > KEEP_MATCH_SECONDS:
+            continue
+        candidates.remove(best)
+        keeper = copy.copy(best)
+        keeper.orig = dict(best.orig) if best.orig is not None else None
+        keeper.merged_ids = []
+        keeper.idx, keeper.start, keeper.end, keeper.ass_event = new.idx, new.start, new.end, new.ass_event
+        if translations:
+            keeper.en = new.en
+        new_lines[i] = keeper
+        kept += 1
+    return kept
+
+
+def _plan(drama_id: int, parsed, mode: str, split_bilingual: bool, translation_first: bool, lines: list) -> dict:
     """What an import would do, without writing. `lines` are the title's
     current Line objects."""
     if mode not in MODES:
@@ -87,6 +119,9 @@ def _plan(parsed, mode: str, split_bilingual: bool, translation_first: bool, lin
                              ass_event=_event_json(c, header_key))
             for i, c in enumerate(cues)]
         plan["replaces_lines"] = len(lines)
+        plan["kept_lines"] = _keep_matching_lines(plan["new_lines"], translations, lines)
+        kept_ids = {ln.id for ln in plan["new_lines"] if ln.id is not None}
+        plan["notes_removed"] = len(db.line_ids_with_refs(drama_id, {ln.id for ln in lines} - kept_ids))
         return plan
     if not lines:
         raise InvalidInputError("This title has no lines yet. Import the file as source lines first.")
@@ -136,16 +171,17 @@ def preview_import(drama_id: int, data: bytes, filename: str = "", *, encoding: 
     out["mode"] = mode
     lines = db.load_line_objects(drama_id)
     try:
-        plan = _plan(parsed, mode, split_bilingual, translation_first, lines)
+        plan = _plan(drama_id, parsed, mode, split_bilingual, translation_first, lines)
     except InvalidInputError as e:
         # "No lines to put a translation on" is an answer for the preview, not a failure.
         if mode != "translation" or lines:
             raise
-        out.update(existing_line_count=0, replaces_lines=0, matched_lines=0, unmatched_cues=0,
+        out.update(existing_line_count=0, replaces_lines=0, kept_lines=0, notes_removed=0, matched_lines=0, unmatched_cues=0,
                    overwrites=0, unsplit_cues=0, blocked_reason=e.message)
         return out
     out.update(existing_line_count=plan["existing_line_count"], unsplit_cues=plan["unsplit_cues"],
-               replaces_lines=plan.get("replaces_lines", 0), matched_lines=plan.get("matched_lines", 0),
+               replaces_lines=plan.get("replaces_lines", 0), kept_lines=plan.get("kept_lines", 0),
+               notes_removed=plan.get("notes_removed", 0), matched_lines=plan.get("matched_lines", 0),
                unmatched_cues=plan.get("unmatched_cues", 0), overwrites=plan.get("overwrites", 0),
                blocked_reason=None)
     return out
@@ -166,13 +202,18 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
                                 + " ".join(p.message for p in parsed.problems if p.severity == "error"))
     with restructure_service.exclusive_write(drama_id):
         current = db.load_line_objects(drama_id)
-        plan = _plan(parsed, mode, split_bilingual, translation_first, current)
+        plan = _plan(drama_id, parsed, mode, split_bilingual, translation_first, current)
         if mode == "source":
             if current and not confirm_replace_lines:
+                lost = plan["notes_removed"]
+                warning = (f" {lost} line(s) that the file doesn't match have notes or emotion tags, "
+                           "which are deleted and can't be restored by undo." if lost else "")
                 raise InvalidInputError(
                     f"This title already has {len(current)} line(s); importing replaces them. "
-                    "Confirm to continue (the old lines are saved to history first).",
-                    details={"reason": "confirm_replace_lines", "existing_line_count": len(current)})
+                    "Lines with the same text at the same time keep their notes and emotion tags."
+                    + warning + " Confirm to continue (the old lines are saved to history first).",
+                    details={"reason": "confirm_replace_lines", "existing_line_count": len(current),
+                             "notes_removed": lost})
             written = plan["new_lines"]
             history_id = db.save_line_history_snapshot(drama_id, current, SNAPSHOT_LABEL) if current else None
             if parsed.ass_header is not None:
@@ -206,6 +247,7 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
     return {"mode": mode, "format": parsed.format, "encoding": parsed.encoding,
             "lines_written": len(written), "line_ids": [ln.id for ln in written],
             "replaced_lines": plan.get("replaces_lines", 0),
+            "kept_lines": plan.get("kept_lines", 0),
             "matched_lines": plan.get("matched_lines", 0),
             "unmatched_cues": plan.get("unmatched_cues", 0),
             "undo": handle}

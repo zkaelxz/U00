@@ -51,8 +51,12 @@ export function fileSummary(p: SubtitleImportPreview): string {
 export function impactLine(p: SubtitleImportPreview): string {
   if (p.blocked_reason) return p.blocked_reason
   if (p.mode === 'source') {
+    const lost = p.notes_removed > 0
+      ? ` ${p.notes_removed} line${p.notes_removed === 1 ? ' has' : 's have'} notes or emotion tags that nothing in the file matches; they are deleted and Undo cannot bring them back.`
+      : ''
+    const kept = p.kept_lines > 0 ? ` ${p.kept_lines} with the same text and time keep their notes and tags.` : ''
     return p.replaces_lines > 0
-      ? `Replaces this title's ${p.replaces_lines} line${p.replaces_lines === 1 ? '' : 's'} with ${p.cue_count} from the file.`
+      ? `Replaces this title's ${p.replaces_lines} line${p.replaces_lines === 1 ? '' : 's'} with ${p.cue_count} from the file.${kept}${lost}`
       : `Adds ${p.cue_count} line${p.cue_count === 1 ? '' : 's'}, with the file's times.`
   }
   const one = p.unmatched_cues === 1

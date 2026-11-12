@@ -14,7 +14,7 @@ import {
 const preview = (over: Partial<SubtitleImportPreview> = {}): SubtitleImportPreview => ({
   format: 'srt', encoding: 'utf-8', encoding_guessed: false, cue_count: 10, duration_seconds: 60,
   detected_language: null, bilingual_suspected: false, problems: [], blocking: false, sample: [],
-  mode: 'source', existing_line_count: 0, replaces_lines: 0, matched_lines: 0, unmatched_cues: 0,
+  mode: 'source', existing_line_count: 0, replaces_lines: 0, kept_lines: 0, notes_removed: 0, matched_lines: 0, unmatched_cues: 0,
   overwrites: 0, unsplit_cues: 0, blocked_reason: null, ...over,
 })
 
@@ -38,6 +38,12 @@ describe('preview wording', () => {
   it('says what a source import replaces or adds', () => {
     expect(impactLine(preview())).toBe("Adds 10 lines, with the file's times.")
     expect(impactLine(preview({ replaces_lines: 1 }))).toBe("Replaces this title's 1 line with 10 from the file.")
+  })
+
+  it('warns when notes or emotion tags would be deleted, and says which lines keep theirs', () => {
+    expect(impactLine(preview({ replaces_lines: 3, kept_lines: 2, notes_removed: 1 }))).toBe(
+      "Replaces this title's 3 lines with 10 from the file. 2 with the same text and time keep their notes and tags."
+      + ' 1 line has notes or emotion tags that nothing in the file matches; they are deleted and Undo cannot bring them back.')
   })
 
   it('says how a translation import matches, and passes a blocked reason through', () => {

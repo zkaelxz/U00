@@ -130,6 +130,10 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
             previous_library_service.after_reset(kept, ok=False)
             raise
         previous_library_service.after_reset(kept, ok=True)
+        # sources.db survives the reset but its title ids are the old library's;
+        # the new titles start again from id 1.
+        from sources import store as src_store
+        src_store.unlink_all_dramas()
         background_jobs.clear_all_jobs()
     finally:
         job_launch.release_exclusive()
