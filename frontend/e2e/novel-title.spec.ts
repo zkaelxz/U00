@@ -68,6 +68,36 @@ test('once translation has started the link box becomes Add chapters, which neve
   expect(calls).not.toContain('translate')
 })
 
+test('the cast card lists the people the scan found and applies only the ticked ones', async ({ page }) => {
+  const posted: unknown[] = []
+  await mockChapters(page, listBody([row(1)]))
+  await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(10) }))
+  await page.route('**/api/glossary/dramas/2/from-novel', (route) => route.fulfill({ json: {
+    job_id: 'g', status: 'done', progress: 1, message: '', result: { proposals: [] }, run_id: 'r' } }))
+  await page.route('**/api/characters/dramas/2/cast-proposal', (route) => route.fulfill({ json: {
+    drama_id: 2, ready: true, has_series: true, people: [
+      { term: '林晚', name: 'Lin Wan', pronouns: 'she/her', who: 'the heroine', occurrences: 9, current_pronouns: '', exists: false },
+      { term: '沈一', name: 'Shen Yi', pronouns: '', who: 'her husband', occurrences: 7, current_pronouns: '', exists: false },
+      { term: '老人', name: 'Old Man', pronouns: 'he/him', who: '', occurrences: 2, current_pronouns: 'he/him', exists: true },
+    ] } }))
+  await page.route('**/api/characters/dramas/2/cast-proposal/apply', (route) => {
+    posted.push(route.request().postDataJSON())
+    return route.fulfill({ json: { set: [], added: ['Lin Wan', 'Shen Yi'], kept: [], not_applied: [] } })
+  })
+  await page.goto('/#/drama/2')
+  const card = page.getByRole('region', { name: 'Cast proposal' })
+  await expect(card).toContainText('the heroine')
+  await expect(card.getByLabel('Include Lin Wan')).toBeChecked()
+  await expect(card.getByLabel('Include Shen Yi')).not.toBeChecked()
+  await expect(card.getByLabel('Include Old Man')).toBeDisabled()
+  await expect(card).toContainText('Already set: he/him')
+  await card.getByLabel('Pronouns for Shen Yi').selectOption('he/him')
+  expect(posted).toEqual([])
+  await card.getByRole('button', { name: 'Apply to characters' }).click()
+  await expect(card).toContainText('Set pronouns for Lin Wan, Shen Yi.')
+  expect(posted).toEqual([{ people: [{ name: 'Lin Wan', pronouns: 'she/her' }, { name: 'Shen Yi', pronouns: 'he/him' }] }])
+})
+
 test('Translate again previews one chapter, counts hand edits, and runs only after confirming', async ({ page }) => {
   const posted: unknown[] = []
   const est = (usd: number) => ({ estimated_usd: usd, target_line_count: 40, engine: 'fake', model: null, free: false,

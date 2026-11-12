@@ -100,6 +100,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/benchmark/translate-sweep/decisions` | admin.diagnostics |
 | `POST /api/benchmark/translate-sweep/estimate` | admin.diagnostics |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |
+| `GET /api/characters/dramas/{drama_id}/cast-proposal` | library.read + lines.read |
+| `POST /api/characters/dramas/{drama_id}/cast-proposal/apply` | lines.edit |
 | `POST /api/characters/dramas/{drama_id}/character` | lines.edit |
 | `GET /api/characters/dramas/{drama_id}/clone-engines` | library.read |
 | `POST /api/characters/dramas/{drama_id}/merge-speakers` | lines.edit |
