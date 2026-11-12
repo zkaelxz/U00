@@ -355,6 +355,51 @@ class TestRowsOfGoneOwners:
         assert db.get_job_record("st_napping")["status"] == "running"
         assert db.get_job_record("st_reused")["detail_state"] == "interrupted"
 
+    def test_a_pid_now_naming_another_process_is_not_the_owner(self, isolated_db):
+        """The owner was hard-killed and its pid went to another process: the
+        start stamp in owner_instance no longer matches, so the row closes at
+        once instead of after the ceiling. The row is fresh, so neither the
+        heartbeat age nor the ceiling could have closed it."""
+        from lib import pid as pid_lib
+        from services import jobs_service
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            stamp = pid_lib.process_start_token(other.pid)
+            if stamp is None:
+                pytest.skip("this OS gives no process start stamp")
+            owners = {"st_reused": "aaaa." + stamp + "0", "st_same": "bbbb." + stamp,
+                      "st_unstamped": "an-older-version"}
+            for job_id, instance in owners.items():
+                db.save_job_record(job_id, "running", owner_pid=other.pid)
+                _set_row(job_id, owner_instance=instance)
+            assert job_store.owner_gone(db.get_job_record("st_reused")) is True
+            assert jobs_service.is_stale(db.get_job_record("st_reused")) is True
+            assert job_store.owner_gone(db.get_job_record("st_same")) is False
+            assert job_store.owner_gone(db.get_job_record("st_unstamped")) is False
+            assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS) == 1
+        finally:
+            other.kill()
+            other.wait(timeout=10)
+        assert db.get_job_record("st_reused")["detail_state"] == "interrupted"
+        assert db.get_job_record("st_same")["status"] == "running"
+        assert db.get_job_record("st_unstamped")["status"] == "running"
+
+    def test_an_unreadable_start_stamp_is_no_evidence(self, monkeypatch):
+        def boom(pid):
+            raise OSError("denied")
+        monkeypatch.setattr(job_store.pid_lib, "process_start_token", boom)
+        assert job_store.pid_reused(os.getppid(), "aaaa.l-x-1") is False
+        monkeypatch.setattr(job_store.pid_lib, "process_start_token", lambda pid: None)
+        assert job_store.pid_reused(os.getppid(), "aaaa.l-x-1") is False
+
+    def test_this_process_stamps_its_own_rows(self):
+        from lib import pid as pid_lib
+        stamp = pid_lib.process_start_token(os.getpid())
+        if stamp is None:
+            pytest.skip("this OS gives no process start stamp")
+        assert job_store.INSTANCE_ID.endswith("." + stamp)
+        assert job_store.pid_reused(os.getpid(), job_store.INSTANCE_ID) is False
+
     def test_my_own_row_with_a_write_still_pending_is_not_closed(self, isolated_db):
         """A job cleared from memory while its last write is owed: the row
         is this process's to write, not an earlier server's to close."""

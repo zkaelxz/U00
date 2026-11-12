@@ -337,7 +337,7 @@ describe('server form options', () => {
 })
 
 describe('chat messages', () => {
-  const msg = (id: number, state = 'done') => ({ id, author: 'A', text: `t${id}`, paid: '', translation: state === 'done' ? `e${id}` : '', state })
+  const msg = (id: number, state = 'done') => ({ id, author: 'A', text: `t${id}`, paid: '', sent_at: 0, translation: state === 'done' ? `e${id}` : '', state })
 
   it('merges by id so a pending message changes in place, oldest first', () => {
     const merged = mergeChat([msg(1, 'pending'), msg(2)], [msg(1), msg(3)])

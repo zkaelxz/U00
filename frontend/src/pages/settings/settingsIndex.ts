@@ -1,6 +1,10 @@
 // Static registry behind Settings search, the tab bar and each card's starting state. Every card on the
 // page belongs to exactly one tab and needs an entry (a test enforces both); notable fields get their own
 // entry so "ollama" finds the card that holds them.
+import type { DiagnosticsCard } from '../diagnostics/diagnosticsTabs'
+import type { LibraryToolsTab } from '../libraryTools/libraryToolsTabs'
+import type { Route } from '../../router'
+
 export type SettingsTab = 'translation' | 'costs' | 'notifications' | 'sharing' | 'integrations' | 'system'
 
 // Each tab starts with only its first card open until the person folds things their own way, so a tab
@@ -161,6 +165,45 @@ export function filterSettings(query: string, available: ReadonlySet<string>): S
     }
   }
   return { cardIds, counts, total: cardIds.size }
+}
+
+// Setup that lives on Diagnostics or Library tools rather than here. Search lists it as a link, so a
+// person who looks for "models" or "backup" in Settings is sent to the page that has it.
+type ElsewhereEntry = { label: string; page: 'Diagnostics' | 'Library tools'; to: Route; keywords: string; requires: string; pcOnly: boolean }
+
+const diag = (card: DiagnosticsCard, label: string, keywords: string): ElsewhereEntry =>
+  ({ label, page: 'Diagnostics', to: { name: 'diagnostics', card }, keywords, requires: 'admin.diagnostics', pcOnly: true })
+const tools = (tab: LibraryToolsTab, label: string, keywords: string, pcOnly = false): ElsewhereEntry =>
+  ({ label, page: 'Library tools', to: { name: 'library-tools', tab }, keywords, requires: 'library.read', pcOnly })
+
+export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
+  diag('recommended', 'Recommended installs', 'install setup first run packages'),
+  diag('packages', 'Packages', 'install python package dependency missing'),
+  diag('ffmpeg', 'ffmpeg', 'video audio install'),
+  diag('cuda-runtime', 'CUDA runtime for GPU Whisper', 'gpu cuda nvidia whisper install'),
+  diag('models', 'Models', 'models download whisper ollama local model offline'),
+  diag('model-status', 'Model status', 'models health working check'),
+  diag('loaded-models', 'Loaded models', 'models memory vram gpu unload ollama'),
+  diag('process-memory', 'Memory by process', 'memory ram vram gpu'),
+  diag('test-models', 'Test my models', 'models test check'),
+  diag('ports', 'Ports', 'port address network server'),
+  diag('log', 'Log', 'log errors app log'),
+  tools('organize', 'Series and presets', 'series presets organize'),
+  tools('voices', 'Voices', 'voices voice bank dubbing tts clone'),
+  tools('activity', 'Activity', 'activity history log jobs'),
+  tools('backup', 'Back up or restore now', 'backup restore copy', true),
+  tools('storage', 'Storage', 'disk space storage size cleanup', true),
+  tools('data', 'Data folder', 'data folder location move library path', true),
+]
+
+/** Same word rule as filterSettings; `allowed` drops what this person or device cannot open. */
+export function filterElsewhere(query: string, allowed: (entry: ElsewhereEntry) => boolean): ElsewhereEntry[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return []
+  return ELSEWHERE_INDEX.filter((entry) => {
+    const hay = `${entry.label} ${entry.page} ${entry.keywords}`.toLowerCase()
+    return allowed(entry) && words.every((w) => hay.includes(w))
+  })
 }
 
 export const settingsCardKey = (cardId: string) => `settings.card.${cardId}`

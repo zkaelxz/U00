@@ -11,6 +11,7 @@
 .pack-list details > :last-child { margin-bottom: var(--space-3); }
 .pack-list details > table { width: calc(100% - 2 * var(--space-4)); }
 .settings-note { margin: 0; max-width: var(--measure); color: var(--muted); font-size: var(--text-sm); }
+.settings-elsewhere ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); font-size: var(--text-sm); }
 
 /* Search above the tabs; the tabs are components/Tabs. */
 .settings-search input { width: 100%; box-sizing: border-box; }

@@ -236,6 +236,51 @@ class TestTitleAndNovel:
         assert r.status_code == 404
 
 
+class TestWritePermissions:
+    """`extension.send` alone must not write into titles once `lines.edit` or `jobs.start` is gone."""
+
+    ROUTES = {
+        "novel": {"heading": "c1", "text": "文本"},
+        "title": {"url": "https://example.com/c/1", "titles": ["我的漫画"], "kind": "comic"},
+        "text": {"text": "你好"},
+        "page": {"images": ["x"]},
+        "pages": {"images": ["x"]},
+    }
+
+    @pytest.mark.parametrize("route", sorted(ROUTES))
+    def test_without_lines_edit_every_write_route_is_refused(self, isolated_db, route):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        r = _client().post(f"{BASE}/{route}", headers=_auth(token), json=self.ROUTES[route])
+        assert r.status_code == 403
+
+    @pytest.mark.parametrize("route", ["text", "page", "pages"])
+    def test_without_jobs_start_the_engine_routes_are_refused(self, isolated_db, route):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        r = _client().post(f"{BASE}/{route}", headers=_auth(token), json=self.ROUTES[route])
+        assert r.status_code == 403
+
+    def test_a_refused_title_creates_nothing(self, isolated_db):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        before = len(db.list_dramas())
+        _client().post(f"{BASE}/title", headers=_auth(token), json=self.ROUTES["title"])
+        assert len(db.list_dramas()) == before
+
+    def test_health_and_cancel_stay_open(self, isolated_db):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        assert _client().get(f"{BASE}/health", headers=_auth(token)).status_code == 200
+        assert _client().post(f"{BASE}/cancel", headers=_auth(token), json={}).status_code != 403
+
+    def test_a_member_with_the_default_rights_still_works(self, isolated_db):
+        _, token = _member("a@example.com")
+        r = _client().post(f"{BASE}/title", headers=_auth(token), json=self.ROUTES["title"])
+        assert r.status_code == 200
+
+
 class _PaidEngine:
     name = "claude"
     model = "claude-x"
@@ -367,3 +412,11 @@ class TestTitleNaming:
         calls = self._setup(monkeypatch, "ollama")
         _u, token = _member("a@example.com")
         assert self._title(token).status_code == 200 and len(calls) == 1
+
+    def test_a_member_without_jobs_start_gets_the_title_but_no_call(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "ollama")
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        r = self._title(token)
+        assert r.status_code == 200 and calls == []
+        assert db.get_drama(r.json()["drama_id"])["title_en"] == ""
