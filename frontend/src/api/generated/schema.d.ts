@@ -21266,6 +21266,11 @@ export interface components {
              * @default
              */
             paid: string;
+            /**
+             * Sent At
+             * @default 0
+             */
+            sent_at: number;
             /** State */
             state: string;
             /** Text */
@@ -26950,7 +26955,7 @@ export interface components {
             ollama_num_ctx_override: number;
             /**
              * Openai Reasoning
-             * @default default
+             * @default less
              */
             openai_reasoning: string;
             /**
@@ -29348,10 +29353,14 @@ export interface components {
             existing_line_count: number;
             /** Format */
             format: string;
+            /** Kept Lines */
+            kept_lines: number;
             /** Matched Lines */
             matched_lines: number;
             /** Mode */
             mode: string;
+            /** Notes Removed */
+            notes_removed: number;
             /** Overwrites */
             overwrites: number;
             /** Problems */
@@ -29371,6 +29380,8 @@ export interface components {
             encoding: string;
             /** Format */
             format: string;
+            /** Kept Lines */
+            kept_lines: number;
             /** Line Ids */
             line_ids: number[];
             /** Lines Written */

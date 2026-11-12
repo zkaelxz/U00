@@ -62,15 +62,17 @@ test('Report a problem: send, saved as #N, copy, GitHub link', async ({ page, co
       markdown: '## What happened\n\nThe list went blank.\n\n### Server log (last 1 lines, redacted)\n\nADMIN-ONLY-LOG-LINE\n' } })
   })
   // A failed API call the capture should record (method, path, status, code only).
-  await page.route('**/api/library/stats', (r) =>
+  // One the Diagnostics page makes: the capture keeps only the newest
+  // BUFFER_SIZE failures, and every unmocked GET here fails too, so a failure
+  // on the Library page is pushed out by the Diagnostics page's own calls.
+  await page.route('**/api/diagnostics/ffmpeg', (r) =>
     r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'secret body text' } } }))
 
-  // Wait for the Library's failed stats call before leaving, or a fast
-  // navigation can cancel it before the capture sees it.
-  const stats = page.waitForResponse('**/api/library/stats')
   await page.goto('/#/library')
-  await stats
+  // Wait for the failed call, or the dialog could open before the capture sees it.
+  const failed = page.waitForResponse('**/api/diagnostics/ffmpeg')
   await page.goto('/#/diagnostics')
+  await failed
   await page.evaluate(() => console.error('boom from test', { line: 'private line text' }))
 
   const open = page.getByRole('button', { name: 'Report a problem' })
@@ -97,7 +99,7 @@ test('Report a problem: send, saved as #N, copy, GitHub link', async ({ page, co
     route: '/diagnostics', mode: 'pc' })
   expect((body.route_history as { route: string }[]).map((r) => r.route)).toEqual(['/library', '/diagnostics'])
   expect(body.failed_requests).toEqual(expect.arrayContaining([
-    expect.objectContaining({ method: 'GET', path: '/api/library/stats', status: 500, code: 'internal_error' })]))
+    expect.objectContaining({ method: 'GET', path: '/api/diagnostics/ffmpeg', status: 500, code: 'internal_error' })]))
   expect(body.console).toEqual(expect.arrayContaining([
     expect.objectContaining({ level: 'error', message: 'boom from test [object]' })]))
   const text = JSON.stringify(body)

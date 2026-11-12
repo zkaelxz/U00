@@ -141,7 +141,8 @@ def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
             continue
         outline = max(contours, key=cv2.contourArea)
         hull_len = cv2.arcLength(cv2.convexHull(outline), True)
-        if hull_len and cv2.arcLength(outline, True) / hull_len > tune.CV_MAX_RAGGEDNESS:
+        if (hull_len and cv2.arcLength(outline, True) / hull_len > tune.CV_MAX_RAGGEDNESS
+                and not _burst_rim(filled, outline)):
             rejected.append((x, y, bw, bh, "ragged outline"))
             continue
         problem = _not_lettered(gray, region, filled, contours, x, y)
@@ -156,6 +157,26 @@ def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
     if debug:
         return boxes, rejected
     return boxes
+
+
+def _burst_rim(filled, outline) -> bool:
+    """True for a burst (starburst) balloon: its rim is a ring of hairline notches, so the outline
+    is ragged, yet there are many of them all round and with them filled in the shape is an oval.
+    A white panel that line art cuts has a few notches, or a shape that is not oval."""
+    import cv2
+    tune = scanlate_tuning
+    hull = cv2.convexHull(outline, returnPoints=False)
+    if len(outline) < 5 or hull is None or len(hull) < 4:
+        return False
+    defects = cv2.convexityDefects(outline, hull)
+    if defects is None:
+        return False
+    deep = [d for d in defects.reshape(-1, 4) if d[3] / 256.0 >= tune.CV_BURST_NOTCH_PX]
+    if len(deep) < tune.CV_BURST_MIN_NOTCHES:
+        return False
+    closed = np.zeros_like(filled)
+    cv2.drawContours(closed, [cv2.convexHull(outline)], -1, 1, thickness=-1)
+    return _oval(closed, [cv2.convexHull(outline)])
 
 
 def _not_lettered(gray, region, filled, contours, x, y):

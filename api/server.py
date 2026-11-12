@@ -157,7 +157,8 @@ async def _lifespan(app: FastAPI):
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
     and job records left running by a dead process are closed, as
-    are stale sign-in sessions (expired, idle or of a deactivated user);
+    are stale sign-in sessions (expired, idle or of a deactivated user),
+    and chapter moves a hard kill stopped are finished or undone;
     the exit flush of this server's own job rows is registered here, not
     at import, so tests and GPU workers never run it.
     The household listener's app does none of this, at start or stop: it
@@ -195,6 +196,11 @@ async def _lifespan(app: FastAPI):
         auth_service.prune_audit_log()
     except Exception:
         logging.getLogger(__name__).warning("Activity log pruning failed", exc_info=True)
+    from services import novel_chapter_move_service
+    try:
+        novel_chapter_move_service.recover_interrupted_moves()
+    except Exception:
+        logging.getLogger(__name__).warning("Interrupted chapter move check failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
                                 start_reeval_scheduler, start_remote_health_monitor,
                                 stop_gpu_queue_poller, stop_reeval_scheduler,

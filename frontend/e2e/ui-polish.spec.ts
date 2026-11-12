@@ -14,14 +14,18 @@ async function noPageScroll(page: Page) {
   expect(scroll).toBeLessThanOrEqual(client)
 }
 
+// Both boxes are read in one page call: two separate round-trips let a reflow between them (a late-loading row or banner above
+// the toolbar) put the inner box outside a stale outer one.
 async function expectInside(inner: Locator, outer: Locator, slack = 1) {
-  const a = await inner.boundingBox()
-  const b = await outer.boundingBox()
-  expect(a && b).toBeTruthy()
-  expect(a!.x).toBeGreaterThanOrEqual(b!.x - slack)
-  expect(a!.y).toBeGreaterThanOrEqual(b!.y - slack)
-  expect(a!.x + a!.width).toBeLessThanOrEqual(b!.x + b!.width + slack)
-  expect(a!.y + a!.height).toBeLessThanOrEqual(b!.y + b!.height + slack)
+  const outerHandle = await outer.elementHandle()
+  expect(outerHandle).toBeTruthy()
+  const [a, b] = await inner.evaluate((el, o) => [el.getBoundingClientRect(), o.getBoundingClientRect()], outerHandle!)
+  // A hidden (display:none) element reads as an all-zero box, which would pass every check below; boundingBox() returned null for it.
+  expect(a.width > 0 && a.height > 0 && b.width > 0 && b.height > 0).toBeTruthy()
+  expect(a.x).toBeGreaterThanOrEqual(b.x - slack)
+  expect(a.y).toBeGreaterThanOrEqual(b.y - slack)
+  expect(a.x + a.width).toBeLessThanOrEqual(b.x + b.width + slack)
+  expect(a.y + a.height).toBeLessThanOrEqual(b.y + b.height + slack)
 }
 
 // Text is whole when no label clips its own content.
