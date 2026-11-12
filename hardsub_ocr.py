@@ -187,7 +187,7 @@ PADDLE_MISSING_NOTE = "PaddleOCR isn't installed, so Tesseract was used."
 QWEN3_VL_FALLBACK_NOTE = "Qwen3-VL could not read the frames ({reason}), so RapidOCR was used."
 
 # RapidOCR's wheel model reads Chinese; Korean has its own recognizer (ocr.extract_text_rapidocr).
-_HARDSUB_RAPIDOCR_LANGS = {"zh", "ko"}
+_HARDSUB_RAPIDOCR_LANGS = {"zh", "ko", "ja"}
 
 
 def paddle_installed() -> bool:
