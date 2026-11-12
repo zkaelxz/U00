@@ -540,7 +540,22 @@ jobs:
     permissions:
       contents: write
       actions: read
+      checks: read
     steps:
+      # CI runs on pushes to baihe-subtitler, not on tags: without this a tag on
+      # a commit whose Tests run failed would still publish.
+      - name: Check that Tests passed at the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=test&per_page=100" \
+            --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.started_at) | last | .conclusion // "missing"')"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::The Tests workflow's test check at $GITHUB_SHA is $conclusion, not success. Tag a commit whose Tests run passed, or wait for it to finish and re-run this job. Nothing was published."
+            exit 1
+          fi
+          echo "Tests passed at $GITHUB_SHA."
       - name: Attach the installer, its SHA-256 and its signature to the release
         env:
           GH_TOKEN: ${{ github.token }}
