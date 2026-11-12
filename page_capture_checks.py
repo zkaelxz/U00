@@ -239,3 +239,22 @@ def sniff_image(data: bytes) -> tuple[str, None] | tuple[None, tuple[int, str]]:
     except page_import_limits.ImageRejected as exc:
         reason = str(exc)
         return None, (413 if reason.startswith("over the") else 415, reason)
+
+
+# A typeset page is drawn over the reader's own image, so it goes as a JPEG: a long strip is a
+# few hundred KB that way where its PNG is megabytes. Over the cap the extension keeps its boxes.
+PREVIEW_MAX_BYTES = 1_500_000
+
+
+def jpeg_data_url(path: str) -> str:
+    """The image at `path` as a JPEG data: URL, or "" when it is over PREVIEW_MAX_BYTES."""
+    import base64
+    import io
+
+    from PIL import Image
+    with Image.open(path) as image:
+        buffer = io.BytesIO()
+        image.convert("RGB").save(buffer, format="JPEG", quality=85)
+    if buffer.tell() > PREVIEW_MAX_BYTES:
+        return ""
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
