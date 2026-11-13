@@ -209,6 +209,7 @@ def effective_default_model(engine_name: str):
 # ceiling (translate_run_service.MAX_BATCH_SIZE) stays 60: Claude's reply cap.
 DEFAULT_BATCH_SIZE = 30
 STRONG_ENGINE_BATCH_SIZE = 60
+PLAIN_STREAM_BATCH_SIZE = 10
 
 # (engine, model-name fragments) pairs whose models hold up at the larger batch.
 # A fragment matches anywhere in the lowercased model name; an engine or model
@@ -371,12 +372,20 @@ def _missing_package_name(exc: ImportError, fallback: str) -> str:
     return top if _PACKAGE_NAME_RE.fullmatch(top) else fallback
 
 
-def default_translate_options(engine=None, model=None, novel: bool = False) -> dict:
+def default_translate_options(engine=None, model=None, novel: bool = False,
+                              plain_stream: bool = False) -> dict:
     """Context window sizes and batch size a translate run starts with; the
     batch size follows the engine and model (none given = the generic 30).
-    A novel reads across paragraphs, so it looks further back and ahead."""
-    return {"context_window": 30 if novel else 10, "context_window_ahead": 15 if novel else 6,
-            "batch_size": default_batch_size(engine, model)}
+    A novel reads across paragraphs, so it looks further back and ahead.
+    plain_stream (a stream title on the plain prompt): 10 lines per request, and
+    Gemma 4 gets no neighbouring lines, which made its captions worse."""
+    options = {"context_window": 30 if novel else 10, "context_window_ahead": 15 if novel else 6,
+               "batch_size": default_batch_size(engine, model)}
+    if plain_stream:
+        options["batch_size"] = PLAIN_STREAM_BATCH_SIZE
+        if "gemma4" in _engine_and_model_name(engine, model)[1]:
+            options["context_window"] = options["context_window_ahead"] = 0
+    return options
 
 
 def batch_size_defaults(engines: list) -> dict:
