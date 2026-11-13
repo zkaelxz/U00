@@ -176,8 +176,8 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 /* Open, the panel sits right under the toolbar: sticky, a toolbar with the player and waveform (~380px) covered its labels and first rows on a 800px-tall screen. */
 .review-editor.is-replacing .review-toolbar { position: static; }
 .review-editor.is-replacing .review-line { scroll-margin-top: calc(var(--bar-h, 0px) + var(--space-2)); }
-/* Desktop with a side video: one column as tall as the screen, video and waveform on top and the toolbar, Find and replace and lines scrolling underneath, so the video never leaves view. Only on tall screens: on a shorter one the video card would leave the lines a few rows. The sticky toolbar sticks to the scrolling section's top, not the page's, and rows scroll to just under it. */
-@media (min-width: 1024px) and (min-height: 860px) {
+/* Desktop with a side video: one column as tall as the screen, video and waveform on top and the toolbar, Find and replace and lines scrolling underneath, so the video never leaves view. Only on tall screens, and only from 1400px, where the checks sit in a column beside it: narrower, they stack under the lines and a pinned column would cover them. On a shorter screen the video card would leave the lines a few rows. The sticky toolbar sticks to the scrolling section's top, not the page's, and rows scroll to just under it. */
+@media (min-width: 1400px) and (min-height: 860px) {
   .review-editor.has-side {
     grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2);
     position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2));
