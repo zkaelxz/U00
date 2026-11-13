@@ -5,6 +5,7 @@ tone words made it drop capitals and end punctuation or invent emotion, so this
 recipe says only who talks, the register and the names. On by default for Gemma 4
 stream runs; the `stream_plain_prompt` setting switches it off."""
 
+from .llm_feature_prompts import glossary_term_forms
 from .shared import language_name
 
 # Starts every plain-recipe guidelines block. The engines see only the guidelines
@@ -43,8 +44,10 @@ def names_glossary(glossary_terms) -> str:
     """The glossary as a flat source -> English list of names and special terms.
     Policy rules and category labels are left out: a rule block is what the recipe
     drops. The rows are the title's accepted entries (a model's proposals are never
-    applied unreviewed), so a slang ruling a person made is kept."""
-    rows = [f"{t['term_original']} -> {t['term_translation']}"
+    applied unreviewed), so a slang ruling a person made is kept. A term's aliases
+    stand beside it: the run keeps a term when a line holds an alias, and a model
+    shown only the main spelling would not connect that line to the English name."""
+    rows = [f"{' / '.join(dict.fromkeys(glossary_term_forms(t)))} -> {t['term_translation']}"
             + (f" ({t['notes']})" if t.get("notes") else "")
             for t in glossary_terms or []
             if t.get("term_translation") and t.get("category") not in _ORDINARY_CATEGORIES]
