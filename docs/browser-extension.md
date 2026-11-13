@@ -55,7 +55,7 @@ Click the extension on a page you're reading:
   series*. A drama picked by hand always wins over Auto. Merging two titles
   or moving chapters between titles is not done here: move a title to
   another series in its details in Baihe.
-- **Also save the page into that drama** — untick to translate for
+- **Also save into that drama (and text history)** — untick to translate for
   reading only, without importing anything. The result line says where
   the pages went: "Sent N pages to *title*", or, with saving off, that
   they were drawn on the page only and not saved. Pages already
@@ -69,7 +69,7 @@ Click the extension on a page you're reading:
 - **Draw over page** / **Show / hide** — the
   overlay toggle. Click any overlaid bubble to see the original text
   underneath it.
-- **Clean and typeset saved pages** — when this is on and **Also save the
+- **Clean and typeset pages** — when this is on and **Also save the
   page** is off, translating one page draws Baihe's cleaned, typeset redraw
   over the reader's image instead of plain boxes. The PC redraws the page
   without storing it and sends it back as a JPEG; if that fails, or the
