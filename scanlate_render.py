@@ -8,6 +8,7 @@ bubble's own outline), inpaints the original lettering and draws the result.
 import math
 import os
 import re
+from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -73,7 +74,7 @@ _SYSTEM_FONT_CANDIDATES = {
 }
 
 
-def _finite(value, default: float) -> float:
+def _finite(value: Any, default: float) -> float:
     """`value` as a finite number, else `default`: these arrive from a request, and "nan" or
     "inf" would otherwise raise or slip past the clamps."""
     try:
@@ -88,8 +89,8 @@ class TypesetStyle:
     defaults reproduce the plain render, so nothing changes until one is set."""
     ALIGNS = ("auto", "left", "center", "right")
 
-    def __init__(self, min_font: int = 0, stroke: bool = False, align: str = "auto",
-                 erase_grow: float = 1.0, bubble_fill: int = 0):
+    def __init__(self, min_font: Any = 0, stroke: bool = False, align: str = "auto",
+                 erase_grow: Any = 1.0, bubble_fill: Any = 0):
         self.min_font = int(max(0, min(_finite(min_font, 0), 40)))
         self.erase_grow = max(1.0, min(_finite(erase_grow, 1.0), 3.0))
         self.bubble_fill = int(max(0, min(_finite(bubble_fill, 0), 100)))
