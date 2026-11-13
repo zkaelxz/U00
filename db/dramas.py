@@ -117,6 +117,7 @@ def delete_drama(drama_id: int):
         # The checkpoint/cache/provenance tables are keyed by drama (no foreign key): a checkpoint scope
         # is "<kind>:<drama_id>:<digest>".
         conn.execute("DELETE FROM line_provenance WHERE drama_id = ?", (drama_id,))
+        conn.execute("DELETE FROM title_glossary_series WHERE drama_id = ?", (drama_id,))
         conn.execute("DELETE FROM job_checkpoints WHERE scope LIKE ?", (f"%:{int(drama_id)}:%",))
         conn.commit()
     d = os.path.join(db.DRAMAS_DIR, str(drama_id))
