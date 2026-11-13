@@ -80,3 +80,23 @@ def test_capture_lines_go_with_a_deleted_title(isolated_db):
     with isolated_db.get_conn() as conn:
         conn.execute("DELETE FROM dramas WHERE id = ?", (did,))
     assert isolated_db.list_capture_notes(did) == []
+
+
+def test_stored_note_keeps_no_token_like_path_segment(isolated_db):
+    from services import extension_bridge_service as svc
+    did = isolated_db.create_drama(title_en="T")
+    svc.record_capture_summary({"drama_id": did, "summary":
+        "Stopped: https://site.example/read/AbCdEf0123456789XyZq9876/page?x=1 refused."})
+    [note] = isolated_db.list_capture_notes(did)
+    assert "AbCdEf0123456789XyZq9876" not in note["summary"]
+    assert "site.example" in note["summary"]
+
+
+def test_a_failing_note_write_does_not_fail_the_capture_summary(isolated_db, monkeypatch):
+    from services import extension_bridge_service as svc
+    did = isolated_db.create_drama(title_en="T")
+
+    def broken(*a, **k):
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(isolated_db, "add_capture_note", broken)
+    assert svc.record_capture_summary({"drama_id": did, "summary": "Saved."}) == {"logged": True}

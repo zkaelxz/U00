@@ -250,6 +250,7 @@ def cancel_run(payload) -> dict:
 
 
 MAX_SUMMARY_CHARS = 2000
+_URL_IN_SUMMARY = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
 
 
 def record_capture_summary(payload, principal=None) -> dict:
@@ -263,11 +264,20 @@ def record_capture_summary(payload, principal=None) -> dict:
     require_drama_access(principal, drama_id)
     from applog import get_logger
     from services import scanlate_pages_service
-    text = scanlate_pages_service.clean_note(" ".join(summary.split()))[:MAX_SUMMARY_CHARS]
+    from engine_backends.shared import display_url
+    # A failure reason can quote a link whose path holds a token: keep only what
+    # display_url allows (scheme, host and a path that doesn't look like a secret).
+    one_line = _URL_IN_SUMMARY.sub(lambda m: display_url(m.group(0)) or "[url]", " ".join(summary.split()))
+    text = scanlate_pages_service.clean_note(one_line)[:MAX_SUMMARY_CHARS]
     get_logger().info("Extension capture (title %s%s): %s", int(drama_id) if isinstance(drama_id, int) else "?",
                       ", member" if principal is not None else "", text)
-    if isinstance(drama_id, int) and not isinstance(drama_id, bool) and db.get_drama(drama_id):
-        db.add_capture_note(drama_id, text)
+    if isinstance(drama_id, int) and not isinstance(drama_id, bool):
+        try:
+            if db.get_drama(drama_id):
+                db.add_capture_note(drama_id, text)
+        except Exception:
+            # The note on the title is a nicety: the capture itself is already saved and logged.
+            get_logger().warning("Could not keep the capture note for title %s", drama_id, exc_info=True)
     return {"logged": True}
 
 
