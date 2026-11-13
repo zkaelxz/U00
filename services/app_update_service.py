@@ -153,7 +153,11 @@ def refresh_offer(release) -> None:
         if isinstance(manifest, dict) and _manifest_ok(manifest, release["version"]):
             offer = "available" if _base_matches(manifest) else "needs_full_installer"
             size = app["size"]
-            schema = (release["version"], manifest.get("db_schema_sha256"))
+            # Only the full installer's backup gate reads this; the app-only
+            # path takes the schema from inside the signed zip instead.
+            trusted = _manifest_signed(app, data, release["version"])
+            schema = (release["version"],
+                      manifest.get("db_schema_sha256") if trusted else None)
     with _lock:
         _offer_schema = schema
         _release = (dict(app, version=release["version"])
@@ -494,13 +498,34 @@ def _check_database(manifest) -> None:
     raise ConflictError(_BACKUP_FIRST)
 
 
+def _manifest_signed(app, data: bytes, version) -> bool:
+    """Whether the manifest copy can be believed: always on a copy with no
+    release key (it believes the unsigned installer too), else only with a
+    valid release signature over its bytes."""
+    try:
+        public_key = us._release_public_key()
+        if public_key is None:
+            return True
+        if not app.get("manifest_sig_url"):
+            return False
+        sig = release_signature.parse_signature(us._read_capped(
+            us._open(app["manifest_sig_url"], us.DOWNLOAD_HOSTS, "application/octet-stream"),
+            us.MAX_SIGNATURE_FILE_BYTES))
+        return release_signature.verify(public_key, sig, f"BaiheStudio-App-{version}.json",
+                                        hashlib.sha256(data).hexdigest())
+    except (ServiceError, OSError, us.requests.RequestException,
+            release_signature.SignatureFormatError):
+        return False
+
+
 def check_database_before_setup(version) -> None:
     """The same rule for the full installer, which upgrades the same library.
-    Without the release's manifest copy Baihe can't tell whether the schema
-    changes, so it asks for the backup."""
+    Without the release's manifest copy, or with one whose signature doesn't
+    check out, Baihe can't tell whether the schema changes, so it asks for
+    the backup."""
     with _lock:
         known = _offer_schema
-    if known is not None and known[0] == version:
+    if known is not None and known[0] == version and known[1] is not None:
         _check_database({"db_schema_sha256": known[1]})
     elif not _recent_backup():
         raise ConflictError(_BACKUP_FIRST_UNKNOWN)
