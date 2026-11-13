@@ -21,6 +21,7 @@ from engine_backends import translate_pipeline, fallback, pricing, engine_regist
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
+from engine_backends import medium_prompts, stream_recipe
 from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
 import translation_memory
@@ -84,6 +85,16 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     examples = _memory_examples(series_id, lines) if memory_examples else None
     emap = db.load_emotions(drama_id) if with_emotions else None
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
+    if plain_stream_prompt(drama):
+        # The learned style, emotion notes and preset rules are left out: tone words
+        # in them made a stream's captions worse (engine_backends/stream_recipe.py).
+        style_guidelines = stream_recipe.build_guidelines(
+            glossary_terms,
+            tguide.FEMALE_PRONOUN_DEFAULT_GUIDANCE if default_female_pronouns else "",
+            tguide.build_character_guidance(series_chars, drama_chars, default_female_pronouns))
+        style_guidelines += language_pack_service.block_for(drama, lines, glossary_terms)
+        style_guidelines += vdb_names_service.block_for(drama, lines, glossary_terms)
+        return glossary_terms, style_guidelines, tguide.build_speaker_labels(drama_chars, series_chars)
     style_guidelines = tguide.build_style_guidelines(
         style_preset, glossary_terms=glossary_terms,
         include_genre_notes=include_genre_notes,
@@ -96,6 +107,10 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     style_guidelines += language_pack_service.block_for(drama, lines, glossary_terms)
     style_guidelines += vdb_names_service.block_for(drama, lines, glossary_terms)
     return glossary_terms, style_guidelines, character_names
+
+
+def plain_stream_prompt(drama) -> bool:
+    return medium_prompts.kind_for(drama) == "stream" and bool(settings_service.get("stream_plain_prompt"))
 
 
 def _memory_examples(series_id, lines) -> list:
@@ -282,7 +297,8 @@ def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_
         with llm_tasks.bounded_job_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id)):
             brief = llm_tasks.generate_episode_brief(
                 lines, engine, meta, character_names,
-                usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"))
+                usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"),
+                plain_stream_prompt=plain_stream_prompt(meta))
     except (HeadroomError, LLMTaskTimeout, background_jobs.JobCancelled):
         raise
     except Exception as exc:

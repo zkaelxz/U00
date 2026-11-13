@@ -27276,6 +27276,11 @@ export interface components {
              * @default 5
              */
             stock_phrase_isolation_seconds: number;
+            /**
+             * Stream Plain Prompt
+             * @default false
+             */
+            stream_plain_prompt: boolean;
             /** Tesseract Cmd */
             tesseract_cmd: string;
             /**
@@ -27516,6 +27521,8 @@ export interface components {
             split_min_piece_words?: number | null;
             /** Stock Phrase Isolation Seconds */
             stock_phrase_isolation_seconds?: number | null;
+            /** Stream Plain Prompt */
+            stream_plain_prompt?: boolean | null;
             /** Tesseract Cmd */
             tesseract_cmd?: string | null;
             /** Translate Alignment Check */

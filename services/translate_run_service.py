@@ -106,8 +106,13 @@ def _parse_errors(raw) -> Optional[list]:
         return None
 
 
-def get_translate_config_defaults(is_novel: bool, engine=None, model=None) -> dict:
-    return engine_registry.default_translate_options(engine, model, novel=is_novel)
+def get_translate_config_defaults(is_novel: bool, engine=None, model=None, plain_stream=False) -> dict:
+    return engine_registry.default_translate_options(engine, model, novel=is_novel,
+                                                     plain_stream=plain_stream)
+
+
+def _plain_stream(drama) -> bool:
+    return workspace_job_service.plain_stream_prompt(drama)
 
 
 def get_translate_config(drama_id: int) -> dict:
@@ -135,7 +140,7 @@ def get_translate_config(drama_id: int) -> dict:
              "auto_qc": bool(t["auto_qc"])}
             for k in engine_registry.WORKFLOW_TIERS
             for t in [engine_registry.effective_tier(k)] if t is not None],
-        "defaults": get_translate_config_defaults(is_novel, engine_name),
+        "defaults": get_translate_config_defaults(is_novel, engine_name, plain_stream=_plain_stream(drama)),
         "default_locale": settings_service.get("default_locale"),
         "default_style_note": settings_service.get("default_style_note"),
         "project_instructions": drama.get("project_instructions"),
@@ -537,7 +542,7 @@ def _resolve_run_options(drama, engine_name, model, style_preset, style_note, lo
             model = last["model"]
         except InvalidInputError:
             pass    # no longer offered: the engine's default
-    defaults = get_translate_config_defaults(is_novel, engine_name, model)
+    defaults = get_translate_config_defaults(is_novel, engine_name, model, _plain_stream(drama))
     context_window = last.get("context_window", defaults["context_window"]) if context_window is None else context_window
     context_window_ahead = (last.get("context_window_ahead", defaults["context_window_ahead"])
                             if context_window_ahead is None else context_window_ahead)

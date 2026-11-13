@@ -22,6 +22,7 @@ const saved: SettingsPreferences = {
   scanlate_match_text_color: false,
   scanlate_rect_layout: false,
   episode_brief: true,
+  stream_plain_prompt: false,
   translate_reply_guard: 'auto',
   claude_reasoning: 'default',
   openai_reasoning: 'default',
