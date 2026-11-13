@@ -39,6 +39,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
+          RUNS_FILTER: >-
+            [.workflow_runs[] | select(.head_sha == env.COMMIT and .event == "push"
+            and .head_branch == "baihe-subtitler" and .path == ".github/workflows/tests.yml")]
+            | sort_by(.created_at) | last | .conclusion // "missing"
         run: |
           set -euo pipefail
           if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]{1,6}\.[0-9]{1,6}(\.[0-9]{1,6})?$'; then
@@ -75,10 +79,24 @@ jobs:
           # The files must still be the ones that were signed: a .sig only proves
           # something when it is checked, and a release's files can be replaced
           # after the tag's run. The key is the one committed at the tagged commit,
-          # the same line the release job signed against, read through the API.
+          # read through the API. A tag can be moved and anyone who can replace the
+          # files can push a branch, so the commit must also be one whose Tests push
+          # run on baihe-subtitler passed: that branch only takes reviewed merges,
+          # so its key is the release key, not one planted beside forged files.
           signed=("$setup")
           if printf '%s\n' "$names" | grep -Fqx "$app"; then signed+=("$app" "$manifest"); fi
-          commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
+          # tags/ so a branch with the same name can't stand in for the tag.
+          commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq .sha)"
+          if ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Couldn't read the commit $TAG points at. Nothing was promoted."
+            exit 1
+          fi
+          conclusion="$(COMMIT="$commit" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$commit&event=push&branch=baihe-subtitler&per_page=100" \
+            --jq "$RUNS_FILTER")"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::$TAG points at $commit, whose Tests run on baihe-subtitler is $conclusion, not success. A tag must stay on the commit that was merged, tested and released. Nothing was promoted."
+            exit 1
+          fi
           key="$(gh api -H 'Accept: application/vnd.github.raw' \
             "repos/$GITHUB_REPOSITORY/contents/installer/release_public_key.txt?ref=$commit" \
             | grep -v '^#' | tr -d '[:space:]')"

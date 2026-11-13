@@ -365,6 +365,10 @@ def test_a_stable_tag_is_published_as_a_pre_release_first(tmp_path, keys):
 # --- the promote job -------------------------------------------------------------
 
 def _promote_job():
+    return _promote_step()["run"]
+
+
+def _promote_step():
     yaml = pytest.importorskip("yaml")
     wf = yaml.safe_load((ROOT / ".github" / "workflows" / "promote-release.yml")
                         .read_text(encoding="utf-8"))
@@ -372,7 +376,7 @@ def _promote_job():
     assert job["environment"] == "release-main"
     assert not any("uses" in s for s in job["steps"])   # nothing from the repository runs
     (step,) = job["steps"]
-    return step["run"]
+    return step
 
 
 FAKE_GH_PROMOTE = """#!/usr/bin/env bash
@@ -380,7 +384,9 @@ set -eu
 printf '%s\\n' "$*" >> "$GH_LOG"
 case "$1 $2" in
   "api repos/o/r/environments/release-main") printf '%s\\n' "$GH_RULES" ;;
-  "api repos/o/r/commits/"*) printf '%s\\n' "${GH_COMMIT}" ;;
+  "api repos/o/r/commits/tags/"*) printf '%s\\n' "${GH_COMMIT}" ;;
+  "api repos/o/r/actions/workflows/tests.yml/runs?head_sha=$GH_COMMIT&event=push&branch=baihe-subtitler&per_page=100")
+    printf '%s\\n' "$GH_TESTS" ;;
   "api -H")
     case "$*" in
       *"contents/installer/release_public_key.txt?ref=$GH_COMMIT") printf '# comment\\n%s\\n' "$GH_KEY" ;;
@@ -426,7 +432,7 @@ def _release_files(folder, seed, tamper=None):
 
 
 def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=SIGNED,
-                 tamper=None, key=None, sign_with=None):
+                 tamper=None, key=None, sign_with=None, tests="success", commit="c" * 40):
     if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
                                and shutil.which("base64")):
         pytest.skip("needs bash, openssl and coreutils (the promote job runs on ubuntu)")
@@ -441,7 +447,8 @@ def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=S
     log = tmp_path / "gh.log"
     env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "TAG": tag,
            "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t", "GH_LOG": str(log),
-           "GH_RULES": rules, "GH_STATE": state, "GH_ASSETS": assets, "GH_COMMIT": "c" * 40,
+           "GH_RULES": rules, "GH_STATE": state, "GH_ASSETS": assets, "GH_COMMIT": commit,
+           "GH_TESTS": tests, "RUNS_FILTER": _promote_step()["env"]["RUNS_FILTER"],
            "GH_KEY": public if key is None else key, "GH_FILES": str(tmp_path / "assets"),
            "TMPDIR": str(tmp_path)}
     proc = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True,
@@ -494,11 +501,30 @@ def test_promote_refuses_and_changes_nothing(tmp_path, change, says):
     ({"sign_with": rs.generate()[0]}, f"{NAME}.sig is not a valid signature"),
     ({"key": ""}, "holds no release public key"),
     ({"key": "ed25519-public:bm90IGEga2V5"}, "isn't a valid public key"),
+    # A tag moved to a commit that never passed Tests on baihe-subtitler, where
+    # whoever moved it could have committed their own key.
+    ({"tests": "missing"}, "is missing, not success"),
+    ({"tests": "failure"}, "is failure, not success"),
+    ({"commit": "not-a-sha"}, "Couldn't read the commit"),
 ])
 def test_promote_verifies_the_files_and_signatures(tmp_path, change, says):
     proc, edits = _run_promote(tmp_path, **change)
     assert proc.returncode != 0 and edits == []
     assert says in proc.stdout and "Nothing was promoted" in proc.stdout
+
+
+def test_promote_reads_the_tag_not_a_branch_and_its_tests_run_on_the_branch(tmp_path):
+    proc, _ = _run_promote(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = (tmp_path / "gh.log").read_text()
+    assert "api repos/o/r/commits/tags/v0.2.0 --jq .sha" in calls
+    assert f"contents/installer/release_public_key.txt?ref={'c' * 40}" in calls
+
+
+def test_promote_counts_the_same_tests_runs_as_the_release_job():
+    promote = _promote_step()["env"]["RUNS_FILTER"]
+    release = _ci_check_step()["env"]["RUNS_FILTER"]
+    assert promote == release.replace("env.GITHUB_SHA", "env.COMMIT")
 
 
 def test_promote_checks_the_signature_of_every_signed_file(tmp_path):
