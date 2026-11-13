@@ -718,6 +718,13 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/system/update/download` | local_only() |
 | `POST /api/system/update/install` | local_only() |
 | `POST /api/system/update/settings` | local_only() |
+| `DELETE /api/three-run/dramas/{drama_id}` | lines.edit |
+| `GET /api/three-run/dramas/{drama_id}` | lines.read |
+| `POST /api/three-run/dramas/{drama_id}/begin` | lines.edit |
+| `POST /api/three-run/dramas/{drama_id}/capture` | lines.edit |
+| `POST /api/three-run/dramas/{drama_id}/keep-rest` | lines.edit |
+| `POST /api/three-run/dramas/{drama_id}/pick` | lines.edit |
+| `POST /api/three-run/dramas/{drama_id}/restore` | lines.edit |
 | `GET /api/timing-check/dramas/{drama_id}` | lines.read |
 | `POST /api/timing-check/dramas/{drama_id}/run` | jobs.start |
 | `POST /api/timing-check/dramas/{drama_id}/snap` | lines.edit |
