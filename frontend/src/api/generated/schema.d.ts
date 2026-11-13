@@ -30693,6 +30693,11 @@ export interface components {
             /** Model */
             model?: string | null;
             /**
+             * Own Lines Only
+             * @default false
+             */
+            own_lines_only?: boolean;
+            /**
              * Reflect
              * @default false
              */
