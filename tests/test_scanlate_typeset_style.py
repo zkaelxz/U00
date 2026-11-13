@@ -75,7 +75,7 @@ def test_the_bridge_reads_the_popup_style_and_ignores_junk():
 
 
 def test_a_stronger_erase_clears_more_around_the_lettering():
-    import cv2
+    cv2 = pytest.importorskip("cv2")
     import scanlate_inpaint
 
     def fringe_left(grow):
