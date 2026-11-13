@@ -77,7 +77,7 @@ test('member: Diagnostics shows the not-allowed state and asks the server nothin
   expect(unmocked.filter((u) => u.includes('/api/diagnostics'))).toEqual([])
 })
 
-test('member: Quick translate is disabled with a reason and no Settings link', async ({ page }) => {
+test('member: Translate text is disabled with a reason and no Settings link', async ({ page }) => {
   await mock(page, ['library.read'])
   await page.route('**/api/translate/engines', (r) => r.fulfill({ json: {
     items: [{ name: 'claude', label: 'Claude', free: false, models: null, key_configured: true }], default_engine: 'claude',
@@ -85,7 +85,7 @@ test('member: Quick translate is disabled with a reason and no Settings link', a
   await page.route('**/api/translate/history*', (r) => r.fulfill({ json: { items: [] } }))
   await page.goto('/#/translate')
   await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeDisabled()
-  await expect(page.getByText("Quick translate isn't allowed for this account. Ask the PC owner.")).toBeVisible()
+  await expect(page.getByText("Translate text isn't allowed for this account. Ask the PC owner.")).toBeVisible()
 })
 
 test('remote: Settings says the PC-only settings can only be changed on the main PC', async ({ page }) => {

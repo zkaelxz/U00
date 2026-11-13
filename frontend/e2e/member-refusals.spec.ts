@@ -11,7 +11,7 @@ import { gotoTranslate } from './translateTabs'
 // Only /api/auth/me and /api/meta are mocked; reads go to the seeded API (auth off), and every write is
 // answered 403 here and recorded, so nothing reaches the shared library and each page is checked against
 // what the server really says to this member: the control is hidden or disabled, or the refusal is plain.
-// Library, Quick translate and Diagnostics are covered elsewhere.
+// Library, Translate text and Diagnostics are covered elsewhere.
 
 const REFUSAL = 'Not allowed from this device or account.'
 const DRAMA = 3

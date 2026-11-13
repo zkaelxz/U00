@@ -95,11 +95,11 @@ test('a page hidden through Menu items is not listed, but its address still work
   await expectHiddenItemNotListed(page, viaShortcut(page))
 })
 
-test('typing "srt" finds Make subtitles', async ({ page }) => {
+test('typing "srt" finds Quick translate', async ({ page }) => {
   await page.goto('/#/library')
   await viaShortcut(page)()
   await paletteInput(page).fill('srt')
-  await expect(palette(page).getByRole('option', { name: /^Make subtitles/ })).toBeVisible()
+  await expect(palette(page).getByRole('option', { name: /^Quick translate/ })).toBeVisible()
 })
 
 test('a settings hit opens its card on the right tab, scrolled into view', async ({ page }) => {

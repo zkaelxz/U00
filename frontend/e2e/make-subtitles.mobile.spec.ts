@@ -18,7 +18,7 @@ test('the card is one column with 44px controls and a full-width primary', async
   await mockMakeSubtitles(page)
   await page.setViewportSize({ width: 360, height: 780 })
   await page.goto('/#/make-subtitles')
-  const c = page.getByRole('region', { name: 'Make subtitles' })
+  const c = page.getByRole('region', { name: 'Quick translate' })
   await expect(c).toBeVisible()
   await noSidewaysScroll(page)
   const primary = c.getByRole('button', { name: 'Make subtitles' })
@@ -40,7 +40,7 @@ test('a 130-character file name with no spaces keeps the Options line short at 3
   await mockMakeSubtitles(page)
   await page.setViewportSize({ width: 360, height: 780 })
   await page.goto('/#/make-subtitles')
-  const c = page.getByRole('region', { name: 'Make subtitles' })
+  const c = page.getByRole('region', { name: 'Quick translate' })
   const summary = c.locator('summary', { hasText: 'Options' })
   const pick = (stem: string) =>
     c.getByLabel('Audio or video file').setInputFiles({ name: `${stem}.mp3`, mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
