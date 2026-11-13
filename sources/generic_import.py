@@ -513,13 +513,16 @@ def filter_candidates(candidates, page_url: str, remember: bool = True,
 
 
 def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str | None = None,
-                      remember: bool = True) -> ComicImportResult:
-    """Fetches a chapter URL and returns its page images, filtered. Raises
+                      remember: bool = True, allow_signed_in: bool = True,
+                      allow_browser: bool = True) -> ComicImportResult:
+    """Fetches a chapter URL and returns its page images, filtered.
+    `allow_signed_in`/`allow_browser`: see fetch_page. Raises
     NoContentFound (with the ladder's per-tier lines in the message) when
     nothing usable is there; ChallengeDetected-shaped hand-offs come back
     via `result.ladder.handoff` with no images."""
     client = http_client(client, url)
-    lr = fetch_page(url, client, rendered_fetch, user_html)
+    lr = fetch_page(url, client, rendered_fetch, user_html, allow_signed_in=allow_signed_in,
+                    allow_browser=allow_browser)
     out = ComicImportResult(page_url=url, ladder=lr)
     if lr.handoff:
         return out
