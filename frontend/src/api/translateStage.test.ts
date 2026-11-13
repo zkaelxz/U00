@@ -6,7 +6,9 @@ import {
   applyWorkflowTier,
   buildEstimateQuery,
   cancelBulkTranslation,
+  copyTitleTermsToSeries,
   deleteGlossaryTerms,
+  getTitleTerms,
   getAddressTerms,
   glossaryCsvUrl,
   importGlossary,
@@ -97,6 +99,17 @@ describe('translate stage api', () => {
     expect(calls.map((c) => [c.init?.method, c.url])).toEqual([['POST', '/api/glossary/dramas/7/terms/bulk-delete']])
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ term_ids: [1, 2, 3], confirm: true })
     expect(r).toEqual({ deleted: [1, 3], not_found: [2] })
+  })
+
+  it('reads the title terms and copies them to the series with one POST', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    await getTitleTerms(7, fakeFetch(200, [], calls))
+    const r = await copyTitleTermsToSeries(7, fakeFetch(200, { copied: ['a'], skipped: [] }, calls))
+    expect(calls.map((c) => [c.init?.method ?? 'GET', c.url])).toEqual([
+      ['GET', '/api/glossary/dramas/7/title-terms'],
+      ['POST', '/api/glossary/dramas/7/terms/copy-title-terms'],
+    ])
+    expect(r).toEqual({ copied: ['a'], skipped: [] })
   })
 
   it('posts glossary import text and builds the CSV link', async () => {
