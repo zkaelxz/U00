@@ -8,6 +8,7 @@ the workflow steps run for real with a fake `gh` on PATH.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -519,6 +520,21 @@ def test_promote_reads_the_tag_not_a_branch_and_its_tests_run_on_the_branch(tmp_
     calls = (tmp_path / "gh.log").read_text()
     assert "api repos/o/r/commits/tags/v0.2.0 --jq .sha" in calls
     assert f"contents/installer/release_public_key.txt?ref={'c' * 40}" in calls
+
+
+def test_promote_never_pipes_into_grep_q():
+    # grep -q exits at its first match; under pipefail the writer then dies of
+    # SIGPIPE now and then and a listed asset reads as missing. Too rare for
+    # the runs-based tests to catch, so the shape is pinned instead.
+    # Only newline-terminated multi-line writers can race; the single-string
+    # `printf '%s' "$TAG" | grep -Eq` checks cannot match before EOF.
+    assert not re.search(r"printf '%s\\n'[^|\n]*\|\s*grep\b[^|\n]*\s-[A-Za-z]*[qm]", _promote_job())
+
+
+def test_promote_refuses_a_release_with_no_assets(tmp_path):
+    proc, edits = _run_promote(tmp_path, assets="")
+    assert proc.returncode != 0 and edits == []
+    assert f"no {NAME}" in proc.stdout
 
 
 def test_promote_counts_the_same_tests_runs_as_the_release_job():
