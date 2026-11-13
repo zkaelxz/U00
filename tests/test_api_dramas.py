@@ -485,3 +485,13 @@ def test_duplicate_makes_an_independent_copy(client):
     assert resp.status_code == 201, resp.text
     assert resp.json()["title_en"] == "Orig (copy)" and resp.json()["id"] != src["id"]
     assert client.post("/api/dramas/987654/duplicate", json={}).status_code == 404
+
+
+def test_capture_notes_route_lists_a_titles_notes_and_404s_for_a_missing_title(client):
+    import db
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "Cap"}).json()["id"]
+    assert client.get(f"/api/library/dramas/{did}/capture-notes").json() == {"items": []}
+    db.add_capture_note(did, "Saved 3 of 3 pages.")
+    items = client.get(f"/api/library/dramas/{did}/capture-notes").json()["items"]
+    assert [i["summary"] for i in items] == ["Saved 3 of 3 pages."]
+    assert client.get("/api/library/dramas/999999/capture-notes").status_code == 404

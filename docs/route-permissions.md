@@ -345,6 +345,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/library/costs` | library.read |
 | `GET /api/library/dramas` | library.read |
 | `GET /api/library/dramas/{drama_id}` | library.read |
+| `GET /api/library/dramas/{drama_id}/capture-notes` | library.read |
 | `GET /api/library/filter-options` | library.read |
 | `GET /api/library/history` | library.read |
 | `POST /api/library/history/clear` | local_only() |
