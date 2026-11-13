@@ -101,7 +101,7 @@ def env(isolated_db, monkeypatch, tmp_path, keys):
 
 
 def _serve(env, manifest=None, zip_manifest=None, signed=True, sign_name=ZIP_NAME,
-           sig_bytes=None):
+           sig_bytes=None, manifest_sig=True):
     manifest = manifest or _app_manifest(db_schema_sha256=aus._library_schema())
     data = _zip_bytes(env["tmp"], zip_manifest or manifest)
     sha = hashlib.sha256(data).hexdigest()
@@ -116,8 +116,15 @@ def _serve(env, manifest=None, zip_manifest=None, signed=True, sign_name=ZIP_NAM
         env["http"].add(SIG_URL, body=sig_bytes if sig_bytes is not None else
                         rs.format_signature(rs.sign(env["seed"], sign_name, sha)).encode())
     http = env["http"]
+    manifest_bytes = json.dumps(manifest).encode()
+    if manifest_sig:
+        release["assets"].append({"name": "BaiheStudio-App-0.2.0.json.sig", "size": 89,
+                                  "browser_download_url": MANIFEST_URL + ".sig"})
+        http.add(MANIFEST_URL + ".sig", body=manifest_sig if isinstance(manifest_sig, bytes) else
+                 rs.format_signature(rs.sign(env["seed"], "BaiheStudio-App-0.2.0.json",
+                                             hashlib.sha256(manifest_bytes).hexdigest())).encode())
     http.add(API_URL, body=json.dumps([release]).encode())
-    http.add(MANIFEST_URL, body=json.dumps(manifest).encode())
+    http.add(MANIFEST_URL, body=manifest_bytes)
     http.add(HASH_URL, body=f"{sha}  {ZIP_NAME}\n".encode())
     http.add(ZIP_URL, body=data, headers={"Content-Length": str(len(data))})
     return data
@@ -319,6 +326,51 @@ def test_a_check_keeps_the_releases_schema_for_the_full_installers_backup_check(
     _serve(env, manifest=_app_manifest(db_schema_sha256="1" * 64))
     us.check()
     assert aus._offer_schema == ("0.2.0", "1" * 64)
+
+
+@pytest.mark.parametrize("manifest_sig", [
+    False,
+    "release key, other manifest",
+    b"not a signature",
+])
+def test_an_unsigned_manifests_schema_is_not_believed(env, manifest_sig):
+    if manifest_sig == "release key, other manifest":
+        manifest_sig = rs.format_signature(rs.sign(env["seed"], "BaiheStudio-App-0.2.0.json",
+                                                   "0" * 64)).encode()
+    _serve(env, manifest=_app_manifest(db_schema_sha256=aus._library_schema()),
+           manifest_sig=manifest_sig)
+    us.check()
+    # The full installer then asks for a backup, as when the release says nothing.
+    assert aus._offer_schema == ("0.2.0", None)
+
+
+def test_a_signature_by_another_key_is_not_believed(env, monkeypatch):
+    other = rs.parse_private_key(rs.generate()[0])
+    _serve(env, manifest=_app_manifest(db_schema_sha256="1" * 64),
+           manifest_sig=rs.format_signature(rs.sign(
+               other, "BaiheStudio-App-0.2.0.json",
+               hashlib.sha256(json.dumps(_app_manifest(db_schema_sha256="1" * 64)).encode())
+               .hexdigest())).encode())
+    us.check()
+    assert aus._offer_schema == ("0.2.0", None)
+
+
+def test_a_copy_without_a_release_key_believes_the_manifest(env, monkeypatch):
+    monkeypatch.setattr(us, "PUBLIC_KEY_PATH", str(env["tmp"] / "no-key.txt"))
+    _serve(env, manifest=_app_manifest(db_schema_sha256="1" * 64), manifest_sig=False)
+    us.check()
+    assert aus._offer_schema == ("0.2.0", "1" * 64)
+
+
+def test_setup_asks_for_a_backup_when_the_schema_is_not_believed(env, monkeypatch):
+    _serve(env, manifest=_app_manifest(db_schema_sha256=aus._library_schema()),
+           manifest_sig=False)
+    us.check()
+    monkeypatch.setattr(aus, "_recent_backup", lambda now=None: False)
+    with pytest.raises(ConflictError, match="may change the library database"):
+        aus.check_database_before_setup("0.2.0")
+    monkeypatch.setattr(aus, "_recent_backup", lambda now=None: True)
+    aus.check_database_before_setup("0.2.0")
 
 
 def test_a_database_change_needs_a_recent_backup(env, monkeypatch):

@@ -12,11 +12,13 @@ A, B, C = "a" * 40, "b" * 40, "c" * 40
 
 
 def _runs(*runs):
-    return http.Response(200, {}, json.dumps({"check_runs": list(runs)}).encode(), "u")
+    return http.Response(200, {}, json.dumps({"workflow_runs": list(runs)}).encode(), "u")
 
 
-def _run(conclusion, started="2026-11-12T10:00:00Z", slug="github-actions"):
-    return {"conclusion": conclusion, "started_at": started, "app": {"slug": slug}}
+def _run(conclusion, created="2026-11-12T10:00:00Z", sha=A, event="push",
+         branch="baihe-subtitler", path=".github/workflows/tests.yml"):
+    return {"conclusion": conclusion, "created_at": created, "head_sha": sha, "event": event,
+            "head_branch": branch, "path": path}
 
 
 @pytest.fixture
@@ -25,8 +27,7 @@ def github(monkeypatch):
 
     def get(url, **kw):
         asked.append((url, kw))
-        sha = url.rsplit("/", 2)[-2]
-        answer = answers.get(sha, _runs())
+        answer = answers.get(kw["params"]["head_sha"], _runs())
         if isinstance(answer, Exception):
             raise answer
         return answer
@@ -34,21 +35,28 @@ def github(monkeypatch):
     return answers, asked
 
 
-def test_a_passed_check_counts(github):
+def test_a_passed_push_run_counts(github):
     answers, asked = github
     answers[A] = _runs(_run("success"))
     assert gc.passed("o/r", A) is True
     url, kw = asked[0]
-    assert url == f"https://api.github.com/repos/o/r/commits/{A}/check-runs"
-    assert kw["params"]["check_name"] == "test" and kw["timeout"] and kw["guard"] is None
+    assert url == "https://api.github.com/repos/o/r/actions/workflows/tests.yml/runs"
+    assert kw["params"] == {"head_sha": A, "event": "push", "branch": "baihe-subtitler",
+                            "per_page": 100}
+    assert kw["timeout"] and kw["guard"] is None
 
 
 @pytest.mark.parametrize("runs", [
-    [], [_run("failure")], [_run(None)], [_run("success", slug="someone-else")],
-    # A re-run that failed after an earlier pass: the newest run counts.
+    [], [_run("failure")], [_run(None)],
+    # A pull request's run tests a merge with the base, not this commit.
+    [_run("success", event="pull_request")],
+    [_run("success", branch="someone-elses-branch")],
+    [_run("success", path=".github/workflows/windows-installer.yml")],
+    [_run("success", sha=B)],
+    # A newer run that failed after an earlier pass: the newest run counts.
     [_run("success", "2026-11-12T10:00:00Z"), _run("failure", "2026-11-12T11:00:00Z")],
 ])
-def test_anything_but_a_newest_passed_run_does_not_count(github, runs):
+def test_anything_but_a_newest_passed_push_run_does_not_count(github, runs):
     answers, _ = github
     answers[A] = _runs(*runs)
     assert gc.passed("o/r", A) is False
@@ -66,8 +74,8 @@ def test_an_unusable_answer_is_unavailable_not_red(github, answer):
 
 def test_the_newest_green_commit_wins_and_older_ones_are_not_asked(github):
     answers, asked = github
-    answers[B] = _runs(_run("success"))
-    answers[C] = _runs(_run("success"))
+    answers[B] = _runs(_run("success", sha=B))
+    answers[C] = _runs(_run("success", sha=C))
     assert gc.newest_passing("o/r", [A, B, C]) == B
     assert len(asked) == 2
 
