@@ -83,24 +83,19 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
           <ButtonLink href={stage('export')}>Export</ButtonLink>
         </div>
       ) : (
-        <div className={hasLines ? 'title-studio' : undefined}>
+        <>
+          <TitleSteps
+            id={id}
+            audioReady={audioReady}
+            lineCount={lineCount}
+            translatedCount={translatedCount}
+            exported={exported}
+            flowOn={flowOn}
+            onFlowProgress={onFlowProgress}
+          />
           {hasLines && <TitleProgress total={lineCount ?? 0} translated={translatedCount} />}
-          <div className="title-studio-side">
-            <TitleSteps
-              id={id}
-              audioReady={audioReady}
-              lineCount={lineCount}
-              translatedCount={translatedCount}
-              exported={exported}
-              flowOn={flowOn}
-              onFlowProgress={onFlowProgress}
-            />
-            <div className="actions">
-              <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
-            </div>
-          </div>
           {hasLines && <TitleLines id={id} total={lineCount ?? 0} />}
-        </div>
+        </>
       )}
       {comic && <ComicChapterList id={id} />}
       {/* A comic's own chapters are listed above; its series list names the other titles, so the two headings differ. */}

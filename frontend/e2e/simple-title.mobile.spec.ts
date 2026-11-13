@@ -9,7 +9,7 @@ const progress = {
   flagged_count: 0, has_audio: false, has_dub_track: false, exported: false, stages: [],
 }
 
-const actions = ['Add media', 'Redo', 'Translate', 'Glossary', 'Review', 'Export']
+const actions = ['Add media', 'Redo transcription', 'Translate 10 lines', 'Glossary']
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress }))
@@ -35,7 +35,7 @@ async function chooseSimple(page: Page) {
 test('Simple fits a phone: switch and the step actions visible, tall enough to tap, no sideways scroll', async ({ page }) => {
   await page.goto('/#/drama/1')
   await chooseSimple(page)
-  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Translate 10 lines', exact: true })).toBeVisible()
 
   // The radios are visually hidden; the visible control is their label.
   for (const name of ['Simple', 'Full']) {
@@ -44,6 +44,9 @@ test('Simple fits a phone: switch and the step actions visible, tall enough to t
   for (const name of actions) {
     await expectTall(page.getByRole('link', { name, exact: true }), name)
   }
+  const tabs = page.getByRole('list', { name: 'Steps' }).getByRole('link')
+  await expect(tabs).toHaveCount(5)
+  for (let n = 0; n < 5; n++) await expectTall(tabs.nth(n), `step tab ${n + 1}`)
   await expectNoSidewaysScroll(page)
 })
 
@@ -52,7 +55,7 @@ test('choosing Simple then reloading keeps Simple', async ({ page }) => {
   await chooseSimple(page)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   await page.reload()
-  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Translate 10 lines', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
 })
@@ -74,12 +77,13 @@ test('with lines the phone shows the bar, the steps and long lines wrapped, with
   await expectNoSidewaysScroll(page)
 })
 
-test('the steps on a stage page are tall enough to tap and do not scroll sideways', async ({ page }) => {
+test('the step tabs and buttons on a stage page are tall enough to tap and do not scroll sideways', async ({ page }) => {
   await page.goto('/#/drama/1')
   await chooseSimple(page)
   await page.goto('/#/drama/1/translate')
   const links = page.getByRole('list', { name: 'Steps' }).getByRole('link')
   await expect(links).toHaveCount(5)
-  for (const [n, name] of ['Add media', 'Redo', 'Translate', 'Review', 'Export'].entries()) await expectTall(links.nth(n), name)
+  for (let n = 0; n < 5; n++) await expectTall(links.nth(n), `step tab ${n + 1}`)
+  for (const name of actions) await expectTall(page.getByRole('link', { name, exact: true }), name)
   await expectNoSidewaysScroll(page)
 })

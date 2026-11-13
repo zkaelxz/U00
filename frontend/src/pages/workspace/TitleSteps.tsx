@@ -1,5 +1,5 @@
 /*
- * The Simple page's checklist for an audio or video title: five steps, the current one large with its button.
+ * The Simple page's step tabs for an audio or video title: five steps across the top, the current one marked, with its action as the one main button.
  */
 import { ButtonLink } from '../../components/Button'
 import { routeHref } from '../../router'
@@ -12,47 +12,63 @@ interface Props extends StepInput {
   /** Once the one-button flow has started it keeps its button, so its progress text stays. */
   flowOn: boolean
   onFlowProgress: () => void
+  /** The stage the page is showing, so its tab is marked while it is open. */
+  openStep?: StepKey | null
 }
 
-export function TitleSteps({ id, flowOn, onFlowProgress, ...input }: Props) {
+export function TitleSteps({ id, flowOn, onFlowProgress, openStep = null, ...input }: Props) {
   const steps = titleSteps(input)
   const hasLines = (input.lineCount ?? 0) > 0
+  const left = (input.lineCount ?? 0) - input.translatedCount
   const href = (stage: string, tab?: 'add' | 'transcribe') => routeHref({ name: 'drama', id, stage, ...(tab ? { tab } : {}) })
+  const tabHref: Record<StepKey, string> = {
+    add: href('source', 'add'),
+    transcribe: href('source', 'transcribe'),
+    translate: href('translate'),
+    check: href('review'),
+    export: href('export'),
+  }
+  const current = steps.find((s) => s.state === 'current')
 
-  const action = (s: Step) => {
-    const primary = s.state === 'current'
-    // Full-size buttons throughout: the small size is under the 44px touch target on a phone.
-    const link = (label: string, to: string) => <ButtonLink href={to} variant={primary ? 'primary' : undefined}>{label}</ButtonLink>
-    switch (s.key as StepKey) {
+  const mainAction = (s: Step) => {
+    switch (s.key) {
       case 'add':
-        return link('Add media', href('source', 'add'))
+        return <ButtonLink variant="primary" href={tabHref.add}>Add media</ButtonLink>
       case 'transcribe':
-        if (hasLines) return link('Redo', href('source', 'transcribe'))
         // With audio attached one button transcribes, finds glossary names and stops at the glossary review.
         return flowOn || (input.audioReady && input.lineCount !== null)
           ? <TitleFlowStart id={id} onProgress={onFlowProgress} />
-          : link('Transcribe and translate', href('source', 'transcribe'))
+          : <ButtonLink variant="primary" href={tabHref.transcribe}>Transcribe and translate</ButtonLink>
       case 'translate':
-        return link('Translate', href('translate'))
+        return <ButtonLink variant="primary" href={tabHref.translate}>{left > 0 ? `Translate ${left} ${left === 1 ? 'line' : 'lines'}` : 'Translate'}</ButtonLink>
       case 'check':
-        return link('Review', href('review'))
+        return <ButtonLink variant="primary" href={tabHref.check}>Review</ButtonLink>
       case 'export':
-        return link('Export', href('export'))
+        return <ButtonLink variant="primary" href={tabHref.export}>Export</ButtonLink>
     }
   }
 
   return (
-    <ol className="title-steps" aria-label="Steps">
-      {steps.map((s, n) => (
-        <li key={s.key} className={`title-step is-${s.state}`} aria-current={s.state === 'current' ? 'step' : undefined}>
-          <span className="title-step-dot" aria-hidden="true">{s.state === 'done' ? '✓' : n + 1}</span>
-          <div className="title-step-text">
-            <h2 className="title-step-title">{s.title}</h2>
-            {s.note && <p className="title-step-note muted">{s.note}</p>}
-          </div>
-          <div className="title-step-action">{action(s)}</div>
-        </li>
-      ))}
-    </ol>
+    <div className="title-steps-bar">
+      <ol className="title-steps" aria-label="Steps">
+        {steps.map((s, n) => (
+          <li key={s.key} className={`title-step is-${s.state}${openStep === s.key ? ' is-open' : ''}`} aria-current={s.state === 'current' ? 'step' : undefined}>
+            <a className="title-step-link" href={tabHref[s.key]}>
+              <span className="title-step-dot" aria-hidden="true">{s.state === 'done' ? '✓' : n + 1}</span>
+              <span className="title-step-text">
+                <span className="title-step-title">{s.title}</span>
+                {s.note && <span className="title-step-note muted">{s.note}</span>}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ol>
+      <div className="title-steps-actions">
+        {current && mainAction(current)}
+        {current?.key !== 'add' && <ButtonLink href={tabHref.add}>Add media</ButtonLink>}
+        {hasLines && <ButtonLink href={tabHref.transcribe}>Redo transcription</ButtonLink>}
+        <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
+      </div>
+    </div>
   )
 }

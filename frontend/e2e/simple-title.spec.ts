@@ -16,12 +16,17 @@ test('Simple shows the five actions and the episode, and Full brings the stage t
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await expect(page).toHaveURL(/#\/drama\/1$/)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('href', '#/drama/1/translate')
-  await expect(page.getByRole('link', { name: 'Redo' })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
-  await expect(page.getByRole('link', { name: 'Add media' })).toHaveAttribute('href', '#/drama/1/source?tab=add')
+  // The step tabs open each stage; the current step's action is the main button, and Add media, Redo and Glossary stay beside it.
+  const tabs = page.getByRole('list', { name: 'Steps' })
+  await expect(tabs.getByRole('link', { name: /^Add/ })).toHaveAttribute('href', '#/drama/1/source?tab=add')
+  await expect(tabs.getByRole('link', { name: /^Transcribe/ })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
+  await expect(tabs.getByRole('link', { name: /^Translate/ })).toHaveAttribute('href', '#/drama/1/translate')
+  await expect(tabs.getByRole('link', { name: /^Check/ })).toHaveAttribute('href', '#/drama/1/review')
+  await expect(tabs.getByRole('link', { name: /^Export/ })).toHaveAttribute('href', '#/drama/1/export')
+  await expect(page.getByRole('link', { name: 'Translate 10 lines', exact: true })).toHaveAttribute('href', '#/drama/1/translate')
+  await expect(page.getByRole('link', { name: 'Redo transcription' })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
+  await expect(page.getByRole('link', { name: 'Add media', exact: true })).toHaveAttribute('href', '#/drama/1/source?tab=add')
   await expect(page.getByRole('link', { name: 'Glossary' })).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
-  await expect(page.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '#/drama/1/review')
-  await expect(page.getByRole('link', { name: 'Export' })).toHaveAttribute('href', '#/drama/1/export')
   const episodes = page.getByRole('list', { name: 'Episodes' })
   await expect(episodes.getByRole('listitem')).toHaveCount(1)
   await expect(episodes).toContainText('Transcribed · Not translated')
@@ -31,22 +36,22 @@ test('Simple shows the five actions and the episode, and Full brings the stage t
 
 test('the choice is remembered, and a link that names a stage still opens that stage', async ({ page }) => {
   await page.route('**/api/workflow/dramas/3/progress', (route) => route.fulfill({ json: progress(3, 0, 0) }))
-  // Without audio the button stays a link to Transcribe; the seeded video may or may not have audio, so pin it.
+  // Without audio the Transcribe step stays a link to its stage (Add media is the main button); the seeded video may or may not have audio, so pin it.
   await page.route('**/api/transcribe/dramas/3/config', async (route) => {
     const resp = await route.fetch()
     await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: false } })
   })
   await page.goto('/#/drama/3')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
-  await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
+  await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: /^Transcribe/ })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
   await expect(page.getByRole('list', { name: 'Episodes' })).toContainText('Not transcribed')
   await page.reload()
-  await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible()
   await page.goto('/#/drama/3/review')
   // The stage opens on a slim page: no stage tabs, a way back to the title page, and Full brings the tabs back.
   await expect(page.getByRole('link', { name: 'Back to title page' })).toHaveAttribute('href', '#/drama/3')
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  // The steps column stays beside the open stage, as on the title page.
+  // The step tabs stay above the open stage, as on the title page.
   await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible()
   await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
@@ -56,7 +61,7 @@ test('Simple leaves the advanced controls out of the stages, and Full brings the
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 10) }))
   await page.goto('/#/drama/1')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
-  await page.getByRole('link', { name: 'Export' }).click()
+  await page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: /^Export/ }).click()
   await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
   await expect(page.getByRole('group', { name: 'Subtitle file' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Burned-in video' })).toHaveCount(0)
@@ -201,7 +206,7 @@ test('Simple lists the steps with the current one marked and its notes', async (
   await expect(steps).toContainText('10 lines')
 })
 
-test('with lines the title opens on a progress bar and the first lines, with the steps beside them', async ({ page }) => {
+test('with lines the title opens on a progress bar and the first lines, with the step tabs above them', async ({ page }) => {
   const line = (id: number, zh: string, en: string) => ({ id, idx: id, zh, en, start: id, end: id + 1, speaker: null, reviewed: false })
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 4) }))
   await page.route('**/api/review/dramas/1/lines?*', (route) => route.fulfill({
@@ -217,24 +222,24 @@ test('with lines the title opens on a progress bar and the first lines, with the
   await expect(lines.getByText('Not translated yet')).toBeVisible()
   await expect(lines.getByRole('link', { name: 'Open all 10 lines' })).toHaveAttribute('href', '#/drama/1/review')
 
-  // Wide window: the steps sit in a column beside the lines; the bar is above both.
+  // Wide window: the step tabs run across the top, above the bar and the lines.
   await page.setViewportSize({ width: 1280, height: 900 })
   const steps = (await page.getByRole('list', { name: 'Steps' }).boundingBox())!
   const first = (await lines.boundingBox())!
-  expect(steps.x).toBeGreaterThan(first.x + first.width - 1)
+  expect(steps.y + steps.height).toBeLessThanOrEqual(first.y)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('an audio or video Simple stage keeps the title page steps beside it, so no switching back to Full is needed', async ({ page }) => {
+test('an audio or video Simple stage keeps the title page step tabs above it, so no switching back to Full is needed', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 4) }))
   await page.goto('/#/drama/1')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/1/translate')
   const steps = page.getByRole('list', { name: 'Steps' })
-  await expect(steps.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '#/drama/1/review')
+  await expect(steps.getByRole('link', { name: /^Check/ })).toHaveAttribute('href', '#/drama/1/review')
   await expect(page.getByRole('navigation', { name: 'Title steps' })).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  await steps.getByRole('link', { name: 'Review' }).click()
+  await steps.getByRole('link', { name: /^Check/ }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/review$/)
   await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible()
   await page.getByRole('link', { name: 'Back to title page' }).click()
