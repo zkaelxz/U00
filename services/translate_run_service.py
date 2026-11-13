@@ -111,8 +111,8 @@ def get_translate_config_defaults(is_novel: bool, engine=None, model=None, plain
                                                      plain_stream=plain_stream)
 
 
-def _plain_stream(drama) -> bool:
-    return workspace_job_service.plain_stream_prompt(drama)
+def _plain_stream(drama, engine_name, model=None) -> bool:
+    return workspace_job_service.plain_stream_prompt(drama, engine_name, model)
 
 
 def get_translate_config(drama_id: int) -> dict:
@@ -140,7 +140,7 @@ def get_translate_config(drama_id: int) -> dict:
              "auto_qc": bool(t["auto_qc"])}
             for k in engine_registry.WORKFLOW_TIERS
             for t in [engine_registry.effective_tier(k)] if t is not None],
-        "defaults": get_translate_config_defaults(is_novel, engine_name, plain_stream=_plain_stream(drama)),
+        "defaults": get_translate_config_defaults(is_novel, engine_name, plain_stream=_plain_stream(drama, engine_name)),
         "default_locale": settings_service.get("default_locale"),
         "default_style_note": settings_service.get("default_style_note"),
         "project_instructions": drama.get("project_instructions"),
@@ -442,7 +442,8 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
         drama_id, drama, lines, opts.style_preset,
         include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns,
-        principal=ownership_service.acting_principal(), memory_examples=memory_examples)
+        principal=ownership_service.acting_principal(), memory_examples=memory_examples,
+        engine_name=opts.engine_name, model=opts.model)
     novel_reference = load_novel_reference(drama_id, drama)
     resp = {"job_id": job_id, "drama_id": drama_id, "engine": opts.engine_name,
             "model": getattr(engines[0], "model", opts.model), "target_line_count": len(eligible),
@@ -542,7 +543,7 @@ def _resolve_run_options(drama, engine_name, model, style_preset, style_note, lo
             model = last["model"]
         except InvalidInputError:
             pass    # no longer offered: the engine's default
-    defaults = get_translate_config_defaults(is_novel, engine_name, model, _plain_stream(drama))
+    defaults = get_translate_config_defaults(is_novel, engine_name, model, _plain_stream(drama, engine_name, model))
     context_window = last.get("context_window", defaults["context_window"]) if context_window is None else context_window
     context_window_ahead = (last.get("context_window_ahead", defaults["context_window_ahead"])
                             if context_window_ahead is None else context_window_ahead)

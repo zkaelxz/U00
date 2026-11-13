@@ -27278,7 +27278,7 @@ export interface components {
             stock_phrase_isolation_seconds: number;
             /**
              * Stream Plain Prompt
-             * @default false
+             * @default true
              */
             stream_plain_prompt: boolean;
             /** Tesseract Cmd */

@@ -281,7 +281,7 @@ class SettingsPreferences(TimingPreferences):
     scanlate_match_text_color: bool = False
     scanlate_rect_layout: bool = False
     episode_brief: bool = True
-    stream_plain_prompt: bool = False
+    stream_plain_prompt: bool = True
     translate_reply_guard: str = "auto"
     claude_reasoning: str = "default"
     openai_reasoning: str = "less"
