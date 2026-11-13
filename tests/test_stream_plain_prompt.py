@@ -106,3 +106,12 @@ def test_the_brief_is_written_with_the_plain_prompt_only_for_a_plain_run(isolate
             assert seen[-1] is expected
     finally:
         job_table._jobs.pop("j", None)
+
+
+def test_glossary_lists_a_terms_aliases_beside_its_main_spelling(isolated_db):
+    series = db.create_series("A")
+    db.upsert_glossary_term(series, "亞洛赫", "Anok", category="person_name", aliases="阿洛|雅露")
+    db.upsert_glossary_term(series, "小明", "Xiaoming", category="person_name")
+    text = stream_recipe.names_glossary(db.list_glossary_terms(series))
+    assert "亞洛赫 / 阿洛 / 雅露 -> Anok" in text
+    assert "小明 -> Xiaoming" in text
