@@ -176,8 +176,8 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 /* Open, the panel sits right under the toolbar: sticky, a toolbar with the player and waveform (~380px) covered its labels and first rows on a 800px-tall screen. */
 .review-editor.is-replacing .review-toolbar { position: static; }
 .review-editor.is-replacing .review-line { scroll-margin-top: calc(var(--bar-h, 0px) + var(--space-2)); }
-/* Desktop with a side video: one column as tall as the screen, video and waveform on top and the toolbar, Find and replace and lines scrolling underneath, so the video never leaves view. Only on tall screens, and only from 1400px, where the checks sit in a column beside it: narrower, they stack under the lines and a pinned column would cover them. On a shorter screen the video card would leave the lines a few rows. The sticky toolbar sticks to the scrolling section's top, not the page's, and rows scroll to just under it. */
-@media (min-width: 1400px) and (min-height: 860px) {
+/* Desktop with a side video: one column as tall as the screen, video and waveform on top and the toolbar, Find and replace and lines scrolling underneath, so the video never leaves view. Only on tall screens, and only from 1400px, where the checks sit in a column beside it: narrower, they stack under the lines and a pinned column would cover them. On a shorter screen the video shrinks, or the card would leave the lines a few rows. The sticky toolbar sticks to the scrolling section's top, not the page's, and rows scroll to just under it. */
+@media (min-width: 1400px) {
   .review-editor.has-side {
     grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2);
     position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2));
@@ -189,6 +189,10 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
   .review-editor.has-side .review-toolbar { top: 0; }
   .review-editor.has-side .review-line { scroll-margin-top: calc(var(--review-toolbar-h, 9rem) + var(--space-2)); }
   .review-editor.has-side.is-replacing .review-line { scroll-margin-top: var(--space-2); }
+}
+@media (min-width: 1400px) and (max-height: 859px) {
+  .review-editor.has-side > .review-watch { max-height: 52vh; }
+  .review-editor.has-side > .review-watch .review-stage { max-height: 14vh; }
 }
 .review-replace { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
 .review-replace-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
