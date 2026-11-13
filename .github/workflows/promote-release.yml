@@ -67,11 +67,11 @@ jobs:
           app="BaiheStudio-App-$version.zip"
           manifest="BaiheStudio-App-$version.json"
           wanted=("$setup" "$setup.sha256" "$setup.sig")
-          if printf '%s\n' "$names" | grep -Fqx "$app"; then
+          if grep -Fqx "$app" <<<"$names"; then
             wanted+=("$app.sha256" "$app.sig" "$manifest" "$manifest.sha256" "$manifest.sig")
           fi
           for name in "${wanted[@]}"; do
-            if ! printf '%s\n' "$names" | grep -Fqx "$name"; then
+            if ! grep -Fqx "$name" <<<"$names"; then
               echo "::error::$TAG has no $name. Finish the release first (docs/runbook.md, section 1a). Nothing was promoted."
               exit 1
             fi
@@ -84,7 +84,7 @@ jobs:
           # run on baihe-subtitler passed: that branch only takes reviewed merges,
           # so its key is the release key, not one planted beside forged files.
           signed=("$setup")
-          if printf '%s\n' "$names" | grep -Fqx "$app"; then signed+=("$app" "$manifest"); fi
+          if grep -Fqx "$app" <<<"$names"; then signed+=("$app" "$manifest"); fi
           # tags/ so a branch with the same name can't stand in for the tag.
           commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq .sha)"
           if ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
