@@ -54,6 +54,14 @@
 #ifndef PythonDll
   #define PythonDll "python313.dll"
 #endif
+; No default for these two: a build without them would have nothing to check the
+; elevated service step against (build_installer.py passes both).
+#ifndef ServiceTreeDigest
+  #error ServiceTreeDigest is not defined; build with installer/build_installer.py.
+#endif
+#ifndef StageScriptSha256
+  #error StageScriptSha256 is not defined; build with installer/build_installer.py.
+#endif
 #define AppName "Baihe Studio"
 
 [Setup]
@@ -567,16 +575,28 @@ begin
   Result := ServiceInstalled() or FileExists(AdminDir() + '\helper\python\python.exe');
 end;
 
-// Runs service.py with administrator rights: directly when Setup already
-// has them, otherwise through the Windows permission prompt (only this step
-// is elevated; the install itself stays per-user). Base is a folder with
-// helper\python and helper\lib\installer\service.py: Setup's own {app}\service
-// for `install`, the admin folder for everything else. False if it couldn't
-// run or didn't succeed.
+// The one place Setup elevates. When Setup already has administrator rights
+// the program runs directly, otherwise through the Windows permission prompt
+// (only the service step is elevated; the install itself stays per-user).
+function RunElevated(const Exe, Params: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  if IsAdmin() then
+    Result := Exec(Exe, Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode)
+  else
+    Result := ShellExec('runas', Exe, Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('Service step result: ' + IntToStr(ResultCode));
+  Result := Result and (ResultCode = 0);
+end;
+
+// Runs service.py from the admin folder with administrator rights. The
+// install step is the exception, because the admin folder doesn't exist yet:
+// it goes through RunStagedServiceInstall, never from a per-user folder.
+// False if it couldn't run or didn't succeed.
 function RunServiceHelper(const Base, Args: String): Boolean;
 var
   Exe, Params: String;
-  ResultCode: Integer;
 begin
   Exe := Base + '\helper\python\python.exe';
   Params := '-I -S "' + Base + '\helper\lib\installer\service.py" ' + Args;
@@ -587,12 +607,95 @@ begin
     Result := False;
     Exit;
   end;
-  if IsAdmin() then
-    Result := Exec(Exe, Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode)
-  else
-    Result := ShellExec('runas', Exe, Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Log('Service step result: ' + IntToStr(ResultCode));
-  Result := Result and (ResultCode = 0);
+  Result := RunElevated(Exe, Params);
+end;
+
+// Base64 of S as UTF-16LE, the form powershell.exe's -EncodedCommand takes.
+function Utf16Base64(const S: String): String;
+const
+  Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+var
+  Bytes: array of Integer;
+  I, N, Group: Integer;
+begin
+  N := Length(S) * 2;
+  SetLength(Bytes, N + 2);
+  for I := 1 to Length(S) do
+  begin
+    Bytes[(I - 1) * 2] := Ord(S[I]) and 255;
+    Bytes[(I - 1) * 2 + 1] := (Ord(S[I]) shr 8) and 255;
+  end;
+  Bytes[N] := 0;
+  Bytes[N + 1] := 0;
+  Result := '';
+  I := 0;
+  while I < N do
+  begin
+    Group := (Bytes[I] shl 16) or (Bytes[I + 1] shl 8);
+    if I + 2 < N then
+      Group := Group or Bytes[I + 2];
+    Result := Result + Alphabet[((Group shr 18) and 63) + 1] + Alphabet[((Group shr 12) and 63) + 1];
+    if I + 1 < N then
+      Result := Result + Alphabet[((Group shr 6) and 63) + 1]
+    else
+      Result := Result + '=';
+    if I + 2 < N then
+      Result := Result + Alphabet[(Group and 63) + 1]
+    else
+      Result := Result + '=';
+    I := I + 3;
+  end;
+end;
+
+// A value as PowerShell code that decodes it. Quoting would not do: a path may hold
+// characters PowerShell treats as quotes (U+2018 and its kin are legal in a Windows
+// folder name), and base64 has none of them.
+function PowerShellValue(const S: String): String;
+begin
+  Result := '[System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String(''' +
+    Utf16Base64(S) + '''))';
+end;
+
+// The service step of a fresh install or an update, run from files the user
+// account can change ({app}\service), so nothing there is trusted: the
+// elevated script is checked here against a hash compiled into Setup and is
+// handed to PowerShell as text (not as a path someone could swap), and it
+// copies the service files into an admin-only folder and checks that copy
+// against the digest compiled into Setup before running anything from it
+// (installer/stage_service.ps1).
+function RunStagedServiceInstall(const Extra: String): Boolean;
+var
+  Raw: AnsiString;
+  Body, Script: String;
+  I: Integer;
+begin
+  Result := False;
+  if not LoadStringFromFile(ExpandConstant('{app}\service\stage_service.ps1'), Raw) then
+  begin
+    Log('Service step: stage_service.ps1 is missing.');
+    Exit;
+  end;
+  if CompareText(GetSHA256OfString(Raw), '{#StageScriptSha256}') <> 0 then
+  begin
+    Log('Service step: stage_service.ps1 does not match this installer.');
+    Exit;
+  end;
+  Body := Raw;
+  for I := 1 to Length(Body) do
+    if Ord(Body[I]) > 127 then
+    begin
+      Log('Service step: stage_service.ps1 is not ASCII.');
+      Exit;
+    end;
+  Script := '$Source = ' + PowerShellValue(ExpandConstant('{app}\service')) + #13#10 +
+    '$Staging = ' + PowerShellValue(AdminDir() + '.staging') + #13#10 +
+    '$Digest = ''{#ServiceTreeDigest}''' + #13#10 +
+    '$Root = ' + PowerShellValue(ExpandConstant('{app}')) + #13#10 +
+    '$Data = ' + PowerShellValue(DataDir()) + #13#10 +
+    '$Extra = ' + PowerShellValue(Extra) + #13#10 + Body;
+  Log('Running the staged service step.');
+  Result := RunElevated(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -EncodedCommand ' + Utf16Base64(Script));
 end;
 
 // The admin folder is shared by every install on this PC: naming this one
@@ -782,9 +885,7 @@ begin
   if WizardIsTaskSelected('service') then
   begin
     WizardForm.StatusLabel.Caption := 'Setting up Baihe Studio''s background service...';
-    ServiceFailed := not RunServiceHelper(ExpandConstant('{app}\service'),
-      '--install-root "' + ExpandConstant('{app}') + '" --data-dir "' + DataDir() + '" install' +
-      ApiPortArg());
+    ServiceFailed := not RunStagedServiceInstall(ApiPortArg());
   end
   else if ServiceOrAdminDirPresent() then
     ServiceFailed := not RunServiceHelper(AdminDir(), UninstallServiceArgs());
