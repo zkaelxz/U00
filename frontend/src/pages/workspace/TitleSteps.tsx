@@ -2,6 +2,8 @@
  * The Simple page's step tabs for an audio or video title: five steps across the top, the current one marked, with its action as the one main button.
  */
 import { ButtonLink } from '../../components/Button'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
+import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
 import { TitleFlowStart } from './TitleFlowStart'
 import { titleSteps, type Step, type StepInput, type StepKey } from './stepModel'
@@ -28,6 +30,8 @@ export function TitleSteps({ id, flowOn, onFlowProgress, openStep = null, ...inp
     check: href('review'),
     export: href('export'),
   }
+  // The secondary links share one "More" menu on a phone so the lines start higher; the tabs still reach every stage.
+  const phone = useMediaQuery('(max-width: 600px)')
   const current = steps.find((s) => s.state === 'current')
 
   const mainAction = (s: Step) => {
@@ -48,6 +52,14 @@ export function TitleSteps({ id, flowOn, onFlowProgress, openStep = null, ...inp
     }
   }
 
+  const secondary = (
+    <>
+      {current?.key !== 'add' && <ButtonLink href={tabHref.add}>Add media</ButtonLink>}
+      {hasLines && <ButtonLink href={tabHref.transcribe}>Redo transcription</ButtonLink>}
+      <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
+    </>
+  )
+
   return (
     <div className="title-steps-bar">
       <ol className="title-steps" aria-label="Steps">
@@ -65,9 +77,12 @@ export function TitleSteps({ id, flowOn, onFlowProgress, openStep = null, ...inp
       </ol>
       <div className="title-steps-actions">
         {current && mainAction(current)}
-        {current?.key !== 'add' && <ButtonLink href={tabHref.add}>Add media</ButtonLink>}
-        {hasLines && <ButtonLink href={tabHref.transcribe}>Redo transcription</ButtonLink>}
-        <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
+        {phone ? (
+          <details className="title-steps-more">
+            <summary className={buttonClass('secondary')}>More</summary>
+            <div className="title-steps-more-list">{secondary}</div>
+          </details>
+        ) : secondary}
       </div>
     </div>
   )

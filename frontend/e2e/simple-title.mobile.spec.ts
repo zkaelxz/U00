@@ -9,7 +9,9 @@ const progress = {
   flagged_count: 0, has_audio: false, has_dub_track: false, exported: false, stages: [],
 }
 
-const actions = ['Add media', 'Redo transcription', 'Translate 10 lines', 'Glossary']
+const main = 'Translate 10 lines'
+// On a phone these three sit behind the More menu.
+const more = ['Add media', 'Redo transcription', 'Glossary']
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress }))
@@ -41,9 +43,10 @@ test('Simple fits a phone: switch and the step actions visible, tall enough to t
   for (const name of ['Simple', 'Full']) {
     await expectTall(page.locator('label').filter({ hasText: new RegExp(`^${name}$`) }).first(), `${name} switch`)
   }
-  for (const name of actions) {
-    await expectTall(page.getByRole('link', { name, exact: true }), name)
-  }
+  await expectTall(page.getByRole('link', { name: main, exact: true }), main)
+  await expectTall(page.locator('summary', { hasText: 'More' }), 'More')
+  await page.locator('summary', { hasText: 'More' }).tap()
+  for (const name of more) await expectTall(page.getByRole('link', { name, exact: true }), name)
   const tabs = page.getByRole('list', { name: 'Steps' }).getByRole('link')
   await expect(tabs).toHaveCount(5)
   for (let n = 0; n < 5; n++) await expectTall(tabs.nth(n), `step tab ${n + 1}`)
@@ -84,6 +87,8 @@ test('the step tabs and buttons on a stage page are tall enough to tap and do no
   const links = page.getByRole('list', { name: 'Steps' }).getByRole('link')
   await expect(links).toHaveCount(5)
   for (let n = 0; n < 5; n++) await expectTall(links.nth(n), `step tab ${n + 1}`)
-  for (const name of actions) await expectTall(page.getByRole('link', { name, exact: true }), name)
+  await expectTall(page.getByRole('link', { name: main, exact: true }), main)
+  await page.locator('summary', { hasText: 'More' }).tap()
+  for (const name of more) await expectTall(page.getByRole('link', { name, exact: true }), name)
   await expectNoSidewaysScroll(page)
 })
