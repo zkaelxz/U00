@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 
 import { cancelJob } from '../../../../api/jobs'
 import { withSignal } from '../../../../api/client'
-import { listAllLines, restoreSnapshot } from '../../../../api/restructure'
-import { beginThreeRun, captureThreeRun, endThreeRun, getThreeRun, keepRestThreeRun, pickThreeRun } from '../../../../api/threeRun'
+import { beginThreeRun, captureThreeRun, endThreeRun, getThreeRun, keepRestThreeRun, pickThreeRun, restoreThreeRun } from '../../../../api/threeRun'
 import { getTranslateConfig, getTranslateEstimate, startTranslateRun } from '../../../../api/translateStage'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
@@ -155,13 +154,15 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
   const keepRest = (run: number) => {
     keepRestThreeRun(dramaId, run).then(() => { reload(); onChanged() }, setError)
   }
+  // English only, for this review's lines: timing, speakers and lines added since stay as they are.
   const restoreAll = () => {
-    if (!review?.history_id) return
-    const historyId = review.history_id
-    listAllLines(dramaId)
-      .then((all) => restoreSnapshot(dramaId, historyId, all.map((l) => l.id)))
-      .then(() => endThreeRun(dramaId))
-      .then(() => { setReview(null); onChanged() }, setError)
+    restoreThreeRun(dramaId)
+      .then((r) => {
+        setUndoStack([])
+        reload()
+        onChanged()
+        if (r.skipped.length) setError(new Error(`${r.skipped.length} line${r.skipped.length === 1 ? ' was' : 's were'} edited since, so ${r.skipped.length === 1 ? 'it was' : 'they were'} left as they are. Records → Line history has the earlier text.`))
+      }, setError)
   }
   const close = () => {
     endThreeRun(dramaId).then(() => { setReview(null); setUndoStack([]) }, setError)
@@ -221,7 +222,7 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
         {review && runNo === 0 && !reviewing && (
           <div className="review-actions">
             <p className="muted">Only {review.runs_done} of {RUNS} runs were recorded, so there is nothing to compare.</p>
-            <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Restore the English from before</button>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Put back the earlier English</button>
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={close}>Close</button>
           </div>
         )}
@@ -261,7 +262,7 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
             )}
             <div className="review-actions">
               <button type="button" onClick={close} data-testid="three-run-done">Done</button>
-              <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Restore the English from before the review</button>
+              <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Put back the English from before the review</button>
             </div>
           </div>
         )}

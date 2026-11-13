@@ -6,8 +6,9 @@ disagree.
 
 It starts no translation. The client runs the normal Translate run three
 times (so glossary, style, context and the cost cap apply as always) and calls
-capture_run after each; this module reads each run's English off the lines. A
-snapshot taken at begin() is the undo for the whole review. Lines where the
+capture_run after each; this module reads each run's English off the lines. The
+snapshot taken at begin() is a History undo point; restore_original() is the review's own undo,
+which puts back only the English of its lines. Lines where the
 three runs agree (ignoring case and punctuation) keep what the last run wrote;
 a differing line holds the last run's text until pick_runs() chooses.
 
@@ -18,6 +19,7 @@ the text this module last wrote, so a line the owner edited meanwhile is
 skipped and reported, never overwritten.
 """
 import threading
+import time
 import unicodedata
 
 import background_jobs
@@ -30,8 +32,8 @@ MAX_LINES = 5000
 SNAPSHOT_LABEL = "before 3-run review"
 
 _lock = threading.Lock()
-# drama_id -> {"line_ids", "history_id", "runs": [{line id: English}], "written": {line id: English},
-# "picks": {line id: run number}}
+# drama_id -> {"line_ids", "history_id", "started", "last_job_token", "original": {line id: English before
+# the review}, "runs": [{line id: English}], "written": {line id: English}, "picks": {line id: run number}}
 _sessions: dict = {}
 
 
@@ -57,23 +59,29 @@ def _refuse_if_busy(drama_id: int) -> None:
 
 def begin(drama_id: int, line_ids=None) -> dict:
     """Snapshots the lines and opens a review over the lines with source text
-    (limited to line_ids when given). Replaces an earlier review of the title."""
+    (limited to line_ids when given). One review per title: refused while one is open."""
     ownership_service.require_drama(drama_id)
     _refuse_if_busy(drama_id)
+    if drama_id in _sessions:
+        raise ConflictError("A 3-run review is already open for this title. Finish or close it first.")
     if line_ids is not None and (not isinstance(line_ids, list) or len(line_ids) > MAX_LINES):
         raise InvalidInputError(f"Choose up to {MAX_LINES} lines.")
     wanted = set(line_ids) if line_ids is not None else None
     lines = db.load_line_objects(drama_id)
-    targets = [ln.id for ln in lines
-               if (ln.zh or "").strip() and (wanted is None or ln.id in wanted)]
+    chosen = [ln for ln in lines if (ln.zh or "").strip() and (wanted is None or ln.id in wanted)]
+    targets = [ln.id for ln in chosen]
     if not targets:
         raise InvalidInputError("None of these lines has source text to translate.")
     if len(targets) > MAX_LINES:
         raise InvalidInputError(f"Choose up to {MAX_LINES} lines; this covers {len(targets)}.")
     history_id = db.save_line_history_snapshot(drama_id, lines, SNAPSHOT_LABEL)
     with _lock:
-        _sessions[drama_id] = {"line_ids": targets, "history_id": history_id, "runs": [],
-                               "written": {}, "picks": {}}
+        if drama_id in _sessions:
+            raise ConflictError("A 3-run review is already open for this title. Finish or close it first.")
+        _sessions[drama_id] = {"line_ids": targets, "history_id": history_id, "started": time.time(),
+                               "last_job_token": None, "runs": [], "picks": {},
+                               "original": {ln.id: ln.en or "" for ln in chosen},
+                               "written": {ln.id: ln.en or "" for ln in chosen}}
     return {"line_ids": targets, "history_id": history_id, "runs_done": 0}
 
 
@@ -91,8 +99,17 @@ def capture_run(drama_id: int, run_number: int) -> dict:
         job = background_jobs.get_status(f"translate_{drama_id}") or {}
         if job.get("status") != "done":
             raise ConflictError("The translation run did not finish. Run it again.")
-        if (job.get("result") or {}).get("errors"):
+        result = job.get("result") or {}
+        if result.get("errors"):
             raise ConflictError("The translation run had errors on some lines. Run it again.")
+        if result.get("cap_reached") is not None:
+            raise ConflictError("The translation run stopped at its cost cap, so some lines were not redone. Run it again.")
+        # The job record under this id is whichever run finished last; only one that ended after this
+        # review began, and that is not the run already recorded, can be this run.
+        token = job.get("finished_at")
+        if token is None or token <= session["started"] or token == session["last_job_token"]:
+            raise ConflictError("That is not a new translation run for this review. Run it again.")
+        session["last_job_token"] = token
         current = {ln.id: ln.en or "" for ln in db.load_line_objects(drama_id)}
         session["runs"].append({lid: current.get(lid, "") for lid in session["line_ids"]})
         session["written"] = dict(session["runs"][-1])
@@ -160,6 +177,37 @@ def keep_run_for_rest(drama_id: int, run: int) -> dict:
     if not todo:
         return {"applied": [], "skipped": []}
     return pick_runs(drama_id, todo)
+
+
+def restore_original(drama_id: int) -> dict:
+    """Puts back the English the review's lines had before it, as `en` only (timing, speakers,
+    flags and added or deleted lines are never touched, so nothing outside the review is undone).
+    A line is restored only while it holds the original or one of the runs' text; a line edited
+    to something else since is skipped and reported. The review stays open."""
+    ownership_service.require_drama(drama_id)
+    _refuse_if_busy(drama_id)
+    with _lock:
+        session = _session(drama_id)
+        original = session["original"]
+        known = {lid: {original[lid], session["written"][lid], *(r[lid] for r in session["runs"])}
+                 for lid in session["line_ids"]}
+        current = {ln.id: ln.en or "" for ln in db.load_line_objects(drama_id)}
+        writes, skipped = [], []
+        for lid in session["line_ids"]:
+            if lid not in current:
+                skipped.append(lid)
+            elif current[lid] == original[lid]:
+                continue
+            elif current[lid] in known[lid]:
+                writes.append((lid, {"en": original[lid]}, {"en": current[lid]}))
+            else:
+                skipped.append(lid)
+        missed = db.update_lines_fields_if_many(drama_id, writes)
+        restored = [lid for lid, _v, _e in writes if lid not in set(missed)]
+        for lid in restored:
+            session["written"][lid] = original[lid]
+            session["picks"].pop(lid, None)
+    return {"applied": restored, "skipped": sorted(set(skipped) | set(missed))}
 
 
 def end(drama_id: int) -> None:

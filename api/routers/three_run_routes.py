@@ -47,6 +47,12 @@ def keep_rest(body: ThreeRunKeepRest, drama_id: int = Path(ge=1)):
     return three_run_service.keep_run_for_rest(drama_id, body.run)
 
 
+@router.post("/dramas/{drama_id}/restore", dependencies=[require_permission("lines.edit")], response_model=ThreeRunPickResult,
+             summary="Put back the English the review's lines had before it (en only, compare-and-set)", responses=_ERRORS)
+def restore(drama_id: int = Path(ge=1)):
+    return three_run_service.restore_original(drama_id)
+
+
 @router.delete("/dramas/{drama_id}", dependencies=[require_permission("lines.edit")], status_code=204,
                summary="Close the 3-run review (the lines keep what they hold)", responses=error_responses(404))
 def end(drama_id: int = Path(ge=1)):

@@ -19,4 +19,6 @@ export const pickThreeRun = (id: number, picks: ThreeRunPick[], f?: Fetch) =>
 export const keepRestThreeRun = (id: number, run: number, f?: Fetch) =>
   postJson<ThreeRunPickResult>(`${base(id)}/keep-rest`, { run }, f)
 
+export const restoreThreeRun = (id: number, f?: Fetch) => postJson<ThreeRunPickResult>(`${base(id)}/restore`, {}, f)
+
 export const endThreeRun = (id: number, f?: Fetch) => deleteJson<void>(base(id), f)
