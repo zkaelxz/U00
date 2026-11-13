@@ -28,6 +28,7 @@ import { capFirst } from '../../../../labels'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { buttonClass } from '../../../../components/uiClasses'
 import { SnapshotPreview } from './SnapshotPreview'
+import { CompareSaves } from './CompareSaves'
 import { usePcOnly } from '../../../../hooks/usePcOnly'
 
 interface Records {
@@ -55,6 +56,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
   const [records, setRecords] = useState<Records | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
+  const [comparing, setComparing] = useState(false)
   // How many lines with notes or emotion tags the restore being confirmed would remove.
   const [loss, setLoss] = useState<{ id: number; lines: number } | null>(null)
   const [previewing, setPreviewing] = useState<number | null>(null)
@@ -336,6 +338,10 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       {history.length > 0 && (
         <>
           <h2 className="subhead">Line history</h2>
+          <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={comparing} onClick={() => setComparing(!comparing)}>
+            {comparing ? 'Hide compare' : 'Compare saves side by side'}
+          </button>
+          {comparing && <CompareSaves dramaId={dramaId} history={history} jobRunning={jobRunning} onChanged={onReshaped} />}
           <ul className="records-list" data-testid="history-list">
             {history.map((h) => {
               // Every row has the same visible words, so the name says which version it acts on.

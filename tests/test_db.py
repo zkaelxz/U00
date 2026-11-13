@@ -2721,9 +2721,9 @@ class TestLineHistoryCompression:
 
     def test_every_kept_snapshot_reads_back_whatever_its_form(self, isolated_db):
         did = db.create_drama(title_zh="D")
-        ids = self._snapshots(did, 12)
+        ids = self._snapshots(did, 22)
         kept = [h["id"] for h in db.list_line_history(did)]
-        assert sorted(kept) == ids[2:]          # still the last 10: the count is unchanged
+        assert sorted(kept) == ids[2:]          # the last 20 are kept
         for n, hid in enumerate(ids[2:], start=2):
             rows = db.get_line_history_snapshot(hid)
             assert rows[0]["zh"] == f"第{n}版" and rows[0]["en"] == f"take {n}"
