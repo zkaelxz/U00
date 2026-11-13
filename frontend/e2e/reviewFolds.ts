@@ -25,6 +25,7 @@ const TAB_OF: Record<string, string> = {
   'Learn my style': 'History',
   'Re-time with Qwen3 aligner': 'History',
   'Re-transcribe selected lines': 'History',
+  'Run 3 times, review differences': 'History',
   'Audio tags (SenseVoice)': 'Extras',
   'Burned subtitle preview': 'Extras',
 }
