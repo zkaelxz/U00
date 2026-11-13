@@ -126,8 +126,9 @@ A separate section of the popup, for prose rather than comic pages:
   the moment it loses focus, exactly when you want to keep reading. The
   panel has a **Show original** toggle and a close button, and it's
   reused on the next translate rather than stacking a second one.
-- Every translation is also saved into the **Translate** page's history,
-  the same table that page writes to.
+- The translation is also saved into the **Translate** page's history,
+  the same table that page writes to, unless the popup's save switch is
+  off; then it is only shown on the page.
 
 The extension has no engine picker or key of its own; it uses the engine
 set in Settings → Browser extension. Page OCR follows the same saved settings
