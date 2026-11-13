@@ -55,6 +55,19 @@
         <label class="switch"><input type="checkbox" role="switch" id="overlay" checked><span>Draw over page</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="typeset"><span>Clean and typeset pages</span></label>
       </div>
+      <div id="typesetStyle">
+        <label for="typesetAlign">Text alignment</label>
+        <select id="typesetAlign">
+          <option value="auto">Auto</option>
+          <option value="left">Left</option>
+          <option value="center">Centre</option>
+          <option value="right">Right</option>
+        </select>
+        <label for="typesetMinFont">Minimum font size (px, 0 = automatic)</label>
+        <input id="typesetMinFont" type="number" min="0" max="40" step="1" value="0">
+        <label class="switch"><input type="checkbox" role="switch" id="typesetStroke"><span>Outline the text</span></label>
+        <p class="hint">These shape the cleaned page drawn over the reader when it is not saved.</p>
+      </div>
       <p class="hint">Draw over page only previews on the page you are reading. Clean and typeset makes Baihe erase the original lettering and put the English in, on the page you are reading and in saved pages (a few seconds per page).</p>
     </div>
 

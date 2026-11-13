@@ -31,9 +31,12 @@ chrome.runtime.onInstalled.addListener(() => {
 // The popup's "Auto" choices for a page sent with no drama picked; all on, so a first send just works.
 const AUTO_TITLE_DEFAULTS = { create: true, fill: true, series: true };
 
+// The look of the redrawn page: "auto" alignment, no minimum size and no outline are the app's plain render.
+const TYPESET_STYLE_DEFAULTS = { align: "auto", minFont: 0, stroke: false };
+
 async function settings() {
   const stored = await chrome.storage.local.get(
-    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle", "typeset", "screenshot"]);
+    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle", "typeset", "typesetStyle", "screenshot"]);
   return {
     autoTitle: { ...AUTO_TITLE_DEFAULTS, ...(stored.autoTitle || {}) },
     token: stored.token || "",
@@ -42,6 +45,7 @@ async function settings() {
     overlay: stored.overlay !== false,
     // Off by default: clean-and-typeset costs seconds per page, so a person turns it on.
     typeset: stored.typeset === true,
+    typesetStyle: { ...TYPESET_STYLE_DEFAULTS, ...(stored.typesetStyle || {}) },
     // Off by default: a screenshot is only for pages the browser will not let the script read.
     screenshot: stored.screenshot === true,
     textDirection: stored.textDirection || { source: "zh", target: "en" },
@@ -202,9 +206,23 @@ async function setAutoTitle({ options }) {
   return { ok: true, data: next };
 }
 
+function typesetStyleChanged(style) {
+  return style.align !== TYPESET_STYLE_DEFAULTS.align || style.minFont !== TYPESET_STYLE_DEFAULTS.minFont
+    || style.stroke !== TYPESET_STYLE_DEFAULTS.stroke;
+}
+
 async function setTypeset({ on }) {
   await chrome.storage.local.set({ typeset: on === true });
   return { ok: true, data: { typeset: on === true } };
+}
+
+async function setTypesetStyle({ style }) {
+  const next = { ...(await settings()).typesetStyle };
+  if (style && ["auto", "left", "center", "right"].includes(style.align)) next.align = style.align;
+  if (style && Number.isFinite(Number(style.minFont))) next.minFont = Math.max(0, Math.min(40, Math.round(Number(style.minFont))));
+  if (style && typeof style.stroke === "boolean") next.stroke = style.stroke;
+  await chrome.storage.local.set({ typesetStyle: next });
+  return { ok: true, data: next };
 }
 
 async function setScreenshot({ on }) {
@@ -298,7 +316,7 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
     return { ok: false, error: "No page images were found on this page." };
   }
   const cap = await batchCap();
-  const { typeset } = await settings();
+  const { typeset, typesetStyle } = await settings();
   const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
   const batches = planBatches(images, cap, filterPages !== false ? 2 : 1);
@@ -315,6 +333,9 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
         run_id: runId,
         // Only sent when on, so an older app never sees the key.
         ...(typeset ? { typeset: true } : {}),
+        // Only when something differs from the plain render, so an older app never sees the key.
+        ...(typeset && typesetStyleChanged(typesetStyle)
+          ? { typeset_style: { align: typesetStyle.align, min_font: typesetStyle.minFont, stroke: typesetStyle.stroke } } : {}),
       },
     });
     // The app refuses a whole filtered batch with 422 when none of it looks
@@ -696,6 +717,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "setScreenshot":
           respond(await setScreenshot(message));
+          break;
+        case "setTypesetStyle":
+          respond(await setTypesetStyle(message));
           break;
         case "setTypeset":
           respond(await setTypeset(message));

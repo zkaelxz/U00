@@ -72,6 +72,34 @@ _SYSTEM_FONT_CANDIDATES = {
 }
 
 
+class TypesetStyle:
+    """Look settings a person picks for the on-page typeset (extension popup); the
+    defaults reproduce the plain render, so nothing changes until one is set."""
+    ALIGNS = ("auto", "left", "center", "right")
+
+    def __init__(self, min_font: int = 0, stroke: bool = False, align: str = "auto"):
+        self.min_font = max(0, min(int(min_font), 40))
+        self.stroke = bool(stroke)
+        self.align = align if align in self.ALIGNS else "auto"
+
+    def floor(self, floor: int, font_size: int) -> int:
+        """`floor` raised to the chosen minimum, never above the size the fit starts at,
+        or the search below would have no sizes to try."""
+        return min(max(floor, self.min_font), font_size)
+
+    def draw_text(self, draw, xy, text, font, fill) -> None:
+        if not self.stroke:
+            draw.text(xy, text, font=font, fill=fill)
+            return
+        # Outline in the colour that contrasts with the fill, so it reads on any balloon.
+        light = sum(fill[:3]) / 3 > 127 if isinstance(fill, tuple) else False
+        draw.text(xy, text, font=font, fill=fill, stroke_width=max(1, round(font.size / 14)),
+                  stroke_fill=(0, 0, 0) if light else (255, 255, 255))
+
+
+_PLAIN = TypesetStyle()
+
+
 def _find_font(font_path: str | None = None, category: str = "regular", custom_fonts: dict | None = None):
     """
     Resolution order: an explicit font_path always wins (a per-bubble
@@ -171,7 +199,7 @@ def _split_twice(lines) -> bool:
     return any(a.endswith("-") and b.endswith("-") for a, b in zip(lines, lines[1:]))
 
 
-def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
+def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLAIN):
     """Shape-aware counterpart to render_text_in_box()'s rectangle layout
     tries the largest font first, and for each size the
     fewest lines first, centring the block vertically and giving each line
@@ -194,7 +222,7 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
     passes = ((False, comfort, True), (True, comfort, False), (True, smallest, False),
               (True, smallest, True))
     for hyphenate, floor, split_twice_ok in passes:
-        for size in range(font_size, floor - 1, -1):
+        for size in range(font_size, style.floor(floor, font_size) - 1, -1):
             laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate)
             if laid_out is not None and (split_twice_ok
                                          or not _split_twice([ln[0] for ln in laid_out[1]])):
@@ -227,7 +255,7 @@ def _roomiest_rectangle(mask):
     return best
 
 
-def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font):
+def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font, style=_PLAIN):
     """_layout_in_mask() inside the roomiest rectangle of the balloon: even lines instead of
     ones that follow the outline. Returns the same (font, lines) with the lines placed in the
     mask's coordinates, or None when the rectangle is too small a part of the balloon or the
@@ -239,7 +267,7 @@ def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font):
     if (bottom - top) * (right - left) < _MIN_RECT_SHARE * int(mask.sum()):
         return None
     laid_out = _layout_in_mask(draw, text, np.ones((bottom - top, right - left), dtype=bool),
-                               font_size, load_font)
+                               font_size, load_font, style)
     if laid_out is None:
         return None
     font, placed = laid_out
@@ -362,26 +390,31 @@ def _note_missing_cjk_font(notes, regions) -> None:
         notes.append(("warning", "cjk_font_missing", CJK_FONT_MISSING_NOTE))
 
 
-def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_layout: bool):
+def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_layout: bool,
+                         style=_PLAIN):
     """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline."""
-    laid_out = _layout_in_rectangle(draw, text, mask, font_size, load_font) if rect_layout else None
-    return laid_out or _layout_in_mask(draw, text, mask, font_size, load_font)
+    laid_out = (_layout_in_rectangle(draw, text, mask, font_size, load_font, style)
+                if rect_layout else None)
+    return laid_out or _layout_in_mask(draw, text, mask, font_size, load_font, style)
 
 
-def _draw_laid_out(draw, box: dict, laid_out, align: str, fill) -> None:
+def _draw_laid_out(draw, box: dict, laid_out, align: str, fill, style=_PLAIN) -> None:
     font, placed = laid_out
+    align = align if style.align == "auto" else style.align
     for line, left, right, top in placed:
         bbox = draw.textbbox((0, 0), line, font=font)
         line_w = bbox[2] - bbox[0]
-        lx = left + (max(0, (right - left - line_w) // 2) if align == "center" else 0)
+        room = max(0, right - left - line_w)
+        lx = left + (room // 2 if align == "center" else room if align == "right" else 0)
         # textbbox's own left offset, so the ink starts where it was measured
-        draw.text((box["x"] + lx - bbox[0], box["y"] + top), line, font=font, fill=fill)
+        style.draw_text(draw, (box["x"] + lx - bbox[0], box["y"] + top), line, font, fill)
 
 
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
-                        mask=None, report: dict | None = None, rect_layout: bool = False):
+                        mask=None, report: dict | None = None, rect_layout: bool = False,
+                        style: TypesetStyle = _PLAIN):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
     report: when given, receives {"size": the font size that was drawn}.
@@ -417,11 +450,11 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     if mask is not None:
         load_font = (lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
                      else ImageFont.load_default(sz))
-        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout)
+        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout, style)
         if laid_out is not None:
             if report is not None:
                 report["size"] = laid_out[0].size
-            _draw_laid_out(draw, box, laid_out, align, fill)
+            _draw_laid_out(draw, box, laid_out, align, fill, style)
             return image
 
     def wrap_and_measure(sz, hyphenate):
@@ -449,7 +482,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     smallest = scanlate_tuning.TYPESET_SMALLEST_PX
     for hyphenate, floor, split_twice_ok in ((False, comfort, True), (True, comfort, False),
                                              (True, smallest, False), (True, smallest, True)):
-        for size in list(range(font_size, floor - 1, -1)) or [font_size]:
+        for size in list(range(font_size, style.floor(floor, font_size) - 1, -1)) or [font_size]:
             font, lines, line_height = wrap_and_measure(size, hyphenate)
             if not overflows(font, lines, line_height, split_twice_ok):
                 break
@@ -465,11 +498,14 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     for i, line in enumerate(lines):
         bbox = draw.textbbox((0, 0), line, font=font)
         line_w = bbox[2] - bbox[0]
-        if align == "center":
+        side = align if style.align == "auto" else style.align
+        if side == "center":
             lx = box["x"] + max(0, (box["w"] - line_w) // 2)
+        elif side == "right":
+            lx = box["x"] + max(4, box["w"] - line_w - 4)
         else:
             lx = box["x"] + 4
-        draw.text((lx, start_y + i * line_height), line, font=font, fill=fill)
+        style.draw_text(draw, (lx, start_y + i * line_height), line, font, fill)
     return image
 
 
@@ -552,7 +588,8 @@ def _text_fill(pil_img, box: dict, sampled=None):
 
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
                   custom_fonts: dict | None = None, notes: list | None = None,
-                  match_color: bool = False, rect_layout: bool = False):
+                  match_color: bool = False, rect_layout: bool = False,
+                  style: TypesetStyle = _PLAIN):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -587,6 +624,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
     `rect_layout` sets balloon text in the largest rectangle inside the balloon (see
     _roomiest_rectangle) instead of following its outline. `match_color` letters a balloon in the colour of its original lettering when that was
     a real colour (see sampled_ink_color); black and white lettering stays automatic.
+    `style` (TypesetStyle) sets the lettering's alignment, minimum size and outline.
     """
     import tempfile
 
@@ -635,7 +673,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
-                         rect_layout)
+                         rect_layout, style)
         for b in bubbles:
             if scanlate_sfx.is_glossed(b):
                 scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
@@ -649,7 +687,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
 
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                      font_path: str | None, custom_fonts: dict | None, inks: list,
-                     rect_layout: bool = False) -> None:
+                     rect_layout: bool = False, style: TypesetStyle = _PLAIN) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
     then the real pass draws with sibling balloons held to a shared ratio."""
     masks = [(bubble_shape_mask(image_path, b, image=gray,
@@ -661,7 +699,7 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
         render_text_in_box(target, b, b["translated_text"], font_size=size,
                            font_path=font_path,
                            font_category=b.get("font_category") or "regular",
-                           custom_fonts=custom_fonts, mask=shape_mask, rect_layout=rect_layout,
+                           custom_fonts=custom_fonts, mask=shape_mask, rect_layout=rect_layout, style=style,
                            fill=_text_fill(target, b, ink), report=report)
 
     starts = [b.get("font_size", 18) for b in to_render]
