@@ -369,6 +369,14 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-diff-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-1) var(--space-4); margin-top: 2px; }
 .review-diff-pair del { color: var(--bad); }
 .review-diff-pair ins { color: var(--ok); text-decoration: none; }
+.compare-saves-list { list-style: none; padding: 0; margin: var(--space-2) 0 0; }
+.compare-saves-list li { padding: var(--space-2); border-bottom: 1px solid var(--border, currentColor); }
+.compare-saves-list li.compare-saves-active { outline: 2px solid var(--accent, currentColor); outline-offset: -2px; }
+.compare-saves-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin-top: 2px; }
+.compare-saves-side { overflow-wrap: anywhere; }
+.compare-saves-side del { color: var(--bad); }
+.compare-saves-side ins { color: var(--ok); text-decoration: none; font-weight: 600; }
+@media (max-width: 640px) { .compare-saves-pair { grid-template-columns: minmax(0, 1fr); } }
 .review-origin { margin-top: var(--space-1); font-size: var(--text-sm); }
 .review-origin summary { cursor: pointer; color: var(--muted); }
 .review-origin-body { display: grid; gap: var(--space-1); padding-top: var(--space-1); }
