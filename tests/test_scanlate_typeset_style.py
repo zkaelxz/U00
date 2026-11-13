@@ -72,3 +72,39 @@ def test_the_bridge_reads_the_popup_style_and_ignores_junk():
     style = svc._typeset_style({"align": "right", "min_font": "12", "stroke": True})
     assert (style.align, style.min_font, style.stroke) == ("right", 12, True)
     assert svc._typeset_style({"min_font": "abc", "stroke": "yes"}).min_font == 0
+
+
+def test_a_stronger_erase_clears_more_around_the_lettering():
+    import cv2
+    import scanlate_inpaint
+
+    def fringe_left(grow):
+        page = np.full((80, 120, 3), 255, np.uint8)
+        cv2.putText(page, "HI", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 0, 0), 3)
+        # a faint fringe 6px out, the kind of ghost the plain erase leaves behind
+        page[20:60, 24:26] = 215
+        scanlate_inpaint.inpaint_region("", {"x": 10, "y": 10, "w": 100, "h": 60}, image=page,
+                                        backend="cv", grow=grow)
+        return int((page[20:60, 24:26] < 250).sum())
+    assert fringe_left(1.0) > 0
+    assert fringe_left(2.0) < fringe_left(1.0)
+
+
+def test_balloon_fill_flattens_speckle_inside_the_mask_only():
+    from PIL import Image
+    rng = np.random.default_rng(1)
+    base = np.full((60, 60, 3), 240, np.uint8)
+    base[rng.random((60, 60)) < 0.1] = 200
+    image = Image.fromarray(base)
+    mask = np.zeros((60, 60), dtype=bool)
+    mask[10:50, 10:50] = True
+    scanlate_render._fill_balloon(image, {"x": 0, "y": 0}, mask, 1.0)
+    out = np.asarray(image)
+    assert (out[10:50, 10:50] == 240).all()
+    assert (out[0:5] == base[0:5]).all()
+
+
+def test_the_bridge_reads_erase_and_fill_with_limits():
+    from services import extension_bridge_service as svc
+    style = svc._typeset_style({"erase_grow": "9", "bubble_fill": "250"})
+    assert (style.erase_grow, style.bubble_fill) == (3.0, 100)

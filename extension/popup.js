@@ -28,6 +28,8 @@ const els = {
   typesetAlign: document.getElementById("typesetAlign"),
   typesetMinFont: document.getElementById("typesetMinFont"),
   typesetStroke: document.getElementById("typesetStroke"),
+  typesetErase: document.getElementById("typesetErase"),
+  typesetFill: document.getElementById("typesetFill"),
   screenshot: document.getElementById("screenshot"),
   progress: document.getElementById("progress"),
   autoCreate: document.getElementById("autoCreate"),
@@ -386,6 +388,8 @@ async function load() {
   els.typesetAlign.value = look.align || "auto";
   els.typesetMinFont.value = String(look.minFont || 0);
   els.typesetStroke.checked = look.stroke === true;
+  els.typesetErase.value = String(look.eraseGrow || 1);
+  els.typesetFill.value = String(look.bubbleFill || 0);
   els.screenshot.checked = settings.screenshot === true;
   showAutoOptions();
   const tab = await activeTab();
@@ -714,9 +718,10 @@ els.screenshot.addEventListener("change", () =>
   chrome.runtime.sendMessage({ type: "setScreenshot", on: els.screenshot.checked }));
 function saveTypesetStyle() {
   chrome.runtime.sendMessage({ type: "setTypesetStyle", style: {
-    align: els.typesetAlign.value, minFont: els.typesetMinFont.value, stroke: els.typesetStroke.checked } });
+    align: els.typesetAlign.value, minFont: els.typesetMinFont.value, stroke: els.typesetStroke.checked,
+    eraseGrow: els.typesetErase.value, bubbleFill: els.typesetFill.value } });
 }
-for (const el of [els.typesetAlign, els.typesetMinFont, els.typesetStroke]) el.addEventListener("change", saveTypesetStyle);
+for (const el of [els.typesetAlign, els.typesetMinFont, els.typesetStroke, els.typesetErase, els.typesetFill]) el.addEventListener("change", saveTypesetStyle);
 els.typeset.addEventListener("change", () =>
   chrome.runtime.sendMessage({ type: "setTypeset", on: els.typeset.checked }));
 els.translate.addEventListener("click", () => run(false));

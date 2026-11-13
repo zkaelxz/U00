@@ -77,8 +77,11 @@ class TypesetStyle:
     defaults reproduce the plain render, so nothing changes until one is set."""
     ALIGNS = ("auto", "left", "center", "right")
 
-    def __init__(self, min_font: int = 0, stroke: bool = False, align: str = "auto"):
+    def __init__(self, min_font: int = 0, stroke: bool = False, align: str = "auto",
+                 erase_grow: float = 1.0, bubble_fill: int = 0):
         self.min_font = max(0, min(int(min_font), 40))
+        self.erase_grow = max(1.0, min(float(erase_grow), 3.0))
+        self.bubble_fill = max(0, min(int(bubble_fill), 100))
         self.stroke = bool(stroke)
         self.align = align if align in self.ALIGNS else "auto"
 
@@ -589,7 +592,7 @@ def _text_fill(pil_img, box: dict, sampled=None):
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
                   custom_fonts: dict | None = None, notes: list | None = None,
                   match_color: bool = False, rect_layout: bool = False,
-                  style: TypesetStyle = _PLAIN):
+                  look: TypesetStyle = _PLAIN):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -624,7 +627,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
     `rect_layout` sets balloon text in the largest rectangle inside the balloon (see
     _roomiest_rectangle) instead of following its outline. `match_color` letters a balloon in the colour of its original lettering when that was
     a real colour (see sampled_ink_color); black and white lettering stays automatic.
-    `style` (TypesetStyle) sets the lettering's alignment, minimum size and outline.
+    `look` (TypesetStyle) sets the lettering's alignment, minimum size and outline.
     """
     import tempfile
 
@@ -659,7 +662,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         _erase_site_stamps(page, bubbles)
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
-        _erase_lettering_of(image_path, to_render, page, gray, notes)
+        _erase_lettering_of(image_path, to_render, page, gray, notes, look.erase_grow)
 
         if captions and not scanlate_art_text.paint_out_captions(page, captions, backend="auto"):
             if notes is not None and not any(n[1] == "inpaint_fallback" for n in notes if len(n) > 1):
@@ -673,7 +676,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
-                         rect_layout, style)
+                         rect_layout, look)
         for b in bubbles:
             if scanlate_sfx.is_glossed(b):
                 scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
@@ -709,9 +712,27 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
         rep = {}
         draw(scratch, b, m, start, ink, rep)
         fitted.append(rep.get("size", start))
+    if style.bubble_fill:
+        for b, m in zip(to_render, masks):
+            if m is not None:
+                _fill_balloon(pil_img, b, m, style.bubble_fill / 100)
     sizes = sibling_size_caps(list(zip(starts, fitted)))
     for b, m, size, ink in zip(to_render, masks, sizes, inks):
         draw(pil_img, b, m, size, ink)
+
+
+def _fill_balloon(pil_img, box: dict, mask, share: float) -> None:
+    """Blends the balloon's inside toward its own paper colour, so faint ghosts of the
+    erased lettering and screentone speckle fade; the outline stays because the mask is
+    inset from it. `share` 1.0 is a flat fill."""
+    x, y = box["x"], box["y"]
+    h, w = mask.shape
+    region = np.asarray(pil_img.crop((x, y, x + w, y + h))).astype(float)
+    if region.shape[:2] != mask.shape or not mask.any():
+        return
+    paper = np.median(region[mask], axis=0)
+    region[mask] = region[mask] * (1 - share) + paper * share
+    pil_img.paste(Image.fromarray(region.astype(np.uint8)), (x, y))
 
 
 def _erase_site_stamps(page, bubbles: list) -> None:
@@ -722,13 +743,13 @@ def _erase_site_stamps(page, bubbles: list) -> None:
             erase_box(page, logo_box(b, page_w, page_h))
 
 
-def _erase_lettering_of(image_path: str, regions: list, page, gray, notes) -> None:
+def _erase_lettering_of(image_path: str, regions: list, page, gray, notes, grow: float = 1.0) -> None:
     """Erases each region's original lettering from `page`. A LaMa failure is
     recorded once in `notes` and the render goes on with the OpenCV result that
     is already in `page`; with no `notes` list it is raised."""
     for b in regions:
         try:
-            erase_lettering(image_path, b, page, gray)
+            erase_lettering(image_path, b, page, gray, grow)
         except InpaintModelUnavailable as exc:
             if notes is None:
                 raise
@@ -736,7 +757,7 @@ def _erase_lettering_of(image_path: str, regions: list, page, gray, notes) -> No
                 notes.append(("warning", "inpaint_fallback", str(exc)))
 
 
-def erase_lettering(image_path: str, b: dict, page, gray) -> None:
+def erase_lettering(image_path: str, b: dict, page, gray, grow: float = 1.0) -> None:
     """Erases region `b`'s original lettering from `page` (BGR, in place). A
     speech or thought balloon is erased only inside its outline, so the
     outline and the art around it survive; other kinds, and a balloon whose
@@ -748,7 +769,7 @@ def erase_lettering(image_path: str, b: dict, page, gray) -> None:
         inside = bubble_erase_mask(image_path, b, image=gray)
     shape_fitted = gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS
     inpaint_region(image_path, b, image=page, inside=inside, spare_art=shape_fitted,
-                   on_art=b.get("kind") == "sign")
+                   on_art=b.get("kind") == "sign", grow=grow)
 
 
 def sample_text_style(image_path: str, box, image=None) -> dict:

@@ -475,7 +475,7 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
     try:
         with PIPELINE_LOCK:
             scanlate_render.process_page(image_path, bubbles, out_path,
-                                         **({"style": style} if style else {}))
+                                         **({"look": style} if style else {}))
         return page_capture_checks.jpeg_data_url(out_path)
     except Exception as e:
         page_capture_checks.log_page_failure(e)
