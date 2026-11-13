@@ -28,7 +28,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSaveResult,
-                         GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
+                         GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult, GlossaryCopyTitleTermsResult,
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate, InstructionsDraft,
@@ -77,6 +77,14 @@ def post_term(payload: GlossaryTermUpsert, drama_id: int = Path(ge=1)):
 def post_bulk_delete_terms(payload: GlossaryBulkDeleteRequest, drama_id: int = Path(ge=1)):
     return glossary_service.bulk_delete_glossary_terms(drama_id, payload.term_ids,
                                                        confirm=payload.confirm)
+
+
+@router.post("/dramas/{drama_id}/terms/copy-title-terms", dependencies=[require_permission("lines.edit")],
+             response_model=GlossaryCopyTitleTermsResult,
+             summary="Copy the title's own glossary terms into its series (never automatic)",
+             responses=error_responses(404, 422))
+def post_copy_title_terms(drama_id: int = Path(ge=1)):
+    return glossary_service.copy_title_terms_to_series(drama_id)
 
 
 @router.post("/dramas/{drama_id}/import", dependencies=[require_permission("lines.edit")],

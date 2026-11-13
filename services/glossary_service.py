@@ -64,6 +64,7 @@ import csv
 
 import db
 import translation_guide as tguide
+from db.shared_glossary import term_key
 from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, glossary_to_json, parse_glossary_file
 from engine_backends.engine_registry import WORKFLOW_TIERS, effective_tier
 from services.glossary_common import (
@@ -146,14 +147,37 @@ def list_glossary_terms(drama_id: int) -> list:
 
 
 def effective_glossary_terms(drama_id: int) -> list:
-    """list_glossary_terms plus the terms the series inherits from its shared
-    group; each carries `origin`. Read-only: edits go through the own-term calls."""
+    """What a run of this title translates with: the series' own terms, the ones it
+    inherits from its shared group and the title's own (origin "title"); each carries
+    `origin`. Read-only: edits go through the own-term calls."""
+    drama = _drama(drama_id)
+    return [{**_serialize(r), "origin": r["origin"], "origin_name": r["origin_name"]}
+            for r in db.list_run_glossary_terms(drama)]
+
+
+def copy_title_terms_to_series(drama_id: int) -> dict:
+    """Copies the title's own terms into the series it now belongs to, only on request.
+    A term the series already has (its own or its shared group's) is left as it is and
+    reported in "skipped"; the title keeps all of its own terms either way.
+    Returns {"copied", "skipped"} lists of source texts."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
-    if sid is None:
-        return []
-    return [{**_serialize(r), "origin": r["origin"], "origin_name": r["origin_name"]}
-            for r in db.list_effective_glossary_terms(sid)]
+    mine = db.title_only_terms(drama)
+    if sid is None or not mine:
+        raise InvalidInputError("This title has no terms of its own to copy into a series.")
+    have = {term_key(t["term_original"]) for t in db.list_effective_glossary_terms(sid)}
+    report = {"copied": [], "skipped": []}
+    for t in mine:
+        original = t["term_original"]
+        if term_key(original) in have or not db.insert_glossary_term_if_absent(
+                sid, original, t.get("term_translation") or "", notes=t.get("notes") or "",
+                category=t.get("category"), policy=t.get("policy"),
+                enforce_exact=bool(t.get("enforce_exact")), aliases=t.get("aliases"),
+                banned_translations=t.get("banned_translations")):
+            report["skipped"].append(original)
+        else:
+            report["copied"].append(original)
+    return report
 
 
 def clean_term_fields(term_fields: dict, base: dict) -> tuple:
