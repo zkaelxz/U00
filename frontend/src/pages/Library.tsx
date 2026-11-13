@@ -384,7 +384,7 @@ export default function LibraryPage() {
       )}
       actions={canCreate && (
         <>
-          {!getStarted && <ButtonLink variant={emptyLibrary ? 'primary' : 'ghost'} size="sm" href={routeHref({ name: 'make-subtitles' })}>Quick translate</ButtonLink>}
+          {!getStarted && <ButtonLink variant={emptyLibrary ? 'primary' : 'ghost'} size="sm" className={emptyLibrary ? undefined : 'library-start-link'} href={routeHref({ name: 'make-subtitles' })}>Quick translate</ButtonLink>}
           {startedDismissed && stats.data?.total_dramas === 0 && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
           )}
