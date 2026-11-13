@@ -574,6 +574,7 @@ from db.title_glossary import (  # noqa: E402,F401
     list_run_glossary_terms, title_only_terms)
 
 from db.shared_glossary import (  # noqa: E402,F401
+    term_key as glossary_term_key,
     create_group as create_shared_glossary_group, detach_owner_groups as detach_shared_glossary_owner_groups,
     delete_group as delete_shared_glossary_group,
     delete_group_term as delete_shared_glossary_term, get_group as get_shared_glossary_group,

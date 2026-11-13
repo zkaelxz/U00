@@ -41,8 +41,8 @@ def list_run_glossary_terms(drama: dict) -> list:
     mine = db.title_only_terms(drama)
     if not mine:
         return base
-    taken = {db.shared_glossary.term_key(t["term_original"]) for t in mine}
-    kept = [t for t in base if db.shared_glossary.term_key(t["term_original"]) not in taken]
+    taken = {db.glossary_term_key(t["term_original"]) for t in mine}
+    kept = [t for t in base if db.glossary_term_key(t["term_original"]) not in taken]
     return sorted(kept + mine, key=lambda t: t["term_original"] or "")
 
 
