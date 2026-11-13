@@ -120,3 +120,18 @@ def test_the_bridge_survives_nan_and_inf_from_a_request():
     from services import extension_bridge_service as svc
     style = svc._typeset_style({"min_font": "inf", "erase_grow": "nan", "bubble_fill": "inf"})
     assert (style.min_font, style.erase_grow, style.bubble_fill) == (0, 1.0, 0)
+
+
+def test_the_bangers_font_is_bundled_with_its_licence_and_chosen_by_name():
+    import os
+    style = TypesetStyle(font="bangers")
+    assert style.font_file() and os.path.basename(style.font_file()) == "Bangers-Regular.ttf"
+    assert os.path.exists(os.path.join(os.path.dirname(style.font_file()), "OFL-Bangers.txt"))
+    assert TypesetStyle(font="nonsense").font_file() is None
+    assert TypesetStyle().font_file() is None
+
+
+def test_a_chosen_font_changes_how_the_text_is_drawn():
+    plain, _ = _render(TypesetStyle())
+    bangers, _ = _render(TypesetStyle(font="bangers"), font_path=TypesetStyle(font="bangers").font_file())
+    assert not (plain == bangers).all()

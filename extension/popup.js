@@ -28,6 +28,7 @@ const els = {
   typesetAlign: document.getElementById("typesetAlign"),
   typesetMinFont: document.getElementById("typesetMinFont"),
   typesetStroke: document.getElementById("typesetStroke"),
+  typesetFont: document.getElementById("typesetFont"),
   typesetErase: document.getElementById("typesetErase"),
   typesetFill: document.getElementById("typesetFill"),
   screenshot: document.getElementById("screenshot"),
@@ -388,6 +389,7 @@ async function load() {
   els.typesetAlign.value = look.align || "auto";
   els.typesetMinFont.value = String(look.minFont || 0);
   els.typesetStroke.checked = look.stroke === true;
+  els.typesetFont.value = look.font || "default";
   els.typesetErase.value = String(look.eraseGrow || 1);
   els.typesetFill.value = String(look.bubbleFill || 0);
   els.screenshot.checked = settings.screenshot === true;
@@ -719,9 +721,9 @@ els.screenshot.addEventListener("change", () =>
 function saveTypesetStyle() {
   chrome.runtime.sendMessage({ type: "setTypesetStyle", style: {
     align: els.typesetAlign.value, minFont: els.typesetMinFont.value, stroke: els.typesetStroke.checked,
-    eraseGrow: els.typesetErase.value, bubbleFill: els.typesetFill.value } });
+    eraseGrow: els.typesetErase.value, bubbleFill: els.typesetFill.value, font: els.typesetFont.value } });
 }
-for (const el of [els.typesetAlign, els.typesetMinFont, els.typesetStroke, els.typesetErase, els.typesetFill]) el.addEventListener("change", saveTypesetStyle);
+for (const el of [els.typesetFont, els.typesetAlign, els.typesetMinFont, els.typesetStroke, els.typesetErase, els.typesetFill]) el.addEventListener("change", saveTypesetStyle);
 els.typeset.addEventListener("change", () =>
   chrome.runtime.sendMessage({ type: "setTypeset", on: els.typeset.checked }));
 els.translate.addEventListener("click", () => run(false));

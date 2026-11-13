@@ -32,7 +32,7 @@ chrome.runtime.onInstalled.addListener(() => {
 const AUTO_TITLE_DEFAULTS = { create: true, fill: true, series: true };
 
 // The look of the redrawn page: "auto" alignment, no minimum size and no outline are the app's plain render.
-const TYPESET_STYLE_DEFAULTS = { align: "auto", minFont: 0, stroke: false, eraseGrow: 1, bubbleFill: 0 };
+const TYPESET_STYLE_DEFAULTS = { align: "auto", minFont: 0, stroke: false, eraseGrow: 1, bubbleFill: 0, font: "default" };
 
 async function settings() {
   const stored = await chrome.storage.local.get(
@@ -209,7 +209,7 @@ async function setAutoTitle({ options }) {
 function typesetStyleChanged(style) {
   return style.align !== TYPESET_STYLE_DEFAULTS.align || style.minFont !== TYPESET_STYLE_DEFAULTS.minFont
     || style.stroke !== TYPESET_STYLE_DEFAULTS.stroke || style.eraseGrow !== TYPESET_STYLE_DEFAULTS.eraseGrow
-    || style.bubbleFill !== TYPESET_STYLE_DEFAULTS.bubbleFill;
+    || style.bubbleFill !== TYPESET_STYLE_DEFAULTS.bubbleFill || style.font !== TYPESET_STYLE_DEFAULTS.font;
 }
 
 async function setTypeset({ on }) {
@@ -222,6 +222,7 @@ async function setTypesetStyle({ style }) {
   if (style && ["auto", "left", "center", "right"].includes(style.align)) next.align = style.align;
   if (style && Number.isFinite(Number(style.minFont))) next.minFont = Math.max(0, Math.min(40, Math.round(Number(style.minFont))));
   if (style && typeof style.stroke === "boolean") next.stroke = style.stroke;
+  if (style && ["default", "bangers"].includes(style.font)) next.font = style.font;
   if (style && Number.isFinite(Number(style.eraseGrow))) next.eraseGrow = Math.max(1, Math.min(3, Number(style.eraseGrow)));
   if (style && Number.isFinite(Number(style.bubbleFill))) next.bubbleFill = Math.max(0, Math.min(100, Math.round(Number(style.bubbleFill))));
   await chrome.storage.local.set({ typesetStyle: next });
@@ -339,7 +340,7 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
         // Only when something differs from the plain render, so an older app never sees the key.
         ...(typeset && typesetStyleChanged(typesetStyle)
           ? { typeset_style: { align: typesetStyle.align, min_font: typesetStyle.minFont, stroke: typesetStyle.stroke,
-              erase_grow: typesetStyle.eraseGrow, bubble_fill: typesetStyle.bubbleFill } } : {}),
+              erase_grow: typesetStyle.eraseGrow, bubble_fill: typesetStyle.bubbleFill, font: typesetStyle.font } } : {}),
       },
     });
     // The app refuses a whole filtered batch with 422 when none of it looks

@@ -88,14 +88,24 @@ class TypesetStyle:
     """Look settings a person picks for the on-page typeset (extension popup); the
     defaults reproduce the plain render, so nothing changes until one is set."""
     ALIGNS = ("auto", "left", "center", "right")
+    # Fonts a person can pick for the lettering, each shipped under the SIL Open Font
+    # License in assets/fonts/. "default" keeps the per-bubble face choice.
+    FONTS = {"bangers": "Bangers-Regular.ttf"}
 
     def __init__(self, min_font: Any = 0, stroke: bool = False, align: str = "auto",
-                 erase_grow: Any = 1.0, bubble_fill: Any = 0):
+                 erase_grow: Any = 1.0, bubble_fill: Any = 0, font: str = "default"):
+        self.font = font if font in self.FONTS else "default"
         self.min_font = int(max(0, min(_finite(min_font, 0), 40)))
         self.erase_grow = max(1.0, min(_finite(erase_grow, 1.0), 3.0))
         self.bubble_fill = int(max(0, min(_finite(bubble_fill, 0), 100)))
         self.stroke = bool(stroke)
         self.align = align if align in self.ALIGNS else "auto"
+
+    def font_file(self) -> str | None:
+        """The chosen bundled font's path, or None to keep the usual face choice."""
+        name = self.FONTS.get(self.font)
+        path = os.path.join(_BUNDLED_FONTS, name) if name else None
+        return path if path and os.path.exists(path) else None
 
     def floor(self, floor: int, font_size: int) -> int:
         """`floor` raised to the chosen minimum, never above the size the fit starts at,
@@ -642,6 +652,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
     `look` (TypesetStyle) sets the lettering's alignment, minimum size and outline.
     """
     import tempfile
+
+    font_path = font_path or look.font_file()
 
     def in_auto_pass(b):
         return not b.get("skip") and not region_excluded_from_auto(b)
