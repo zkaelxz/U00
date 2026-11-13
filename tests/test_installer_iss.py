@@ -487,15 +487,76 @@ class TestBootService:
         assert any("{app}\\service" in e for e in _entries(iss, "InstallDelete"))
 
     def test_only_the_service_step_is_elevated(self, iss):
-        helper = _func(iss, "RunServiceHelper")
-        assert "if IsAdmin() then" in helper and "ShellExec('runas'" in helper
-        assert "-I -S" in helper and "(ResultCode = 0)" in helper
+        elevate = _func(iss, "RunElevated")
+        assert "if IsAdmin() then" in elevate and "ShellExec('runas'" in elevate
+        assert "(ResultCode = 0)" in elevate
+        assert "-I -S" in _func(iss, "RunServiceHelper")
+        assert "RunElevated(" in _func(iss, "RunServiceHelper")
         assert iss.count("'runas'") == 1
 
-    def test_install_runs_from_setups_files_the_rest_from_the_admin_folder(self, iss):
+    def test_the_install_step_checks_before_it_elevates(self, iss):
+        staged = _func(iss, "RunStagedServiceInstall")
+        # The script is hashed as loaded and that same text is what runs; the digest
+        # of the service files and the staging folder are compiled in or admin-only.
+        assert staged.index("GetSHA256OfString(Raw)") < staged.index("RunElevated(")
+        assert "{#StageScriptSha256}" in staged and "{#ServiceTreeDigest}" in staged
+        assert "-EncodedCommand" in staged and "-File" not in staged
+        assert "AdminDir() + '.staging'" in staged
+        # Values reach the script as base64, never as quoted text a path could break out of.
+        assert "PowerShellQuoted" not in iss and "FromBase64String" in _func(iss, "PowerShellValue")
+        assert staged.count("PowerShellValue(") == 5
+        assert "#error" in iss and "ServiceTreeDigest is not defined" in iss
+        # Nothing but the admin folder's own copy is ever run through RunServiceHelper.
+        for call in re.findall(r"RunServiceHelper\((?!const)([^,]+),", iss):
+            assert call.strip() == "AdminDir()", call
+
+    def test_the_staging_script_verifies_the_copy_before_running_it(self):
+        ps1 = _read(os.path.join(ROOT, "installer", "stage_service.ps1"))
+        ps1.encode("ascii")
+        assert ps1.index("Get-TreeDigest $Staging") < ps1.index("Start-Process")
+        assert "exit 3" in ps1 or "' 3" in ps1
+        assert "ReparsePoint" in ps1 and "StringComparer]::Ordinal" in ps1
+        # The copy is locked to SYSTEM and Administrators before anything is put in it, and only
+        # system modules may load.
+        assert ps1.index("icacls.exe") < ps1.index("Copy-Unlinked $Source $Staging")
+        assert "$env:PSModulePath = Join-Path $PSHOME 'Modules'" in ps1
+        assert "-isnot [int]" in ps1
+        # Only the copy is run, never $Source.
+        assert "Join-Path $Staging 'helper\\python\\python.exe'" in ps1
+        assert "Join-Path $Source" not in ps1
+
+    def test_utf16_base64_steps_match_the_standard_encoding(self, iss):
+        """Utf16Base64 in baihe.iss, step for step."""
+        import base64
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        assert alphabet in iss
+
+        def encode(text):
+            n = len(text) * 2
+            data = [0] * (n + 2)
+            for i, ch in enumerate(text):
+                data[i * 2] = ord(ch) & 255
+                data[i * 2 + 1] = (ord(ch) >> 8) & 255
+            out, i = "", 0
+            while i < n:
+                group = (data[i] << 16) | (data[i + 1] << 8)
+                if i + 2 < n:
+                    group |= data[i + 2]
+                out += alphabet[(group >> 18) & 63] + alphabet[(group >> 12) & 63]
+                out += alphabet[(group >> 6) & 63] if i + 1 < n else "="
+                out += alphabet[group & 63] if i + 2 < n else "="
+                i += 3
+            return out
+
+        # A user name in another script, and the typographic quotes PowerShell reads as quotes.
+        for text in ("", "a", "ab", "abc", "$Root = 'C:\\Program Files'\r\n",
+                     "C:\\Users\u674e\u660e\\Baihe", "C:\\Users\\Jo\u2019; calc; \u2018"):
+            assert encode(text) == base64.b64encode(text.encode("utf-16-le")).decode(), text
+
+    def test_install_runs_from_a_checked_copy_the_rest_from_the_admin_folder(self, iss):
         conf = _func(iss, "ConfigureService")
-        assert "RunServiceHelper(ExpandConstant('{app}\\service')" in conf
-        assert "--install-root" in conf and "--data-dir" in conf
+        assert "RunStagedServiceInstall(ApiPortArg())" in conf
+        assert "{app}\\service" not in conf
         assert "RunServiceHelper(AdminDir(), UninstallServiceArgs())" in conf
         stop = _func(iss, "StopBackgroundService")
         assert "RunServiceHelper(AdminDir(), StopArgs)" in stop

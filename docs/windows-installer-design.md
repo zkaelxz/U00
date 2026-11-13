@@ -726,13 +726,18 @@ per-user.
   its interpreter, the wrapper) is copied to `%ProgramFiles%\Baihe Studio
   Services`, which only administrators can change, and the later commands
   (`stop`, `uninstall`) run only from there, at the location Windows reports
-  for Program Files. **Known gap:** the first `install` (and an update's) is
-  run elevated by Setup from its own extraction, `{app}\service`, in the
-  user-writable program folder, before it is copied; a process running as the
-  user could replace those files in that window and have them run as
-  administrator. Fixing it needs Setup to be elevated or to extract
-  somewhere only administrators can write. **Accepted for now; revisit if
-  the PC gets other users.**
+  for Program Files. The first `install` (and an update's) cannot run from the
+  admin folder, which doesn't exist yet, and Setup's own extraction
+  (`{app}\service`) is in the user-writable program folder. So Setup does not
+  run anything from there: it checks `installer/stage_service.ps1` against a
+  SHA-256 compiled into Setup, hands that text to `powershell.exe -EncodedCommand`
+  (elevated), and that script copies `{app}\service` into
+  `%ProgramFiles%\Baihe Studio Services.staging`, recomputes one digest over the
+  copy (`build_installer.service_tree_digest`, compiled into Setup) and refuses
+  with exit code 3, installing nothing, unless it matches. Only then does it run
+  `service.py install` from the copy. A link anywhere in `{app}\service` is refused too.
+  The service payload is bound to the installer that carries it, so a swap
+  between extraction and the permission prompt is refused rather than run.
   Uninstall takes the account off both folders again and removes the admin
   folder (files still loaded are moved aside, inside Program Files, and
   deleted at the next restart).
