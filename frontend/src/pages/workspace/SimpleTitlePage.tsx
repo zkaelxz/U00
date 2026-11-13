@@ -10,12 +10,14 @@ import { ButtonLink } from '../../components/Button'
 import { routeHref } from '../../router'
 import { ComicChapterList } from './ComicChapterList'
 import { TitleLines, TitleProgress } from './TitleLines'
+import { TitlePanel } from './TitlePanel'
 import { TitleSteps } from './TitleSteps'
 import { useTitleProgress } from './useTitleProgress'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { episodeRows, type EpisodeInput, type TitleView } from './titleView'
 import './stages/novelChapters.css'
 import './titleLines.css'
+import './titlePanel.css'
 
 // Audio and video titles in the Simple view: the actions people reach for first and the episodes, with no stepper.
 // The stage routes are unchanged and the Full view is one switch away.
@@ -56,8 +58,21 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
     return lineCount === null || comic ? rows.map((r) => ({ ...r, state: '' })) : rows
   }, [comic, siblings, id, drama.title_en, drama.title_zh, drama.episode_number, lineCount, translatedCount])
 
-  const hasLines = !comic && (lineCount ?? 0) > 0
   const loadingSeries = seriesId != null && !seriesDone
+  const episodesList = (
+    <ul className="chapters-list episodes-list" aria-label={comic ? 'Titles in this series' : 'Episodes'} aria-busy={loadingSeries || lineCount === null}>
+      {rows.map((r) => (
+        <li key={r.id} className="chapters-item">
+          <a className="chapters-row episodes-row" href={routeHref({ name: 'drama', id: r.id, stage: null })} aria-current={r.id === id ? 'page' : undefined}>
+            <span className="chapters-title">{r.title}</span>
+            <span className="chapters-meta muted">{r.state}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  )
+
+  const hasLines = !comic && (lineCount ?? 0) > 0
   const stage = (s: string, tab?: 'add' | 'transcribe' | 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
   return (
@@ -93,25 +108,24 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
             flowOn={flowOn}
             onFlowProgress={onFlowProgress}
           />
-          {hasLines && <TitleProgress total={lineCount ?? 0} translated={translatedCount} />}
-          {hasLines && <TitleLines id={id} total={lineCount ?? 0} />}
+          <div className={hasLines ? 'title-studio has-panel' : 'title-studio'}>
+            {hasLines && (
+              <div className="title-studio-main">
+                <TitleProgress total={lineCount ?? 0} translated={translatedCount} />
+                <TitleLines id={id} total={lineCount ?? 0} />
+              </div>
+            )}
+            <TitlePanel id={id} episodes={episodesList} />
+          </div>
         </>
       )}
       {comic && <ComicChapterList id={id} />}
-      {/* A comic's own chapters are listed above; its series list names the other titles, so the two headings differ. */}
-      <section className="panel" aria-label={comic ? 'Titles in this series' : 'Episodes'}>
-        <h2 className="source-subhead">{comic ? 'Titles in this series' : 'Episodes'}</h2>
-        <ul className="chapters-list episodes-list" aria-label={comic ? 'Titles in this series' : 'Episodes'} aria-busy={loadingSeries || lineCount === null}>
-          {rows.map((r) => (
-            <li key={r.id} className="chapters-item">
-              <a className="chapters-row episodes-row" href={routeHref({ name: 'drama', id: r.id, stage: null })} aria-current={r.id === id ? 'page' : undefined}>
-                <span className="chapters-title">{r.title}</span>
-                <span className="chapters-meta muted">{r.state}</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {comic && (
+        <section className="panel" aria-label="Titles in this series">
+          <h2 className="source-subhead">Titles in this series</h2>
+          {episodesList}
+        </section>
+      )}
     </section>
   )
 }
