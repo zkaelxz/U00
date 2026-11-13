@@ -9,6 +9,7 @@ import { canConfirmDelete } from '../pages/libraryForm'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
 import { ErrorBanner } from './ErrorBanner'
+import { DramaCaptureNote } from './DramaCaptureNote'
 import { DramaSeriesRow } from './DramaSeriesRow'
 import { OpenFolderButton } from './OpenFolderButton'
 import { readHref, workspaceHref } from './libraryView'
@@ -115,6 +116,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
           ))}
       </dl>
       <DramaSeriesRow drama={drama} onChanged={setDrama} />
+      <DramaCaptureNote dramaId={dramaId} />
       <div className="actions drama-detail-actions">
         <ButtonLink variant="primary" href={workspaceHref(dramaId)}>Open workspace</ButtonLink>
         <ButtonLink href={readHref(drama)}>Read</ButtonLink>

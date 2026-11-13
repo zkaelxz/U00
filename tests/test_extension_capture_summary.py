@@ -52,3 +52,31 @@ def test_a_missing_or_empty_summary_is_refused(token, log, body):
 def test_a_long_line_is_cut(token, log):
     _post(token, {"summary": "x" * 5000}, path="/capture-summary")
     assert len(log.lines[0]) < 2100
+
+
+def test_capture_lines_are_kept_per_title_newest_five_and_listed_for_viewers(isolated_db):
+    from services import extension_bridge_service as svc, library_service
+    did = isolated_db.create_drama(title_en="T")
+    other = isolated_db.create_drama(title_en="U")
+    for n in range(7):
+        svc.record_capture_summary({"drama_id": did, "summary": f"Saved {n} pages."})
+    svc.record_capture_summary({"drama_id": other, "summary": "Other title."})
+    items = library_service.list_capture_notes(did)
+    assert [i["summary"] for i in items] == [f"Saved {n} pages." for n in (6, 5, 4, 3, 2)]
+    assert items[0]["created_at"].endswith("Z")
+    assert [i["summary"] for i in library_service.list_capture_notes(other)] == ["Other title."]
+
+
+def test_capture_line_for_a_missing_title_is_logged_but_not_stored(isolated_db):
+    from services import extension_bridge_service as svc
+    assert svc.record_capture_summary({"drama_id": 4242, "summary": "Saved."}) == {"logged": True}
+    assert isolated_db.list_capture_notes(4242) == []
+
+
+def test_capture_lines_go_with_a_deleted_title(isolated_db):
+    from services import extension_bridge_service as svc
+    did = isolated_db.create_drama(title_en="T")
+    svc.record_capture_summary({"drama_id": did, "summary": "Saved."})
+    with isolated_db.get_conn() as conn:
+        conn.execute("DELETE FROM dramas WHERE id = ?", (did,))
+    assert isolated_db.list_capture_notes(did) == []

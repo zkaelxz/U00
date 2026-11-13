@@ -17,6 +17,8 @@ __all__ = [
     "TempCleanResult",
     "DramaSummary",
     "DramaDetail",
+    "CaptureNote",
+    "CaptureNoteList",
     "DramaSeriesUpdate",
     "DramaListResponse",
     "ExportReadiness",
@@ -146,6 +148,15 @@ class DramaSummary(BaseModel):
     page_count: int = Field(default=0, description="Pages a comic has. Only counted in the Library list.")
     pages_translated: int = Field(default=0, description="Comic pages with translated text. Only counted in the Library list.")
     new_chapters: int = Field(default=0, description="New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.")
+
+
+class CaptureNote(BaseModel):
+    summary: str
+    created_at: str
+
+
+class CaptureNoteList(BaseModel):
+    items: List[CaptureNote] = Field(description="Newest first, at most 5.")
 
 
 class DramaDetail(DramaSummary):

@@ -14,6 +14,7 @@ import re
 import threading
 import time
 
+import db
 import page_capture_checks
 import page_server
 from services import ownership_service
@@ -265,6 +266,8 @@ def record_capture_summary(payload, principal=None) -> dict:
     text = scanlate_pages_service.clean_note(" ".join(summary.split()))[:MAX_SUMMARY_CHARS]
     get_logger().info("Extension capture (title %s%s): %s", int(drama_id) if isinstance(drama_id, int) else "?",
                       ", member" if principal is not None else "", text)
+    if isinstance(drama_id, int) and not isinstance(drama_id, bool) and db.get_drama(drama_id):
+        db.add_capture_note(drama_id, text)
     return {"logged": True}
 
 

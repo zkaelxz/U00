@@ -25,7 +25,7 @@ from tests.auto_backup_helpers import (
 
 
 # From the spec, deliberately not read from the module under test.
-SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge_undos"}
+SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge_undos", "capture_notes"}
 
 
 LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
@@ -126,7 +126,7 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
     assert fk_tables == set(drs.CHILD_TABLES) | set(drs._SKIPPED_TABLES)
     assert not set(drs.CHILD_TABLES) & set(drs._SKIPPED_TABLES)
     assert set(drs._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results",
-                                            "speaker_merge_undos"}
+                                            "speaker_merge_undos", "capture_notes"}
 
 
 class TestRestoreBugReports:
@@ -192,7 +192,7 @@ class TestRestoreRoundTrip:
         assert res["drama_id"] == a and res["restored_as_new"] is False
         assert res["title"] == "Alpha" and res["media_restored"] is False
         assert res["snapshot_kind"] == "db-only"
-        assert res["skipped_tables"] == ["bulk_jobs", "metadata_research_results",
+        assert res["skipped_tables"] == ["bulk_jobs", "capture_notes", "metadata_research_results",
                                          "speaker_merge_undos", "usage_log"]
         # P2 is gone, so its profile rows are not restored
         for t in PROFILE_TABLES:

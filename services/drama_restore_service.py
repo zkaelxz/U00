@@ -59,6 +59,8 @@ _SKIPPED_TABLES = {
                            "describe lines and rows that no longer match",
     "bulk_jobs": "provider batch jobs: a restored in-flight batch could be polled again and "
                  "write stale results over the restored lines",
+    "capture_notes": "a log of past extension captures, not the title's content; a snapshot "
+                     "from before the table existed would also have no such table to read",
     "metadata_research_results": "a short-lived research cache pruned by age, keyed by a "
                                  "research id a restored copy would collide with; the applied "
                                  "values and their sources (metadata_field_provenance) are "

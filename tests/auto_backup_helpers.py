@@ -196,6 +196,8 @@ def _seed_drama(c, title, series_id=None, sc=None, profiles=(), tag="A"):
             created_at="x")
     _insert(c, "metadata_field_provenance", drama_id=did, field="author", value=f"Au {tag}",
             source="grounded", status="applied")
+    _insert(c, "capture_notes", drama_id=did, summary=f"Saved 3 of 3 pages. {tag}",
+            created_at="2026-11-12T00:00:00Z")
     if sc.get("Mei"):
         _insert(c, "voice_suggestion_dismissals", drama_id=did, speaker_label="S1",
                 series_character_id=sc["Mei"], created_at="x")
