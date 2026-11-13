@@ -54,7 +54,7 @@ def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronou
 
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
                             include_genre_notes=None, default_female_pronouns=None,
-                            principal=None, memory_examples=False):
+                            principal=None, memory_examples=False, engine_name=None, model=None):
     """(glossary_terms, style_guidelines, character_names) for one drama,
     shared by the app's runs: series glossary, style
     profile, emotion guidance, gender hints, speaker labels and
@@ -66,7 +66,9 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     has no acting principal, so its starter passes the one captured at
     start (ownership_service.acting_principal).
     memory_examples: add the series' approved translation-memory pairs closest
-    to these lines to the prompt (off unless the Translate form asks)."""
+    to these lines to the prompt (off unless the Translate form asks).
+    engine_name/model: the run's engine; only a Translate run passes them, and the
+    plain stream prompt applies only to a Gemma 4 run (see plain_stream_prompt)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
@@ -85,7 +87,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     examples = _memory_examples(series_id, lines) if memory_examples else None
     emap = db.load_emotions(drama_id) if with_emotions else None
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
-    if plain_stream_prompt(drama):
+    if plain_stream_prompt(drama, engine_name, model):
         # The learned style, emotion notes and preset rules are left out: tone words
         # in them made a stream's captions worse (engine_backends/stream_recipe.py).
         style_guidelines = stream_recipe.build_guidelines(
@@ -109,8 +111,12 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     return glossary_terms, style_guidelines, character_names
 
 
-def plain_stream_prompt(drama) -> bool:
-    return medium_prompts.kind_for(drama) == "stream" and bool(settings_service.get("stream_plain_prompt"))
+def plain_stream_prompt(drama, engine_name, model=None) -> bool:
+    """Whether a run uses the plain stream prompt: the setting is on, the title is a
+    stream and the engine is Gemma 4, the only model it was tested on."""
+    return (bool(engine_name) and medium_prompts.kind_for(drama) == "stream"
+            and engine_registry.is_gemma4(engine_name, model)
+            and bool(settings_service.get("stream_plain_prompt")))
 
 
 def _memory_examples(series_id, lines) -> list:
@@ -217,7 +223,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     job_timing_service.mark_stage(job_id, "Translate")
     _, errors = translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta=_with_episode_context(
-            job_id, drama_id, lines, engine, engine_choice, drama_meta, character_names, target_ids), style_note=style_note,
+            job_id, drama_id, lines, engine, engine_choice, drama_meta, character_names, target_ids, style_guidelines), style_note=style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         context_window=context_window, context_window_ahead=context_window_ahead,
@@ -275,7 +281,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
 
 def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_meta,
-                          character_names, target_ids) -> dict:
+                          character_names, target_ids, style_guidelines="") -> dict:
     """drama_meta plus what the batches carry beyond the previous episode's summary:
     the series note (earlier episodes only) and the episode's brief. The brief is
     read from the title when one is saved (so a person's edit is used as written)
@@ -298,7 +304,7 @@ def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_
             brief = llm_tasks.generate_episode_brief(
                 lines, engine, meta, character_names,
                 usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"),
-                plain_stream_prompt=plain_stream_prompt(meta))
+                plain_stream_prompt=stream_recipe.is_active(style_guidelines))
     except (HeadroomError, LLMTaskTimeout, background_jobs.JobCancelled):
         raise
     except Exception as exc:
