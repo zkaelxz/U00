@@ -24,6 +24,8 @@ __all__ = [
     "GlossaryImportResult",
     "GlossaryBulkDeleteRequest",
     "GlossaryBulkDeleteResult",
+    "GlossaryCopyTitleTermsResult",
+    "GlossaryTitleTerm",
     "GlossaryInstructions",
     "GlossaryInstructionsUpdate",
     "InstructionsDraft",
@@ -217,6 +219,17 @@ class GlossaryBulkDeleteRequest(BaseModel):
 class GlossaryBulkDeleteResult(BaseModel):
     deleted: List[int]
     not_found: List[int]
+
+
+class GlossaryTitleTerm(BaseModel):
+    term_original: str
+    term_translation: str
+    clashes_with_series: bool
+
+
+class GlossaryCopyTitleTermsResult(BaseModel):
+    copied: List[str]
+    skipped: List[str]
 
 
 class GlossaryInstructions(BaseModel):

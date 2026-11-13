@@ -31,6 +31,7 @@ import { NameReportPanel } from './NameReportPanel'
 import { VtuberNames } from './VtuberNames'
 import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
+import { GlossaryTitleTerms } from './GlossaryTitleTerms'
 import { revealForm } from './revealForm'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
@@ -387,6 +388,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       {panel('terms', (
         <>
       <SeriesAssign />
+      <GlossaryTitleTerms onCopied={() => setReloads((n) => n + 1)} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {emptyTabText('terms', emptyCtx) && <p className="muted" role="status">{emptyTabText('terms', emptyCtx)}</p>}
       {showStart && !editing && (

@@ -72,7 +72,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
-    glossary_terms = db.list_effective_glossary_terms(series_id) if series_id else None
+    glossary_terms = db.list_run_glossary_terms(drama or {}) or None
     if glossary_terms:
         # A big series glossary would otherwise ride in every batch's prompt.
         run_text = "\n".join(ln.zh or "" for ln in lines)

@@ -168,6 +168,10 @@ export type GlossaryImportResult = Schemas['GlossaryImportResult']
 // POST /api/glossary/dramas/{id}/terms/bulk-delete.
 export type GlossaryBulkDeleteResult = Schemas['GlossaryBulkDeleteResult']
 
+// GET /api/glossary/dramas/{id}/title-terms and POST .../terms/copy-title-terms.
+export type GlossaryTitleTerm = Schemas['GlossaryTitleTerm']
+export type GlossaryCopyTitleTermsResult = Schemas['GlossaryCopyTitleTermsResult']
+
 export type GlossaryInstructions = Schemas['GlossaryInstructions']
 export type InstructionsDraft = Schemas['InstructionsDraft']
 

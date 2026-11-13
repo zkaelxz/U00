@@ -4424,6 +4424,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/glossary/dramas/{drama_id}/terms/copy-title-terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copy the title's own glossary terms into its series (never automatic) */
+        post: operations["post_copy_title_terms_api_glossary_dramas__drama_id__terms_copy_title_terms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/title-terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The title's own glossary terms while it is in a series */
+        get: operations["get_title_terms_api_glossary_dramas__drama_id__title_terms_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/glossary/dramas/{drama_id}/variants": {
         parameters: {
             query?: never;
@@ -19477,6 +19511,13 @@ export interface components {
             /** Workflow Tiers */
             workflow_tiers: components["schemas"]["GlossaryWorkflowTier"][];
         };
+        /** GlossaryCopyTitleTermsResult */
+        GlossaryCopyTitleTermsResult: {
+            /** Copied */
+            copied: string[];
+            /** Skipped */
+            skipped: string[];
+        };
         /**
          * GlossaryDismissRequest
          * @description Terms (by text) to ignore, or to restore, for the drama's series.
@@ -19758,6 +19799,15 @@ export interface components {
             term_original?: string | null;
             /** Term Translation */
             term_translation?: string | null;
+        };
+        /** GlossaryTitleTerm */
+        GlossaryTitleTerm: {
+            /** Clashes With Series */
+            clashes_with_series: boolean;
+            /** Term Original */
+            term_original: string;
+            /** Term Translation */
+            term_translation: string;
         };
         /**
          * GlossaryVariantCandidate
@@ -44458,6 +44508,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_copy_title_terms_api_glossary_dramas__drama_id__terms_copy_title_terms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryCopyTitleTermsResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_title_terms_api_glossary_dramas__drama_id__title_terms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryTitleTerm"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

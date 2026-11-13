@@ -72,6 +72,8 @@ USER_BACKUP_TABLES = {
     "shared_glossary_groups": ("empty", "household-wide groups; a copy would link series to ids "
                                         "of another library"),
     "shared_glossary_terms": ("empty", "belongs to shared_glossary_groups"),
+    "title_glossary_series": ("empty", "a link to a series id of this library; the private series "
+                                       "itself is copied with the owner's series"),
     "translate_history": ("user", "the owner's standalone translations"),
     "profiles": ("profiles", "reader data is per library, on the default profile"),
     "style_profile": ("style_scope", "the global profile is learned from everyone's edits"),

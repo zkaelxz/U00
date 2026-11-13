@@ -54,6 +54,17 @@ def _own_series(drama: dict) -> int:
     colliding with another person's series; it carries the title's owner and
     privacy, and the title's own privacy flag moves to it like on any series
     assignment."""
+    linked = db.get_title_glossary_series(drama["id"])
+    if linked is not None:
+        # The title left its series: it takes its own glossary back rather than
+        # starting a second, empty one beside it.
+        if db.dramas.assign_series_if_none(drama["id"], linked):
+            drama["series_id"], drama["is_private"] = linked, 0
+            return linked
+        sid = (db.get_drama(drama["id"]) or {}).get("series_id")
+        if sid:
+            drama["series_id"] = sid
+            return sid
     title = (drama.get("title_en") or drama.get("title_zh") or "").strip()[:100]
     name = f"{title} (title {drama['id']})" if title else f"Title {drama['id']}"
     # A series someone else already named this is never joined: retry with a random
@@ -68,7 +79,9 @@ def _own_series(drama: dict) -> int:
             continue
     else:
         raise ConflictError("Could not create a series for this title; try again.")
-    if not db.dramas.assign_series_if_none(drama["id"], sid):
+    if db.dramas.assign_series_if_none(drama["id"], sid):
+        db.link_title_glossary(drama["id"], sid)
+    else:
         # A series was chosen in the meantime: that one wins, and the new one is empty.
         db.delete_series(sid)
         sid = (db.get_drama(drama["id"]) or {}).get("series_id")

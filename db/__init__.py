@@ -308,6 +308,7 @@ def init_db():
         _create_series_tables(conn)
         _create_word_replacement_table(conn)
         _create_shared_glossary_tables(conn)
+        _create_title_glossary_table(conn)
         _create_line_annotation_tables(conn)
         _create_bulk_job_tables(conn)
         _create_reading_tables(conn)
@@ -325,6 +326,7 @@ def init_db():
         _migrate_bulk_job_columns(conn)
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
+        link_existing_private_series(conn)
         _migrate_progress_view_prefs(conn)
         _migrate_auth_session_columns(conn)
         _grant_lines_read_for_reader_page(conn)
@@ -351,7 +353,8 @@ from db.schema import (  # noqa: E402,F401
     _create_library_tool_tables, _create_line_annotation_tables,
     _create_metadata_research_tables, _create_reading_tables, _create_review_tables,
     ensure_legacy_bug_reports,
-    _create_series_tables, _create_shared_glossary_tables, _create_word_replacement_table)
+    _create_series_tables, _create_shared_glossary_tables, _create_title_glossary_table,
+    _create_word_replacement_table)
 
 from db.schema_system import (  # noqa: E402,F401
     _create_auth_tables, _create_job_tables, _init_benchmark_lab_schema)
@@ -566,7 +569,12 @@ from db.glossary import (  # noqa: E402,F401
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
     delete_glossary_term, list_word_replacements, save_word_replacement, delete_word_replacement)
 
+from db.title_glossary import (  # noqa: E402,F401
+    get_title_glossary_series, link_existing_private_series, link_title_glossary,
+    list_run_glossary_terms, title_only_terms)
+
 from db.shared_glossary import (  # noqa: E402,F401
+    term_key as glossary_term_key,
     create_group as create_shared_glossary_group, detach_owner_groups as detach_shared_glossary_owner_groups,
     delete_group as delete_shared_glossary_group,
     delete_group_term as delete_shared_glossary_term, get_group as get_shared_glossary_group,

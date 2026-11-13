@@ -244,6 +244,21 @@ def _create_series_tables(conn):
     """)
 
 
+def _create_title_glossary_table(conn):
+    conn.executescript("""
+        -- The private series holding a title's own glossary terms (made on its first
+        -- term write). Kept as a link, not a dramas column, so a backup or title copy
+        -- never carries a series id that means nothing in another library. No foreign
+        -- key to dramas: delete_drama removes the row, and a drama-child table would
+        -- have to be part of every title restore.
+        CREATE TABLE IF NOT EXISTS title_glossary_series (
+            drama_id INTEGER PRIMARY KEY,
+            series_id INTEGER NOT NULL,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+        );
+    """)
+
+
 def _create_shared_glossary_tables(conn):
     conn.executescript("""
         -- A named glossary several series share (e.g. one creator's slang and
