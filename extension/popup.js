@@ -638,7 +638,7 @@ async function runText() {
   try {
     await ensureContentScript(tab.id);
     const result = await chrome.tabs.sendMessage(tab.id, {
-      type: "translatePageText", sourceLanguage, targetLanguage, store: true });
+      type: "translatePageText", sourceLanguage, targetLanguage, store: els.store.checked });
     if (!result || !result.ok) {
       return say((result && result.error) || "That didn't work.", true);
     }
