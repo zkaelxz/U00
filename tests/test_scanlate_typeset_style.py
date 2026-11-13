@@ -108,3 +108,15 @@ def test_the_bridge_reads_erase_and_fill_with_limits():
     from services import extension_bridge_service as svc
     style = svc._typeset_style({"erase_grow": "9", "bubble_fill": "250"})
     assert (style.erase_grow, style.bubble_fill) == (3.0, 100)
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "-inf", float("nan"), float("inf"), None, "abc", [], {}])
+def test_non_finite_or_junk_numbers_fall_back_to_the_defaults(bad):
+    style = TypesetStyle(min_font=bad, erase_grow=bad, bubble_fill=bad)
+    assert (style.min_font, style.erase_grow, style.bubble_fill) == (0, 1.0, 0)
+
+
+def test_the_bridge_survives_nan_and_inf_from_a_request():
+    from services import extension_bridge_service as svc
+    style = svc._typeset_style({"min_font": "inf", "erase_grow": "nan", "bubble_fill": "inf"})
+    assert (style.min_font, style.erase_grow, style.bubble_fill) == (0, 1.0, 0)

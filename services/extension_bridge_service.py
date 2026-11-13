@@ -174,18 +174,10 @@ def _typeset_style(raw):
     if not isinstance(raw, dict):
         return None
     import scanlate_render
-    try:
-        min_font = int(raw.get("min_font") or 0)
-    except (TypeError, ValueError):
-        min_font = 0
-    numbers = {}
-    for key, default in (("erase_grow", 1.0), ("bubble_fill", 0)):
-        try:
-            numbers[key] = float(raw.get(key) or default)
-        except (TypeError, ValueError):
-            numbers[key] = default
-    return scanlate_render.TypesetStyle(min_font=min_font, stroke=raw.get("stroke") is True,
-                                        align=str(raw.get("align") or "auto"), **numbers)
+    return scanlate_render.TypesetStyle(
+        min_font=raw.get("min_font"), stroke=raw.get("stroke") is True,
+        align=str(raw.get("align") or "auto"), erase_grow=raw.get("erase_grow"),
+        bubble_fill=raw.get("bubble_fill"))
 
 
 def _typeset_preview(drama_id: int, page: dict) -> str:

@@ -5,6 +5,7 @@ Picks a face per bubble, wraps and sizes translated text into a box (or into the
 bubble's own outline), inpaints the original lettering and draws the result.
 """
 
+import math
 import os
 import re
 
@@ -72,6 +73,16 @@ _SYSTEM_FONT_CANDIDATES = {
 }
 
 
+def _finite(value, default: float) -> float:
+    """`value` as a finite number, else `default`: these arrive from a request, and "nan" or
+    "inf" would otherwise raise or slip past the clamps."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) else default
+
+
 class TypesetStyle:
     """Look settings a person picks for the on-page typeset (extension popup); the
     defaults reproduce the plain render, so nothing changes until one is set."""
@@ -79,9 +90,9 @@ class TypesetStyle:
 
     def __init__(self, min_font: int = 0, stroke: bool = False, align: str = "auto",
                  erase_grow: float = 1.0, bubble_fill: int = 0):
-        self.min_font = max(0, min(int(min_font), 40))
-        self.erase_grow = max(1.0, min(float(erase_grow), 3.0))
-        self.bubble_fill = max(0, min(int(bubble_fill), 100))
+        self.min_font = int(max(0, min(_finite(min_font, 0), 40)))
+        self.erase_grow = max(1.0, min(_finite(erase_grow, 1.0), 3.0))
+        self.bubble_fill = int(max(0, min(_finite(bubble_fill, 0), 100)))
         self.stroke = bool(stroke)
         self.align = align if align in self.ALIGNS else "auto"
 
