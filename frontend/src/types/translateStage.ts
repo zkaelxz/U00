@@ -73,6 +73,8 @@ export interface TranslateRunStartBody {
   default_female_pronouns?: boolean // omitted: false
   include_genre_notes?: boolean // omitted: true
   memory_examples?: boolean // omitted: false
+  line_ids?: number[]
+  own_lines_only?: boolean // with line_ids: glossary substitution and flags stay inside those lines
 }
 
 export interface BulkResumeResult {

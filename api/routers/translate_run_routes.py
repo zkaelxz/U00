@@ -111,6 +111,7 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         reflect=body.reflect, bulk=body.bulk,
         default_female_pronouns=body.default_female_pronouns,
         include_genre_notes=body.include_genre_notes, memory_examples=body.memory_examples,
+        own_lines_only=body.own_lines_only,
         # The Settings episode-summary engine may be a cloud one: skipped
         # for a caller without engines.paid rather than refusing the run.
         allow_paid_summary=holds_paid_engines(request))
