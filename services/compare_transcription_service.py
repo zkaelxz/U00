@@ -599,7 +599,7 @@ def get_compare_result(drama_id: int) -> dict:
 _apply_lock = threading.Lock()
 # drama_id -> (run finished_at, history id) of the snapshot that run's first
 # apply took. The per-row "Use this" sends one item per apply, and the DB keeps
-# only the last 10 snapshots, so a snapshot per click would evict every older
+# only the last 20 snapshots, so a snapshot per click would evict every older
 # undo point.
 _run_snapshots = {}
 # drama_id -> (run finished_at, {line id}) of the proposals that run already
