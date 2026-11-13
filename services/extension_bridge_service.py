@@ -168,6 +168,18 @@ def _record_run_notes(result: dict) -> None:
         db.update_page(int(page_id), run_notes=pages_svc.notes_to_json(notes))
 
 
+def _typeset_style(raw):
+    """The look settings the popup sent, or None for the plain render. A bad value falls back
+    to its default rather than refusing the page: it is a preference, not data."""
+    if not isinstance(raw, dict):
+        return None
+    import scanlate_render
+    return scanlate_render.TypesetStyle(
+        min_font=raw.get("min_font"), stroke=raw.get("stroke") is True,
+        align=str(raw.get("align") or "auto"), erase_grow=raw.get("erase_grow"),
+        bubble_fill=raw.get("bubble_fill"))
+
+
 def _typeset_preview(drama_id: int, page: dict) -> str:
     """The page's typeset image as a data: URL, or "" when it cannot be sent."""
     from services import comic_view_service
@@ -293,6 +305,7 @@ def run_images(payload, images, principal=None) -> dict:
     drama_id = payload.get("drama_id")
     store = bool(payload.get("store", True))
     typeset = payload.get("typeset") is True
+    typeset_style = _typeset_style(payload.get("typeset_style"))
     require_drama_access(principal, drama_id)
     source_url = str(payload.get("source_url") or "")
     source_language = str(payload.get("source_language") or "")
@@ -349,7 +362,8 @@ def run_images(payload, images, principal=None) -> dict:
             result = page_server.translate_image(
                 image["content"], image["content_type"], drama_id=drama_id,
                 source_url=source_url, source_language=source_language, store=store,
-                member=principal is not None, typeset=typeset and not store)
+                member=principal is not None, typeset=typeset and not store,
+                typeset_style=typeset_style)
         except page_server.EndpointError as e:
             if len(decoded) == 1 and e.status in (404, 413, 415):
                 raise
