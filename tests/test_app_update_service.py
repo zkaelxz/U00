@@ -330,12 +330,13 @@ def test_a_check_keeps_the_releases_schema_for_the_full_installers_backup_check(
 
 @pytest.mark.parametrize("manifest_sig", [
     False,
-    # A signature by the release key, but over a different manifest.
-    rs.format_signature(rs.sign(rs.parse_private_key(rs.generate()[0]),
-                                "BaiheStudio-App-0.2.0.json", "0" * 64)).encode(),
+    "release key, other manifest",
     b"not a signature",
 ])
 def test_an_unsigned_manifests_schema_is_not_believed(env, manifest_sig):
+    if manifest_sig == "release key, other manifest":
+        manifest_sig = rs.format_signature(rs.sign(env["seed"], "BaiheStudio-App-0.2.0.json",
+                                                   "0" * 64)).encode()
     _serve(env, manifest=_app_manifest(db_schema_sha256=aus._library_schema()),
            manifest_sig=manifest_sig)
     us.check()
