@@ -93,7 +93,7 @@ class TypesetStyle:
             return
         # Outline in the colour that contrasts with the fill, so it reads on any balloon.
         light = sum(fill[:3]) / 3 > 127 if isinstance(fill, tuple) else False
-        draw.text(xy, text, font=font, fill=fill, stroke_width=max(1, round(font.size / 14)),
+        draw.text(xy, text, font=font, fill=fill, stroke_width=max(1, round(getattr(font, "size", 14) / 14)),
                   stroke_fill=(0, 0, 0) if light else (255, 255, 255))
 
 

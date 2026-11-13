@@ -74,6 +74,9 @@ Click the extension on a page you're reading:
   over the reader's image instead of plain boxes. The PC redraws the page
   without storing it and sends it back as a JPEG; if that fails, or the
   result is over 1.5 MB, the page keeps its plain boxes and says why.
+- **Text alignment, Minimum font size, Outline the text** — shape that redrawn page
+  when it is not saved (they are not applied to pages saved into a title). The
+  defaults (Auto, 0, off) are the plain render.
 
 ### Capturing a whole chapter
 
