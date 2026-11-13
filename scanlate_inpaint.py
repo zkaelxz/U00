@@ -583,9 +583,22 @@ def _flatten_around_lettering(roi, inpainted, mask):
     return out
 
 
+def _grown_erase_mask(mask, grow: float, keep):
+    """`mask` widened by about 2px per 0.1 of `grow` above 1.0, kept inside `keep` (the
+    balloon's outline) when there is one."""
+    import cv2
+    if grow <= 1.0 or not mask.any():
+        return mask
+    reach = max(1, round((grow - 1.0) * 20))
+    mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * reach + 1, 2 * reach + 1)))
+    if keep is not None:
+        mask[~keep] = 0
+    return mask
+
+
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
                     backend: str = "auto", hf_token: str | None = None, image=None, inside=None,
-                    spare_art: bool = False, on_art: bool = False):
+                    spare_art: bool = False, on_art: bool = False, grow: float = 1.0):
     """Removes text within `box` so the translated text has a clean
     background. Returns the path to the (possibly newly-created) cleaned
     image; if out_path is None, overwrites nothing and returns an image
@@ -620,7 +633,10 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     the art's own tone or a full lettering mask, since an outline-only mask
     left the letters' fill and glow behind as ghost text. A dark box that is a
     balloon or narration panel must not take the colours round it, so only
-    signs opt in."""
+    signs opt in.
+
+    grow: above 1.0 widens the erased area around the lettering (a stronger erase for ghosts
+    that survive the default), by about 2px per 0.1 step, still only inside `inside`."""
     import cv2
     img = image if image is not None else cv2.imread(image_path)
     h, w = img.shape[:2]
@@ -643,6 +659,7 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         _drop_marks_running_off_edge(mask)
     elif on_art:
         _drop_hollow_frames(mask, gray_roi)
+    mask = _grown_erase_mask(mask, grow, keep if inside is not None else None)
 
     inpainted_roi = None
     if inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
