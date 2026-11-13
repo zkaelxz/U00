@@ -254,7 +254,7 @@ class TranslateRunStart(BaseModel):
     thinking: Optional[bool] = None
     # Add approved translation-memory pairs of the title's series to the prompt as examples.
     memory_examples: bool = False
-    # With line_ids: a line edited while the run works keeps the edit.
+    # With line_ids: glossary substitution and flags touch only those lines, not their neighbours.
     own_lines_only: bool = False
 
 
