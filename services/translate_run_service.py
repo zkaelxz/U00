@@ -115,6 +115,16 @@ def _plain_stream(drama, engine_name, model=None) -> bool:
     return workspace_job_service.plain_stream_prompt(drama, engine_name, model)
 
 
+def _without_untouched_defaults(remembered: dict, is_novel: bool, engine, model) -> dict:
+    """`remembered` minus the context and batch values that equal what a run gets with no
+    plain prompt. Titles translated before the plain prompt existed carry those values
+    only because the form echoed its defaults back; keeping them would run the plain
+    prompt with neighbouring lines, which made Gemma's captions worse. A value the person
+    changed differs from the old default, so it stays."""
+    old_defaults = engine_registry.default_translate_options(engine, model, novel=is_novel)
+    return {k: v for k, v in remembered.items() if old_defaults.get(k, object()) != v}
+
+
 def get_translate_config(drama_id: int) -> dict:
     drama = ownership_service.require_drama(drama_id)
     is_novel = drama.get("content_mode") == "novel_narration"
@@ -124,6 +134,13 @@ def get_translate_config(drama_id: int) -> dict:
     free_tier = bool(settings_service.get("gemini_free_tier"))
     engine_name = (drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
+    translate_start = profile_service.translate_start(drama)
+    # The form starts on the model the last run used, so that is the model the plain
+    # prompt would apply to.
+    start_model = translate_start.get("engine_model")
+    plain = _plain_stream(drama, engine_name, start_model)
+    if plain:
+        translate_start = _without_untouched_defaults(translate_start, is_novel, engine_name, start_model)
     return {
         "drama_id": drama_id,
         "translation_engine": engine_name,
@@ -140,7 +157,8 @@ def get_translate_config(drama_id: int) -> dict:
              "auto_qc": bool(t["auto_qc"])}
             for k in engine_registry.WORKFLOW_TIERS
             for t in [engine_registry.effective_tier(k)] if t is not None],
-        "defaults": get_translate_config_defaults(is_novel, engine_name, plain_stream=_plain_stream(drama, engine_name)),
+        "defaults": get_translate_config_defaults(is_novel, engine_name, start_model if plain else None,
+                                                   plain_stream=plain),
         "default_locale": settings_service.get("default_locale"),
         "default_style_note": settings_service.get("default_style_note"),
         "project_instructions": drama.get("project_instructions"),
@@ -163,7 +181,7 @@ def get_translate_config(drama_id: int) -> dict:
         "default_female_pronouns": _saved_bool(drama.get("default_female_pronouns")),
         "include_genre_notes": _saved_bool(drama.get("include_genre_notes")),
         "translate_by_sentence": _saved_bool(drama.get("translate_by_sentence")),
-        "translate_start": profile_service.translate_start(drama),
+        "translate_start": translate_start,
     }
 
 
@@ -536,14 +554,17 @@ def _resolve_run_options(drama, engine_name, model, style_preset, style_note, lo
     style_preset = style_preset or last.get("style_preset") or ("novel" if is_novel else "audio_drama")
     style_note = last.get("style_note", "") if style_note is None else style_note
     locale = locale or last.get("locale") or "en-US"
-    chosen_batch_size = batch_size if batch_size is not None else last.get("batch_size")
     if model is None and "model" in last:
         try:
             _require_offered_model(engine_name, last["model"])
             model = last["model"]
         except InvalidInputError:
             pass    # no longer offered: the engine's default
-    defaults = get_translate_config_defaults(is_novel, engine_name, model, _plain_stream(drama, engine_name, model))
+    plain = _plain_stream(drama, engine_name, model)
+    if plain:
+        last = _without_untouched_defaults(last, is_novel, engine_name, model)
+    defaults = get_translate_config_defaults(is_novel, engine_name, model, plain)
+    chosen_batch_size = batch_size if batch_size is not None else last.get("batch_size")
     context_window = last.get("context_window", defaults["context_window"]) if context_window is None else context_window
     context_window_ahead = (last.get("context_window_ahead", defaults["context_window_ahead"])
                             if context_window_ahead is None else context_window_ahead)

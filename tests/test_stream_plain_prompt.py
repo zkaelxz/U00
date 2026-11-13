@@ -115,3 +115,70 @@ def test_glossary_lists_a_terms_aliases_beside_its_main_spelling(isolated_db):
     text = stream_recipe.names_glossary(db.list_glossary_terms(series))
     assert "亞洛赫 / 阿洛 / 雅露 -> Anok" in text
     assert "小明 -> Xiaoming" in text
+
+
+def _stream_title(isolated_db, start_json, engine="ollama"):
+    did = db.create_drama(title_en="T", content_mode="streamer_vod", source_language="zh",
+                          translate_start_json=start_json)
+    return did, db.get_drama(did)
+
+
+def _resolve(drama, engine="ollama", model=GEMMA, **given):
+    from services import translate_run_service
+    args = dict(style_preset=None, style_note=None, locale=None, context_window=None,
+                context_window_ahead=None, batch_size=None, job_cost_cap_usd=None,
+                gemini_free_tier=False)
+    args.update(given)
+    return translate_run_service._resolve_run_options(drama, engine, model, **args)
+
+
+OLD_DEFAULTS = '{"context_window": 10, "context_window_ahead": 6, "batch_size": 30}'
+
+
+def test_previously_translated_stream_title_gets_the_tested_values(isolated_db):
+    _did, drama = _stream_title(isolated_db, OLD_DEFAULTS)
+    opts = _resolve(drama)
+    assert (opts.context_window, opts.context_window_ahead, opts.batch_size) == (
+        0, 0, engine_registry.PLAIN_STREAM_BATCH_SIZE)
+
+
+def test_values_the_person_changed_still_win_on_a_stream_title(isolated_db):
+    _did, drama = _stream_title(
+        isolated_db, '{"context_window": 3, "context_window_ahead": 2, "batch_size": 12}')
+    opts = _resolve(drama)
+    assert (opts.context_window, opts.context_window_ahead, opts.batch_size) == (3, 2, 12)
+
+
+def test_explicit_request_values_are_kept(isolated_db):
+    _did, drama = _stream_title(isolated_db, OLD_DEFAULTS)
+    opts = _resolve(drama, context_window=10, context_window_ahead=6, batch_size=30)
+    assert (opts.context_window, opts.context_window_ahead, opts.batch_size) == (10, 6, 30)
+
+
+def test_switched_off_keeps_the_remembered_values(isolated_db):
+    settings_service.set_settings({"stream_plain_prompt": False})
+    _did, drama = _stream_title(isolated_db, OLD_DEFAULTS)
+    opts = _resolve(drama)
+    assert (opts.context_window, opts.context_window_ahead, opts.batch_size) == (10, 6, 30)
+
+
+def test_other_engines_and_non_stream_titles_keep_the_remembered_values(isolated_db):
+    _did, stream = _stream_title(isolated_db, OLD_DEFAULTS)
+    other = _resolve(stream, engine="ollama", model="translategemma:27b")
+    assert (other.context_window, other.context_window_ahead) == (10, 6)
+    did = db.create_drama(title_en="V", content_mode="video_drama", translate_start_json=OLD_DEFAULTS)
+    video = _resolve(db.get_drama(did))
+    assert (video.context_window, video.context_window_ahead, video.batch_size) == (10, 6, 30)
+
+
+def test_translate_form_start_drops_untouched_old_defaults(isolated_db):
+    from services import translate_run_service
+    did, _ = _stream_title(isolated_db, OLD_DEFAULTS)
+    db.update_drama(did, translation_engine="ollama",
+                    translate_start_json='{"context_window": 10, "context_window_ahead": 4, '
+                                         '"batch_size": 30, "locale": "en-GB", '
+                                         '"engine_model": "%s"}' % GEMMA)
+    config = translate_run_service.get_translate_config(did)
+    start = config["translate_start"]
+    assert "context_window" not in start and "batch_size" not in start
+    assert start["context_window_ahead"] == 4 and start["locale"] == "en-GB"

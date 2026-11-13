@@ -177,7 +177,7 @@ def _typeset_style(raw):
     return scanlate_render.TypesetStyle(
         min_font=raw.get("min_font"), stroke=raw.get("stroke") is True,
         align=str(raw.get("align") or "auto"), erase_grow=raw.get("erase_grow"),
-        bubble_fill=raw.get("bubble_fill"))
+        bubble_fill=raw.get("bubble_fill"), font=str(raw.get("font") or "default"))
 
 
 def _typeset_preview(drama_id: int, page: dict) -> str:

@@ -3,6 +3,7 @@ POST /api/novel/dramas/{id}/raw-novel/chapters/{n}/move): the raw text, the chap
 chapter's lines move together and keep their translations. No network or models."""
 
 import os
+import re
 
 import pytest
 
@@ -54,7 +55,10 @@ def _raw(did):
 
 def _state(did):
     with open(chapter_manifest.manifest_path(did), encoding="utf-8") as f:
-        return _raw(did), f.read(), [(r["id"], r["idx"], r["zh"], r["en"]) for r in db.load_lines(did)]
+        # Import stamps have one-second resolution, so two books built a moment apart
+        # can differ in them without the move having changed anything.
+        listed = re.sub(r'"imported_at": "[^"]*"', '"imported_at": ""', f.read())
+        return _raw(did), listed, [(r["id"], r["idx"], r["zh"], r["en"]) for r in db.load_lines(did)]
 
 
 def _state_lines(did):
