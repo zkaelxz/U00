@@ -41,7 +41,7 @@
 .review-editor { gap: var(--space-4); }
 /* Tablets and wider, with a source video: the video, seek bar and subtitles in
    a sticky card beside the lines, so the list scrolls under a small toolbar. */
-.review-editor.has-side { grid-template-columns: minmax(18rem, 1fr) minmax(18rem, min(32rem, 40%)); align-items: start; }
+.review-editor.has-side { grid-template-columns: minmax(0, 1fr) minmax(22rem, 32rem); align-items: start; }
 /* Tablets: a narrower card, and each line's source sits over its translation. */
 @media (max-width: 1023px) {
   .review-editor.has-side { grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); }
@@ -176,12 +176,16 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 /* Open, the panel sits right under the toolbar: sticky, a toolbar with the player and waveform (~380px) covered its labels and first rows on a 800px-tall screen. */
 .review-editor.is-replacing .review-toolbar { position: static; }
 .review-editor.is-replacing .review-line { scroll-margin-top: calc(var(--bar-h, 0px) + var(--space-2)); }
-/* Desktop with a side video: the lines column scrolls inside its own height, so the video, waveform and inspector stay in view while the toolbar and the Find and replace panel are reached. Its sticky toolbar sticks to the column's top, not the page's, and rows scroll to just under it. */
+/* Desktop with a side video: one column as tall as the screen, video and waveform on top and the toolbar, Find and replace and lines scrolling underneath, so the video never leaves view. The sticky toolbar sticks to the scrolling section's top, not the page's, and rows scroll to just under it. */
 @media (min-width: 1024px) {
-  .review-editor.has-side > .review-main {
+  .review-editor.has-side {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2);
     position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2));
-    max-height: calc(100vh - var(--bar-h, 0px) - var(--space-4)); overflow-y: auto; align-content: start;
+    height: calc(100vh - var(--bar-h, 0px) - var(--space-4));
   }
+  .review-editor.has-side > .review-watch { grid-row: 1; position: static; height: auto; max-height: 62vh; }
+  .review-editor.has-side > .review-watch .review-stage { max-height: 22vh; }
+  .review-editor.has-side > .review-main { grid-row: 2; align-self: stretch; min-height: 0; overflow-y: auto; align-content: start; }
   .review-editor.has-side .review-toolbar { top: 0; }
   .review-editor.has-side .review-line { scroll-margin-top: calc(var(--review-toolbar-h, 9rem) + var(--space-2)); }
   .review-editor.has-side.is-replacing .review-line { scroll-margin-top: var(--space-2); }
