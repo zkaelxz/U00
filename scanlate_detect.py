@@ -876,12 +876,42 @@ def _balloon_interior(roi):
     ring that also "encloses" the centre, so a region touching the box edge
     loses to a nested one that doesn't, if that one is big enough to be the
     balloon. The outside mask is the light paper that touches the box
-    edge and isn't the interior."""
+    edge and isn't the interior.
+
+    A balloon shaded to grey (a gradient inside) has no pixel as light as
+    CV_LIGHT_FLOOR, so when that finds nothing the search repeats at the grey
+    level, accepting only a region ringed by dark pixels (its outline, or dark
+    art against it)."""
     import cv2
 
     otsu_val, _ = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    _, light = cv2.threshold(roi, max(otsu_val, scanlate_tuning.CV_LIGHT_FLOOR), 255,
-                             cv2.THRESH_BINARY)
+    found = _interior_above(roi, max(otsu_val, scanlate_tuning.CV_LIGHT_FLOOR))
+    if found is not None:
+        return found
+    found = _interior_above(roi, scanlate_tuning.CV_GREY_PAPER_FLOOR)
+    if found is not None and _ringed_by_dark(roi, found[0]):
+        return found
+    return None
+
+
+def _ringed_by_dark(roi, filled) -> bool:
+    """True when the dark pixels hug `filled` where it is not cut by the box edge:
+    an outline, as opposed to a mid-grey patch of art fading into its surroundings."""
+    import cv2
+
+    rim = cv2.dilate(filled, np.ones((2 * 3 + 1, 2 * 3 + 1), np.uint8)) & (1 - filled)
+    rim[0, :] = rim[-1, :] = 0
+    rim[:, 0] = rim[:, -1] = 0
+    if not rim.any():
+        return False
+    return float((roi[rim > 0] < scanlate_tuning.CV_GREY_RIM_LEVEL).mean()) >= scanlate_tuning.CV_GREY_RIM_DARK_SHARE
+
+
+def _interior_above(roi, level):
+    """_balloon_interior()'s search with the light paper being gray >= `level`."""
+    import cv2
+
+    _, light = cv2.threshold(roi, level - 1, 255, cv2.THRESH_BINARY)
     seal = int(scanlate_tuning.CV_SEAL_PX)
     kernel = np.ones((2 * seal + 1, 2 * seal + 1), np.uint8)
     if seal > 0:
