@@ -10,8 +10,6 @@ Run order is cheapest and most likely to fail first. Flows 1 to 4 are the instal
 - If anything under `extension/` changed, `extension/manifest.json` has a new version.
 - The tag needs the owner's typed yes.
 
-> TBD after the release-flow change lands: how a tag is first published (pre-release stage), who promotes it, and the CI and backup gates. Until then the `v*` tag publishes a full release in one run, and the `release` job may wait for approval on the `release` environment (docs/runbook.md 1a).
-
 ## The flows
 
 1. **Install on a clean PC.** Run `BaiheStudio-Setup-<version>.exe`. First check its SHA-256 against the release's `.sha256` (`Get-FileHash <file> -Algorithm SHA256`). SmartScreen warns (not code-signed): expected. Good: Setup finishes, Baihe opens in its own window, Diagnostics shows no red row. Bad: Setup errors, or the window stays blank.
