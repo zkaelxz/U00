@@ -42,6 +42,7 @@ from api.schemas.transcribe import *  # noqa: F401,F403
 from api.schemas.source_suspect import *  # noqa: F401,F403
 from api.schemas.timing_check import *  # noqa: F401,F403
 from api.schemas.retranscribe_lines import *  # noqa: F401,F403
+from api.schemas.three_run import *  # noqa: F401,F403
 from api.schemas.real_model_check import *  # noqa: F401,F403
 from api.schemas.subtitle_import import *  # noqa: F401,F403
 from api.schemas.spend_history import *  # noqa: F401,F403

@@ -129,6 +129,7 @@ from api.routers import (
     system_routes,
     transcribe_routes,
     translate_routes,
+    three_run_routes,
     translate_run_routes,
     translation_version_routes,
     spend_history_routes,
@@ -253,7 +254,7 @@ _ROUTER_MODULES = (
     diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes, diagnostics_ffmpeg_routes,
     diagnostics_voice_engine_routes, voices_routes,
     real_model_check_routes, voice_bank_audio_routes, sources_tools_routes, assistant_routes,
-    sharing_routes, android_app_routes,
+    sharing_routes, android_app_routes, three_run_routes,
 )
 
 
