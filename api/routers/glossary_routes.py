@@ -28,7 +28,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import is_auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSaveResult,
-                         GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult, GlossaryCopyTitleTermsResult,
+                         GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult, GlossaryCopyTitleTermsResult, GlossaryTitleTerm,
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate, InstructionsDraft,
@@ -77,6 +77,14 @@ def post_term(payload: GlossaryTermUpsert, drama_id: int = Path(ge=1)):
 def post_bulk_delete_terms(payload: GlossaryBulkDeleteRequest, drama_id: int = Path(ge=1)):
     return glossary_service.bulk_delete_glossary_terms(drama_id, payload.term_ids,
                                                        confirm=payload.confirm)
+
+
+@router.get("/dramas/{drama_id}/title-terms", dependencies=[require_permission("library.read")],
+            response_model=List[GlossaryTitleTerm],
+            summary="The title's own glossary terms while it is in a series",
+            responses=error_responses(404))
+def get_title_terms(drama_id: int = Path(ge=1)):
+    return glossary_service.list_title_terms(drama_id)
 
 
 @router.post("/dramas/{drama_id}/terms/copy-title-terms", dependencies=[require_permission("lines.edit")],

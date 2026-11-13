@@ -296,6 +296,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/glossary/dramas/{drama_id}/terms` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/terms/bulk-delete` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/terms/copy-title-terms` | lines.edit |
+| `GET /api/glossary/dramas/{drama_id}/title-terms` | library.read |
 | `GET /api/glossary/dramas/{drama_id}/variants` | lines.read |
 | `GET /api/glossary/dramas/{drama_id}/word-replacements` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/word-replacements` | lines.edit |

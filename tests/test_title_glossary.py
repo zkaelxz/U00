@@ -97,3 +97,41 @@ def test_an_existing_private_series_is_linked_on_upgrade(isolated_db):
     with db.get_conn() as conn:
         db.link_existing_private_series(conn)
     assert db.get_title_glossary_series(d) == sid
+
+
+def test_title_terms_list_marks_the_ones_a_series_term_shadows(isolated_db):
+    d = _title()
+    _add(d, "亞洛赫", "Anok")
+    _add(d, "小明", "Xiaoming")
+    assert glossary_service.list_title_terms(d) == []          # still in its own series
+    series = db.create_series("S")
+    db.upsert_glossary_term(series, "亞洛赫", "Alo")
+    db.assign_drama_series(d, series)
+    assert {t["term_original"]: t["clashes_with_series"]
+            for t in glossary_service.list_title_terms(d)} == {"小明": False, "亞洛赫": True}
+
+
+def test_upgrade_link_runs_twice_and_ignores_other_series_names(isolated_db):
+    d, other = _title(), _title()
+    own = db.create_series(f"VOD (title {d})")
+    db.assign_drama_series(d, own)
+    named_for_someone_else = db.create_series(f"VOD (title {d + 99})")
+    db.assign_drama_series(other, named_for_someone_else)
+    with db.get_conn() as conn:
+        db.link_existing_private_series(conn)
+        db.link_existing_private_series(conn)
+    assert db.get_title_glossary_series(d) == own
+    assert db.get_title_glossary_series(other) is None
+
+
+def test_a_partial_copy_reports_both_lists_and_a_second_copy_adds_nothing(isolated_db):
+    d = _title()
+    for o, e in (("甲", "A"), ("乙", "B"), ("丙", "C")):
+        _add(d, o, e)
+    series = db.create_series("S")
+    db.upsert_glossary_term(series, "乙", "Bee")
+    db.assign_drama_series(d, series)
+    first = glossary_service.copy_title_terms_to_series(d)
+    assert (sorted(first["copied"]), first["skipped"]) == (["丙", "甲"], ["乙"])
+    again = glossary_service.copy_title_terms_to_series(d)
+    assert again["copied"] == [] and sorted(again["skipped"]) == ["丙", "乙", "甲"]

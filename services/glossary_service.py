@@ -155,6 +155,19 @@ def effective_glossary_terms(drama_id: int) -> list:
             for r in db.list_run_glossary_terms(drama)]
 
 
+def list_title_terms(drama_id: int) -> list:
+    """The title's own terms while it uses another series' glossary, each with
+    `clashes_with_series`: a term the series also has is used from the title but
+    can't be edited or removed here, because the series glossary shows only the
+    series' own row. Empty when the title uses its own private series."""
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=False)
+    have = {term_key(t["term_original"]) for t in db.list_effective_glossary_terms(sid)} if sid else set()
+    return [{"term_original": t["term_original"] or "", "term_translation": t["term_translation"] or "",
+             "clashes_with_series": term_key(t["term_original"]) in have}
+            for t in db.title_only_terms(drama)]
+
+
 def copy_title_terms_to_series(drama_id: int) -> dict:
     """Copies the title's own terms into the series it now belongs to, only on request.
     A term the series already has (its own or its shared group's) is left as it is and
