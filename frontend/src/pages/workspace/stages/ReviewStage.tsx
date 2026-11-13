@@ -12,6 +12,7 @@ import { AiExtrasStyle } from './review/AiExtrasStyle'
 import { CompareTranscription } from './review/CompareTranscription'
 import { RetimeLines } from './review/RetimeLines'
 import { RetranslateSelected } from './review/RetranslateSelected'
+import { ThreeRunReview } from './review/ThreeRunReview'
 import { RetranscribeLines, type RetranscribeRequest } from './review/RetranscribeLines'
 import { LinesPanel } from './review/LinesPanel'
 import { LineSelectionProvider } from './review/LineSelectionContext'
@@ -169,6 +170,7 @@ export default function ReviewStage() {
                       {!!lineCount && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
                       {!!lineCount && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={pendingRetranscribe} onRequestHandled={setHandledRetranscribeSeq} />}
                       {!!lineCount && <RetranslateSelected dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
+                      {!!lineCount && <ThreeRunReview dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
                       {!!lineCount && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
                     </>
                   ),
