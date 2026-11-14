@@ -350,8 +350,12 @@ def detect_bubbles_ml(image_path: str, confidence: float | None = None, hf_token
             "label": model.config.id2label.get(int(label), str(int(label))),
         })
 
-    boxes.sort(key=lambda b: (b["y"] // 50, -b["x"]))
+    boxes.sort(key=_reading_order)
     return boxes
+
+
+def _reading_order(box: dict) -> tuple:
+    return box["y"] // 50, -box["x"]
 
 
 def bubble_ml_weights_cached() -> bool:
@@ -556,7 +560,9 @@ def _ruled_line_between(gray, a: dict, b: dict) -> bool:
     stacked = abs(centres[1][1] - centres[0][1]) >= abs(centres[1][0] - centres[0][0])
     across = (x1 - x0) if stacked else (y1 - y0)
     length = int(scanlate_tuning.RULE_SPAN * across)
-    segments = cv2.HoughLinesP(dark, 1, np.pi / 180, threshold=max(10, length // 2),
+    # Half-degree angles: at a whole degree a thin rule at a slant drifts across the bins and is
+    # found only in pieces.
+    segments = cv2.HoughLinesP(dark, 1, np.pi / 360, threshold=max(10, length // 2),
                                minLineLength=length, maxLineGap=scanlate_tuning.RULE_MAX_GAP_PX)
     # Both ends near the edges of the area: a rule crosses its cell, a stroke stops inside the box.
     reach = (1 - scanlate_tuning.RULE_SPAN) / 2 * across
@@ -577,20 +583,25 @@ def _segments_cross(p, q, r, s) -> bool:
 
 def _form_cells(weak: list, kept: list, gray) -> list:
     """The `weak` lettering boxes (scored under the model's threshold) that are cells of a form
-    whose other cells were kept: in line with a kept or already-taken lettering box and parted
-    from it by a ruled line. The labels of one form score alike, some just over the threshold
-    and some just under, so the threshold alone keeps half a form."""
+    whose other cells were kept: in line with a kept or already-taken lettering box, parted from
+    it by a ruled line, and overlapping no box already kept or taken. The labels of one form score
+    alike, some just over the threshold and some just under, so the threshold alone keeps half a
+    form; the model's weak boxes that span several labels overlap the labels' own boxes."""
     taken = []
-    anchors = [b for b in kept if b.get("label") == _LOOSE_TEXT_LABEL]
-    left = [b for b in weak if b.get("label") == _LOOSE_TEXT_LABEL]
+    left = sorted((b for b in weak if b.get("label") == _LOOSE_TEXT_LABEL),
+                  key=lambda b: -b.get("confidence", 0.0))
     while True:
-        found = [w for w in left if any(_in_line(w, a) and _ruled_line_between(gray, w, a)
-                                        for a in anchors)]
-        if not found:
+        for w in left:
+            placed = kept + taken
+            if any(_contained_share(w, b) > 0 for b in placed):
+                continue
+            if any(b.get("label") == _LOOSE_TEXT_LABEL and _in_line(w, b)
+                   and _ruled_line_between(gray, w, b) for b in placed):
+                taken.append(w)
+                left = [b for b in left if b is not w]
+                break
+        else:
             return taken
-        taken += found
-        anchors += found
-        left = [w for w in left if not any(w is f for f in found)]
 
 
 def merge_fragment_boxes(boxes: list, gray=None) -> list:
@@ -698,8 +709,9 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
         weak = [b for b in found if b.get("confidence", 1.0) < threshold]
         gray = (page_gray(image_path, image)
                 if weak and any(b.get("label") == _LOOSE_TEXT_LABEL for b in kept) else None)
-        if gray is not None:
-            kept += _form_cells(weak, kept, gray)
+        cells = _form_cells(weak, kept, gray) if gray is not None else []
+        if cells:
+            kept = sorted(kept + cells, key=_reading_order)
         return dedupe_overlapping_boxes(kept)
     except ImportError as exc:
         message = ("The ML detector needs extra packages:\n"

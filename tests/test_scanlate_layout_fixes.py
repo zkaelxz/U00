@@ -222,14 +222,14 @@ def test_a_sound_effect_gloss_with_nothing_to_avoid_goes_to_the_right_as_before(
     assert left >= 140 and top >= 90
 
 
-def _form(rule=True):
+def _form(rule=True, drop=16):
     """Grey form cells with a label of separate glyphs in each, the cells parted by a slanted rule."""
     img = np.full((170, 200), 200, np.uint8)
     for top in (30, 110):
         for left in range(55, 125, 22):
             img[top:top + 16, left:left + 14] = 20
     if rule:
-        cv2.line(img, (0, 78), (199, 94), 150, 1)
+        cv2.line(img, (0, 78), (199, 78 + drop), 150, 1)
     return img
 
 
@@ -251,6 +251,13 @@ def test_a_weak_form_label_beside_a_kept_one_is_kept(monkeypatch):
     kept, weak = _box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")
     found = _detect_with_scores(monkeypatch, _form(), [(kept, 0.3), (weak, 0.15)])
     assert [b["y"] for b in found] == [20, 95]
+
+
+def test_a_weak_box_over_several_form_labels_is_dropped(monkeypatch):
+    kept, weak = _box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")
+    both = _box(40, 15, 110, 150, "text_free")
+    found = _detect_with_scores(monkeypatch, _form(drop=0), [(kept, 0.3), (both, 0.24), (weak, 0.15)])
+    assert [(b["y"], b["h"]) for b in found] == [(20, 45), (95, 45)]
 
 
 def test_a_weak_lettering_box_without_a_rule_to_a_kept_one_is_dropped(monkeypatch):
