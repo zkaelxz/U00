@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// Fresh install: no cloud key, so Quick translate lands on Ollama. The engine
+// Fresh install: no cloud key, so Text lands on Ollama. The engine
 // list and the translate call are mocked; nothing contacts Ollama.
 
 const ENGINE = (name: string, key_configured: boolean, free: boolean) => ({
@@ -18,7 +18,7 @@ async function mockEngines(page: Page, claudeKey: boolean) {
   )
 }
 
-const NOTE = 'No cloud translator is set up. Quick translate is using Ollama on this PC. Start Ollama, or add a key in Settings.'
+const NOTE = 'No cloud translator is set up. Text translation is using Ollama on this PC. Start Ollama, or add a key in Settings.'
 
 for (const [name, size] of [['desktop', { width: 1280, height: 800 }], ['phone', { width: 390, height: 800 }]] as const) {
   test.describe(name, () => {

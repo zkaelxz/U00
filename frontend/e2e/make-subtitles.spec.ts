@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test'
 
 import { DRAMA_ID, NO_LINES, mockMakeSubtitles } from './makeSubtitlesMocks'
 
-// File to English SRT from the Make subtitles page. Every API call is mocked; nothing is
+// File to English SRT from the Quick translate page. Every API call is mocked; nothing is
 // created, transcribed or translated for real.
 
 const AUDIO = { name: 'My Show.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') }
-const card = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Make subtitles' })
+const card = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Quick translate' })
 
 test('four clicks: choose a file and language, make subtitles, download', async ({ page }) => {
   const m = await mockMakeSubtitles(page)
