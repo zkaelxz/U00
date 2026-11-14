@@ -126,3 +126,11 @@ def test_slanted_strip_gets_its_text_on_one_line_by_laying_out_in_its_own_frame(
     inside = np.zeros((220, 320), bool)
     inside[10:210, 10:310] = mask
     assert not (~inside[ys, xs]).any()
+
+
+def test_straight_diagonal_mark_across_level_text_is_not_a_tilt():
+    page = np.full((200, 240, 3), 255, np.uint8)
+    for col in (80, 120):
+        page[88:116, col:col + 24] = 20
+    cv2.line(page, (60, 40), (190, 150), (170, 170, 170), 7)
+    assert scanlate_tilt.estimate_text_angle(page, BOX) == 0.0

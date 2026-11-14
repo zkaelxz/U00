@@ -1,4 +1,5 @@
 """Owns reading how far a balloon's original lettering is tilted and setting the English at that angle."""
+import logging
 import math
 
 import numpy as np
@@ -6,6 +7,8 @@ from PIL import Image
 
 import scanlate_tuning
 from scanlate_inpaint import _lettering_mask
+
+log = logging.getLogger(__name__)
 
 
 def estimate_text_angle(page_bgr, box: dict) -> float:
@@ -29,13 +32,16 @@ def estimate_text_angle(page_bgr, box: dict) -> float:
         ink = gray < min(max(150, paper * 0.8), 240)
     # Undilated, so glyphs stay apart from each other and from the balloon's outline. A long
     # mark touching the crop's edge is that outline or the art; a glyph-sized one is lettering
-    # the box was cut tight around, which is common on narrow strips.
+    # the box was cut tight around, which is common on narrow strips. A long thin straight
+    # mark anywhere (a panel edge or speed line across the balloon) is no lettering either:
+    # it would otherwise outvote the glyphs and drag the angle onto its own.
     count, labels, stats, _ = cv2.connectedComponentsWithStats(ink.astype(np.uint8), connectivity=8)
     longest = max(roi.shape[:2]) * scanlate_tuning.TILT_GLYPH_MAX_OF_BOX
     for i in range(1, count):
-        left, top, width, height = stats[i, :4]
+        left, top, width, height, pixels = stats[i]
+        length = math.hypot(width, height)
         touches = left == 0 or top == 0 or left + width == roi.shape[1] or top + height == roi.shape[0]
-        if touches and max(width, height) > longest:
+        if (touches and max(width, height) > longest) or (length > longest and _is_straight(labels == i)):
             ink[labels == i] = False
     ys, xs = np.nonzero(ink)
     if len(xs) < scanlate_tuning.TILT_MIN_INK_PX:
@@ -53,6 +59,13 @@ def estimate_text_angle(page_bgr, box: dict) -> float:
     if abs(angle) < scanlate_tuning.TILT_MIN_DEG or scores[best] < scanlate_tuning.TILT_MIN_GAIN * level:
         return 0.0
     return angle
+
+
+def _is_straight(mark) -> bool:
+    """True when a mark's pixels lie along one line, far longer than thick."""
+    ys, xs = np.nonzero(mark)
+    eigenvalues = np.linalg.eigvalsh(np.cov(np.vstack([xs, ys])))
+    return eigenvalues[0] <= 0 or math.sqrt(eigenvalues[1] / eigenvalues[0]) >= scanlate_tuning.TILT_LINE_MIN_ELONGATION
 
 
 def _row_sharpness(points, angle: float) -> float:
@@ -121,8 +134,11 @@ def _place_turned(pil_img, x: int, y: int, frame: tuple, frame_box: dict, mask_i
     alpha = np.clip(turned[0], 0.0, 1.0)
     ink = alpha > 0.2
     if not ink.any() or ink.sum() < 0.98 * (coverage > 0.2).sum():
+        log.debug("tilt %.1f at size %d: clipped by the frame", angle, size)
         return False
-    if (ink & ~room).sum() > scanlate_tuning.TILT_MAX_OUTSIDE_SHARE * ink.sum():
+    outside = (ink & ~room).sum() / ink.sum()
+    if outside > scanlate_tuning.TILT_MAX_OUTSIDE_SHARE:
+        log.debug("tilt %.1f at size %d: %.1f%% of the ink outside the balloon", angle, size, 100 * outside)
         return False
     _composite(pil_img, x, y, alpha, np.dstack(turned[1:]))
     return True
