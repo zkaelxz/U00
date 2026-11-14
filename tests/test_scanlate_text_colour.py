@@ -65,3 +65,12 @@ def _blue_pixels(rgb):
 def test_the_page_is_lettered_in_the_sampled_colour_only_when_asked(tmp_path):
     assert _blue_pixels(_render(tmp_path, True)) > 0
     assert _blue_pixels(_render(tmp_path, False)) == 0
+
+
+def test_anti_aliased_edges_do_not_wash_out_the_sampled_colour():
+    from PIL import ImageDraw, ImageFont
+    font = ImageFont.load_default(24)
+    img = Image.new("RGB", (200, 80), "white")
+    ImageDraw.Draw(img).text((10, 20), "Yes Hello", font=font, fill=(214, 130, 40))
+    page = np.asarray(img)[:, :, ::-1].copy()
+    assert scanlate_render.sampled_ink_color(page, {"x": 0, "y": 0, "w": 200, "h": 80}) == (214, 130, 40)

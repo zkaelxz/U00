@@ -29,7 +29,7 @@ def cap_spent(isolated_db, monkeypatch):
 
 def test_the_cap_covers_a_cloud_tag_but_not_a_local_one():
     assert translate_run_service.engine_cap_applies("ollama", False, CLOUD)
-    assert translate_run_service.engine_cap_applies("ollama", False, "gemma4:cloud")
+    assert translate_run_service.engine_cap_applies("ollama", False, "qwen3-coder:cloud")
     assert not translate_run_service.engine_cap_applies("ollama", False, "gemma4:12b")
     assert not translate_run_service.engine_cap_applies("ollama", False, None)
 
@@ -151,3 +151,16 @@ def test_an_unattended_run_on_a_cloud_tag_needs_a_cap(isolated_db, monkeypatch):
     with pytest.raises(UnsupportedOperationError):
         paid_job_service.require_cap_for_unattended("ollama", False, CLOUD)
     paid_job_service.require_cap_for_unattended("ollama", False, "gemma4:12b")
+
+
+def test_the_retired_gemma4_cloud_tag_stays_priced_for_the_caps():
+    from engine_backends import pricing
+    assert "gemma4:cloud" in pricing.PRICING_PER_MILLION_TOKENS
+    assert "gemma4:cloud" not in local.OLLAMA_CLOUD_MODELS
+
+
+def test_an_unpriced_cloud_tag_is_costed_at_the_dearest_known_cloud_rate():
+    from engine_backends import pricing
+    cost = pricing.estimate_cost("qwen3-coder:cloud", 1_000_000, 1_000_000)
+    assert cost == pytest.approx(0.14 + 0.40)
+    assert pricing.estimate_cost("gemma4:12b", 1_000_000, 1_000_000) == 0.0

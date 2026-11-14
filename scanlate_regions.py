@@ -15,7 +15,7 @@ import numpy as np
 
 import scanlate_tuning
 
-from scanlate_detect import (TEXT_REGION_KINDS, classify_text_regions, detect_panels,
+from scanlate_detect import (TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions, detect_panels,
                              inset_box_for_ocr, page_gray)
 
 
@@ -129,6 +129,34 @@ def _widest_gap(profile) -> int:
     return int(np.diff(idx).max()) - 1 if len(idx) > 1 else 0
 
 
+def trim_to_lettering(gray, box: dict) -> dict:
+    """The caption box cut to be centred on its lettering. The detector's box
+    can run on over a site watermark beside the frame, which pulls the box
+    off-centre, so the text is typeset off-centre in its frame and the stamp
+    is read as part of the caption. The side with more room is cut back to
+    the smaller half-width; the box is returned unchanged when the lettering
+    is already centred or no single block of it is found."""
+    h, w = gray.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    roi = gray[y0:min(h, box["y"] + box["h"]), x0:min(w, box["x"] + box["w"])]
+    if roi.size == 0 or roi.shape[1] < 2:
+        return box
+    darkest, median = float(np.percentile(roi, 1)), float(np.median(roi))
+    ink = roi < darkest + scanlate_tuning.TRIM_INK_LEVEL * (median - darkest)
+    cols = np.flatnonzero(ink.sum(axis=0) >= 2)
+    if len(cols) == 0:
+        return box
+    bridge = scanlate_tuning.TRIM_BRIDGE * roi.shape[0]
+    blocks = np.split(cols, np.flatnonzero(np.diff(cols) > bridge) + 1)
+    main = max(blocks, key=lambda c: int(ink[:, c].sum()))
+    centre = (int(main[0]) + int(main[-1])) / 2
+    if abs(centre - roi.shape[1] / 2) < scanlate_tuning.TRIM_OFF_CENTRE * roi.shape[1]:
+        return box
+    half = min(centre, roi.shape[1] - centre)
+    left = x0 + int(round(centre - half))
+    return dict(box, x=left, w=int(round(2 * half)))
+
+
 def _letter_ink(gray, box: dict):
     """Boolean mask of the lettering inside `box` (inset as for OCR), or None
     for an empty crop. Ink is the minority shade; marks touching the crop's
@@ -173,6 +201,13 @@ def split_separate_lettering(gray, box: dict) -> list:
     x0, y0 = max(0, box["x"]), max(0, box["y"])
     roi = gray[y0:min(h, y0 + box["h"]), x0:min(w, x0 + box["w"])]
     if not roi.size:
+        return [box]
+    # A tall balloon of vertical lettering is one region however its columns
+    # fall apart: the gaps between phrases would otherwise cut it into pieces
+    # that are erased and fitted separately. Horizontal lettering in one
+    # outline still splits, since lobes and joined frames are drawn that way.
+    # The probe is CJK because vertical lettering is only ever CJK.
+    if _holds_balloon_interior(roi) and estimate_text_orientation(gray, box, "zh") == "vertical":
         return [box]
     ink = (roi < int(min(max(150, float(np.median(roi)) * 0.8), 240))).astype(np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
@@ -443,6 +478,9 @@ def analyze_page_regions(image_path: str, boxes: list, source_language: str,
     decoded as BGR (see decode_page())."""
     classified = classify_text_regions(image_path, boxes, image=image)
     gray = page_gray(image_path, image)
+    if gray is not None:
+        classified = [trim_to_lettering(gray, b) if b.get("kind") == "narration" else b
+                      for b in classified]
     try:
         panels = detect_panels(image_path, image=image)
     except ValueError:
