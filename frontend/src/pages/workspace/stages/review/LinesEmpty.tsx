@@ -19,13 +19,14 @@ interface Props {
 
 export function LinesEmpty({ dramaId, filter, term, searching, jobRunning, onAddFirst, onAllLines }: Props) {
   const { drama } = useStage()
+  const sourceStage = stageLabel('source', titleKind(drama.media_type, drama.content_mode))
   return (
     <div className="review-empty">
-      <p className="muted">{emptyMessage(filter, term)}</p>
+      <p className="muted">{emptyMessage(filter, term, sourceStage)}</p>
       {filter === 'all' && !searching ? (
         <div className="actions">
           <ButtonLink variant="primary" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-            Go to {stageLabel('source', titleKind(drama.media_type, drama.content_mode))}
+            Go to {sourceStage}
           </ButtonLink>
           <button type="button" className={buttonClass('secondary')} disabled={jobRunning} onClick={onAddFirst}>
             Add first line
