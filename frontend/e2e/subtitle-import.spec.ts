@@ -75,11 +75,13 @@ test('a failed preview still shows the encoding and mode controls', async ({ pag
   await expect(panel.getByRole('button', { name: 'Import', exact: true })).toBeDisabled()
 })
 
-test('a subtitle file dropped on the Media file box lands in Import subtitle file', async ({ page }) => {
+// Simple leaves Import subtitle file out of Add media, so there the drop must bring it in rather than vanish.
+for (const view of ['full', 'simple'] as const) test(`a subtitle file dropped on the Media file box lands in Import subtitle file (${view} view)`, async ({ page }) => {
   await mockSubtitleImport(page)
-  await page.addInitScript(() => {
+  await page.addInitScript((v) => {
     for (const k of Object.keys(localStorage)) if (k.startsWith('baihe.section.source.')) localStorage.removeItem(k)
-  })
+    localStorage.setItem('baihe.pref.title.view', JSON.stringify(v))
+  }, view)
   await page.goto('/#/drama/1/source')
   const box = page.locator('.source-drop')
   const dataTransfer = await page.evaluateHandle((srt) => {
@@ -89,7 +91,7 @@ test('a subtitle file dropped on the Media file box lands in Import subtitle fil
   }, SRT_FILE.buffer.toString())
   await box.dispatchEvent('drop', { dataTransfer })
   const panel = page.getByTestId('subtitle-import')
-  await expect(panel).toBeVisible()
+  await expect(panel).toBeInViewport()
   await expect(panel.getByTestId('subtitle-import-summary')).toHaveText('SRT · 42 cues · read as gb18030 (guessed) · Chinese')
   await expect(page.getByLabel('Audio or video file')).toHaveValue('')
 })
