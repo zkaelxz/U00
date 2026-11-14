@@ -180,7 +180,8 @@ def forget_gpu_model(model_size: str, local_model_path: str | None = None):
 
 def release_gpu_models():
     """Call after a GPU stage (transcription, alignment, diarization)
-    finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models
+    finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models (and the comic
+    eraser's GPU copy)
     and hands CUDA's cached memory back, so the next stage -- or a local
     translation model in Ollama, or TTS -- isn't fighting leftovers for
     the same VRAM. The next run of a stage reloads its model (seconds, from
@@ -191,7 +192,8 @@ def release_gpu_models():
     _whisper_model_cache.clear()
     _whisper_device_info.clear()
     for module_name, cache_name in (("asr_backend", "_asr_model_cache"),
-                                    ("forced_align", "_aligner_model_cache")):
+                                    ("forced_align", "_aligner_model_cache"),
+                                    ("scanlate_inpaint", "_lama_gpu")):
         module = sys.modules.get(module_name)
         if module is not None:
             getattr(module, cache_name).clear()
