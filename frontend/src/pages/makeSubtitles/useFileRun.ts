@@ -83,9 +83,9 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const engine = pickedEngine && (!list.length || list.some((e) => e.name === pickedEngine)) ? pickedEngine : defaultEngine
 
   // Read inside job callbacks, which outlive the render that created them.
-  const run = useRef<{ title: string; engine: string; runEngine: string; variant: string; dramaId: number | null }>({ title: '', engine: '', runEngine: '', variant: '', dramaId: null })
+  const run = useRef<{ title: string; runEngine: string; defaultEngine: string; variant: string; dramaId: number | null }>({ title: '', runEngine: '', defaultEngine: '', variant: '', dramaId: null })
   const dramaId = flow.phase === 'idle' ? null : flow.dramaId
-  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, engine, runEngine, variant, dramaId } })
+  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, runEngine, defaultEngine, variant, dramaId } })
   const stepNow = flow.phase === 'running' ? flow.step : null
 
   useEffect(() => { if (runs) setSaved(savedFor(flow)) }, [flow]) // setSaved is a fresh function each render
@@ -104,7 +104,8 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const translateStep = useCallback(async (id: number) => {
     try {
       const config = await getTranslateConfig(id)
-      const form = { ...initialForm(config), engine: run.current.runEngine || run.current.engine }
+      // A run saved before its translator was kept takes the default, not a pick made since for another file.
+      const form = { ...initialForm(config), engine: run.current.runEngine || run.current.defaultEngine }
       if (run.current.variant) form.locale = run.current.variant
       const started = await startTranslateRun(id, buildRunBody(form))
       setJobId(started.job_id)
