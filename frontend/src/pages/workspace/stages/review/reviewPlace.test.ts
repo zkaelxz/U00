@@ -2,72 +2,86 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine } from '../../../../types/review'
 import { ownActiveId } from './reviewLogic'
-import { backStatus, openingPlace, placeFallback, placeForMove, placeKey, readPlace, type ReviewPlace } from './reviewPlace'
+import {
+  backStatus, NO_PLACES, placeFallback, placeKey, readPlaces, spotForMove, spotToOpen, storedPlaces, viewFor, withSpot,
+  type Places, type Spot,
+} from './reviewPlace'
 
 const mk = (id: number, idx: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx, start: idx, end: idx + 1, zh: `句${idx}`, en: `Line ${idx}`, speaker: null,
   speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
 })
 
-const inLines: ReviewPlace = { lineId: 512, lineNumber: 50, page: 2, view: 'lines' }
-const inQueue: ReviewPlace = { lineId: 307, lineNumber: 7, page: 1, view: 'queue' }
+const inLines: Spot = { lineId: 512, lineNumber: 50, page: 2 }
+const inQueue: Spot = { lineId: 307, lineNumber: 7, page: 1 }
+const both: Places = { queue: inQueue, lines: inLines }
 
-describe('reading a kept place', () => {
+describe('reading the kept places', () => {
   it('is kept per title', () => {
     expect(placeKey(3)).toBe('review.at.3')
   })
-  it('reads the stored shape back', () => {
-    expect(readPlace({ lineId: 512, lineNumber: 50, page: 2, view: 'lines' })).toEqual(inLines)
-    expect(readPlace({ ...inQueue })).toEqual(inQueue)
+  it('reads both spots back, or either one alone', () => {
+    expect(readPlaces({ queue: { ...inQueue }, lines: { ...inLines } })).toEqual(both)
+    expect(readPlaces({ lines: { ...inLines } })).toEqual({ queue: null, lines: inLines })
+    expect(readPlaces({ queue: { ...inQueue } })).toEqual({ queue: inQueue, lines: null })
   })
-  it('reads any other shape as no place', () => {
+  it('checks each spot on its own', () => {
     for (const bad of [
-      null, 'lines', 12, [512, 50, 2, 'lines'], {},
-      { lineNumber: 50, page: 2, view: 'lines' },
-      { lineId: 512, lineNumber: 50, page: 2, view: 'flagged' },
-      { lineId: '512', lineNumber: 50, page: 2, view: 'lines' },
-      { lineId: 512, lineNumber: 50.5, page: 2, view: 'lines' },
-      { lineId: 512, lineNumber: 0, page: 2, view: 'lines' },
-      { lineId: 512, lineNumber: 50, page: 0, view: 'lines' },
-      { lineId: -1, lineNumber: 50, page: 2, view: 'lines' },
-    ]) expect(readPlace(bad), JSON.stringify(bad)).toBeNull()
+      'lines', 12, [512, 50, 2], { lineNumber: 50, page: 2 }, { lineId: '512', lineNumber: 50, page: 2 },
+      { lineId: 512, lineNumber: 50.5, page: 2 }, { lineId: 512, lineNumber: 0, page: 2 }, { lineId: 512, lineNumber: 50, page: 0 },
+      { lineId: -1, lineNumber: 50, page: 2 },
+    ]) expect(readPlaces({ queue: bad, lines: { ...inLines } }), JSON.stringify(bad)).toEqual({ queue: null, lines: inLines })
+  })
+  it('reads any other shape as no place, the single place of before too', () => {
+    for (const bad of [null, 'lines', 12, [inLines], {}, { lineId: 512, lineNumber: 50, page: 2, view: 'lines' }]) {
+      expect(readPlaces(bad), JSON.stringify(bad)).toEqual(NO_PLACES)
+    }
+  })
+  it('stores only the spots there are', () => {
+    expect(storedPlaces(both)).toEqual({ queue: inQueue, lines: inLines })
+    expect(storedPlaces({ queue: null, lines: inLines })).toEqual({ lines: inLines })
+    expect(storedPlaces(NO_PLACES)).toEqual({})
   })
 })
 
-describe('which kept place applies as the list opens', () => {
-  it('opens All on a place kept in the lines, and the queue on a place kept in the queue', () => {
-    expect(openingPlace(inLines, 'all', false)).toEqual({ now: inLines, onAll: null })
-    expect(openingPlace(inQueue, 'risk', false)).toEqual({ now: inQueue, onAll: null })
+describe('which spot a view opens on', () => {
+  it('opens All on the lines spot, and Simple’s queue on the queue spot', () => {
+    expect(viewFor('all', false)).toBe('lines')
+    expect(viewFor('risk', true)).toBe('queue')
+    expect(spotToOpen(both, 'all', true, false)).toEqual({ view: 'lines', spot: inLines })
+    expect(spotToOpen(both, 'risk', true, false)).toEqual({ view: 'queue', spot: inQueue })
   })
-  it('keeps a place in the lines for the first switch to All when the list opens on the queue', () => {
-    expect(openingPlace(inLines, 'risk', false)).toEqual({ now: null, onAll: inLines })
+  it('opens any other view, and Full’s riskiest-first filter, as before', () => {
+    expect(viewFor('flagged', true)).toBeNull()
+    expect(viewFor('risk', false)).toBeNull()
+    expect(spotToOpen(both, 'flagged', false, false)).toBeNull()
+    expect(spotToOpen(both, 'risk', false, false)).toBeNull()
   })
-  it('opens All as before on a place kept in the queue', () => {
-    expect(openingPlace(inQueue, 'all', false)).toEqual({ now: null, onAll: null })
+  it('has nothing to open for a view with no spot', () => {
+    expect(spotToOpen({ queue: inQueue, lines: null }, 'all', true, false)).toBeNull()
+    expect(spotToOpen({ queue: null, lines: inLines }, 'risk', true, false)).toBeNull()
   })
-  it('lets a link that names lines win', () => {
-    expect(openingPlace(inLines, 'all', true)).toEqual({ now: null, onAll: null })
-    expect(openingPlace(inLines, 'flagged', true)).toEqual({ now: null, onAll: null })
-    expect(openingPlace(inQueue, 'risk', true)).toEqual({ now: null, onAll: null })
-  })
-  it('has nothing to open without a place', () => {
-    expect(openingPlace(null, 'all', false)).toEqual({ now: null, onAll: null })
+  it('lets a link that names lines, or a move already asked for, win', () => {
+    expect(spotToOpen(both, 'all', false, true)).toBeNull()
+    expect(spotToOpen(both, 'risk', true, true)).toBeNull()
   })
 })
 
 describe('what a move keeps', () => {
   const line = mk(512, 49)
-  it('keeps nothing for the line the page picked by itself', () => {
-    expect(placeForMove(line, { ownPick: true, queue: false, all: true, page: 2 })).toBeNull()
-    expect(placeForMove(line, { ownPick: true, queue: true, all: false, page: 1 })).toBeNull()
+  it('keeps the line, its number as shown and its page, for the view it was made in', () => {
+    expect(spotForMove(line, { queue: false, all: true, page: 2 })).toEqual({ view: 'lines', spot: inLines })
+    expect(spotForMove(mk(307, 6), { queue: true, all: false, page: 1 })).toEqual({ view: 'queue', spot: inQueue })
   })
-  it('keeps the line, its number as shown, its page and its view', () => {
-    expect(placeForMove(line, { ownPick: false, queue: false, all: true, page: 2 })).toEqual(inLines)
-    expect(placeForMove(mk(307, 6), { ownPick: false, queue: true, all: false, page: 1 })).toEqual(inQueue)
+  it('keeps a line found under a filter or a search in the lines, on its page of All', () => {
+    expect(spotForMove(mk(600, 84), { queue: false, all: false, page: 1 }))
+      .toEqual({ view: 'lines', spot: { lineId: 600, lineNumber: 85, page: 3 } })
   })
-  it('keeps a line found under a filter or a search on its page of All', () => {
-    expect(placeForMove(mk(600, 84), { ownPick: false, queue: false, all: false, page: 1 }))
-      .toEqual({ lineId: 600, lineNumber: 85, page: 3, view: 'lines' })
+  it('replaces its own view’s spot and keeps the other', () => {
+    const moved: Spot = { lineId: 312, lineNumber: 12, page: 1 }
+    expect(withSpot(both, 'queue', moved)).toEqual({ queue: moved, lines: inLines })
+    expect(withSpot(both, 'lines', moved)).toEqual({ queue: inQueue, lines: moved })
+    expect(withSpot(both, 'queue', null)).toEqual({ queue: null, lines: inLines })
   })
 })
 

@@ -16,8 +16,8 @@ interface LinesNavigationDeps {
   searching: boolean
   filter: LineFilter
   page: number
-  // The kept place (useReviewPlace): the page All opens on when picked.
-  place: { toAll: () => number }
+  // The kept places (useReviewPlace): the page a view opens on when the person switches to it.
+  place: { pageFor: (f: LineFilter) => number }
   setFilter: Dispatch<SetStateAction<LineFilter>>
   setPage: Dispatch<SetStateAction<number>>
   setInput: Dispatch<SetStateAction<string>>
@@ -33,7 +33,7 @@ export function buildLinesNavigation(deps: LinesNavigationDeps) {
 const changeFilter = async (f: LineFilter) => {
   if (!(await ctl.leaveEdit())) return
   setFilter(f)
-  setPage(f === 'all' ? place.toAll() : 1)
+  setPage(place.pageFor(f))
   setInput('')
   setTerm('')
 }

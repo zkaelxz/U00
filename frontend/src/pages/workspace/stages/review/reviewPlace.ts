@@ -1,58 +1,82 @@
-/** The line Review's list was last on for a title: its stored shape, which kept place applies as the list opens, and what a move keeps. */
+/** The lines Review's list was last on for a title, one per view: their stored shape, which one a view opens on, and what a move keeps. */
 import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
 import type { LineFilter, ReviewLine } from '../../../../types/review'
 import { QUEUE_FILTER } from './checkQueueModel'
 import { pageForPosition } from './reviewLogic'
 
-// The check queue (Need a look), or the lines: All, any other filter or a search, whose lines are all in All too.
-export type PlaceView = 'queue' | 'lines'
-
-export interface ReviewPlace {
+export interface Spot {
   lineId: number
   // As shown (lineNumber), so a line that was merged, split or transcribed again can still be found by its place.
   lineNumber: number
   page: number
-  view: PlaceView
 }
+
+// The check queue (Need a look), and the lines: All, any other filter or a search, whose lines are all in All too.
+// Each keeps its own, so working through the queue does not lose the reading place in All.
+export interface Places {
+  queue: Spot | null
+  lines: Spot | null
+}
+
+export type PlaceView = keyof Places
 
 type PlaceLine = Pick<ReviewLine, 'id' | 'idx'>
 
 export const placeKey = (dramaId: number) => `review.at.${dramaId}`
 
+export const NO_PLACES: Places = { queue: null, lines: null }
+
 const whole = (n: unknown, min: number): n is number => Number.isInteger(n) && (n as number) >= min
 
-/** A stored place, or null for anything of another shape (an older or hand-edited value reads as no place). */
-export function readPlace(value: unknown): ReviewPlace | null {
+function readSpot(value: unknown): Spot | null {
   if (typeof value !== 'object' || value === null) return null
-  const { lineId, lineNumber: n, page, view } = value as Record<string, unknown>
-  if (!whole(lineId, 1) || !whole(n, 1) || !whole(page, 1) || (view !== 'queue' && view !== 'lines')) return null
-  return { lineId, lineNumber: n, page, view }
+  const { lineId, lineNumber: n, page } = value as Record<string, unknown>
+  return whole(lineId, 1) && whole(n, 1) && whole(page, 1) ? { lineId, lineNumber: n, page } : null
+}
+
+/** The stored places, each checked on its own; anything of another shape reads as no place. */
+export function readPlaces(value: unknown): Places {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return NO_PLACES
+  const { queue, lines } = value as Record<string, unknown>
+  return { queue: readSpot(queue), lines: readSpot(lines) }
+}
+
+/** What is stored: only the spots there are. */
+export function storedPlaces(places: Places): Partial<Record<PlaceView, Spot>> {
+  return { ...(places.queue ? { queue: places.queue } : {}), ...(places.lines ? { lines: places.lines } : {}) }
+}
+
+/** The view whose spot a filter opens on: All the lines spot, Simple's queue the queue spot, any other filter none. */
+export function viewFor(filter: LineFilter, simple: boolean): PlaceView | null {
+  if (filter === 'all') return 'lines'
+  return simple && filter === QUEUE_FILTER ? 'queue' : null
 }
 
 /**
- * Which kept place applies as the list opens on `filter`: `now` opens on it at once, `onAll` waits for the first switch
- * to All (Simple starts on the queue, and a place kept in the lines belongs to All). A link that names lines wins over both.
+ * The kept spot a view opens on, as the list opens or when the person switches to it. `asked`: a link names lines (as
+ * the list opens) or a move is already asked for (the main Check button's first card, a go-to); that wins.
  */
-export function openingPlace(place: ReviewPlace | null, filter: LineFilter, linkNamesLines: boolean): { now: ReviewPlace | null; onAll: ReviewPlace | null } {
-  if (!place || linkNamesLines) return { now: null, onAll: null }
-  if (filter === 'all' && place.view === 'lines') return { now: place, onAll: null }
-  if (filter === QUEUE_FILTER) return place.view === 'queue' ? { now: place, onAll: null } : { now: null, onAll: place }
-  return { now: null, onAll: null }
+export function spotToOpen(places: Places, filter: LineFilter, simple: boolean, asked: boolean): { view: PlaceView; spot: Spot } | null {
+  const view = asked ? null : viewFor(filter, simple)
+  const spot = view ? places[view] : null
+  return view && spot ? { view, spot } : null
 }
 
-/** What a move onto `line` keeps; nothing for the line the page picked by itself, which is not the person's place. */
-export function placeForMove(line: PlaceLine, at: { ownPick: boolean; queue: boolean; all: boolean; page: number }): ReviewPlace | null {
-  if (at.ownPick) return null
+/** The spot a move onto `line` keeps, for the view it was made in. */
+export function spotForMove(line: PlaceLine, at: { queue: boolean; all: boolean; page: number }): { view: PlaceView; spot: Spot } {
   // A filter's or a search's page is not All's; a line's number is its place in All.
   const page = at.queue || at.all ? at.page : pageForPosition(line.idx)
-  return { lineId: line.id, lineNumber: lineNumber(line.idx), page, view: at.queue ? 'queue' : 'lines' }
+  return { view: at.queue ? 'queue' : 'lines', spot: { lineId: line.id, lineNumber: lineNumber(line.idx), page } }
 }
 
+/** The places with one view's spot replaced (null forgets it); the other view's stays as it is. */
+export const withSpot = (places: Places, view: PlaceView, spot: Spot | null): Places => ({ ...places, [view]: spot })
+
 /** The line to open when the kept one is not on its page: by id, else the line that has its number now, else the last line of a title that got shorter. */
-export function placeFallback<L extends PlaceLine>(all: L[], place: ReviewPlace): L | null {
-  const idx = idxFromLineNumber(place.lineNumber)
+export function placeFallback<L extends PlaceLine>(all: L[], spot: Spot): L | null {
+  const idx = idxFromLineNumber(spot.lineNumber)
   const last = all[all.length - 1]
-  return all.find((l) => l.id === place.lineId) ?? all.find((l) => l.idx === idx) ?? (last && idx > last.idx ? last : null)
+  return all.find((l) => l.id === spot.lineId) ?? all.find((l) => l.idx === idx) ?? (last && idx > last.idx ? last : null)
 }
 
 /** The status sentence for reopening on `line`; null when the list would have opened on it anyway. */
