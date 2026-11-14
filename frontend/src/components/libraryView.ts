@@ -143,8 +143,8 @@ export type ShelfRow = Progress & Kinded
 // the same next step for the same title.
 function workStep(row: ShelfRow | undefined, mediaType: string | null): 'open' | 'translate' | 'check' | 'done' {
   const total = row?.line_count ?? 0
-  // A comic's work is pages, which these line counts don't describe; a title with no row (the list could not be
-  // loaded, or a search or filter hid it when the page last reloaded its data) has no counts at all.
+  // A comic's work is pages, which these line counts don't describe; a title with no row (the list has not loaded
+  // since the page opened, or a search or filter hid it when the page last reloaded its data) has no counts at all.
   if (!row || total <= 0 || isComicType(row.media_type) || isComicType(mediaType)) return 'open'
   if ((row.translated_count ?? 0) < total) return 'translate'
   return row.status === 'exported' ? 'done' : 'check'
