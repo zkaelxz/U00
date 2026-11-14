@@ -1068,9 +1068,8 @@ def _with_page_cut_lettering(filled, outside, area, page_shape):
     """(filled, outside) of _balloon_interior() for a balloon the page's edge cuts. The balloon
     runs on past that edge, so paper meeting the box's edge only there, between the places
     where the balloon itself meets it, is its own, not outside it: the gaps in a line of
-    lettering the page cuts off. The marks that paper and the balloon then enclose with the
-    page's edge are that lettering, which otherwise was left unerased. Paper reaching the
-    page's edge beside the balloon, and the outline joined to it, stay out."""
+    lettering the page cuts off, which as outside paper kept that line from being erased.
+    Paper reaching the page's edge beside the balloon stays out."""
     import cv2
 
     x0, y0, x1, y1 = area
@@ -1100,13 +1099,7 @@ def _with_page_cut_lettering(filled, outside, area, page_shape):
 
     paper = np.asarray(cv2.connectedComponents(np.asarray(outside, np.uint8), connectivity=8)[1], np.int32)
     page_cut = (paper > 0) & ~held(paper)[paper]
-    if not page_cut.any():
-        return filled, outside
-    outside = (np.asarray(outside) > 0) & ~page_cut
-    region = (filled > 0) | page_cut
-    marks = np.asarray(cv2.connectedComponents((~region).astype(np.uint8), connectivity=8)[1], np.int32)
-    enclosed = (marks > 0) & ~held(marks)[marks]
-    return (region | enclosed).astype(np.uint8), outside.astype(np.uint8)
+    return ((filled > 0) | page_cut).astype(np.uint8), ((np.asarray(outside) > 0) & ~page_cut).astype(np.uint8)
 
 
 def _roi(gray, box):

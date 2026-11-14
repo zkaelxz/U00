@@ -359,3 +359,20 @@ def test_a_balloon_outline_cut_off_by_the_page_edge_is_not_erased():
     outline[:50, 65:135] = False                        # the lettering, which may go
     assert outline.any() and not mask[outline].any()
     assert mask[:22, 86:114][img[:22, 186:214] == 0].all()
+
+
+def test_art_in_the_notch_of_two_lobes_cut_off_by_the_page_edge_is_not_erased():
+    img = np.full((300, 400), 70, np.uint8)             # grey art round the balloon
+    for cx in (160, 250):
+        cv2.ellipse(img, (cx, 40), (50, 60), 0, 0, 360, 0, -1)
+    for cx in (160, 250):
+        cv2.ellipse(img, (cx, 40), (47, 57), 0, 0, 360, 255, -1)
+    for x in (135, 260):                                # glyphs the page cuts, one per lobe
+        img[0:22, x:x + 4] = img[0:22, x + 24:x + 28] = img[18:22, x:x + 28] = 0
+    box = {"x": 110, "y": 0, "w": 200, "h": 100}
+    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    notch = np.zeros((100, 200), bool)
+    notch[:45, 85:105] = True                           # between the lobes, at the page edge
+    notch &= img[:100, 110:310] < 128
+    assert notch.any() and not mask[notch].any()
+    assert mask[:22, 25:53][img[:22, 135:163] == 0].all()
