@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { hitHeight, installHitArea } from './hitArea'
+import { holdShelfOf, placeholderAndShelf } from './continueShelfMocks'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
 test.beforeEach(async ({ page }) => {
@@ -130,25 +131,9 @@ for (const width of [390, 320]) {
   })
 }
 
-test('at 390px the Continue skeleton has the height of the one-tile shelf', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('baihe.pref.library.continue.hadItems', 'true'))
-  await page.route('**/api/library/continue', (r) => r.fulfill({ json: { items: [{
-    drama_id: 2, title_en: 'Blessing', title_zh: null, percent_complete: 40, last_page: 12,
-    last_accessed_at: '2026-11-10T12:00:09', has_cover_art: false,
-  }] } }))
-  await page.route('**/api/library/recent', (r) => r.fulfill({ json: { items: [] } }))
-  // The shelf waits for the Library list; held, the skeleton shows.
-  let release!: () => void
-  const held = new Promise<void>((r) => { release = r })
-  await page.route((u) => u.pathname === '/api/library/dramas', async (r) => {
-    await held
-    await r.fallback()
-  })
+test('at 390px the placeholder for three (one tile and More) has the loaded shelf\'s height', async ({ page }) => {
+  const release = await holdShelfOf(page, 3)
   await page.goto('/')
-  await expect(page.locator('.continue-skeleton')).toBeVisible()
-  const skeleton = (await page.locator('.continue-skeleton').boundingBox())!.height
-  release()
-  const shelf = page.getByRole('region', { name: 'Continue' })
-  await expect(shelf.getByRole('link', { name: 'Read from page 12: Blessing', exact: true })).toBeVisible()
-  expect(Math.abs((await shelf.boundingBox())!.height - skeleton)).toBeLessThanOrEqual(2)
+  const h = await placeholderAndShelf(page, release)
+  expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(8)
 })

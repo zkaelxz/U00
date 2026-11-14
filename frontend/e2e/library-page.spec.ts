@@ -1,4 +1,8 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+
+import {
+  gate, holdShelfOf, keepBaiheUnreachable, mockShelf, placeholderAndShelf, rememberShelfCount, settle,
+} from './continueShelfMocks'
 
 // Seed data: e2e/serve_seeded_api.py.
 // Creates then deletes its own drama so the seeded three are unchanged afterwards.
@@ -207,67 +211,15 @@ test('a link in the Add box, Only add it, opens New title with it filled in; tit
   expect(style.textOverflow).not.toBe('ellipsis')
 })
 
-// The Continue shelf and the list it reads its counts from, mocked so the tiles stand in known states. Newest first:
-// Blessing read to page 12; Grandmaster with lines left; Signal translated (the check state); Harbor Lights exported;
-// Quiet Stream also in the check state, past the four a computer shows until More.
-const row = (id: number, title_en: string, media_type: string, over: Record<string, unknown>) => ({
-  id, title_en, title_zh: null, author: null, studio: null, director: null, voice_actors: null, status: 'aligned',
-  source_language: 'zh', media_type, content_mode: null, series_id: null, translation_engine: null, custom_tags: [],
-  created_at: null, updated_at: '2026-11-10T12:00:00', ...over,
-})
-const SHELF_ROWS = [
-  row(1, 'Grandmaster of Demonic Cultivation', 'audio_drama', { line_count: 2000, translated_count: 766 }),
-  row(2, "Heaven Official's Blessing", 'novel', { line_count: 90, translated_count: 90 }),
-  row(3, 'Signal', 'video_drama', { line_count: 40, translated_count: 40, status: 'translated' }),
-  row(61, 'Harbor Lights', 'video_drama', { line_count: 12, translated_count: 12, status: 'exported' }),
-  row(62, 'Quiet Stream', 'asmr', { line_count: 8, translated_count: 8, status: 'translated' }),
-]
-
-// `list` holds the Library list's answer until it resolves; `count` holds each count's answer the same way. The list
-// filters by its search like the real one. `answered` lists the counts answered so far, in order.
-async function mockShelf(page: Page, risk: (id: number) => number | null, hold: { list?: Promise<void>; count?: Promise<void> } = {}) {
-  await page.route('**/api/library/continue', (r) => r.fulfill({ json: { items: [{
-    drama_id: 2, title_en: "Heaven Official's Blessing", title_zh: null, percent_complete: 40, last_page: 12,
-    last_accessed_at: '2026-11-10T12:00:09', has_cover_art: false,
-  }] } }))
-  await page.route('**/api/library/recent', (r) => r.fulfill({ json: { items: SHELF_ROWS.filter((d) => d.id !== 2).map((d, n) => ({
-    id: d.id, title_en: d.title_en, title_zh: null, status: d.status, media_type: d.media_type, updated_at: `2026-11-10T12:00:0${8 - n}`,
-  })) } }))
-  await page.route((u) => u.pathname === '/api/library/dramas', async (r) => {
-    if (r.request().method() !== 'GET') return r.fallback()
-    await hold.list
-    const search = (new URL(r.request().url()).searchParams.get('search') ?? '').toLowerCase()
-    const items = SHELF_ROWS.filter((d) => d.title_en.toLowerCase().includes(search))
-    await r.fulfill({ json: { items, count: items.length } })
-  })
-  const asked: number[] = []
-  const answered: number[] = []
-  await page.route('**/api/review/dramas/*/lines?*', async (r) => {
-    const url = new URL(r.request().url())
-    if (url.searchParams.get('only') !== 'risk') return r.fallback()
-    const id = Number(url.pathname.split('/')[4])
-    asked.push(id)
-    await hold.count
-    const n = risk(id)
-    await (n === null
-      ? r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } })
-      : r.fulfill({ json: { items: [], total: n, page: 1, page_size: 1, risk_count: n } }))
-    answered.push(id)
-  })
-  return Object.assign(asked, { answered })
-}
-
-// Lets the page take in an answer the route already sent: two frames, so React has rendered whatever it changed.
-const settle = (page: Page) => page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
-
-function gate() {
-  let open!: () => void
-  const shut = new Promise<void>((r) => { open = r })
-  return { shut, open }
+const statsFailOnce = (page: import('@playwright/test').Page) => {
+  let stats = 0
+  return page.route('**/api/library/stats', (r) => (++stats === 1
+    ? r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } })
+    : r.fallback()))
 }
 
 test('Continue tiles name the next step and open it; only a tile waiting on a check asks for its count', async ({ page }) => {
-  const asked = await mockShelf(page, (id) => (id === 3 ? 3 : 0))
+  const mock = await mockShelf(page, (id) => (id === 3 ? 3 : 0))
   await page.goto('/')
   const shelf = page.getByRole('region', { name: 'Continue' })
   await expect(shelf.getByRole('listitem')).toHaveCount(4)
@@ -284,29 +236,29 @@ test('Continue tiles name the next step and open it; only a tile waiting on a ch
   }
   // The badge and the reading line stay as they were.
   await expect(shelf).toContainText('Reading · page 12 · 40%')
-  expect([...asked]).toEqual([3])
+  expect(mock.asked).toEqual([3])
 
   // Quiet Stream comes on screen with More: asked then, and nothing needs a look, so it says Export.
   await shelf.getByRole('button', { name: 'More (1)' }).click()
   await expect(shelf.getByRole('link', { name: 'Export: Quiet Stream', exact: true })).toHaveAttribute('href', '#/drama/62/export')
-  expect([...asked]).toEqual([3, 62])
+  expect(mock.asked).toEqual([3, 62])
   await shelf.getByRole('button', { name: 'Less' }).click()
   await shelf.getByRole('button', { name: 'More (1)' }).click()
   await expect(shelf.getByRole('link', { name: 'Export: Quiet Stream', exact: true })).toBeVisible()
-  expect([...asked]).toEqual([3, 62])
+  expect(mock.asked).toEqual([3, 62])
 
   await shelf.getByRole('link', { name: 'Check the 3 lines: Signal' }).click()
   await expect(page).toHaveURL(/#\/drama\/3\/review$/)
 })
 
 test('a failed count request leaves Check the lines, with no error on the page', async ({ page }) => {
-  const asked = await mockShelf(page, () => null)
+  const mock = await mockShelf(page, () => null)
   // "Check the lines" is also the label while the count loads: only what the page shows once the 500 is in counts.
   const failed = page.waitForEvent('requestfinished', (r) => r.url().includes('only=risk'))
   await page.goto('/')
   await failed
   await settle(page)
-  expect(asked.answered).toEqual([3])
+  expect(mock.answered).toEqual([3])
   const shelf = page.getByRole('region', { name: 'Continue' })
   const check = shelf.getByRole('link', { name: 'Check the lines: Signal', exact: true })
   await expect(check).toHaveAttribute('href', '#/drama/3/review')
@@ -316,11 +268,10 @@ test('a failed count request leaves Check the lines, with no error on the page',
 test('a count that failed is asked again when the page reloads its data (Retry)', async ({ page }) => {
   let counts = 0
   await mockShelf(page, () => (++counts === 1 ? null : 3))
-  // The stats line fails once, so the page offers Retry, which reloads every panel.
-  let stats = 0
-  await page.route('**/api/library/stats', (r) => (++stats === 1
-    ? r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } })
-    : r.fallback()))
+  // The stats line fails once, so the page offers Retry, which reloads every panel; with Baihe "unreachable" the
+  // page does not reload by itself first.
+  await statsFailOnce(page)
+  await keepBaiheUnreachable(page)
   const failed = page.waitForEvent('requestfinished', (r) => r.url().includes('only=risk'))
   await page.goto('/')
   await failed
@@ -330,22 +281,80 @@ test('a count that failed is asked again when the page reloads its data (Retry)'
   await expect(shelf.getByRole('link', { name: 'Check the 3 lines: Signal', exact: true })).toBeVisible()
 })
 
-test('the shelf waits for the Library list instead of showing Open, and a search does not turn a tile back into Open', async ({ page }) => {
-  // A viewer who had something to continue last time: the shelf holds its place with the skeleton meanwhile.
-  await page.addInitScript(() => localStorage.setItem('baihe.pref.library.continue.hadItems', 'true'))
-  const list = gate()
-  const recent = page.waitForResponse('**/api/library/recent')
-  await mockShelf(page, () => 0, { list: list.shut })
+test('a reload keeps each count and its link until the new answer replaces it', async ({ page }) => {
+  // Two tiles waiting on a check: Signal with 3 lines to look at, Harbor Lights with none (so Export).
+  const mock = await mockShelf(page, (id) => (id === 3 ? 3 : 0))
+  mock.rows = mock.rows.map((d) => (d.id === 61 ? { ...d, status: 'translated' } : d))
+  await statsFailOnce(page)
+  await keepBaiheUnreachable(page)
   await page.goto('/')
+  const shelf = page.getByRole('region', { name: 'Continue' })
+  const signal = shelf.getByRole('link', { name: 'Check the 3 lines: Signal', exact: true })
+  const harbor = shelf.getByRole('link', { name: 'Export: Harbor Lights', exact: true })
+  await expect(signal).toHaveAttribute('href', '#/drama/3/review')
+  await expect(harbor).toHaveAttribute('href', '#/drama/61/export')
+  expect(mock.answered.sort()).toEqual([3, 61])
+
+  const held = gate()
+  mock.holdCount = held.shut
+  mock.risk = (id) => (id === 3 ? 5 : 2)
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect.poll(() => mock.asked.length).toBe(4)
+  await settle(page)
+  await expect(signal).toHaveAttribute('href', '#/drama/3/review')
+  await expect(harbor).toHaveAttribute('href', '#/drama/61/export')
+  held.open()
+  await expect(shelf.getByRole('link', { name: 'Check the 5 lines: Signal', exact: true })).toHaveAttribute('href', '#/drama/3/review')
+  await expect(shelf.getByRole('link', { name: 'Check the 2 lines: Harbor Lights', exact: true })).toHaveAttribute('href', '#/drama/61/review')
+})
+
+test('after a reload a title the filter hides says Open, with no count asked, until the filter is cleared', async ({ page }) => {
+  const mock = await mockShelf(page, (id) => (id === 3 ? 3 : 0))
+  await statsFailOnce(page)
+  await keepBaiheUnreachable(page)
+  await page.goto('/')
+  const shelf = page.getByRole('region', { name: 'Continue' })
+  await expect(shelf.getByRole('link', { name: 'Check the 3 lines: Signal', exact: true })).toBeVisible()
+  await page.getByLabel('Status', { exact: true }).selectOption('translated')
+  const titles = page.getByRole('region', { name: 'Titles' })
+  await expect(titles.getByRole('link', { name: 'Grandmaster of Demonic Cultivation', exact: true })).toHaveCount(0)
+  await expect(titles.getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
+
+  // Signal is exported elsewhere; the reload's filtered list no longer has it.
+  mock.rows = mock.rows.map((d) => (d.id === 3 ? { ...d, status: 'exported' } : d))
+  const before = mock.asked.length
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(titles.getByRole('link', { name: 'Signal', exact: true })).toHaveCount(0)
+  const open = shelf.getByRole('link', { name: 'Open: Signal', exact: true })
+  await expect(open).toHaveAttribute('href', '#/drama/3')
+  await expect(shelf.getByRole('listitem').filter({ hasText: 'Signal' })).toContainText('Exported')
+  await settle(page)
+  expect(mock.asked.slice(before)).not.toContain(3)
+
+  await page.getByLabel('Status', { exact: true }).selectOption('')
+  await expect(shelf.getByRole('link', { name: 'Watch: Signal', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
+})
+
+test('the shelf waits for the Library list instead of showing Open, and a search does not turn a tile back into Open', async ({ page }) => {
+  // A viewer who had four things to continue last time: the placeholder holds the shelf's place meanwhile.
+  await rememberShelfCount(page, 4)
+  const mock = await mockShelf(page, () => 0)
+  const list = gate()
+  mock.holdList = list.shut
+  const continued = page.waitForResponse('**/api/library/continue')
+  const recent = page.waitForResponse('**/api/library/recent')
+  await page.goto('/')
+  await continued
   await recent
   await settle(page)
   const shelf = page.getByRole('region', { name: 'Continue' })
-  await expect(page.locator('.continue-skeleton')).toBeVisible()
+  await expect(page.locator('.continue-placeholder')).toBeVisible()
   await expect(shelf).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Open: Grandmaster of Demonic Cultivation' })).toHaveCount(0)
   list.open()
   const grandmaster = shelf.getByRole('link', { name: 'Translate 1,234 lines: Grandmaster of Demonic Cultivation', exact: true })
   await expect(grandmaster).toHaveAttribute('href', '#/drama/1/translate')
+  await expect(page.locator('.continue-placeholder')).toHaveCount(0)
 
   await page.getByLabel('Search title or summary').fill('Signal')
   const titles = page.getByRole('region', { name: 'Titles' })
@@ -354,21 +363,50 @@ test('the shelf waits for the Library list instead of showing Open, and a search
   await expect(grandmaster).toBeVisible()
 })
 
+test('a list that fails still shows the shelf: work tiles say Open, reading tiles their page, one error banner', async ({ page }) => {
+  await rememberShelfCount(page, 4)
+  const mock = await mockShelf(page, () => 0)
+  mock.failList = true
+  await keepBaiheUnreachable(page)
+  await page.goto('/')
+  const shelf = page.getByRole('region', { name: 'Continue' })
+  await expect(shelf.getByRole('link', { name: 'Open: Grandmaster of Demonic Cultivation', exact: true })).toHaveAttribute('href', '#/drama/1')
+  await expect(shelf.getByRole('link', { name: "Read from page 12: Heaven Official's Blessing", exact: true })).toHaveAttribute('href', '#/read/2')
+  await expect(page.locator('.continue-placeholder')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveCount(1)
+  await expect(page.getByRole('alert')).toContainText('Retry')
+})
+
+test('a first-time visitor sees no placeholder while the shelf loads', async ({ page }) => {
+  const mock = await mockShelf(page, () => 0)
+  const list = gate()
+  mock.holdList = list.shut
+  const recent = page.waitForResponse('**/api/library/recent')
+  await page.goto('/')
+  await recent
+  await settle(page)
+  await expect(page.locator('.continue-placeholder')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Continue' })).toHaveCount(0)
+  list.open()
+  await expect(page.getByRole('region', { name: 'Continue' }).getByRole('listitem')).toHaveCount(4)
+})
+
 test('More, Less and More again before a count answers asks for it once', async ({ page }) => {
+  const mock = await mockShelf(page, (id) => (id === 3 ? 3 : 0))
   const count = gate()
-  const asked = await mockShelf(page, (id) => (id === 3 ? 3 : 0), { count: count.shut })
+  mock.holdCount = count.shut
   await page.goto('/')
   const shelf = page.getByRole('region', { name: 'Continue' })
   await expect(shelf.getByRole('listitem')).toHaveCount(4)
   await shelf.getByRole('button', { name: 'More (1)' }).click()
-  await expect.poll(() => [...asked]).toEqual([3, 62])
+  await expect.poll(() => mock.asked).toEqual([3, 62])
   await shelf.getByRole('button', { name: 'Less' }).click()
   count.open()
-  await expect.poll(() => [...asked.answered].sort()).toEqual([3, 62])
+  await expect.poll(() => [...mock.answered].sort()).toEqual([3, 62])
   await settle(page)
   await shelf.getByRole('button', { name: 'More (1)' }).click()
   await expect(shelf.getByRole('link', { name: 'Export: Quiet Stream', exact: true })).toBeVisible()
-  expect([...asked]).toEqual([3, 62])
+  expect(mock.asked).toEqual([3, 62])
 })
 
 test('cards say Watch for video and Listen for audio, opening the Reader with the player; Read stays for the rest', async ({ page }) => {
@@ -389,30 +427,15 @@ test('cards say Watch for video and Listen for audio, opening the Reader with th
   await expect(page.getByRole('dialog', { name: 'Signal' }).getByRole('link', { name: 'Watch', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
 })
 
-// One title to continue, and the Library list held so the shelf's skeleton shows first.
-async function holdOneRowShelf(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('baihe.pref.library.continue.hadItems', 'true'))
-  await page.route('**/api/library/continue', (r) => r.fulfill({ json: { items: [{
-    drama_id: 2, title_en: 'Blessing', title_zh: null, percent_complete: 40, last_page: 12,
-    last_accessed_at: '2026-11-10T12:00:09', has_cover_art: false,
-  }] } }))
-  await page.route('**/api/library/recent', (r) => r.fulfill({ json: { items: [] } }))
-  const list = gate()
-  await page.route((u) => u.pathname === '/api/library/dramas', async (r) => {
-    await list.shut
-    await r.fallback()
+// The placeholder is the shelf's own markup: its height follows the shelf's, rows, More and spacing included.
+for (const [width, count, compact] of [[1280, 5, false], [1440, 1, false], [1280, 5, true]] as const) {
+  test(`at ${width}px${compact ? ', compact spacing,' : ''} the placeholder for ${count} has the loaded shelf's height`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    if (compact) await page.addInitScript(() => localStorage.setItem('baihe.density', 'compact'))
+    const release = await holdShelfOf(page, count)
+    await page.goto('/')
+    if (compact) await expect(page.locator('html')).toHaveAttribute('data-density', 'compact')
+    const h = await placeholderAndShelf(page, release)
+    expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(8)
   })
-  return list.open
 }
-
-test('at 1280px the Continue skeleton has the height of a one-row shelf', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
-  const release = await holdOneRowShelf(page)
-  await page.goto('/')
-  await expect(page.locator('.continue-skeleton')).toBeVisible()
-  const skeleton = (await page.locator('.continue-skeleton').boundingBox())!.height
-  release()
-  const shelf = page.getByRole('region', { name: 'Continue' })
-  await expect(shelf.getByRole('link', { name: 'Read from page 12: Blessing', exact: true })).toBeVisible()
-  expect(Math.abs((await shelf.boundingBox())!.height - skeleton)).toBeLessThanOrEqual(2)
-})

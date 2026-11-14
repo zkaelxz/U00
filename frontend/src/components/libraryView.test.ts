@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  cardProgress, continueAction, continueItems, countDramas, hideLibraryBar, needsCheckCount, parseTime, readAction, readHref, readVerb,
+  cardProgress, continueAction, continueItems, countDramas, hideLibraryBar, listDelay, needsCheckCount, parseTime, readAction, readHref, readVerb,
   shownTags, tileText, workspaceHref, type ContinueItem, type ShelfRow,
 } from './libraryView'
 
@@ -172,5 +172,13 @@ describe('continueAction', () => {
     expect(needsCheckCount(work(), undefined)).toBe(false)
     expect(needsCheckCount(work('manga'), done({ media_type: 'manga' }))).toBe(false)
     expect(needsCheckCount(reading(2), done({ id: 2 }))).toBe(false)
+  })
+})
+
+describe('listDelay', () => {
+  it('asks at once the first time and after a reload, and waits 200 ms after a search or filter change', () => {
+    expect(listDelay(null, 0)).toBe(0)
+    expect(listDelay(0, 1)).toBe(0)
+    expect(listDelay(1, 1)).toBe(200)
   })
 })

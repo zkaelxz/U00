@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
@@ -24,7 +24,7 @@ import {
   NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
   type MoreFilters,
 } from './libraryFilters'
-import { countDramas, dramaName, hideLibraryBar, readAction, workspaceHref } from './libraryView'
+import { countDramas, dramaName, hideLibraryBar, listDelay, readAction, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { buttonClass } from './uiClasses'
@@ -128,10 +128,12 @@ export function LibraryList({
   // Hidden, not unmounted: the saved search, sort and view still apply once the first title exists.
   const emptyLibrary = scope === 'titles' && hideLibraryBar(items?.length ?? null, filtered)
 
+  // The reload the last request went out under; null before the first.
+  const lastReload = useRef<number | null>(null)
   useEffect(() => {
     let cancelled = false
-    // Debounced so typing in the search box doesn't send a request per key.
     const timer = setTimeout(() => {
+      lastReload.current = reloadKey
       api
         .listDramas(listQuery(titleSearch, status, quickFilter, more))
         .then((resp) => {
@@ -147,7 +149,7 @@ export function LibraryList({
           setError(e)
           onLoadErrorRef.current(e)
         })
-    }, 200)
+    }, listDelay(lastReload.current, reloadKey))
     return () => {
       cancelled = true
       clearTimeout(timer)
