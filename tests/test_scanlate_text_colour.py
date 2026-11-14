@@ -128,6 +128,20 @@ def test_a_thin_coloured_outline_is_not_read_as_a_fade():
     assert scanlate_render.sampled_ink_fade(page, {"x": 10, "y": 5, "w": 140, "h": 140}) is None
 
 
+def test_a_thick_balloon_outline_round_the_box_is_not_read_as_a_fade():
+    page = np.full((160, 160, 3), 255, np.uint8)
+    page[20:30, 20:140] = (60, 90, 180)
+    page[130:140, 20:140] = (90, 170, 220)
+    page[20:140, 20:30] = (75, 130, 200)
+    page[20:140, 130:140] = (75, 130, 200)
+    assert scanlate_render.sampled_ink_fade(page, {"x": 10, "y": 10, "w": 140, "h": 140}) is None
+
+
+def test_a_dark_dull_end_still_counts_when_the_other_end_is_a_real_colour():
+    fade = scanlate_render.sampled_ink_fade(_faded_page((90, 70, 50), (190, 100, 190)), BOX)
+    assert fade is not None
+
+
 def test_the_fade_recolours_the_drawn_lettering_from_top_to_bottom():
     from PIL import ImageDraw
     before = Image.new("RGB", (120, 60), "white")

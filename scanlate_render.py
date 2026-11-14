@@ -602,6 +602,8 @@ def sampled_ink_color(page_bgr, box: dict):
 # A fade needs the lettering's top and bottom halves to differ clearly and both to be a real colour.
 _FADE_MIN_DISTANCE = 55
 _FADE_MAX_OFF_LINE = 50
+_RING_MIN_SPAN = 0.85
+_FADE_MIN_END_CHROMA = 30
 
 
 def sampled_ink_fade(page_bgr, box: dict):
@@ -642,7 +644,10 @@ def sampled_ink_fade(page_bgr, box: dict):
     top, middle, bottom = colours
     if top is None or bottom is None:
         return None
-    if min(max(c) - min(c) for c in (top, bottom)) < _INK_MIN_CHROMA:
+    chromas = [max(c) - min(c) for c in (top, bottom)]
+    # A dark end of a real fade is duller than the light end (dark purple to lavender), but a
+    # grey end is plain black or white lettering.
+    if max(chromas) < _INK_MIN_CHROMA or min(chromas) < _FADE_MIN_END_CHROMA:
         return None
     span = np.array(bottom, float) - np.array(top, float)
     if np.abs(span).max() < _FADE_MIN_DISTANCE:
@@ -664,6 +669,13 @@ def _without_border_components(ink):
     _, labels = cv2.connectedComponents(ink.astype(np.uint8), connectivity=8)
     edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
     inside = ink & ~np.isin(labels, edge[edge > 0])
+    # A balloon outline is one component reaching nearly all the way round the box; lettering
+    # is many small ones, so such a ring is not lettering however far it sits from the edge.
+    for label in np.unique(labels[inside]):
+        ys, xs = np.where(labels == label)
+        if (ys.max() - ys.min() + 1) >= _RING_MIN_SPAN * ink.shape[0] and \
+                (xs.max() - xs.min() + 1) >= _RING_MIN_SPAN * ink.shape[1]:
+            inside &= labels != label
     sizes = np.bincount(labels[inside])
     if sizes.size > 1:
         sizes[0] = 0
