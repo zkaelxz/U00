@@ -121,6 +121,14 @@ test('Full screen asks the wrapper (picture, subtitles and controls) and follows
   await expect(button).toHaveAttribute('aria-pressed', 'false')
 })
 
+test('full screen fills the screen when the video is pinned beside the lines', async ({ page }) => {
+  // From 1400px wide the side video caps its stage height; full screen must override that.
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.getByRole('button', { name: 'Full screen' }).click()
+  await expect(page.getByRole('button', { name: 'Exit full screen' })).toBeVisible()
+  await expect.poll(async () => (await box(page.locator('.review-stage'))).height).toBeGreaterThan(900 * 0.9)
+})
+
 test('F and a double-click on the picture toggle full screen', async ({ page }) => {
   await frame(page).focus()
   await page.keyboard.press('f')
