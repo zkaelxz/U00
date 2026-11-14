@@ -263,3 +263,15 @@ def test_centring_is_refused_when_it_puts_text_over_dark_pixels():
     dark = np.zeros(mask.shape, bool)
     dark[:, 150:] = True  # art where the centred lines would reach
     assert all(c < 140 for c in centres(dark))
+
+
+def test_centring_falls_back_to_the_symmetric_core_when_the_full_mirror_reaches_art():
+    from PIL import Image, ImageDraw, ImageFont
+    text = "I understand. It's hard to believe."
+    mask = _round_balloon(False)
+    mask[:, :50] = False  # outline close on the left: mirroring would add 50 px that are not balloon
+    draw = ImageDraw.Draw(Image.new("RGB", mask.shape[::-1]))
+    laid = scanlate_render._layout_balloon_text(
+        draw, text, mask, 28, lambda sz: ImageFont.load_default(sz), False, dark=~mask)
+    assert all(abs((left + right) / 2 - 155) < 4 for _, left, right, _ in laid[1])
+    assert all(mask[:, int(left):int(right)].any() for _, left, right, _ in laid[1])

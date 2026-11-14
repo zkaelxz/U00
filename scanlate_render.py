@@ -262,6 +262,14 @@ def _symmetrised(mask):
     return joined if joined.sum() <= (1 + _MAX_MIRROR_GROWTH) * mask.sum() else None
 
 
+def _inner_symmetric(mask):
+    """`mask` where its mirror image about the box's centre column is inside it too: a centred
+    layout that never leaves the balloon, because both sides are real, for when the joined mask
+    reaches over an outline that the balloon's lopsided shape put nearer on one side."""
+    inner = mask & mask[:, ::-1]
+    return inner if inner.any() else None
+
+
 def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLAIN):
     """Shape-aware counterpart to render_text_in_box()'s rectangle layout
     tries the largest font first, and for each size the
@@ -464,14 +472,17 @@ def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_
         return laid_out or _layout_in_mask(draw, text, m, font_size, load_font, style)
 
     free = lay_out(mask)
-    symmetric = _symmetrised(mask)
-    centred = lay_out(symmetric) if symmetric is not None else None
-    # Centring narrows each line, so it must not cost the balloon a smaller size.
-    if centred is None or (free is not None and (
-            centred[0].size < free[0].size or len(centred[1]) != len(free[1])
-            or _recentred_too_far(free, centred, mask.shape[1]))):
-        return free
-    return centred if not _on_dark_ink(draw, centred, mask, dark) else free
+    joined = _symmetrised(mask)
+    for symmetric in ((joined, _inner_symmetric(mask)) if joined is not None else ()):
+        centred = lay_out(symmetric) if symmetric is not None else None
+        # Centring narrows each line, so it must not cost the balloon a smaller size or a
+        # different number of lines.
+        if centred is not None and (free is None or (
+                centred[0].size >= free[0].size and len(centred[1]) == len(free[1])
+                and not _recentred_too_far(free, centred, mask.shape[1]))) \
+                and not _on_dark_ink(draw, centred, mask, dark):
+            return centred
+    return free
 
 
 # Light hatching is mostly paper, so a sliver of dark pixels is what it takes to tell it from
