@@ -93,8 +93,9 @@ function useCheckCounts(ids: number[], reloadKey: number): ReadonlyMap<number, C
   return counts
 }
 
-// The shelf's own markup with nothing in it, as many tiles as it last showed, so it takes the loaded shelf's height
-// under every width, density and text size, and the list below does not move when the shelf arrives.
+// The shelf's card as Card draws it (Card cannot be hidden from a screen reader, so its markup is repeated here), with
+// nothing in it and as many tiles as it last showed: it takes the loaded shelf's height under every width, density
+// and text size, and the list below does not move when the shelf arrives.
 function ShelfPlaceholder({ count, limit, phone }: { count: number; limit: number; phone: boolean }) {
   return (
     <section className="card continue-card continue-placeholder" aria-hidden="true">
@@ -103,21 +104,23 @@ function ShelfPlaceholder({ count, limit, phone }: { count: number; limit: numbe
           <div className="card-heading"><h2 className="card-title">Continue</h2></div>
         </header>
       )}
-      <ul className="continue-list">
-        {Array.from({ length: Math.min(count, limit) }, (_, i) => (
-          <li key={i} className="continue-item">
-            <div className="continue-row">
-              <span className="continue-tile skeleton-block" />
-              <div className="continue-text">
-                <span className="continue-title skeleton-text">{'\u00a0'}</span>
-                <span className="continue-meta skeleton-text short">{'\u00a0'}</span>
+      <div className="card-body">
+        <ul className="continue-list">
+          {Array.from({ length: Math.min(count, limit) }, (_, i) => (
+            <li key={i} className="continue-item">
+              <div className="continue-row">
+                <span className="continue-tile skeleton-block" />
+                <div className="continue-text">
+                  <span className="continue-title skeleton-text">{'\u00a0'}</span>
+                  <span className="continue-meta skeleton-text short">{'\u00a0'}</span>
+                </div>
+                <span className={buttonClass('secondary', 'sm', 'continue-next skeleton-block')}>{'\u00a0'}</span>
               </div>
-              <span className={buttonClass('secondary', 'sm', 'continue-next skeleton-block')}>{'\u00a0'}</span>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {count > limit && <div className="actions"><span className={buttonClass('ghost', 'sm')}>{'\u00a0'}</span></div>}
+            </li>
+          ))}
+        </ul>
+        {count > limit && <div className="actions"><span className={buttonClass('ghost', 'sm')}>{'\u00a0'}</span></div>}
+      </div>
     </section>
   )
 }
