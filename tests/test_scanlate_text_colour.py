@@ -91,11 +91,11 @@ def test_the_notch_between_two_lobes_is_kept():
     assert scanlate_render._without_small_dents(None) is None
 
 
-def _round_balloon(hatched_corner):
+def _round_balloon(hatched_corner, cut=120):
     yy, xx = np.mgrid[:325, :311]
     mask = ((xx - 155) / 150.0) ** 2 + ((yy - 162) / 158.0) ** 2 <= 1
     if hatched_corner:
-        mask &= (xx - 155) + (155 - yy) < 40  # hatching cut off the upper right on a diagonal
+        mask &= (xx - 155) + (155 - yy) < cut  # hatching cut off the upper right on a diagonal
     return mask
 
 
@@ -109,7 +109,7 @@ def _line_centres(mask, rect_layout):
 
 def test_hatching_cut_off_one_side_does_not_pull_the_text_off_the_balloon_centre():
     for rect_layout in (False, True):
-        centres = _line_centres(_round_balloon(True), rect_layout)
+        centres = _line_centres(_round_balloon(True, 100), rect_layout)
         assert all(abs(c - 155) < 4 for c in centres), (rect_layout, centres)
 
 
@@ -131,3 +131,10 @@ def test_a_narrow_balloon_a_pixel_or_two_off_centre_is_left_alone():
     mask = np.zeros((124, 66), bool)
     mask[5:119, 4:60] = True  # centre of mass 2 px off the box centre: 3% of 66 is 2 px
     assert scanlate_render._symmetrised(mask) is None
+
+
+def test_a_cut_that_would_move_the_text_across_the_balloon_is_left_as_it_is():
+    mask = _round_balloon(True, 40)  # deep cut: centring would move the line 60 px of 311
+    for rect_layout in (False, True):
+        centres = _line_centres(mask, rect_layout)
+        assert all(c < 140 for c in centres), (rect_layout, centres)

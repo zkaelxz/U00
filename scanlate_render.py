@@ -236,6 +236,10 @@ _MIN_OFF_CENTRE_PX = 8
 # with a bite out of it (a tail, a box wider than the balloon).
 _MIN_BALLOON_SHARE_OF_BOX = 0.75
 _MAX_MIRROR_GROWTH = 0.5
+# Moving a line further than this share of the box width is a different balloon shape (a glow or
+# a neighbouring balloon cut the mask), not a hatched corner, and carries the text out of the
+# outline where the balloon narrows.
+_MAX_RECENTRE_SHIFT = 0.12
 
 
 def _symmetrised(mask):
@@ -460,7 +464,20 @@ def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_
     symmetric = _symmetrised(mask)
     centred = lay_out(symmetric) if symmetric is not None else None
     # Centring narrows each line, so it must not cost the balloon a smaller size.
-    return centred if centred is not None and (free is None or centred[0].size >= free[0].size) else free
+    if centred is None or (free is not None and (
+            centred[0].size < free[0].size or _recentred_too_far(free, centred, mask.shape[1]))):
+        return free
+    return centred
+
+
+def _recentred_too_far(free, centred, width: int) -> bool:
+    """True when the text of `centred` sits further than _MAX_RECENTRE_SHIFT of `width` sideways
+    from where `free` put it (compared by the mean centre of their lines, which may differ in
+    number and height)."""
+    def mean_centre(laid_out):
+        return sum((left + right) / 2 for _, left, right, _ in laid_out[1]) / len(laid_out[1])
+
+    return abs(mean_centre(centred) - mean_centre(free)) > _MAX_RECENTRE_SHIFT * width
 
 
 def _draw_laid_out(draw, box: dict, laid_out, align: str, fill, style=_PLAIN) -> None:
