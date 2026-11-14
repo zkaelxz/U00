@@ -99,8 +99,23 @@ test('create (Enter submits) then delete with typed confirmation', async ({ page
     const confirm = detail.getByRole('button', { name: 'Delete permanently' })
     await expect(confirm).toBeDisabled()
     await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
+    // Held so a second click lands while the first delete is in flight: it must not send another.
+    let deletes = 0
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    await page.route(/\/api\/dramas\/\d+\?confirm=true/, async (route) => {
+      if (route.request().method() !== 'DELETE') return route.fallback()
+      deletes += 1
+      await gate
+      await route.continue()
+    })
     await confirm.click()
+    const busy = detail.getByRole('button', { name: 'Deleting…' })
+    await expect(busy).toBeDisabled()
+    await busy.click({ force: true })
+    release()
     await expect(page.getByRole('dialog', { name: 'E2E Temp Title' })).toHaveCount(0)
+    expect(deletes).toBe(1)
     await expect(page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'E2E Temp Title' })).toHaveCount(0)
   } finally {
     // A failure before the typed delete would leave the title behind and break the "3 titles" count in every later spec.

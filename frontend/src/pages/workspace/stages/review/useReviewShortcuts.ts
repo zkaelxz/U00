@@ -32,13 +32,15 @@ interface ReviewShortcutsDeps {
   setAi: Dispatch<SetStateAction<{ lineId: number; mode: PanelMode } | null>>
   setKeysOpen: Dispatch<SetStateAction<boolean>>
   setStatus: Dispatch<SetStateAction<string | null>>
+  // Simple's check queue: R on an unchecked card moves on to the next one, like its "Looks right, next".
+  queue?: boolean
 }
 
 // The Review editor's keyboard map (J/K, arrows, E, M, A, timing nudges, ...).
 export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
   const {
     ctl, actions, selection, player, listRef, searchRef, mediaKind, isPhone, sheetOpen, keysOpen,
-    page, pages, searching, limited, active, edit, ai, setAi, setKeysOpen, setStatus,
+    page, pages, searching, limited, active, edit, ai, setAi, setKeysOpen, setStatus, queue = false,
   } = deps
   const toggleFocusedRow = (target: HTMLElement) => {
     const id = target.matches?.('.review-line') ? Number(target.getAttribute('data-line-id')) : NaN
@@ -149,7 +151,9 @@ export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
         return true
       case 'r':
         if (!active.en) return false
-        actions.setReviewed(active.id, !active.reviewed)
+        // A card just checked stays listed until the queue reloads: a second R must not uncheck it (Undo does that).
+        if (!queue) actions.setReviewed(active.id, !active.reviewed)
+        else if (!active.reviewed) actions.reviewAndNext(active.id)
         return true
       case 'i':
         if (!active.en) return false

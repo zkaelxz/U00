@@ -4,7 +4,7 @@ import { markEpisodeReviewed } from '../../../../api/review'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
-import { markEpisodeReviewedText } from './markEpisodeReviewedText'
+import { MARK_REVIEWED_HELP, markEpisodeReviewedText } from './markEpisodeReviewedText'
 
 // One explicit action per episode: bulk approval of lines nobody opened teaches
 // translation memory and the "approved examples" Translate option, so it is never automatic.
@@ -33,11 +33,7 @@ export function MarkEpisodeReviewed({ dramaId, jobRunning, onChanged }: {
     <Section storageKey="review.markReviewed" title="Mark episode reviewed" summary="Record the lines you left untouched as approved">
       <div data-testid="mark-reviewed">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
-        <p className="muted">
-          Use this once you have read the whole episode. Every translated line that is not flagged or already checked is marked
-          checked, and the lines you did not edit are recorded as approved translations in the series' translation memory,
-          so they can be offered as Accept suggestions and as examples on later Translate runs. Lines you never read would teach their mistakes too.
-        </p>
+        <p className="muted">{MARK_REVIEWED_HELP}</p>
         <ConfirmButton
           name="this episode"
           label="Mark episode reviewed…"

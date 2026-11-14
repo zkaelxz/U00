@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type
 
 import { listLines, searchLines } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
+import { QUEUE_FILTER } from './checkQueueModel'
 import type { EditState } from './LineRow'
 import { linesLoaded, type Pending, type Target } from './linesController'
 import { draftFromLine } from './reviewDraft'
@@ -38,6 +39,9 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
   const [data, setData] = useState<ReviewLinesPage | null>(null)
   const [found, setFound] = useState<ReviewLine[] | null>(null)
   const [allTotal, setAllTotal] = useState<number | null>(null)
+  // What `data` was loaded for. A view or a reload asked for since then has not arrived, and until it does the
+  // page on screen is the earlier one's: the check queue must not judge "Mark the rest" from it.
+  const [loadedFor, setLoadedFor] = useState<{ filter: LineFilter; reloads: number } | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [retries, setRetries] = useState(0)
   const loadedOnce = useRef(false)
@@ -61,7 +65,8 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
           cur !== null && lines.some((l) => l.id === cur)
             ? cur
             : first
-              ? initialActiveId(lines)
+              // The check queue lists the riskiest line first, flagged or not, so it opens on its first card.
+              ? (!term && filter === QUEUE_FILTER ? (lines[0]?.id ?? null) : initialActiveId(lines))
               : (lines[0]?.id ?? null),
         )
       }
@@ -79,6 +84,7 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
           if (r.lines.length === 0 && r.total > 0 && page > pageCount(r.total)) return setPage(pageCount(r.total))
           setFound(null)
           setData(r)
+          setLoadedFor({ filter, reloads })
           if (filter === 'all') setAllTotal(r.total)
           settle(r.lines)
         })
@@ -93,9 +99,24 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dramaId, page, filter, term, reloads, retries])
 
+  // A filtered view's answer counts only its own lines, so the whole title's count is read beside it: the All
+  // switch, "N of M look fine" and the stage's has-lines check need it even when Review opens on a filter.
+  useEffect(() => {
+    if (filter === 'all') return
+    let cancelled = false
+    listLines(dramaId, 1, 1, 'all').then((r) => !cancelled && setAllTotal(r.total), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, filter, reloads])
+
   const retry = () => {
     setError(null)
     setRetries((n) => n + 1)
   }
-  return { data, setData, found, setFound, allTotal, error, setError, retry }
+  return {
+    data, setData, found, setFound, allTotal, error, setError, retry,
+    dataFilter: loadedFor?.filter ?? null,
+    settled: loadedFor?.filter === filter && loadedFor.reloads === reloads,
+  }
 }

@@ -48,6 +48,10 @@ interface Props {
   compact: boolean
   onCompact: (v: boolean) => void
   player: ReactNode
+  // Simple's switch between the check queue and every line, on a row of its own above the chips.
+  lead?: ReactNode
+  // The check queue: only that switch and the player; the chips, search and extras are under All.
+  bare?: boolean
 }
 
 // The shaky and risk chips only appear for a title that has lines they would list, so other titles keep the four chips a phone's row fits.
@@ -226,7 +230,8 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   // row inside the toolbar box.
   return (
     <div className={p.collapsed ? 'review-toolbar is-collapsed' : 'review-toolbar'}>
-      <div className="review-toolbar-row">
+      {p.lead && <div className="review-toolbar-row review-queue-row">{p.lead}</div>}
+      {!p.bare && <div className="review-toolbar-row">
         {chips}
         {p.gapCount > 0 && (
           <span className="review-gap-step" role="group" aria-label="Gaps: stretches with no line">
@@ -267,14 +272,14 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
         {!p.isPhone && searchBox}
         {!p.isPhone && count}
         {p.showPager && <Pager page={p.page} pages={p.pages} onPage={p.onPage} labelled />}
-      </div>
-      {p.isPhone && showSearch && (
+      </div>}
+      {!p.bare && p.isPhone && showSearch && (
         <div className="review-toolbar-row">
           {searchBox}
           {count}
         </div>
       )}
-      {(!p.isPhone || moreOpen) && extras}
+      {!p.bare && (!p.isPhone || moreOpen) && extras}
       {p.player}
     </div>
   )
