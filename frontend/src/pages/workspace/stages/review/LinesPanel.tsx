@@ -8,7 +8,7 @@ import { readSectionOpen, writeSectionOpen } from '../../../../components/sectio
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
-import type { LineFilter, ReviewLine } from '../../../../types/review'
+import type { ReviewLine } from '../../../../types/review'
 import { FindReplacePanel } from './FindReplacePanel'
 import { HiddenEditBanner } from './HiddenEditBanner'
 import { LineActionsSheet, type SheetState } from './LineActionsSheet'
@@ -16,7 +16,7 @@ import { useLineSelectionContext } from './LineSelectionContext'
 import { SelectionBar } from './SelectionBar'
 import { selectionContext } from './selectionActions'
 import { useSimple } from '../../StageContext'
-import { useCheckQueue, useInitialLinesFilter, useLineTab, useQueueMedia } from './useCheckQueue'
+import { useCheckQueue, useLineTab, useQueueMedia } from './useCheckQueue'
 import { ThisLineDock } from './ThisLinePanel'
 import { LineRow, type EditState, type RowIssue } from './LineRow'
 import { LinesEmpty } from './LinesEmpty'
@@ -30,6 +30,7 @@ import { nextGap, prevGap } from './gapModel'
 import { useGapFocus } from './useGapFocus'
 import { buildSheetActions } from './lineSheetActions'
 import { useLinesLoad } from './useLinesLoad'
+import { useKeepPlace, useReviewPlace } from './useReviewPlace'
 import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
@@ -108,8 +109,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const suspects = useSourceSuspects(dramaId, reloads)
   const [suspectOpen, setSuspectOpen] = useState(false)
   const selection = useLineSelectionContext()
-  const [filter, setFilter] = useState<LineFilter>(useInitialLinesFilter(simple))
-  const [page, setPage] = useState(1)
+  const pending = useRef<Pending | null>(null)
+  const { filter, setFilter, page, setPage, place } = useReviewPlace(dramaId, simple, !!goTo, pending)
   const { input, setInput, term, setTerm } = useLinkedFind(dramaId)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -142,7 +143,6 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [sideDock, setSideDock] = useState<HTMLDivElement | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
-  const pending = useRef<Pending | null>(null)
   // The line a keyboard move asked to focus; only a render that has made it the
   // active line may spend the request (a late effect from an earlier render must not).
   const focusActive = useRef<number | null>(null)
@@ -262,7 +262,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
 
   const { changeFilter, changeSearch, goToLine, goToNumber } = buildLinesNavigation({
-    dramaId, ctl, st, pending, listRef, searching, filter, page,
+    dramaId, ctl, st, pending, listRef, searching, filter, page, place,
     setFilter, setPage, setInput, setTerm, setStatus, setError,
   })
   const goToRef = useRef(goToLine)
@@ -281,6 +281,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const playerId = useId()
   const media = useQueueMedia(mediaKind === 'audio' && !emptyDrama, isPhone, sectionRef, playerId)
   const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError, mediaToggle: media.toggle })
+  useKeepPlace(place, { dramaId, activeId, shown, loaded: data !== null || found !== null, filter, searching, queue: queue.on, page, listRef, goToLine, setStatus })
   const mediaFolded = queue.foldsMedia && media.folds
   const toggleReplace = () => {
     const next = !replaceOpen

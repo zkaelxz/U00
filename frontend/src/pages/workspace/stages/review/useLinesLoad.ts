@@ -6,7 +6,7 @@ import { QUEUE_FILTER } from './checkQueueModel'
 import type { EditState } from './LineRow'
 import { linesLoaded, type Pending, type Target } from './linesController'
 import { draftFromLine } from './reviewDraft'
-import { initialActiveId, PAGE_SIZE, pageCount } from './reviewLogic'
+import { ownActiveId, PAGE_SIZE, pageCount } from './reviewLogic'
 
 function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
   if (t === 'first') return lines[0]
@@ -61,16 +61,10 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
         if (p?.edit) setEdit(openPendingEdit(target))
       } else {
         const first = !loadedOnce.current
-        setActiveId((cur) =>
-          cur !== null && lines.some((l) => l.id === cur)
-            ? cur
-            : first
-              // The check queue lists the riskiest line first, flagged or not, so it opens on its first card.
-              ? (!term && filter === QUEUE_FILTER ? (lines[0]?.id ?? null) : initialActiveId(lines))
-              : (lines[0]?.id ?? null),
-        )
+        setActiveId((cur) => ownActiveId(lines, cur, { first, queue: !term && filter === QUEUE_FILTER }))
       }
       loadedOnce.current = true
+      p?.landed?.(lines, target !== undefined)
     }
     const req = term
       ? searchLines(dramaId, term).then((r) => {
