@@ -596,6 +596,49 @@ def _grown_erase_mask(mask, grow: float, keep):
     return mask
 
 
+# Lettering is the darkest ink in a balloon: a pixel counts as lettering when it is within this
+# share of the way from the darkest strokes to the paper. Hatching and tone drawn in a lighter
+# line fall outside it.
+_HATCHING_STROKE_DEPTH = 0.35
+# A mark this far from any stroke is not an edge or halo of it.
+_HATCHING_REACH_PX = 6
+
+def _without_hatching(gray_roi, keep):
+    """`gray_roi` with the pale marks that sit away from the lettering set to the paper's gray,
+    so the erase mask follows the lettering and leaves the hatching or screentone drawn inside
+    a balloon alone (erasing it left a hard-edged white patch). Unchanged unless such marks
+    outweigh the lettering, so an ordinary balloon, or one with a little furigana, is
+    erased exactly as before. `keep`: where the balloon's interior is."""
+    import cv2
+    if background_is_dark(gray_roi):
+        return gray_roi
+    paper = float(np.median(gray_roi))
+    cutoff = int(min(max(150, paper * _LETTERING_CUTOFF_OF_PAPER), 240))
+    ink = gray_roi < cutoff
+    # The outline, and any hatching joined to it, is darker than the lettering can be, so the
+    # darkest strokes are read from the marks that are not part of such a frame.
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(ink.astype(np.uint8), connectivity=8)
+    rh, rw = gray_roi.shape
+    lettering = ink.copy()
+    for i in range(1, count):
+        w, h, area = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT], stats[i, cv2.CC_STAT_AREA]
+        if w >= _FRAME_MIN_SPAN * rw and h >= _FRAME_MIN_SPAN * rh and area <= _FRAME_MAX_FILL * w * h:
+            lettering[labels == i] = False
+    sample = gray_roi[lettering & keep]
+    if sample.size < 30:
+        return gray_roi
+    darkest = float(np.percentile(sample, 10))
+    strokes = ink & (gray_roi <= darkest + _HATCHING_STROKE_DEPTH * (paper - darkest))
+    reach = 2 * _HATCHING_REACH_PX + 1
+    near = cv2.dilate(strokes.astype(np.uint8),
+                      cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (reach, reach))).astype(bool)
+    if int((ink & ~near).sum()) <= int(strokes.sum()):
+        return gray_roi
+    cleared = gray_roi.copy()
+    cleared[(gray_roi < int(min(paper * _LETTERING_HALO_OF_PAPER, 245))) & ~near] = int(paper)
+    return cleared
+
+
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
                     backend: str = "auto", hf_token: str | None = None, image=None, inside=None,
                     spare_art: bool = False, on_art: bool = False, grow: float = 1.0):
@@ -647,17 +690,19 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
 
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    mask = _lettering_mask(gray_roi)
     if inside is not None:
-        keep = np.zeros(mask.shape, dtype=bool)
+        keep = np.zeros(gray_roi.shape, dtype=bool)
         oy, ox = box["y"] - y, box["x"] - x
         part = inside[max(0, -oy):, max(0, -ox):]
         part = part[:bh - max(oy, 0), :bw - max(ox, 0)]
         keep[max(oy, 0):max(oy, 0) + part.shape[0], max(ox, 0):max(ox, 0) + part.shape[1]] = part
+        mask = _lettering_mask(_without_hatching(gray_roi, keep))
         mask[~keep] = 0
-    elif spare_art:
+    else:
+        mask = _lettering_mask(gray_roi)
+    if inside is None and spare_art:
         _drop_marks_running_off_edge(mask)
-    elif on_art:
+    elif inside is None and on_art:
         _drop_hollow_frames(mask, gray_roi)
     mask = _grown_erase_mask(mask, grow, keep if inside is not None else None)
 

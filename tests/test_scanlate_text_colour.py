@@ -156,3 +156,18 @@ def test_a_faded_original_is_lettered_as_a_fade(tmp_path):
     top = rendered[rows.min() + 1][coloured[rows.min() + 1]].mean(axis=0)
     bottom = rendered[rows.max() - 1][coloured[rows.max() - 1]].mean(axis=0)
     assert top[0] > bottom[0] + 30 and bottom[2] > top[2] + 30
+
+
+def test_a_dent_in_the_balloon_does_not_pull_the_text_off_centre():
+    mask = np.zeros((60, 100), bool)
+    mask[5:55, 5:95] = True
+    mask[15:45, 75:95] = False  # hatching bites the right edge
+    assert scanlate_render._without_small_dents(mask)[30, 90]
+
+
+def test_the_notch_between_two_lobes_is_kept():
+    mask = np.zeros((60, 100), bool)
+    mask[5:55, 5:40] = True
+    mask[5:55, 60:95] = True
+    assert not scanlate_render._without_small_dents(mask)[30, 50]
+    assert scanlate_render._without_small_dents(None) is None

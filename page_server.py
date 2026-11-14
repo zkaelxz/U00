@@ -467,6 +467,7 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
     stored, so there is no library page to render from), or "" when it cannot be sent.
     The page keeps its plain boxes then, so a failure here only costs the nicer picture."""
     import scanlate_render
+    from services import settings_service
     if not any((b.get("translated_text") or "").strip() and not b.get("skip") for b in bubbles):
         return ""
     import tempfile
@@ -475,6 +476,7 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
     try:
         with PIPELINE_LOCK:
             scanlate_render.process_page(image_path, bubbles, out_path,
+                                         match_color=bool(settings_service.get("scanlate_match_text_color")),
                                          **({"look": style} if style else {}))
         return page_capture_checks.jpeg_data_url(out_path)
     except Exception as e:
