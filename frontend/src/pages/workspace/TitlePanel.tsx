@@ -82,7 +82,7 @@ export function TitlePanel({ id, episodes }: { id: number; episodes: ReactNode }
           <p className="title-panel-note" data-testid="panel-translate-summary">{summary ?? 'Engine, style and English variant are on the Translate page.'}</p>
           <div className="actions">
             <ButtonLink href={stage('translate')}>Change</ButtonLink>
-            <ButtonLink href={stage('translate')}>Estimate cost</ButtonLink>
+            <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', focus: 'estimate' })}>Estimate cost</ButtonLink>
           </div>
         </>
       ))}
