@@ -284,6 +284,44 @@ class TestShapeAwareFitting:
         assert not mask[0, 0] and not mask[-1, -1]   # rectangle corners are outside
         assert mask[110, 200]                         # centre is inside
 
+    @staticmethod
+    def _grey_balloon_page(tmp_path, art_level=60, canvas=(400, 600)):
+        cv2 = pytest.importorskip("cv2")
+        h, w = canvas
+        img = np.full((h, w, 3), art_level, np.uint8)
+        yy, xx = np.mgrid[:h, :w]
+        dist = np.hypot(xx - w // 2, yy - h // 2)
+        img[dist <= 140] = 0
+        # Shaded to grey right out to the outline: nothing is as light as the usual floor.
+        grey = np.clip(255 - 130 * np.clip(1 - dist / 400, 0, 1) ** 0.8, 0, 255)
+        for c in range(3):
+            img[..., c] = np.where(dist <= 137, grey, img[..., c])
+        path = str(tmp_path / "grey.png")
+        cv2.imwrite(path, img)
+        return path
+
+    def test_a_balloon_shaded_grey_inside_is_still_found_as_an_oval(self, tmp_path):
+        page = self._grey_balloon_page(tmp_path)
+        box = {"x": 150, "y": 60, "w": 300, "h": 280}
+        mask = scanlate_detect.bubble_shape_mask(page, box)
+        assert mask is not None
+        assert mask[140, 150] and not mask[0, 0] and not mask[-1, -1]
+        assert scanlate_detect.bubble_erase_mask(page, box)[0, 0] == 0
+
+    def test_a_grey_shaded_balloon_is_classified_as_a_bubble_not_a_sign(self, tmp_path):
+        page = self._grey_balloon_page(tmp_path, canvas=(800, 1000))
+        box = {"x": 350, "y": 250, "w": 300, "h": 300}
+        assert scanlate_detect.classify_text_regions(page, [box])[0]["kind"] == "bubble"
+
+    def test_a_grey_patch_of_art_without_an_outline_is_not_a_balloon(self, tmp_path):
+        cv2 = pytest.importorskip("cv2")
+        img = np.full((400, 600, 3), 60, np.uint8)
+        cv2.circle(img, (300, 200), 140, (150, 150, 150), -1)
+        img = cv2.GaussianBlur(img, (0, 0), 25)
+        path = str(tmp_path / "fade.png")
+        cv2.imwrite(path, img)
+        assert scanlate_detect.bubble_shape_mask(path, {"x": 150, "y": 60, "w": 300, "h": 280}) is None
+
     def test_text_stays_inside_an_oval_bubble(self, oval_page):
         mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
         # Rectangle layout spills into the corners outside the oval...

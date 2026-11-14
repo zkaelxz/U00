@@ -14,6 +14,13 @@ CV_LIGHT_FLOOR = 180
 # Dark lines are thickened by this many pixels before the light regions are
 # labelled, so a scan's broken, anti-aliased outline still closes a bubble off.
 CV_SEAL_PX = 1
+# A balloon shaded grey inside is found by retrying at this level when nothing
+# is as light as CV_LIGHT_FLOOR; at least this share of the rim of the region it
+# finds must be darker than CV_GREY_RIM_LEVEL (a drawn outline), or it is a patch
+# of art fading out, which a blur leaves lighter than any outline.
+CV_GREY_PAPER_FLOOR = 110
+CV_GREY_RIM_LEVEL = 80
+CV_GREY_RIM_DARK_SHARE = 0.7
 CV_MIN_AREA_FRAC = 0.0015
 CV_MAX_AREA_FRAC = 0.2
 CV_MAX_ASPECT = 12.0
@@ -75,6 +82,8 @@ BALLOON_FILLS_BOX = 0.9
 # caption box rather than lettering on the art.
 CLASSIFY_LIGHT_LEVEL = 200
 CLASSIFY_MIN_LIGHT_SHARE = 0.55
+# A box this much filled by an outlined balloon interior is a balloon whatever its shade.
+CLASSIFY_BALLOON_FILL = 0.5
 # Lettering on dark, busy art is first guessed to be a sound effect. Once it
 # is read, a sound effect is a few big characters: more characters than this,
 # or more lines, is a caption or sign on the art and is translated like one.
