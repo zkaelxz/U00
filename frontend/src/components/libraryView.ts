@@ -134,7 +134,8 @@ export function cardNext(d: Progress & { id: number }): { label: string; href: s
 /** The Library's loaded row for a title, as far as a Continue tile needs it. */
 export type ShelfRow = Progress & Kinded
 
-// What a work tile leads to, by the same order as the title page's steps.
+// Ordered like the title page's steps (Translate, then Check, then Export) because the tile and that page must name
+// the same next step for the same title.
 function workStep(row: ShelfRow | undefined, mediaType: string | null): 'open' | 'translate' | 'check' | 'done' {
   const total = row?.line_count ?? 0
   // A comic's work is pages, which these line counts don't describe; a title the list hasn't loaded (a search or

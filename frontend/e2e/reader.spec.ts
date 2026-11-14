@@ -181,14 +181,22 @@ test('a Watch card opens the Reader with Watch / listen open; a plain link leave
     const items = body.items.map((d: { id: number }) => (d.id === 2 ? { ...d, media_type: 'video_drama' } : d))
     await route.fulfill({ response: res, json: { ...body, items } })
   })
-  await page.route('**/api/reader/dramas/2/media', (r) => r.fulfill({ json: { original: 'video', narration: false, caption_tracks: [] } }))
+  // Held until the Reader has rewritten its address to the saved page (dropping ?watch=1), so the fold mounts after
+  // that and only the flag kept from arrival can open it.
+  let release!: () => void
+  const held = new Promise<void>((r) => { release = r })
+  await page.route('**/api/reader/dramas/2/media', async (r) => {
+    await held
+    await r.fulfill({ json: { original: 'video', narration: false, caption_tracks: [] } })
+  })
   const player = page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Watch / listen' }) })
   await page.goto('/#/library')
   const watch = page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: "Watch Heaven Official's Blessing", exact: true })
   await expect(watch).toHaveAttribute('href', '#/read/2?watch=1')
   await watch.click()
-  // Resuming rewrites the URL to the page; the fold stays open.
   await expect(page).toHaveURL(/#\/read\/2\?page=1$/)
+  await expect(player).toHaveCount(0)
+  release()
   await expect(player).toHaveAttribute('open', '')
 
   // Both are hash changes in one document: wait for the Library so the Reader really closes before it opens again.
