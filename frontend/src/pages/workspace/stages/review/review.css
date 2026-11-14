@@ -582,8 +582,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 /* In-page floating player (browsers without Document Picture-in-Picture). */
 .review-float { position: fixed; z-index: 60; display: grid; gap: var(--space-1); padding: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); max-width: calc(100vw - 16px); box-sizing: border-box; }
-.review-float-bar { display: flex; align-items: center; gap: var(--space-1); cursor: grab; touch-action: none; font-size: var(--text-sm); }
-.review-float-title { flex: 1 1 auto; min-width: 0; }
+/* At the narrowest box Return player drops to its own line rather than squeezing "Player" into "Play / er". */
+.review-float-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); cursor: grab; touch-action: none; font-size: var(--text-sm); }
+.review-float-title { flex: 1 0 auto; }
 .review-float-body { min-width: 0; }
 .review-float-body .review-stage { max-height: none; }
 .review-float-resize { position: absolute; top: 0; left: 0; width: 20px; height: 20px; cursor: nwse-resize; touch-action: none; border-top-left-radius: var(--radius-sm); border-top: 3px solid var(--accent); border-left: 3px solid var(--accent); box-sizing: border-box; }

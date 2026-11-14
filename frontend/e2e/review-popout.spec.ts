@@ -69,6 +69,15 @@ test('without the API, Pop out floats the player inside the page, resizable, and
   await page.getByRole('button', { name: 'Pop out' }).click()
   await expect.poll(async () => Math.round(await width())).toBe(Math.round(larger - 40))
 
+  // At its narrowest the title stays one word on one line.
+  for (let i = 0; i < 12; i++) await floatBox.getByRole('slider', { name: 'Player size' }).press('ArrowRight')
+  await expect.poll(width).toBeLessThanOrEqual(222)
+  expect(await floatBox.locator('.review-float-title').evaluate((el) => {
+    const r = document.createRange()
+    r.selectNodeContents(el)
+    return r.getClientRects().length
+  })).toBe(1)
+
   await floatBox.getByRole('button', { name: 'Return player' }).click()
   await expect(floatBox).toHaveCount(0)
   await expect(page.locator('.review-player-panel')).toBeVisible()
