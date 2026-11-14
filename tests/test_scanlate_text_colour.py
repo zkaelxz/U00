@@ -138,3 +138,20 @@ def test_a_cut_that_would_move_the_text_across_the_balloon_is_left_as_it_is():
     for rect_layout in (False, True):
         centres = _line_centres(mask, rect_layout)
         assert all(c < 140 for c in centres), (rect_layout, centres)
+
+
+def test_centring_is_refused_when_it_puts_text_over_dark_pixels():
+    from PIL import Image, ImageDraw, ImageFont
+    text = "I never said that, did I? Think again!"
+    mask = _round_balloon(True, 100)
+    draw = ImageDraw.Draw(Image.new("RGB", mask.shape[::-1]))
+
+    def centres(dark):
+        laid = scanlate_render._layout_balloon_text(
+            draw, text, mask, 28, lambda sz: ImageFont.load_default(sz), False, dark=dark)
+        return [(left + right) / 2 for _, left, right, _ in laid[1]]
+
+    assert all(abs(c - 155) < 4 for c in centres(np.zeros(mask.shape, bool)))  # hatching: light
+    dark = np.zeros(mask.shape, bool)
+    dark[:, 150:] = True  # art where the centred lines would reach
+    assert all(c < 140 for c in centres(dark))

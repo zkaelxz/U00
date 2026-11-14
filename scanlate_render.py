@@ -453,8 +453,10 @@ def _note_missing_cjk_font(notes, regions) -> None:
 
 
 def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_layout: bool,
-                         style=_PLAIN):
-    """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline."""
+                         style=_PLAIN, dark=None):
+    """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline.
+    `dark`: boolean array the size of `mask`, True where the page is dark ink, so that centring
+    may spread the text over hatching but not over art, a frame or the outline."""
     def lay_out(m):
         laid_out = (_layout_in_rectangle(draw, text, m, font_size, load_font, style)
                     if rect_layout else None)
@@ -465,9 +467,33 @@ def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_
     centred = lay_out(symmetric) if symmetric is not None else None
     # Centring narrows each line, so it must not cost the balloon a smaller size.
     if centred is None or (free is not None and (
-            centred[0].size < free[0].size or _recentred_too_far(free, centred, mask.shape[1]))):
+            centred[0].size < free[0].size or len(centred[1]) != len(free[1])
+            or _recentred_too_far(free, centred, mask.shape[1]))):
         return free
-    return centred
+    return centred if not _on_dark_ink(draw, centred, mask, dark) else free
+
+
+# Light hatching is mostly paper, so a sliver of dark pixels is what it takes to tell it from
+# art, a frame or the outline under the part of a line that lies outside the layout mask.
+_MAX_DARK_SHARE_OUTSIDE_MASK = 0.02
+_DARK_GRAY = 128
+
+
+def _on_dark_ink(draw, laid_out, mask, dark) -> bool:
+    """True when the part of `laid_out`'s lines outside `mask` lies over dark page pixels."""
+    if dark is None:
+        return False
+    font, placed = laid_out
+    outside = dark_outside = 0
+    for line, left, right, top in placed:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        x0 = int((left + right - (bbox[2] - bbox[0])) / 2)
+        rows = slice(max(top, 0), max(top + bbox[3] - bbox[1], 0))
+        cols = slice(max(x0, 0), max(x0 + bbox[2] - bbox[0], 0))
+        free_part = ~mask[rows, cols]
+        outside += int(free_part.sum())
+        dark_outside += int((dark[rows, cols] & free_part).sum())
+    return outside > 0 and dark_outside / outside > _MAX_DARK_SHARE_OUTSIDE_MASK
 
 
 def _recentred_too_far(free, centred, width: int) -> bool:
@@ -496,7 +522,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
                         mask=None, report: dict | None = None, rect_layout: bool = False,
-                        style: TypesetStyle = _PLAIN):
+                        style: TypesetStyle = _PLAIN, dark=None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
     report: when given, receives {"size": the font size that was drawn}.
@@ -532,7 +558,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     if mask is not None:
         load_font = (lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
                      else ImageFont.load_default(sz))
-        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout, style)
+        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout, style, dark)
         if laid_out is not None:
             if report is not None:
                 report["size"] = laid_out[0].size
@@ -800,11 +826,16 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
              for b in to_render]
 
     def draw(target, b, shape_mask, size, ink, report=None):
+        # Only a mask that centring would rebuild needs the dark pixels, so other balloons are
+        # drawn exactly as before.
+        extra = ({"dark": _dark_under(gray, b, shape_mask.shape)}
+                 if shape_mask is not None and gray is not None and _symmetrised(shape_mask) is not None
+                 else {})
         render_text_in_box(target, b, b["translated_text"], font_size=size,
                            font_path=font_path,
                            font_category=b.get("font_category") or "regular",
                            custom_fonts=custom_fonts, mask=shape_mask, rect_layout=rect_layout, style=style,
-                           fill=_text_fill(target, b, ink), report=report)
+                           fill=_text_fill(target, b, ink), report=report, **extra)
 
     starts = [b.get("font_size", 18) for b in to_render]
     scratch = pil_img.copy()
@@ -820,6 +851,16 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
     sizes = sibling_size_caps(list(zip(starts, fitted)))
     for b, m, size, ink in zip(to_render, masks, sizes, inks):
         draw(pil_img, b, m, size, ink)
+
+
+def _dark_under(gray, box: dict, shape) -> "np.ndarray":
+    """Boolean array of `shape` (the box's): True where the page is dark ink; False off the page."""
+    dark = np.zeros(shape, bool)
+    x0, y0 = max(box["x"], 0), max(box["y"], 0)
+    x1, y1 = min(box["x"] + shape[1], gray.shape[1]), min(box["y"] + shape[0], gray.shape[0])
+    if x1 > x0 and y1 > y0:
+        dark[y0 - box["y"]:y1 - box["y"], x0 - box["x"]:x1 - box["x"]] = gray[y0:y1, x0:x1] < _DARK_GRAY
+    return dark
 
 
 def _fill_balloon(pil_img, box: dict, mask, share: float) -> None:
