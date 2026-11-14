@@ -58,6 +58,24 @@ for (const [name, size] of [['desktop', { width: 1280, height: 900 }], ['phone',
   })
 }
 
+// The chip sits in the sticky toolbar, so it can be pressed far down the list; the list it opens sits above the lines.
+for (const view of ['simple', 'full'] as const) test(`${view} view: pressed far down the lines, the chip opens the list where the person is looking`, async ({ page }) => {
+  await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await guardWrites(page)
+  const lines = Array.from({ length: 40 }, (_, i) => row(i + 1, `第${i + 1}句`, i === 34))
+  await page.route('**/api/review/dramas/3/lines?*', (route) =>
+    route.fulfill({ json: { lines, page: 1, page_size: 40, total: 40, flagged_count: 1, untranslated_count: 40 } }))
+  await page.route('**/api/source-suspect/dramas/3', (route) => route.fulfill({ json: {
+    count: 1, items: [{ line_id: 35, idx: 34, zh: '第35句', note: 'ends mid-phrase', next_line_id: 36, next_zh: '第36句' }],
+  } }))
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  await page.locator('[data-line-id="35"]').scrollIntoViewIfNeeded()
+  await page.locator('.review-suspect-chip').click()
+  await expect(page.getByTestId('suspect-item')).toBeInViewport()
+})
+
 test('no chip when no line is flagged', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await open(page, [])

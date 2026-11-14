@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { listAllLines, mergeLines } from '../../../../api/restructure'
 import { checkSourceText } from '../../../../api/sourceSuspect'
@@ -21,6 +21,12 @@ interface PanelProps {
 export function SourceSuspectPanel({ dramaId, items, onGoTo, onChanged, onClose }: PanelProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  // The list sits above the lines while its chip rides in the sticky toolbar, so pressed far down the
+  // lines it would open out of sight and the chip would seem to do nothing.
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    panelRef.current?.scrollIntoView?.({ block: 'center' })
+  }, [])
 
   const merge = useCallback(
     async (item: SourceSuspectItem) => {
@@ -42,7 +48,7 @@ export function SourceSuspectPanel({ dramaId, items, onGoTo, onChanged, onClose 
   )
 
   return (
-    <section className="review-suspect" aria-label="Source text looks off">
+    <section ref={panelRef} className="review-suspect" aria-label="Source text looks off">
       <div className="review-suspect-head">
         <strong>Source text looks off</strong>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>Close</button>
