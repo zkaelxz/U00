@@ -18,11 +18,20 @@ export async function expectOpen(page: Page, expected: Partial<Record<(typeof BL
   for (const [title, open] of Object.entries(expected)) await expect(exportSection(page, title)).toHaveJSProperty('open', open)
 }
 
-// Which block leads and starts open, per seeded title kind (drama 1 audio, 2 novel, 3 video).
+// Which block leads, and starts open when it can run, per seeded title kind (drama 1 audio, 2 novel, 3 video).
 export const FIRST_OPEN = {
   video: 'Video with a subtitle track',
   audio: 'Audiobook',
   novel: 'EPUB',
+  subtitle: 'Subtitle file',
+} as const
+
+// What starts open on the seeded titles as they are (with mockExportReady): the first block that can run. The
+// audio drama has no narration or dub, and the novel is not in novel-narration mode and has no narration either.
+export const SEEDED_OPEN = {
+  video: 'Video with a subtitle track',
+  audio: 'Video with a subtitle track',
+  novel: 'Subtitle file',
   subtitle: 'Subtitle file',
 } as const
 

@@ -66,8 +66,9 @@ describe('auto-tune helpers', () => {
 
 describe('glossary-from-novel helpers', () => {
   it('needs novel text, with a Source link, and no series', () => {
-    expect(novelGlossaryBlocker(2, false)).toMatchObject({ link: 'attach it on Media', href: '#/drama/2/source?tab=add' })
-    expect(novelGlossaryBlocker(2, true)).toBeNull()
+    expect(novelGlossaryBlocker(2, false, 'Media')).toMatchObject({ link: 'attach it on Media', href: '#/drama/2/source?tab=add' })
+    expect(novelGlossaryBlocker(2, false, 'Transcribe')).toMatchObject({ link: 'attach it on Transcribe' })
+    expect(novelGlossaryBlocker(2, true, 'Media')).toBeNull()
   })
   it('shows progress as a percent', () => {
     expect(novelGlossaryProgressText('running', 0.424)).toBe('Reading the novel… 42%')

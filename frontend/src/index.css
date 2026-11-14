@@ -969,6 +969,7 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 @keyframes skeleton-fade { from { opacity: 0.45; } to { opacity: 0.9; } }
 .translate-skeleton { min-height: 26rem; }
 .export-readiness-skeleton { min-height: 3.5rem; }
+.export-blocks-skeleton { min-height: 12rem; }
 
 /* List view (desktop table) */
 .drama-table { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
