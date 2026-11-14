@@ -118,6 +118,16 @@ def test_a_two_line_balloon_with_a_step_between_the_lines_is_still_a_fade():
     assert scanlate_render.sampled_ink_fade(page, {"x": 20, "y": 10, "w": 120, "h": 80}) is not None
 
 
+def test_a_thin_coloured_outline_is_not_read_as_a_fade():
+    page = np.full((160, 160, 3), 255, np.uint8)
+    for row in (20, 21, 120, 121):
+        page[row, 30:130] = (100, 60, 200) if row < 60 else (110, 180, 230)
+    for col in (30, 31, 128, 129):
+        for row in range(20, 122):
+            page[row, col] = (100, 60, 200) if row < 70 else (110, 180, 230)
+    assert scanlate_render.sampled_ink_fade(page, {"x": 10, "y": 5, "w": 140, "h": 140}) is None
+
+
 def test_the_fade_recolours_the_drawn_lettering_from_top_to_bottom():
     from PIL import ImageDraw
     before = Image.new("RGB", (120, 60), "white")
