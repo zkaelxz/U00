@@ -716,13 +716,29 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
     return out_path, skipped_blank
 
 
+# A balloon's tone or hatching bites a dent out of the light interior; filling a dent that small
+# keeps each line centred on the balloon instead of on the part the hatching left. A bigger
+# notch (the waist of a two-lobe balloon) is real shape and stays.
+_MAX_DENT_FILL = 1.2
+
+
+def _without_small_dents(mask):
+    """`mask` with its convex hull filled in when that adds at most _MAX_DENT_FILL of its area."""
+    if mask is None or not mask.any():
+        return mask
+    import cv2
+    hull = np.zeros(mask.shape, np.uint8)
+    cv2.fillPoly(hull, [cv2.convexHull(cv2.findNonZero(mask.astype(np.uint8)))], 1)
+    return hull.astype(bool) if hull.sum() <= _MAX_DENT_FILL * mask.sum() else mask
+
+
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                      font_path: str | None, custom_fonts: dict | None, inks: list,
                      rect_layout: bool = False, style: TypesetStyle = _PLAIN) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
     then the real pass draws with sibling balloons held to a shared ratio."""
-    masks = [(bubble_shape_mask(image_path, b, image=gray,
-                                margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
+    masks = [(_without_small_dents(bubble_shape_mask(image_path, b, image=gray,
+                                                    margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX))
               if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
              for b in to_render]
 
