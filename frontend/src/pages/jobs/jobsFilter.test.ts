@@ -141,7 +141,7 @@ describe('links and display helpers', () => {
     })
     expect(jobLinks({ drama_id: 7, kind: 'transcribe' }).stage?.route).toEqual({ name: 'drama', id: 7, stage: 'source' })
     expect(jobLinks({ drama_id: 7, kind: 'transcribe', job_id: 'comparetx_7' }).stage).toEqual({
-      label: 'Review', route: { name: 'drama', id: 7, stage: 'review', tools: 'history', focus: 'compare' },
+      label: 'Review', route: { name: 'drama', id: 7, stage: 'review', tools: 'problems', focus: 'compare' },
     })
     expect(jobLinks({ drama_id: 7, kind: 'align' }).stage?.label).toBe('Review')
     expect(jobLinks({ drama_id: 7, kind: 'import' }).stage?.label).toBe('Transcribe')

@@ -473,7 +473,7 @@ test.describe('PC-only stage deletes', () => {
   test('version delete: first tap makes no call, the second sends confirm with the local header', async ({ page }) => {
     const calls = await mockVersions(page)
     // No lines on this title, so the tools panel only shows when a link asks for it.
-    await page.goto('/#/drama/1/review?tools=history')
+    await page.goto('/#/drama/1/review?tools=records')
     await openSection(page, 'Records')
     const list = page.getByTestId('versions-list')
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
@@ -491,7 +491,7 @@ test.describe('PC-only stage deletes', () => {
 
   test('Escape cancels and the button reverts after the idle time', async ({ page }) => {
     const calls = await mockVersions(page)
-    await page.goto('/#/drama/1/review?tools=history')
+    await page.goto('/#/drama/1/review?tools=records')
     await openSection(page, 'Records')
     const list = page.getByTestId('versions-list')
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
@@ -507,7 +507,7 @@ test.describe('PC-only stage deletes', () => {
     await mockRemote(page)
     await mockVersions(page)
     await withAudio(page)
-    await page.goto('/#/drama/1/review?tools=history')
+    await page.goto('/#/drama/1/review?tools=records')
     await openSection(page, 'Records')
     await expect(page.getByTestId('versions-list')).toBeVisible()
     await expect(page.getByRole('button', { name: /Delete Claude pass 1/ })).toHaveCount(0)
