@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine } from '../../../../types/review'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
+import { LineActionsSheet } from './LineActionsSheet'
 import { LineRow, type RetranscribeState, type RowActions } from './LineRow'
 
 const LINE: ReviewLine = {
@@ -11,12 +12,12 @@ const LINE: ReviewLine = {
 }
 
 function row(simple: boolean, line: ReviewLine = LINE, { queue = false, isPhone = false, active = true, retranscribe = null as RetranscribeState | null,
-  timingSnap = null as TimingSuggestion | null, actions = {} as RowActions } = {}) {
+  timingSnap = null as TimingSuggestion | null, actions = {} as RowActions, linePanel = false } = {}) {
   return renderToStaticMarkup(
     <LineRow
       dramaId={1} line={line} sourceLanguage="zh" active={active} selected={false} isPhone={isPhone} hasMedia jobRunning={false}
       limited={false} edit={null} ai={null} tm={null} issue={null} actions={actions} simple={simple} queue={queue}
-      retranscribe={retranscribe} timingSnap={timingSnap}
+      retranscribe={retranscribe} timingSnap={timingSnap} linePanel={linePanel}
     />,
   )
 }
@@ -45,12 +46,12 @@ describe('Simple view line row', () => {
 describe('check queue card', () => {
   const glossary: ReviewLine = { ...LINE, flag: 'glossary_missing', flag_note: 'Glossary: 夷陵老祖 -> Yiling Patriarch missing' }
 
-  it('turns Mark checked into Looks right, next and keeps the other tools and their tips', () => {
+  it('turns Mark checked into Looks right, next and keeps Improve and its tip; Edit details is left to More and D', () => {
     const html = row(true, LINE, { queue: true })
     expect(html).toContain('Looks right, next')
     expect(html).toContain('title="Mark checked and go to the next line (R)"')
     expect(html).not.toContain('>Mark checked<')
-    expect(html).toContain('Edit details')
+    expect(html).not.toContain('Edit details')
     expect(html).toContain('title="Improve translation (I)"')
   })
 
@@ -104,13 +105,47 @@ describe('check queue card', () => {
     expect(row(false, glossary)).not.toContain('review-queue-label')
   })
 
-  it('orders the open card\'s buttons Play, the fitting action, Improve, Edit details, Dismiss flag, then a green Looks right, next', () => {
-    const html = row(true, glossary, { queue: true })
-    const at = ['▶ Play', 'Open glossary', 'Improve translation', 'Edit details', 'Dismiss flag', 'Looks right, next'].map((t) => html.indexOf(t))
+  it('orders the open card\'s buttons as drawn: Play, the fitting action, Improve, then a green Looks right, next', () => {
+    const html = row(true, glossary, { queue: true, linePanel: true })
+    const at = ['▶ Play', 'Open glossary', 'Improve translation', 'Looks right, next'].map((t) => html.indexOf(t))
     expect(at.every((n) => n > 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(html).toMatch(/class="btn btn-ok btn-sm review-queue-done"[^>]*>Looks right, next/)
     expect(html).not.toContain('btn-primary')
+    for (const gone of ['Edit details', 'Dismiss flag', 'See the lines around it']) expect(html).not.toContain(gone)
+    const snap: TimingSuggestion = { line_id: 7, start: 1, end: 3, new_start: 1.2, new_end: 2.8 }
+    const withSnap = row(true, glossary, { queue: true, timingSnap: snap, actions: { snapToSpeech: () => {} } as unknown as RowActions })
+    expect(withSnap).not.toContain('Snap to speech')
+    expect(row(true, { ...glossary, flag: 'source_changed' }, { queue: true }).match(/Keep English/g)).toHaveLength(1)
+  })
+
+  it('with the This line panel beside it, the open card says its reason in a few words; without it, in full with See the lines around it', () => {
+    const beside = row(true, glossary, { queue: true, linePanel: true })
+    expect(beside).toContain('data-testid="queue-reason">Glossary name not used: 夷陵老祖</span>')
+    expect(beside).not.toContain(GLOSSARY_SENTENCE)
+    const alone = row(true, glossary, { queue: true })
+    expect(alone).toContain(GLOSSARY_SENTENCE)
+    expect(alone).toMatch(/<button type="button" class="btn btn-ghost btn-sm">See the lines around it<\/button>/)
+    expect(alone.indexOf('Improve translation')).toBeLessThan(alone.indexOf('See the lines around it'))
+    expect(alone.indexOf('See the lines around it')).toBeLessThan(alone.indexOf('Looks right, next'))
+  })
+
+  it('still offers Edit details, Snap to speech and Dismiss flag or Keep English in the card\'s More sheet', () => {
+    const noop = () => {}
+    const sheet = (line: ReviewLine) => renderToStaticMarkup(
+      <LineActionsSheet
+        state={{ lineId: line.id, view: 'menu' }} line={line} run={[line]} hasMedia jobRunning={false} limited busy={false}
+        error={null} errorText={null} canRetranscribe={false} sourceLanguage="zh" timingSnap={{ line_id: 7, start: 1, end: 3, new_start: 1.2, new_end: 2.8 }}
+        actions={{
+          onView: noop, onClose: noop, onPlay: noop, onEditDetails: noop, onRetranscribe: noop, onImprove: noop, onWhy: noop,
+          onTool: noop, onDismissFlag: noop, onAddNote: noop, onSplit: noop, onMerge: noop, onAdd: noop, onDelete: noop,
+          onSetLanguage: noop, onSnapToSpeech: noop, onSetReviewed: noop,
+        }}
+      />,
+    )
+    const html = sheet(glossary)
+    for (const t of ['>Edit details<', 'Snap to speech', '>Dismiss flag<']) expect(html).toContain(t)
+    expect(sheet({ ...LINE, flag: 'source_changed' })).toContain('>Keep English<')
   })
 
   it('offers the existing action that fits each reason, with its gating, and none where nothing fits', () => {

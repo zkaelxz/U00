@@ -238,6 +238,20 @@ function over(top: string, pct: number, base: string): string {
   return `#${mix.map((c) => c.toString(16).padStart(2, '0')).join('')}`
 }
 
+// The open line in This line's Around it: its source and English, and a neighbour's muted "Not translated", on the tint.
+describe('This line: the open line on its tint', () => {
+  const m = reviewCss.match(/\.this-line-near\.is-open \{[^}]*color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, var\((--[\w-]+)\)\)/)
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const fg of ['--text', '--muted']) {
+      it(`${name}: ${fg} on the open line's tint`, () => {
+        expect(m).toBeTruthy()
+        const tint = over(resolve(theme, m![1]), +m![2], resolve(theme, m![3]))
+        expect(contrast(resolve(theme, fg), tint)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+})
+
 describe('split dialog cut shading', () => {
   for (const [name, theme] of Object.entries(THEMES)) {
     for (const cls of ['split-cut-a', 'split-cut-b']) {

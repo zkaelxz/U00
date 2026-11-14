@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
-  confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, opensGlossary, otherFineText,
+  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, opensGlossary, otherFineText,
   positionText, queueAction, queueCounts, queueReason, QUEUE_FLAG_KINDS, restUnchecked, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
@@ -44,6 +44,13 @@ describe('reasons', () => {
     expect(confidenceReason(line(1, { confidence: 0.8 }))).toBeNull()
     expect(confidenceReason(line(1, { confidence: null }))).toBeNull()
     expect(confidenceReason(line(1, { confidence: 0.3, flag: 'reading_speed' }))).toBeNull()
+  })
+
+  it('adds that Whisper was also unsure of a flagged line under the same score, and nothing otherwise', () => {
+    expect(alsoUnsureText(line(1, { flag: 'reading_speed', confidence: 0.58 }))).toBe('Whisper was also unsure of this line (58% sure).')
+    expect(alsoUnsureText(line(1, { flag: 'reading_speed', confidence: 0.8 }))).toBeNull()
+    expect(alsoUnsureText(line(1, { flag: 'reading_speed', confidence: null }))).toBeNull()
+    expect(alsoUnsureText(line(1, { confidence: 0.4 }))).toBeNull()
   })
 
   it('offers the glossary for a missed glossary term or a doubted name only', () => {

@@ -30,6 +30,7 @@ import type { LineTarget } from './review/reviewResults'
 import { useDramaJobRunning } from './review/useDramaJobRunning'
 import './review/review.css'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { useMediaQuery } from '../../../hooks/useMediaQuery'
 
 export default function ReviewStage() {
   const { dramaId, drama, refetchDrama } = useStage()
@@ -93,6 +94,12 @@ export default function ReviewStage() {
     [],
   )
   const [flaggedCount, setFlaggedCount] = useState<number | null>(null)
+  // The check queue's state, reported by the line list. Only these two flags live here (not the open line), so moving
+  // between cards never redraws the tools: the list fills the This line panel through the dock element.
+  const [queueOn, setQueueOn] = useState(false)
+  const [lineTab, setLineTab] = useState(false)
+  const [lineDock, setLineDock] = useState<HTMLDivElement | null>(null)
+  const phone = useMediaQuery('(max-width: 640px)')
   const route = useRoute()
   // Not loaded yet counts as no lines: showing the panel first would flash it on a title that has none.
   // A ?tools= link or a running job still opens the panel with no lines.
@@ -126,6 +133,9 @@ export default function ReviewStage() {
         onRetimeSelected={openRetime}
         onRetranscribeLines={openRetranscribe}
         goTo={goTo}
+        onQueue={setQueueOn}
+        onLineTab={setLineTab}
+        lineDock={lineTab ? lineDock : null}
       />
       <ReviewChecks
         enabled={!!lineCount}
@@ -141,6 +151,8 @@ export default function ReviewStage() {
                 dramaId={dramaId}
                 status={jobs.status}
                 request={toolsRequest}
+                lineDock={lineTab ? setLineDock : null}
+                folded={queueOn && phone}
                 attention={{ coverage: parts.coverageCount }}
                 tools={{
                   checks: jobs.check,

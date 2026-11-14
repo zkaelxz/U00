@@ -22,16 +22,25 @@ print(','.join(str(l.id) for l in db.load_line_objects(3)))
 }
 
 // 24 translated lines on drama 3, none checked. With `warnings`, three of them need a look: #24 misses a glossary
-// name, #12 is too fast to read (both flagged) and Whisper was unsure of #7 (unflagged); with `untranslated`, #3 has no English.
+// name, #12 is too fast to read (both flagged) and Whisper was unsure of #7 (unflagged); with `untranslated`, #3 has no English;
+// with `audio`, the title gets a 52-second WAV (the lines run to 49.5 s) so it plays like an audio drama.
 export const GLOSSARY_NOTE = 'Glossary: 夷陵老祖 -> Yiling Patriarch missing'
 // What the check queue's open card says for that note.
 export const GLOSSARY_SENTENCE = 'The glossary writes 夷陵老祖 as “Yiling Patriarch”, but the English doesn’t use that name. ' +
   'Put it in the English, or change the glossary if the name is wrong.'
-export function seedCheckLines({ warnings = true, untranslated = false } = {}): void {
+// A quiet tone on drama 3, long enough for every seeded line; any spec can paste it into its seed step.
+export const WITH_AUDIO = `import os, wave, struct, math
+p = os.path.join(db.drama_dir(3), 'e2e.wav')
+with wave.open(p, 'wb') as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)
+    w.writeframes(b''.join(struct.pack('<h', int(2000 * math.sin(i / 6))) for i in range(8000 * 52)))
+db.update_drama(3, audio_filename='e2e.wav')`
+export function seedCheckLines({ warnings = true, untranslated = false, audio = false } = {}): void {
   const code = `import db
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 from core import Line
 db.update_drama(3, audio_filename=None, source_video_filename=None)
+${audio ? WITH_AUDIO : ''}
 ls = [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i + 1}句', en=f'Line {i + 1}') for i in range(24)]
 if ${warnings ? 'True' : 'False'}:
     ls[23].flag, ls[23].flag_note = 'glossary_missing', ${JSON.stringify(GLOSSARY_NOTE)}
@@ -49,3 +58,14 @@ export const compareAction = (page: Page) =>
   page.getByTestId('selection-bar').getByRole('button', { name: 'Compare transcription…' })
 export const retimeAction = (page: Page) =>
   page.getByTestId('selection-bar').getByRole('button', { name: 'Re-time with Qwen3 aligner…' })
+
+// Drama 3's loudness peaks without ffmpeg: a rising and falling shape over whatever span is asked for.
+export async function mockPeaks(page: Page, fail = false): Promise<void> {
+  await page.route('**/api/media/dramas/3/peaks*', (route) => {
+    if (fail) return route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'No peaks.' } } })
+    const q = new URL(route.request().url()).searchParams
+    const buckets = Number(q.get('buckets'))
+    const peaks = Array.from({ length: buckets }, (_, i) => Math.round(40 + 200 * Math.abs(Math.sin(i / 5)) * Math.sin((Math.PI * i) / buckets)))
+    return route.fulfill({ json: { start: Number(q.get('start')), end: Number(q.get('end')), buckets, peaks } })
+  })
+}

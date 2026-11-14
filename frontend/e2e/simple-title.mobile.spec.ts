@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-import { GLOSSARY_SENTENCE, seedCheckLines } from './compareSelectedHelpers'
+import { GLOSSARY_SENTENCE, mockPeaks, seedCheckLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 
@@ -138,6 +138,9 @@ test('the step links and buttons on a stage page are tall enough to tap and do n
   await expectNoSidewaysScroll(page)
 })
 
+// The first card starts near the top: measured 211px at 390 and 239px at 320, with the steps folded into one line.
+const cardTopAtMost = { 390: 225, 320: 255 }
+
 // Title 3's seeded lines would open later phone specs on its Review page.
 test.describe(() => {
   test.afterAll(() => clearLines())
@@ -184,8 +187,6 @@ test.describe(() => {
     await expect(reason).toHaveText('Why: Whisper was unsure of this line (50% sure)')
     await expectTall(cards.getByRole('button', { name: 'Re-transcribe…' }), 'Re-transcribe…')
 
-    // The first card starts near the top: measured 211px at 390 and 239px at 320, with the steps folded into one line.
-    const cardTopAtMost = { 390: 225, 320: 255 }
     for (const width of [390, 320] as const) {
       await page.setViewportSize({ width, height: 844 })
       await page.evaluate(() => window.scrollTo(0, 0))
@@ -231,5 +232,50 @@ test.describe(() => {
     await page.getByTestId('checked-undo').getByRole('button', { name: 'Undo' }).tap()
     await expect(position).toHaveText('2 of 3 to look at')
     await expect(cards.locator('.review-idx')).toHaveText('#7')
+  })
+
+  test('on an audio title the player and the tools fold away, and the card starts where it does without audio', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page)
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    const cards = page.locator('.review-line')
+    await expect(cards.locator('.review-idx')).toHaveText('#24')
+    await expect(cards.locator('.review-select')).toBeHidden()
+    const player = page.getByRole('group', { name: 'Player' })
+    await expect(player).toBeHidden()
+    for (const width of [390, 320] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await expect(page.locator('.review-toolbar.is-collapsed')).toHaveCount(0)
+      const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
+      expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
+      await expectNoSidewaysScroll(page)
+    }
+    await page.setViewportSize({ width: 390, height: 844 })
+
+    // The tools are behind one button, with no This line tab on a phone.
+    const tools = page.getByRole('button', { name: 'Checks and tools' })
+    await expectTall(tools, 'Checks and tools')
+    await expect(tools).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('tablist', { name: 'Review tools' })).toBeHidden()
+    await tools.tap()
+    await expect(tools).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')).toHaveText(['Look for problems', 'Change many lines', 'Finish'])
+    await expectNoSidewaysScroll(page)
+
+    // Player sits under the card, after the Next line and before the footer; it opens the player above the card and shows it.
+    const toggle = page.getByRole('button', { name: 'Player', exact: true })
+    await expectTall(toggle, 'Player')
+    const [next, footer, t] = await Promise.all([page.locator('.check-queue-next').boundingBox(), page.getByTestId('queue-footer').boundingBox(), toggle.boundingBox()])
+    expect(t!.y).toBeGreaterThan(next!.y)
+    expect(t!.y).toBeLessThan(footer!.y)
+    expect(t!.width, 'Player is full width').toBeGreaterThan(300)
+    await toggle.tap()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(player).toBeInViewport()
+    await expectNoSidewaysScroll(page)
+    await page.setViewportSize({ width: 320, height: 844 })
+    await expectNoSidewaysScroll(page)
   })
 })

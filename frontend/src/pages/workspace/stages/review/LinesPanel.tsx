@@ -16,7 +16,8 @@ import { useLineSelectionContext } from './LineSelectionContext'
 import { SelectionBar } from './SelectionBar'
 import { selectionContext } from './selectionActions'
 import { useSimple } from '../../StageContext'
-import { useCheckQueue, useInitialLinesFilter } from './useCheckQueue'
+import { useCheckQueue, useInitialLinesFilter, useLineTab, useQueueMedia } from './useCheckQueue'
+import { ThisLineDock } from './ThisLinePanel'
 import { LineRow, type EditState, type RowIssue } from './LineRow'
 import { LinesEmpty } from './LinesEmpty'
 import { buildLinesNavigation } from './linesNavigation'
@@ -77,6 +78,11 @@ interface Props {
   // Opens the Re-transcribe section; with line ids it starts a run on them.
   onRetranscribeLines?: (lineIds: number[] | null) => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
+  // Whether Simple's check queue is showing, and whether it has a card open beside the tools (the This line tab).
+  onQueue?: (on: boolean) => void
+  onLineTab?: (shown: boolean) => void
+  // The This line tab's empty panel, once the tools have drawn it: the open card's panel goes in there.
+  lineDock?: HTMLElement | null
 }
 
 const PHONE = '(max-width: 640px)'
@@ -92,7 +98,7 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo, onQueue, onLineTab, lineDock = null }: Props) {
   const isPhone = useMediaQuery(PHONE)
   const simple = useSimple()
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
@@ -271,7 +277,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
-  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError })
+  const media = useQueueMedia(mediaKind === 'audio' && !emptyDrama, isPhone, sectionRef)
+  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError, mediaToggle: media.toggle })
+  const mediaFolded = queue.foldsMedia && media.folds
   const toggleReplace = () => {
     const next = !replaceOpen
     setReplaceOpen(next)
@@ -285,6 +293,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
 
   // ---- shortcuts ----
   const active = activeId !== null ? shown.find((l) => l.id === activeId) ?? null : null
+  const linePanel = useLineTab(queue, active !== null, lineDock, onQueue, onLineTab)
   useReviewShortcuts({
     ctl, actions, selection, player, listRef, searchRef, mediaKind, isPhone,
     sheetOpen: sheet !== null, keysOpen, page, pages, searching, limited, active, edit, ai,
@@ -306,7 +315,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const showPager = !searching && !!data && pages > 1
   const editingActive = edit !== null && edit.lineId === activeId
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
-  const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed
+  const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed && !mediaFolded
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
   const looseMedia = isPhone || (isShort && !sideVideo) // pinned, they left one list line visible on a short screen
 
@@ -350,7 +359,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     ) : null
 
   return (
-    <section className={['review-editor', sideVideo && 'has-side', replaceOpen && 'is-replacing'].filter(Boolean).join(' ')} aria-label="Lines" ref={sectionRef}>
+    <section className={['review-editor', sideVideo && 'has-side', replaceOpen && 'is-replacing', mediaFolded && 'is-media-folded'].filter(Boolean).join(' ')} aria-label="Lines" ref={sectionRef}>
       <div className="review-main">
         {!emptyDrama && (
         <ReviewToolbar
@@ -487,6 +496,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               actions={actions}
               simple={simple}
               queue={queue.on}
+              linePanel={linePanel}
               retranscribe={queue.retranscribe}
               searchHit={searching}
               jumped={jumpedId === l.id}
@@ -543,6 +553,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         />
         <ShortcutSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
       </div>
+      {linePanel && active && lineDock && (
+        <ThisLineDock dock={lineDock} dramaId={dramaId} line={active} sound={mediaKind === 'audio'} player={player} reloads={reloads}
+                      sourceLanguage={sourceLanguage} onShowLine={actions.showOnPage} />
+      )}
       {sideVideo && (
         <aside className="card review-watch" aria-label="Video with subtitles">
           <h2 className="card-title">Video with subtitles</h2>

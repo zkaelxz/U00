@@ -1,4 +1,4 @@
-import { GLOSSARY_SENTENCE, seedCheckLines, seedLines } from './compareSelectedHelpers'
+import { GLOSSARY_SENTENCE, mockPeaks, seedCheckLines, seedLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 import type { Page } from '@playwright/test'
@@ -367,8 +367,13 @@ test.describe('the check queue', () => {
     await expect(card(page, 24).locator('.review-queue-label')).toHaveText('English')
     const box = card(page, 24).getByTestId('line-en')
     expect(await box.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
+    // Edit details and Dismiss flag are in the card's More sheet (and on D and F), not its row.
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Open glossary', 'Improve translation', 'Edit details', 'Dismiss flag', 'Looks right, next'])
+      .toHaveText(['Open glossary', 'Improve translation', 'See the lines around it', 'Looks right, next'])
+    await card(page, 24).getByRole('button', { name: 'More actions for line 24' }).click()
+    for (const name of ['Edit details', 'Dismiss flag']) await expect(page.getByRole('dialog').getByRole('button', { name, exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
     const done = card(page, 24).getByRole('button', { name: 'Looks right, next' })
     const [fill, ok] = await done.evaluate((el) => {
       const probe = document.createElement('span')
@@ -591,5 +596,109 @@ test.describe('the check queue', () => {
     const add = page.getByRole('link', { name: 'Add media', exact: true })
     await expect(add).toHaveCount(1)
     await expect(add).toHaveClass(/btn-primary/)
+  })
+
+  test('on an audio title the player folds away and This line sits beside the cards, as drawn', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    // No player between the switch row and the first card.
+    const player = page.getByRole('group', { name: 'Player' })
+    await expect(player).toBeHidden()
+    await expect(page.getByRole('button', { name: /Show waveform|Hide waveform/ })).toBeHidden()
+    const toolbar = (await page.locator('.review-toolbar').boundingBox())!
+    const first = (await page.locator('.review-line').first().boundingBox())!
+    expect(first.y - (toolbar.y + toolbar.height), 'the first card sits right under the switch row').toBeLessThanOrEqual(16)
+    expect(first.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height)
+    // The open card is drawn as in the picture: no tick box, a short reason, and its four buttons.
+    await expect(card(page, 24).locator('.review-select')).toBeHidden()
+    await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
+      .toHaveText(['▶ Play', 'Open glossary', 'Improve translation', 'Looks right, next'])
+
+    // This line is the open tab, with the sound, the reason and the lines around it.
+    const lineTab = page.getByRole('tab', { name: 'This line' })
+    await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab').first()).toHaveText('This line')
+    await expect(lineTab).toHaveAttribute('aria-selected', 'true')
+    const panel = page.getByTestId('this-line')
+    await expect(panel.getByRole('heading')).toHaveText(['Line 24 sound', 'Why it is listed', 'Around it'])
+    await expect(panel.getByTestId('this-line-wave')).toBeVisible()
+    await expect(panel.getByTestId('this-line-why')).toHaveText(GLOSSARY_SENTENCE)
+    await expect(panel.getByRole('link', { name: 'Open glossary' })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    // #24 is the last line: the line before it and itself.
+    await expect(panel.getByTestId('this-line-around').locator('.this-line-near-idx')).toHaveText(['#23', '#24'])
+    expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.tools.tab.3'))).toBeNull()
+    await panel.getByRole('button', { name: '▶ Play' }).click()
+    await expect.poll(() => page.locator('audio').evaluate((a: HTMLAudioElement) => !a.paused)).toBe(true)
+    await page.keyboard.press('Alt+Space')
+
+    // Another tab is remembered as before; All takes This line away, and Need a look brings it back open.
+    await page.getByRole('tab', { name: 'Look for problems' }).click()
+    await expect(lineTab).toHaveAttribute('aria-selected', 'false')
+    expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.tools.tab.3'))).toBe('"problems"')
+    await allRadio(page).check({ force: true })
+    await expect(lineTab).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: 'Look for problems' })).toHaveAttribute('aria-selected', 'true')
+    await expect(player).toBeVisible()
+    await queueRadio(page).check({ force: true })
+    await expect(lineTab).toHaveAttribute('aria-selected', 'true')
+    await expect(player).toBeHidden()
+
+    // The Player button brings the strip and the waveform back, and is remembered.
+    const toggle = page.locator('.review-queue-row').getByRole('button', { name: 'Player', exact: true })
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(toggle).toHaveAttribute('title', 'Seek bar, speed, subtitles and the waveform')
+    await toggle.click()
+    await expect(player).toBeVisible()
+    await expect(page.getByRole('button', { name: /Show waveform|Hide waveform/ })).toBeVisible()
+    await page.reload()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(player).toBeVisible()
+    await toggle.click()
+    await expect(player).toBeHidden()
+
+    // A neighbour opens all lines on that line.
+    await card(page, 7).locator('.review-zh').click()
+    await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
+    await expect(panel.getByTestId('this-line-around').locator('.this-line-near-idx')).toHaveText(['#6', '#7', '#8'])
+    await expect(panel.getByTestId('this-line-why')).toHaveText('Whisper was unsure of this line (50% sure)')
+    await panel.getByRole('button', { name: /^#6 / }).click()
+    await expect(allRadio(page)).toBeChecked()
+    await expect(card(page, 6)).toHaveAttribute('aria-current', 'true')
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('without peaks the sound card keeps Play and the times, with no picture and no error', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page, true)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const panel = page.getByTestId('this-line')
+    await expect(panel.getByRole('heading', { name: 'Line 24 sound' })).toBeVisible()
+    await expect(panel.getByRole('button', { name: '▶ Play' })).toBeVisible()
+    await expect(panel).toContainText('0:46.00')
+    await expect(panel.getByTestId('this-line-wave')).toHaveCount(0)
+    await expect(panel.getByRole('alert')).toHaveCount(0)
+  })
+
+  test('narrower than 1400px there is no This line: the open card says it all and offers the lines around it', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page)
+    await page.setViewportSize({ width: 1100, height: 800 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await expect(page.getByRole('tab', { name: 'This line' })).toHaveCount(0)
+    await expect(card(page, 24).getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
+    await expect(card(page, 24).getByRole('button', { name: 'See the lines around it' })).toBeVisible()
+    // A closed card is one row: its number, source, English and reason chip share a line.
+    const closed = card(page, 12)
+    const tops = await Promise.all(['.review-idx', '.review-zh', '[data-testid="line-en"]', '[data-testid="queue-reason"]'].map(async (sel) => (await closed.locator(sel).boundingBox())!.y))
+    expect(Math.max(...tops) - Math.min(...tops), `the closed card's parts' tops ${tops}`).toBeLessThan(12)
+    await expectNoSidewaysScroll(page)
   })
 })

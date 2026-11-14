@@ -1,16 +1,19 @@
 /** The check queue's part of the Review line list: the view it opens on, the rows it shows, and the switch, footer and Undo around them. */
-import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { useRoute } from '../../../../router'
 import { useCheckLead, useCheckSignal } from '../../StageContext'
-import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch } from './CheckQueue'
+import { useMediaQuery } from '../../../../hooks/useMediaQuery'
+import { usePersistedState } from '../../../../hooks/usePersistedState'
+import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch, QueueMediaToggle } from './CheckQueue'
 import { initialLinesFilter, nextText, positionText, QUEUE_FILTER, queueCounts } from './checkQueueModel'
 import type { LinesController, LinesState, Pending } from './linesController'
 import { PAGE_SIZE } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { retranscribeMenuState } from './retranscribeLogic'
+import { TOOLS_BESIDE_LINES } from './reviewToolsTabs'
 import { useUndoOffer } from './undoOffer'
 
 /** The view the line list opens on: the check queue in Simple, unless the link names lines (initialLinesFilter). */
@@ -43,6 +46,8 @@ interface Deps {
   changeFilter: (f: LineFilter) => Promise<void>
   onChanged: () => void
   setError: (e: unknown) => void
+  // The Player toggle of an audio title, placed by the queue: in its switch row, or under the card on a phone.
+  mediaToggle?: ReactNode
 }
 
 export function useCheckQueue(d: Deps) {
@@ -96,6 +101,8 @@ export function useCheckQueue(d: Deps) {
     [on, d.canRetranscribeLine, d.jobRunning, needReason],
   )
   const counts = d.data ? queueCounts(d.data, d.allTotal) : null
+  // An empty queue has no card to make room for, and the waveform holds Transcribe this gap: the player stays out.
+  const foldsMedia = on && !(d.dataFilter === QUEUE_FILTER && d.data?.total === 0)
   const cardOnly = on && d.isPhone
   const position = cardOnly && d.data ? positionText(d.shown, d.activeId, d.page, PAGE_SIZE, d.data.total) : null
   const upNext = cardOnly ? nextText(d.shown, d.activeId) : null
@@ -114,12 +121,14 @@ export function useCheckQueue(d: Deps) {
       <CheckQueueSwitch queue={on} counts={counts} showFine={!(cardOnly && (counts?.risk ?? 0) > 0)} onPick={(q) => void d.changeFilter(q ? QUEUE_FILTER : 'all')} />
       {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
       {position && <p className="check-queue-position" data-testid="queue-position">{position}</p>}
+      {foldsMedia && !d.isPhone && d.mediaToggle}
     </>
   ) : undefined
   // Just after the switch is pressed, `data` is still the page of the view before: the footer waits for the queue's own.
   const after: ReactNode = on && d.data && counts && d.dataFilter === QUEUE_FILTER ? (
     <>
       {upNext && <p className="muted check-queue-next">{upNext}</p>}
+      {foldsMedia && d.isPhone && d.mediaToggle}
       <CheckQueueFooter
         dramaId={dramaId}
         queuePage={d.data}
@@ -135,6 +144,9 @@ export function useCheckQueue(d: Deps) {
 
   return {
     on,
+    // The queue's own page is on screen (just after the switch is pressed, `data` is still the view before).
+    ready: on && d.dataFilter === QUEUE_FILTER,
+    foldsMedia,
     // A phone shows one card at a time.
     rows: cardOnly ? d.shown.filter((l) => l.id === d.activeId) : d.shown,
     toolbar: { lead, bare: on },
@@ -142,4 +154,47 @@ export function useCheckQueue(d: Deps) {
     after,
     bar: (line: ReviewLine) => (on ? { onSkip: skip, onLooksRight: () => ctl.actions.reviewAndNext(line.id) } : undefined),
   }
+}
+
+/**
+ * The queue folds an audio title's player away until its Player button asks for it (remembered per viewer); the
+ * player's own Show player and Show waveform choices stay as they are. `folds` is whether it would be folded in the queue.
+ */
+export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefObject<HTMLElement | null>) {
+  const [open, setOpen] = usePersistedState('review.queue.media', false)
+  // Set by the phone's Player button, which sits under the card: the player opens above it, out of sight.
+  const reveal = useRef(false)
+  useEffect(() => {
+    if (!reveal.current || !open) return
+    reveal.current = false
+    const section = sectionRef.current
+    if (!section) return
+    // A section that starts in the first screen goes to the very top: a phone scrolled past the collapse point keeps the
+    // toolbar collapsed (no player strip) until it is back near the top.
+    const top = section.getBoundingClientRect().top + window.scrollY
+    window.scrollTo({ top: top < window.innerHeight ? 0 : top })
+  }, [open, sectionRef])
+  const toggle = audio ? (
+    <QueueMediaToggle
+      open={open}
+      onToggle={() => {
+        reveal.current = isPhone && !open
+        setOpen(!open)
+      }}
+    />
+  ) : null
+  return { toggle, folds: audio && !open }
+}
+
+/**
+ * Reports the queue to the stage, and whether its open card gets the This line tab (the tools beside the lines);
+ * true once the tab's dock is there to draw into.
+ */
+export function useLineTab(queue: { on: boolean; ready: boolean }, cardOpen: boolean, dock: HTMLElement | null,
+  onQueue?: (on: boolean) => void, onLineTab?: (shown: boolean) => void): boolean {
+  const beside = useMediaQuery(TOOLS_BESIDE_LINES)
+  const tab = queue.ready && beside && cardOpen
+  useEffect(() => onQueue?.(queue.on), [queue.on, onQueue])
+  useEffect(() => onLineTab?.(tab), [tab, onLineTab])
+  return tab && dock !== null
 }

@@ -28,6 +28,12 @@ export function confidenceReason(line: Pick<ReviewLine, 'flag' | 'confidence'>):
   return `Whisper was unsure of this line (${Math.round(line.confidence * 100)}% sure)`
 }
 
+/** The sentence added after a flagged line's reason when Whisper's score would have listed it too; null otherwise. */
+export function alsoUnsureText(line: Pick<ReviewLine, 'flag' | 'confidence'>): string | null {
+  if (!line.flag || line.confidence == null || line.confidence >= RISK_CONFIDENCE_BELOW) return null
+  return `Whisper was also unsure of this line (${Math.round(line.confidence * 100)}% sure).`
+}
+
 /** The flag as the line list has always written it: "Content blocked · gemini: SAFETY". */
 export function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
   return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
@@ -456,3 +462,16 @@ export function markRestBlocker(queuePage: ReviewLinesPage, jobRunning: boolean)
 }
 
 export const checkedText = (line: Pick<ReviewLine, 'idx'>) => `Line #${lineNumber(line.idx)} marked checked.`
+
+/** The lines either side of an open card in the title's own order; null where the title starts or ends. */
+export interface Around {
+  before: ReviewLine | null
+  after: ReviewLine | null
+}
+
+/** The lines before and after `id` from the All view's page holding it and, at its edges, the pages either side. */
+export function aroundFrom(page: ReviewLine[], id: number, prevLast: ReviewLine | null, nextFirst: ReviewLine | null): Around | null {
+  const at = page.findIndex((l) => l.id === id)
+  if (at === -1) return null
+  return { before: page[at - 1] ?? prevLast, after: page[at + 1] ?? nextFirst }
+}

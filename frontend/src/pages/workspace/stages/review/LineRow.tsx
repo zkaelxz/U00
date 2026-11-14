@@ -134,6 +134,8 @@ interface Props {
   queue?: boolean
   // Whether a queue card can offer Re-transcribe now, with the line menu's reason when it can't.
   retranscribe?: RetranscribeState | null
+  // The This line panel beside the queue shows the open card's reason in full and the lines around it.
+  linePanel?: boolean
   searchHit?: boolean
   // Just jumped to from a search result: briefly highlighted.
   jumped?: boolean
@@ -370,12 +372,12 @@ function ImproveButton({ line, ai, actions }: { line: ReviewLine; ai: PanelMode 
   )
 }
 
-// The open queue card's buttons on a wide screen: Play, the action that fits the reason, the usual line tools, and the
-// one finishing step pushed to the far end.
-function QueueTools({ line, hasMedia, ai, details, fit, actions, ...fitProps }: FitProps & {
+// The open queue card's buttons on a wide screen: Play, the action that fits the reason, Improve, and the one
+// finishing step pushed to the far end. Edit details, a second Snap to speech and Dismiss flag stay in More and on D and F.
+function QueueTools({ line, hasMedia, ai, linePanel, fit, actions, ...fitProps }: FitProps & {
   hasMedia: boolean
   ai: PanelMode | null
-  details: boolean
+  linePanel: boolean
 }) {
   return (
     <div className="review-tools review-queue-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
@@ -386,24 +388,10 @@ function QueueTools({ line, hasMedia, ai, details, fit, actions, ...fitProps }: 
       )}
       <FitAction line={line} fit={fit} actions={actions} {...fitProps} />
       <ImproveButton line={line} ai={ai} actions={actions} />
-      <button type="button" className={buttonClass('secondary', 'sm')} aria-expanded={details} onClick={() => actions.toggleDetails(line.id)} title="Timing, speaker, source (D)">
-        Edit details
-      </button>
-      {fit !== 'snap' && fitProps.timingSnap && actions.snapToSpeech && (
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(line.id)}
-                title={`Set ${formatTime(fitProps.timingSnap.new_start)} – ${formatTime(fitProps.timingSnap.new_end)}; saves a history snapshot first`}>
-          Snap to speech
-        </button>
-      )}
+      {!linePanel && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>}
       {line.reviewed && (
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={!line.en} aria-pressed onClick={() => actions.setReviewed(line.id, false)} title="Mark unchecked (R)">
           Checked
-        </button>
-      )}
-      {line.flag && fit !== 'keep' && (
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.dismissFlag(line.id)}
-                title={isSourceChanged(line) ? 'Keep this English for the new source text (F)' : 'Dismiss flag (F)'}>
-          {isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}
         </button>
       )}
       {!line.reviewed && (
@@ -476,7 +464,7 @@ function LineEnglish({ line, draft, discardWarning, isPhone, active, actions, on
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, simple = false, queue = false, retranscribe = null, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, simple = false, queue = false, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -574,8 +562,8 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           </>
         )}
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
-        {/* The open card says the whole sentence; a closed one keeps to a few words, so the list stays one glance per line. */}
-        {reason && !isPhone && <span className="review-queue-reason" data-testid="queue-reason">{active ? reason.text : reason.short}</span>}
+        {/* The open card says the whole sentence, unless the This line panel beside it does; a closed one keeps to a few words, so the list stays one glance per line. */}
+        {reason && !isPhone && <span className="review-queue-reason" data-testid="queue-reason">{active && !linePanel ? reason.text : reason.short}</span>}
         {line.flag && isPhone && !queue && (
           <span className="review-flag" data-testid="line-flag">
             <span aria-hidden="true">⚑</span>
@@ -657,7 +645,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         </div>
       )}
 
-      {card && !isPhone && <QueueTools hasMedia={hasMedia} ai={ai} details={!!edit?.details} {...fitProps} />}
+      {card && !isPhone && <QueueTools hasMedia={hasMedia} ai={ai} linePanel={linePanel} {...fitProps} />}
       {active && !isPhone && !queue && (
         <div className="review-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
           {hasMedia && (
