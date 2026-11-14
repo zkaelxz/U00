@@ -115,7 +115,7 @@ def test_a_two_line_balloon_with_a_step_between_the_lines_is_still_a_fade():
     page = np.full((100, 160, 3), 255, np.uint8)
     page[20:40, 40:120] = (160, 100, 50)
     page[60:80, 40:120] = (110, 70, 40)
-    assert scanlate_render.sampled_ink_fade(page, BOX) is not None
+    assert scanlate_render.sampled_ink_fade(page, {"x": 20, "y": 10, "w": 120, "h": 80}) is not None
 
 
 def test_the_fade_recolours_the_drawn_lettering_from_top_to_bottom():
