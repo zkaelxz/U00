@@ -3,6 +3,7 @@ import { memo, useEffect, useState, type FocusEvent, type KeyboardEvent, type Mo
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
 import { Badge } from '../../../../components/Badge'
+import { ButtonLink } from '../../../../components/Button'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { HelpTip } from '../../../../components/HelpTip'
@@ -20,6 +21,7 @@ import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
+import { confidenceReason, opensGlossary } from './checkQueueModel'
 import { CONFLICT_MESSAGE, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
@@ -82,6 +84,8 @@ export interface RowActions {
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
   setReviewed: (id: number, reviewed: boolean) => void
+  // The check queue's "Looks right, next": marks the line checked and opens the next card.
+  reviewAndNext: (id: number) => void
   // Shortens a timing-flagged line to the speech the check found (compare-and-set on the server).
   snapToSpeech?: (id: number) => void
   // Starts the title's timing check (the same one as Look for problems > Flag lines for review).
@@ -124,6 +128,8 @@ interface Props {
   // Shown as a search result: offers "Show on its page".
   // Simple view: the meta line and toolbar leave out what a first pass over the lines does not use.
   simple?: boolean
+  // A card of Simple's check queue: its reason is always written out, and Mark checked moves on to the next card.
+  queue?: boolean
   searchHit?: boolean
   // Just jumped to from a search result: briefly highlighted.
   jumped?: boolean
@@ -300,7 +306,46 @@ function WhySplitMerge({ line, ai, jobRunning, limited, reasonId, actions }: {
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, simple = false, searchHit, jumped, focusRetranscribe }: Props) {
+// A queue card's fitting action for a glossary flag: the glossary is where the term or the name gets fixed.
+function GlossaryLink({ dramaId, line }: { dramaId: number; line: ReviewLine }) {
+  if (!opensGlossary(line)) return null
+  return <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Open glossary</ButtonLink>
+}
+
+function LooksRight({ line, actions }: { line: ReviewLine; actions: RowActions }) {
+  return (
+    <button type="button" className={buttonClass('primary', 'sm')} disabled={!line.en} onClick={() => actions.reviewAndNext(line.id)}
+            title="Mark checked and go to the next line (R)">
+      Looks right, next
+    </button>
+  )
+}
+
+// What a queue card adds: why an unflagged line is listed, and on a phone, where the open card has no toolbar,
+// the whole flag text, the way to the lines around it and the fitting action.
+function QueueCardNotes({ dramaId, line, isPhone, active, actions }: {
+  dramaId: number
+  line: ReviewLine
+  isPhone: boolean
+  active: boolean
+  actions: RowActions
+}) {
+  const unsure = confidenceReason(line)
+  return (
+    <>
+      {isPhone && active && line.flag && <FlagNote text={flagText(line)} />}
+      {unsure && (!isPhone || active) && <p className="review-flag-note" data-testid="queue-reason">{unsure}</p>}
+      {isPhone && active && (
+        <div className="review-queue-actions">
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>
+          <GlossaryLink dramaId={dramaId} line={line} />
+        </div>
+      )}
+    </>
+  )
+}
+
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, simple = false, queue = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -416,8 +461,9 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       )}
       {/* A phone's meta line has no room for the number (it would move ⋯ under the tap point), so the active row shows it below. */}
       {!prose && isPhone && active && <LineCps line={line} lineAbove />}
-      {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
-      {isPhone && active && line.flag && (
+      {/* Phones show only ⚑ in the meta line; the active row spells the reason out, in full on a queue card. */}
+      {queue && <QueueCardNotes dramaId={dramaId} line={line} isPhone={isPhone} active={active} actions={actions} />}
+      {isPhone && active && line.flag && !queue && (
         <div className="review-flag review-flag-line">
           <FlagToggle text={`Flagged: ${flagText(line)}`} open={flagOpen} onToggle={setFlagOpen} controls={flagNoteId}>
             Flagged: {flagText(line)}
@@ -522,6 +568,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           >
             {line.en ? 'Improve translation' : 'Improve (needs a translation first)'}
           </button>
+          {queue && <GlossaryLink dramaId={dramaId} line={line} />}
           {!simple && <WhySplitMerge line={line} ai={ai} jobRunning={jobRunning} limited={limited} reasonId={reasonId} actions={actions} />}
           {timingSnap && actions.snapToSpeech && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.snapToSpeech?.(line.id)}
@@ -529,7 +576,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               Snap to speech
             </button>
           )}
-          <button
+          {!(queue && !line.reviewed) && <button
             type="button"
             className={buttonClass('ghost', 'sm')}
             disabled={!line.en}
@@ -538,13 +585,14 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             title={line.reviewed ? 'Mark unchecked (R)' : 'Mark checked (R)'}
           >
             {line.reviewed ? 'Checked' : 'Mark checked'}
-          </button>
+          </button>}
           {line.flag && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)}
                     title={isSourceChanged(line) ? 'Keep this English for the new source text (F)' : 'Dismiss flag (F)'}>
               {isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}
             </button>
           )}
+          {queue && !line.reviewed && <LooksRight line={line} actions={actions} />}
           {simple ? null : jobRunning ? (
             <span className="muted review-reason" id={reasonId}>{JOB_RUNNING_MESSAGE}</span>
           ) : (

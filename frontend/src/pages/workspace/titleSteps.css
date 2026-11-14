@@ -33,3 +33,15 @@
 .title-steps-more > summary { cursor: pointer; list-style: none; width: fit-content; }
 .title-steps-more > summary::-webkit-details-marker { display: none; }
 .title-steps-more-list { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* Simple Review on a phone: the step tiles and the title's controls fold behind one line in the header, marked like a Section fold. */
+.workspace-header.has-steps-fold { flex-wrap: wrap; margin-bottom: var(--space-2); }
+.workspace-header.has-steps-fold h1 { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.steps-fold-toggle { flex: 0 1 auto; min-height: 44px; margin-left: auto; padding-inline: var(--space-3); white-space: normal; text-align: left; font-size: var(--text-sm); font-weight: 600; gap: var(--space-2); }
+.steps-fold-toggle::before { content: '\25B8'; flex: none; color: var(--muted); font-size: 0.85em; }
+.steps-fold-toggle[aria-expanded='true']::before { content: '\25BE'; }
+.steps-fold-body:not([hidden]) { display: grid; gap: var(--space-3); margin-top: var(--space-2); }
+.steps-fold-body .title-steps-bar { margin: 0 0 var(--space-3); }
+.steps-fold-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.steps-fold-controls .title-view-switch { flex: 1 1 10rem; }
+.steps-fold-controls .ws-source-add { display: inline-flex; align-items: center; min-height: 44px; }

@@ -17,7 +17,7 @@ export type Route =
   | { name: 'library-tools'; tab?: LibraryToolsTab }
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
-  // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
+  // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter, "?focus=all" on All lines (Simple opens on its check queue).
   // find: "#/drama/3/review?find=Li%20Wei" opens Review with that text already searched.
   // tools: "#/drama/3/review?tools=problems" opens that group of the Review tools panel.
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
@@ -63,7 +63,7 @@ export type Route =
 // A package key from diagnostics.OPTIONAL_DEPENDENCIES ("audio-separator", "pyannote.audio"): nothing else is read from a link.
 const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 
-export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare'
+export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all'
 
 export const MAX_FIND_LENGTH = 200
 
@@ -174,7 +174,7 @@ export function parseRoute(hash: string): Route {
       name: 'drama',
       id: Number(a),
       stage,
-      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
+      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' || focus === 'all' ? { focus } : {}),
       ...(find && stage === 'review' ? { find } : {}),
       ...(tools ? { tools } : {}),
       ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
