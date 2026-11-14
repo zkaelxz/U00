@@ -437,6 +437,37 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     return True, new_context
 
 
+def _condense_signs(drama_id: int, page_id: int, bubbles: list, engine, engine_name: str,
+                    drama: dict, notes: list) -> None:
+    """Shortens the English of a sign that would be set below the readable size on its band.
+    A page whose picture can't be read, or an answer that can't be used, leaves the full
+    translation as it was; only the stop signals the run lets through are raised."""
+    import scanlate_condense
+    import scanlate_detect
+    import scanlate_render
+    from core import LANGUAGE_NAMES
+    if not any(b.get("kind") == "sign" and b.get("translated_text") for b in bubbles):
+        return
+    try:
+        page = scanlate_detect.decode_page(render_svc.original_path(
+            drama_id, db.get_page(page_id, drama_id=drama_id) or {}))
+        custom_fonts = render_svc._custom_fonts(drama_id)
+        changed = scanlate_condense.condense_long_signs(
+            bubbles, lambda b: scanlate_render.sign_fitted_size(page, b, b["translated_text"], custom_fonts),
+            lambda wanted: scanlate_condense.ask_for_shorter(
+                engine, LANGUAGE_NAMES.get((drama or {}).get("source_language") or "zh", "source-language"),
+                wanted, paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate")))
+    except (HeadroomError, LLMTaskTimeout, TranslateRunStopped, TranslationCancelled,
+            background_jobs.JobCancelled):
+        raise
+    except Exception:
+        return
+    if changed:
+        notes.append(("info", f"{len(changed)} sign text{'s were' if len(changed) > 1 else ' was'} "
+                              "shortened to fit the band it sits on. Edit it in the Review "
+                              "screen to put the full text back."))
+
+
 def _ocr_lost_text(existing: list, notes) -> bool:
     """OCR failed on some regions while the page already holds text (OCR'd,
     hand-corrected or translated): replacing it would blank those regions."""
@@ -612,6 +643,8 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
             bubbles, engine, engine_name, drama, guide[0],
             _translation_context(drama_id, page_id), drama_id, notes, guide[1], chapter_brief,
             page_image=_page_image(drama_id, page_id, engine_name))
+    if translated_ok and bubbles:
+        _condense_signs(drama_id, page_id, bubbles, engine, engine_name, drama, notes)
     ai_seconds = time.monotonic() - ai_started
     if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
         notes.append(("warning", "Redo did not produce a complete result for this page (no "
