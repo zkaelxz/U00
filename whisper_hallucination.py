@@ -73,6 +73,13 @@ LOOP_MIN_PHRASE_RUN_CHARS = 12
 # A limit lowered below the default is the user asking for shorter runs to collapse, so it
 # applies to single characters too.
 DEFAULT_REPEAT_COUNT = 4
+# A loop on silence or music comes out as copies right after one another; the same
+# short reply heard minutes apart ("はい" four times in a scene) is real speech, so a
+# gap longer than this between two copies ends the run.
+REPEAT_MAX_GAP_SEC = 10.0
+# Copies kept only because long gaps split them up: real replies, or a loop over music
+# where each burst came out alone, so they go to review rather than being dropped.
+REPEAT_GAP_NOTE = "check: the same line came back several times with long gaps; check it is real speech"
 REPEAT_MIN_RUN_SINGLE_CHAR = LOOP_MIN_REPEATS_SINGLE_CHAR
 _LOOP_RES = (
     re.compile(r"(.)\1{%d,}" % (LOOP_MIN_REPEATS_SINGLE_CHAR - 1), re.S),
@@ -287,6 +294,15 @@ def _without_phrase_loop(seg):
     return {k: v for k, v in seg.items() if k != "words"} | {"text": text}
 
 
+def _close_in_time(prev, seg) -> bool:
+    """Whether `seg` follows `prev` within REPEAT_MAX_GAP_SEC; True when either has no
+    times (a caller passing bare text pieces keeps the old back-to-back rule)."""
+    try:
+        return seg["start"] - prev["end"] <= REPEAT_MAX_GAP_SEC
+    except (KeyError, TypeError):
+        return True
+
+
 def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEAT_COUNT,
                                  stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                                  drop_lists: bool = True):
@@ -306,8 +322,9 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEA
     parameter.
 
     Collapses a run of `min_repeat_count` or more CONSECUTIVE segments
-    with identical (whitespace-normalized) text down to just the first
-    occurrence, on the assumption real speech repeated verbatim that many
+    with identical (whitespace-normalized) text, each within
+    REPEAT_MAX_GAP_SEC of the one before, down to just the first
+    occurrence (and logs how many copies went), on the assumption real speech repeated verbatim that many
     times back-to-back AS SEPARATE SEGMENTS (not within one segment's own
     text -- quick real repetition like "no no no no" almost always comes
     back as one segment) is far less likely than a hallucination loop.
@@ -339,17 +356,34 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEA
     n = len(segments)
     while i < n:
         norm = _norm(segments[i]["text"])
-        j = i + 1
-        while j < n and norm != "" and _norm(segments[j]["text"]) == norm:
-            j += 1
+        # The whole run of the same text, gaps or not; the gaps then split it.
+        end = i + 1
+        while end < n and norm != "" and _norm(segments[end]["text"]) == norm:
+            end += 1
         # A count under 2 would collapse every ordinary line; it means "off".
         needed = min_repeat_count
         if needed >= DEFAULT_REPEAT_COUNT and len(_CJK_CHAR_RE.findall(segments[i]["text"])) == len(norm) == 1:
             needed = max(needed, REPEAT_MIN_RUN_SINGLE_CHAR)
-        if min_repeat_count >= 2 and (j - i) >= needed:
-            out.append(segments[i])
-        else:
-            out.extend(segments[i:j])
-        i = j
+        loops = min_repeat_count >= 2
+        run_length = end - i
+        kept = []
+        while i < end:
+            j = i + 1
+            while j < end and _close_in_time(segments[j - 1], segments[j]):
+                j += 1
+            if loops and (j - i) >= needed:
+                kept.append(segments[i])
+                # Nothing else says speech was removed, so leave a trace (never the text).
+                import applog
+                applog.get_logger().info(
+                    f"repeat filter: {j - i - 1} copies of one line removed after "
+                    f"{segments[i].get('start', 0):.1f}s (to {segments[j - 1].get('end', 0):.1f}s)")
+            else:
+                kept.extend(segments[i:j])
+            i = j
+        if loops and run_length >= needed and len(kept) > 1:
+            kept = kept[:1] + [seg if seg.get("flag") else {**seg, "flag": IMPLAUSIBLE_FLAG, "flag_note": REPEAT_GAP_NOTE}
+                               for seg in kept[1:]]
+        out.extend(kept)
     kept = [seg for k, seg in enumerate(out) if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)]
     return screen_implausible_text(_flag_invented_text(kept), drop_lists)

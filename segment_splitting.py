@@ -617,12 +617,39 @@ def settle_overlaps(segments: list) -> list:
 # Whisper's word end times stop before the sound does, so the 0.2 s pad of
 # tighten_to_words leaves a typical line cut about 0.3 s short.
 SPEECH_END_MAX_EXTEND = 0.5
+# In busy group talk the detector's span runs straight on into the next voice, so the
+# span end says nothing about where this line's voice stopped. A drop in loudness
+# does. On hand-timed titles, stopping where the audio stays this far below the line's
+# last loud moment for this long halved the ends left running past the voice; a
+# shorter quiet also stopped lines at pauses inside a sentence.
+SPEECH_END_DROP_DB = 15.0
+SPEECH_END_QUIET_S = 0.2
+_SPEECH_END_REF_S = 0.2
 
 
-def extend_ends_to_speech(segments: list, spans, max_extend: float = SPEECH_END_MAX_EXTEND) -> list:
+def _quiet_point(levels, hop_s: float, end: float, limit: float) -> float:
+    """The first time in [end, limit) from which `levels` (dB per hop_s step) stays
+    SPEECH_END_DROP_DB below its loudest in the _SPEECH_END_REF_S before `end`, for
+    SPEECH_END_QUIET_S or until `limit`; `limit` when the audio never goes that quiet."""
+    first = int(round(end / hop_s))
+    last = min(int(limit / hop_s), len(levels))
+    if first >= last:
+        return limit
+    floor = max(levels[max(first - int(round(_SPEECH_END_REF_S / hop_s)), 0):first + 1]) - SPEECH_END_DROP_DB
+    hold = max(1, int(round(SPEECH_END_QUIET_S / hop_s)))
+    for j in range(first, last):
+        if all(v <= floor for v in levels[j:min(j + hold, last)]):
+            return max(end, j * hop_s)
+    return limit
+
+
+def extend_ends_to_speech(segments: list, spans, max_extend: float = SPEECH_END_MAX_EXTEND,
+                          levels=None, levels_hop_s: float = 0.01) -> list:
     """Lengthens each segment's end to where the speech it ends in stops, by at most
     max_extend and never past the next segment's start. `spans` are sorted
-    (start, end) speech spans in seconds; a segment that ends in silence is left alone."""
+    (start, end) speech spans in seconds; a segment that ends in silence is left alone.
+    `levels`, the audio's loudness in dB per levels_hop_s step, stops the growth
+    earlier where the audio goes quiet (see SPEECH_END_DROP_DB)."""
     for i, seg in enumerate(segments):
         end = seg["end"]
         probe = end - 0.1
@@ -631,8 +658,33 @@ def extend_ends_to_speech(segments: list, spans, max_extend: float = SPEECH_END_
             continue
         limit = segments[i + 1]["start"] if i + 1 < len(segments) else float("inf")
         new_end = min(span[1], end + max_extend, limit)
+        if levels is not None and new_end > end:
+            new_end = _quiet_point(levels, levels_hop_s, end, new_end)
         if new_end > end:
             seg["end"] = new_end
+    return segments
+
+
+# Whisper's first word often starts in the silence before the voice: a stream VOD title
+# had a quarter of its lines starting 0.2 s or more early.
+SPEECH_START_MAX_TRIM = 0.5
+
+
+def trim_starts_to_speech(segments: list, spans, max_trim: float = SPEECH_START_MAX_TRIM) -> list:
+    """Moves a segment's start that sits in silence later, to WORD_EDGE_PAD_START before the
+    first speech span that begins inside the segment, by at most max_trim. `spans` are sorted
+    (start, end) speech spans in seconds; a segment that starts in speech, or has no speech
+    span starting inside it, keeps its start."""
+    for seg in segments:
+        start, end = seg["start"], seg["end"]
+        if any(sp[0] <= start < sp[1] for sp in spans):
+            continue
+        span = next((sp for sp in spans if start < sp[0] < end), None)
+        if span is None:
+            continue
+        new_start = min(span[0] - WORD_EDGE_PAD_START, start + max_trim)
+        if new_start > start:
+            seg["start"] = new_start
     return segments
 
 

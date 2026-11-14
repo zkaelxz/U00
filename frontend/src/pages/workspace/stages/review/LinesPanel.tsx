@@ -75,7 +75,8 @@ interface Props {
   onCompareSelected?: () => void
   onRetimeSelected?: () => void
   // Opens the Re-transcribe section; with line ids it starts a run on them.
-  onRetranscribeLines?: (lineIds: number[] | null) => void
+  // fill: the lines are new and blank (a gap, "Add and transcribe"), so what is heard goes straight in.
+  onRetranscribeLines?: (lineIds: number[] | null, fill?: boolean) => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
 
@@ -251,7 +252,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     dramaId, shown, sheetLine, searching, filter, page, activeId, sourceLanguage, undo, selection,
     pending, busyRef, leaveEdit: ctl.leaveEdit, focusTo: ctl.focusTo,
     setBusy, setStructError, setSheetNote, setSheet, setEdit, setAi, setPage, setStatus, setUndo, onChanged,
-    onTranscribeLines: (ids) => onRetranscribeLines?.(ids),
+    onTranscribeLines: (ids) => onRetranscribeLines?.(ids, true),
   })
 
   const { changeFilter, changeSearch, goToLine, goToNumber } = buildLinesNavigation({
@@ -316,7 +317,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     enabled: canRetranscribeLine && mediaKind !== null && !emptyDrama,
     refresh: reloads,
     onChanged,
-    onTranscribe: (ids) => onRetranscribeLines?.(ids),
+    onTranscribe: (ids) => onRetranscribeLines?.(ids, true),
   })
   const { gapFocus, gapIndex, sortedGaps, focusGap, jumpToGap } = useGapFocus({ gaps: gaps.gaps, player, setWaveOpen, setStatus })
   // The read goes in as an unsaved edit of the source text, so the usual Save,
