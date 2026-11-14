@@ -183,3 +183,40 @@ def test_art_boxed_as_a_sign_is_left_unerased_and_its_translation_set_beside_it(
     assert (result[20:140, 20:60] == 120).all()                 # the art is untouched
     assert (result[20:140, 66:140] != 245).any()                # the gloss sits beside it
     assert (result[30:44, 150:230] != 0).any()                 # a real sign is still erased
+
+
+def test_a_wide_caption_strip_is_lettering_even_when_its_mask_covers_the_box():
+    gray = np.full((200, 400), 245, np.uint8)
+    gray[20:60, 20:320] = 120
+    assert not scanlate_inpaint.is_art_mistaken_for_sign(gray, _sign(20, 20, 300, 40))
+
+
+def _gloss_rect(before, after):
+    changed = np.argwhere((before != after).any(axis=2))
+    (top, left), (bottom, right) = changed.min(axis=0), changed.max(axis=0)
+    return left, top, right, bottom
+
+
+def test_a_gloss_keeps_clear_of_other_regions_and_inside_its_panel():
+    from PIL import Image
+    import scanlate_sfx
+    art = {"x": 100, "y": 100, "w": 40, "h": 100, "translated_text": "What's wrong?"}
+    neighbour = {"x": 150, "y": 90, "w": 80, "h": 120}      # the nearest side, taken
+    panel = {"x": 80, "y": 60, "w": 200, "h": 300}
+    blank = np.full((400, 400, 3), 128, np.uint8)
+    img = Image.fromarray(blank.copy())
+    scanlate_sfx.draw_gloss(img, art, avoid=(neighbour,), bounds=panel)
+    left, top, right, bottom = _gloss_rect(blank, np.asarray(img))
+    assert not (left < 230 and right > 150 and top < 210 and bottom > 90)    # clear of the neighbour
+    assert left >= 80 and top >= 60 and right <= 280 and bottom <= 360       # inside the panel
+
+
+def test_a_sound_effect_gloss_with_nothing_to_avoid_goes_to_the_right_as_before():
+    from PIL import Image
+    import scanlate_sfx
+    region = {"x": 100, "y": 100, "w": 40, "h": 100, "translated_text": "Boom"}
+    blank = np.full((400, 400, 3), 128, np.uint8)
+    img = Image.fromarray(blank.copy())
+    scanlate_sfx.draw_gloss(img, region)
+    left, top, _, _ = _gloss_rect(blank, np.asarray(img))
+    assert left >= 140 and top >= 90

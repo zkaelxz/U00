@@ -707,9 +707,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
                          rect_layout, look)
-        for b in bubbles:
-            if scanlate_sfx.is_glossed(b) or any(b is a for a in art_signs):
-                scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
+        _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
         pil_img.save(result_path, "PNG")
         os.replace(result_path, out_path)
     finally:
@@ -776,6 +774,27 @@ def _split_art_signs(page, regions: list):
     gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
     art = [b for b in regions if is_art_mistaken_for_sign(gray, b)]
     return [b for b in regions if not any(b is a for a in art)], art
+
+
+def _draw_glosses(pil_img, page, bubbles: list, art_signs: list, font_path) -> None:
+    """Sets beside each left-as-is sound effect its translation, and the same for each art
+    sign, inside its panel and clear of every other region, whose lettering is still there."""
+    for b in bubbles:
+        if scanlate_sfx.is_glossed(b):
+            scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
+    if not art_signs:
+        return
+    from scanlate_detect import detect_panels
+    from scanlate_regions import _panel_for_box
+    try:
+        panels = detect_panels("", image=page)
+    except ValueError:
+        panels = []
+    for a in art_signs:
+        index = _panel_for_box(a, panels)
+        scanlate_sfx.draw_gloss(pil_img, a, font_path=font_path,
+                                avoid=tuple(b for b in bubbles if b is not a),
+                                bounds=panels[index] if index is not None else None)
 
 
 def _fill_balloon(pil_img, box: dict, mask, share: float) -> None:

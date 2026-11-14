@@ -306,8 +306,11 @@ def is_art_mistaken_for_sign(gray_page, box: dict) -> bool:
     """True when `box`, a guessed sign, is artwork rather than lettering: the
     lettering mask would cover nearly all of it, so erasing would paint the art
     out (a leg became a smear). Only a low-confidence sign is judged; a box the
-    person or the detector was sure of keeps the normal path."""
+    person or the detector was sure of keeps the normal path, and so does a wide
+    strip, which is a caption."""
     if box.get("kind") != "sign" or float(box.get("kind_confidence") or 0.0) > scanlate_tuning.ART_SIGN_MAX_CONFIDENCE:
+        return False
+    if box["w"] > scanlate_tuning.ART_SIGN_MAX_ASPECT * box["h"]:
         return False
     h, w = gray_page.shape[:2]
     x, y = max(0, box["x"]), max(0, box["y"])
