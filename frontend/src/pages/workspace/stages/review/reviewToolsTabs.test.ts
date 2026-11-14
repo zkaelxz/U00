@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { readSectionOpen, writeSectionOpen, type StorageLike } from '../../../../components/sectionStorage'
 import {
-  asReviewToolsGroup, FIRST_CARD, groupOfTool, isReviewToolsGroup, readLastTab, REVIEW_TOOLS, REVIEW_TOOLS_GROUPS, reviewToolsGroupForLink,
-  seedFirstCard, shownGroups, shownTools, writeLastTab, type ReviewTool,
+  asReviewToolsGroup, FIRST_CARD, groupOfTool, isReviewToolsGroup, readAddedTools, readLastTab, REVIEW_TOOLS, REVIEW_TOOLS_GROUPS,
+  reviewToolsGroupForLink, seedFirstCard, shownGroups, shownTools, writeAddedTools, writeLastTab, type ReviewTool,
 } from './reviewToolsTabs'
 
 function memory(): StorageLike {
@@ -72,6 +72,11 @@ describe('Review tools groups', () => {
     expect(shownTools(false)).toEqual(REVIEW_TOOLS)
   })
 
+  it('Simple also shows a tool a button asked for, and the group that holds it', () => {
+    expect(shownTools(true, new Set(['retranscribe'])).filter((t) => t.group === 'change').map((t) => t.id)).toEqual(['fixFlagged', 'retranscribe'])
+    expect(shownGroups(true, new Set(['versionsAndNotes'])).map((g) => g.id)).toEqual(['problems', 'change', 'records', 'finish'])
+  })
+
   it('opens the tools that other parts of Review ask for in their new groups', () => {
     expect(groupOfTool('compareTranscription')).toBe('problems')
     expect(groupOfTool('retime')).toBe('change')
@@ -109,6 +114,20 @@ describe('Review tools groups', () => {
     expect(readLastTab(s, 3)).toBe('records')
     expect(readLastTab(s, 4)).toBe('change')
     expect(readLastTab(s, 5)).toBe('problems')
+  })
+
+  it('remembers the tools a button added for each title, dropping unknown ids and surviving blocked storage', () => {
+    const s = memory()
+    expect(readAddedTools(s, 3)).toEqual(new Set())
+    writeAddedTools(s, 3, new Set(['retranscribe']))
+    expect(readAddedTools(s, 3)).toEqual(new Set(['retranscribe']))
+    expect(readAddedTools(s, 4)).toEqual(new Set())
+    s.setItem('baihe.pref.review.tools.added.5', JSON.stringify(['retime', 'gone']))
+    expect(readAddedTools(s, 5)).toEqual(new Set(['retime']))
+    s.setItem('baihe.pref.review.tools.added.6', JSON.stringify('retime'))
+    expect(readAddedTools(s, 6)).toEqual(new Set())
+    expect(readAddedTools(throwing, 3)).toEqual(new Set())
+    expect(() => writeAddedTools(throwing, 3, new Set(['retranscribe']))).not.toThrow()
   })
 
   it('falls back to Look for problems for an unknown remembered value or blocked storage', () => {

@@ -76,7 +76,9 @@ test('the action appears with the selection bar and goes with it', async ({ page
   await expect(page.getByTestId('selection-bar')).toHaveCount(0)
 })
 
-test('"Transcribe this gap" adds the lines for the gap and re-transcribes them', async ({ page }) => {
+// Simple is what a new audio or video title opens in; its Review leaves out the Re-transcribe section that runs it.
+for (const view of ['full', 'simple'] as const) test(`"Transcribe this gap" adds the lines for the gap and re-transcribes them (${view} view)`, async ({ page }) => {
+  await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 import os, wave, struct, math
@@ -104,7 +106,9 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
     adds.push(route.request().postDataJSON())
     return route.fulfill({ json: { new_line_ids: [901], line_ids: [1, 2, 901, 3], split: 'single', history_id: 5, lines_fingerprint: 'f' } })
   })
-  await page.goto('/#/drama/3/review')
+  // In Simple a link to Look for problems too: adding the tool must not send the open group back to the link's.
+  const review = view === 'simple' ? '/#/drama/3/review?tools=problems' : '/#/drama/3/review'
+  await page.goto(review)
   const button = page.getByTestId('wave-gap-button')
   await expect(button).toBeVisible()
   await expect(button).toHaveAccessibleName(/0:04\.00 – 0:13\.00 \(9 s, speech heard\)/)
@@ -113,6 +117,7 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
   await expect.poll(() => adds).toEqual([{ expected_line_ids: lines.map((l) => l.id), start: 4, end: 13, after_line_id: lines[1].id }])
   const panel = page.getByTestId('retranscribe-lines')
   await expect(panel).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Change many lines' })).toHaveAttribute('aria-selected', 'true')
   await expect.poll(() => seen.starts).toEqual([{ line_ids: [901] }])
   const row = panel.getByTestId('retranscribe-lines-row')
   await expect(row).toContainText('缺失的话')
@@ -121,13 +126,16 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
   expect(seen.applies).toEqual([{ job_id: 'retranscribe_3', items: [{ line_id: 901, expected_zh: '', expected_proposed: '缺失的话' }] }])
 })
 
-test('the proposals are still there after leaving Review and coming back', async ({ page }) => {
+// Simple shows Re-transcribe only after a button asked for it; it keeps it for the title, so the run stays reachable.
+for (const view of ['full', 'simple'] as const) test(`the proposals are still there after leaving Review and coming back (${view} view)`, async ({ page }) => {
+  await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
   const ids = seedLines(6)
   const seen = await mockRetranscribeLines(page, [
     { line_id: ids[1], number: 2, base_zh: '第1句', proposed_zh: '第一句话', had_english: true },
     { line_id: ids[2], number: 3, base_zh: '第2句', proposed_zh: '第二句话', had_english: true },
   ])
-  await page.goto('/#/drama/3/review')
+  // Simple opens Review on the lines that need a look, and none of these do: the lines to tick are under All.
+  await page.goto(view === 'simple' ? '/#/drama/3/review?focus=all' : '/#/drama/3/review')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(6)
   for (const n of [2, 3]) await tickBox(page, n).check()
   await action(page).click()
