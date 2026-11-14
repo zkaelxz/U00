@@ -1,12 +1,9 @@
-/*
- * The top of an audio or video title's Simple pages: the header with the title's controls, one row of step links and the one main button.
- * On a phone the steps and the controls fold behind one "Step N of 5" button so the page's own content starts high.
- */
+/** The top of an audio or video title's Simple pages: the header with the title's controls, the step links and the one main button. */
+// On a phone the steps and the controls fold behind one "Step N of 5" button so the page's own content starts high.
 import { useId, useState, type ReactNode } from 'react'
 
 import { openDramaFolder } from '../../api/library'
 import type { DramaDetail } from '../../api/types'
-import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { buttonClass } from '../../components/uiClasses'
@@ -149,13 +146,11 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
           <span aria-hidden="true">‹</span>
           <span className="ws-back-text" aria-hidden="true">{back.text}</span>
         </ButtonLink>
-        <h1 data-testid="drama-title" title={title}>{title}</h1>
-        {/* A phone's header keeps its one line for the title and the steps button. */}
-        {badge && !phone && (
-          <div className="ws-badges">
-            <Badge>{kindBadgeText(drama.media_type, drama.source_language)}</Badge>
-          </div>
-        )}
+        <div className="title-top-name">
+          <h1 data-testid="drama-title" title={title}>{title}</h1>
+          {/* Under the name, not beside it, so the controls fit on the name's row; a phone's header leaves it out. */}
+          {badge && !phone && <p className="title-top-kind" data-testid="title-kind">{kindBadgeText(drama.media_type, drama.source_language)}</p>}
+        </div>
         <JobPill dramaId={id} onFinished={onJobFinished} />
         {phone ? (
           <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => setFoldOpen((o) => !o)}>

@@ -52,6 +52,8 @@ interface Props {
   lead?: ReactNode
   // The check queue: only that switch and the player; the chips, search and extras are under All.
   bare?: boolean
+  // A phone's extra control at the end of the row More opens.
+  more?: ReactNode
 }
 
 // The shaky and risk chips only appear for a title that has lines they would list, so other titles keep the four chips a phone's row fits.
@@ -191,11 +193,16 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
     </div>
   )
 
+  const replace = (
+    <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
+      Replace…
+    </button>
+  )
+  // Simple's wide toolbar has nothing else for the extras row, so Replace… ends the filter row and the lines start higher.
+  const replaceInRow = simple && !p.isPhone
   const extras = (
     <div className="review-toolbar-row review-extras">
-      <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
-        Replace…
-      </button>
+      {replace}
       {!simple && <button type="button" className={buttonClass('ghost', 'sm')} aria-pressed={p.compact} onClick={() => p.onCompact(!p.compact)}>
         Compact rows
       </button>}
@@ -215,6 +222,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
       {!simple && <button type="button" className={buttonClass('ghost', 'sm')} aria-haspopup="dialog" onClick={p.onKeys}>
         Shortcuts
       </button>}
+      {p.isPhone && p.more}
     </div>
   )
   const count =
@@ -229,7 +237,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   // Phones: Search and More are buttons on the chip row; each opens its own
   // row inside the toolbar box.
   return (
-    <div className={p.collapsed ? 'review-toolbar is-collapsed' : 'review-toolbar'}>
+    <div className={['review-toolbar', p.collapsed && 'is-collapsed', replaceInRow && 'has-replace-in-row'].filter(Boolean).join(' ')}>
       {p.lead && <div className="review-toolbar-row review-queue-row">{p.lead}</div>}
       {!p.bare && <div className="review-toolbar-row">
         {chips}
@@ -271,6 +279,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
         )}
         {!p.isPhone && searchBox}
         {!p.isPhone && count}
+        {replaceInRow && replace}
         {p.showPager && <Pager page={p.page} pages={p.pages} onPage={p.onPage} labelled />}
       </div>}
       {!p.bare && p.isPhone && showSearch && (
@@ -279,7 +288,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
           {count}
         </div>
       )}
-      {!p.bare && (!p.isPhone || moreOpen) && extras}
+      {!p.bare && (p.isPhone ? moreOpen : !replaceInRow) && extras}
       {p.player}
     </div>
   )

@@ -43,6 +43,8 @@ export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
     page, pages, searching, limited, active, edit, ai, setAi, setKeysOpen, setStatus, queue = false,
   } = deps
   const toggleFocusedRow = (target: HTMLElement) => {
+    // A queue card has no tick box, so a tick there would fill the selection bar with nothing to see ticked.
+    if (queue) return false
     const id = target.matches?.('.review-line') ? Number(target.getAttribute('data-line-id')) : NaN
     if (Number.isNaN(id)) return false
     selection.toggle(id)

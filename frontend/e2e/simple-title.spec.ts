@@ -1,4 +1,4 @@
-import { GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines, seedLines } from './compareSelectedHelpers'
+import { clearCheckLines, GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines, seedLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 import type { Page } from '@playwright/test'
@@ -376,11 +376,11 @@ test.describe('the check queue', () => {
     // The open card says why in a plain sentence; the closed ones in a few words, as a chip in their meta line.
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
-    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure')
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure (50% sure)')
     await expect(card(page, 12).getByTestId('queue-reason')).toHaveText('Fast to read, 25 characters a second')
     await expect(page.locator('.review-line').getByTestId('line-flag')).toHaveCount(0)
     await expect(card(page, 24).getByRole('link', { name: 'Open glossary' })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
-    // The English under its label, boxed like a field; the buttons in the drawing's order, with the green finishing step last.
+    // The English under its label, boxed like a field; the fitting action first, with the green finishing step last.
     await expect(card(page, 24).locator('.review-queue-label')).toHaveText('English')
     const box = card(page, 24).getByTestId('line-en')
     expect(await box.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
@@ -623,7 +623,7 @@ test.describe('the check queue', () => {
     await expect(add).toHaveClass(/btn-primary/)
   })
 
-  test('on an audio title the player folds away and This line sits beside the cards, as drawn', async ({ page }) => {
+  test('on an audio title the player folds away and This line sits beside the cards', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -638,7 +638,7 @@ test.describe('the check queue', () => {
     const first = (await page.locator('.review-line').first().boundingBox())!
     expect(first.y - (toolbar.y + toolbar.height), 'the first card sits right under the switch row').toBeLessThanOrEqual(16)
     expect(first.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height)
-    // The open card is drawn as in the picture: no tick box, a short reason, and its four buttons.
+    // The open card: no tick box, a short reason (the panel has the rest), and its four buttons.
     await expect(card(page, 24).locator('.review-select')).toBeHidden()
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
@@ -660,14 +660,15 @@ test.describe('the check queue', () => {
     await expect.poll(() => page.locator('audio').evaluate((a: HTMLAudioElement) => !a.paused)).toBe(true)
     await page.keyboard.press('Alt+Space')
 
-    // Another tab is remembered as before; All takes This line away, and Need a look brings it back open.
+    // Another tab is remembered as before; All takes This line away (the player stays folded there too), and Need a
+    // look brings it back open.
     await page.getByRole('tab', { name: 'Look for problems' }).click()
     await expect(lineTab).toHaveAttribute('aria-selected', 'false')
     expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.tools.tab.3'))).toBe('"problems"')
     await allRadio(page).check({ force: true })
     await expect(lineTab).toHaveCount(0)
     await expect(page.getByRole('tab', { name: 'Look for problems' })).toHaveAttribute('aria-selected', 'true')
-    await expect(player).toBeVisible()
+    await expect(player).toBeHidden()
     await queueRadio(page).check({ force: true })
     await expect(lineTab).toHaveAttribute('aria-selected', 'true')
     await expect(player).toBeHidden()
@@ -731,7 +732,7 @@ test.describe('the check queue', () => {
   // (on a phone) where the main button sits may differ.
   const address = (path: string) => new RegExp(`${path.replace(/\//g, '\\/')}$`)
 
-  test('with lines that need a look, the title page is the check queue as drawn, and Review shows the same page', async ({ page }) => {
+  test('with lines that need a look, the title page is the check queue, and Review shows the same page', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -743,7 +744,7 @@ test.describe('the check queue', () => {
       const back = page.getByRole('link', { name: 'Back to Library' })
       await expect(back).toHaveAttribute('href', '#/library')
       await expect(back).toHaveText('‹Library')
-      await expect(page.locator('.workspace-header .ws-badges')).toHaveText(/^Video drama · .+ to English$/)
+      await expect(page.locator('.workspace-header').getByTestId('title-kind')).toHaveText('Video drama · Korean to English')
       // The main button is drawn once, as the first thing in the Need a look row.
       const main = page.getByRole('button', { name: 'Check the 3 lines', exact: true })
       await expect(main).toHaveCount(1)
@@ -835,6 +836,195 @@ test.describe('the check queue', () => {
     expect(await before!.evaluate((el) => el.isConnected && el.textContent), 'the same button, still on the page').toBe('Transcribe and translate')
   })
 
+  // The closed cards of the queue on a wide screen: what tells the lines apart, with the room going to the texts.
+  test('a closed card gives its source and English the room: no speaker or badges until it opens, the chip narrow, nothing cut', async ({ page }) => {
+    seedCheckLines({ audio: true, real: true })
+    await mockPeaks(page)
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    const closed = card(page, 12)
+    const [zh, en, chip] = [closed.locator('.review-zh'), closed.getByTestId('line-en'), closed.getByTestId('queue-reason')]
+    for (const width of [1100, 1280, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 900 })
+      for (const [what, loc] of [['source', zh], ['English', en]] as const) {
+        expect((await loc.boundingBox())!.width, `the ${what} column at ${width}px`).toBeGreaterThanOrEqual(150)
+      }
+      const enLines = await en.evaluate((el) => {
+        const r = document.createRange()
+        r.selectNodeContents(el)
+        return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size
+      })
+      expect(enLines, `the English's lines at ${width}px`).toBeLessThanOrEqual(4)
+      const tops = await Promise.all([closed.locator('.review-idx'), zh, en, chip].map(async (loc) => (await loc.boundingBox())!.y))
+      expect(Math.max(...tops) - Math.min(...tops), `the closed card's parts' tops at ${width}px: ${tops}`).toBeLessThan(12)
+      for (const [what, loc] of [['source', zh], ['English', en], ['chip', chip]] as const) {
+        expect(await loc.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `the ${what} is not cut at ${width}px`).toBe(true)
+      }
+      await expect(chip).toHaveText('Fast to read, 25 characters a second')
+      await expect(closed.locator('.review-speaker')).toBeHidden()
+      await expect(closed.getByTestId('line-cps')).toBeHidden()
+      await expect(closed.getByText(/^Shaky/)).toBeHidden()
+      await expect(card(page, 24).locator('.review-speaker')).toHaveText('Wei Wuxian')
+    }
+    // The line only Whisper doubted keeps its score in the few words, as its badge is not shown.
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure (50% sure)')
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('without This line the open card\'s whole sentence takes its own line, and the speaker keeps whole words', async ({ page }) => {
+    seedCheckLines({ audio: true, real: true })
+    await mockPeaks(page)
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const open = card(page, 24)
+    await expect(open).toHaveAttribute('aria-current', 'true')
+    for (const width of [1100, 1280]) {
+      await page.setViewportSize({ width, height: 900 })
+      const speaker = open.locator('.review-speaker')
+      await expect(speaker).toHaveText('Wei Wuxian')
+      const speakerLines = await speaker.evaluate((el) => {
+        const r = document.createRange()
+        r.selectNodeContents(el)
+        return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size
+      })
+      expect(speakerLines, `the speaker's lines at ${width}px`).toBe(1)
+      const sentence = open.getByTestId('queue-reason')
+      await expect(sentence).toHaveText(GLOSSARY_SENTENCE)
+      const [meta, s, box, more] = await Promise.all([open.locator('.review-line-meta'), sentence, open, open.getByRole('button', { name: 'More actions for line 24' })].map(async (l) => (await l.boundingBox())!))
+      expect(s.y, `the sentence starts under the top line at ${width}px`).toBeGreaterThanOrEqual(meta.y + meta.height - 1)
+      expect(s.width, `the sentence spans the card at ${width}px`).toBeGreaterThan(box.width * 0.85)
+      expect(more.y + more.height, `More stays on the top line at ${width}px`).toBeLessThanOrEqual(meta.y + meta.height + 1)
+      expect(box.x + box.width - (more.x + more.width), `More stays at the right at ${width}px`).toBeLessThan(40)
+    }
+  })
+
+  test('picking another tools tab gives the open card its whole sentence and the lines around it; This line takes them back', async ({ page }) => {
+    seedCheckLines({ audio: true, real: true })
+    await mockPeaks(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const open = card(page, 24)
+    await expect(page.getByRole('tab', { name: 'This line' })).toHaveAttribute('aria-selected', 'true')
+    await expect(open.getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(open.getByRole('button', { name: 'See the lines around it' })).toHaveCount(0)
+    await page.getByRole('tab', { name: 'Look for problems' }).click()
+    await expect(open.getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
+    await expect(open.getByRole('button', { name: 'See the lines around it' })).toBeVisible()
+    // The hidden panel is not drawn at all, so nothing in it runs.
+    await expect(page.getByTestId('this-line')).toHaveCount(0)
+    await page.getByRole('tab', { name: 'This line' }).click()
+    await expect(open.getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(open.getByRole('button', { name: 'See the lines around it' })).toHaveCount(0)
+    await expect(page.getByTestId('this-line')).toBeVisible()
+  })
+
+  test('D opens the open card\'s details, F dismisses its flag and the card leaves; F does nothing on a line only Whisper doubted', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const open = card(page, 24)
+    await expect(open).toHaveAttribute('aria-current', 'true')
+    await open.locator('.review-line-meta').click()
+    await open.focus()
+    await page.keyboard.press('d')
+    await expect(open.getByLabel('Sound cue (no dialogue)')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await open.focus()
+    await page.keyboard.press('f')
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#7', '#12'])
+    const saved = await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=40&only=all')).json()
+    expect(saved.lines[23]).toMatchObject({ flag: null, reviewed: false })
+    // #7 has no flag to dismiss: F leaves it listed.
+    await card(page, 7).locator('.review-line-meta').click()
+    await card(page, 7).focus()
+    await page.keyboard.press('f')
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#7', '#12'])
+    await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
+  })
+
+  test('Space and Shift+Space never tick a queue card, which has no tick box; under All, Shift+Space still ticks', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const open = card(page, 24)
+    await open.locator('.review-line-meta').click()
+    await open.focus()
+    await page.keyboard.press(' ')
+    await page.keyboard.press('Shift+ ')
+    await expect(page.getByTestId('selection-bar')).toHaveCount(0)
+    await expect(page.getByTestId('selection-count')).toHaveCount(0)
+    // Space on a card with no tick box is the page's own: it scrolled.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await allRadio(page).check({ force: true })
+    await card(page, 5).locator('.review-line-meta').click()
+    await card(page, 5).focus()
+    await page.keyboard.press('Shift+ ')
+    await expect(page.getByTestId('selection-count')).toHaveText('1 selected')
+  })
+
+  test('under All the player is folded too: the lines come first, Player is shared with Need a look, and a failure unfolds it', async ({ page }) => {
+    seedCheckLines({ audio: true, untranslated: true })
+    await mockPeaks(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await expect(allRadio(page)).toBeChecked()
+    const player = page.getByRole('group', { name: 'Player' })
+    await expect(player).toBeHidden()
+    const first = (await page.locator('.review-line').first().boundingBox())!
+    expect(first.y + (await page.evaluate(() => window.scrollY)), 'the first line\'s top').toBeLessThan(420)
+    const toggle = page.locator('.review-queue-row').getByRole('button', { name: 'Player', exact: true })
+    // It names the strip it shows; the strip is hidden, so it is found by its class, not its role.
+    const strip = page.locator('.review-player')
+    await expect(toggle).toHaveAttribute('aria-controls', (await strip.getAttribute('id'))!)
+    await toggle.click()
+    await expect(player).toBeVisible()
+    await page.reload()
+    await expect(allRadio(page)).toBeChecked()
+    await expect(player).toBeVisible()
+    await queueRadio(page).check({ force: true })
+    await expect(player).toBeVisible()
+    await page.locator('.review-queue-row').getByRole('button', { name: 'Player', exact: true }).click()
+    await expect(player).toBeHidden()
+    await allRadio(page).check({ force: true })
+    await expect(player).toBeHidden()
+
+    // The sound fails to load: the player comes out with its error.
+    await page.route('**/api/media/dramas/3/audio', (route) => route.fulfill({ status: 500, body: '' }))
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3')
+    await expect(player.getByRole('alert')).toHaveText(/^Couldn’t play the audio\./)
+    await expect(player).toBeVisible()
+  })
+
+  test.describe('on title 1, with its long name', () => {
+    test.afterAll(() => clearCheckLines(1))
+
+    test('the header is one row at 1440 with the menu docked: the kind under the name, the controls beside it', async ({ page }) => {
+      seedCheckLines({ drama: 1 })
+      await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'docked'))
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.goto('/#/drama/1')
+      await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+      const header = page.locator('.workspace-header')
+      const name = page.getByTestId('drama-title')
+      await expect(name).toHaveText('Grandmaster of Demonic Cultivation')
+      await expect(header.getByTestId('title-kind')).toHaveText('Audio drama · Chinese to English')
+      const controls = page.locator('.title-top-actions')
+      await expect(controls.getByRole('link')).toHaveText(['Add media', 'Redo transcription', 'Glossary'])
+      const [n, c, h] = [(await name.boundingBox())!, (await controls.boundingBox())!, (await header.boundingBox())!]
+      expect(c.y < n.y + n.height && n.y < c.y + c.height, 'the name and the controls share a row').toBe(true)
+      expect(h.height, 'the header\'s height').toBeLessThan(70)
+      await page.setViewportSize({ width: 1100, height: 800 })
+      const cut = await controls.evaluate((row) => [...row.querySelectorAll('a, button, label')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent))
+      expect(cut, 'controls cut at 1100px').toEqual([])
+      for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(controls.getByRole('link', { name, exact: true })).toBeInViewport()
+      await expect(controls.getByRole('button', { name: 'More', exact: true })).toBeInViewport()
+      await expectNoSidewaysScroll(page)
+    })
+  })
+
   test.describe('in a series', () => {
     test.afterAll(() => leaveSeries())
 
@@ -857,6 +1047,10 @@ test.describe('the check queue', () => {
           }).map((t) => t.textContent)
         })
         expect(cut, `tabs cut in ${style}`).toEqual([])
+        // Two rows of the column, not three.
+        const tops = await tablist.getByRole('tab').evaluateAll((tabs) => tabs.map((t) => Math.round(t.getBoundingClientRect().top)))
+        expect(new Set(tops).size, `tab rows in ${style}: ${tops}`).toBeLessThanOrEqual(2)
+        expect((await tablist.boundingBox())!.height, `the tab row's height in ${style}`).toBeLessThanOrEqual(2 * 44 + 8 + 2)
       }
 
       await tablist.getByRole('tab', { name: 'Change many lines' }).click()
@@ -867,6 +1061,11 @@ test.describe('the check queue', () => {
       await expect(list.getByRole('link', { name: /Signal/ })).toHaveAttribute('aria-current', 'page')
       await expect(list.getByRole('link', { name: /Grandmaster/ })).toHaveAttribute('href', '#/drama/1')
       await expect(list.getByRole('link', { name: /Grandmaster/ })).not.toHaveAttribute('aria-current', 'page')
+      // The open title is marked to the eye too: its name bold, its row on a tint the other rows do not have.
+      const look = (name: RegExp) => list.getByRole('link', { name }).evaluate((row) => [getComputedStyle(row).backgroundColor, getComputedStyle(row.querySelector('.chapters-title')!).fontWeight])
+      const [[openFill, openWeight], [otherFill, otherWeight]] = [await look(/Signal/), await look(/Grandmaster/)]
+      expect(openFill).not.toBe(otherFill)
+      expect(Number(openWeight)).toBeGreaterThan(Number(otherWeight))
       expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.tools.tab.3'))).toBe('"change"')
       // A group picked after it opens as before; This line opens over it when a card opens anew.
       await tablist.getByRole('tab', { name: 'Finish' }).click()

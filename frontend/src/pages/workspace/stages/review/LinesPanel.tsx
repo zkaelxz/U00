@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type { PlayerMediaKind } from '../../../../api/media'
 import { listAllLines } from '../../../../api/restructure'
@@ -8,7 +8,7 @@ import { readSectionOpen, writeSectionOpen } from '../../../../components/sectio
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
-import type { LineFilter } from '../../../../types/review'
+import type { LineFilter, ReviewLine } from '../../../../types/review'
 import { FindReplacePanel } from './FindReplacePanel'
 import { HiddenEditBanner } from './HiddenEditBanner'
 import { LineActionsSheet, type SheetState } from './LineActionsSheet'
@@ -278,7 +278,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
-  const media = useQueueMedia(mediaKind === 'audio' && !emptyDrama, isPhone, sectionRef)
+  const playerId = useId()
+  const media = useQueueMedia(mediaKind === 'audio' && !emptyDrama, isPhone, sectionRef, playerId)
   const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError, mediaToggle: media.toggle })
   const mediaFolded = queue.foldsMedia && media.folds
   const toggleReplace = () => {
@@ -311,7 +312,6 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     openSetSpeaker: setSpeaker.open,
     openRetranscribe: (lineIds: number[]) => onRetranscribeLines?.(lineIds),
   })
-  const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
   const loading = !searching && data === null && !error
   const showPager = !searching && !!data && pages > 1
   const editingActive = edit !== null && edit.lineId === activeId
@@ -328,7 +328,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     onChanged,
     onTranscribe: (ids) => onRetranscribeLines?.(ids, true),
   })
-  const { gapFocus, gapIndex, sortedGaps, focusGap, jumpToGap } = useGapFocus({ gaps: gaps.gaps, player, setWaveOpen, setStatus })
+  const openWave = (open: boolean) => {
+    setWaveOpen(open)
+    if (open) media.show()
+  }
+  const { gapFocus, gapIndex, sortedGaps, focusGap, jumpToGap } = useGapFocus({ gaps: gaps.gaps, player, setWaveOpen: openWave, setStatus })
   // The read goes in as an unsaved edit of the source text, so the usual Save,
   // Undo and conflict check still apply.
   const readIntoLine = async (patch: { zh: string; en?: string }) => {
@@ -358,6 +362,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         need={retranscribeNeed}
       />
     ) : null
+
+  const stepButtons = !searching && !queue.on
+    ? <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} onMove={(d, k) => void ctl.moveFlagged(d, k)} />
+    : null
+  const selectAll = shown.length > 0 && !queue.on ? <SelectAllShown shown={shown} /> : null
 
   return (
     <section className={['review-editor', sideVideo && 'has-side', replaceOpen && 'is-replacing', mediaFolded && 'is-media-folded'].filter(Boolean).join(' ')} aria-label="Lines" ref={sectionRef}>
@@ -397,6 +406,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               <>
                 <Player
                   ref={player}
+                  id={playerId}
+                  onFailed={media.show}
                   dramaId={dramaId}
                   kind={mediaKind}
                   lines={shown}
@@ -424,7 +435,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
-        {!searching && !queue.on && <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} onMove={(d, k) => void ctl.moveFlagged(d, k)} />}
+        {!simple && stepButtons}
         <p className="review-status" role="status">
           {status}
         </p>
@@ -462,19 +473,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             onAllLines={() => void changeFilter('all')}
           />
         )}
-        {shown.length > 0 && !queue.on && (
-          <div className="review-selectall" role="group" aria-label="Select lines">
-            <button type="button" className={buttonClass('ghost', 'sm')} disabled={allShownSelected} onClick={() => selection.selectMany(shown.map((l) => l.id))}>
-              Select all shown
-            </button>
-            {selection.count > 0 && (
-              <>
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={selection.clear}>Clear</button>
-                <span role="status" data-testid="selection-count">{selection.count} selected</span>
-              </>
-            )}
-          </div>
-        )}
+        {/* Simple puts the step buttons and Select all shown on one row, so the first line is on the first screen. */}
+        {simple ? (stepButtons || selectAll) && <div className="review-list-head">{selectAll}{stepButtons}</div> : selectAll}
         <ul className={['review-lines', compact && 'is-compact', selection.count > 0 && 'has-selection'].filter(Boolean).join(' ')} ref={listRef}>
           {queue.rows.map((l) => (
             <LineRow
@@ -571,5 +571,23 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         </aside>
       )}
     </section>
+  )
+}
+
+function SelectAllShown({ shown }: { shown: ReviewLine[] }) {
+  const selection = useLineSelectionContext()
+  const allShownSelected = shown.every((l) => selection.selectedSet.has(l.id))
+  return (
+    <div className="review-selectall" role="group" aria-label="Select lines">
+      <button type="button" className={buttonClass('ghost', 'sm')} disabled={allShownSelected} onClick={() => selection.selectMany(shown.map((l) => l.id))}>
+        Select all shown
+      </button>
+      {selection.count > 0 && (
+        <>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={selection.clear}>Clear</button>
+          <span role="status" data-testid="selection-count">{selection.count} selected</span>
+        </>
+      )}
+    </div>
   )
 }

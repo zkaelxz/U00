@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-import { GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines } from './compareSelectedHelpers'
+import { clearCheckLines, GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 
@@ -14,7 +14,7 @@ const progress = {
 const main = 'Translate 10 lines'
 // On a phone these three sit in the panel the steps button opens.
 const more = ['Add media', 'Redo transcription', 'Glossary']
-// Its name starts with the drawn ▸ marker, so the pattern is not anchored.
+// Its name starts with the ▸ marker its CSS draws, so the pattern is not anchored.
 const stepsButton = (page: Page) => page.getByRole('button', { name: /Step \d of 5 · / })
 
 test.beforeEach(async ({ page }) => {
@@ -143,19 +143,22 @@ test('the step links and buttons on a stage page are tall enough to tap and do n
   await expectNoSidewaysScroll(page)
 })
 
-// The first card starts near the top: measured 211px at 390 and 239px at 320, with the steps folded into one line.
-const cardTopAtMost = { 390: 225, 320: 255 }
+// The first card starts near the top: measured 255px at 390 and 283px at 320 for a one-line name, with the steps folded
+// into one button on its own row under the name.
+const cardTopAtMost = { 390: 269, 320: 299 }
 
-// The fixed bars at the bottom (the app's and the queue's) must leave the end of the page reachable above them.
+// The top of the fixed bars at the bottom (the app's and the queue's).
+const barTop = (page: Page) => page.evaluate(() => Math.min(window.innerHeight, ...[...document.querySelectorAll('body *')].filter((el) => {
+  const css = getComputedStyle(el)
+  const r = el.getBoundingClientRect()
+  return css.position === 'fixed' && css.visibility !== 'hidden' && r.height > 0 && r.top > window.innerHeight / 2
+}).map((el) => el.getBoundingClientRect().top)))
+
+// The fixed bars at the bottom must leave the end of the page reachable above them.
 async function expectEndClearOfBars(page: Page, last: Locator, what: string) {
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   const bottom = await last.evaluate((el) => el.getBoundingClientRect().bottom)
-  const barTop = await page.evaluate(() => Math.min(window.innerHeight, ...[...document.querySelectorAll('body *')].filter((el) => {
-    const css = getComputedStyle(el)
-    const r = el.getBoundingClientRect()
-    return css.position === 'fixed' && css.visibility !== 'hidden' && r.height > 0 && r.top > window.innerHeight / 2
-  }).map((el) => el.getBoundingClientRect().top)))
-  expect(bottom, `${what} ends above the bottom bar`).toBeLessThanOrEqual(barTop + 0.5)
+  expect(bottom, `${what} ends above the bottom bar`).toBeLessThanOrEqual(await barTop(page) + 0.5)
 }
 
 // Each element's top is below the one before.
@@ -186,8 +189,8 @@ test.describe(() => {
     await expect(position).toHaveText('1 of 3 to look at')
     await expect(cards).toHaveCount(1)
     await expect(cards.locator('.review-idx')).toHaveText('#24')
-    await expect(page.getByText('Next: line 7, Whisper was unsure · line 12, fast to read, 25 characters a second')).toBeVisible()
-    // The drawn card: Why in a plain sentence, the English under its label in a box, the buttons under it, and a green
+    await expect(page.getByText('Next: line 7, Whisper was unsure (50% sure) · line 12, fast to read, 25 characters a second')).toBeVisible()
+    // The card: Why in a plain sentence, the English under its label in a box, the buttons under it, and a green
     // Looks right, next beside Skip for now. Tapping the box edits, so the bar has no Edit button.
     await expect(cards.getByTestId('queue-reason')).toHaveText(`Why: ${GLOSSARY_SENTENCE}`)
     await expect(cards.locator('.review-queue-label')).toHaveText('English')
@@ -344,6 +347,40 @@ test.describe(() => {
     await expect(page).toHaveURL(/#\/drama\/3$/)
   })
 
+  test('a long name wraps beside the back arrow, so the card starts at most one name line lower than with a short one', async ({ page }) => {
+    // Title 1's own lines, not the mocked progress the other tests here give it.
+    await page.unroute('**/api/workflow/dramas/1/progress')
+    seedCheckLines()
+    seedCheckLines({ drama: 1 })
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    try {
+      for (const width of [390, 320] as const) {
+        await page.setViewportSize({ width, height: 844 })
+        const tops: Record<number, number> = {}
+        for (const id of [3, 1]) {
+          await page.goto('about:blank')
+          await page.goto(`/#/drama/${id}/review`)
+          const card = page.locator('.review-line')
+          await expect(card.locator('.review-idx')).toHaveText('#24')
+          await page.evaluate(() => window.scrollTo(0, 0))
+          tops[id] = await card.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
+          const [back, name] = [(await page.getByRole('link', { name: 'Back to Library' }).boundingBox())!, (await page.getByTestId('drama-title').boundingBox())!]
+          const nameLine = await page.getByTestId('drama-title').evaluate((el) => parseFloat(getComputedStyle(el).lineHeight))
+          expect(back.y < name.y + nameLine && name.y < back.y + back.height, `title ${id}: the back arrow and the name's first line share a row at ${width}px`).toBe(true)
+          await expectTall(stepsButton(page), `title ${id}: the steps button at ${width}px`)
+          expect((await stepsButton(page).boundingBox())!.y, `title ${id}: the steps button is under the name at ${width}px`).toBeGreaterThanOrEqual(name.y + name.height - 1)
+          if (id === 3) expect(tops[3], `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
+          await expectNoSidewaysScroll(page)
+          if (id === 1) {
+            expect(tops[1] - tops[3], `title 1's card is at most one name line lower at ${width}px`).toBeLessThanOrEqual(nameLine + 1)
+          }
+        }
+      }
+    } finally {
+      clearCheckLines(1)
+    }
+  })
+
   test('the title page on the Translate step: the main button under the header, then the lines and the tools with Episodes', async ({ page }) => {
     seedCheckLines({ untranslated: true, audio: true })
     joinSeries()
@@ -375,8 +412,26 @@ test.describe(() => {
       expect(cut, `tabs cut at ${width}px`).toEqual([])
       for (let n = 0; n < 4; n++) await expectTall(tabs.getByRole('tab').nth(n), `tab ${n + 1} at ${width}px`)
       await expectNoSidewaysScroll(page)
+      // The first screen shows a whole line, its source and its English, above the bottom bar: the player is folded away.
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await expect(page.getByRole('group', { name: 'Player' })).toBeHidden()
+      const first = page.locator('.review-line').first()
+      const lineBottom = Math.max(...await Promise.all([first.locator('.review-zh'), first.getByTestId('line-en')].map(async (l) => {
+        const b = (await l.boundingBox())!
+        return b.y + b.height
+      })))
+      expect(lineBottom, `the first line ends above the bottom bar at ${width}px`).toBeLessThanOrEqual(await barTop(page))
       await expectEndClearOfBars(page, tools, `the tools at ${width}px`)
     }
+    // Player is in the filter row's More, so it costs the first screen nothing; it brings the player back, as in Need a look.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.locator('.review-more-toggle').tap()
+    const toggle = page.locator('.review-extras').getByRole('button', { name: 'Player', exact: true })
+    await expectTall(toggle, 'Player in More')
+    await toggle.tap()
+    await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
+    await toggle.tap()
+    await expect(page.getByRole('group', { name: 'Player' })).toBeHidden()
     await tabs.getByRole('tab', { name: 'Episodes' }).tap()
     await expect(page.getByRole('list', { name: 'Episodes' }).getByRole('link', { name: /Signal/ })).toHaveAttribute('aria-current', 'page')
     await expectNoSidewaysScroll(page)

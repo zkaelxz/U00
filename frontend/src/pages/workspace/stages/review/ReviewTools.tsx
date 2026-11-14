@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 
 import { Tabs, type TabInfo } from '../../../../components/Tabs'
 import { tabButtonId, tabPanelId } from '../../../../components/tabIds'
@@ -57,11 +57,13 @@ interface Props {
   folded?: boolean
   // While set, an Episodes tab ends the row with this list of the series' episodes.
   episodes?: ReactNode
+  // Told whether the This line tab is the one showing: the open card says in full what the panel would.
+  onLineShown?: (shown: boolean) => void
 }
 
 // The tools under the line list as one tab level of groups. A group's panel mounts
 // the first time it is shown and then stays, so open folds and drafts survive a switch.
-export function ReviewTools({ dramaId, status, tools, attention = {}, request = null, lineDock = null, folded = false, episodes = null }: Props) {
+export function ReviewTools({ dramaId, status, tools, attention = {}, request = null, lineDock = null, folded = false, episodes = null, onLineShown }: Props) {
   // A link or remembered choice for a group Simple leaves out opens Look for problems.
   // A button that needs a tool Simple leaves out adds it for this title: Transcribe this gap
   // starts its run in Re-transcribe, which must be mounted to start it and to apply what it heard.
@@ -93,6 +95,12 @@ export function ReviewTools({ dramaId, status, tools, attention = {}, request = 
     if (open) setEpisodesOpen(false)
   }
   const active: ToolsTab = activeToolsTab(tab, lineOffered && line.open, episodesOffered && episodesOpen)
+  const lineShown = active === LINE_TAB && !(folded && !unfolded)
+  // Before paint, so the open card never flashes its whole sentence beside the panel that already says it.
+  useLayoutEffect(() => {
+    onLineShown?.(lineShown)
+    return () => onLineShown?.(false)
+  }, [lineShown, onLineShown])
 
   const open = useCallback((g: ReviewToolsGroup) => {
     seedFirstCard(browserStorage(), g)

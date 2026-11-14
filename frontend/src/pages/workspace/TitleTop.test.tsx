@@ -77,13 +77,13 @@ describe('the kind badge', () => {
     expect(kindBadgeText('audio_drama', undefined)).toBe('Audio drama')
   })
 
-  it('shows beside the title on a desktop, and not on a phone', () => {
+  it('is a quiet line under the title\'s name on a desktop, and not on a phone', () => {
     browser(false)
-    expect(render(AT.check, { home: true, badge: true })).toMatch(/<div class="ws-badges"><span class="[^"]*">Audio drama · Chinese to English<\/span><\/div>/)
-    expect(render(AT.check, { home: true, badge: true, drama: { ...drama, source_language: 'th' } })).toMatch(/<div class="ws-badges"><span class="[^"]*">Audio drama<\/span><\/div>/)
-    expect(render(AT.check, { openStep: 'translate' })).not.toContain('ws-badges')
+    expect(render(AT.check, { home: true, badge: true })).toContain('<h1 data-testid="drama-title" title="Signal">Signal</h1><p class="title-top-kind" data-testid="title-kind">Audio drama · Chinese to English</p>')
+    expect(render(AT.check, { home: true, badge: true, drama: { ...drama, source_language: 'th' } })).toContain('data-testid="title-kind">Audio drama</p>')
+    expect(render(AT.check, { openStep: 'translate' })).not.toContain('title-kind')
     browser(true)
-    expect(render(AT.check, { home: true, badge: true })).not.toContain('ws-badges')
+    expect(render(AT.check, { home: true, badge: true })).not.toContain('title-kind')
   })
 })
 

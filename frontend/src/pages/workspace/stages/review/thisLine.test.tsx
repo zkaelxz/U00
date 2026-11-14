@@ -159,10 +159,11 @@ describe('the This line panel', () => {
 
 describe('the Player toggle', () => {
   it('says whether the player is shown and what it brings back', () => {
-    const closed = renderToStaticMarkup(<QueueMediaToggle open={false} onToggle={() => {}} />)
+    const closed = renderToStaticMarkup(<QueueMediaToggle open={false} controls="player-1" onToggle={() => {}} />)
     expect(closed).toContain('aria-expanded="false"')
+    expect(closed).toContain('aria-controls="player-1"')
     expect(closed).toContain('title="Seek bar, speed, subtitles and the waveform"')
     expect(closed).toMatch(/>Player <span aria-hidden="true">▾<\/span><\/button>/)
-    expect(renderToStaticMarkup(<QueueMediaToggle open onToggle={() => {}} />)).toContain('aria-expanded="true"')
+    expect(renderToStaticMarkup(<QueueMediaToggle open controls="player-1" onToggle={() => {}} />)).toContain('aria-expanded="true"')
   })
 })

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
 
 import { createPortal } from 'react-dom'
 
@@ -35,6 +35,10 @@ export interface PlayerHandle {
   // The picture on screen as a PNG, after seeking to `at` when given; null when
   // there is no decoded picture (audio, not loaded yet, or a browser that blocks reading it).
   captureFrame: (at?: number) => Promise<Blob | null>
+  // For a playhead drawn elsewhere: whether the media plays, and a call each time it starts or stops, so a frame loop
+  // runs only while it plays. Returns the unsubscribe.
+  isPlaying: () => boolean
+  onPlayChange: (listener: () => void) => () => void
 }
 
 type Segment = Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>
@@ -44,6 +48,10 @@ interface Props {
   dramaId: number
   kind: PlayerMediaKind
   ref?: Ref<PlayerHandle>
+  // The strip's id, for a button elsewhere that shows or hides it.
+  id?: string
+  // Told when playing fails, so a player folded out of sight can come out with its error.
+  onFailed?: () => void
   // The lines on screen (for "Line #N" under the playhead) and the active one.
   lines?: Timed[]
   selected?: Timed | null
@@ -75,18 +83,43 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   Bilingual: 'Both-language subtitles need an original and a translation.',
 }
 
+// Whether the media plays or has failed, and what the page around the player hears of it: each start and stop, and a
+// failure, so a player folded out of sight comes out with its error.
+function usePlayState(onFailed?: () => void) {
+  const [playing, setPlaying] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const playingNow = useRef(false)
+  const listeners = useRef(new Set<() => void>())
+  useEffect(() => {
+    playingNow.current = playing
+    listeners.current.forEach((listener) => listener())
+  }, [playing])
+  useEffect(() => {
+    if (failed) onFailed?.()
+  }, [failed, onFailed])
+  const outside = useMemo<Pick<PlayerHandle, 'isPlaying' | 'onPlayChange'>>(() => ({
+    isPlaying: () => playingNow.current,
+    onPlayChange: (listener) => {
+      listeners.current.add(listener)
+      return () => {
+        listeners.current.delete(listener)
+      }
+    },
+  }), [])
+  return { playing, setPlaying, failed, setFailed, outside }
+}
+
 // A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost }: Props) {
+export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost }: Props) {
   const { drama } = useStage()
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
-  const [playing, setPlaying] = useState(false)
+  const { playing, setPlaying, failed, setFailed, outside } = usePlayState(onFailed)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(NaN)
   const [segment, setSegment] = useState<Segment | null>(null)
-  const [failed, setFailed] = useState(false)
   const [loop, setLoop] = usePersistedState('review.loop', false)
   const [open, setOpen] = usePersistedState('review.playerOpen', !(useMediaQuery('(max-width: 640px)') && kind === 'video')) // closed on a phone: an open video hides the lines
   const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
@@ -220,7 +253,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       // A pause or a new seek interrupts play(); that is not a failure.
       if ((e as { name?: string } | null)?.name !== 'AbortError') setFailed(true)
     })
-  }, [])
+  }, [setFailed])
 
   const playLine = useCallback(
     (line: Segment) => {
@@ -342,6 +375,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   useImperativeHandle(
     ref,
     () => ({
+      ...outside,
       playLine,
       toggleLine: (line) => {
         const el = media.current
@@ -380,7 +414,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     }),
     // seekTo reads duration, which only changes with the loaded media.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [playLine, stop, togglePlay, setLoop, setRatePref, duration],
+    [playLine, stop, togglePlay, setLoop, setRatePref, duration, outside],
   )
 
   const track = src ? (
@@ -569,7 +603,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   )
 
   return (
-    <div className="review-player" role="group" aria-label="Player">
+    <div className="review-player" id={id} role="group" aria-label="Player">
       <div className="review-player-row">
         <button
           type="button"

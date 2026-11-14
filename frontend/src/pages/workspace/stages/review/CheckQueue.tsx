@@ -24,9 +24,9 @@ export function CheckLeadAction({ lead }: { lead: CheckLead }) {
 }
 
 // The queue folds an audio title's player away so the first card sits under the switch; this brings it back.
-export function QueueMediaToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function QueueMediaToggle({ open, controls, onToggle }: { open: boolean; controls: string; onToggle: () => void }) {
   return (
-    <button type="button" className={buttonClass('ghost', 'sm', 'check-queue-media')} aria-expanded={open}
+    <button type="button" className={buttonClass('ghost', 'sm', 'check-queue-media')} aria-expanded={open} aria-controls={controls}
             title="Seek bar, speed, subtitles and the waveform" onClick={onToggle}>
       Player <span aria-hidden="true">{open ? '▴' : '▾'}</span>
     </button>

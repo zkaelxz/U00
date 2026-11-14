@@ -1,7 +1,9 @@
 /* Wrapping, not clipping: the header's controls, the step links and the buttons grow with their text and drop to the next line when they do not fit. */
 
-/* The title's controls stay together at the right; when they do not fit beside the title they move under it as one group. */
-.title-top-header h1 { flex: 0 1 auto; }
+/* The title's controls stay together at the right; when they do not fit beside the title they move under it as one group.
+   The name's block starts narrow, so a long name wraps inside it before the controls give up the row. */
+.title-top-name { flex: 1 1 12rem; min-width: 0; display: grid; gap: 2px; }
+.title-top-kind { margin: 0; font-size: var(--text-sm); color: var(--muted); overflow-wrap: break-word; }
 .title-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; min-width: 0; }
 .title-top-actions .title-view-switch { margin-left: 0; }
 .title-top-more-row:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
@@ -27,11 +29,16 @@
 
 .title-main-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); }
 
-/* A phone: one button in the header opens the steps, one per line, and the title's controls under them. */
+/* A phone: one button in the header opens the steps, one per line, and the title's controls under them. The name takes
+   the rest of the back arrow's row and wraps there, so a long name never leaves the arrow alone on a row. */
 .title-top-header.is-phone { flex-wrap: wrap; }
-.title-top-header.is-phone h1 { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
-/* It takes the rest of the title's line, or the whole next line under a long title, so the steps read as a bar across the page. */
-.steps-fold-toggle { flex: 1 1 auto; justify-content: flex-start; min-height: 44px; margin-left: auto; padding-inline: var(--space-3); white-space: normal; text-align: left; font-size: var(--text-sm); font-weight: 600; gap: var(--space-2); }
+.title-top-header.is-phone .title-top-name { flex: 1 1 0; }
+/* Level with the name's first line, not the middle of a name on two lines. */
+.title-top-header.is-phone > .ws-back { align-self: flex-start; }
+.title-top-header.is-phone h1 { overflow-wrap: break-word; }
+/* Its own row under the name, so the steps read as a bar across the page and the first card starts at the same place
+   whatever the name's length, give or take its lines. */
+.steps-fold-toggle { flex: 1 1 100%; justify-content: flex-start; min-height: 44px; margin-left: auto; padding-inline: var(--space-3); white-space: normal; text-align: left; font-size: var(--text-sm); font-weight: 600; gap: var(--space-2); }
 .steps-fold-toggle::before { content: '\25B8'; flex: none; color: var(--muted); font-size: 0.85em; }
 .steps-fold-toggle[aria-expanded='true']::before { content: '\25BE'; }
 .steps-fold-body:not([hidden]) { display: grid; gap: var(--space-3); margin-top: var(--space-2); }

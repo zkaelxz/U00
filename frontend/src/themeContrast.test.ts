@@ -218,6 +218,15 @@ describe('accent text on the page wash', () => {
       })
     }
   }
+  // The kind line under a title's name (titleTop.css .title-top-kind) is --muted straight on the page too.
+  for (const [name, wash] of [['light', light], ['sepia', sepia]] as const) {
+    for (const key of ['--wash-1', '--wash-2']) {
+      it(`${name}: --muted on ${key} at 60% over the page`, () => {
+        const page = over(wash[key], 60, resolve(THEMES[name], '--bg'))
+        expect(contrast(resolve(THEMES[name], '--muted'), page)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
   // Darkest points sampled from the rendered pages (review of 2026-10-18).
   it.each([['light', '#c8e7fd'], ['sepia', '#eadcb7']])('%s: --accent-text on the sampled wash %s', (name, sampled) => {
     expect(contrast(resolve(THEMES[name], '--accent-text'), sampled)).toBeGreaterThanOrEqual(4.5)
@@ -266,6 +275,21 @@ describe('the outlined step on its tint', () => {
         expect(soft, fill![1]).toBeTruthy()
         const under = over(resolve(theme, soft![1]), +soft![2], resolve(theme, row![1]))
         expect(contrast(resolve(theme, fg), under)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+})
+
+// The open title in the Episodes list: its bold name and its muted state on the row's tint.
+describe('Episodes: the open title on its tint', () => {
+  const chaptersCss = readFileSync(new URL('./pages/workspace/stages/novelChapters.css', import.meta.url), 'utf8')
+  const m = chaptersCss.match(/\.episodes-row\[aria-current='page'\] \{[^}]*color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, var\((--[\w-]+)\)\)/)
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const fg of ['--text', '--muted']) {
+      it(`${name}: ${fg} on the open title's tint`, () => {
+        expect(m).toBeTruthy()
+        const tint = over(resolve(theme, m![1]), +m![2], resolve(theme, m![3]))
+        expect(contrast(resolve(theme, fg), tint)).toBeGreaterThanOrEqual(4.5)
       })
     }
   }

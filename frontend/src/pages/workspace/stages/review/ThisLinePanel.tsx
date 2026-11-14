@@ -16,8 +16,6 @@ import { formatTime, PAGE_SIZE, pageForPosition } from './reviewLogic'
 // Half a second either side shows where the speech starts and stops around the line.
 const SOUND_PAD_S = 0.5
 const SOUND_BARS = 140
-// The clock of a playing line moves every frame; one that has stood still this long is paused or stopped.
-const PLAYING_WITHIN_MS = 400
 
 interface Props {
   dramaId: number
@@ -84,8 +82,8 @@ export function LineSound({ dramaId, line, player }: { dramaId: number; line: Re
       </div>
       {picture && <SoundPicture picture={picture} line={line} player={player} />}
       <div className="this-line-times">
-        <span className="review-time">{formatTime(line.start)}</span>
-        <span className="review-time">{formatTime(line.end)}</span>
+        <span className="review-time"><span className="sr-only">Start </span>{formatTime(line.start)}</span>
+        <span className="review-time"><span className="sr-only">End </span>{formatTime(line.end)}</span>
       </div>
     </section>
   )
@@ -94,49 +92,43 @@ export function LineSound({ dramaId, line, player }: { dramaId: number; line: Re
 function SoundPicture({ picture, line, player }: { picture: Peaks; line: ReviewLine; player: RefObject<PlayerHandle | null> }) {
   const head = useRef<HTMLDivElement>(null)
   const { from, to, peaks } = picture
-  // The playhead is moved straight on the element each frame, so playing never re-renders the panel.
+  // The playhead is moved straight on the element each frame, so playing never re-renders the panel. The frame loop
+  // runs only while the player plays, and writes a style only when its value changes.
   useEffect(() => {
+    const p = player.current
+    if (!p) return
     let frame = 0
-    let last = player.current?.getTime() ?? NaN
-    let movedAt = -Infinity
-    // The loop runs every frame even while nothing plays, so it writes a style only when its value changes.
     let visibility = 'hidden'
     let left = ''
-    const tick = (now: number) => {
-      const t = player.current?.getTime() ?? NaN
-      if (t !== last) {
-        last = t
-        movedAt = now
-      }
+    const place = (t: number | null) => {
       const el = head.current
-      if (el) {
-        const shown = now - movedAt < PLAYING_WITHIN_MS && t >= from && t <= to
-        const nextVisibility = shown ? 'visible' : 'hidden'
-        if (nextVisibility !== visibility) {
-          visibility = nextVisibility
-          el.style.visibility = visibility
-        }
-        const nextLeft = shown ? `${((t - from) / (to - from)) * 100}%` : left
-        if (nextLeft !== left) {
-          left = nextLeft
-          el.style.left = left
-        }
+      if (!el) return
+      const nextVisibility = t === null ? 'hidden' : 'visible'
+      if (nextVisibility !== visibility) {
+        visibility = nextVisibility
+        el.style.visibility = visibility
       }
-      frame = requestAnimationFrame(tick)
+      const nextLeft = t === null ? left : `${((t - from) / (to - from)) * 100}%`
+      if (nextLeft !== left) {
+        left = nextLeft
+        el.style.left = left
+      }
     }
-    const start = () => {
-      if (!frame && document.visibilityState === 'visible') frame = requestAnimationFrame(tick)
-    }
-    const stop = () => {
-      cancelAnimationFrame(frame)
+    const tick = () => {
       frame = 0
+      const t = p.getTime()
+      const playing = p.isPlaying()
+      place(playing && t >= from && t <= to ? t : null)
+      if (playing) frame = requestAnimationFrame(tick)
     }
-    const onVisibility = () => (document.visibilityState === 'visible' ? start() : stop())
-    start()
-    document.addEventListener('visibilitychange', onVisibility)
+    const wake = () => {
+      if (!frame) frame = requestAnimationFrame(tick)
+    }
+    const off = p.onPlayChange(wake)
+    wake()
     return () => {
-      stop()
-      document.removeEventListener('visibilitychange', onVisibility)
+      off()
+      cancelAnimationFrame(frame)
     }
   }, [from, to, player])
   const step = (to - from) / peaks.length

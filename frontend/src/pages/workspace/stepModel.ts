@@ -34,7 +34,7 @@ export function titleSteps(i: StepInput): Step[] {
       key: 'translate', title: 'Translate', done: allTranslated,
       note: lines === 0 ? 'Needs lines first' : allTranslated ? 'Every line has English' : `${left} of ${lines} line${lines === 1 ? '' : 's'} left`,
     },
-    { key: 'check', title: 'Check', done: i.exported, note: checkNote(i.riskCount ?? null) },
+    { key: 'check', title: 'Check', done: i.exported, note: checkNote(i.riskCount ?? null, allTranslated) },
     { key: 'export', title: 'Export', done: i.exported, note: 'SRT, VTT, ASS or video' },
   ]
   if (!known) return rows.map((r) => ({ key: r.key, title: r.title, note: '', state: 'todo' as const }))
@@ -42,8 +42,9 @@ export function titleSteps(i: StepInput): Step[] {
   return rows.map((r, n) => ({ key: r.key, title: r.title, note: r.note, state: r.done ? 'done' : n === current ? 'current' : 'todo' }))
 }
 
-function checkNote(risk: number | null): string {
-  if (risk === null) return 'Read and fix the lines'
+// A count of zero says nothing has been looked at until every line has English (with no lines, nothing could be).
+function checkNote(risk: number | null, reached: boolean): string {
+  if (risk === null || (risk === 0 && !reached)) return 'Read and fix the lines'
   if (risk === 0) return 'Nothing needs a look'
   return risk === 1 ? '1 line needs a look' : `${risk} lines need a look`
 }
@@ -112,7 +113,7 @@ export function stepLinks(i: StepInput, open: StepKey | null = null): StepLink[]
     if (s.key === 'transcribe' && s.state === 'done') return `${lines} ${lines === 1 ? 'line' : 'lines'}`
     if (s.key === 'translate' && lines > 0 && left > 0) return `${left} of ${lines} left`
     if (s.key === 'check' && risk !== null && s.state !== 'done') {
-      if (risk === 0) return 'nothing needs a look'
+      if (risk === 0) return s.state === 'current' ? 'nothing needs a look' : null
       return risk === 1 ? '1 line needs a look' : `${risk} lines need a look`
     }
     return null

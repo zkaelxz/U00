@@ -19,10 +19,6 @@ export function initialLinesFilter(link: { focus?: string; find?: string } | nul
   return QUEUE_FILTER
 }
 
-// Flags whose fix is a glossary entry: the term the English missed, or a name the AI check doubted.
-const GLOSSARY_FLAGS = new Set(['glossary_missing', 'name_uncertain'])
-export const opensGlossary = (line: Pick<ReviewLine, 'flag'>) => !!line.flag && GLOSSARY_FLAGS.has(line.flag)
-
 /** Why an unflagged line is in the queue: only Whisper's score put it there. Null for a flagged line, which shows its flag. */
 export function confidenceReason(line: Pick<ReviewLine, 'flag' | 'confidence'>): string | null {
   if (line.flag || line.confidence == null || line.confidence >= RISK_CONFIDENCE_BELOW) return null
@@ -56,7 +52,6 @@ interface FlagKind {
   read?: ReadNote
 }
 
-const UNSURE_SHORT = 'Whisper was unsure'
 const NUM = '(\\d+(?:\\.\\d+)?)'
 
 // "a", "a and b", "a, b and c"
@@ -166,7 +161,11 @@ const readDisagree: ReadNote = (note) => {
 }
 
 // source_suspect.py: its findings joined by "; " (the mid-phrase one holds a "; " of its own).
-const SCRIPTS: Record<string, string> = { Kana: 'Japanese kana', Hangul: 'Korean letters', Han: 'Chinese characters', Latin: 'Latin letters', Other: 'unusual characters' }
+// Every script script_mix can name: the source language's foreign ones and the stray ones.
+const SCRIPTS: Record<string, string> = {
+  Kana: 'Japanese kana', Hangul: 'Korean letters', Cyrillic: 'Cyrillic letters', Arabic: 'Arabic letters',
+  Hebrew: 'Hebrew letters', Thai: 'Thai letters', Greek: 'Greek letters', Devanagari: 'Devanagari letters',
+}
 const SUSPECT_PART = /(?:“([^”]*)” repeats (\d+)\+ times in a row|has ([A-Za-z/]+) characters|(is mostly Latin letters)|ends mid-phrase; the next line is only “([^”]*)”)(?:; |$)/y
 const readSuspect: ReadNote = (note) => {
   if (note === 'Qwen3-ASR returned no text here; Whisper\'s text was kept') {
@@ -220,8 +219,14 @@ const readBulk: ReadNote = (note) => {
 
 // translation_guard.py's notes for a reply that came back wrong, and the line it gave up on.
 const readTranslationCheck: ReadNote = (note) => {
-  if (/^check: the model's reply for this line was unusable \(/.test(note)) {
-    return { text: 'The translation engine’s answer for this line could not be used, so the English may be missing or wrong. Fix the English, or use Improve translation.' }
+  // bulk_apply.py adds the rejected reply after the reason, kept so a reply the check got wrong can be copied back.
+  const unusable = /^check: the model's reply for this line was unusable \(([^)]+)\)(?::\s*([\s\S]*))?$/.exec(note)
+  if (unusable) {
+    const reply = unusable[2]?.trim()
+    return {
+      text: `The translation engine’s answer for this line could not be used (${unusable[1]}), so the English may be missing or wrong. ` +
+        `${reply ? `Its answer was “${reply}”. ` : ''}Fix the English, or use Improve translation.`,
+    }
   }
   return fixedNotes({
     'check: may be merged or shifted':
@@ -239,7 +244,29 @@ const readTranslationCheck: ReadNote = (note) => {
 
 const TIMING_CHECK = ' Play it and check it starts and ends with the speech.'
 
-// One entry per key of FLAG_REASONS and SYSTEM_FLAG_REASONS in engine_backends/flag_reasons.py.
+// whisper_hallucination.py: each note says which sign of made-up text it saw.
+const MAYBE_INVENTED = ' Play the line, then fix it or delete it.'
+const readInvented = fixedNotes({
+  'Looks like a credit line Whisper writes on silence; check against the audio':
+    `This looks like a credit line Whisper writes over silence, not something said here.${MAYBE_INVENTED}`,
+  'Text in a script this audio is unlikely to hold; check against the audio':
+    `The text is in a script this audio is unlikely to hold, so Whisper may have made it up.${MAYBE_INVENTED}`,
+  'check: the same line came back several times with long gaps; check it is real speech':
+    `The same line came back several times with long gaps between, which happens when Whisper makes text up.${MAYBE_INVENTED}`,
+  'Looks like a list of invented words; check against the audio':
+    `This looks like a list of made-up words rather than speech.${MAYBE_INVENTED}`,
+  'More text than this stretch of audio can hold; check against the audio':
+    `There is more text here than this stretch of audio can hold.${MAYBE_INVENTED}`,
+  'One-character lines in a row, often noise; check against the audio':
+    `This is one of several one-character lines in a row, which is often noise.${MAYBE_INVENTED}`,
+  'Cut into slivers of audio, often unclear speech; check against the audio':
+    `This line is cut into slivers of audio, which is often unclear speech.${MAYBE_INVENTED}`,
+  'Text in a split second of audio; check against the audio':
+    `This text sits in a split second of audio, too short to hold it.${MAYBE_INVENTED}`,
+})
+
+// One entry per key of FLAG_REASONS and SYSTEM_FLAG_REASONS in engine_backends/flag_reasons.py, plus the flags set
+// outside it: whisper_hallucination.py IMPLAUSIBLE_FLAG and speaker_overlap_service.py TALK_OVER_FLAG.
 const FLAG_KINDS: Record<string, FlagKind> = {
   uncertain_translation: {
     text: 'The English may not say what the source says, or may read awkwardly. Read both and fix the English if needed.',
@@ -339,6 +366,16 @@ const FLAG_KINDS: Record<string, FlagKind> = {
     short: 'Blocked by the engine',
     read: readBlocked,
   },
+  text_uncertain: {
+    text: `Whisper may have written something that was not said here.${MAYBE_INVENTED}`,
+    short: 'May not be real speech',
+    read: readInvented,
+  },
+  talk_over: {
+    text: 'Another speaker talks over this line. Type what they say, or delete the line.',
+    short: 'Another speaker talks here',
+    read: saidByKind((note) => note === 'Another speaker talks here; type what they say or delete the line'),
+  },
 }
 
 /** Every flag kind the queue writes its own words for. */
@@ -352,7 +389,8 @@ export const QUEUE_FLAG_KINDS = Object.keys(FLAG_KINDS)
 export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confidence'>): QueueReason | null {
   if (!line.flag) {
     const unsure = confidenceReason(line)
-    return unsure ? { text: unsure, short: UNSURE_SHORT } : null
+    // The score goes in the few words too: a closed card on a wide screen leaves out the Shaky badge that also says it.
+    return unsure ? { text: unsure, short: `Whisper was unsure (${Math.round((line.confidence ?? 0) * 100)}% sure)` } : null
   }
   const kind = FLAG_KINDS[line.flag]
   if (!kind) return { text: flagText(line), short: humanizeValue(line.flag) }
@@ -370,6 +408,7 @@ const ACTION_BY_FLAG: Record<string, QueueAction> = {
   name_uncertain: 'glossary',
   source_suspect: 'retranscribe',
   engines_disagree: 'retranscribe',
+  text_uncertain: 'retranscribe',
   content_blocked: 'retry',
   timing_uncertain: 'snap',
   timing_drift: 'snap',
@@ -384,8 +423,8 @@ export function queueAction(line: Pick<ReviewLine, 'flag' | 'confidence'>): Queu
 
 // The Next line runs on after a comma, so a reason's first word drops its capital; Whisper is a name and keeps it.
 const nextReason = (line: ReviewLine) => {
-  const short = queueReason(line)?.short ?? UNSURE_SHORT
-  return short === UNSURE_SHORT ? short : lowerFirst(short)
+  const short = queueReason(line)?.short ?? 'Whisper was unsure'
+  return short.startsWith('Whisper ') ? short : lowerFirst(short)
 }
 
 /** The next two cards after the one open, for the phone's one-card view; null at the end of the list. */

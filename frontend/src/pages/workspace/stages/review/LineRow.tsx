@@ -565,8 +565,8 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           </>
         )}
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
-        {/* The open card says the whole sentence, unless the This line panel beside it does; a closed one keeps to a few words, so the list stays one glance per line. */}
-        {reason && !isPhone && <span className="review-queue-reason" data-testid="queue-reason">{active && !linePanel ? reason.text : reason.short}</span>}
+        {/* A closed card keeps to a few words, so the list stays one glance per line; so does the open one while the This line panel beside it says the rest. */}
+        {reason && !isPhone && (!active || linePanel) && <span className="review-queue-reason" data-testid="queue-reason">{reason.short}</span>}
         {line.flag && isPhone && !queue && (
           <span className="review-flag" data-testid="line-flag">
             <span aria-hidden="true">⚑</span>
@@ -585,6 +585,8 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         </button>
       </div>
       {line.flag && !isPhone && !queue && <FlagNote text={flagText(line)} />}
+      {/* Its own line under the top one, so the sentence never squeezes the number, time, speaker and More beside it. */}
+      {reason && !isPhone && active && !linePanel && <p className="review-queue-reason review-queue-sentence" data-testid="queue-reason">{reason.text}</p>}
       {reason && isPhone && active && <p className="review-queue-why" data-testid="queue-reason">Why: {reason.text}</p>}
       {isPhone && active && badgeReasons.length > 0 && (
         <p className="muted review-badge-reasons" data-testid="badge-reasons">{badgeReasons.join('. ')}.</p>

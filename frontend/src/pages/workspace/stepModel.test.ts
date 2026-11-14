@@ -40,6 +40,14 @@ describe('titleSteps', () => {
     expect(note(1)).toBe('1 line needs a look')
     expect(note(3)).toBe('3 lines need a look')
   })
+
+  it('says nothing needs a look only once it is Check’s turn; before that a zero count asks to read the lines', () => {
+    const note = (lineCount: number, translatedCount: number, riskCount: number) => titleSteps({ ...base, lineCount, translatedCount, riskCount })[3].note
+    expect(note(0, 0, 0)).toBe('Read and fix the lines')
+    expect(note(24, 23, 0)).toBe('Read and fix the lines')
+    expect(note(24, 23, 2)).toBe('2 lines need a look')
+    expect(note(24, 24, 0)).toBe('Nothing needs a look')
+  })
 })
 
 describe('checkActionLabel', () => {
@@ -96,6 +104,13 @@ describe('stepLinks', () => {
     expect(check(0)).toBe('Now · Check, nothing needs a look')
     expect(check(null)).toBe('Now · Check')
     expect(check(undefined)).toBe('Now · Check')
+  })
+
+  it('says nothing needs a look only on Check’s own turn; a count above zero shows on any step', () => {
+    expect(texts({ ...base, lineCount: 0, translatedCount: 0, riskCount: 0 })[3]).toBe('Check')
+    expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 23, riskCount: 0 })[3]).toBe('Next · Check')
+    expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 23, riskCount: 2 })[3]).toBe('Next · Check, 2 lines need a look')
+    expect(texts({ ...base, lineCount: 24, translatedCount: 24, riskCount: 0 })[3]).toBe('Now · Check, nothing needs a look')
   })
 
   it('marks every step done once exported, Transcribe still with its line count', () => {

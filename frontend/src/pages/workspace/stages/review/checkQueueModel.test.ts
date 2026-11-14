@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
-  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, opensGlossary, otherFineText,
+  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, otherFineText,
   positionText, queueAction, queueCounts, queueReason, QUEUE_FLAG_KINDS, restUnchecked, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
@@ -59,13 +59,6 @@ describe('reasons', () => {
     expect(alsoUnsureText(line(1, { flag: 'reading_speed', confidence: 0.8 }))).toBeNull()
     expect(alsoUnsureText(line(1, { flag: 'reading_speed', confidence: null }))).toBeNull()
     expect(alsoUnsureText(line(1, { confidence: 0.4 }))).toBeNull()
-  })
-
-  it('offers the glossary for a missed glossary term or a doubted name only', () => {
-    expect(opensGlossary(line(1, { flag: 'glossary_missing' }))).toBe(true)
-    expect(opensGlossary(line(1, { flag: 'name_uncertain' }))).toBe(true)
-    expect(opensGlossary(line(1, { flag: 'reading_speed' }))).toBe(false)
-    expect(opensGlossary(line(1))).toBe(false)
   })
 })
 
@@ -128,13 +121,31 @@ const REASONS: [string, string, string, string][] = [
   ['content_blocked', 'gemini: SAFETY', // translate_pipeline.py
     'The translation engine’s content filter refused this line, so it was not translated. Gemini gave this reason: “SAFETY”. Retry the line with another engine.',
     'Blocked by the engine'],
+  ['text_uncertain', 'More text than this stretch of audio can hold; check against the audio', // whisper_hallucination.py IMPLAUSIBLE_RATE_NOTE
+    'There is more text here than this stretch of audio can hold. Play the line, then fix it or delete it.',
+    'May not be real speech'],
+  ['talk_over', 'Another speaker talks here; type what they say or delete the line', // speaker_overlap_service.py TALK_OVER_NOTE
+    'Another speaker talks over this line. Type what they say, or delete the line.',
+    'Another speaker talks here'],
 ]
 
+// The flags set outside flag_reasons.py, read from the modules that set them.
+const flagConstant = (file: string, name: string) => {
+  const py = readFileSync(new URL(`../../../../../../${file}`, import.meta.url), 'utf8')
+  const m = new RegExp(`^${name} = "(\\w+)"$`, 'm').exec(py)
+  if (!m) throw new Error(`${name} not found in ${file}`)
+  return m[1]
+}
+
 describe('queue reasons', () => {
+  // flag_reasons.py does not list these two yet, so their modules are read too.
   it('has words for every flag kind the server can set', () => {
     const py = readFileSync(new URL('../../../../../../engine_backends/flag_reasons.py', import.meta.url), 'utf8')
-    const kinds = [...py.matchAll(/^\s+"(\w+)":/gm)].map((m) => m[1])
-    expect(kinds.length).toBeGreaterThan(15)
+    const reasons = [...py.matchAll(/^\s+"(\w+)":/gm)].map((m) => m[1])
+    expect(reasons.length).toBeGreaterThan(15)
+    const kinds = [...reasons, flagConstant('whisper_hallucination.py', 'IMPLAUSIBLE_FLAG'), flagConstant('services/speaker_overlap_service.py', 'TALK_OVER_FLAG')]
+    expect(kinds).toContain('text_uncertain')
+    expect(kinds).toContain('talk_over')
     expect([...QUEUE_FLAG_KINDS].sort()).toEqual([...kinds].sort())
     expect(REASONS.map(([kind]) => kind).sort()).toEqual([...kinds].sort())
   })
@@ -146,8 +157,9 @@ describe('queue reasons', () => {
     })
   }
 
+  const say = (flag: string, flag_note: string) => queueReason({ flag, flag_note, confidence: null })
+
   it('reads the other shapes a note can take', () => {
-    const say = (flag: string, flag_note: string) => queueReason({ flag, flag_note, confidence: null })
     expect(say('glossary_missing', 'Glossary: 夷陵老祖 -> Yiling Patriarch; 魏婴 -> Wei Ying; 蓝湛 -> Lan Zhan missing (+2 more)')).toEqual({
       text: 'The glossary writes 夷陵老祖 as “Yiling Patriarch”, 魏婴 as “Wei Ying”, 蓝湛 as “Lan Zhan” and 2 more names, but the English doesn’t use those names. ' +
         'Put them in the English, or change the glossary if a name is wrong.',
@@ -160,9 +172,42 @@ describe('queue reasons', () => {
     expect(say('source_suspect', 'has Kana/Hangul characters')?.text).toContain('The source text looks off: it has Japanese kana and Korean letters in it.')
     expect(say('source_suspect', "Qwen3-ASR returned no text here; Whisper's text was kept")?.text)
       .toBe('Qwen3-ASR heard no words here, so Whisper’s text was kept. Play the line and check the source text.')
+    // translation_guard.py gives the reason; bulk_apply.py adds the reply it rejected.
+    expect(say('uncertain_translation', "check: the model's reply for this line was unusable (far too long for the line)")?.text)
+      .toBe('The translation engine’s answer for this line could not be used (far too long for the line), so the English may be missing or wrong. Fix the English, or use Improve translation.')
+    expect(say('uncertain_translation', "check: the model's reply for this line was unusable (source text left in it): 三百人? Three hundred")?.text)
+      .toBe('The translation engine’s answer for this line could not be used (source text left in it), so the English may be missing or wrong. ' +
+        'Its answer was “三百人? Three hundred”. Fix the English, or use Improve translation.')
     expect(say('uncertain_translation', "check: the model's reply for this line was unusable (empty): ")?.text)
-      .toBe('The translation engine’s answer for this line could not be used, so the English may be missing or wrong. Fix the English, or use Improve translation.')
+      .toBe('The translation engine’s answer for this line could not be used (empty), so the English may be missing or wrong. Fix the English, or use Improve translation.')
     expect(say('timing_uncertain', '')?.text).toBe('The times of this line are a guess and may not match the speech. Play it and check it starts and ends with the speech.')
+  })
+
+  it('names every script the source check can find, one by one', () => {
+    const scripts: [string, string][] = [
+      ['Kana', 'Japanese kana'], ['Hangul', 'Korean letters'], ['Cyrillic', 'Cyrillic letters'], ['Arabic', 'Arabic letters'],
+      ['Hebrew', 'Hebrew letters'], ['Thai', 'Thai letters'], ['Greek', 'Greek letters'], ['Devanagari', 'Devanagari letters'],
+    ]
+    for (const [script, words] of scripts) {
+      expect(say('source_suspect', `has ${script} characters`)?.text, script).toContain(`The source text looks off: it has ${words} in it.`)
+    }
+    expect(say('source_suspect', 'has Cyrillic/Greek characters')?.text).toContain('it has Cyrillic letters and Greek letters in it.')
+    // Chinese and Latin letters are never named (script_mix allows them), so they are not read as a script.
+    for (const script of ['Han', 'Latin', 'Other']) expect(say('source_suspect', `has ${script} characters`)?.text, script).toMatch(/Note: Has \w+ characters$/)
+  })
+
+  it('gives each sign of made-up text its own sentence', () => {
+    const notes: [string, string][] = [
+      ['Looks like a credit line Whisper writes on silence; check against the audio', 'This looks like a credit line Whisper writes over silence, not something said here.'],
+      ['Text in a script this audio is unlikely to hold; check against the audio', 'The text is in a script this audio is unlikely to hold, so Whisper may have made it up.'],
+      ['check: the same line came back several times with long gaps; check it is real speech', 'The same line came back several times with long gaps between, which happens when Whisper makes text up.'],
+      ['Looks like a list of invented words; check against the audio', 'This looks like a list of made-up words rather than speech.'],
+      ['One-character lines in a row, often noise; check against the audio', 'This is one of several one-character lines in a row, which is often noise.'],
+      ['Cut into slivers of audio, often unclear speech; check against the audio', 'This line is cut into slivers of audio, which is often unclear speech.'],
+      ['Text in a split second of audio; check against the audio', 'This text sits in a split second of audio, too short to hold it.'],
+    ]
+    for (const [note, text] of notes) expect(say('text_uncertain', note)).toEqual({ text: `${text} Play the line, then fix it or delete it.`, short: 'May not be real speech' })
+    expect(say('text_uncertain', '')?.text).toBe('Whisper may have written something that was not said here. Play the line, then fix it or delete it.')
   })
 
   it('never shows half a parse: a note in another shape follows the plain sentence as it is', () => {
@@ -178,7 +223,7 @@ describe('queue reasons', () => {
 
   it('keeps the line list’s own text for a kind it does not know, and the Whisper reason for an unflagged line', () => {
     expect(queueReason({ flag: 'brand_new_check', flag_note: 'look here', confidence: null })).toEqual({ text: 'Brand new check · Look here', short: 'Brand new check' })
-    expect(queueReason({ flag: null, flag_note: null, confidence: 0.5 })).toEqual({ text: 'Whisper was unsure of this line (50% sure)', short: 'Whisper was unsure' })
+    expect(queueReason({ flag: null, flag_note: null, confidence: 0.5 })).toEqual({ text: 'Whisper was unsure of this line (50% sure)', short: 'Whisper was unsure (50% sure)' })
     expect(queueReason({ flag: null, flag_note: null, confidence: 0.9 })).toBeNull()
   })
 })
@@ -191,6 +236,7 @@ describe('the action that fits the reason', () => {
     expect(fit('name_uncertain')).toBe('glossary')
     expect(fit('source_suspect')).toBe('retranscribe')
     expect(fit('engines_disagree')).toBe('retranscribe')
+    expect(fit('text_uncertain')).toBe('retranscribe')
     expect(fit(null, 0.4)).toBe('retranscribe')
     expect(fit('content_blocked')).toBe('retry')
     for (const flag of ['timing_uncertain', 'timing_drift', 'timing_overlap']) expect(fit(flag)).toBe('snap')
@@ -199,7 +245,7 @@ describe('the action that fits the reason', () => {
 
   it('offers nothing extra where no existing action fits', () => {
     for (const flag of ['uncertain_translation', 'ambiguous_reference', 'slang_idiom', 'language_uncertain', 'reading_speed', 'factual_detail',
-      'gap_untranscribed', 'bulk_source_changed', 'pronoun_check', 'source_mismatch', 'brand_new_check']) expect(fit(flag), flag).toBeNull()
+      'gap_untranscribed', 'bulk_source_changed', 'pronoun_check', 'source_mismatch', 'talk_over', 'brand_new_check']) expect(fit(flag), flag).toBeNull()
     expect(fit(null, 0.9)).toBeNull()
   })
 })
@@ -214,7 +260,7 @@ describe('the phone card', () => {
   })
 
   it('names the next two cards with their reason, and nothing after the last', () => {
-    expect(nextText(shown, 24)).toBe('Next: line 12, fast to read · line 7, Whisper was unsure')
+    expect(nextText(shown, 24)).toBe('Next: line 12, fast to read · line 7, Whisper was unsure (50% sure)')
     expect(nextText(shown, 7)).toBe('Next: line 9, times off the speech')
     expect(nextText(shown, 9)).toBeNull()
     expect(nextText(shown, null)).toBeNull()

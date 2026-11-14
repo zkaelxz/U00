@@ -1,5 +1,5 @@
 /** The check queue's part of the Review line list: the view it opens on, the rows it shows, and the switch, footer and Undo around them. */
-import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
 
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
@@ -47,7 +47,7 @@ interface Deps {
   changeFilter: (f: LineFilter) => Promise<void>
   onChanged: () => void
   setError: (e: unknown) => void
-  // The Player toggle of an audio title, placed by the queue: in its switch row, or under the card on a phone.
+  // The Player toggle of an audio title: in the switch row, or on a phone under the card (queue) or in the toolbar's More (All).
   mediaToggle?: ReactNode
 }
 
@@ -102,8 +102,10 @@ export function useCheckQueue(d: Deps) {
     [on, d.canRetranscribeLine, d.jobRunning, needReason],
   )
   const counts = d.data ? queueCounts(d.data, d.allTotal) : null
-  // An empty queue has no card to make room for, and the waveform holds Transcribe this gap: the player stays out.
-  const foldsMedia = on && !(d.dataFilter === QUEUE_FILTER && d.data?.total === 0)
+  // Simple folds the player away in every view, so the lines come first. An empty queue is the exception: it has no
+  // card to make room for, and the waveform holds Transcribe this gap. All has lines to show, and its gap arrows
+  // bring the waveform out when used.
+  const foldsMedia = d.simple && !(on && d.dataFilter === QUEUE_FILTER && d.data?.total === 0)
   const cardOnly = on && d.isPhone
   const position = cardOnly && d.data ? positionText(d.shown, d.activeId, d.page, PAGE_SIZE, d.data.total) : null
   const upNext = cardOnly ? nextText(d.shown, d.activeId) : null
@@ -150,7 +152,7 @@ export function useCheckQueue(d: Deps) {
     foldsMedia,
     // A phone shows one card at a time.
     rows: cardOnly ? d.shown.filter((l) => l.id === d.activeId) : d.shown,
-    toolbar: { lead, bare: on },
+    toolbar: { lead, bare: on, more: foldsMedia && d.isPhone && !on ? d.mediaToggle : undefined },
     retranscribe,
     after,
     bar: (line: ReviewLine) => (on ? { onSkip: skip, onLooksRight: () => ctl.actions.reviewAndNext(line.id) } : undefined),
@@ -158,11 +160,15 @@ export function useCheckQueue(d: Deps) {
 }
 
 /**
- * The queue folds an audio title's player away until its Player button asks for it (remembered per viewer); the
- * player's own Show player and Show waveform choices stay as they are. `folds` is whether it would be folded in the queue.
+ * Simple folds an audio title's player away until its Player button asks for it (remembered per viewer); the
+ * player's own Show player and Show waveform choices stay as they are. `folds` is whether it would be folded, and
+ * `show` unfolds it for this visit.
  */
-export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefObject<HTMLElement | null>) {
+export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefObject<HTMLElement | null>, playerId: string) {
   const [open, setOpen] = usePersistedState('review.queue.media', false)
+  // A folded player comes out, for this visit, when it fails (its error is in it) or a gap arrow needs the waveform.
+  const [needed, setNeeded] = useState(false)
+  const show = useCallback(() => setNeeded(true), [])
   // Set by the phone's Player button, which sits under the card: the player opens above it, out of sight.
   const reveal = useRef(false)
   useEffect(() => {
@@ -178,18 +184,19 @@ export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefO
   const toggle = audio ? (
     <QueueMediaToggle
       open={open}
+      controls={playerId}
       onToggle={() => {
         reveal.current = isPhone && !open
         setOpen(!open)
       }}
     />
   ) : null
-  return { toggle, folds: audio && !open }
+  return { toggle, folds: audio && !open && !needed, show }
 }
 
 /**
  * Reports the queue to the stage, and whether its open card gets the This line tab (the tools beside the lines);
- * true once the tab's dock is there to draw into.
+ * true once the stage hands over the tab's dock, which it does only while that tab is the one showing.
  */
 export function useLineTab(queue: { on: boolean; ready: boolean }, cardOpen: boolean, dock: HTMLElement | null,
   onQueue?: (on: boolean) => void, onLineTab?: (shown: boolean) => void): boolean {

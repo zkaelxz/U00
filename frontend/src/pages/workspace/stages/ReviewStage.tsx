@@ -100,6 +100,8 @@ export default function ReviewStage() {
   const [queueOn, setQueueOn] = useState(false)
   const [lineTab, setLineTab] = useState(false)
   const [lineDock, setLineDock] = useState<HTMLDivElement | null>(null)
+  // The panel is drawn only while its tab is the one showing; under another tab the card carries what it would say.
+  const [lineShown, setLineShown] = useState(false)
   const phone = useMediaQuery('(max-width: 640px)')
   const route = useRoute()
   // Not loaded yet counts as no lines: showing the panel first would flash it on a title that has none.
@@ -136,7 +138,7 @@ export default function ReviewStage() {
         goTo={goTo}
         onQueue={setQueueOn}
         onLineTab={setLineTab}
-        lineDock={lineTab ? lineDock : null}
+        lineDock={lineTab && lineShown ? lineDock : null}
       />
       <ReviewChecks
         enabled={!!lineCount}
@@ -153,6 +155,7 @@ export default function ReviewStage() {
                 status={jobs.status}
                 request={toolsRequest}
                 lineDock={lineTab ? setLineDock : null}
+                onLineShown={setLineShown}
                 folded={queueOn && phone}
                 episodes={episodes}
                 attention={{ coverage: parts.coverageCount }}
