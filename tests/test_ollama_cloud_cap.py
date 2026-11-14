@@ -29,7 +29,7 @@ def cap_spent(isolated_db, monkeypatch):
 
 def test_the_cap_covers_a_cloud_tag_but_not_a_local_one():
     assert translate_run_service.engine_cap_applies("ollama", False, CLOUD)
-    assert translate_run_service.engine_cap_applies("ollama", False, "gemma4:cloud")
+    assert translate_run_service.engine_cap_applies("ollama", False, "qwen3-coder:cloud")
     assert not translate_run_service.engine_cap_applies("ollama", False, "gemma4:12b")
     assert not translate_run_service.engine_cap_applies("ollama", False, None)
 

@@ -159,7 +159,6 @@ PRICING_PER_MILLION_TOKENS = {
     # Ollama cloud list prices (ollama.com/pricing, 2026-11-09); free use ended, so
     # these tags are billed per token and must count toward the spend caps.
     "gemma4:31b-cloud": {"input": 0.14, "output": 0.40},
-    "gemma4:cloud": {"input": 0.14, "output": 0.40},
 }
 
 
