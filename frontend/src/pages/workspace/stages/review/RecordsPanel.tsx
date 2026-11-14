@@ -48,11 +48,13 @@ interface Props {
   jobRunning: boolean
   // Opens a line in the editor; resolves to null, or a message saying why not.
   onGoTo: GoToLine
+  // Changes each time a "Line history" button elsewhere in Review asks for the history.
+  historySignal?: number
 }
 
 // Notes (add lives on each line), translation versions (use or delete), line
 // history with a typed-confirm Restore, and translation-memory suggestions.
-export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunning, onGoTo }: Props) {
+export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunning, onGoTo, historySignal }: Props) {
   const [records, setRecords] = useState<Records | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
@@ -94,6 +96,17 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       cancelled = true
     }
   }, [dramaId, reloads])
+
+  // The history may still be loading when the request comes (the panel mounts with it in Simple), so the
+  // scroll waits for it and spends each request once.
+  const historyRef = useRef<HTMLHeadingElement>(null)
+  const scrolledFor = useRef(0)
+  const hasHistory = !!records && records.history.length > 0
+  useEffect(() => {
+    if (!historySignal || historySignal === scrolledFor.current || !hasHistory) return
+    scrolledFor.current = historySignal
+    historyRef.current?.scrollIntoView?.({ block: 'start' })
+  }, [historySignal, hasHistory])
 
   const act = (p: Promise<unknown>) =>
     p.then(() => {
@@ -237,6 +250,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
     <Section
       storageKey="review.records"
       title="Records"
+      openSignal={historySignal}
       count={total}
       summary={counts.filter(([, c]) => c > 0).map(([l, c]) => `${l} ${c}`).join(' · ')}
     >
@@ -337,7 +351,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       )}
       {history.length > 0 && (
         <>
-          <h2 className="subhead">Line history</h2>
+          <h2 className="subhead" ref={historyRef}>Line history</h2>
           <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={comparing} onClick={() => setComparing(!comparing)}>
             {comparing ? 'Hide compare' : 'Compare saves side by side'}
           </button>

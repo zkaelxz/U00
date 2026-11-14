@@ -132,3 +132,29 @@ test('re-split, then Undo restores the long line', async ({ page }) => {
   await expect(rows(page).filter({ hasText: SENTENCE.repeat(3) })).toHaveCount(1)
   await expect(rows(page)).toHaveCount(4)
 })
+
+// The notice and the refusal both point at Records → Line history, which Simple leaves out of the Review tools;
+// the words carry a button that opens it, in either view.
+for (const view of ['simple', 'full'] as const) {
+  test(`${view} view: "Line history" in the Undo notice opens the line history`, async ({ page }) => {
+    await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
+    await page.goto('/#/drama/3/review?focus=all')
+    await expect(rows(page)).toHaveCount(3)
+    await splitSecondLine(page)
+    await page.getByTestId('undo-notice').getByRole('button', { name: 'Line history' }).click()
+    await expect(page.getByRole('heading', { name: 'Line history' })).toBeInViewport()
+    await expect(page.getByTestId('history-list')).toBeVisible()
+  })
+
+  test(`${view} view: a refused Undo's "Line history" opens the line history`, async ({ page }) => {
+    await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
+    await page.goto('/#/drama/3/review?focus=all')
+    await expect(rows(page)).toHaveCount(3)
+    await splitSecondLine(page)
+    editEnglishBehindTheUi('你好', 'Changed elsewhere')
+    await page.getByTestId('undo-notice').getByRole('button', { name: 'Undo' }).click()
+    const refused = page.locator('.review-status').filter({ hasText: 'The lines changed since.' })
+    await refused.getByRole('button', { name: 'Line history' }).click()
+    await expect(page.getByRole('heading', { name: 'Line history' })).toBeInViewport()
+  })
+}
