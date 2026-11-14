@@ -218,3 +218,13 @@ def test_remote_refused_even_for_admin(fakes):
     assert fakes["page_server"] == 0
     assert src_store.get_setting("page_server_enabled") is False
     assert local.post("/api/extension/token", json={"confirm": True}).json() == {"token": token}
+
+
+def test_turning_the_bridge_on_loads_its_models_ahead(fakes, monkeypatch):
+    from services import extension_service
+    warmed = []
+    monkeypatch.setattr(page_server, "warm_models_soon", lambda: warmed.append(1))
+    extension_service.set_enabled(True, start_now=False)
+    assert warmed == []
+    extension_service.set_enabled(True, start_now=True)
+    assert warmed == [1]

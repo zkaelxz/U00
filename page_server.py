@@ -936,6 +936,36 @@ def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
     return True
 
 
+_warm_started = False
+
+
+def warm_models_soon() -> bool:
+    """Loads the page-reading models on a background thread, once per process, so the first
+    page the extension sends does not wait for them. It holds the pipeline lock while loading,
+    so a page that arrives meanwhile waits for the load it would otherwise have done itself.
+    True if this call started it."""
+    global _warm_started
+    with _server_lock:
+        if _warm_started:
+            return False
+        _warm_started = True
+
+    def run():
+        from applog import get_logger
+        try:
+            import scanlate
+            with PIPELINE_LOCK:
+                warmed = scanlate.warm_models(get_translation_config().get("detect_backend") or "auto")
+            if warmed:
+                get_logger().info("Extension bridge: loaded the %s ahead of the first page", " and ".join(warmed))
+        except Exception as e:
+            # The first page loads what is missing itself, as it always did.
+            get_logger().warning("Extension bridge: models were not loaded ahead (%s)", type(e).__name__)
+
+    threading.Thread(target=run, daemon=True, name="page-server-warmup").start()
+    return True
+
+
 def stop_server() -> bool:
     """Stops the endpoint if it's running (the app's clean shutdown,
     services/shutdown_service.py, and turning the bridge off). Call it from
