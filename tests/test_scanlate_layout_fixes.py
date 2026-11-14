@@ -141,3 +141,82 @@ def test_a_sky_that_fades_behind_the_lettering_is_not_whitened_into_a_box():
     assert out is inpainted
     assert cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)[10:40, 10:80].max() < 245
 
+
+
+def _sign(x, y, w, h, confidence=0.5, **extra):
+    return {"x": x, "y": y, "w": w, "h": h, "kind": "sign", "kind_confidence": confidence, **extra}
+
+
+def _art_page():
+    """Paper-white page with a dense mid-grey patch (a boot) and a sign with a few strokes."""
+    gray = np.full((200, 300), 245, np.uint8)
+    gray[20:140, 20:60] = 120
+    gray[30:44, 150:230] = 0
+    gray[60:74, 150:230] = 0
+    return gray
+
+
+def test_a_dense_dark_patch_boxed_as_a_sign_is_art():
+    assert scanlate_inpaint.is_art_mistaken_for_sign(_art_page(), _sign(20, 20, 40, 120))
+
+
+def test_a_sign_with_paper_between_its_strokes_is_lettering():
+    assert not scanlate_inpaint.is_art_mistaken_for_sign(_art_page(), _sign(140, 20, 100, 70))
+
+
+def test_a_confident_sign_or_another_kind_is_never_judged_as_art():
+    page = _art_page()
+    assert not scanlate_inpaint.is_art_mistaken_for_sign(page, _sign(20, 20, 40, 120, confidence=0.9))
+    assert not scanlate_inpaint.is_art_mistaken_for_sign(page, dict(_sign(20, 20, 40, 120), kind="bubble"))
+
+
+def test_art_boxed_as_a_sign_is_left_unerased_and_its_translation_set_beside_it(tmp_path):
+    import scanlate_render
+    from PIL import Image
+    gray = _art_page()
+    src = tmp_path / "p.png"
+    Image.fromarray(gray).convert("RGB").save(src)
+    art = _sign(20, 20, 40, 120, translated_text="Boot", font_size=18)
+    sign = _sign(150, 25, 80, 55, translated_text="Closed", font_size=18)
+    out = scanlate_render.process_page(str(src), [art, sign], str(tmp_path / "out.png"))[0]
+    result = np.asarray(Image.open(out).convert("L"))
+    assert (result[20:140, 20:60] == 120).all()                 # the art is untouched
+    assert (result[20:140, 66:140] != 245).any()                # the gloss sits beside it
+    assert (result[30:44, 150:230] != 0).any()                 # a real sign is still erased
+
+
+def test_a_wide_caption_strip_is_lettering_even_when_its_mask_covers_the_box():
+    gray = np.full((200, 400), 245, np.uint8)
+    gray[20:60, 20:320] = 120
+    assert not scanlate_inpaint.is_art_mistaken_for_sign(gray, _sign(20, 20, 300, 40))
+
+
+def _gloss_rect(before, after):
+    changed = np.argwhere((before != after).any(axis=2))
+    (top, left), (bottom, right) = changed.min(axis=0), changed.max(axis=0)
+    return left, top, right, bottom
+
+
+def test_a_gloss_keeps_clear_of_other_regions_and_inside_its_panel():
+    from PIL import Image
+    import scanlate_sfx
+    art = {"x": 100, "y": 100, "w": 40, "h": 100, "translated_text": "What's wrong?"}
+    neighbour = {"x": 150, "y": 90, "w": 80, "h": 120}      # the nearest side, taken
+    panel = {"x": 80, "y": 60, "w": 200, "h": 300}
+    blank = np.full((400, 400, 3), 128, np.uint8)
+    img = Image.fromarray(blank.copy())
+    scanlate_sfx.draw_gloss(img, art, avoid=(neighbour,), bounds=panel)
+    left, top, right, bottom = _gloss_rect(blank, np.asarray(img))
+    assert not (left < 230 and right > 150 and top < 210 and bottom > 90)    # clear of the neighbour
+    assert left >= 80 and top >= 60 and right <= 280 and bottom <= 360       # inside the panel
+
+
+def test_a_sound_effect_gloss_with_nothing_to_avoid_goes_to_the_right_as_before():
+    from PIL import Image
+    import scanlate_sfx
+    region = {"x": 100, "y": 100, "w": 40, "h": 100, "translated_text": "Boom"}
+    blank = np.full((400, 400, 3), 128, np.uint8)
+    img = Image.fromarray(blank.copy())
+    scanlate_sfx.draw_gloss(img, region)
+    left, top, _, _ = _gloss_rect(blank, np.asarray(img))
+    assert left >= 140 and top >= 90

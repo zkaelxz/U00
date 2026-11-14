@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Baihe Studio — translate this page",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "description": "Sends the comic page you're reading to your own local Baihe Studio, and draws the translation over it.",
   "permissions": ["activeTab", "scripting", "storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["http://127.0.0.1:8756/*"],

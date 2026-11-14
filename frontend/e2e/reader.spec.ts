@@ -158,7 +158,7 @@ test('resumes at the saved page and saves progress', async ({ page }) => {
 test('an empty title says so and links to Source', async ({ page }) => {
   await page.goto('/#/read/1')
   await expect(page.getByText('No lines to read yet.')).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Add lines on Media' })).toHaveAttribute('href', '#/drama/1/source')
+  await expect(page.getByRole('link', { name: 'Add lines on Transcribe' })).toHaveAttribute('href', '#/drama/1/source')
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
