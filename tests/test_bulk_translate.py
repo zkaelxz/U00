@@ -376,7 +376,9 @@ class TestApplyResults:
 
     def test_enforced_glossary_terms_apply_to_bulk_results(self, isolated_db):
         engine = _claude_engine()
-        did = _drama(isolated_db, n=1)
+        did = isolated_db.create_drama(title_en="Bulk", status="aligned", translation_engine="claude")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="苏杉笑了"),
+                                     Line(idx=1, start=1, end=2, zh="她笑了")])
         lines = isolated_db.load_line_objects(did)
         bulk_id = bulk_translate.submit_bulk_translation(
             did, lines, engine, "claude", {"drama_meta": {}}, batch_size=5,
@@ -386,7 +388,8 @@ class TestApplyResults:
         _answer_every_request(batches, fn=lambda zh: "Su Xian smiled.")
         batches.status = "ended"
         bulk_poll.check_once(bulk_id, bp.make_provider("claude", engine))
-        assert isolated_db.load_lines(did)[0]["en"] == "Su Shan smiled."
+        # The second line's source never names 苏杉, so its "Su Xian" is not the term.
+        assert [r["en"] for r in isolated_db.load_lines(did)] == ["Su Shan smiled.", "Su Xian smiled."]
 
     def test_still_pending_changes_nothing(self, isolated_db):
         engine = _claude_engine()
@@ -2198,7 +2201,8 @@ class TestOffPeakRunFinishes:
 
     def test_the_run_finishes_like_a_normal_translation(self, isolated_db):
         did = _drama(isolated_db, n=3)
-        term = {"term_translation": "Xiao Ming", "notes": "Xiaoming", "enforce_exact": True}
+        term = {"term_original": "第0句", "term_translation": "Xiao Ming", "notes": "Xiaoming",
+                "enforce_exact": True}
         bulk_id = self._schedule(isolated_db, did, {"batch_size": 1, "glossary_terms": [term],
                                                     "style_preset": "audio_drama"})
 

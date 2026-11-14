@@ -117,6 +117,12 @@ class TestFindAffected:
         [line] = svc.find_glossary_affected_lines(did)["lines"]
         assert line["en"] == "Lin Wan 林晚" and line["hand_edited"] is False
 
+    def test_exact_term_substitution_skips_a_line_whose_source_lacks_the_term(self, isolated_db):
+        did, sid, _ = _seed([("林晚", ""), ("她走了", "")], machine=set())
+        db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="[TEST]|Lin", enforce_exact=True)
+        wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
+        assert [r["en"] for r in db.load_lines(did)] == ["Lin Wan 林晚", "[TEST] 她走了"]
+
     def test_unknown_drama(self, isolated_db):
         with pytest.raises(NotFoundError):
             svc.find_glossary_affected_lines(999)

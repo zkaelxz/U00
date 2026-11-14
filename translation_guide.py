@@ -25,6 +25,7 @@ from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.shared import load_json_reply
 from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
 from engine_backends.llm_tasks import call_llm_json
+from engine_backends.llm_feature_prompts import glossary_term_forms
 from engine_backends.shared import extract_first_json_value
 from engine_backends.shared import parse_json_array
 
@@ -609,44 +610,73 @@ def build_hard_term_substituter(glossary_terms):
     guarantees it for terms where drift is unacceptable -- typically
     character names.
 
-    Returns a `text -> text` function that replaces any variant the model
-    produced with the canonical form, so the matcher is built once per run
-    instead of once per line. Idempotent, because it runs again over lines
-    it already corrected: a variant matches whole words only ("Lin" never
-    inside "Berlin"), and a match that lies inside a canonical form already
-    in the text is left alone ("Qingyi" inside "Shen Qingyi"). Longer
-    variants win where two could match at the same place.
+    Returns a `(text, source=None) -> text` function that replaces any variant
+    the model produced with the canonical form. A term's variants are replaced
+    only on a line whose source holds the term (or one of its aliases): a
+    variant is often an ordinary word too ("Sister" for 师姐), and on a line
+    that never says the term it is that ordinary word. source=None (no line to
+    check against) lets every term apply. The matcher for each set of terms in
+    play is built once per run instead of once per line. Idempotent, because it
+    runs again over lines it already corrected: a variant matches whole words
+    only ("Lin" never inside "Berlin"), and a match that lies inside a canonical
+    form already in the text is left alone ("Qingyi" inside "Shen Qingyi").
+    Longer variants win where two could match at the same place.
     """
     # enforce_exact terms only, with variants from `notes`. A glossary term's
     # banned_translations are separate and flag-only (auto_qc.build_banned_terms
     # flags the line for review); never rewrite text from them here.
-    enforced = [t for t in (glossary_terms or [])
-                if t.get("enforce_exact") and t.get("term_translation")]
-    canonical_of, has_variant = {}, False
-    for t in sorted(enforced, key=lambda x: len(x["term_translation"]), reverse=True):
-        canonical = t["term_translation"]
-        # The canonical form is an alternative too: as the longest match at
-        # its position it keeps a shorter variant inside it ("Qingyi" in
-        # "Shen Qingyi") from compounding, whatever case the model used.
-        canonical_of.setdefault(canonical.casefold(), (canonical, canonical))
-        notes = t.get("notes") or ""
-        for v in notes.split("|"):
-            v = v.strip()
-            if (v and v != canonical and not _is_free_text_note(v, canonical)
-                    and _plausible_variant(v, canonical, lone="|" not in notes)):
-                canonical_of.setdefault(v.casefold(), (v, canonical))
-                has_variant = True
-    if not has_variant:
-        return lambda text: text
+    enforced = sorted((t for t in (glossary_terms or [])
+                       if t.get("enforce_exact") and t.get("term_translation")),
+                      key=lambda x: len(x["term_translation"]), reverse=True)
+    variants_of = [_term_variants(t) for t in enforced]
+    if not any(len(vs) > 1 for vs in variants_of):
+        return lambda text, source=None: text
+    matchers = {}
+
+    def matcher(active):
+        if active not in matchers:
+            matchers[active] = _variant_matcher([v for i in active for v in variants_of[i]])
+        return matchers[active]
+
+    def substitute(text: str, source: str | None = None) -> str:
+        if not text:
+            return text
+        active = tuple(i for i, t in enumerate(enforced)
+                       if source is None or any(f and f in source for f in glossary_term_forms(t)))
+        return matcher(active)(text) if active else text
+
+    return substitute
+
+
+def _term_variants(term: dict) -> list:
+    """(variant, canonical) pairs for one enforced term, its canonical form first: as the
+    longest match at its position it keeps a shorter variant inside it ("Qingyi" in
+    "Shen Qingyi") from compounding, whatever case the model used."""
+    canonical = term["term_translation"]
+    pairs = [(canonical, canonical)]
+    notes = term.get("notes") or ""
+    for v in notes.split("|"):
+        v = v.strip()
+        if (v and v != canonical and not _is_free_text_note(v, canonical)
+                and _plausible_variant(v, canonical, lone="|" not in notes)):
+            pairs.append((v, canonical))
+    return pairs
+
+
+def _variant_matcher(pairs):
+    """`text -> text` replacing each variant in `pairs` with its canonical form. The first
+    pair for a casefolded variant wins, so with pairs in longest-canonical-first order a
+    variant two terms share goes to the longer name, as before."""
+    canonical_of = {}
+    for v, canonical in pairs:
+        canonical_of.setdefault(v.casefold(), (v, canonical))
     variants = sorted(canonical_of.values(), key=lambda vc: len(vc[0]), reverse=True)
     # One group per alternative: casefolding the match to find its variant
     # breaks where IGNORECASE and casefold disagree (Turkish dotted I).
     pattern = re.compile("|".join(f"({_variant_pattern(v)})" for v, _ in variants),
                          re.IGNORECASE)
 
-    def substitute(text: str) -> str:
-        if not text:
-            return text
+    def replace(text: str) -> str:
         out, pos, scan = [], 0, 0
         while True:
             m = pattern.search(text, scan)
@@ -659,12 +689,12 @@ def build_hard_term_substituter(glossary_terms):
         out.append(text[pos:])
         return "".join(out)
 
-    return substitute
+    return replace
 
 
-def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
+def apply_hard_term_substitutions(text: str, glossary_terms, source: str | None = None) -> str:
     """One-off form of `build_hard_term_substituter` for a single text."""
-    return build_hard_term_substituter(glossary_terms)(text)
+    return build_hard_term_substituter(glossary_terms)(text, source)
 
 
 # ---------------------------------------------------------------------------

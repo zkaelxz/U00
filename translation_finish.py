@@ -174,7 +174,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         for ln in own_fresh:
             if ln.en:
                 before = ln.en
-                ln.en = substitute_terms(ln.en)
+                ln.en = substitute_terms(ln.en, ln.zh)
                 if ln.en != before:
                     substituted[ln.id] = (before, ln.en)
         # Compare-and-set: an edit saved since the load above is kept too.
