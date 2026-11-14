@@ -1585,3 +1585,21 @@ def test_captured_pages_from_two_hosts_are_not_judged_third_party():
     kept, rejected = page_capture_checks.select_page_images(
         images, "https://reader.example/chapter/1")
     assert len(kept) == 5 and rejected == []
+
+
+@pytest.mark.parametrize("setting", [True, False])
+def test_the_overlay_typeset_follows_the_colour_matching_setting(isolated_db, monkeypatch, setting):
+    import db
+    import scanlate_render
+    db.set_app_setting("pref.scanlate_match_text_color", setting)
+    seen = {}
+
+    def fake_process_page(image_path, bubbles, out_path, **kwargs):
+        seen.update(kwargs)
+        return out_path, []
+
+    monkeypatch.setattr(scanlate_render, "process_page", fake_process_page)
+    monkeypatch.setattr(page_capture_checks, "jpeg_data_url", lambda path: "data:image/jpeg;base64,")
+    bubbles = [{"translated_text": "Hi", "skip": 0}]
+    assert page_server._overlay_typeset("page.png", bubbles, [], False)
+    assert seen["match_color"] is setting
