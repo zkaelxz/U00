@@ -69,7 +69,7 @@ def _no_sleep(monkeypatch):
 
 def test_cloud_detection():
     assert engine_local.is_ollama_cloud_model("gemma4:31b-cloud")
-    assert engine_local.is_ollama_cloud_model("gemma4:cloud")
+    assert engine_local.is_ollama_cloud_model("qwen3-coder:cloud")
     assert not engine_local.is_ollama_cloud_model("gemma4:12b")
     assert not engine_local.is_ollama_cloud_model(None)
 
@@ -192,7 +192,7 @@ def test_ollama_default_picker_lists_local_tags_only():
     assert CLOUD not in translate_service.ENGINE_MODEL_DICTS["ollama"]
 
 
-@pytest.mark.parametrize("tag", [CLOUD, "gpt-oss:120b-cloud", "gemma4:cloud"])
+@pytest.mark.parametrize("tag", [CLOUD, "gpt-oss:120b-cloud", "qwen3-coder:cloud"])
 def test_cloud_tag_cannot_replace_the_ollama_default(isolated_db, tag):
     with pytest.raises(InvalidInputError, match="can't be the default"):
         model_registry_service.set_model_override("default", "ollama", engine_registry.effective_default_model("ollama"), tag)
