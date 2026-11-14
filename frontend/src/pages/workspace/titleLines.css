@@ -1,10 +1,4 @@
 /* Text wraps, never clips: every line may take as many rows as it needs. */
-.title-studio { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1fr); align-items: start; }
-.title-studio-side { display: grid; gap: var(--space-3); }
-@media (min-width: 900px) {
-  .title-studio { grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); }
-  .title-studio-side { grid-column: 2; grid-row: 1 / span 2; }
-}
 .title-progress { display: grid; gap: var(--space-1); }
 .title-progress-bar { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
 .title-progress-bar > span { display: block; height: 100%; background: var(--accent); }
@@ -13,8 +7,3 @@
 .title-line { display: grid; gap: var(--space-1); }
 .title-line-orig { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .title-line-en { font-size: var(--text-md); overflow-wrap: anywhere; }
-/* An open step sits in the first column beside the same steps column the title page has, and may shrink below its content. */
-.title-studio-main { min-width: 0; }
-@media (min-width: 900px) {
-  .title-studio-stage .title-studio-side { grid-row: 1; }
-}

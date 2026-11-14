@@ -15,11 +15,15 @@ import { STAGE_IDS, type StageId } from './stages'
 import { titleKind } from './titleKind'
 import { StageContext, type StageContextValue } from './StageContext'
 import { SimpleStepNav } from './SimpleStepNav'
+import type { StepKey } from './stepModel'
 import { TitleSteps } from './TitleSteps'
 import { useTitleProgress } from './useTitleProgress'
 import './titleLines.css'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
+
+const OPEN_STEP: Partial<Record<StageId, StepKey>> = { translate: 'translate', review: 'check', export: 'export' }
+const openStep = (stage: StageId | null): StepKey | null => (stage ? OPEN_STEP[stage] ?? null : null)
 
 // A stage opened from a Simple title page: the stage under a slim header, without the stage tab strip.
 export function SimpleStagePage({ id, title, error, refetch, drama, simple, stage, onView }: {
@@ -59,22 +63,12 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
         )}
       </header>
       {!simple && <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => s !== 'review')} active={stage} kind={titleKind(drama.media_type, drama.content_mode)} />}
-      <div className={simple ? 'title-studio title-studio-stage' : undefined}>
-        <div className="title-studio-main">
-          <ErrorBanner error={error} />
-          <StageContext.Provider value={ctx}>
-            {Stage && <Stage />}
-          </StageContext.Provider>
-        </div>
-        {simple && (
-          <div className="title-studio-side">
-            <TitleSteps id={id} {...steps} />
-            <div className="actions">
-              <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* `simple` is true only for audio and video, the kinds whose Simple pages have the step tabs. */}
+      {simple && <TitleSteps id={id} {...steps} openStep={openStep(stage)} />}
+      <ErrorBanner error={error} />
+      <StageContext.Provider value={ctx}>
+        {Stage && <Stage />}
+      </StageContext.Provider>
     </section>
   )
 }

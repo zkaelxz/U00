@@ -1,0 +1,11 @@
+/* Beside the lines on a wide window, under them on a phone; text wraps and the video never outgrows the column. */
+.title-studio { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1fr); align-items: start; }
+.title-studio-main { display: grid; gap: var(--space-3); min-width: 0; }
+@media (min-width: 900px) {
+  .title-studio.has-panel { grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); }
+}
+.title-panel { display: grid; gap: var(--space-3); min-width: 0; }
+.title-panel-body { display: grid; gap: var(--space-3); }
+.title-panel-body[hidden] { display: none; }
+.title-panel-video { width: 100%; max-height: 50vh; border-radius: var(--radius-md); background: #000; }
+.title-panel-note { margin: 0; overflow-wrap: anywhere; }
