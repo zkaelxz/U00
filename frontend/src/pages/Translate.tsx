@@ -193,10 +193,10 @@ export default function TranslatePage() {
   const shown = visibleHistory(history, showAll)
 
   return (
-    <PageShell width="standard" title="Quick translate" label="Quick translate" className="translate-page" meta="Quick text translation, outside any title. One side is always English.">
+    <PageShell width="standard" title="Text" label="Text" className="translate-page" meta="Quick text translation, outside any title. One side is always English.">
       {showLocalOnlyNote(engines, engine) && (
         <p className="translate-note" role="note" data-testid="local-only-note">
-          No cloud translator is set up. Quick translate is using Ollama on this PC. Start Ollama, or {canAddKey
+          No cloud translator is set up. Text translation is using Ollama on this PC. Start Ollama, or {canAddKey
             ? <>add a key in <a href="#/settings">Settings</a></>
             : 'ask the PC owner to add a key'}.
         </p>
@@ -329,7 +329,7 @@ export default function TranslatePage() {
               )}
               {!canTranslate && (
                 <p id="translate-needs-permission" className="translate-warning">
-                  Quick translate isn't allowed for this account. Ask the PC owner.
+                  Text translation isn't allowed for this account. Ask the PC owner.
                 </p>
               )}
               {canTranslate && noKey && selected && (

@@ -73,12 +73,12 @@ export const NAV_ITEMS: NavItem[] = [
     rail: { group: 'library', active: ['library-tools', 'manga', 'manga-series', 'manga-read'] },
   }),
   // Creating a title is what the run does first, so the item needs the same permission as the Library's New title.
-  item('Make subtitles', { name: 'make-subtitles' }, {
+  item('Quick translate', { name: 'make-subtitles' }, {
     requires: 'library.create',
     hideWithoutPermission: true,
     rail: { group: 'tools', active: ['make-subtitles'] },
   }),
-  item('Quick translate', { name: 'translate' }, {
+  item('Text', { name: 'translate' }, {
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
