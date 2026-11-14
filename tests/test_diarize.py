@@ -294,6 +294,56 @@ class TestAssignSpeakerToLine:
         assert diarize.assign_speaker_to_line(0.0, 1.0, []) is None
 
 
+class TestConfidenceCutoff:
+    """Nemotron turns carry the speaker's probability per 0.1 s; a line the model was
+    unsure of is left blank rather than given a speaker that may be wrong."""
+
+    @staticmethod
+    def _turn(start, end, speaker, bins=None):
+        turn = {"start": start, "end": end, "speaker": speaker}
+        if bins is not None:
+            turn["confidence"] = bins
+        return turn
+
+    @staticmethod
+    def _line(start, end, speaker=None, manual=False):
+        from core import Line
+        return Line(idx=0, start=start, end=end, zh="x", en="", speaker=speaker, speaker_manual=manual)
+
+    def test_line_confidence_is_the_overlap_weighted_mean_of_the_bins_inside_the_line(self):
+        turns = [self._turn(1.0, 1.4, "SPEAKER_00", [0.6, 0.7, 0.9, 1.0]),
+                 self._turn(1.0, 1.4, "SPEAKER_01", [0.1, 0.1, 0.1, 0.1])]
+        # 1.15-1.35 covers half of bin 1 (0.7), all of bin 2 (0.9) and half of bin 3 (1.0).
+        assert diarize.line_confidence(1.15, 1.35, "SPEAKER_00", turns) == pytest.approx(
+            (0.05 * 0.7 + 0.1 * 0.9 + 0.05 * 1.0) / 0.2)
+
+    def test_a_shorter_last_bin_and_several_turns_count_by_their_covered_time(self):
+        turns = [self._turn(0.0, 0.15, "SPEAKER_00", [0.9, 0.5]),
+                 self._turn(1.0, 1.1, "SPEAKER_00", [0.8])]
+        assert diarize.line_confidence(0.0, 2.0, "SPEAKER_00", turns) == pytest.approx(
+            (0.1 * 0.9 + 0.05 * 0.5 + 0.1 * 0.8) / 0.25)
+
+    def test_turns_without_confidence_give_none(self):
+        assert diarize.line_confidence(0.0, 1.0, "SPEAKER_00",
+                                       [self._turn(0.0, 1.0, "SPEAKER_00")]) is None
+
+    def test_unsure_line_is_blanked_sure_and_pyannote_lines_are_labelled(self):
+        cutoff = diarize.SPEAKER_CONFIDENCE_CUTOFF
+        turns = [self._turn(0.0, 1.0, "SPEAKER_00", [cutoff + 0.05] * 10),
+                 self._turn(2.0, 3.0, "SPEAKER_01", [cutoff - 0.05] * 10),
+                 self._turn(4.0, 5.0, "SPEAKER_02")]
+        lines = [self._line(0.0, 1.0, "OLD"), self._line(2.0, 3.0, "OLD"), self._line(4.0, 5.0)]
+        counts = diarize.merge_speakers(lines, turns)
+        assert [ln.speaker for ln in lines] == ["SPEAKER_00", None, "SPEAKER_02"]
+        assert counts == {"changed": 3, "kept_manual": 0}
+
+    def test_a_hand_set_speaker_is_kept_on_an_unsure_line(self):
+        lines = [self._line(0.0, 1.0, "Anok", manual=True)]
+        counts = diarize.merge_speakers(lines, [self._turn(0.0, 1.0, "SPEAKER_00", [0.55] * 10)])
+        assert lines[0].speaker == "Anok" and lines[0].speaker_manual
+        assert counts == {"changed": 0, "kept_manual": 1}
+
+
 class TestExtractSpeakerEmbeddings:
     """Step 8: pyannote.audio 4.x's DiarizeOutput.speaker_embeddings, one
     row per speaker in annotation.labels() order -- mapped to
@@ -696,6 +746,84 @@ class TestNemotronBackend:
             {"Start": 4.0, "End": 4.0, "Speaker": 0}])
         assert turns == [{"start": 0.0, "end": 1.5, "speaker": "SPEAKER_00"},
                          {"start": 2.0, "end": 3.0, "speaker": "SPEAKER_01"}]
+
+    def test_turns_get_their_own_speakers_mean_probability_per_tenth_of_a_second(self):
+        import numpy as np
+        import diarize_nemotron
+        probs = np.zeros((40, 2))
+        probs[5:30, 1] = np.linspace(0.6, 0.84, 25)
+        turns = diarize_nemotron.turns_from_segments(
+            [{"Start": 0.05, "End": 0.3, "Speaker": 1}], probs, 0.01)
+        assert turns[0]["confidence"] == [round(float(probs[a:b, 1].mean()), 2)
+                                          for a, b in ((5, 15), (15, 25), (25, 30))]
+
+    def test_diarize_keeps_the_frame_probabilities_as_turn_confidence(self, monkeypatch):
+        """The whole diarize() call with transformers, torch and librosa faked: the
+        turns it returns carry the sigmoid of the model's logits."""
+        import contextlib
+        import types
+        import numpy as np
+        import diarize_nemotron
+
+        logit = np.full((1, 20, 2), -5.0)
+        logit[0, :20, 0] = 2.0  # sigmoid 0.88
+
+        class Logits:
+            def __init__(self, a):
+                self.a = a
+
+            def __getitem__(self, i):
+                return Logits(self.a[i])
+
+            def float(self):
+                return self
+
+            def cpu(self):
+                return self
+
+            def sigmoid(self):
+                return Logits(1 / (1 + np.exp(-self.a)))
+
+            def numpy(self):
+                return self.a
+
+        class Inputs(dict):
+            attention_mask = None
+
+            def to(self, *a, **k):
+                return self
+
+        class Processor:
+            feature_extractor = types.SimpleNamespace(hop_length=160, sampling_rate=16000)
+
+            def __call__(self, audio, sampling_rate):
+                return Inputs()
+
+            def extract_speaker_dict(self, logits, mask):
+                return [[{"Start": 0.0, "End": 0.2, "Speaker": 0}]]
+
+        class Model:
+            device, dtype = "cpu", None
+
+            def __call__(self, **inputs):
+                return types.SimpleNamespace(logits=Logits(logit))
+
+        fake_transformers = types.SimpleNamespace(
+            AutoProcessor=types.SimpleNamespace(from_pretrained=lambda *a, **k: Processor()),
+            AutoModelForAudioFrameClassification=types.SimpleNamespace(
+                from_pretrained=lambda *a, **k: Model()))
+        fake_torch = types.SimpleNamespace(
+            inference_mode=contextlib.nullcontext,
+            cuda=types.SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None))
+        fake_librosa = types.SimpleNamespace(load=lambda *a, **k: (np.zeros(3200, "float32"), 16000))
+        monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        monkeypatch.setitem(sys.modules, "librosa", fake_librosa)
+        monkeypatch.setattr(diarize_nemotron, "_pyannote_embedder", lambda use_gpu: None)
+        turns, prints = diarize_nemotron.diarize("/fake/audio.wav")
+        assert turns == [{"start": 0.0, "end": 0.2, "speaker": "SPEAKER_00",
+                          "confidence": [0.88, 0.88]}]
+        assert prints == {}
 
     def test_nemotron_turns_are_used_when_chosen(self, monkeypatch):
         turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_03"}]
