@@ -197,3 +197,81 @@ def test_the_notch_between_two_lobes_is_kept():
     mask[5:55, 60:95] = True
     assert not scanlate_render._without_small_dents(mask)[30, 50]
     assert scanlate_render._without_small_dents(None) is None
+
+
+def _round_balloon(hatched_corner, cut=120):
+    yy, xx = np.mgrid[:325, :311]
+    mask = ((xx - 155) / 150.0) ** 2 + ((yy - 162) / 158.0) ** 2 <= 1
+    if hatched_corner:
+        mask &= (xx - 155) + (155 - yy) < cut  # hatching cut off the upper right on a diagonal
+    return mask
+
+
+def _line_centres(mask, rect_layout):
+    from PIL import Image, ImageDraw, ImageFont
+    draw = ImageDraw.Draw(Image.new("RGB", (311, 325)))
+    laid = scanlate_render._layout_balloon_text(
+        draw, "Me? Why?", mask, 28, lambda sz: ImageFont.load_default(sz), rect_layout)
+    return [(left + right) / 2 for _, left, right, _ in laid[1]]
+
+
+def test_hatching_cut_off_one_side_does_not_pull_the_text_off_the_balloon_centre():
+    for rect_layout in (False, True):
+        centres = _line_centres(_round_balloon(True, 100), rect_layout)
+        assert all(abs(c - 155) < 4 for c in centres), (rect_layout, centres)
+
+
+def test_a_cut_that_leaves_the_mask_nearly_full_width_is_still_seen():
+    mask = _round_balloon(False)
+    yy, xx = np.mgrid[:325, :311]
+    mask &= (xx - 155) + (155 - yy) < 120  # shallower cut: the bounding box stays full width
+    cols = np.nonzero(mask.any(axis=0))[0]
+    assert cols[-1] - cols[0] > 0.9 * 311
+    assert scanlate_render._symmetrised(mask) is not None
+
+
+def test_a_balloon_that_is_already_centred_is_laid_out_as_before():
+    mask = _round_balloon(False)
+    assert scanlate_render._symmetrised(mask) is None
+
+
+def test_a_narrow_balloon_a_pixel_or_two_off_centre_is_left_alone():
+    mask = np.zeros((124, 66), bool)
+    mask[5:119, 4:60] = True  # centre of mass 2 px off the box centre: 3% of 66 is 2 px
+    assert scanlate_render._symmetrised(mask) is None
+
+
+def test_a_cut_that_would_move_the_text_across_the_balloon_is_left_as_it_is():
+    mask = _round_balloon(True, 40)  # deep cut: centring would move the line 60 px of 311
+    for rect_layout in (False, True):
+        centres = _line_centres(mask, rect_layout)
+        assert all(c < 140 for c in centres), (rect_layout, centres)
+
+
+def test_centring_is_refused_when_it_puts_text_over_dark_pixels():
+    from PIL import Image, ImageDraw, ImageFont
+    text = "I never said that, did I? Think again!"
+    mask = _round_balloon(True, 100)
+    draw = ImageDraw.Draw(Image.new("RGB", mask.shape[::-1]))
+
+    def centres(dark):
+        laid = scanlate_render._layout_balloon_text(
+            draw, text, mask, 28, lambda sz: ImageFont.load_default(sz), False, dark=dark)
+        return [(left + right) / 2 for _, left, right, _ in laid[1]]
+
+    assert all(abs(c - 155) < 4 for c in centres(np.zeros(mask.shape, bool)))  # hatching: light
+    dark = np.zeros(mask.shape, bool)
+    dark[:, 150:] = True  # art where the centred lines would reach
+    assert all(c < 140 for c in centres(dark))
+
+
+def test_centring_falls_back_to_the_symmetric_core_when_the_full_mirror_reaches_art():
+    from PIL import Image, ImageDraw, ImageFont
+    text = "I understand. It's hard to believe."
+    mask = _round_balloon(False)
+    mask[:, :50] = False  # outline close on the left: mirroring would add 50 px that are not balloon
+    draw = ImageDraw.Draw(Image.new("RGB", mask.shape[::-1]))
+    laid = scanlate_render._layout_balloon_text(
+        draw, text, mask, 28, lambda sz: ImageFont.load_default(sz), False, dark=~mask)
+    assert all(abs((left + right) / 2 - 155) < 4 for _, left, right, _ in laid[1])
+    assert all(mask[:, int(left):int(right)].any() for _, left, right, _ in laid[1])

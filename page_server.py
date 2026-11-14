@@ -491,13 +491,15 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
                     store: bool = True, member: bool = False, typeset: bool = False,
-                    typeset_style=None) -> dict:
+                    typeset_style=None, turn=page_turns.UNORDERED) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
 
     Detection and OCR run under `_PIPELINE_LOCK` -- see this module's
     docstring on `scanlate`'s unlocked model caches. Translation does not.
+    `turn` (a `page_turns.PageOrder` turn) orders reading and translating
+    against the other pages of the same request.
     """
     import db
     import scanlate
@@ -527,7 +529,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     try:
         # The discard runs before the lock is released, while no other
         # request can have seen the page.
-        with PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
+        with turn.reading(), PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
             if store and drama is not None and drama_id is not None:
                 page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
                 if page is None:
@@ -592,16 +594,18 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
-            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member,
-                                          image=data)
+            with turn.translating():
+                reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
+                                                 config, member, image=data)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
         notes.extend(_detect_notes(detect_notes, member))
-        translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                 notes, member, data)
+        with turn.translating():
+            translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
+                                                     notes, member, data)
         if typeset and temp_path and page is None:
             typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style)
         if page is not None:
@@ -756,6 +760,44 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _stream_pages(self, payload, images):
+        """/pages as one JSON line per page as it finishes, then a last line with the rest of the
+        answer (extension_bridge_service.streamed_lines), so the extension draws each page without
+        waiting for the batch. Nothing is sent until the first line, so a refusal before any page
+        is still an ordinary error answer; after that only a last {"error"} line can say so."""
+        from services import extension_bridge_service
+        state = {"started": False, "gone": False}
+
+        def write(line: dict):
+            if state["gone"]:
+                return
+            try:
+                if not state["started"]:
+                    # Started even if these writes fail, so no error answer is sent after them.
+                    state["started"] = True
+                    # No length is known up front, so the end of the body is the end of the connection.
+                    self.close_connection = True
+                    self.send_response(200)
+                    self.send_header("Content-Type", extension_bridge_service.STREAM_CONTENT_TYPE)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                self.wfile.write(json.dumps(line).encode("utf-8") + b"\n")
+                self.wfile.flush()
+            except OSError:
+                state["gone"] = True   # the extension stopped listening; the run goes on
+
+        try:
+            extension_bridge_service.streamed_lines(payload, images, write)
+        except EndpointError as e:
+            if not state["started"]:
+                raise
+            write({"error": e.message, "status": e.status})
+        except Exception:
+            if not state["started"]:
+                raise
+            write({"error": "the app failed to answer this request", "status": 500})
+
     def _fail(self, error):
         # Keep-alive is on (HTTP/1.1), and a refusal usually happens
         # *before* the request body has been read -- an unauthenticated
@@ -806,6 +848,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             images = payload.get("images")
             extension_bridge_service.validate_image_batch(route == "/page", images)
+            if route == "/pages" and payload.get("stream") is True:
+                self._stream_pages(payload, images)
+                return
             self._send_json(200, extension_bridge_service.run_images(payload, images))
         except EndpointError as e:
             self._fail(e)
@@ -889,6 +934,36 @@ def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
     # A moment to let a port conflict surface, so Settings can report it
     # rather than claiming a server that immediately died is running.
     time.sleep(0.05)
+    return True
+
+
+_warm_started = False
+
+
+def warm_models_soon() -> bool:
+    """Loads the page-reading models on a background thread, once per process, so the first
+    page the extension sends does not wait for them. It holds the pipeline lock while loading,
+    so a page that arrives meanwhile waits for the load it would otherwise have done itself.
+    True if this call started it."""
+    global _warm_started
+    with _server_lock:
+        if _warm_started:
+            return False
+        _warm_started = True
+
+    def run():
+        from applog import get_logger
+        try:
+            import scanlate
+            with PIPELINE_LOCK:
+                warmed = scanlate.warm_models(get_translation_config().get("detect_backend") or "auto")
+            if warmed:
+                get_logger().info("Extension bridge: loaded the %s ahead of the first page", " and ".join(warmed))
+        except Exception as e:
+            # The first page loads what is missing itself, as it always did.
+            get_logger().warning("Extension bridge: models were not loaded ahead (%s)", type(e).__name__)
+
+    threading.Thread(target=run, daemon=True, name="page-server-warmup").start()
     return True
 
 
