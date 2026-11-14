@@ -182,7 +182,11 @@ def retry_missing_regions(texts_by_id: dict, got: dict, engine, drama_meta: dict
     the missing ones together, then (if some are still missing) a few alone, so
     one region the model keeps tripping on cannot hold back the others. Returns
     a new dict; an engine error on a retry is the same as no answer, because the
-    caller already holds a partial result worth keeping."""
+    caller already holds a partial result worth keeping, except the stop signals
+    the run code lets through, which are raised."""
+    from engine_backends.run_limits import TranslateRunStopped
+    from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
+    from memory_headroom import HeadroomError
     out = dict(got)
     missing = {k: v for k, v in texts_by_id.items() if k not in out}
     if not missing:
@@ -198,6 +202,10 @@ def retry_missing_regions(texts_by_id: dict, got: dict, engine, drama_meta: dict
                 group, engine, drama_meta, previous_context=previous_context,
                 usage_cb=usage_cb, glossary_terms=glossary_terms,
                 character_notes=character_notes, chapter_brief=chapter_brief)
+        except (TranslationCancelled, TranslateRunStopped, LLMTaskTimeout, HeadroomError):
+            # A cancel, a spend limit, a timed-out request still running or a refused
+            # memory check must stop the page, not cost one more paid call per group.
+            raise
         except Exception:
             continue
         out.update(answer or {})

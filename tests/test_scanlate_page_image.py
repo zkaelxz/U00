@@ -281,3 +281,34 @@ def test_ids_written_beside_the_translations_object_are_still_read(monkeypatch):
     got, _ = scanlate_translate.translate_regions_with_image(
         regions, b"x", "image/png", _Engine(), {"source_language": "ko"})
     assert got == {"0": "...making me go crazy.", "1": "What are you thinking, Manager Myung?"}
+
+
+@pytest.mark.parametrize("stop", ["cancel", "run_stopped", "timeout", "headroom"])
+def test_a_stop_signal_from_a_retry_sends_no_further_requests(monkeypatch, stop):
+    from engine_backends.run_limits import TranslateRunStopped
+    from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
+    from memory_headroom import HeadroomError
+    error = {"cancel": TranslationCancelled(), "run_stopped": TranslateRunStopped("limit"),
+             "timeout": LLMTaskTimeout("slow"), "headroom": HeadroomError("low")}[stop]
+    calls = []
+
+    def stops(keyed, *a, **k):
+        calls.append(sorted(keyed))
+        raise error
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", stops)
+    texts = {"0": "a", "1": "b", "2": "c"}
+    with pytest.raises(type(error)):
+        scanlate_translate.retry_missing_regions(texts, {}, _Engine(), {})
+    assert calls == [["0", "1", "2"]]
+
+
+def test_an_ordinary_error_in_one_retry_does_not_stop_the_others(monkeypatch):
+    def flaky(keyed, *a, **k):
+        if len(keyed) > 1 or "0" in keyed:
+            raise RuntimeError("provider hiccup")
+        return {k_: "ok" for k_ in keyed}, "ctx"
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", flaky)
+    got = scanlate_translate.retry_missing_regions({"0": "a", "1": "b"}, {}, _Engine(), {})
+    assert got == {"1": "ok"}
