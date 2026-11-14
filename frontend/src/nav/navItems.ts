@@ -78,7 +78,7 @@ export const NAV_ITEMS: NavItem[] = [
     hideWithoutPermission: true,
     rail: { group: 'tools', active: ['make-subtitles'] },
   }),
-  item('Translate text', { name: 'translate' }, {
+  item('Text', { name: 'translate' }, {
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
