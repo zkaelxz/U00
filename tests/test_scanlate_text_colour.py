@@ -91,19 +91,28 @@ def test_the_notch_between_two_lobes_is_kept():
     assert scanlate_render._without_small_dents(None) is None
 
 
-def _centre_of_lines(rect_layout):
+def _round_balloon(hatched_corner):
+    yy, xx = np.mgrid[:325, :311]
+    mask = ((xx - 155) / 150.0) ** 2 + ((yy - 162) / 158.0) ** 2 <= 1
+    if hatched_corner:
+        mask &= (xx - 155) + (155 - yy) < 40  # hatching cut off the upper right on a diagonal
+    return mask
+
+
+def _line_centres(mask, rect_layout):
     from PIL import Image, ImageDraw, ImageFont
-    mask = np.zeros((120, 200), bool)
-    yy, xx = np.mgrid[:120, :200]
-    mask[((xx - 100) / 95.0) ** 2 + ((yy - 60) / 55.0) ** 2 <= 1] = True
-    mask[:, 150:160] = False  # a bite too big for _without_small_dents to fill
-    draw = ImageDraw.Draw(Image.new("RGB", (200, 120)))
+    draw = ImageDraw.Draw(Image.new("RGB", (311, 325)))
     laid = scanlate_render._layout_balloon_text(
-        draw, "Why, me?", mask, 18, lambda sz: ImageFont.load_default(sz), rect_layout)
-    return [(l + r) / 2 for _, l, r, _ in laid[1]]
+        draw, "Me? Why?", mask, 28, lambda sz: ImageFont.load_default(sz), rect_layout)
+    return [(left + right) / 2 for _, left, right, _ in laid[1]]
 
 
-def test_a_large_dent_does_not_pull_the_lines_off_the_balloon_centre():
+def test_hatching_cut_off_one_side_does_not_pull_the_text_off_the_balloon_centre():
     for rect_layout in (False, True):
-        centres = _centre_of_lines(rect_layout)
-        assert all(abs(c - 100) < 3 for c in centres), (rect_layout, centres)
+        centres = _line_centres(_round_balloon(True), rect_layout)
+        assert all(abs(c - 155) < 4 for c in centres), (rect_layout, centres)
+
+
+def test_a_balloon_that_is_already_centred_is_laid_out_as_before():
+    mask = _round_balloon(False)
+    assert scanlate_render._symmetrised(mask) is None

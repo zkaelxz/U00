@@ -224,23 +224,33 @@ def _split_twice(lines) -> bool:
     return any(a.endswith("-") and b.endswith("-") for a, b in zip(lines, lines[1:]))
 
 
-def _mirrored_about_centre(mask):
-    """`mask` where it is also inside when mirrored about the balloon's centre column (that of
-    its hull, so a dent does not move it); None when that leaves nothing or changes nothing.
-    A dent bigger than _MAX_DENT_FILL allows on one side leaves the widest run of free
-    columns off-centre, and text laid out in it sits off-centre too."""
+# Smallest share of the box width that the balloon's centre may sit off the box's centre before
+# the layout mask is rebuilt symmetric; below it the mask is taken as it is.
+_MIN_OFF_CENTRE = 0.03
+# The balloon has to fill the box this much for the box to stand for its outline, and the
+# mirrored half may add at most this share of the mask: more means the mask is not a balloon
+# with a bite out of it (a tail, a box wider than the balloon).
+_MIN_BALLOON_SHARE_OF_BOX = 0.75
+_MAX_MIRROR_GROWTH = 0.5
+
+
+def _symmetrised(mask):
+    """`mask` joined with its mirror image about the box's centre column, or None when it should
+    stay as it is. Hatching inside a balloon is kept out of the layout mask, which leaves the
+    balloon's usable part off the box's centre and sets the text there; the box is the balloon's
+    extent, so its centre is the balloon's, and the intact side stands in for the hatched one."""
     if mask is None or not mask.any():
         return None
-    import cv2
-    hull = np.zeros(mask.shape, np.uint8)
-    cv2.fillPoly(hull, [cv2.convexHull(cv2.findNonZero(mask.astype(np.uint8)))], 1)
-    moments = cv2.moments(hull, binaryImage=True)
-    centre = int(round(moments["m10"] / moments["m00"]))
-    half = min(centre, mask.shape[1] - 1 - centre)
-    window = np.zeros(mask.shape, bool)
-    inner = mask[:, centre - half:centre + half + 1]
-    window[:, centre - half:centre + half + 1] = inner & inner[:, ::-1]
-    return window if window.any() and not np.array_equal(window, mask) else None
+    h, w = mask.shape
+    cols = np.nonzero(mask.any(axis=0))[0]
+    rows = np.nonzero(mask.any(axis=1))[0]
+    if (cols[-1] - cols[0] + 1 < _MIN_BALLOON_SHARE_OF_BOX * w
+            or rows[-1] - rows[0] + 1 < _MIN_BALLOON_SHARE_OF_BOX * h):
+        return None
+    if abs((cols[0] + cols[-1]) / 2 - (w - 1) / 2) < _MIN_OFF_CENTRE * w:
+        return None
+    joined = mask | mask[:, ::-1]
+    return joined if joined.sum() <= (1 + _MAX_MIRROR_GROWTH) * mask.sum() else None
 
 
 def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLAIN):
@@ -443,7 +453,7 @@ def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_
         return laid_out or _layout_in_mask(draw, text, m, font_size, load_font, style)
 
     free = lay_out(mask)
-    symmetric = _mirrored_about_centre(mask)
+    symmetric = _symmetrised(mask)
     centred = lay_out(symmetric) if symmetric is not None else None
     # Centring narrows each line, so it must not cost the balloon a smaller size.
     return centred if centred is not None and (free is None or centred[0].size >= free[0].size) else free
