@@ -7,8 +7,8 @@ import { useRoute } from '../../../../router'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useSimple } from '../../StageContext'
 import {
-  groupOfTool, LINE_TAB, LINE_TAB_LABEL, lineTabOpen, readAddedTools, readLastTab, remembersTab, seedFirstCard, shownGroups,
-  shownTools, writeAddedTools, writeLastTab, type ReviewTool, type ReviewToolsGroup, type ToolsTab,
+  activeToolsTab, EPISODES_TAB, EPISODES_TAB_LABEL, groupOfTool, LINE_TAB, LINE_TAB_LABEL, lineTabOpen, readAddedTools, readLastTab,
+  remembersTab, seedFirstCard, shownGroups, shownTools, writeAddedTools, writeLastTab, type ReviewTool, type ReviewToolsGroup, type ToolsTab,
 } from './reviewToolsTabs'
 
 const ID_PREFIX = 'review-tools'
@@ -55,11 +55,13 @@ interface Props {
   lineDock?: Ref<HTMLDivElement> | null
   // The tab row and panels sit behind one Checks and tools button; the job status stays above it.
   folded?: boolean
+  // While set, an Episodes tab ends the row with this list of the series' episodes.
+  episodes?: ReactNode
 }
 
 // The tools under the line list as one tab level of groups. A group's panel mounts
 // the first time it is shown and then stays, so open folds and drafts survive a switch.
-export function ReviewTools({ dramaId, status, tools, attention = {}, request = null, lineDock = null, folded = false }: Props) {
+export function ReviewTools({ dramaId, status, tools, attention = {}, request = null, lineDock = null, folded = false, episodes = null }: Props) {
   // A link or remembered choice for a group Simple leaves out opens Look for problems.
   // A button that needs a tool Simple leaves out adds it for this title: Transcribe this gap
   // starts its run in Re-transcribe, which must be mounted to start it and to apply what it heard.
@@ -81,14 +83,23 @@ export function ReviewTools({ dramaId, status, tools, attention = {}, request = 
   const [unfolded, setUnfolded] = useState(() => !!linked)
   const lineOffered = !!lineDock
   const [line, setLine] = useState(() => ({ offered: lineOffered, open: lineTabOpen({ offered: false, open: false }, lineOffered, !!linked) }))
-  if (line.offered !== lineOffered) setLine({ offered: lineOffered, open: lineTabOpen(line, lineOffered, !!linked) })
-  const active: ToolsTab = lineOffered && line.open ? LINE_TAB : tab
+  const episodesOffered = !!episodes
+  // Picked like a group, but kept for this visit only; the list mounts on the first pick and then stays.
+  const [episodesOpen, setEpisodesOpen] = useState(false)
+  const [episodesSeen, setEpisodesSeen] = useState(false)
+  if (line.offered !== lineOffered) {
+    const open = lineTabOpen(line, lineOffered, !!linked)
+    setLine({ offered: lineOffered, open })
+    if (open) setEpisodesOpen(false)
+  }
+  const active: ToolsTab = activeToolsTab(tab, lineOffered && line.open, episodesOffered && episodesOpen)
 
   const open = useCallback((g: ReviewToolsGroup) => {
     seedFirstCard(browserStorage(), g)
     setTabState(g)
     setVisited((v) => (v.has(g) ? v : new Set(v).add(g)))
     setLine((l) => (l.open ? { ...l, open: false } : l))
+    setEpisodesOpen(false)
     writeLastTab(browserStorage(), dramaId, g)
   }, [dramaId])
   const select = useCallback((g: ReviewToolsGroup) => {
@@ -97,7 +108,14 @@ export function ReviewTools({ dramaId, status, tools, attention = {}, request = 
   }, [allowed, open])
   const pick = useCallback((t: ToolsTab) => {
     if (remembersTab(t)) select(t)
-    else setLine((l) => ({ ...l, open: true }))
+    else if (t === EPISODES_TAB) {
+      setLine((l) => (l.open ? { ...l, open: false } : l))
+      setEpisodesOpen(true)
+      setEpisodesSeen(true)
+    } else {
+      setLine((l) => ({ ...l, open: true }))
+      setEpisodesOpen(false)
+    }
   }, [select])
 
   // A link's group wins over the remembered one, also while the stage is already open.
@@ -134,6 +152,7 @@ export function ReviewTools({ dramaId, status, tools, attention = {}, request = 
       ...g,
       attention: visibleTools.filter((t) => t.group === g.id).reduce((n, t) => n + (attention[t.id] ?? 0), 0),
     })),
+    ...(episodesOffered ? [{ id: EPISODES_TAB, label: EPISODES_TAB_LABEL } as const] : []),
   ]
   const bodyId = `${ID_PREFIX}-body`
   return (
@@ -174,6 +193,17 @@ export function ReviewTools({ dramaId, status, tools, attention = {}, request = 
           )}
         </div>
       ))}
+      {episodesOffered && (
+        <div
+          id={tabPanelId(ID_PREFIX, EPISODES_TAB)}
+          role="tabpanel"
+          aria-labelledby={tabButtonId(ID_PREFIX, EPISODES_TAB)}
+          className="review-toolbox-panel"
+          hidden={active !== EPISODES_TAB}
+        >
+          {episodesSeen && episodes}
+        </div>
+      )}
       </div>
     </section>
   )

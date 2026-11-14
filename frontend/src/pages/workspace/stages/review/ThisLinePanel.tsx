@@ -99,6 +99,9 @@ function SoundPicture({ picture, line, player }: { picture: Peaks; line: ReviewL
     let frame = 0
     let last = player.current?.getTime() ?? NaN
     let movedAt = -Infinity
+    // The loop runs every frame even while nothing plays, so it writes a style only when its value changes.
+    let visibility = 'hidden'
+    let left = ''
     const tick = (now: number) => {
       const t = player.current?.getTime() ?? NaN
       if (t !== last) {
@@ -108,8 +111,16 @@ function SoundPicture({ picture, line, player }: { picture: Peaks; line: ReviewL
       const el = head.current
       if (el) {
         const shown = now - movedAt < PLAYING_WITHIN_MS && t >= from && t <= to
-        el.style.visibility = shown ? 'visible' : 'hidden'
-        if (shown) el.style.left = `${((t - from) / (to - from)) * 100}%`
+        const nextVisibility = shown ? 'visible' : 'hidden'
+        if (nextVisibility !== visibility) {
+          visibility = nextVisibility
+          el.style.visibility = visibility
+        }
+        const nextLeft = shown ? `${((t - from) / (to - from)) * 100}%` : left
+        if (nextLeft !== left) {
+          left = nextLeft
+          el.style.left = left
+        }
       }
       frame = requestAnimationFrame(tick)
     }

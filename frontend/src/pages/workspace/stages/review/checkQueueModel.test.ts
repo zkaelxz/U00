@@ -35,6 +35,14 @@ describe('initialLinesFilter', () => {
     // A link to a Review tool or section keeps the queue: it names no line.
     expect(initialLinesFilter({ focus: 'compare' }, true)).toBe('risk')
   })
+
+  it('opens the title page of a title with lines still without English on All, unless a link names other lines', () => {
+    expect(initialLinesFilter({}, true, true)).toBe('all')
+    expect(initialLinesFilter({ focus: 'flagged' }, true, true)).toBe('flagged')
+    expect(initialLinesFilter({ find: '第5句' }, true, true)).toBe('all')
+    // Without it (Review, or every line translated) the queue is first, as before.
+    expect(initialLinesFilter({}, true, false)).toBe('risk')
+  })
 })
 
 describe('reasons', () => {

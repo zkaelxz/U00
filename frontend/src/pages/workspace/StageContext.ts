@@ -17,6 +17,10 @@ export interface StageContextValue {
   checkSignal?: number
   // Simple's main button on desktop Review, for the Need a look row to show first; onShown tells the page whether that row drew it.
   checkLead?: CheckLead
+  // Simple's title page of a title with lines still without English: Review's lines open on All, where those lines are.
+  linesOnAll?: boolean
+  // Simple's list of the series' episodes, shown as the last tab of Review's tools; unset outside a series.
+  episodes?: ReactNode
 }
 
 export interface CheckLead {
@@ -38,6 +42,10 @@ export const useSimple = (): boolean => useContext(StageContext)?.simple ?? fals
 export const useCheckSignal = (): number => useContext(StageContext)?.checkSignal ?? 0
 
 export const useCheckLead = (): CheckLead | undefined => useContext(StageContext)?.checkLead
+
+export const useLinesOnAll = (): boolean => useContext(StageContext)?.linesOnAll ?? false
+
+export const useStageEpisodes = (): ReactNode => useContext(StageContext)?.episodes ?? null
 
 /**
  * For a panel a deep link ("?focus=glossary") points at: a Section openSignal that

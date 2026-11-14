@@ -33,7 +33,7 @@ import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 
 export default function ReviewStage() {
-  const { dramaId, drama, refetchDrama } = useStage()
+  const { dramaId, drama, refetchDrama, episodes } = useStage()
   // Bumped after any write or finished job; every panel refetches on it.
   const [reloads, setReloads] = useState(0)
   // The header and tab counts come from the shell's workflow progress, which only
@@ -154,6 +154,7 @@ export default function ReviewStage() {
                 request={toolsRequest}
                 lineDock={lineTab ? setLineDock : null}
                 folded={queueOn && phone}
+                episodes={episodes}
                 attention={{ coverage: parts.coverageCount }}
                 tools={{
                   checks: jobs.check,

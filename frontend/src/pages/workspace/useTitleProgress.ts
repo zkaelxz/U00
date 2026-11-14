@@ -7,6 +7,8 @@ import { getTranscribeConfig, getWorkflowProgress } from '../../api/workspace'
 export function useTitleProgress(id: number, comic: boolean) {
   // Unknown until answered; with no lines yet, the main button starts at Transcribe.
   const [lineCount, setLineCount] = useState<number | null>(null)
+  // The progress request failed, so a null count means "can't say" rather than "not answered yet".
+  const [countFailed, setCountFailed] = useState(false)
   const [translatedCount, setTranslatedCount] = useState(0)
   const [exported, setExported] = useState(false)
   // Audio or video already attached: only then can one button transcribe.
@@ -23,10 +25,15 @@ export function useTitleProgress(id: number, comic: boolean) {
       (p) => {
         if (cancelled) return
         setLineCount(p.line_count)
+        setCountFailed(false)
         setTranslatedCount(p.line_count - p.untranslated_count)
         setExported(p.exported)
       },
-      () => !cancelled && setLineCount(null),
+      () => {
+        if (cancelled) return
+        setLineCount(null)
+        setCountFailed(true)
+      },
     )
     return () => {
       cancelled = true
@@ -60,5 +67,5 @@ export function useTitleProgress(id: number, comic: boolean) {
   }, [])
   // Stable, so a stage page can refresh the counts after every write without remaking its context.
   const refresh = useCallback(() => setTick((t) => t + 1), [])
-  return { lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, refresh }
+  return { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, refresh }
 }

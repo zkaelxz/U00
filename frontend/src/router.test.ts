@@ -29,6 +29,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/drama/3/review?find=Li%20Wei')).toEqual({ name: 'drama', id: 3, stage: 'review', find: 'Li Wei' })
     expect(parseRoute('#/drama/3/review?find=%20%20')).toEqual({ name: 'drama', id: 3, stage: 'review' })
     expect(parseRoute('#/drama/3/translate?find=x')).toEqual({ name: 'drama', id: 3, stage: 'translate' })
+    expect(parseRoute('#/drama/3?find=Li%20Wei')).toEqual({ name: 'drama', id: 3, stage: null, find: 'Li Wei' })
     expect(parseRoute(`#/drama/3/review?find=${'a'.repeat(300)}`)).toMatchObject({ find: 'a'.repeat(200) })
     expect(routeHref({ name: 'drama', id: 3, stage: 'review', find: 'Li Wei&x' })).toBe('#/drama/3/review?find=Li%20Wei%26x')
     expect(parseRoute('#/drama/3/review?tools=problems')).toEqual({ name: 'drama', id: 3, stage: 'review', tools: 'problems' })

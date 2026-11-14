@@ -52,6 +52,29 @@ describe('the This line tab', () => {
   })
 })
 
+describe('the Episodes tab', () => {
+  const episodes = <ul aria-label="Episodes"><li>Episode 1</li></ul>
+
+  it('ends the tab row when the page gives the series\' episodes, its list mounted once it is picked', () => {
+    browser('#/drama/3')
+    const html = render({ episodes })
+    expect(tabs(html)).toEqual(['Look for problems*', 'Change many lines', 'Records', 'Finish', 'Episodes'])
+    expect(html).toMatch(/<div id="review-tools-panel-episodes" role="tabpanel" aria-labelledby="review-tools-tab-episodes" class="review-toolbox-panel" hidden=""><\/div>/)
+  })
+
+  it('is not there without a series', () => {
+    browser('#/drama/3')
+    expect(tabs(render())).not.toContain('Episodes')
+  })
+
+  it('is not opened by a ?tools= link or a remembered tab, and This line opens over it', () => {
+    browser('#/drama/3?tools=episodes', { 'baihe.pref.review.tools.tab.3': '"episodes"' })
+    expect(tabs(render({ episodes }))).toEqual(['Look for problems*', 'Change many lines', 'Records', 'Finish', 'Episodes'])
+    browser('#/drama/3')
+    expect(tabs(render({ episodes, lineDock: () => {} }))).toEqual(['This line*', 'Look for problems', 'Change many lines', 'Records', 'Finish', 'Episodes'])
+  })
+})
+
 describe('the tools fold', () => {
   it('folded, puts the tabs and panels behind Checks and tools, closed, with the job status above it, still mounted', () => {
     browser('#/drama/3/review')

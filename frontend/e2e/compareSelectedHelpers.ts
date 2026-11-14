@@ -53,6 +53,18 @@ db.save_lines(3, ls)
   execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
 }
 
+// Titles 3 and 1 in one series, for the Simple title page's Episodes tab. leaveSeries deletes the series, which takes both
+// titles out of it, so later specs see the library as it was seeded.
+const SERIES = 'E2E episodes'
+const inLibrary = (code: string) =>
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
+export function joinSeries(): void {
+  inLibrary(`sid = db.get_or_create_series(${JSON.stringify(SERIES)})\nfor d in (3, 1):\n    db.update_drama(d, series_id=sid)`)
+}
+export function leaveSeries(): void {
+  inLibrary(`sid = db.get_series_id_by_name(${JSON.stringify(SERIES)})\nif sid:\n    db.delete_series(sid)`)
+}
+
 export const tickBox = (page: Page, n: number) => page.getByRole('checkbox', { name: `Select line #${n}`, exact: true })
 export const compareAction = (page: Page) =>
   page.getByTestId('selection-bar').getByRole('button', { name: 'Compare transcription…' })

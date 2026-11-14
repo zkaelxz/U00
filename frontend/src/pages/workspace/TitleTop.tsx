@@ -15,9 +15,10 @@ import { routeHref } from '../../router'
 import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
 import { JobPill } from './JobPill'
+import { kindBadgeText } from './titleKind'
 import { TitleFlowStart } from './TitleFlowStart'
 import { TitleViewSwitch } from './TitleViewSwitch'
-import { checkActionLabel, focusStep, stepLinks, stepPlace, titleSteps, type StepInput, type StepKey } from './stepModel'
+import { checkActionLabel, focusStep, mainInStepsPanel, stepLinks, stepPlace, titleSteps, type StepInput, type StepKey } from './stepModel'
 import type { TitleView } from './titleView'
 import './titleTop.css'
 
@@ -35,14 +36,15 @@ const stepHrefs = (id: number): Record<StepKey, string> => {
   return { add: href('source', 'add'), transcribe: href('source', 'transcribe'), translate: href('translate'), check: href('review'), export: href('export') }
 }
 
-/** The current step's action. On the Review page the Check button opens the queue there instead of linking to the page already open. */
-export function TitleMainAction({ id, progress, openStep = null, onCheck }: {
+/** The current step's action. Where the lines are on the page, the Check button opens the queue there instead of linking to Review. */
+export function TitleMainAction({ id, progress, onCheck }: {
   id: number
   progress: TitleProgressInput
-  openStep?: StepKey | null
   onCheck?: () => void
 }) {
   const { flowOn, onFlowProgress, ...input } = progress
+  // The run writes the lines it then goes on from, so it keeps its button and progress text while the steps move on.
+  if (flowOn) return <TitleFlowStart id={id} onProgress={onFlowProgress} />
   const current = titleSteps(input).find((s) => s.state === 'current')
   if (!current) return null
   const to = stepHrefs(id)
@@ -52,7 +54,7 @@ export function TitleMainAction({ id, progress, openStep = null, onCheck }: {
       return <ButtonLink variant="primary" href={to.add}>Add media</ButtonLink>
     case 'transcribe':
       // With audio attached one button transcribes, finds glossary names and stops at the glossary review.
-      return flowOn || (input.audioReady && input.lineCount !== null)
+      return input.audioReady && input.lineCount !== null
         ? <TitleFlowStart id={id} onProgress={onFlowProgress} />
         : <ButtonLink variant="primary" href={to.transcribe}>Transcribe and translate</ButtonLink>
     case 'translate':
@@ -60,7 +62,7 @@ export function TitleMainAction({ id, progress, openStep = null, onCheck }: {
     case 'check': {
       const label = checkActionLabel(input.riskCount ?? null)
       if (label === null) return <ButtonLink variant="primary" href={to.export}>Export</ButtonLink>
-      return onCheck && openStep === 'check'
+      return onCheck
         ? <button type="button" className={buttonClass('primary')} onClick={onCheck}>{label}</button>
         : <ButtonLink variant="primary" href={to.check}>{label}</ButtonLink>
     }
@@ -93,19 +95,21 @@ interface Props {
   drama: DramaDetail
   title: string
   back: { href: string; label: string; text: string }
-  /** The title page shows the kind of title beside its name; a stage page leaves it to the title page. */
+  /** The title page and Review show the kind of title beside its name; the other stage pages leave it out. */
   badge?: boolean
+  /** The title's own page, which outlines the current step and, on a phone, puts the main button where that step wants it. */
+  home?: boolean
   onJobFinished: () => void
   onView: (v: TitleView) => void
   progress: TitleProgressInput
   /** The step whose page is open; null on the title page. */
   openStep?: StepKey | null
   onCheck?: () => void
-  /** Review shows the main button in its Need a look row instead, so it is never drawn twice. */
+  /** The lines' Need a look row shows the main button instead, so it is never drawn twice. */
   mainElsewhere?: boolean
 }
 
-export function TitleTop({ id, drama, title, back, badge = false, onJobFinished, onView, progress, openStep = null, onCheck, mainElsewhere = false }: Props) {
+export function TitleTop({ id, drama, title, back, badge = false, home = false, onJobFinished, onView, progress, openStep = null, onCheck, mainElsewhere = false }: Props) {
   const phone = useMediaQuery(TITLE_TOP_PHONE)
   const [moreOpen, setMoreOpen] = useState(false)
   const [foldOpen, setFoldOpen] = useState(false)
@@ -116,7 +120,7 @@ export function TitleTop({ id, drama, title, back, badge = false, onJobFinished,
   const hasLines = (progress.lineCount ?? 0) > 0
   const to = stepHrefs(id)
 
-  const main = <TitleMainAction id={id} progress={progress} openStep={openStep} onCheck={onCheck} />
+  const main = <TitleMainAction id={id} progress={progress} onCheck={onCheck} />
   const secondary = (
     <>
       {current?.key !== 'add' && <ButtonLink href={to.add}>Add media</ButtonLink>}
@@ -135,8 +139,8 @@ export function TitleTop({ id, drama, title, back, badge = false, onJobFinished,
     </>
   )
   const focus = focusStep(steps, openStep)
-  // On Review the phone keeps the main button inside the panel, so the check card stays near the top.
-  const mainOnReviewPhone = openStep === 'check'
+  // On the Check step the phone keeps the main button inside the panel, so the check card stays near the top.
+  const mainInPanel = mainInStepsPanel(openStep, current?.key ?? null, home)
 
   return (
     <>
@@ -149,7 +153,7 @@ export function TitleTop({ id, drama, title, back, badge = false, onJobFinished,
         {/* A phone's header keeps its one line for the title and the steps button. */}
         {badge && !phone && (
           <div className="ws-badges">
-            <Badge kind="mediaType" value={drama.media_type} />
+            <Badge>{kindBadgeText(drama.media_type, drama.source_language)}</Badge>
           </div>
         )}
         <JobPill dramaId={id} onFinished={onJobFinished} />
@@ -171,14 +175,14 @@ export function TitleTop({ id, drama, title, back, badge = false, onJobFinished,
         <>
           <div id={foldId} className="steps-fold-body" hidden={!foldOpen}>
             <StepRow id={id} input={progress} openStep={openStep} />
-            {current && mainOnReviewPhone && <TitleMainRow>{main}</TitleMainRow>}
+            {current && mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
             <div className="steps-fold-controls">{secondary}</div>
             <div className="steps-fold-controls">
               {switchView}
               {source}
             </div>
           </div>
-          {current && !mainOnReviewPhone && <TitleMainRow>{main}</TitleMainRow>}
+          {current && !mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
         </>
       ) : (
         <>

@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-import { GLOSSARY_SENTENCE, mockPeaks, seedCheckLines } from './compareSelectedHelpers'
+import { GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 
@@ -104,20 +104,25 @@ test('choosing Simple then reloading keeps Simple', async ({ page }) => {
   await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
 })
 
-test('with lines the phone shows the bar, the steps and long lines wrapped, with no sideways scroll', async ({ page }) => {
+test('with lines the phone shows the lines themselves, long lines wrapped, with no sideways scroll', async ({ page }) => {
   const long = '这是一句很长很长的中文台词，用来确认在窄屏幕上整句都会换行显示，而不是被截断成省略号。'.repeat(2)
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: { ...progress, untranslated_count: 4 } }))
+  const line = {
+    id: 1, idx: 0, zh: long, en: 'A long line that has to wrap on a phone and still be readable in full.', start: 1, end: 2, speaker: null, speaker_manual: false,
+    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null,
+  }
   await page.route('**/api/review/dramas/1/lines?*', (route) => route.fulfill({
-    json: { total: 10, page: 1, page_size: 8, lines: [{ id: 1, idx: 1, zh: long, en: 'A long line that has to wrap on a phone and still be readable in full.', start: 1, end: 2, speaker: null, reviewed: false }] },
+    json: { lines: [line], page: 1, page_size: 40, total: 1, flagged_count: 0, untranslated_count: 0, unreviewed_count: 1, shaky_count: 0, risk_count: 0 },
   }))
   await page.goto('/#/drama/1')
   await chooseSimple(page)
-  await expect(page.getByRole('progressbar', { name: 'Lines translated' })).toBeVisible()
-  const orig = page.locator('.title-line-orig').first()
+  await expect(page.getByRole('progressbar', { name: 'Lines translated' })).toHaveCount(0)
+  const orig = page.locator('.review-line .review-zh').first()
   await expect(orig).toBeVisible()
   const fits = await orig.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)
   expect(fits, 'the original line wraps inside its box').toBe(true)
-  await expectTall(page.getByRole('link', { name: 'Open all 10 lines' }), 'Open all lines')
+  // The view switch the lines open under replaces the preview's "Open all lines".
+  await expectTall(page.getByRole('group', { name: 'Lines to show' }).locator('label').filter({ hasText: /^All/ }), 'All')
   await expectNoSidewaysScroll(page)
 })
 
@@ -141,9 +146,35 @@ test('the step links and buttons on a stage page are tall enough to tap and do n
 // The first card starts near the top: measured 211px at 390 and 239px at 320, with the steps folded into one line.
 const cardTopAtMost = { 390: 225, 320: 255 }
 
+// The fixed bars at the bottom (the app's and the queue's) must leave the end of the page reachable above them.
+async function expectEndClearOfBars(page: Page, last: Locator, what: string) {
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  const bottom = await last.evaluate((el) => el.getBoundingClientRect().bottom)
+  const barTop = await page.evaluate(() => Math.min(window.innerHeight, ...[...document.querySelectorAll('body *')].filter((el) => {
+    const css = getComputedStyle(el)
+    const r = el.getBoundingClientRect()
+    return css.position === 'fixed' && css.visibility !== 'hidden' && r.height > 0 && r.top > window.innerHeight / 2
+  }).map((el) => el.getBoundingClientRect().top)))
+  expect(bottom, `${what} ends above the bottom bar`).toBeLessThanOrEqual(barTop + 0.5)
+}
+
+// Each element's top is below the one before.
+async function expectOrder(items: [string, Locator][], width: number) {
+  let last = -Infinity
+  for (const [what, loc] of items) {
+    const box = await loc.boundingBox()
+    expect(box, `${what} at ${width}px`).toBeTruthy()
+    expect(box!.y, `${what} comes next at ${width}px`).toBeGreaterThan(last)
+    last = box!.y
+  }
+}
+
 // Title 3's seeded lines would open later phone specs on its Review page.
 test.describe(() => {
-  test.afterAll(() => clearLines())
+  test.afterAll(() => {
+    clearLines()
+    leaveSeries()
+  })
 
   test('the check queue on a phone is one card at a time, with Skip for now, wrapped reasons and no sideways scroll', async ({ page }) => {
     seedCheckLines()
@@ -276,6 +307,78 @@ test.describe(() => {
     await expect(player).toBeInViewport()
     await expectNoSidewaysScroll(page)
     await page.setViewportSize({ width: 320, height: 844 })
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('the title page on the Check step: the card first, then Player, the footer and the tools, all clear of the bottom bar', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page)
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3')
+    const cards = page.locator('.review-line')
+    await expect(cards.locator('.review-idx')).toHaveText('#24')
+    await expect(page).toHaveURL(/#\/drama\/3$/)
+    const main = page.getByRole('button', { name: 'Check the 3 lines', exact: true })
+    // On the Check step the main button waits in the steps panel, so the card comes first, as on Review.
+    await expect(main).toBeHidden()
+    const tools = page.getByRole('button', { name: 'Checks and tools' })
+    for (const width of [390, 320] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await expect(page.locator('.review-toolbar.is-collapsed')).toHaveCount(0)
+      const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
+      expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
+      await expectOrder([
+        ['the header', page.locator('.workspace-header')], ['the card', cards], ['Player', page.getByRole('button', { name: 'Player', exact: true })],
+        ['the footer', page.getByTestId('queue-footer')], ['Checks and tools', tools],
+      ], width)
+      await expectNoSidewaysScroll(page)
+      await expectEndClearOfBars(page, page.getByRole('region', { name: 'Checks and tools' }), `the tools at ${width}px`)
+    }
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await stepsButton(page).tap()
+    await expect(stepsButton(page)).toHaveText('Step 4 of 5 · Check')
+    await expectTall(main, 'the main button in the steps panel')
+    await main.tap()
+    await expect(cards.locator('.review-idx')).toHaveText('#24')
+    await expect(page).toHaveURL(/#\/drama\/3$/)
+  })
+
+  test('the title page on the Translate step: the main button under the header, then the lines and the tools with Episodes', async ({ page }) => {
+    seedCheckLines({ untranslated: true, audio: true })
+    joinSeries()
+    await mockPeaks(page)
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3')
+    await expect(stepsButton(page)).toHaveText('Step 3 of 5 · Translate')
+    await expect(page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })).toBeChecked()
+    const main = page.getByRole('link', { name: 'Translate 1 line', exact: true })
+    const tools = page.getByRole('region', { name: 'Checks and tools' })
+    const tabs = tools.getByRole('tablist', { name: 'Review tools' })
+    await expect(tabs.getByRole('tab')).toHaveText(['Look for problems', 'Change many lines', 'Finish', 'Episodes'])
+    for (const width of [390, 320] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await expectTall(main, `${width}px: the main button`)
+      await expectOrder([
+        ['the header', page.locator('.workspace-header')], ['the main button', main], ['the switch', page.getByRole('group', { name: 'Lines to show' })],
+        ['the first line', page.locator('.review-line').first()], ['the tools', tabs],
+      ], width)
+      // The tools' row keeps its tabs (no picker), each whole.
+      const cut = await tabs.evaluate((row) => {
+        const box = row.getBoundingClientRect()
+        return [...row.querySelectorAll('[role="tab"]')].filter((t) => {
+          const r = t.getBoundingClientRect()
+          return t.scrollWidth > t.clientWidth + 1 || r.left < box.left - 1 || r.right > box.right + 1
+        }).map((t) => t.textContent)
+      })
+      expect(cut, `tabs cut at ${width}px`).toEqual([])
+      for (let n = 0; n < 4; n++) await expectTall(tabs.getByRole('tab').nth(n), `tab ${n + 1} at ${width}px`)
+      await expectNoSidewaysScroll(page)
+      await expectEndClearOfBars(page, tools, `the tools at ${width}px`)
+    }
+    await tabs.getByRole('tab', { name: 'Episodes' }).tap()
+    await expect(page.getByRole('list', { name: 'Episodes' }).getByRole('link', { name: /Signal/ })).toHaveAttribute('aria-current', 'page')
     await expectNoSidewaysScroll(page)
   })
 })

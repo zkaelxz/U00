@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { checkActionLabel, focusStep, stepLinks, stepPlace, titleSteps, type StepLink } from './stepModel'
+import { checkActionLabel, focusStep, linesOpenOnAll, mainInStepsPanel, stepLinks, stepPlace, titleSteps, type StepKey, type StepLink } from './stepModel'
 
 const states = (i: Parameters<typeof titleSteps>[0]) => titleSteps(i).map((s) => `${s.key}:${s.state}`)
 const base = { audioReady: false, lineCount: 0, translatedCount: 0, exported: false }
@@ -127,5 +127,32 @@ describe('stepLinks', () => {
     expect(focusStep(titleSteps({ ...i, exported: true }), null)).toBe('export')
     expect(focusStep(titleSteps({ ...base, lineCount: null }), null)).toBeNull()
     expect(focusStep(titleSteps({ ...base, lineCount: null }), 'translate')).toBe('translate')
+  })
+})
+
+describe('mainInStepsPanel', () => {
+  const keys: StepKey[] = ['add', 'transcribe', 'translate', 'check', 'export']
+  it('on the title page, puts the main button in the steps panel only while Check is the current step', () => {
+    expect(keys.filter((k) => mainInStepsPanel(null, k, true))).toEqual(['check'])
+    expect(mainInStepsPanel(null, null, true)).toBe(false)
+  })
+  it('on Review, always in the steps panel; on the other stage pages, never', () => {
+    for (const k of keys) expect(mainInStepsPanel('check', k, false)).toBe(true)
+    for (const open of ['translate', 'export', 'add', 'transcribe', null] as const) {
+      expect(keys.filter((k) => mainInStepsPanel(open, k, false))).toEqual([])
+    }
+  })
+})
+
+describe('linesOpenOnAll', () => {
+  const at = (translated: number, risk: number | null = 3) => ({ audioReady: true, lineCount: 24, translatedCount: translated, exported: false, riskCount: risk })
+  it('is true on the title page while some lines have no English (the Translate step)', () => {
+    expect(linesOpenOnAll(true, at(23))).toBe(true)
+    expect(linesOpenOnAll(true, at(0))).toBe(true)
+  })
+  it('is false once every line is translated, while the count is unknown, and on Review', () => {
+    expect(linesOpenOnAll(true, at(24))).toBe(false)
+    expect(linesOpenOnAll(true, { ...at(0), lineCount: null })).toBe(false)
+    expect(linesOpenOnAll(false, at(23))).toBe(false)
   })
 })

@@ -18,7 +18,7 @@ export type Route =
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter, "?focus=all" on All lines (Simple opens on its check queue).
-  // find: "#/drama/3/review?find=Li%20Wei" opens Review with that text already searched.
+  // find: "#/drama/3/review?find=Li%20Wei" opens Review with that text already searched; so does the title page, which can show Review's lines.
   // tools: "#/drama/3/review?tools=problems" opens that group of the Review tools panel.
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
   // "#/drama/3/translate?tab=glossary" that of the Translate stage.
@@ -175,7 +175,7 @@ export function parseRoute(hash: string): Route {
       id: Number(a),
       stage,
       ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' || focus === 'all' ? { focus } : {}),
-      ...(find && stage === 'review' ? { find } : {}),
+      ...(find && (stage === 'review' || stage === null) ? { find } : {}),
       ...(tools ? { tools } : {}),
       ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
     }

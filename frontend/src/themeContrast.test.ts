@@ -252,6 +252,25 @@ describe('This line: the open line on its tint', () => {
   }
 })
 
+// The outlined step in the Simple step row: its name, a step still to do and the word "Done" on the step's tint over the row.
+describe('the outlined step on its tint', () => {
+  const titleTopCss = readFileSync(new URL('./pages/workspace/titleTop.css', import.meta.url), 'utf8')
+  const fill = titleTopCss.match(/\.title-step\.is-marked \.title-step-link \{[^}]*background: var\((--[\w-]+)\)/)
+  const row = titleTopCss.match(/\n\.title-steps \{[^}]*background: var\((--[\w-]+)\)/)
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const fg of ['--text', '--muted', '--ok']) {
+      it(`${name}: ${fg} on the outlined step`, () => {
+        expect(fill).toBeTruthy()
+        expect(row).toBeTruthy()
+        const soft = css.match(new RegExp(`${fill![1]}: color-mix\\(in srgb, var\\((--[\\w-]+)\\) (\\d+)%, transparent\\)`))
+        expect(soft, fill![1]).toBeTruthy()
+        const under = over(resolve(theme, soft![1]), +soft![2], resolve(theme, row![1]))
+        expect(contrast(resolve(theme, fg), under)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+})
+
 describe('split dialog cut shading', () => {
   for (const [name, theme] of Object.entries(THEMES)) {
     for (const cls of ['split-cut-a', 'split-cut-b']) {

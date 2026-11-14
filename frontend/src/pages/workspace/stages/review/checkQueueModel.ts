@@ -11,10 +11,11 @@ export const QUEUE_FILTER: LineFilter = 'risk'
 /**
  * The view Review opens on. A link that names lines wins over the queue, so it never opens on a list without
  * the line it points at: ?focus=flagged opens Flagged, ?find= (a Ctrl+K line hit) and ?focus=all open All.
+ * `onAll`: the title page of a title with lines still without English, which the queue never lists, opens on All too.
  */
-export function initialLinesFilter(link: { focus?: string; find?: string } | null, simple: boolean): LineFilter {
+export function initialLinesFilter(link: { focus?: string; find?: string } | null, simple: boolean, onAll = false): LineFilter {
   if (link?.focus === 'flagged') return 'flagged'
-  if (!simple || link?.focus === 'all' || link?.find) return 'all'
+  if (!simple || onAll || link?.focus === 'all' || link?.find) return 'all'
   return QUEUE_FILTER
 }
 

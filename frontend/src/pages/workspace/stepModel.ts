@@ -72,6 +72,18 @@ export function focusStep(steps: Step[], open: StepKey | null): StepKey | null {
   return steps.length > 0 && steps.every((s) => s.state === 'done') ? steps[steps.length - 1].key : null
 }
 
+/**
+ * On a phone, whether the main button sits in the panel the steps button opens rather than under the header: on the
+ * Check step the check card comes first, so on Review, and on the title page while Check is the current step.
+ */
+export function mainInStepsPanel(openStep: StepKey | null, current: StepKey | null, titlePage: boolean): boolean {
+  return openStep === 'check' || (titlePage && current === 'check')
+}
+
+/** Whether the title page opens the lines on All: on the Translate step some lines have no English, and the check queue never lists those. */
+export const linesOpenOnAll = (titlePage: boolean, i: StepInput): boolean =>
+  titlePage && titleSteps(i).find((s) => s.state === 'current')?.key === 'translate'
+
 export type StepWord = 'Done' | 'Now' | 'Next'
 
 export interface StepLink {

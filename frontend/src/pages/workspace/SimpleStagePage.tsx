@@ -16,10 +16,11 @@ import { STAGE_IDS, type StageId } from './stages'
 import { titleKind } from './titleKind'
 import { StageContext, type StageContextValue } from './StageContext'
 import { SimpleStepNav } from './SimpleStepNav'
-import type { StepKey } from './stepModel'
+import { EpisodesList } from './EpisodesList'
+import { linesOpenOnAll, type StepKey } from './stepModel'
+import { TitlePanel } from './TitlePanel'
 import { TITLE_TOP_PHONE, TitleMainAction, TitleTop } from './TitleTop'
 import { useTitleProgress } from './useTitleProgress'
-import './titleLines.css'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import type { TitleView } from './titleView'
 
@@ -28,7 +29,9 @@ const openStep = (stage: StageId | null): StepKey | null => (stage ? OPEN_STEP[s
 // The source stage is two steps: its Add and Transcribe tabs.
 const sourceStep = (tab: string | undefined): StepKey | null => (tab === 'add' || tab === 'transcribe' ? tab : null)
 
-// A stage opened from a Simple title page: the stage under a slim header, without the stage tab strip.
+// A stage opened from a Simple title page: the stage under a slim header, without the stage tab strip. With no stage it is
+// an audio or video title's own page: Review's lines and tools once the title has lines, else the title panel. One page for
+// both, so the header and the one-button flow in it stay put when the first lines arrive.
 export function SimpleStagePage({ id, title, error, refetch, drama, simple, stage, onView }: {
   id: number
   title: string
@@ -39,44 +42,62 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   stage: StageId | null
   onView: (v: TitleView) => void
 }) {
+  const home = stage === null
   const steps = useTitleProgress(id, false)
   const { refresh } = steps
+  const { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress } = steps
+  // The title page waits for the line count before it picks the lines or the title panel, so neither flashes; a count
+  // that cannot be read shows the lines, which say for themselves whether there are any.
+  const waiting = home && lineCount === null && !countFailed
+  const shown: StageId | null = home ? (!waiting && (countFailed || (lineCount ?? 0) > 0) ? 'review' : null) : stage
+  const review = shown === 'review'
   // A finished job changes the counts the steps column shows, so it refreshes with the stage.
   const onJobDone = useCallback(() => { refetch(); refresh() }, [refetch, refresh])
   // Review's writes change the check queue the step's note and button count, so they refresh it as well as the drama.
-  const refetchDrama = stage === 'review' ? onJobDone : refetch
-  // Pressed on the Review page, the Check button opens the queue there and moves to its first line.
+  const refetchDrama = review ? onJobDone : refetch
+  // Pressed where the lines are, the Check button opens the queue there and moves to its first line.
   const [checkSignal, setCheckSignal] = useState(0)
   const openQueue = useCallback(() => setCheckSignal((n) => n + 1), [])
   const phone = useMediaQuery(TITLE_TOP_PHONE)
-  // Desktop Review shows the main button first in its Need a look row, which says when it has drawn it, so the button
+  // Where the lines are, a desktop shows the main button first in the Need a look row, which says when it has drawn it, so the button
   // is never missing and never drawn twice. Without lines it stays here: the one-button flow it may be would restart if moved mid-run.
   const [mainInLead, setMainInLead] = useState(false)
-  const { lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress } = steps
-  const leadsMain = simple && stage === 'review' && !phone && !flowOn && (lineCount ?? 0) > 0
+  const leadsMain = simple && review && !phone && !flowOn && (lineCount ?? 0) > 0
   const route = useRoute()
   const open = stage === 'source' ? sourceStep(route.name === 'drama' ? route.tab : undefined) : openStep(stage)
-  const onCheck = stage === 'review' ? openQueue : undefined
+  const onCheck = review ? openQueue : undefined
   // Built from the counts, not the hook's object, so the stage's context changes only when the button does.
   const checkLead = useMemo(() => {
     if (!leadsMain) return undefined
     const progress = { lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress }
-    return { action: <TitleMainAction id={id} progress={progress} openStep={open} onCheck={onCheck} />, onShown: setMainInLead }
-  }, [leadsMain, id, lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, open, onCheck])
+    return { action: <TitleMainAction id={id} progress={progress} onCheck={onCheck} />, onShown: setMainInLead }
+  }, [leadsMain, id, lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, onCheck])
+  const linesOnAll = linesOpenOnAll(home, { lineCount, translatedCount, exported, audioReady, riskCount })
+  const seriesId = drama.series_id
+  const episodes = useMemo(
+    () => (simple && review && seriesId != null ? <EpisodesList id={id} drama={drama} lineCount={lineCount} translatedCount={translatedCount} /> : null),
+    [simple, review, seriesId, id, drama, lineCount, translatedCount],
+  )
   const ctx = useMemo<StageContextValue>(
-    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal, checkLead }),
-    [id, drama, refetchDrama, onJobDone, simple, checkSignal, checkLead],
+    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal, checkLead, linesOnAll, episodes }),
+    [id, drama, refetchDrama, onJobDone, simple, checkSignal, checkLead, linesOnAll, episodes],
   )
   // `simple` is true only for audio and video, the only kinds whose Simple pages link to Review.
-  const Stage = stage ? STAGE_COMPONENTS[stage] : null
+  const Stage = shown ? STAGE_COMPONENTS[shown] : null
+  // The title page and Review are where a title opens, so both lead back to the Library; the other steps lead back to them.
+  const back = home || stage === 'review'
+    ? { href: routeHref({ name: 'library' }), label: 'Back to Library', text: 'Library' }
+    : { href: routeHref({ name: 'drama', id, stage: null }), label: 'Back to title page', text: title }
   return (
-    <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
+    <section className="workspace novel-title" aria-label={`Title ${id} workspace`} aria-busy={waiting || undefined}>
       {simple ? (
         <TitleTop
           id={id}
           drama={drama}
           title={title}
-          back={{ href: routeHref({ name: 'drama', id, stage: null }), label: 'Back to title page', text: title }}
+          back={back}
+          badge={home || stage === 'review'}
+          home={home}
           onJobFinished={refetch}
           onView={onView}
           progress={steps}
@@ -107,6 +128,11 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
       <StageContext.Provider value={ctx}>
         {Stage && <Stage />}
       </StageContext.Provider>
+      {home && !waiting && !Stage && (
+        <div className="title-studio">
+          <TitlePanel id={id} episodes={<EpisodesList id={id} drama={drama} lineCount={lineCount} translatedCount={translatedCount} />} />
+        </div>
+      )}
     </section>
   )
 }

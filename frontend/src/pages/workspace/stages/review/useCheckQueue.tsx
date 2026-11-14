@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject, type React
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { useRoute } from '../../../../router'
-import { useCheckLead, useCheckSignal } from '../../StageContext'
+import { useCheckLead, useCheckSignal, useLinesOnAll } from '../../StageContext'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch, QueueMediaToggle } from './CheckQueue'
@@ -19,7 +19,8 @@ import { useUndoOffer } from './undoOffer'
 /** The view the line list opens on: the check queue in Simple, unless the link names lines (initialLinesFilter). */
 export function useInitialLinesFilter(simple: boolean): LineFilter {
   const route = useRoute()
-  return initialLinesFilter(route.name === 'drama' ? route : null, simple)
+  const onAll = useLinesOnAll()
+  return initialLinesFilter(route.name === 'drama' ? route : null, simple, onAll)
 }
 
 interface Deps {
