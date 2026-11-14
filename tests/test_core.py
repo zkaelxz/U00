@@ -2414,6 +2414,17 @@ def test_unmatched_transcript_lines_share_the_gap_and_do_not_push_matched_lines(
     assert 2.0 <= lines[1].start < lines[1].end <= lines[2].start < lines[2].end <= 20.0
 
 
+def test_lines_whose_time_was_guessed_are_flagged_and_matched_lines_are_not():
+    from line_alignment import GUESSED_TIMING_NOTE, align_transcript_to_timing
+
+    segments = [{"start": 0.0, "end": 2.0, "text": "你好吗"},
+                {"start": 20.0, "end": 22.0, "text": "再见了"}]
+    lines = align_transcript_to_timing(["你好吗", "旁白一", "旁白二", "再见了"], segments)
+    assert [ln.flag for ln in lines] == [None, "timing_uncertain", "timing_uncertain", None]
+    assert lines[1].flag_note == GUESSED_TIMING_NOTE
+    assert lines[0].flag_note == lines[3].flag_note == ""
+
+
 def test_sentence_splits_keep_closing_quotes_and_decimals_whole():
     import novel_text
 
