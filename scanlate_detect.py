@@ -1014,13 +1014,42 @@ def bubble_shape_mask(image_path: str, box: dict, margin: int = 4, image=None):
     return mask
 
 
+def _tone_from_edge(roi, filled):
+    """uint8 mask of `roi`'s flat grey areas (lighter than an outline, darker than
+    paper, at least ERASE_FLAT_TONE_PX across) outside `filled` that connect to
+    the box edge."""
+    import cv2
+
+    t = scanlate_tuning
+    tone = ((roi >= t.CV_GREY_RIM_LEVEL) & (roi < t.CV_LIGHT_FLOOR) & (filled == 0)).astype(np.uint8)
+    tone = cv2.morphologyEx(tone, cv2.MORPH_OPEN, np.ones((t.ERASE_FLAT_TONE_PX,) * 2, np.uint8))
+    _, labels = cv2.connectedComponents(tone, connectivity=4)
+    on_edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    return np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
+
+
+def _art_from_edge(roi, filled, outside):
+    """bool mask of `roi`'s solid areas of ink or tone (at least ERASE_SOLID_ART_PX
+    across) outside `filled` that connect to the box edge, with their one-pixel
+    rim. The outline and lettering are thinner, so they stay out."""
+    import cv2
+
+    t = scanlate_tuning
+    ink = ((filled == 0) & (outside == 0) & (roi < t.CV_LIGHT_FLOOR)).astype(np.uint8)
+    solid = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((t.ERASE_SOLID_ART_PX,) * 2, np.uint8))
+    _, labels = cv2.connectedComponents(solid, connectivity=4)
+    on_edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    solid = np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
+    return (cv2.dilate(solid, np.ones((3, 3), np.uint8)) & ink) > 0
+
+
 def bubble_erase_mask(image_path: str, box: dict, image=None):
     """Where cleanup may erase inside `box`: the balloon's interior plus any
     lettering joined to its outline (a stroke touching the outline bends the
     light region's edge around it, so the interior alone would keep that
     stroke). Those strokes are the marks inside the interior's convex hull
-    that sit deeper than the outline is thick, measured from the paper
-    outside; art beyond the outline is nearer that paper than this, or
+    that sit deeper than the outline is thick, measured from the paper or
+    tone outside; art beyond the outline is nearer that than this, or
     outside the hull. None as bubble_shape_mask() returns it."""
     import cv2
 
@@ -1031,7 +1060,8 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
     if area is None:
         return None
     x0, y0, x1, y1 = area
-    found = _balloon_interior(gray[y0:y1, x0:x1])
+    roi = gray[y0:y1, x0:x1]
+    found = _balloon_interior(roi)
     if found is None:
         return None
     filled, outside = found
@@ -1041,10 +1071,22 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
         depth = cv2.distanceTransform((1 - outside).astype(np.uint8), cv2.DIST_L2, 3)
         edge = filled - cv2.erode(filled, np.ones((3, 3), np.uint8))
         thickness = float(np.median(depth[edge > 0])) if edge.any() else 0.0
+        # A mark must also be that deep from the non-ink tone outside: grey art
+        # beside the outline is as far from the paper as lettering, so where a
+        # tail makes the hull bridge a dent, that art and the outline along it
+        # were erased to a straight white edge. The thickness stays measured
+        # from the paper: measured from the tone it shrinks, and dark art
+        # against the outline (hair, burst spikes) would then pass as lettering.
+        clear = np.logical_or(np.asarray(outside) > 0, _tone_from_edge(roi, filled) > 0)
+        depth = cv2.distanceTransform((~clear).astype(np.uint8), cv2.DIST_L2, 3)
         contours, _ = cv2.findContours(filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         hull = np.zeros_like(filled)
         cv2.fillPoly(hull, [cv2.convexHull(np.vstack(contours))], 1)
-        filled = filled | ((hull > 0) & (depth > thickness + 1)).astype(np.uint8)
+        # Dark art in a dent the hull bridges (a jacket or brick wall between the
+        # bumps of a burst) is as far from the paper as lettering, and was erased
+        # to a straight white edge; lettering joined to the outline is thinner.
+        joined = (hull > 0) & (depth > thickness + 1) & ~_art_from_edge(roi, filled, outside)
+        filled = filled | joined.astype(np.uint8)
     elif filled.mean() >= scanlate_tuning.BALLOON_FILLS_BOX:
         # No paper outside the balloon in the box: the box lies within it.
         filled = np.ones_like(filled)
