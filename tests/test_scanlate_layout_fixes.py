@@ -143,6 +143,64 @@ def test_a_sky_that_fades_behind_the_lettering_is_not_whitened_into_a_box():
 
 
 
+def _band_over_art_page():
+    """Black-and-white hatched art with a white caption band tilted 8 degrees across it, a line of
+    dark glyphs on the band and stray dark marks above it."""
+    import cv2
+    # Dense hatching: the paper-relative lettering mask grows across it and covers the crop.
+    page = np.where((np.arange(400)[None, :] // 3 + np.arange(200)[:, None] // 40) % 2 == 0, 0, 255)
+    page = page.astype(np.uint8)
+    band = np.zeros_like(page)
+    cv2.fillConvexPoly(band, np.array([[10, 75], [390, 105], [390, 135], [10, 105]]), 255)
+    page[band > 0] = 255
+    glyphs = np.zeros_like(page)
+    for i in range(10):
+        x = 30 + i * 34
+        y = 85 + int(i * 34 * 0.0787)
+        cv2.rectangle(glyphs, (x, y), (x + 10, y + 12), 255, 3)
+        cv2.line(glyphs, (x + 2, y + 6), (x + 8, y + 6), 255, 2)
+    page[glyphs > 0] = 0
+    return page, band > 0, glyphs > 0
+
+
+def test_a_line_of_lettering_on_a_white_band_is_erased_without_whitening_the_art():
+    page, band, glyphs = _band_over_art_page()
+    bgr = np.dstack([page] * 3).copy()
+    box = {"x": 0, "y": 40, "w": 400, "h": 140}
+    out = scanlate_inpaint.inpaint_region(None, box, image=bgr.copy(), backend="cv", on_art=True)
+    out_gray = out[..., 0]
+    assert (out_gray[glyphs] > 200).mean() > 0.9                    # the lettering is gone
+    art = ~band
+    art[:40] = art[180:] = False
+    assert (out_gray[art] == page[art]).mean() > 0.99               # the art round it is untouched
+
+
+def test_art_with_no_line_of_lettering_keeps_the_usual_mask():
+    page, _band, _glyphs = _band_over_art_page()
+    assert scanlate_inpaint._strokes_on_a_line(page[:60, :200]) is None
+    assert scanlate_inpaint._strokes_on_a_line(page) is not None
+
+
+def test_a_sign_that_is_one_line_on_a_tilted_band_is_set_along_the_band(tmp_path):
+    import scanlate_render
+    from PIL import Image
+    page, band, _glyphs = _band_over_art_page()
+    src = tmp_path / "band.png"
+    Image.fromarray(page).convert("RGB").save(src)
+    sign = {"x": 0, "y": 40, "w": 400, "h": 140, "kind": "sign", "kind_confidence": 0.5,
+            "translated_text": "Traffic congestion on both lines, service suspended until further notice", "font_size": 40}
+    out = scanlate_render.process_page(str(src), [sign], str(tmp_path / "out.png"))[0]
+    result = np.asarray(Image.open(out).convert("L"))
+    drawn = (result < 200) & (page > 200) & band          # text darkening the white band (antialiasing and font vary by machine)
+    outside = (result != page) & ~band
+    outside[:40] = outside[180:] = False
+    assert drawn.sum() > 150
+    assert outside.sum() < 0.01 * drawn.sum()             # none of the English spills onto the art
+    ys, xs = np.nonzero(drawn)
+    slope = np.polyfit(xs, ys, 1)[0]
+    assert 0.04 < slope < 0.12                            # runs down to the right like the band
+
+
 def _sign(x, y, w, h, confidence=0.5, **extra):
     return {"x": x, "y": y, "w": w, "h": h, "kind": "sign", "kind_confidence": confidence, **extra}
 
@@ -220,3 +278,101 @@ def test_a_sound_effect_gloss_with_nothing_to_avoid_goes_to_the_right_as_before(
     scanlate_sfx.draw_gloss(img, region)
     left, top, _, _ = _gloss_rect(blank, np.asarray(img))
     assert left >= 140 and top >= 90
+
+
+def _form(rule=True, drop=16):
+    """Grey form cells with a label of separate glyphs in each, the cells parted by a slanted rule."""
+    img = np.full((170, 200), 200, np.uint8)
+    for top in (30, 110):
+        for left in range(55, 125, 22):
+            img[top:top + 16, left:left + 14] = 20
+    if rule:
+        cv2.line(img, (0, 78), (199, 78 + drop), 150, 1)
+    return img
+
+
+def test_form_labels_parted_by_a_rule_stay_apart():
+    labels = [_box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")]
+    assert len(scanlate_detect.merge_fragment_boxes(labels, _form())) == 2
+    assert len(scanlate_detect.merge_fragment_boxes(labels, _form(rule=False))) == 1
+
+
+def _detect_with_scores(monkeypatch, img, scored):
+    def ml(path, image=None, confidence=None, **kwargs):
+        return [dict(b, confidence=s) for b, s in scored if s >= confidence]
+    monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", ml)
+    monkeypatch.setattr(scanlate_detect, "_ml_failure", None)
+    return scanlate_detect.detect_bubbles("page.png", backend="ml", image=cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))
+
+
+def test_a_weak_form_label_beside_a_kept_one_is_kept(monkeypatch):
+    kept, weak = _box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")
+    found = _detect_with_scores(monkeypatch, _form(), [(kept, 0.3), (weak, 0.15)])
+    assert [b["y"] for b in found] == [20, 95]
+
+
+def test_a_weak_box_over_several_form_labels_is_dropped(monkeypatch):
+    kept, weak = _box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")
+    both = _box(40, 15, 110, 150, "text_free")
+    found = _detect_with_scores(monkeypatch, _form(drop=0), [(kept, 0.3), (both, 0.24), (weak, 0.15)])
+    assert [(b["y"], b["h"]) for b in found] == [(20, 45), (95, 45)]
+
+
+def test_a_weak_lettering_box_without_a_rule_to_a_kept_one_is_dropped(monkeypatch):
+    kept, weak = _box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")
+    found = _detect_with_scores(monkeypatch, _form(rule=False), [(kept, 0.3), (weak, 0.15)])
+    assert [b["y"] for b in found] == [20]
+    found = _detect_with_scores(monkeypatch, _form(), [(kept, 0.3), (weak, 0.05)])
+    assert [b["y"] for b in found] == [20]
+
+
+def _cut_line_page(top):
+    """A balloon whose first line of lettering is hollow glyphs cut off at row `top`, as on
+    a page where a balloon runs on from the page before."""
+    img = _page([(200, top + 20, 150, 120)])
+    img[:top] = 70
+    for x in (130, 175, 220):                       # a glyph like 口 with its top cut off
+        img[top:top + 22, x:x + 4] = 0
+        img[top:top + 22, x + 24:x + 28] = 0
+        img[top + 18:top + 22, x:x + 28] = 0
+    _letters(img, 140, top + 45, 100, 16)          # the line OCR read, wholly inside
+    return img
+
+
+def test_lettering_cut_off_by_the_page_edge_is_erased():
+    img = _cut_line_page(0)
+    box = {"x": 110, "y": 0, "w": 160, "h": 80}
+    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    assert mask is not None
+    strokes = (img[:80, 110:270] == 0) & (np.arange(80)[:, None] < 22)
+    assert mask[strokes].all()
+
+
+def test_a_balloon_outline_cut_off_by_the_page_edge_is_not_erased():
+    img = _page([(200, 10, 80, 60)], ground=255)        # white page: paper round the balloon
+    img[0:22, 186:190] = img[0:22, 210:214] = img[18:22, 186:214] = 0   # a glyph the page cuts
+    _letters(img, 170, 28, 60, 12)
+    box = {"x": 100, "y": 0, "w": 200, "h": 90}
+    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    assert mask is not None
+    outline = img[:90, 100:300] == 0
+    outline[:50, 65:135] = False                        # the lettering, which may go
+    assert outline.any() and not mask[outline].any()
+    assert mask[:22, 86:114][img[:22, 186:214] == 0].all()
+
+
+def test_art_in_the_notch_of_two_lobes_cut_off_by_the_page_edge_is_not_erased():
+    img = np.full((300, 400), 70, np.uint8)             # grey art round the balloon
+    for cx in (160, 250):
+        cv2.ellipse(img, (cx, 40), (50, 60), 0, 0, 360, 0, -1)
+    for cx in (160, 250):
+        cv2.ellipse(img, (cx, 40), (47, 57), 0, 0, 360, 255, -1)
+    for x in (135, 260):                                # glyphs the page cuts, one per lobe
+        img[0:22, x:x + 4] = img[0:22, x + 24:x + 28] = img[18:22, x:x + 28] = 0
+    box = {"x": 110, "y": 0, "w": 200, "h": 100}
+    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    notch = np.zeros((100, 200), bool)
+    notch[:45, 85:105] = True                           # between the lobes, at the page edge
+    notch &= img[:100, 110:310] < 128
+    assert notch.any() and not mask[notch].any()
+    assert mask[:22, 25:53][img[:22, 135:163] == 0].all()

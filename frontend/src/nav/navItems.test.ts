@@ -41,8 +41,8 @@ const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
 const ALL = ['Library', 'Library tools', 'Text', 'Find', 'Live', 'Jobs', 'Settings']
 
-// Quick translate creates a title, so it follows the permission the Library's New title needs.
-const withMake = (l: string[]) => [...l.slice(0, 2), 'Quick translate', ...l.slice(2)]
+// Add creates a title, so it follows the permission the Library's Add box needs.
+const withMake = (l: string[]) => [...l.slice(0, 2), 'Add', ...l.slice(2)]
 
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
@@ -73,7 +73,7 @@ describe('nav registry per persona', () => {
 
   it('Simple leaves the admin and system pages out of the menu, Advanced lists them', () => {
     const owner = personas['owner at the PC']
-    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Quick translate', 'Text', 'Find', 'Live', 'Jobs', 'Settings'])
+    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Add', 'Text', 'Find', 'Live', 'Jobs', 'Settings'])
     expect(labels({ ...owner, simple: false })).toEqual(labels(owner))
     const dev: NavContext = { ...owner, developerMode: true }
     expect(labels({ ...dev, simple: true })).not.toEqual(expect.arrayContaining(['Benchmark Lab']))
@@ -138,8 +138,8 @@ describe('left rail', () => {
   it('owner sees every page, grouped, with Benchmark Lab under Diagnostics once Developer Mode is on', () => {
     expect(visibleRailGroups({ ...owner, developerMode: true }).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
-      ['Find and add', ['Find']],
-      ['Tools', ['Quick translate', 'Text', 'Live']],
+      ['Find and add', ['Add', 'Find']],
+      ['Tools', ['Text', 'Live']],
       ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant']],
     ])
   })
@@ -193,26 +193,26 @@ describe('left rail', () => {
     ['diagnostics', { name: 'diagnostics' }, ['Diagnostics']],
     ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],
     ['translate', { name: 'translate' }, ['Text']],
-    ['make subtitles', { name: 'make-subtitles' }, ['Quick translate']],
+    ['make subtitles', { name: 'make-subtitles' }, ['Add']],
   ])('%s marks exactly one rail item current', (_name, route, expected) => {
     expect(railCurrent({ ...owner, developerMode: true }, route)).toEqual(expected)
   })
 })
 
-describe('Quick translate menu item', () => {
+describe('Add menu item', () => {
   const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-  it('sits in the Tools group and can be hidden like the others', () => {
+  it('sits first in the Find and add group and can be hidden like the others', () => {
     const owner = personas['owner at the PC']
-    const tools = visibleRailGroups(owner).find((g) => g.id === 'tools')
-    expect(tools?.items.map((r) => r.item.label)).toContain('Quick translate')
-    expect(labels({ ...owner, hidden: ['make-subtitles'] })).not.toContain('Quick translate')
-    expect(customizableNavItems(owner).map((i) => i.label)).toContain('Quick translate')
-    expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Quick translate')!)).toBe(false)
+    const find = visibleRailGroups(owner).find((g) => g.id === 'find')
+    expect(find?.items.map((r) => r.item.label)).toEqual(['Add', 'Find'])
+    expect(labels({ ...owner, hidden: ['make-subtitles'] })).not.toContain('Add')
+    expect(customizableNavItems(owner).map((i) => i.label)).toContain('Add')
+    expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Add')!)).toBe(false)
   })
 
   it('is not offered to people who cannot create titles', () => {
-    expect(labels(personas['household member'])).not.toContain('Quick translate')
+    expect(labels(personas['household member'])).not.toContain('Add')
   })
 })
 

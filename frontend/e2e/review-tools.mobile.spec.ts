@@ -14,17 +14,38 @@ test.afterAll(() => {
   clearDrama3Lines()
 })
 
-test('phone: every tab fits the width, light and dark', async ({ page }) => {
+test('phone: every group fits the width, light and dark', async ({ page }) => {
   seedReviewResults()
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await page.goto('about:blank')
     await page.goto('/#/drama/3/review')
     await expect(page.getByRole('tablist', { name: 'Review tools' })).toBeVisible()
-    for (const tab of ['Check', 'Fix', 'Coverage', 'Voices', 'Restructure', 'History', 'Extras']) {
+    for (const tab of ['Look for problems', 'Change many lines', 'Records', 'Finish']) {
       await openTab(page, tab)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${tab} ${scheme}`).toBe(true)
     }
+  }
+})
+
+test('phone: the four group names show whole at 390 and 320 wide, wrapping rather than cut', async ({ page }) => {
+  seedReviewResults()
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review')
+    const tablist = page.getByRole('tablist', { name: 'Review tools' })
+    await expect(tablist.getByRole('tab')).toHaveText([/^Look for problems/, /^Change many lines/, /^Records/, /^Finish/])
+    const fit = await tablist.evaluate((list) => ({
+      row: list.scrollWidth <= list.clientWidth,
+      tabs: [...list.querySelectorAll<HTMLElement>('[role="tab"]')].map((t) => {
+        const r = t.getBoundingClientRect()
+        const box = list.getBoundingClientRect()
+        return { label: t.textContent, inside: r.left >= box.left - 1 && r.right <= box.right + 1, whole: t.scrollWidth <= t.clientWidth + 1 }
+      }),
+    }))
+    expect(fit.row, `${width}: the tab row scrolls sideways`).toBe(true)
+    for (const t of fit.tabs) expect(t, `${width}: ${t.label}`).toMatchObject({ inside: true, whole: true })
   }
 })
 

@@ -115,10 +115,11 @@ describe('page keywords', () => {
     expect(labels(filterEntries(entries, 'discover'))).toContain('Find')
   })
 
-  it('finds Quick translate by what people type', () => {
+  it('finds Add by what people type, and by its old name', () => {
     const entries = paletteEntries(owner_, { name: 'library' })
-    expect(labels(filterEntries(entries, 'srt'))).toContain('Quick translate')
-    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Quick translate')
+    expect(labels(filterEntries(entries, 'srt'))).toContain('Add')
+    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Add')
+    expect(labels(filterEntries(entries, 'quick translate'))).toContain('Add')
   })
 
   it('finds Benchmark Lab by its keywords only where the page is listed', () => {

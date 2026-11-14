@@ -72,6 +72,6 @@ test('Review with no lines hides the Check, Fix and Coverage tools until a link 
   await page.goto('/#/drama/1/review')
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Checks and tools' })).toHaveCount(0)
-  await page.goto('/#/drama/1/review?tools=coverage')
+  await page.goto('/#/drama/1/review?tools=problems')
   await expect(page.getByRole('region', { name: 'Checks and tools' })).toBeVisible()
 })

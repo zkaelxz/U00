@@ -2,23 +2,28 @@ import { expect, test } from '@playwright/test'
 
 import { DRAMA_ID, NO_LINES, mockMakeSubtitles } from './makeSubtitlesMocks'
 
-// File to English SRT from the Quick translate page. Every API call is mocked; nothing is
+// File to English SRT from the Add page's box. Every API call is mocked; nothing is
 // created, transcribed or translated for real.
 
 const AUDIO = { name: 'My Show.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') }
-const card = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Quick translate' })
+const card = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Add' })
+const options = (c: import('@playwright/test').Locator) => c.getByText('Change options', { exact: true }).click()
 
 test('four clicks: choose a file and language, make subtitles, download', async ({ page }) => {
   const m = await mockMakeSubtitles(page)
   await page.goto('/#/make-subtitles')
   const c = card(page)
-  const primary = c.getByRole('button', { name: 'Make subtitles' })
-  await expect(primary).toBeDisabled()
-  await expect(c.getByText('Still needed: an audio or video file.')).toBeVisible()
+  const primary = c.getByRole('button', { name: 'Make English subtitles' })
+  // Nothing to run until a file or a link is given.
+  await expect(primary).toHaveCount(0)
   expect(m.created).toHaveLength(0)
 
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await expect(c.getByTestId('add-found')).toHaveText('Found: an audio file, “My Show.mp3”, 3 B.')
+  await expect(c.getByTestId('add-plan')).toHaveText('Transcribe it as Chinese speech on this PC, then translate it with DeepSeek.')
+  await options(c)
   await c.getByLabel('Source language').selectOption('ja')
+  await expect(c.getByTestId('add-plan')).toHaveText('Transcribe it as Japanese speech on this PC, then translate it with DeepSeek.')
   await expect(primary).toBeEnabled()
   expect(m.created, 'nothing is called before the primary').toHaveLength(0)
   await primary.click()
@@ -40,7 +45,7 @@ test('shows the steps while it runs and a reload reattaches to the job', async (
   await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   const status = c.getByRole('status')
   await expect(status.getByRole('listitem')).toHaveText([/Upload/, /Transcribe 40%/, /Translate/, /Export/])
   await expect(status.locator('[aria-current="step"]')).toHaveText(/Transcribe/)
@@ -56,12 +61,73 @@ test('shows the steps while it runs and a reload reattaches to the job', async (
   await expect(card(page).getByRole('button', { name: 'Download SRT' })).toBeVisible({ timeout: 20_000 })
 })
 
+test('a transcription that ended while the page was closed carries on with the engine picked for the run', async ({ page }) => {
+  const m = await mockMakeSubtitles(page, { holdFirst: true })
+  // Registered after the mock's, so it wins: a second engine with a key, to pick.
+  await page.route('**/api/translate/engines', (r) => r.fulfill({ json: {
+    items: [
+      { name: 'deepseek', label: 'DeepSeek.', free: false, models: null, key_configured: true },
+      { name: 'openai', label: 'OpenAI.', free: false, models: null, key_configured: true },
+    ],
+    default_engine: 'deepseek',
+  } }))
+  await page.goto('/#/make-subtitles')
+  const c = card(page)
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await options(c)
+  await c.getByLabel('Translator').selectOption('openai')
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
+  await expect(c.getByRole('status').locator('[aria-current="step"]')).toHaveText(/Transcribe/)
+  // Another translator picked meanwhile (the Library's box shares the remembered pick) is for the next file.
+  await page.evaluate(() => localStorage.setItem('baihe.pref.makeSubtitles.engine', JSON.stringify('deepseek')))
+
+  await page.goto('about:blank')
+  m.release()
+  await page.goto('/#/make-subtitles')
+  await expect(card(page).getByRole('button', { name: 'Download SRT' })).toBeVisible({ timeout: 20_000 })
+  await expect(card(page).getByText(/Lost track/)).toHaveCount(0)
+  expect(m.created, 'coming back does not start another run').toHaveLength(1)
+  expect(m.translateRuns).toHaveLength(1)
+  expect(m.translateRuns[0]).toMatchObject({ engine: 'openai' })
+})
+
+test('the box remembers the translator picked for the next file', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  await page.route('**/api/translate/engines', (r) => r.fulfill({ json: {
+    items: [
+      { name: 'deepseek', label: 'DeepSeek.', free: false, models: null, key_configured: true },
+      { name: 'openai', label: 'OpenAI.', free: false, models: null, key_configured: true },
+    ],
+    default_engine: 'deepseek',
+  } }))
+  await page.goto('/#/make-subtitles')
+  const c = card(page)
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await options(c)
+  await c.getByLabel('Translator').selectOption('openai')
+
+  await page.reload()
+  await card(page).getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await options(card(page))
+  await expect(card(page).getByLabel('Translator')).toHaveValue('openai')
+})
+
+test('a run saved at the export step fetches the subtitles on return', async ({ page }) => {
+  const m = await mockMakeSubtitles(page)
+  await page.addInitScript((id) => {
+    if (!localStorage.getItem('baihe.pref.makeSubtitles.run')) localStorage.setItem('baihe.pref.makeSubtitles.run', JSON.stringify({ dramaId: id, step: 'export' }))
+  }, DRAMA_ID)
+  await page.goto('/#/make-subtitles')
+  await expect(card(page).getByRole('button', { name: 'Download SRT' })).toBeVisible()
+  expect(m.translateRuns).toHaveLength(0)
+})
+
 test('a failure names its step and links to that stage', async ({ page }) => {
   await mockMakeSubtitles(page, { failJob: 'translate' })
   await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await expect(c.getByRole('alert')).toBeVisible()
   await expect(c.getByText('Failed at Translate.')).toBeVisible()
   // The job's own reason, without the exception's class name.
@@ -70,7 +136,7 @@ test('a failure names its step and links to that stage', async ({ page }) => {
   // The failure is the first thing in the card, above the form it asks the viewer to fix.
   const failedY = (await c.getByText('Failed at Translate.').boundingBox())!.y
   expect(failedY).toBeLessThan((await c.getByLabel('Audio or video file').boundingBox())!.y)
-  expect(failedY).toBeLessThan((await c.getByRole('button', { name: 'Make subtitles' }).boundingBox())!.y)
+  expect(failedY).toBeLessThan((await c.getByRole('button', { name: 'Make English subtitles' }).boundingBox())!.y)
 })
 
 test('a file of the wrong type or an empty file is refused before a title is created', async ({ page }) => {
@@ -78,10 +144,10 @@ test('a file of the wrong type or an empty file is refused before a title is cre
   await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('abc') })
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await expect(c.getByRole('alert')).toHaveText(/^That file type is not supported\./)
   await c.getByLabel('Audio or video file').setInputFiles({ name: 'Empty.mp3', mimeType: 'audio/mpeg', buffer: Buffer.alloc(0) })
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await expect(c.getByRole('alert')).toHaveText('That file is empty.')
   expect(m.created).toHaveLength(0)
   expect(m.uploads).toHaveLength(0)
@@ -92,7 +158,7 @@ test('a transcription that found no lines stops there with its reason instead of
   await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await expect(c.getByRole('alert')).toHaveText(NO_LINES)
   await expect(c.getByText('Failed at Transcribe.')).toBeVisible()
   await expect(c.getByRole('link', { name: 'Fix in Transcribe' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/source`)
@@ -104,10 +170,10 @@ test('a video file creates a video drama and the title can be changed', async ({
   await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles({ name: 'ep1.mp4', mimeType: 'video/mp4', buffer: Buffer.from('abc') })
-  await c.getByText('Options').click()
+  await options(c)
   await c.getByLabel('Title').fill('Episode One')
   await c.getByLabel('English variant').selectOption('en-GB')
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await expect(c.getByRole('button', { name: 'Download SRT' })).toBeVisible()
   expect(m.created).toEqual([{ source_language: 'zh', media_type: 'video_drama', title_en: 'Episode One' }])
   expect(m.translateRuns[0]).toMatchObject({ locale: 'en-GB' })
@@ -118,16 +184,19 @@ test('Make another clears the typed title but keeps the file-independent choices
   await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
-  await c.getByText('Options').click()
+  await options(c)
   await c.getByLabel('Title').fill('Typed Title')
   await c.getByLabel('English variant').selectOption('en-GB')
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await c.getByRole('button', { name: 'Make another' }).click()
 
+  // Back to the empty box; the next file shows the same choices again.
+  await expect(c.getByRole('button', { name: 'Make English subtitles' })).toHaveCount(0)
+  await c.getByLabel('Audio or video file').setInputFiles({ name: 'Second.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  await options(c)
   await expect(c.getByLabel('Title')).toHaveValue('')
   await expect(c.getByLabel('English variant')).toHaveValue('en-GB')
-  await c.getByLabel('Audio or video file').setInputFiles({ name: 'Second.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await expect(c.getByRole('button', { name: 'Download SRT' })).toBeVisible()
   expect(m.created.map((x) => (x as { title_en: string }).title_en)).toEqual(['Typed Title', 'Second'])
 })
@@ -137,7 +206,7 @@ test('Cancel during the upload aborts it and says the title was kept', async ({ 
   await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await expect(c.getByRole('status').locator('[aria-current="step"]')).toHaveText(/Upload/)
   await c.getByRole('button', { name: 'Cancel' }).click()
 
@@ -152,7 +221,7 @@ test('a job cancelled elsewhere shows the same note instead of resetting silentl
   await page.goto('/#/make-subtitles')
   const c = card(page)
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
-  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await c.getByRole('button', { name: 'Make English subtitles' }).click()
   await expect(c.getByText('Cancelled. The title was kept.')).toBeVisible()
   await expect(c.getByRole('link', { name: 'Open title' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}`)
 })
@@ -185,6 +254,8 @@ test('the translator list says it is loading, then fills in', async ({ page }) =
     await route.fulfill({ json: { items: [{ name: 'deepseek', label: 'DeepSeek.', free: false, models: null, key_configured: true }], default_engine: 'deepseek' } })
   })
   await page.goto('/#/make-subtitles')
+  await card(page).getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await options(card(page))
   const select = card(page).getByLabel('Translator')
   await expect(select).toBeDisabled()
   await expect(select.locator('option')).toHaveText(['Loading translators...'])
@@ -204,6 +275,8 @@ test('a failed translator list shows a banner with Retry', async ({ page }) => {
   })
   await page.goto('/#/make-subtitles')
   const c = card(page)
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await options(c)
   await expect(c.getByRole('alert').getByRole('button', { name: 'Retry' })).toBeVisible()
   await c.getByRole('button', { name: 'Retry' }).click()
   await expect(c.getByLabel('Translator')).toBeEnabled()
@@ -214,6 +287,7 @@ test('the English variant options are spelled out', async ({ page }) => {
   await mockMakeSubtitles(page)
   await page.goto('/#/make-subtitles')
   const c = card(page)
-  await c.getByText('Options', { exact: true }).click()
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await options(c)
   await expect(c.getByLabel('English variant').locator('option')).toHaveText([/^(Default \(.+\)|Settings default)$/, 'English (US)', 'English (UK)', 'English (Australia)'])
 })

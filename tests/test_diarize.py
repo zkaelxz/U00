@@ -286,6 +286,19 @@ class TestAssignSpeakerToLine:
         assert diarize.assign_speaker_to_line(0.5, 4.5, segments) == "SPEAKER_00"
         assert diarize.assign_speaker_to_line(6.0, 9.0, segments) == "SPEAKER_01"
 
+    def test_the_speaker_with_most_total_time_wins_over_the_longest_single_turn(self):
+        # A: three 0.8 s turns (2.4 s in all); B: one 1.5 s turn.
+        segments = [{"start": 0.0, "end": 0.8, "speaker": "A"},
+                    {"start": 0.8, "end": 2.3, "speaker": "B"},
+                    {"start": 2.3, "end": 3.1, "speaker": "A"},
+                    {"start": 3.1, "end": 3.9, "speaker": "A"}]
+        assert diarize.assign_speaker_to_line(0.0, 3.9, segments) == "A"
+
+    def test_a_tie_goes_to_the_speaker_seen_first(self):
+        segments = [{"start": 0.0, "end": 1.0, "speaker": "B"},
+                    {"start": 1.0, "end": 2.0, "speaker": "A"}]
+        assert diarize.assign_speaker_to_line(0.0, 2.0, segments) == "B"
+
     def test_no_overlap_returns_none(self):
         segments = [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
         assert diarize.assign_speaker_to_line(5.0, 6.0, segments) is None

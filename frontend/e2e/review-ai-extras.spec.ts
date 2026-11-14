@@ -287,15 +287,18 @@ test.describe('phone width', () => {
       }))
       expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
     }
-    // One tab at a time: only the shown tab's sections are on screen.
+    // One group at a time: only the shown group's sections are on screen.
     for (const title of ['Merge short lines']) await openSub(page, title)
     await page.getByRole('button', { name: 'Preview merge' }).click()
     await expect(page.getByTestId('merge-short-preview')).toBeVisible()
     await noSideways()
     await openSub(page, 'Learn my style')
     await noSideways()
-    for (const title of ['Audio tags', 'Burned subtitle preview']) await openSub(page, title)
+    // Audio tags sits with the checks and the burned preview under Finish, so each is checked in its own group.
+    await openSub(page, 'Audio tags')
     await expect(page.getByTestId('sensevoice-table')).toBeVisible()
+    await noSideways()
+    await openSub(page, 'Burned subtitle preview')
     await noSideways()
     await maybeScreenshot(page, 'review-ai-extras-390')
   })

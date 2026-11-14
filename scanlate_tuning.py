@@ -51,6 +51,10 @@ CV_EMPTY_CONTRAST = 40
 
 # --- Bubble detection, ML model (scanlate_detect.detect_bubbles_ml) ---
 ML_CONFIDENCE = 0.25
+# A lettering box the model scores from this up to ML_CONFIDENCE is kept when it is a cell of a
+# form beside a kept one (scanlate_detect._form_cells): the four labels of one form on S library
+# p68 scored 0.15-0.31.
+ML_FORM_CELL_CONFIDENCE = 0.1
 # Two boxes are one balloon when they overlap this much (IoU), or when the
 # smaller lies this far inside the larger: the model reports a balloon and the
 # text inside it as separate classes.
@@ -67,6 +71,13 @@ FRAGMENT_OVERLAP = 0.4
 # extent. A real balloon's outline keeps two neighbouring balloons further apart.
 FRAGMENT_ALIGNED = 0.6
 FRAGMENT_GAP = 0.3
+# A ruled line between two cells of a form (scanlate_detect._ruled_line_between) is at least this much
+# darker than the paper, runs across at least RULE_SPAN of the area the two boxes cover, and is
+# broken by no gap over RULE_MAX_GAP_PX. The rules on S library p68 are about 25-60 levels darker
+# than their grey cells.
+RULE_CONTRAST = 15
+RULE_SPAN = 0.8
+RULE_MAX_GAP_PX = 3
 
 # Two boxes touching or this close (as a share of the narrower one's width, or
 # height when stacked) are the columns of one balloon when this share of each
@@ -234,3 +245,32 @@ def apply_overrides(values: dict) -> None:
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{name}: {raw!r} is not a {type(current).__name__}") from exc
         module[name] = value
+
+# --- Lettering on a pale band over busy art (scanlate_inpaint._strokes_on_a_line) ---
+# When the lettering mask covers more than this share of a sign's box the paper-relative cut-off
+# is reading the art as lettering (a white caption band set over black-and-white art).
+LINE_ONLY_MASK_SHARE = 0.85
+# A glyph is a dark mark (below INK_LEVEL) of at least MIN_AREA pixels, MIN_SPAN to MAX_SPAN (a
+# share of the crop height) across, whose 9 px ring is at least RING_PALE_SHARE paper (at or
+# above PAPER_LEVEL).
+LINE_INK_LEVEL = 140
+LINE_PAPER_LEVEL = 200
+LINE_RING_PALE_SHARE = 0.6
+LINE_GLYPH_MIN_AREA = 6
+LINE_GLYPH_MIN_SPAN = 5
+LINE_GLYPH_MAX_SPAN = 0.4
+# The line is fitted through glyphs of at least ANCHOR_AREA; it needs MIN_GLYPHS of them
+# spread over MIN_LENGTH_IN_GLYPHS glyph heights, and a glyph joins it within REACH heights.
+LINE_ANCHOR_AREA = 25
+# and at least ANCHOR_THICKNESS thick both ways: thin stripes of hatching are not letters.
+LINE_ANCHOR_THICKNESS = 4
+LINE_MIN_GLYPHS = 4
+LINE_MIN_LENGTH_IN_GLYPHS = 3.0
+LINE_REACH = 0.5
+# The strip the English is set in is the lettering line closed over its gaps (CLOSE glyph heights)
+# and widened (MARGIN glyph heights) so the text has a little air round it.
+LINE_CORRIDOR_CLOSE = 2.5
+LINE_CORRIDOR_MARGIN = 0.7
+# The English is started at this share of the original glyph size: the strip is one glyph high,
+# and the typesetter's own start size (set for the whole box) does not shrink into it.
+LINE_TEXT_SIZE_OF_GLYPH = 1.0

@@ -15,12 +15,24 @@ const files = cssFiles(fileURLToPath(new URL('.', import.meta.url)))
 const index = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
 
 describe('type foundation', () => {
-  it('self-hosts both Atkinson weights and the licence', () => {
-    for (const f of ['atkinson-hyperlegible-latin-400-normal.woff2', 'atkinson-hyperlegible-latin-700-normal.woff2', 'OFL-Atkinson-Hyperlegible.txt']) {
+  it('self-hosts Figtree, Fraunces and the Atkinson fallback, each with its licence', () => {
+    for (const f of [
+      'figtree-latin-wght-normal.woff2', 'figtree-latin-ext-wght-normal.woff2', 'OFL-Figtree.txt',
+      'fraunces-latin-600-normal.woff2', 'fraunces-latin-ext-600-normal.woff2', 'OFL-Fraunces.txt',
+      'atkinson-hyperlegible-latin-400-normal.woff2', 'atkinson-hyperlegible-latin-700-normal.woff2', 'OFL-Atkinson-Hyperlegible.txt',
+    ]) {
       expect(existsSync(new URL(`../public/fonts/${f}`, import.meta.url)), f).toBe(true)
     }
-    expect(index.match(/font-display: swap/g)).toHaveLength(2)
-    expect(index).toContain('unicode-range')
+    const faces = index.match(/@font-face \{[^}]*\}/g) ?? []
+    expect(faces).toHaveLength(6)
+    for (const face of faces) {
+      expect(face).toContain('font-display: swap')
+      expect(face).toContain('unicode-range')
+      // Only the bundled files: the app makes no request to the internet for fonts.
+      const src = face.match(/url\('([^']+)'\)/)?.[1] ?? ''
+      expect(src, face).toMatch(/^\/fonts\/[\w-]+\.woff2$/)
+      expect(existsSync(new URL(`../public${src}`, import.meta.url)), src).toBe(true)
+    }
   })
 
   it('has one scale: no legacy --font-sm/--font-md and no literal px or rem font sizes', () => {

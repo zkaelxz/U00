@@ -29,7 +29,7 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
 
 test('create form validates client-side', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel('English title')).toBeFocused()
   await sheet.getByRole('button', { name: 'Create title' }).click()
@@ -41,7 +41,7 @@ test('create form validates client-side', async ({ page }) => {
 
 test('create form puts focus on the invalid field and hides credits that do not fit the type', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('Source language').focus()
   await sheet.getByRole('button', { name: 'Create title' }).click()
@@ -57,24 +57,24 @@ test('create form puts focus on the invalid field and hides credits that do not 
 
 test('New title keeps what was typed when the sheet closes; Cancel discards it', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   let sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('Draft title')
   await sheet.getByLabel('Media type').selectOption('novel')
   await page.keyboard.press('Escape')
   await expect(sheet).toBeHidden()
 
-  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
   await expect(sheet.getByLabel('Media type')).toHaveValue('novel')
   await sheet.getByRole('button', { name: 'Close' }).click()
-  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
 
   await sheet.getByRole('button', { name: 'Discard draft' }).click()
   await expect(sheet).toBeHidden()
-  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('')
   await expect(sheet.getByLabel('Media type')).toHaveValue('audio_drama')
   // Nothing was created.
@@ -84,7 +84,7 @@ test('New title keeps what was typed when the sheet closes; Cancel discards it',
 test('create (Enter submits) then delete with typed confirmation', async ({ page }) => {
   try {
     await page.goto('/')
-    await page.getByRole('button', { name: 'New title' }).click()
+    await page.getByRole('button', { name: 'Add a title by hand' }).click()
     await page.getByLabel('English title').fill('E2E Temp Title')
     await page.getByLabel('English title').press('Enter')
     // Creating goes straight to the new drama's workspace; its details sheet is one click away in the Library.
@@ -99,8 +99,23 @@ test('create (Enter submits) then delete with typed confirmation', async ({ page
     const confirm = detail.getByRole('button', { name: 'Delete permanently' })
     await expect(confirm).toBeDisabled()
     await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
+    // Held so a second click lands while the first delete is in flight: it must not send another.
+    let deletes = 0
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    await page.route(/\/api\/dramas\/\d+\?confirm=true/, async (route) => {
+      if (route.request().method() !== 'DELETE') return route.fallback()
+      deletes += 1
+      await gate
+      await route.continue()
+    })
     await confirm.click()
+    const busy = detail.getByRole('button', { name: 'Deleting…' })
+    await expect(busy).toBeDisabled()
+    await busy.click({ force: true })
+    release()
     await expect(page.getByRole('dialog', { name: 'E2E Temp Title' })).toHaveCount(0)
+    expect(deletes).toBe(1)
     await expect(page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'E2E Temp Title' })).toHaveCount(0)
   } finally {
     // A failure before the typed delete would leave the title behind and break the "3 titles" count in every later spec.
@@ -163,11 +178,13 @@ test('line search without permission to read lines: a plain note, no error banne
   await expect(page.locator('.line-hits').getByRole('alert')).toHaveCount(0)
 })
 
-test('pasting a link in the start box opens New title with it filled in; titles wrap instead of being cut', async ({ page }) => {
+test('a link in the Add box, Only add it, opens New title with it filled in; titles wrap instead of being cut', async ({ page }) => {
+  await page.route('**/api/media-link/probe', (r) => r.fulfill({ status: 503, json: { error: { code: 'dependency_unavailable', message: 'No yt-dlp.' } } }))
   await page.goto('/')
-  await expect(page.getByRole('button', { name: 'Add link' })).toBeDisabled()
-  await page.getByLabel('Paste a link to start a title').fill('https://example.com/watch?v=abc')
-  await page.getByRole('button', { name: 'Add link' }).click()
+  const box = page.getByRole('region', { name: 'Add' })
+  await box.getByRole('textbox', { name: 'Paste a link' }).fill('https://example.com/watch?v=abc')
+  await expect(box.getByTestId('add-found')).toHaveText('Found: a link to example.com. Baihe could not read it.')
+  await box.getByRole('button', { name: "Only add it, don't start" }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel(/^Link/)).toHaveValue('https://example.com/watch?v=abc')
   await page.keyboard.press('Escape')

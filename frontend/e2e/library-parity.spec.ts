@@ -99,11 +99,13 @@ test('Reading history on a remote device: no Clear button', async ({ page }) => 
   await expect(section.getByRole('button', { name: 'Clear reading history' })).toHaveCount(0)
 })
 
-test('Library header has only New title; Library tools lives in the rail or drawer (no Saved manga item)', async ({ page }) => {
+test('Library header holds no links; the Add box sits under it; Library tools lives in the rail or drawer (no Saved manga item)', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 })
   await page.goto('/')
   const head = page.locator('.page-head')
-  await expect(head.getByRole('button', { name: 'New title' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Add' }).getByRole('heading', { name: 'Add something to translate' })).toBeVisible()
+  await expect(head.getByRole('link')).toHaveCount(0)
+  await expect(head.getByRole('button', { name: 'New title' })).toHaveCount(0)
   await expect(head.getByRole('link', { name: 'Saved manga' })).toHaveCount(0)
   await expect(head.getByRole('link', { name: 'Library tools' })).toHaveCount(0)
   await openMenu(page)

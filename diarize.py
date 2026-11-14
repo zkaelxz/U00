@@ -553,12 +553,18 @@ def extract_speaker_embeddings(result, annotation) -> dict:
 
 
 def assign_speaker_to_line(line_start: float, line_end: float, speaker_segments):
-    """Pick the speaker whose segment overlaps most with this line's time range."""
-    best_speaker, best_overlap = None, 0.0
+    """Pick the speaker with the most time in this line's range, summed over all
+    of their turns: a speaker heard in three short turns can hold more of the line
+    than another speaker's one longer turn. A tie goes to the speaker seen first."""
+    totals = {}
     for seg in speaker_segments:
         overlap = min(line_end, seg["end"]) - max(line_start, seg["start"])
-        if overlap > best_overlap:
-            best_overlap, best_speaker = overlap, seg["speaker"]
+        if overlap > 0:
+            totals[seg["speaker"]] = totals.get(seg["speaker"], 0.0) + overlap
+    best_speaker, best_total = None, 0.0
+    for speaker, total in totals.items():
+        if total > best_total:
+            best_speaker, best_total = speaker, total
     return best_speaker
 
 

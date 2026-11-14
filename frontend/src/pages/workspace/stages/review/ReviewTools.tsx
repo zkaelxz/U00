@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { Tabs, type TabInfo } from '../../../../components/Tabs'
 import { tabButtonId, tabPanelId } from '../../../../components/tabIds'
@@ -6,23 +6,21 @@ import { browserStorage } from '../../../../hooks/usePersistedState'
 import { useRoute } from '../../../../router'
 import { useSimple } from '../../StageContext'
 import {
-  REVIEW_TOOLS_TABS, readLastTab, seedFirstCard, writeLastTab, type ReviewToolsTab,
+  groupOfTool, readAddedTools, readLastTab, seedFirstCard, shownGroups, shownTools, writeAddedTools, writeLastTab,
+  type ReviewTool, type ReviewToolsGroup,
 } from './reviewToolsTabs'
 
 const ID_PREFIX = 'review-tools'
 
-const EMPTY_TEXT: Record<ReviewToolsTab, string> = {
-  check: 'Nothing to show here yet.',
-  fix: 'Nothing to show here yet.',
-  coverage: 'Nothing to look at: no gaps, untranslated lines or pacing problems.',
-  voices: 'Nothing to show here yet.',
-  restructure: 'Nothing to show here yet. These tools appear once the title has lines.',
-  history: 'Nothing to show here yet. Notes, versions and history appear as you work.',
-  extras: 'Nothing to show here yet. These tools appear once the title has lines.',
+const EMPTY_TEXT: Record<ReviewToolsGroup, string> = {
+  problems: 'Nothing to show here yet.',
+  change: 'Nothing to show here yet. These tools appear once the title has lines.',
+  records: 'Nothing to show here yet. Notes, versions and history appear as you work.',
+  finish: 'Nothing to show here yet. These tools appear once the title has lines.',
 }
 
-// A tab whose sections are all empty says so once, instead of showing a blank panel.
-function TabBody({ tab, children }: { tab: ReviewToolsTab; children: ReactNode }) {
+// A group whose sections are all empty says so once, instead of showing a blank panel.
+function TabBody({ group, children }: { group: ReviewToolsGroup; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   const [empty, setEmpty] = useState(false)
   useEffect(() => {
@@ -38,61 +36,82 @@ function TabBody({ tab, children }: { tab: ReviewToolsTab; children: ReactNode }
   return (
     <>
       <div ref={ref} className="review-tab-body stack">{children}</div>
-      {empty && <p className="muted review-tab-empty" data-testid="review-tab-empty">{EMPTY_TEXT[tab]}</p>}
+      {empty && <p className="muted review-tab-empty" data-testid="review-tab-empty">{EMPTY_TEXT[group]}</p>}
     </>
   )
 }
 
 interface Props {
   dramaId: number
-  // The job status, shown above the tabs so a running job is visible on every tab.
+  // The job status, shown above the groups so a running job is visible on every group.
   status: ReactNode
-  panels: Record<ReviewToolsTab, ReactNode>
-  // Warning counts on a tab (Coverage shows how many things to look at).
-  attention?: Partial<Record<ReviewToolsTab, number>>
-  // A button elsewhere asked for a tab (Compare transcription… opens History); seq makes a repeat count.
-  request?: { tab: ReviewToolsTab; seq: number } | null
+  tools: Record<ReviewTool, ReactNode>
+  // Warning counts on a tool (Coverage shows how many things to look at), shown on the group that holds it.
+  attention?: Partial<Record<ReviewTool, number>>
+  // A button elsewhere asked for a tool (Compare transcription… opens its group); seq makes a repeat count.
+  request?: { tool: ReviewTool; seq: number } | null
 }
 
-// The tools under the line list as one tab level. A tab's panel mounts the first
-// time it is shown and then stays, so open folds and drafts survive a switch.
-export function ReviewTools({ dramaId, status, panels, attention = {}, request = null }: Props) {
-  // Simple shows the two tabs a reviewer uses every time; a link or remembered choice for another tab opens Check.
+// The tools under the line list as one tab level of groups. A group's panel mounts
+// the first time it is shown and then stays, so open folds and drafts survive a switch.
+export function ReviewTools({ dramaId, status, tools, attention = {}, request = null }: Props) {
+  // A link or remembered choice for a group Simple leaves out opens Look for problems.
+  // A button that needs a tool Simple leaves out adds it for this title: Transcribe this gap
+  // starts its run in Re-transcribe, which must be mounted to start it and to apply what it heard.
   const simple = useSimple()
-  const shown = useMemo(() => (simple ? REVIEW_TOOLS_TABS.filter((t) => t.id === 'check' || t.id === 'fix') : REVIEW_TOOLS_TABS), [simple])
-  const allowed = useCallback((t: ReviewToolsTab) => shown.some((x) => x.id === t), [shown])
+  const [added, setAdded] = useState<ReadonlySet<ReviewTool>>(() => readAddedTools(browserStorage(), dramaId))
+  const visibleTools = useMemo(() => shownTools(simple, added), [simple, added])
+  const shown = useMemo(() => shownGroups(simple, added), [simple, added])
+  const allowed = useCallback((g: ReviewToolsGroup) => shown.some((x) => x.id === g), [shown])
   const route = useRoute()
   const linked = route.name === 'drama' && route.id === dramaId ? route.tools : undefined
-  const [tab, setTabState] = useState<ReviewToolsTab>(() => {
+  const [tab, setTabState] = useState<ReviewToolsGroup>(() => {
     const wanted = linked ?? readLastTab(browserStorage(), dramaId)
-    const first = allowed(wanted) ? wanted : 'check'
+    const first = allowed(wanted) ? wanted : 'problems'
     seedFirstCard(browserStorage(), first)
     return first
   })
-  const [visited, setVisited] = useState<ReadonlySet<ReviewToolsTab>>(() => new Set([tab]))
+  const [visited, setVisited] = useState<ReadonlySet<ReviewToolsGroup>>(() => new Set([tab]))
 
-  const select = useCallback((t: ReviewToolsTab) => {
-    // A link or request for a tool Simple leaves out keeps the tab that is open.
-    if (!allowed(t)) return
-    seedFirstCard(browserStorage(), t)
-    setTabState(t)
-    setVisited((v) => (v.has(t) ? v : new Set(v).add(t)))
-    writeLastTab(browserStorage(), dramaId, t)
-  }, [dramaId, allowed])
+  const open = useCallback((g: ReviewToolsGroup) => {
+    seedFirstCard(browserStorage(), g)
+    setTabState(g)
+    setVisited((v) => (v.has(g) ? v : new Set(v).add(g)))
+    writeLastTab(browserStorage(), dramaId, g)
+  }, [dramaId])
+  const select = useCallback((g: ReviewToolsGroup) => {
+    // A link for a group Simple leaves out keeps the group that is open.
+    if (allowed(g)) open(g)
+  }, [allowed, open])
 
-  // A link's tab wins over the remembered one, also while the stage is already open.
+  // A link's group wins over the remembered one, also while the stage is already open.
+  // Only when the link changes: adding a tool must not send the open group back to the link's.
+  const appliedLink = useRef<string | null>(null)
   useEffect(() => {
-    if (linked) select(linked)
-  }, [linked, select])
+    const key = linked ? `${dramaId}:${linked}` : null
+    if (linked && key !== appliedLink.current) select(linked)
+    appliedLink.current = key
+  }, [dramaId, linked, select])
+  const selectTool = useCallback((tool: ReviewTool) => {
+    if (!added.has(tool)) {
+      const next = new Set(added).add(tool)
+      setAdded(next)
+      writeAddedTools(browserStorage(), dramaId, next)
+    }
+    open(groupOfTool(tool))
+  }, [added, dramaId, open])
   const seenSeq = useRef(request?.seq ?? 0)
   useEffect(() => {
     if (request && request.seq !== seenSeq.current) {
       seenSeq.current = request.seq
-      select(request.tab)
+      selectTool(request.tool)
     }
-  }, [request, select])
+  }, [request, selectTool])
 
-  const tabs: TabInfo<ReviewToolsTab>[] = shown.map((t) => ({ ...t, attention: attention[t.id] }))
+  const tabs: TabInfo<ReviewToolsGroup>[] = shown.map((g) => ({
+    ...g,
+    attention: visibleTools.filter((t) => t.group === g.id).reduce((n, t) => n + (attention[t.id] ?? 0), 0),
+  }))
   return (
     <section className="review-toolbox" aria-label="Checks and tools">
       {status}
@@ -106,7 +125,11 @@ export function ReviewTools({ dramaId, status, panels, attention = {}, request =
           className="review-toolbox-panel"
           hidden={tab !== id}
         >
-          {visited.has(id) && <TabBody tab={id}>{panels[id]}</TabBody>}
+          {visited.has(id) && (
+            <TabBody group={id}>
+              {visibleTools.filter((t) => t.group === id).map((t) => <Fragment key={t.id}>{tools[t.id]}</Fragment>)}
+            </TabBody>
+          )}
         </div>
       ))}
     </section>

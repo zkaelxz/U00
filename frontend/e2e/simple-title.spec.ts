@@ -1,4 +1,7 @@
-import { seedLines } from './compareSelectedHelpers'
+import { GLOSSARY_NOTE, seedCheckLines, seedLines } from './compareSelectedHelpers'
+import { clearLines } from './resegmentLlmMocks'
+import type { Page } from '@playwright/test'
+
 import { expect, test } from './fixtures'
 
 // Audio and video titles have a Simple view (#/drama/1, no stage) beside today's workspace; the choice is
@@ -223,7 +226,8 @@ test('with lines the title opens on a progress bar and the first lines, with the
   const lines = page.getByRole('region', { name: 'First lines' })
   await expect(lines.getByText('Hello, how was your day?')).toBeVisible()
   await expect(lines.getByText('Not translated yet')).toBeVisible()
-  await expect(lines.getByRole('link', { name: 'Open all 10 lines' })).toHaveAttribute('href', '#/drama/1/review')
+  // All lines, not the check queue Review opens on in Simple.
+  await expect(lines.getByRole('link', { name: 'Open all 10 lines' })).toHaveAttribute('href', '#/drama/1/review?focus=all')
 
   // Wide window: the step tabs run across the top, above the bar and the lines.
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -249,24 +253,41 @@ test('an audio or video Simple stage keeps the title page step tabs above it, so
   await expect(page).toHaveURL(/#\/drama\/1$/)
 })
 
-test('Simple Review keeps Check and Fix and the Replace button; Full keeps every tool tab and the row-density, Go to and Shortcuts controls', async ({ page }) => {
+test('Simple Review keeps the checks, Fix flagged lines, flags and Mark episode reviewed and the Replace button; Full keeps every tool group and the row-density, Go to and Shortcuts controls', async ({ page }) => {
   seedLines(3)
   await page.goto('/#/drama/3')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/3/review')
   const tabs = page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')
-  await expect(tabs).toHaveText(['Check', 'Fix'])
+  await expect(tabs).toHaveText(['Look for problems', 'Change many lines', 'Finish'])
+  // The same tools the Check and Fix tabs held, and none of the others.
+  const titles = page.locator('.review-toolbox-panel:not([hidden]) details.section:not(details.section details.section) > summary .section-title')
+  await expect(page.getByRole('list', { name: 'AI checks to run' })).toBeVisible()
+  await expect(titles).toHaveText(['Check options', 'Flag lines for review'])
+  await tabs.filter({ hasText: 'Change many lines' }).click()
+  await expect(page.getByRole('group', { name: 'Fix flagged lines' })).toBeVisible()
+  await expect(titles).toHaveText(['Options'])
+  await tabs.filter({ hasText: 'Finish' }).click()
+  await expect(titles).toHaveText(['Mark episode reviewed'])
+  // Simple opens on the check queue, whose bar holds only its switch; Replace… is with the filters under All.
+  await page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ }).check({ force: true })
   await expect(page.getByRole('button', { name: 'Replace…' })).toBeVisible()
   for (const name of ['Compact rows', 'Shortcuts']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Go to line number')).toHaveCount(0)
-  // A link naming a tool that Simple leaves out opens Check instead of an empty page.
-  await page.goto('/#/drama/3/review?tools=history')
-  await expect(page.getByRole('tab', { name: 'Check' })).toHaveAttribute('aria-selected', 'true')
+  // A link naming a group, or an old tab, that Simple leaves out opens Look for problems instead of an empty page.
+  for (const tools of ['records', 'history']) {
+    await page.goto('about:blank')
+    await page.goto(`/#/drama/3/review?tools=${tools}`)
+    await expect(page.getByRole('tab', { name: 'Look for problems' })).toHaveAttribute('aria-selected', 'true')
+  }
 
   await page.goto('/#/drama/3')
   await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await page.goto('/#/drama/3/review')
-  await expect(tabs).toHaveText(['Check', 'Fix', 'Coverage', 'Voices', 'Restructure', 'History', 'Extras'])
+  await expect(tabs).toHaveText(['Look for problems', 'Change many lines', 'Records', 'Finish'])
+  // Full has no check queue: it opens on All lines with the whole toolbar.
+  await expect(page.getByRole('radio', { name: /^All lines/ })).toBeChecked()
+  await expect(page.getByRole('group', { name: 'Lines to show' })).toHaveCount(0)
   for (const name of ['Compact rows', 'Shortcuts']) await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
   await expect(page.getByLabel('Go to line number')).toBeVisible()
 })
@@ -310,3 +331,158 @@ test('the title panel has Translate, Glossary, Episodes and Export, and a Video 
   await expect(tabs).toHaveText(['Video', 'Translate', 'Glossary', 'Episodes', 'Export'])
   await expect(page.locator('video.title-panel-video')).toHaveAttribute('src', /\/api\/media\/dramas\/1\/video$/)
 })
+
+test.describe('the check queue', () => {
+  test.afterAll(() => clearLines())
+  const card = (page: Page, n: number) => page.locator('.review-line').filter({ has: page.locator('.review-idx', { hasText: new RegExp(`^#${n}$`) }) })
+  const queueRadio = (page: Page) => page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^Need a look/ })
+  const allRadio = (page: Page) => page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })
+  const simple = async (page: Page) => {
+    await page.goto('/#/drama/3')
+    await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+  }
+
+  test('opens on the lines that need a look, says why, and moves on as each one is checked', async ({ page }) => {
+    seedCheckLines({ untranslated: true })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(queueRadio(page)).toBeChecked()
+    await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
+    await expect(page.getByText('All 24', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('queue-fine')).toHaveText('20 of 24 look fine')
+    // Riskiest first: the glossary name, then the line Whisper was unsure of, then the fast one.
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
+    await expect(card(page, 24).getByTestId('line-flag')).toContainText(`Glossary missing · ${GLOSSARY_NOTE}`)
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure of this line (50% sure)')
+    await expect(card(page, 12).getByTestId('line-flag')).toContainText('Reading speed · 25.2 characters/second')
+    await expect(card(page, 24).getByRole('link', { name: 'Open glossary' })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    // The queue's bar is only its switch: the filters and the step buttons are under All.
+    await expect(page.getByRole('radiogroup', { name: 'Show' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Next flagged ›' })).toHaveCount(0)
+
+    // Footer: the rest of the title, the untranslated line, and Mark the rest held back by the unflagged #7.
+    const footer = page.getByTestId('queue-footer')
+    await expect(footer).toContainText('The other 20 lines have no warnings.')
+    await expect(footer).toContainText('1 line has no English yet.')
+    await expect(footer.getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeDisabled()
+    await expect(page.getByTestId('mark-rest-reason')).toHaveText('Look at the lines Whisper was unsure of first: this would mark them checked too.')
+
+    // Looks right, next checks the line and opens the next card; Undo brings the line back into the queue, open.
+    await card(page, 24).getByRole('button', { name: 'Looks right, next' }).click()
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#7', '#12'])
+    await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
+    await expect(page.getByText('Need a look 2', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('checked-undo')).toContainText('Line #24 marked checked.')
+    await page.getByTestId('checked-undo').getByRole('button', { name: 'Undo' }).click()
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+
+    // The English is edited in place, and Looks right, next saves it before checking the line.
+    await card(page, 24).getByTestId('line-en').click()
+    await card(page, 24).getByRole('textbox', { name: 'Translation' }).fill('Let them see what the Yiling Patriarch really is.')
+    await card(page, 24).getByRole('button', { name: 'Looks right, next' }).click()
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#7', '#12'])
+    await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
+    const saved = await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=40&only=all')).json()
+    expect(saved.lines[23]).toMatchObject({ en: 'Let them see what the Yiling Patriarch really is.', reviewed: true })
+
+    // R on an unchecked card does the same as Looks right, next.
+    await card(page, 7).locator('.review-line-meta').click()
+    await card(page, 7).focus()
+    await page.keyboard.press('r')
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#12'])
+    await expect(card(page, 12)).toHaveAttribute('aria-current', 'true')
+
+    // Only flagged lines are left in the queue, so Mark the rest can run; it asks first.
+    const mark = footer.getByRole('button', { name: 'Mark the rest as checked', exact: true })
+    await expect(mark).toBeEnabled()
+    await mark.click()
+    await footer.getByRole('button', { name: 'Confirm: record untouched lines as approved' }).click()
+    await expect(footer).toContainText('Marked 20 lines reviewed')
+    await expect(page.getByText('Need a look 1', { exact: true })).toBeVisible()
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#12'])
+
+    // Read them all switches to every line, with the filters back.
+    await footer.getByRole('button', { name: 'Read them all' }).click()
+    await expect(allRadio(page)).toBeChecked()
+    await expect(page.getByRole('radio', { name: /^All lines/ })).toBeChecked()
+    await expect(page.locator('.review-line')).toHaveCount(24)
+    await expect(page.getByRole('button', { name: 'Replace…' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Next flagged ›' })).toBeVisible()
+  })
+
+  test('the Check button names the lines, opens the queue on its first card, and becomes Export once nothing needs a look', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    const steps = page.getByRole('list', { name: 'Steps' })
+    await expect(steps.locator('[aria-current="step"]')).toContainText('3 lines need a look')
+    await expect(page.getByRole('link', { name: 'Check the 3 lines', exact: true })).toHaveAttribute('href', '#/drama/3/review')
+    await page.getByRole('link', { name: 'Check the 3 lines', exact: true }).click()
+    await expect(queueRadio(page)).toBeChecked()
+    // On the Review page the same button opens the queue there.
+    await allRadio(page).check({ force: true })
+    await expect(page.locator('.review-line')).toHaveCount(24)
+    await page.getByRole('button', { name: 'Check the 3 lines', exact: true }).click()
+    await expect(queueRadio(page)).toBeChecked()
+    await expect(card(page, 24)).toBeFocused()
+
+    seedCheckLines({ warnings: false })
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review')
+    await expect(page.getByText('Need a look 0', { exact: true })).toBeVisible()
+    await expect(page.getByText('No unchecked line has a flag or low confidence.')).toBeVisible()
+    await expect(page.getByTestId('queue-fine')).toHaveText('24 of 24 look fine')
+    // Nothing needs a look, so no line can be marked unseen: Mark the rest is ready.
+    await expect(page.getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeEnabled()
+    await expect(page.getByRole('list', { name: 'Steps' }).locator('[aria-current="step"]')).toContainText('Nothing needs a look')
+    await expect(page.getByRole('link', { name: 'Export', exact: true }).first()).toHaveAttribute('href', '#/drama/3/export')
+    // The Review tools still show beside an empty queue.
+    await expect(page.getByRole('tablist', { name: 'Review tools' })).toBeVisible()
+  })
+
+  test('Mark the rest is not offered from another view\'s lines while the queue is still loading', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    await page.goto('/#/drama/3/review?focus=flagged')
+    // Both flagged lines fit one page: read as the queue, this page alone would let Mark the rest run over the unsure #7.
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#12', '#24'])
+    let arrive = () => {}
+    const held = new Promise<void>((resolve) => { arrive = resolve })
+    await page.route(/\/lines\?page=1&page_size=40&only=risk/, async (route) => {
+      await held
+      await route.continue()
+    })
+    await queueRadio(page).check({ force: true })
+    await expect(queueRadio(page)).toBeChecked()
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#12', '#24'])
+    await expect(page.getByTestId('queue-footer')).toHaveCount(0)
+    arrive()
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
+    await expect(page.getByTestId('queue-footer').getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeDisabled()
+    await expect(page.getByTestId('mark-rest-reason')).toHaveText('Look at the lines Whisper was unsure of first: this would mark them checked too.')
+  })
+
+  test('a link to a line or a filter wins over the queue', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    // A Ctrl+K line hit opens Review already searched, over every line: line 5 is not in the queue.
+    await page.goto('/#/drama/3/review?find=第5句')
+    await expect(allRadio(page)).toBeChecked()
+    await expect(page.getByRole('searchbox', { name: 'Search lines' })).toHaveValue('第5句')
+    await expect(card(page, 5)).toBeVisible()
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review?focus=flagged')
+    await expect(page.getByRole('radio', { name: /^Flagged/ })).toBeChecked()
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review?focus=all')
+    await expect(page.getByRole('radio', { name: /^All lines/ })).toBeChecked()
+    await expect(page.locator('.review-line')).toHaveCount(24)
+    // Show on its page from a search result opens the line among all lines, not in the queue.
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review?find=第5句')
+    await card(page, 5).getByRole('button', { name: 'Show on its page: line 5' }).click()
+    await expect(page.getByRole('radio', { name: /^All lines/ })).toBeChecked()
+    await expect(card(page, 5)).toHaveAttribute('aria-current', 'true')
+  })
+})
+

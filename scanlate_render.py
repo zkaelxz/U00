@@ -21,7 +21,7 @@ from scanlate_detect import (balloon_outside_mask, bubble_erase_mask, bubble_sha
                              page_gray)
 from scanlate_inpaint import (
     erase_box, InpaintModelUnavailable, background_is_dark, inpaint_region, is_art_mistaken_for_sign,
-    lama_ml_weights_cached,
+    lama_ml_weights_cached, sign_text_line,
 )
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 from scanlate_watermark import is_site_mark_region, logo_box
@@ -835,6 +835,16 @@ def _sampled_inks(page, regions: list, match_color: bool):
     return [fade[0] if fade else ink for ink, fade in zip(inks, fades)], fades
 
 
+def _tilts_and_lines(page, regions: list):
+    """Per region its text angle, and for a sign whose lettering is one line on a pale band the
+    (strip, angle, size) of that line, which also gives the angle: the skew detector is thrown off by
+    the busy art round such a band."""
+    lines = [sign_text_line(page, b) if b.get("kind") == "sign" else None for b in regions]
+    angles = [line[1] if line else scanlate_tilt.estimate_text_angle(page, b)
+              for line, b in zip(lines, regions)]
+    return angles, lines
+
+
 def _text_fill(pil_img, box: dict, sampled=None):
     """The hand-set colour if any, then the colour sampled from the original lettering
     (when the person turned that on); else white lettering on a dark balloon,
@@ -924,7 +934,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                           for b, s in zip(captions, caption_styles)]
         # The ink is read before the erase below removes it.
         inks, fades = _sampled_inks(page, to_render, match_color)
-        angles = [scanlate_tilt.estimate_text_angle(page, b) for b in to_render]
+        angles, lines = _tilts_and_lines(page, to_render)
         _erase_site_stamps(page, bubbles)
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
@@ -942,7 +952,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
-                         rect_layout, look, angles, fades)
+                         rect_layout, look, angles, fades, lines)
         _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
         pil_img.save(result_path, "PNG")
         os.replace(result_path, out_path)
@@ -1030,7 +1040,8 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                      font_path: str | None, custom_fonts: dict | None, inks: list,
                      rect_layout: bool = False, style: TypesetStyle = _PLAIN,
                      angles: list | None = None,
-                     fades: "list[tuple | None] | None" = None) -> None:
+                     fades: "list[tuple | None] | None" = None,
+                     lines: "list[tuple | None] | None" = None) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
     then the real pass draws with sibling balloons held to a shared ratio. A balloon
     whose original lettering was tilted (`angles`, degrees) is set at that angle."""
@@ -1061,16 +1072,17 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
             if m is not None:
                 _fill_balloon(pil_img, b, m, style.bubble_fill / 100)
     sizes = sibling_size_caps(list(zip(starts, fitted)))
-    for b, m, size, ink, angle, fade in zip(to_render, masks, sizes, inks,
-                                            angles or [0.0] * len(to_render),
-                                            fades or [None] * len(to_render)):
+    for b, m, size, ink, angle, fade, line in zip(to_render, masks, sizes, inks,
+                                                  angles or [0.0] * len(to_render),
+                                                  fades or [None] * len(to_render),
+                                                  lines or [None] * len(to_render)):
         region = (max(0, b["x"]), max(0, b["y"]), b["x"] + b["w"], b["y"] + b["h"])
         before = pil_img.crop(region) if fade else None
         tilted = False
-        if angle:
+        if angle or line:
             fill = _text_fill(pil_img, b, ink)
             tilted = scanlate_tilt.draw_tilted(
-                pil_img, b, m, angle, size,
+                pil_img, b, line[0] if line else m, angle, min(size, line[2]) if line else size,
                 lambda target, shifted, sz, shifted_mask: render_text_in_box(
                     target, shifted, b["translated_text"], font_size=sz, font_path=font_path,
                     font_category=b.get("font_category") or "regular", custom_fonts=custom_fonts,

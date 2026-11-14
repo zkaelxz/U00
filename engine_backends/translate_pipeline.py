@@ -9,6 +9,7 @@ from .engine_registry import default_batch_size, default_reply_guard, novel_batc
 from . import glossary_check
 from .fallback import FallbackEngine
 from . import medium_prompts
+from . import stream_recipe
 from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragraph_batches
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
@@ -272,8 +273,12 @@ class _TranslateRun:
         self.bi = 0
         self.batch_label = ""
         self.groups = []
+        # Lines whose English this attempt split by length; flagged only once that English lands.
+        self.split_by_length = set()
         self.character_names = args.character_names or {}
         self.allowed_runs = allowed_source_runs(args.glossary_terms, args.style_guidelines)
+        self.required_glossary = stream_recipe.required_terms(args.glossary_terms,
+                                                              args.style_guidelines)
         # A local model works through a long system prompt unevenly, so for it the
         # names go beside the lines of each batch as well.
         self.glossary_first = getattr(self.engine, "name", "") == "ollama"
@@ -408,8 +413,8 @@ class _TranslateRun:
         chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
         chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
         chunk_context["line_languages"] = tagged_line_languages(chunk, self.context["source_language"])
-        if self.args.glossary_terms and self.glossary_first:
-            chunk_context = glossary_check.tag_batch(chunk_context, chunk, self.args.glossary_terms)
+        if self.required_glossary and self.glossary_first:
+            chunk_context = glossary_check.tag_batch(chunk_context, chunk, self.required_glossary)
         return chunk_context
 
     def _call_engine(self, chunk, chunk_context):
@@ -423,20 +428,24 @@ class _TranslateRun:
         sentence_groups.settle_group); fragments of a group the model's
         reply can't be used for are translated the normal way, in one
         extra request, so the mode never leaves a blank the plain path
-        wouldn't."""
+        wouldn't. Parts whose English was split by length rather than by
+        the model are flagged for review."""
         if len(translations) != len(chunk):
             return translations  # reported as a length mismatch by the caller
         position = {id(ln): p for p, ln in enumerate(chunk)}
         out, redo = list(translations), []
         for group in chunk_groups:
             where = [position[id(ln)] for ln in group]
-            settled = sentence_groups.settle_group(
-                [ln.zh for ln in group], [out[p] for p in where])
+            pieces = [out[p] for p in where]
+            settled = sentence_groups.settle_group([ln.zh for ln in group], pieces)
             if settled is None:
                 redo.extend(where)
-            else:
-                for p, text in zip(where, settled):
-                    out[p] = text
+                continue
+            split_by_length = settled != [(t or "").strip() for t in pieces]
+            for p, text in zip(where, settled):
+                out[p] = text
+                if split_by_length:
+                    self.split_by_length.add(id(chunk[p]))
         if redo:
             redo_lines = [chunk[p] for p in redo]
             for p, text in zip(redo, self._call_engine(redo_lines, self._context_for(redo_lines))):
@@ -458,6 +467,7 @@ class _TranslateRun:
                                                 usage_cb=self._record_usage, pass_cb=self._on_pass,
                                                 resume=finished_passes))
         chunk_groups = sentence_groups.complete_groups(chunk, self.groups)
+        self.split_by_length.difference_update(id(ln) for ln in chunk)
         if chunk_groups:
             position = {id(ln): p for p, ln in enumerate(chunk)}
             chunk_context["sentence_groups"] = [[position[id(ln)] for ln in g]
@@ -533,6 +543,7 @@ class _TranslateRun:
             if (tr or "").strip():
                 ln.en = keep_first_alternative(strip_echoed_label(self.character_names.get(ln.speaker), tr))
                 source_change.clear_for_new_english(ln)
+                self._flag_if_split(ln)
                 self.translated.append(ln)
                 fresh.append(ln)
             else:
@@ -558,6 +569,14 @@ class _TranslateRun:
             # Source script in a novel is wrong whichever engine wrote it, so this
             # one check does not follow the engines the general guard is off for.
             self._guard_novel_script_leaks(fresh)
+
+    def _flag_if_split(self, ln):
+        """Baihe, not the model, chose where this part's English breaks, so it goes to review.
+        A flagged line never joins a group (sentence_groups), so no flag is replaced."""
+        if id(ln) in self.split_by_length:
+            self.split_by_length.discard(id(ln))
+            ln.flag = "uncertain_translation"
+            ln.flag_note = sentence_groups.SPLIT_BY_LENGTH_NOTE
 
     _EMPTY_RETRY_DEPTH = 2
 
@@ -587,6 +606,7 @@ class _TranslateRun:
                 if (tr or "").strip():
                     ln.en = tr
                     source_change.clear_for_new_english(ln)
+                    self._flag_if_split(ln)
                     self.translated.append(ln)
                     fresh.append(ln)
                 else:
@@ -630,7 +650,7 @@ class _TranslateRun:
                 applog.get_logger().warning(f"glossary re-ask skipped for batch {self.bi}: {redacted}")
                 return None
 
-        glossary_check.enforce(chunk, self.args.glossary_terms, ask, self._should_stop,
+        glossary_check.enforce(chunk, self.required_glossary, ask, self._should_stop,
                                self.allowed_runs)
 
     def _guard_novel_script_leaks(self, chunk):
@@ -691,7 +711,7 @@ class _TranslateRun:
             self._process_chunk(batch, allow_bisect=True)
             if medium_prompts.kind_for(self.args.drama_meta) == "novel":
                 self._clean_novel_replies(self.translated[translated_before:])
-            if self.args.glossary_terms and len(self.translated) > translated_before:
+            if self.required_glossary and len(self.translated) > translated_before:
                 self._check_glossary(self.translated[translated_before:])
         finally:
             _backoff_wait_var.reset(wait_token)

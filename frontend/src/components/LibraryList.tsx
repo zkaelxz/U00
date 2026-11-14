@@ -390,7 +390,8 @@ export function LibraryList({
               {items.length === 0 && !filtered && onCreate && (
                 <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
                   <div className="actions">
-                    <button type="button" className={buttonClass('secondary')} onClick={onCreate}>New title</button>
+                    {/* A phone's header already has the primary Add; a computer's Add box has none until something is given. */}
+                    <button type="button" className={buttonClass(phone ? 'secondary' : 'primary')} onClick={onCreate}>Add</button>
                   </div>
                 </Card>
               )}

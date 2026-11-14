@@ -2,9 +2,9 @@ import { expect, test } from './fixtures'
 import { openTab } from './reviewFolds'
 import { clearDrama3Lines, clearLines, clearReviewResults, seedOneLine, seedReviewResults } from './reviewResultsSeed'
 
-// The Review tools under the line list: one tab level (the shared Tabs), the
-// last tab remembered per title, a link opening a tab, and each tab about one
-// desktop screen tall.
+// The Review tools under the line list: one tab level of four groups (the shared
+// Tabs), the last group remembered per title, a link opening a group, and each
+// group about one desktop screen tall.
 
 test.beforeEach(() => seedReviewResults())
 test.afterAll(() => {
@@ -12,16 +12,16 @@ test.afterAll(() => {
   clearLines(1)
 })
 
-const TABS = ['Check', 'Fix', 'Coverage', 'Voices', 'Restructure', 'History', 'Extras']
+const TABS = ['Look for problems', 'Change many lines', 'Records', 'Finish']
 const tablist = (page: import('@playwright/test').Page) => page.getByRole('tablist', { name: 'Review tools' })
 
-test('one tab level with the seven tabs; Check holds the four checks as a 2x2 grid with an inline Bulk', async ({ page }) => {
+test('one tab level with the four groups; Look for problems holds the four checks as a 2x2 grid with an inline Bulk', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/#/drama/3/review')
   await expect(tablist(page)).toBeVisible()
-  await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')).toHaveCount(7)
+  await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')).toHaveCount(4)
   for (const name of TABS) await expect(tablist(page).getByRole('tab', { name: new RegExp(`^${name}`) })).toBeVisible()
-  await expect(tablist(page).getByRole('tab', { name: /^Check/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(tablist(page).getByRole('tab', { name: /^Look for problems/ })).toHaveAttribute('aria-selected', 'true')
 
   const boxes = await page.getByTestId(/^review-job-/).evaluateAll((els) => els.map((e) => e.getBoundingClientRect()))
   expect(boxes).toHaveLength(4)
@@ -32,7 +32,7 @@ test('one tab level with the seven tabs; Check holds the four checks as a 2x2 gr
   await expect(row.getByRole('button', { name: 'Help: Bulk' })).toBeVisible()
 })
 
-test('each tab fits about one desktop screen, with no sideways scroll, light and dark', async ({ page }) => {
+test('each group fits about one desktop screen, with no sideways scroll, light and dark', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
@@ -48,51 +48,67 @@ test('each tab fits about one desktop screen, with no sideways scroll, light and
   }
 })
 
-test('the last tab is remembered per title and a link opens a tab', async ({ page }) => {
+test('the last group is remembered per title and a link opens a group', async ({ page }) => {
   await page.goto('/#/drama/3/review')
-  await openTab(page, 'Coverage')
+  await openTab(page, 'Records')
   await page.reload()
-  await expect(tablist(page).getByRole('tab', { name: /^Coverage/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(tablist(page).getByRole('tab', { name: /^Records/ })).toHaveAttribute('aria-selected', 'true')
   // Another title has its own memory (the panel only shows on a title that has lines).
   seedOneLine(1)
   await page.goto('/#/drama/1/review')
-  await expect(tablist(page).getByRole('tab', { name: /^Check/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(tablist(page).getByRole('tab', { name: /^Look for problems/ })).toHaveAttribute('aria-selected', 'true')
   // A link wins over the memory.
-  await page.goto('/#/drama/3/review?tools=history')
-  await expect(tablist(page).getByRole('tab', { name: /^History/ })).toHaveAttribute('aria-selected', 'true')
+  await page.goto('/#/drama/3/review?tools=finish')
+  await expect(tablist(page).getByRole('tab', { name: /^Finish/ })).toHaveAttribute('aria-selected', 'true')
 })
 
-test('Coverage carries a count when there is something to look at', async ({ page }) => {
+test('a tab remembered or linked from before the grouping opens the group that holds its tools', async ({ page }) => {
   await page.goto('/#/drama/3/review')
-  await expect(tablist(page).getByRole('tab', { name: /^Coverage/ }).getByText(/to look at/)).toBeAttached()
+  await expect(tablist(page)).toBeVisible()
+  await page.evaluate(() => window.localStorage.setItem('baihe.pref.review.tools.tab.3', JSON.stringify('restructure')))
+  await page.reload()
+  await expect(tablist(page).getByRole('tab', { name: /^Change many lines/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.review-toolbox-panel:not([hidden])').locator('summary', { hasText: 'Structure' }).first()).toBeVisible()
+  for (const [old, group, tool] of [['history', 'Records', 'Edit tendencies'], ['coverage', 'Look for problems', 'Coverage and pacing'], ['extras', 'Look for problems', 'Audio tags (SenseVoice)']]) {
+    await page.goto('about:blank')
+    await page.goto(`/#/drama/3/review?tools=${old}`)
+    await expect(tablist(page).getByRole('tab', { name: new RegExp(`^${group}`) }), old).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.review-toolbox-panel:not([hidden])').locator('summary', { hasText: tool }).first(), old).toBeVisible()
+  }
 })
 
-test('a tab with nothing in it says so once', async ({ page }) => {
+test('Look for problems carries the Coverage count when there is something to look at', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  await expect(tablist(page).getByRole('tab', { name: /^Look for problems/ }).getByText(/to look at/)).toBeAttached()
+  await expect(tablist(page).getByText(/to look at/)).toHaveCount(1)
+})
+
+test('a group with nothing in it says so once', async ({ page }) => {
   clearDrama3Lines()
   // No lines, so the tools panel only shows when a link asks for it.
-  await page.goto('/#/drama/3/review?tools=restructure')
-  await openTab(page, 'Restructure')
+  await page.goto('/#/drama/3/review?tools=finish')
+  await openTab(page, 'Finish')
   await expect(page.getByTestId('review-tab-empty')).toBeVisible()
   await expect(page.getByTestId('review-tab-empty')).toHaveCount(1)
 })
 
-test('the first card of a tab is open the first time, the rest are closed, and a choice is remembered', async ({ page }) => {
+test('the first card of a group is open the first time, the rest are closed, and a choice is remembered', async ({ page }) => {
   const card = (title: string) =>
     page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
   await page.goto('/#/drama/3/review')
-  await openTab(page, 'Restructure')
-  await expect(card('Structure')).toHaveAttribute('open', '')
-  await expect(card('Merge short lines')).not.toHaveAttribute('open', '')
-  await card('Structure').locator(':scope > summary').click()
+  await openTab(page, 'Finish')
+  await expect(card('Burned subtitle preview')).toHaveAttribute('open', '')
+  await expect(card('Mark episode reviewed')).not.toHaveAttribute('open', '')
+  await card('Burned subtitle preview').locator(':scope > summary').click()
   // Section saves the choice from the <details> toggle event, which fires in a later task than the
   // click; reloading before it runs would lose the choice, so wait for the stored value.
-  await page.waitForFunction(() => window.localStorage.getItem('baihe.section.review.structure') === '0')
+  await page.waitForFunction(() => window.localStorage.getItem('baihe.section.review.aiExtras.burn') === '0')
   await page.reload()
-  await openTab(page, 'Restructure')
-  await expect(card('Structure')).not.toHaveAttribute('open', '')
+  await openTab(page, 'Finish')
+  await expect(card('Burned subtitle preview')).not.toHaveAttribute('open', '')
 })
 
-test('no tab shows more than its first card open by default', async ({ page }) => {
+test('no group shows more than its first card open by default', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/#/drama/3/review')
   await expect(tablist(page)).toBeVisible()

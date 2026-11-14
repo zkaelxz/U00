@@ -235,7 +235,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
         r.moved_count ? `started ${plural(r.moved_count, 'line')} earlier` : '',
         r.added_count ? `added ${plural(r.added_count, 'blank line')} to type into` : '',
       ].filter(Boolean)
-      setSummary(parts.length ? `Talk-over: ${parts.join(', ')}. Undo it from Line history in the History tab.` : 'No talk-over found in the saved detection.')
+      setSummary(parts.length ? `Talk-over: ${parts.join(', ')}. Undo it from Line history in Records.` : 'No talk-over found in the saved detection.')
       if (parts.length) onChanged()
     } catch (e) {
       if (hasStatus(e, 409) && !/job/i.test(e.message)) setSummary(e.message)
