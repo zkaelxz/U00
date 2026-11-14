@@ -261,6 +261,9 @@ class TestPipeline:
         assert errors == []
         assert all(ln.en for ln in lines)
         assert " ".join(ln.en for ln in lines) == "I went to the store to shop"
+        # Baihe chose the breaks, not the model, so each part goes to review.
+        assert [(ln.flag, ln.flag_note) for ln in lines] == \
+            [("uncertain_translation", sg.SPLIT_BY_LENGTH_NOTE)] * 3
 
     def test_already_translated_neighbour_is_not_touched_or_grouped(self):
         lines = fragments()

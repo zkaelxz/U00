@@ -423,20 +423,26 @@ class _TranslateRun:
         sentence_groups.settle_group); fragments of a group the model's
         reply can't be used for are translated the normal way, in one
         extra request, so the mode never leaves a blank the plain path
-        wouldn't."""
+        wouldn't. Parts whose English was split by length rather than by
+        the model are flagged for review."""
         if len(translations) != len(chunk):
             return translations  # reported as a length mismatch by the caller
         position = {id(ln): p for p, ln in enumerate(chunk)}
         out, redo = list(translations), []
         for group in chunk_groups:
             where = [position[id(ln)] for ln in group]
-            settled = sentence_groups.settle_group(
-                [ln.zh for ln in group], [out[p] for p in where])
+            pieces = [out[p] for p in where]
+            settled = sentence_groups.settle_group([ln.zh for ln in group], pieces)
             if settled is None:
                 redo.extend(where)
-            else:
-                for p, text in zip(where, settled):
-                    out[p] = text
+                continue
+            split_by_length = settled != [(t or "").strip() for t in pieces]
+            for p, text in zip(where, settled):
+                out[p] = text
+                if split_by_length:
+                    # A flagged line never joins a group (sentence_groups), so no flag is replaced.
+                    chunk[p].flag = "uncertain_translation"
+                    chunk[p].flag_note = sentence_groups.SPLIT_BY_LENGTH_NOTE
         if redo:
             redo_lines = [chunk[p] for p in redo]
             for p, text in zip(redo, self._call_engine(redo_lines, self._context_for(redo_lines))):
