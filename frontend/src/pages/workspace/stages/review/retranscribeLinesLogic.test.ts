@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
-  applyItems, applyNote, failureSummary, gapBlockedReason, gapLabel, gapsInView,
-  retranscribeLinesOutcome, retranscribeLinesProblem,
+  applyItems, applyNote, failureSummary, fillBlankLines, fillNote, gapBlockedReason, gapLabel, gapsInView,
+  retranscribeLinesOutcome, retranscribeLinesProblem, type FillDeps,
 } from './retranscribeLinesLogic'
+import type { RetranscribeManyApplyItem } from '../../../../types/workspace'
 
 const proposal = (id: number, over = {}) => ({
   line_id: id, number: id, base_zh: `旧${id}`, proposed_zh: `新${id}`, had_english: true, ...over,
@@ -90,5 +91,57 @@ describe('gaps', () => {
     expect(gapBlockedReason({ ...ok, canTranscribe: false })).toMatch(/audio/)
     expect(gapBlockedReason({ ...ok, editing: true })).toMatch(/open edit/)
     expect(gapBlockedReason({ ...ok, jobRunning: true })).toMatch(/Another job/)
+  })
+})
+
+describe('fillBlankLines', () => {
+  const heard = (line_id: number, base_zh: string, proposed_zh: string) =>
+    ({ line_id, number: line_id, base_zh, proposed_zh, had_english: false })
+  const deps = (over: Partial<FillDeps> = {}) => {
+    const calls: string[] = []
+    const d: FillDeps = {
+      beforeWrite: vi.fn(async (ids: number[]) => { calls.push(`before ${ids.join(',')}`); return null }),
+      apply: vi.fn(async (items: RetranscribeManyApplyItem[]) => {
+        calls.push(`apply ${items.map((i) => i.line_id).join(',')}`)
+        return { applied: items.map((i) => i.line_id), skipped: [], untranslated_count: 0 }
+      }),
+      afterWrite: vi.fn((ids: number[]) => { calls.push(`after ${ids.join(',')}`) }),
+      ...over,
+    }
+    return { d, calls }
+  }
+
+  it('saves an open edit of the blank lines first, then writes exactly what was heard', async () => {
+    const { d, calls } = deps()
+    const o = await fillBlankLines([heard(7, '', '听到的'), heard(8, ' ', '第二')], d)
+    expect(calls).toEqual(['before 7,8', 'apply 7,8', 'after 7,8'])
+    expect(d.apply).toHaveBeenCalledWith([
+      { line_id: 7, expected_zh: '', expected_proposed: '听到的' },
+      { line_id: 8, expected_zh: ' ', expected_proposed: '第二' },
+    ])
+    expect(o).toEqual({ kind: 'applied', result: { applied: [7, 8], skipped: [], untranslated_count: 0 } })
+  })
+
+  it('never fills a line that had text when the run read it', async () => {
+    const { d } = deps()
+    const o = await fillBlankLines([heard(7, '原来的', '听到的')], d)
+    expect(o).toEqual({ kind: 'nothing' })
+    expect(d.beforeWrite).not.toHaveBeenCalled()
+    expect(d.apply).not.toHaveBeenCalled()
+  })
+
+  it('writes nothing when the open edit could not be saved', async () => {
+    const { d } = deps({ beforeWrite: vi.fn(async () => 'Save or discard your edit to #7 first.') })
+    const o = await fillBlankLines([heard(7, '', '听到的')], d)
+    expect(o).toEqual({ kind: 'blocked', text: 'Save or discard your edit to #7 first.' })
+    expect(d.apply).not.toHaveBeenCalled()
+  })
+})
+
+describe('fillNote', () => {
+  it('names the filled lines and the ones left as edited', () => {
+    const numbers = new Map([[7, 12], [8, 13]])
+    expect(fillNote({ applied: [7], skipped: [8], untranslated_count: 0 }, numbers))
+      .toBe('Filled #12 with what it heard. Left #13 as you edited it.')
   })
 })

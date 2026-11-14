@@ -212,7 +212,7 @@ def _apply_bulk_results_once(bulk_job_id: int, results: list, logged: set) -> di
                 flag_rejected(ln, translation, reason)
                 continue
             if fixes_text:
-                translation = substitute_terms(translation)
+                translation = substitute_terms(translation, ln.zh)
             ln.en = translation
             source_change.clear_for_new_english(ln)
             counts["applied"] += 1

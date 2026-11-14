@@ -29260,7 +29260,9 @@ export interface components {
         /**
          * SpeechCoverageGap
          * @description A stretch with speech and no subtitle line. raw_status: "lost_after"
-         *     (the raw transcript has text here), "none" (it has none), "unknown" (no
+         *     (the raw transcript has text here), "filtered" (a hallucination filter
+         *     removed what was written here; filter_reasons says which: "repeat",
+         *     "stock_phrase", "invented_list"), "none" (it has nothing), "unknown" (no
          *     raw transcript for the title).
          */
         SpeechCoverageGap: {
@@ -29270,6 +29272,11 @@ export interface components {
             before_line_id: number | null;
             /** End */
             end: number;
+            /**
+             * Filter Reasons
+             * @default []
+             */
+            filter_reasons: string[];
             /** Raw Status */
             raw_status: string;
             /**

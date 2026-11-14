@@ -112,6 +112,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "run_tests.py",
     "scanlate.py",
     "scanlate_art_text.py",
+    "scanlate_condense.py",
     "scanlate_detect.py",
     "scanlate_inpaint.py",
     "scanlate_regions.py",
