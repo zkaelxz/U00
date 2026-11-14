@@ -56,7 +56,7 @@ test('Review: AI review jobs are refused plainly and the page stays usable', asy
   expect(refused).toEqual([`POST /api/review-jobs/dramas/${DRAMA}/consistency`])
   await expect(consistency).toBeEnabled()
 
-  await openTab(page, 'Fix')
+  await openTab(page, 'Change many lines')
   await page.getByRole('button', { name: 'Fix flagged lines' }).click()
   await expect.poll(() => refused).toContain(`POST /api/review-jobs/dramas/${DRAMA}/fix-flagged`)
   await expect(refusal(page).first()).toBeVisible()
