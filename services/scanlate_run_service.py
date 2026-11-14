@@ -437,6 +437,12 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     return True, new_context
 
 
+def _translated_since(bubbles: list, english_before: list) -> list:
+    """The regions whose English differs from `english_before` (their English when the
+    translation call began), i.e. the ones that call translated."""
+    return [b for b, before in zip(bubbles, english_before) if b.get("translated_text") != before]
+
+
 def _condense_signs(drama_id: int, page_id: int, bubbles: list, engine, engine_name: str,
                     drama: dict, notes: list) -> None:
     """Shortens the English of a sign that would be set below the readable size on its band.
@@ -464,8 +470,8 @@ def _condense_signs(drama_id: int, page_id: int, bubbles: list, engine, engine_n
         return
     if changed:
         notes.append(("info", f"{len(changed)} sign text{'s were' if len(changed) > 1 else ' was'} "
-                              "shortened to fit the band it sits on. Edit it in the Review "
-                              "screen to put the full text back."))
+                              "shortened to fit the band it sits on. Retype the full text in the "
+                              "Review screen if you prefer it."))
 
 
 def _ocr_lost_text(existing: list, notes) -> bool:
@@ -638,13 +644,17 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     new_context, translated_ok = None, True
     # A result that will be thrown away is not worth a paid translation call.
     ai_started = time.monotonic()
+    english_before = [b.get("translated_text") for b in bubbles]
     if bubbles and not _ocr_lost_text(existing, detect_notes):
         translated_ok, new_context = _translate(
             bubbles, engine, engine_name, drama, guide[0],
             _translation_context(drama_id, page_id), drama_id, notes, guide[1], chapter_brief,
             page_image=_page_image(drama_id, page_id, engine_name))
-    if translated_ok and bubbles:
-        _condense_signs(drama_id, page_id, bubbles, engine, engine_name, drama, notes)
+    if translated_ok:
+        # Only the English this call just wrote: a region kept from an earlier run, or typed by
+        # hand, is the person's text and is not rewritten.
+        _condense_signs(drama_id, page_id, _translated_since(bubbles, english_before), engine,
+                        engine_name, drama, notes)
     ai_seconds = time.monotonic() - ai_started
     if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
         notes.append(("warning", "Redo did not produce a complete result for this page (no "

@@ -128,3 +128,12 @@ def test_the_reply_is_allowed_room_for_the_whole_json_even_for_one_sign(monkeypa
     monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", fake)
     scanlate_condense.ask_for_shorter(object(), "Chinese", {"0": ("Closed today", 8)})
     assert seen["max_tokens"] >= 1500        # a 400-token cap cut one sign's answer off on a real engine
+
+
+def test_only_the_english_a_translation_call_wrote_is_up_for_shortening():
+    from services import scanlate_run_service as run
+    typed_by_hand = {"kind": "sign", "translated_text": "Typed by hand, kept from an earlier run"}
+    translated = {"kind": "sign", "source_text": "交通阻塞", "translated_text": None}
+    before = [b.get("translated_text") for b in (typed_by_hand, translated)]
+    translated["translated_text"] = "Traffic is jammed."
+    assert run._translated_since([typed_by_hand, translated], before) == [translated]
