@@ -9,6 +9,7 @@ from .engine_registry import default_batch_size, default_reply_guard, novel_batc
 from . import glossary_check
 from .fallback import FallbackEngine
 from . import medium_prompts
+from . import stream_recipe
 from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragraph_batches
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
@@ -274,6 +275,8 @@ class _TranslateRun:
         self.groups = []
         self.character_names = args.character_names or {}
         self.allowed_runs = allowed_source_runs(args.glossary_terms, args.style_guidelines)
+        self.required_glossary = stream_recipe.required_terms(args.glossary_terms,
+                                                              args.style_guidelines)
         # A local model works through a long system prompt unevenly, so for it the
         # names go beside the lines of each batch as well.
         self.glossary_first = getattr(self.engine, "name", "") == "ollama"
@@ -408,8 +411,8 @@ class _TranslateRun:
         chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
         chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
         chunk_context["line_languages"] = tagged_line_languages(chunk, self.context["source_language"])
-        if self.args.glossary_terms and self.glossary_first:
-            chunk_context = glossary_check.tag_batch(chunk_context, chunk, self.args.glossary_terms)
+        if self.required_glossary and self.glossary_first:
+            chunk_context = glossary_check.tag_batch(chunk_context, chunk, self.required_glossary)
         return chunk_context
 
     def _call_engine(self, chunk, chunk_context):
@@ -630,7 +633,7 @@ class _TranslateRun:
                 applog.get_logger().warning(f"glossary re-ask skipped for batch {self.bi}: {redacted}")
                 return None
 
-        glossary_check.enforce(chunk, self.args.glossary_terms, ask, self._should_stop,
+        glossary_check.enforce(chunk, self.required_glossary, ask, self._should_stop,
                                self.allowed_runs)
 
     def _guard_novel_script_leaks(self, chunk):
@@ -691,7 +694,7 @@ class _TranslateRun:
             self._process_chunk(batch, allow_bisect=True)
             if medium_prompts.kind_for(self.args.drama_meta) == "novel":
                 self._clean_novel_replies(self.translated[translated_before:])
-            if self.args.glossary_terms and len(self.translated) > translated_before:
+            if self.required_glossary and len(self.translated) > translated_before:
                 self._check_glossary(self.translated[translated_before:])
         finally:
             _backoff_wait_var.reset(wait_token)
