@@ -6,7 +6,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
 import { TitleFlowStart } from './TitleFlowStart'
-import { titleSteps, type Step, type StepInput, type StepKey } from './stepModel'
+import { checkActionLabel, titleSteps, type Step, type StepInput, type StepKey } from './stepModel'
 import './titleSteps.css'
 
 interface Props extends StepInput {
@@ -16,9 +16,11 @@ interface Props extends StepInput {
   onFlowProgress: () => void
   /** The stage the page is showing, so its tab is marked while it is open. */
   openStep?: StepKey | null
+  /** On the Review page itself the Check button opens the queue there instead of linking to the page already open. */
+  onCheck?: () => void
 }
 
-export function TitleSteps({ id, flowOn, onFlowProgress, openStep = null, ...input }: Props) {
+export function TitleSteps({ id, flowOn, onFlowProgress, openStep = null, onCheck, ...input }: Props) {
   const steps = titleSteps(input)
   const hasLines = (input.lineCount ?? 0) > 0
   const left = (input.lineCount ?? 0) - input.translatedCount
@@ -45,8 +47,13 @@ export function TitleSteps({ id, flowOn, onFlowProgress, openStep = null, ...inp
           : <ButtonLink variant="primary" href={tabHref.transcribe}>Transcribe and translate</ButtonLink>
       case 'translate':
         return <ButtonLink variant="primary" href={tabHref.translate}>{left > 0 ? `Translate ${left} ${left === 1 ? 'line' : 'lines'}` : 'Translate'}</ButtonLink>
-      case 'check':
-        return <ButtonLink variant="primary" href={tabHref.check}>Review</ButtonLink>
+      case 'check': {
+        const label = checkActionLabel(input.riskCount ?? null)
+        if (label === null) return <ButtonLink variant="primary" href={tabHref.export}>Export</ButtonLink>
+        return onCheck && openStep === 'check'
+          ? <button type="button" className={buttonClass('primary')} onClick={onCheck}>{label}</button>
+          : <ButtonLink variant="primary" href={tabHref.check}>{label}</ButtonLink>
+      }
       case 'export':
         return <ButtonLink variant="primary" href={tabHref.export}>Export</ButtonLink>
     }
