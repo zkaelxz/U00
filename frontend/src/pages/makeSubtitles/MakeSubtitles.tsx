@@ -25,7 +25,7 @@ import { useReattachJob } from '../../hooks/useReattachJob'
 import { routeHref } from '../../router'
 import { buttonClass } from '../../components/uiClasses'
 import { engineLabel, languageLabel } from '../../labels'
-import { cancelNeedsConfirm, type JobRecord } from '../../types/jobs'
+import { cancelNeedsConfirm, isTerminalStatus, type JobRecord } from '../../types/jobs'
 import { PreflightCard } from '../preflight/PreflightCard'
 import type { PreflightRow } from '../preflight/preflightModel'
 import { UPLOAD_EXTENSIONS, checkUploadFile } from '../workspace/sourceForm'
@@ -33,7 +33,7 @@ import { STAGE_LABELS, type StageId } from '../workspace/stages'
 import { buildRunBody, initialForm } from '../workspace/translateForm'
 import { exportFilename, srtFileText } from '../workspace/exportForm'
 import {
-  IDLE, STEPS, STEP_LABEL, STEP_STAGE, blockerText, flowReducer, mediaTypeFor, optionsSummary, parseSaved, percentText,
+  IDLE, STEPS, STEP_LABEL, STEP_STAGE, blockerText, finishedStepJob, flowReducer, mediaTypeFor, optionsSummary, parseSaved, percentText,
   reattachIds, savedFor, stepForJob, titleFor, type FlowStep,
 } from './makeSubtitlesFlow'
 import './makeSubtitles.css'
@@ -53,7 +53,8 @@ export function MakeSubtitles() {
   const [flow, dispatch] = useReducer(flowReducer, IDLE)
   const [saved, setSaved] = usePersistedState<unknown>('makeSubtitles.run', null)
   const [language, setLanguage] = usePersistedState('makeSubtitles.language', 'zh')
-  const [pickedEngine, setPickedEngine] = useState<string | null>(null)
+  // Kept like the language, so a run resumed after the page was closed translates with the engine picked for it.
+  const [pickedEngine, setPickedEngine] = usePersistedState('makeSubtitles.engine', '')
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [variant, setVariant] = useState('')
@@ -78,7 +79,8 @@ export function MakeSubtitles() {
   const [dragging, setDragging] = useState(false)
   const list = engines.data?.items ?? []
   const defaultEngine = list.find((e) => e.name === engines.data?.default_engine)?.name ?? list[0]?.name ?? ''
-  const engine = pickedEngine ?? defaultEngine
+  // A remembered engine the list no longer offers falls back to the default; before the list loads it stands.
+  const engine = pickedEngine && (!list.length || list.some((e) => e.name === pickedEngine)) ? pickedEngine : defaultEngine
 
   // Read inside job callbacks, which outlive the render that created them.
   const run = useRef<{ title: string; engine: string; variant: string; dramaId: number | null }>({ title: '', engine: '', variant: '', dramaId: null })
@@ -88,12 +90,13 @@ export function MakeSubtitles() {
 
   useEffect(() => { setSaved(savedFor(flow)) }, [flow]) // setSaved is a fresh function each render
   const resumed = useRef(false)
+  const resumedFrom = useRef<{ dramaId: number; step: FlowStep } | null>(null)
   useEffect(() => {
     if (resumed.current) return
     resumed.current = true
     const s = parseSaved(saved)
     // A run that died before the upload finished has nothing to follow.
-    if (s && s.step !== 'upload') { setResuming(true); dispatch({ type: 'resume', saved: s }) }
+    if (s && s.step !== 'upload') { resumedFrom.current = s; setResuming(true); dispatch({ type: 'resume', saved: s }) }
     else if (s) setNote({ kind: 'upload-lost', dramaId: s.dramaId })
   }, [saved])
 
@@ -135,7 +138,7 @@ export function MakeSubtitles() {
 
   // A reload mid-run: find the job still running and carry on from its step.
   const ids = flow.phase === 'running' && flow.dramaId !== null && resuming && !jobId ? reattachIds(flow.dramaId) : []
-  const seen = useRef({ settled: 0, live: false })
+  const seen = useRef({ settled: 0, live: false, finished: new Map<string, JobRecord>() })
   const attach = useCallback((id: string) => {
     seen.current.live = true
     setResuming(false)
@@ -145,13 +148,22 @@ export function MakeSubtitles() {
   }, [adopt])
   const lookup = useCallback((id: string) => {
     const p = probeJob(id)
-    void p.then((j) => { if (j && !['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
+    void p.then((j) => {
+      if (!j || j.stale) return
+      if (isTerminalStatus(j.status)) seen.current.finished.set(id, j)
+      else seen.current.live = true
+    }, () => undefined)
       .finally(() => {
         seen.current.settled += 1
-        if (seen.current.settled === reattachIds(0).length && !seen.current.live) fail(lostRun())
+        if (seen.current.settled !== reattachIds(0).length || seen.current.live) return
+        // Nothing still running: the step may have ended while the page was closed.
+        const from = resumedFrom.current
+        if (from?.step === 'export') { setResuming(false); void exportStep(from.dramaId); return }
+        const ended = from && finishedStepJob(from.step, from.dramaId, seen.current.finished)
+        if (ended) { setResuming(false); onJobDone(ended) } else fail(lostRun())
       })
     return p
-  }, [fail])
+  }, [fail, onJobDone, exportStep])
   useReattachJob(ids, attach, lookup)
 
   const start = async () => {
@@ -170,7 +182,8 @@ export function MakeSubtitles() {
     const abort = new AbortController()
     uploadAbort.current = abort
     let created: number | null = null
-    seen.current = { settled: 0, live: false }
+    seen.current = { settled: 0, live: false, finished: new Map() }
+    resumedFrom.current = null
     setResuming(false)
     dispatch({ type: 'start' })
     try {

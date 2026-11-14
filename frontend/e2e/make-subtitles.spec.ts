@@ -56,6 +56,43 @@ test('shows the steps while it runs and a reload reattaches to the job', async (
   await expect(card(page).getByRole('button', { name: 'Download SRT' })).toBeVisible({ timeout: 20_000 })
 })
 
+test('a transcription that ended while the page was closed carries on with the engine picked for the run', async ({ page }) => {
+  const m = await mockMakeSubtitles(page, { holdFirst: true })
+  // Registered after the mock's, so it wins: a second engine with a key, to pick.
+  await page.route('**/api/translate/engines', (r) => r.fulfill({ json: {
+    items: [
+      { name: 'deepseek', label: 'DeepSeek.', free: false, models: null, key_configured: true },
+      { name: 'openai', label: 'OpenAI.', free: false, models: null, key_configured: true },
+    ],
+    default_engine: 'deepseek',
+  } }))
+  await page.goto('/#/make-subtitles')
+  const c = card(page)
+  await c.getByLabel('Translator').selectOption('openai')
+  await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await c.getByRole('button', { name: 'Make subtitles' }).click()
+  await expect(c.getByRole('status').locator('[aria-current="step"]')).toHaveText(/Transcribe/)
+
+  await page.goto('about:blank')
+  m.release()
+  await page.goto('/#/make-subtitles')
+  await expect(card(page).getByRole('button', { name: 'Download SRT' })).toBeVisible({ timeout: 20_000 })
+  await expect(card(page).getByText(/Lost track/)).toHaveCount(0)
+  expect(m.created, 'coming back does not start another run').toHaveLength(1)
+  expect(m.translateRuns).toHaveLength(1)
+  expect(m.translateRuns[0]).toMatchObject({ engine: 'openai' })
+})
+
+test('a run saved at the export step fetches the subtitles on return', async ({ page }) => {
+  const m = await mockMakeSubtitles(page)
+  await page.addInitScript((id) => {
+    if (!localStorage.getItem('baihe.pref.makeSubtitles.run')) localStorage.setItem('baihe.pref.makeSubtitles.run', JSON.stringify({ dramaId: id, step: 'export' }))
+  }, DRAMA_ID)
+  await page.goto('/#/make-subtitles')
+  await expect(card(page).getByRole('button', { name: 'Download SRT' })).toBeVisible()
+  expect(m.translateRuns).toHaveLength(0)
+})
+
 test('a failure names its step and links to that stage', async ({ page }) => {
   await mockMakeSubtitles(page, { failJob: 'translate' })
   await page.goto('/#/make-subtitles')

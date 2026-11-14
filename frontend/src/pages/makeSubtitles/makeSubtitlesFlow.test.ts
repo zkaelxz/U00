@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PreflightRow } from '../preflight/preflightModel'
 import {
-  IDLE, STEPS, blockerText, flowReducer, mediaTypeFor, optionsSummary, parseSaved, percentText, reattachIds, savedFor, stepForJob,
+  IDLE, STEPS, blockerText, finishedStepJob, flowReducer, mediaTypeFor, optionsSummary, parseSaved, percentText, reattachIds, savedFor, stepForJob,
   titleFor, type Flow,
 } from './makeSubtitlesFlow'
 
@@ -67,6 +67,15 @@ describe('resume storage', () => {
     expect(stepForJob('translate_7')).toBe('translate')
     expect(stepForJob('dub_7')).toBeNull()
     expect(reattachIds(7)).toEqual(['extract_audio_7', 'transcribe_7', 'translate_7'])
+  })
+  it('picks the finished job of the step the run was on, the transcribe record over the extraction', () => {
+    const finished = new Map([['extract_audio_7', 'extract'], ['transcribe_7', 'transcribe']])
+    expect(finishedStepJob('transcribe', 7, finished)).toBe('transcribe')
+    expect(finishedStepJob('transcribe', 7, new Map([['extract_audio_7', 'extract']]))).toBe('extract')
+    // A finished transcribe says nothing about a translate run the page never saw start.
+    expect(finishedStepJob('translate', 7, finished)).toBeNull()
+    expect(finishedStepJob('translate', 7, new Map([['translate_7', 'translate']]))).toBe('translate')
+    expect(finishedStepJob('transcribe', 8, finished)).toBeNull()
   })
 })
 
