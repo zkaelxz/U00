@@ -2,6 +2,7 @@ import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
 import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setReviewed } from '../../../../api/review'
 import type { NoteDraft, RowActions } from './LineRow'
 import type { LinesControllerDeps, LinesCore } from './linesController'
+import { nextAfterCheck } from './checkQueueModel'
 import { isDirty, type LineDraft } from './reviewDraft'
 import { charCount, codePointOffset, suggestionPatch } from './reviewLogic'
 import { dismissTmEverywhere } from './tmDismiss'
@@ -124,14 +125,13 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
     },
     reviewAndNext: async (id) => {
       if (!(await leaveEdit())) return
-      const { shown } = st.current
-      const at = shown.findIndex((l) => l.id === id)
-      const next = shown[at + 1] ?? shown[at - 1]
+      const { shown, page, pages } = st.current
+      const next = nextAfterCheck(shown, id, page < pages)
       setReviewed(dramaId, id, true, find(id)?.en).then((saved) => {
         replaceLine(saved)
         setIssue(null)
         // The checked line leaves the queue on the reload below; the card after it opens in its place.
-        if (next) pending.current = { target: next.id }
+        if (next !== undefined) pending.current = { target: next }
         offerUndo('checked', dramaId, saved)
         st.current.onChanged()
       }, (e) => failLine(id, e))

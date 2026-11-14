@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
-  confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextText, opensGlossary, otherFineText,
+  confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, opensGlossary, otherFineText,
   positionText, queueCounts, restUnchecked, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
@@ -66,6 +66,24 @@ describe('the phone card', () => {
     expect(nextText(shown, 7)).toBe('Next: line 9, timing drift')
     expect(nextText(shown, 9)).toBeNull()
     expect(nextText(shown, null)).toBeNull()
+  })
+})
+
+describe('the card after a check', () => {
+  const shown = [line(24), line(12), line(7)]
+
+  it('is the one after the checked card', () => {
+    expect(nextAfterCheck(shown, 24, false)).toBe(12)
+    expect(nextAfterCheck(shown, 12, true)).toBe(7)
+  })
+
+  it('is the line the next page sends up when the last card of a page is checked, not the card before it', () => {
+    expect(nextAfterCheck(shown, 7, true)).toBe('last')
+  })
+
+  it('is the card before only at the very end of the queue, and none when the queue empties', () => {
+    expect(nextAfterCheck(shown, 7, false)).toBe(12)
+    expect(nextAfterCheck([line(7)], 7, false)).toBeUndefined()
   })
 })
 

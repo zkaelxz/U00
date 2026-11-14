@@ -25,6 +25,9 @@ interface Deps {
   isPhone: boolean
   jobRunning: boolean
   data: ReviewLinesPage | null
+  // The view `data` was loaded for, and whether it is the answer to the latest view and reload asked for.
+  dataFilter: LineFilter | null
+  settled: boolean
   allTotal: number | null
   shown: ReviewLine[]
   activeId: number | null
@@ -53,7 +56,8 @@ export function useCheckQueue(d: Deps) {
     openRef.current = async () => {
       const { filter, searching, page, shown } = st.current
       if (filter === QUEUE_FILTER && !searching && page === 1) {
-        if (shown[0]) ctl.focusTo(shown[0].id)
+        // A phone draws only the open card, so a draft on another card is saved before the first card takes its place.
+        if (shown[0] && (await ctl.leaveEdit())) ctl.focusTo(shown[0].id)
         return
       }
       if (!(await ctl.leaveEdit())) return
@@ -100,7 +104,8 @@ export function useCheckQueue(d: Deps) {
       {position && <p className="check-queue-position" data-testid="queue-position">{position}</p>}
     </>
   ) : undefined
-  const after: ReactNode = on && d.data && counts ? (
+  // Just after the switch is pressed, `data` is still the page of the view before: the footer waits for the queue's own.
+  const after: ReactNode = on && d.data && counts && d.dataFilter === QUEUE_FILTER ? (
     <>
       {upNext && <p className="muted check-queue-next">{upNext}</p>}
       <CheckQueueFooter
@@ -108,6 +113,7 @@ export function useCheckQueue(d: Deps) {
         queuePage={d.data}
         counts={counts}
         jobRunning={d.jobRunning}
+        settled={d.settled}
         onReadAll={() => void d.changeFilter('all')}
         onUntranslated={() => void d.changeFilter('untranslated')}
         onChanged={d.onChanged}

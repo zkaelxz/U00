@@ -43,11 +43,13 @@ export function CheckQueueSwitch({ queue, counts, onPick, showFine = true }: {
 }
 
 // Under the cards: what the rest of the title looks like, and the one bulk step, which also teaches translation memory.
-export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, onReadAll, onUntranslated, onChanged }: {
+export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, settled, onReadAll, onUntranslated, onChanged }: {
   dramaId: number
   queuePage: ReviewLinesPage
   counts: QueueCounts
   jobRunning: boolean
+  // False while a reload is on its way: the page shown may miss a line that now needs a look.
+  settled: boolean
   onReadAll: () => void
   onUntranslated: () => void
   onChanged: () => void
@@ -92,7 +94,7 @@ export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, onRea
                 tone="primary"
                 size="sm"
                 busy={busy}
-                disabled={blocker !== null}
+                disabled={blocker !== null || !settled}
                 describedBy={blocker ? reasonId : undefined}
                 onConfirm={run}
               />

@@ -440,6 +440,28 @@ test.describe('the check queue', () => {
     await expect(page.getByRole('tablist', { name: 'Review tools' })).toBeVisible()
   })
 
+  test('Mark the rest is not offered from another view\'s lines while the queue is still loading', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    await page.goto('/#/drama/3/review?focus=flagged')
+    // Both flagged lines fit one page: read as the queue, this page alone would let Mark the rest run over the unsure #7.
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#12', '#24'])
+    let arrive = () => {}
+    const held = new Promise<void>((resolve) => { arrive = resolve })
+    await page.route(/\/lines\?page=1&page_size=40&only=risk/, async (route) => {
+      await held
+      await route.continue()
+    })
+    await queueRadio(page).check({ force: true })
+    await expect(queueRadio(page)).toBeChecked()
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#12', '#24'])
+    await expect(page.getByTestId('queue-footer')).toHaveCount(0)
+    arrive()
+    await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
+    await expect(page.getByTestId('queue-footer').getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeDisabled()
+    await expect(page.getByTestId('mark-rest-reason')).toHaveText('Look at the lines Whisper was unsure of first: this would mark them checked too.')
+  })
+
   test('a link to a line or a filter wins over the queue', async ({ page }) => {
     seedCheckLines()
     await simple(page)

@@ -149,7 +149,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
-  const { data, setData, found, setFound, allTotal, error, setError, retry } = useLinesLoad({
+  const { data, setData, found, setFound, allTotal, error, setError, retry, dataFilter, settled } = useLinesLoad({
     dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit, setPage,
   })
 
@@ -273,7 +273,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
-  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, data, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError })
+  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError })
   const toggleReplace = () => {
     const next = !replaceOpen
     setReplaceOpen(next)

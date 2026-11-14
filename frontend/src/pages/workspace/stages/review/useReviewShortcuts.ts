@@ -151,8 +151,9 @@ export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
         return true
       case 'r':
         if (!active.en) return false
-        if (queue && !active.reviewed) actions.reviewAndNext(active.id)
-        else actions.setReviewed(active.id, !active.reviewed)
+        // A card just checked stays listed until the queue reloads: a second R must not uncheck it (Undo does that).
+        if (!queue) actions.setReviewed(active.id, !active.reviewed)
+        else if (!active.reviewed) actions.reviewAndNext(active.id)
         return true
       case 'i':
         if (!active.en) return false

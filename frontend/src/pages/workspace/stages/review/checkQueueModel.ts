@@ -38,6 +38,16 @@ export function nextText(shown: ReviewLine[], activeId: number | null): string |
   return `Next: ${next.map((l) => `line ${lineNumber(l.idx)}, ${shortReason(l)}`).join(' · ')}`
 }
 
+/**
+ * The card to open once `id` is checked and has left the queue: the one after it. The last card of a page with more
+ * pages behind it is followed by the line that reload brings up from the next page, which lands last; only the very
+ * last card of the queue goes back to the one before it.
+ */
+export function nextAfterCheck(shown: ReviewLine[], id: number, morePages: boolean): number | 'last' | undefined {
+  const at = shown.findIndex((l) => l.id === id)
+  return shown[at + 1]?.id ?? (morePages ? 'last' : shown[at - 1]?.id)
+}
+
 /** "2 of 5 to look at": the open card's place in the whole queue, across pages. */
 export function positionText(shown: ReviewLine[], activeId: number | null, page: number, pageSize: number, total: number): string | null {
   const at = shown.findIndex((l) => l.id === activeId)
