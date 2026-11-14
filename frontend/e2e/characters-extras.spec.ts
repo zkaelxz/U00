@@ -37,10 +37,10 @@ type SpeakerClips = { speaker_label: string; candidates: Clip[]; skip_reason: st
 
 const clip = (n: number, ref_text = ''): Clip => ({ id: String(n).repeat(32).slice(0, 32), start: n * 10, end: n * 10 + 4.5, duration: 4.5, ref_text })
 
-// Half a second of silence, so the browser really plays and ends it.
-function silentWav(): Buffer {
+// Silence, so the browser really plays (and, if short, ends) it.
+function silentWav(seconds: number): Buffer {
   const rate = 8000
-  const data = rate / 2
+  const data = Math.round(rate * seconds)
   const b = Buffer.alloc(44 + data)
   b.write('RIFF', 0); b.writeUInt32LE(36 + data, 4); b.write('WAVE', 8)
   b.write('fmt ', 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22)
@@ -96,8 +96,10 @@ async function mockAll(page: Page) {
   await page.route('**/api/characters/dramas/1/reference-clips/candidates', (route) =>
     json(route, { drama_id: 1, speakers: clips }))
   await page.route('**/api/characters/dramas/1/reference-clips/candidates/*/audio', (route) => {
-    audioFetched.push(new URL(route.request().url()).pathname.split('/').at(-2)!)
-    return route.fulfill({ status: 200, contentType: 'audio/wav', body: silentWav() })
+    const id = new URL(route.request().url()).pathname.split('/').at(-2)!
+    audioFetched.push(id)
+    // Clip 1 is long, so only the page's one-at-a-time stop can end it within the test.
+    return route.fulfill({ status: 200, contentType: 'audio/wav', body: silentWav(id === clip(1).id ? 30 : 0.5) })
   })
   await page.route('**/api/characters/dramas/1/reference-clips/extract', (route) => {
     const b = record(route)
@@ -297,7 +299,7 @@ test('sample clips: play one, find clips for a speaker, and a speaker with no cl
   await lan.getByRole('button', { name: 'Play sample 1 for SPEAKER_01' }).click()
   await expect(lan.getByRole('button', { name: 'Stop sample 1 for SPEAKER_01' })).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => m.audioFetched).toEqual([clip(1).id])
-  // Starting another clip stops the first.
+  // Starting another clip stops the first (it is 30 s long, so nothing else would).
   await lan.getByRole('button', { name: 'Play sample 2 for SPEAKER_01' }).click()
   await expect(lan.getByRole('button', { name: 'Play sample 1 for SPEAKER_01' })).toHaveAttribute('aria-pressed', 'false')
   // The half-second clip ends by itself and the button goes back to Play.
@@ -306,7 +308,7 @@ test('sample clips: play one, find clips for a speaker, and a speaker with no cl
 
   // A speaker with no clips yet: Find clips runs the search and shows them.
   await region.getByRole('button', { name: 'Find sample clips for SPEAKER_00' }).click()
-  expect(m.posts.at(-1)).toEqual({
+  await expect.poll(() => m.posts.at(-1)).toEqual({
     path: '/api/characters/dramas/1/reference-clips/extract',
     body: { speaker_label: 'SPEAKER_00', max_candidates: 3 },
   })
@@ -366,5 +368,44 @@ test('sample clips fit a 390px phone width', async ({ page }) => {
   }
   await wei.scrollIntoViewIfNeeded()
   await shot(page, 'characters-samples-phone')
+  expect(m.unmocked).toEqual([])
+})
+
+test('sample clips: a swap hides both speakers\' clips until they are found again', async ({ page }) => {
+  const m = await mockAll(page)
+  await page.route('**/api/characters/dramas/1/swap-speakers', (route) => {
+    record(route)
+    return json(route, { updated: 4, line_ids: [1, 2, 3, 4], skipped_ids: [], undo: [] })
+  })
+  function record(route: Route) {
+    m.posts.push({ path: new URL(route.request().url()).pathname, body: JSON.parse(route.request().postData() ?? '{}') })
+  }
+  await page.goto('/#/drama/1/translate')
+  await openSection(page, 'Characters')
+  const region = page.getByRole('region', { name: 'Characters' })
+  await expect(region.getByRole('group', { name: 'Sample clips for SPEAKER_01' }).getByRole('button')).toHaveCount(2)
+  // Rows are in speaker order, so the second Swap belongs to SPEAKER_01.
+  await region.getByRole('button', { name: 'Swap speakers…' }).nth(1).click()
+  await page.getByLabel('Swap SPEAKER_01 with').selectOption('SPEAKER_00')
+  await page.getByRole('button', { name: 'Swap', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Swapped SPEAKER_01 and SPEAKER_00' })).toBeVisible()
+  // The stored clips are now the other speaker's voice, so they are not offered.
+  await expect(region.getByRole('group', { name: 'Sample clips for SPEAKER_01' })).toHaveCount(0)
+  await expect(region.getByRole('button', { name: 'Find sample clips for SPEAKER_01' })).toBeEnabled()
+  await expect(region.getByRole('button', { name: 'Find sample clips for SPEAKER_00' })).toBeEnabled()
+  expect(m.unmocked).toEqual([])
+})
+
+test('sample clips: a search the page loses track of says so', async ({ page }) => {
+  const m = await mockAll(page)
+  // The job record is gone (say the server restarted) as soon as it starts.
+  await page.route('**/api/characters/dramas/1/reference-clips/extract', (route) => json(route, { job_id: 'voiceref_1' }))
+  await page.route('**/api/jobs/voiceref_1', (route) =>
+    route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No such job.' } } }))
+  await page.goto('/#/drama/1/translate')
+  await openSection(page, 'Characters')
+  await page.getByRole('button', { name: 'Find sample clips for SPEAKER_00' }).click()
+  await expect(page.getByTestId('sample-notes-SPEAKER_00')).toContainText("Couldn't follow the search for clips")
+  await expect(page.getByRole('button', { name: 'Find sample clips for SPEAKER_00' })).toHaveText('Find clips')
   expect(m.unmocked).toEqual([])
 })

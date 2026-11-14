@@ -422,6 +422,9 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   const [findFor, setFindFor] = useState<string | null>(null)
   // The start request is in flight: a second press would only be refused.
   const [findStarting, setFindStarting] = useState(false)
+  // A swap trades lines but the server keeps clips under their label, so a
+  // swapped speaker's clips are now the other voice: hidden until found again.
+  const [staleSamples, setStaleSamples] = useState<ReadonlySet<string>>(new Set())
   const [findError, setFindError] = useState<{ label: string; error: unknown } | null>(null)
   const [findJobId, setFindJobId, findRunKey, adoptFindJob] = useJobRun()
   // Picks up a search still running from an earlier visit (or from Review >
@@ -429,15 +432,22 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   useReattachJob(drama.has_audio ? [voiceCloneJobId(dramaId)] : [], adoptFindJob)
   const { job: findJob, error: findPollError } = useJob(findJobId, {
     runKey: findRunKey,
-    onDone: () => setCandReload((n) => n + 1),
+    onDone: () => {
+      if (findFor) setStaleSamples((cur) => new Set([...cur].filter((l) => l !== findFor)))
+      setCandReload((n) => n + 1)
+    },
   })
   const finding = findStarting || (findJobId !== null && !findPollError && !(findJob && isTerminalStatus(findJob.status)))
-  const findFailed = findJob && findFor && jobFailed(findJob)
-    ? `Couldn't find clips: ${(findJob.error && safeDetail(findJob.error)) || 'the search failed.'}`
-    : null
+  const findFailed = findPollError
+    ? "Couldn't follow the search for clips; reload the page to see what it found."
+    : findJob && jobFailed(findJob)
+      ? `Couldn't find clips: ${(findJob.error && safeDetail(findJob.error)) || 'the search failed.'}`
+      : null
   const startFind = (label: string) => {
     setFindError(null)
     setFindFor(label)
+    // Drops the last run, so its failure doesn't show on this row meanwhile.
+    setFindJobId(null)
     setFindStarting(true)
     extractCandidates(dramaId, label).then((r) => {
       setFindStarting(false)
@@ -455,7 +465,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   }, [dramaId, drama.has_audio, candReload])
   const sampleFor = (label: string): SampleProps | null => drama.has_audio
     ? {
-        candidates: candidatesFor(cands, label),
+        candidates: staleSamples.has(label) ? null : candidatesFor(cands, label),
         extracting: finding,
         finding: finding && findFor === label,
         failed: findFor === label ? findFailed : null,
@@ -506,6 +516,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
     getCharacters(dramaId).then(setEntries, setError)
     setSwapUndo(r.undo.length ? r.undo : null)
     setNotice(`Swapped ${first} and ${second}: ${r.updated} ${r.updated === 1 ? 'line' : 'lines'} changed.`)
+    setStaleSamples((cur) => new Set([...cur, first, second]))
     setSuggestRefresh((n) => n + 1)
   }
   const runUndoSwap = () => {
@@ -600,6 +611,8 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
       <div id="translate-characters" role="region" aria-label="Characters">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {loadForbidden && <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>}
+      {/* A search picked up from Review > Voices belongs to no row here. */}
+      {findFailed && findFor === null && <p className="error" role="alert">{findFailed}</p>}
       {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription.</p>}
       {entries && entries.length > 0 && drama.series_id ? (
         <VoiceSuggestions dramaId={dramaId} refresh={suggestRefresh} onAccepted={replace} />

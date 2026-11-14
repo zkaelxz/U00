@@ -58,7 +58,10 @@ export function ClipPlayButton({ src, name, text = 'Play', title }: {
     playing = { audio: a, stop }
     setFailed(false)
     setOn(true)
-    a.play().catch(() => {
+    a.play().catch((e: unknown) => {
+      // Another clip's Play (or Stop) paused this one before it started;
+      // that is not a failure to report.
+      if (e instanceof DOMException && e.name === 'AbortError') return
       setOn(false)
       setFailed(true)
     })
