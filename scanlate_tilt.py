@@ -64,36 +64,65 @@ def _row_bands(ys) -> int:
 def draw_tilted(pil_img, box: dict, mask, angle: float, size: int, draw_text) -> bool:
     """Sets the text at `angle` (see estimate_text_angle) over the page and returns True,
     or returns False with the page untouched when the tilted text would not stay inside
-    the balloon even a little smaller, so the caller letters it level instead.
-    `draw_text(target, box_in_target, size)` draws the text level into a copy of the box."""
+    the balloon, so the caller letters it level instead.
+    `draw_text(target, box_in_target, size, mask_in_target)` draws the text level into a copy
+    of the box."""
+    if mask is not None and _draw_in_text_frame(pil_img, box, mask, angle, size, draw_text):
+        return True
+    # No shape (or none that fits in the text's own frame): the level layout of the box,
+    # turned, and a little smaller when the turn pushes it out of the box.
     w, h = box["w"], box["h"]
     pad = max(w, h) // 2 + 2
-    for tried in (size, int(size * 0.9), int(size * 0.8)):
+    for tried in (size, int(size * 0.9), int(size * 0.8), int(size * 0.7)):
         if tried < scanlate_tuning.TYPESET_SMALLEST_PX:
             break
-        # The text is drawn on white and on black, which gives its exact coverage and colour
-        # without fringes: over black it is coverage * colour.
-        layers = []
-        for ground in (255, 0):
-            layer = Image.new("RGB", (w + 2 * pad, h + 2 * pad), (ground,) * 3)
-            draw_text(layer, dict(box, x=pad, y=pad), tried)
-            layers.append(np.asarray(layer).astype(np.float32))
-        white, black = layers
-        coverage = 1.0 - (white - black).mean(axis=2) / 255.0
-        turned = [np.asarray(Image.fromarray(a).rotate(-angle, resample=Image.BICUBIC,
-                                                       center=(pad + w / 2, pad + h / 2)))
-                  for a in (coverage.astype(np.float32), black[:, :, 0], black[:, :, 1], black[:, :, 2])]
-        alpha = np.clip(turned[0], 0.0, 1.0)
-        ink = alpha > 0.2
-        if ink.sum() < 0.98 * (coverage > 0.2).sum():
-            continue
-        room = np.zeros(alpha.shape, bool)
+        room = np.zeros((h + 2 * pad, w + 2 * pad), bool)
         room[pad:pad + h, pad:pad + w] = True if mask is None else mask
-        if (ink & ~room).sum() > scanlate_tuning.TILT_MAX_OUTSIDE_SHARE * ink.sum():
-            continue
-        _composite(pil_img, box["x"] - pad, box["y"] - pad, alpha, np.dstack(turned[1:]))
-        return True
+        if _place_turned(pil_img, box["x"] - pad, box["y"] - pad, (w + 2 * pad, h + 2 * pad),
+                         dict(box, x=pad, y=pad), mask, room, angle, tried, draw_text,
+                         (pad + w / 2, pad + h / 2)):
+            return True
     return False
+
+
+def _draw_in_text_frame(pil_img, box: dict, mask, angle: float, size: int, draw_text) -> bool:
+    """Lays the text out against the balloon turned level, so a slanted strip gives the text
+    its full length as one line instead of a narrow level box, then turns the result back."""
+    w, h = box["w"], box["h"]
+    level = Image.fromarray(mask.astype(np.uint8) * 255).rotate(angle, resample=Image.NEAREST, expand=True)
+    level_mask = np.asarray(level) > 127
+    ww, hh = level.size
+    # The frame's centre is the box's centre, so the result turns back onto the box.
+    room = np.asarray(Image.fromarray(level_mask.astype(np.uint8) * 255).rotate(
+        -angle, resample=Image.NEAREST)) > 127
+    return _place_turned(pil_img, round(box["x"] + w / 2 - ww / 2), round(box["y"] + h / 2 - hh / 2),
+                         (ww, hh), {"x": 0, "y": 0, "w": ww, "h": hh}, level_mask, room, angle, size,
+                         draw_text, (ww / 2, hh / 2))
+
+
+def _place_turned(pil_img, x: int, y: int, frame: tuple, frame_box: dict, mask_in_frame, room, angle: float,
+                  size: int, draw_text, centre) -> bool:
+    """Draws the text level in a `frame`-sized layer, turns it by `angle` about `centre`, and
+    blends it onto the page at (x, y) when it stays inside `room` and is not clipped."""
+    # The text is drawn on white and on black, which gives its exact coverage and colour
+    # without fringes: over black it is coverage * colour.
+    layers = []
+    for ground in (255, 0):
+        layer = Image.new("RGB", frame, (ground,) * 3)
+        draw_text(layer, frame_box, size, mask_in_frame)
+        layers.append(np.asarray(layer).astype(np.float32))
+    white, black = layers
+    coverage = 1.0 - (white - black).mean(axis=2) / 255.0
+    turned = [np.asarray(Image.fromarray(a).rotate(-angle, resample=Image.BICUBIC, center=centre))
+              for a in (coverage.astype(np.float32), black[:, :, 0], black[:, :, 1], black[:, :, 2])]
+    alpha = np.clip(turned[0], 0.0, 1.0)
+    ink = alpha > 0.2
+    if not ink.any() or ink.sum() < 0.98 * (coverage > 0.2).sum():
+        return False
+    if (ink & ~room).sum() > scanlate_tuning.TILT_MAX_OUTSIDE_SHARE * ink.sum():
+        return False
+    _composite(pil_img, x, y, alpha, np.dstack(turned[1:]))
+    return True
 
 
 def _composite(pil_img, x: int, y: int, alpha, premultiplied) -> None:

@@ -71,8 +71,8 @@ def test_block_of_several_lines_has_no_angle():
 
 
 def _draw(text):
-    def draw_text(target, box, size):
-        render_text_in_box(target, box, text, font_size=size, fill=(0, 0, 0))
+    def draw_text(target, box, size, mask):
+        render_text_in_box(target, box, text, font_size=size, fill=(0, 0, 0), mask=mask)
     return draw_text
 
 
@@ -95,7 +95,23 @@ def test_text_that_would_leave_the_balloon_is_left_to_the_level_layout():
 
 def test_light_text_keeps_its_colour_when_tilted():
     page = Image.new("RGB", (240, 200), (0, 0, 0))
-    draw_text = lambda target, box, size: render_text_in_box(target, box, "Hello", font_size=size,
-                                                              fill=(255, 255, 255))
+    draw_text = lambda target, box, size, mask: render_text_in_box(
+        target, box, "Hello", font_size=size, fill=(255, 255, 255), mask=mask)
     assert scanlate_tilt.draw_tilted(page, BOX, None, -15.0, 30, draw_text)
     assert np.asarray(page).max() == 255
+
+
+def test_slanted_strip_gets_its_text_on_one_line_by_laying_out_in_its_own_frame():
+    """A long thin strip tilted 25 degrees: level layout of its box wraps two lines and
+    overflows when turned; laid out along the strip the words stay on one line."""
+    box = {"x": 10, "y": 10, "w": 300, "h": 200}
+    strip = Image.new("L", (300, 200), 0)
+    ImageDraw.Draw(strip).polygon([(0, 20), (260, 140), (260, 190), (0, 70)], fill=255)  # ~25 deg
+    mask = np.asarray(strip) > 127
+    page = Image.new("RGB", (320, 220), (255, 255, 255))
+    assert scanlate_tilt.draw_tilted(page, box, mask, 25.0, 30, _draw("Period of Attendance"))
+    ys, xs = np.nonzero(np.asarray(page.convert("L")) < 128)
+    assert (xs.max() - xs.min()) > 3 * (ys.max() - ys.min()) / 2
+    inside = np.zeros((220, 320), bool)
+    inside[10:210, 10:310] = mask
+    assert not (~inside[ys, xs]).any()

@@ -754,10 +754,10 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
             fill = _text_fill(pil_img, b, ink)
             if scanlate_tilt.draw_tilted(
                     pil_img, b, m, angle, size,
-                    lambda target, shifted, sz: render_text_in_box(
+                    lambda target, shifted, sz, shifted_mask: render_text_in_box(
                         target, shifted, b["translated_text"], font_size=sz, font_path=font_path,
                         font_category=b.get("font_category") or "regular", custom_fonts=custom_fonts,
-                        mask=m, rect_layout=rect_layout, style=style, fill=fill)):
+                        mask=shifted_mask, rect_layout=rect_layout, style=style, fill=fill)):
                 continue
         draw(pil_img, b, m, size, ink)
 
