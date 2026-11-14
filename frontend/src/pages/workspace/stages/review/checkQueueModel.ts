@@ -31,8 +31,8 @@ export function alsoUnsureText(line: Pick<ReviewLine, 'flag' | 'confidence'>): s
   return `Whisper was also unsure of this line (${Math.round(line.confidence * 100)}% sure).`
 }
 
-/** The flag as the line list has always written it: "Content blocked · gemini: SAFETY". */
-export function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
+/** A flag with no words of its own: its tidied name and the note as stored, "Uncertain · Check". */
+function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
   return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 

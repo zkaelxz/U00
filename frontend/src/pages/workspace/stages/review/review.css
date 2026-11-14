@@ -357,7 +357,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-page-label { min-width: 2.5em; }
 }
 
-/* Flag reason: one truncated line on the active phone row; in full at the top of the ⋯ sheet. */
+/* Flag reason: a few words on the active phone row, wrapped rather than cut when a name makes them long; in full at the top of the ⋯ sheet. */
 .review-flag-line { font-size: var(--text-sm); margin-top: 2px; }
 .review-flag-full { margin: 0; color: var(--warn); overflow-wrap: anywhere; }
 .review-hint-text { margin: 0; }
@@ -369,7 +369,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-body { display: block; }
   .stage-review button.review-en { display: block; width: 100%; }
   /* The margin keeps the flag button clear of the ⋯ button's padded hit area. */
-  .review-flag-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
+  .review-flag-line { white-space: normal; overflow-wrap: break-word; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
 }
 
 .review-hidden-edit { align-items: center; flex-wrap: wrap; border-color: var(--warn); }

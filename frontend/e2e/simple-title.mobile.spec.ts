@@ -466,6 +466,42 @@ test.describe(() => {
     await expectNoSidewaysScroll(page)
   })
 
+  test('under All at 320px a flagged line says why in a few words, whole and clear of ⋯, which open the sentence', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.setViewportSize({ width: 320, height: 844 })
+    await page.goto('/#/drama/3/review')
+    await page.locator('label').filter({ hasText: /^All 24$/ }).tap()
+    await expect(page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })).toBeChecked()
+    const speed = 'This subtitle is too fast to read: 25.2 characters a second, and more than about 17 is hard to read in time. Shorten the text.'
+    for (const [n, short, sentence] of [[12, 'Fast to read, 25 characters a second', speed], [24, 'Glossary name not used: 夷陵老祖', GLOSSARY_SENTENCE]] as const) {
+      const row = page.locator('.review-line').filter({ has: page.locator('.review-idx', { hasText: new RegExp(`^#${n}$`) }) })
+      const more = row.getByRole('button', { name: `More actions for line ${n}` })
+      // Where ⋯ sits in the row before the few words appear under the meta line.
+      const moreAt = () => more.evaluate((el) => {
+        const [b, r] = [el.getBoundingClientRect(), el.closest('li')!.getBoundingClientRect()]
+        return [b.x, b.y - r.y, b.width, b.height].map((v) => Math.round(v))
+      })
+      const before = await moreAt()
+      // The English, not the source: a tap on the source lands on ⋯ just above it, as a finger near a button does.
+      await row.getByTestId('line-en').tap()
+      await expect(row).toHaveAttribute('aria-current', 'true')
+      const chip = row.locator('.review-flag-toggle')
+      await expect(chip).toHaveText(`Flagged: ${short}`)
+      await expect(chip).toHaveAttribute('title', `Flagged: ${sentence}`)
+      for (const box of [chip, row.locator('.review-flag-line')]) {
+        expect(await box.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight), `#${n}'s few words are whole`).toBe(true)
+      }
+      const [c, m] = await Promise.all([chip, more].map(async (l) => (await l.boundingBox())!))
+      expect(c.x + c.width <= m.x || c.y >= m.y + m.height, `#${n}'s few words stay clear of ⋯`).toBe(true)
+      expect(await moreAt(), `#${n}'s ⋯ stays where it was`).toEqual(before)
+      await expectNoSidewaysScroll(page)
+      await chip.tap()
+      await expect(row.getByRole('note')).toHaveText(sentence)
+      await expectNoSidewaysScroll(page)
+    }
+  })
+
   test('on the Check step with nothing to look at, Export stays under the header, with the steps closed', async ({ page }) => {
     seedCheckLines({ warnings: false })
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
