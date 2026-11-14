@@ -368,6 +368,51 @@ class TestExtract:
         monkeypatch.setattr(vcs.shutil, "which", lambda name: None)
         assert client.post(url, json={"speaker_label": "A"}).status_code == 503
 
+    def _clips(self, client, did):
+        sp = client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]
+        return {s["speaker_label"]: [c["duration"] for c in s["candidates"]] for s in sp}
+
+    def test_clips_follow_their_lines_through_a_swap_and_its_undo(self, client, isolated_db, tools):
+        # A clip is that speaker's voice only while the line it was cut from
+        # is theirs: a swap that trades the lines must trade the clips too.
+        did = _drama(speakers=("A", "B"), durations=[6.0, 7.0])
+        self._run(client, did, "A")
+        self._run(client, did, "B")
+        assert self._clips(client, did) == {"A": [6.0], "B": [7.0]}
+        r = client.post(f"{BASE}/{did}/swap-speakers", json={"first": "A", "second": "B"})
+        assert r.status_code == 200, r.text
+        assert self._clips(client, did) == {"A": [7.0], "B": [6.0]}
+        # Choosing A's clip now gives A the voice of the line A has now.
+        a_clip = next(s for s in client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]
+                      if s["speaker_label"] == "A")["candidates"][0]
+        chosen = client.post(f"{BASE}/{did}/reference-clips/candidates/{a_clip['id']}/choose", headers=LOCAL_HDR)
+        assert chosen.status_code == 200 and chosen.json()["speaker_label"] == "A"
+        assert _char(did, "A")["ref_text"] == "台词1"
+        assert _char_missing_or_no_clip(did, "B")
+        undo = client.post(f"{BASE}/{did}/speaker-change/undo", json={"undo": r.json()["undo"]})
+        assert undo.status_code == 200, undo.text
+        assert self._clips(client, did) == {"A": [6.0], "B": [7.0]}
+
+    def test_finding_clips_after_a_swap_replaces_only_that_speakers_clips(self, client, isolated_db, tools):
+        did = _drama(speakers=("A", "B"), durations=[6.0, 7.0])
+        self._run(client, did, "A")
+        self._run(client, did, "B")
+        client.post(f"{BASE}/{did}/swap-speakers", json={"first": "A", "second": "B"})
+        before = client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]
+        b_id = next(s for s in before if s["speaker_label"] == "B")["candidates"][0]["id"]
+        self._run(client, did, "A")
+        after = client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]
+        assert {s["speaker_label"]: [c["id"] for c in s["candidates"]] for s in after}["B"] == [b_id]
+        assert self._clips(client, did) == {"A": [7.0], "B": [6.0]}
+        assert client.get(f"{BASE}/{did}/reference-clips/candidates/{b_id}/audio").status_code == 200
+
+    def test_clips_follow_a_rename(self, client, isolated_db, tools):
+        did = _drama(speakers=("A", "B"), durations=[6.0, 7.0])
+        self._run(client, did, "A")
+        r = client.post(f"{BASE}/{did}/rename-speaker", json={"speaker_label": "A", "new_name": "Wei Ying"})
+        assert r.status_code == 200, r.text
+        assert self._clips(client, did) == {"Wei Ying": [6.0]}
+
     def test_bad_candidate_ids_404_or_422(self, client, isolated_db):
         did = _drama()
         good_shape = "a" * 32

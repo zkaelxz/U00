@@ -101,6 +101,13 @@ async function mockAll(page: Page) {
     // Clip 1 is long, so only the page's one-at-a-time stop can end it within the test.
     return route.fulfill({ status: 200, contentType: 'audio/wav', body: silentWav(id === clip(1).id ? 30 : 0.5) })
   })
+  // The server files a clip under whoever the line it was cut from belongs to, so a swap trades them.
+  await page.route('**/api/characters/dramas/1/swap-speakers', (route) => {
+    const b = record(route)
+    const other = (l: string) => (l === b.first ? String(b.second) : l === b.second ? String(b.first) : l)
+    clips = clips.map((c) => ({ ...c, speaker_label: other(c.speaker_label) }))
+    return json(route, { updated: 4, line_ids: [1, 2, 3, 4], skipped_ids: [], undo: [] })
+  })
   await page.route('**/api/characters/dramas/1/reference-clips/extract', (route) => {
     const b = record(route)
     job.searchFor = String(b.speaker_label)
@@ -371,28 +378,21 @@ test('sample clips fit a 390px phone width', async ({ page }) => {
   expect(m.unmocked).toEqual([])
 })
 
-test('sample clips: a swap hides both speakers\' clips until they are found again', async ({ page }) => {
+test('sample clips: a swap moves the clips to the speaker who now has their lines', async ({ page }) => {
   const m = await mockAll(page)
-  await page.route('**/api/characters/dramas/1/swap-speakers', (route) => {
-    record(route)
-    return json(route, { updated: 4, line_ids: [1, 2, 3, 4], skipped_ids: [], undo: [] })
-  })
-  function record(route: Route) {
-    m.posts.push({ path: new URL(route.request().url()).pathname, body: JSON.parse(route.request().postData() ?? '{}') })
-  }
   await page.goto('/#/drama/1/translate')
   await openSection(page, 'Characters')
   const region = page.getByRole('region', { name: 'Characters' })
   await expect(region.getByRole('group', { name: 'Sample clips for SPEAKER_01' }).getByRole('button')).toHaveCount(2)
+  await expect(region.getByRole('button', { name: 'Find sample clips for SPEAKER_00' })).toBeVisible()
   // Rows are in speaker order, so the second Swap belongs to SPEAKER_01.
   await region.getByRole('button', { name: 'Swap speakers…' }).nth(1).click()
   await page.getByLabel('Swap SPEAKER_01 with').selectOption('SPEAKER_00')
   await page.getByRole('button', { name: 'Swap', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Swapped SPEAKER_01 and SPEAKER_00' })).toBeVisible()
-  // The stored clips are now the other speaker's voice, so they are not offered.
-  await expect(region.getByRole('group', { name: 'Sample clips for SPEAKER_01' })).toHaveCount(0)
-  await expect(region.getByRole('button', { name: 'Find sample clips for SPEAKER_01' })).toBeEnabled()
-  await expect(region.getByRole('button', { name: 'Find sample clips for SPEAKER_00' })).toBeEnabled()
+  await expect(region.getByRole('group', { name: 'Sample clips for SPEAKER_00' }).getByRole('button')).toHaveCount(2)
+  await expect(region.getByRole('button', { name: 'Find sample clips for SPEAKER_01' })).toBeVisible()
+  await expect(region.getByRole('button', { name: 'Play sample 1 for SPEAKER_00' })).toHaveAttribute('title', '4.5 s · 嗯')
   expect(m.unmocked).toEqual([])
 })
 
