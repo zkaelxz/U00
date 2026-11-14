@@ -24,6 +24,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/drama/3/translate?focus=nope')).toEqual({ name: 'drama', id: 3, stage: 'translate' })
     expect(parseRoute('#/drama/3/review?focus=flagged')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'flagged' })
     expect(routeHref({ name: 'drama', id: 3, stage: 'review', focus: 'flagged' })).toBe('#/drama/3/review?focus=flagged')
+    expect(parseRoute('#/drama/3/review?focus=all')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'all' })
     expect(routeHref({ name: 'drama', id: 3, stage: 'translate', focus: 'characters' })).toBe('#/drama/3/translate?focus=characters')
     expect(parseRoute('#/drama/3/review?find=Li%20Wei')).toEqual({ name: 'drama', id: 3, stage: 'review', find: 'Li Wei' })
     expect(parseRoute('#/drama/3/review?find=%20%20')).toEqual({ name: 'drama', id: 3, stage: 'review' })
