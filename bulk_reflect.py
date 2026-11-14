@@ -529,7 +529,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
             flag_rejected(ln, translation, reason)
             continue
         if fixes_text:
-            translation = substitute_terms(translation)
+            translation = substitute_terms(translation, ln.zh)
         ln.en = translation
         source_change.clear_for_new_english(ln)
         counts["applied"] += 1
