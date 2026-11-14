@@ -118,14 +118,38 @@ test.describe(() => {
     const reason = cards.getByTestId('queue-reason')
     await expect(reason).toHaveText('Whisper was unsure of this line (50% sure)')
 
-    for (const width of [390, 320]) {
+    // The first card starts near the top: measured 211px at 390 and 239px at 320, with the steps folded into one line.
+    const cardTopAtMost = { 390: 225, 320: 255 }
+    for (const width of [390, 320] as const) {
       await page.setViewportSize({ width, height: 844 })
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await expect(page.locator('.review-toolbar.is-collapsed')).toHaveCount(0)
+      const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
+      expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
       expect(await reason.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `the reason wraps at ${width}px`).toBe(true)
       for (const name of ['Skip for now', 'Looks right, next']) await expectTall(bar.getByRole('button', { name }), `${name} at ${width}px`)
       // The radios are visually hidden; the visible control is their label.
       await expectTall(page.locator('label').filter({ hasText: /^Need a look 3$/ }), `Need a look at ${width}px`)
       await expectNoSidewaysScroll(page)
     }
+
+    // One line stands for the step tiles; it opens them as they are on the title page, with the title's controls, and closes again.
+    const fold = page.getByRole('button', { name: 'Step 4 of 5 · Check' })
+    await expectTall(fold, 'the steps line')
+    await expect(fold).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('list', { name: 'Steps' })).toBeHidden()
+    await fold.tap()
+    await expect(fold).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link')).toHaveCount(5)
+    await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
+    await expect(page.locator('summary', { hasText: 'More' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
+    await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
+    await expectNoSidewaysScroll(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectNoSidewaysScroll(page)
+    await fold.tap()
+    await expect(page.getByRole('list', { name: 'Steps' })).toBeHidden()
 
     // Looks right, next checks #7 and opens #12, which is now the last of two.
     await bar.getByRole('button', { name: 'Looks right, next' }).tap()

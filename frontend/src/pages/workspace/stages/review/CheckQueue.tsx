@@ -12,13 +12,14 @@ import {
 } from './checkQueueModel'
 import { MARK_REVIEWED_HELP, markEpisodeReviewedText } from './markEpisodeReviewedText'
 
-export function CheckQueueSwitch({ queue, counts, onPick }: {
+export function CheckQueueSwitch({ queue, counts, onPick, showFine = true }: {
   queue: boolean
   counts: QueueCounts | null
   onPick: (queue: boolean) => void
+  showFine?: boolean
 }) {
   const helpId = useId()
-  const fine = counts ? fineText(counts) : null
+  const fine = counts && showFine ? fineText(counts) : null
   return (
     <>
       <fieldset className="segmented check-queue-switch">

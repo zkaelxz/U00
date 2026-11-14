@@ -591,7 +591,12 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-queue-actions { margin-top: var(--space-2); }
 .check-queue-undo { font-size: var(--text-sm); overflow-wrap: anywhere; }
 @media (max-width: 640px) {
-  .review-queue-row .check-queue-switch { flex: 1 1 100%; }
+  /* The open card's place shares the switch's line when it fits; the rest wraps under them, and the Undo strip takes a line of its own. */
+  .review-queue-row .check-queue-position { order: 1; }
+  .review-queue-row > :not(.check-queue-switch, .check-queue-position) { order: 2; }
+  .review-queue-row .check-queue-undo { order: 3; flex: 1 1 100%; }
   .review-editbar.is-queue button { white-space: normal; line-height: 1.2; }
   .review-queue-actions .btn, .check-queue-footer .btn, .check-queue-undo .btn { min-height: var(--touch); }
+  /* Its (i) stays beside it: a phone's confirm button otherwise takes the whole row, pushed right. */
+  .check-queue-mark .confirm-button { flex: 0 1 auto; justify-content: flex-start; }
 }

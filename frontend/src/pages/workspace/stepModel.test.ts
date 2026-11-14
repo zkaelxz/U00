@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { checkActionLabel, titleSteps } from './stepModel'
+import { checkActionLabel, stepPlace, titleSteps } from './stepModel'
 
 const states = (i: Parameters<typeof titleSteps>[0]) => titleSteps(i).map((s) => `${s.key}:${s.state}`)
 const base = { audioReady: false, lineCount: 0, translatedCount: 0, exported: false }
@@ -48,5 +48,16 @@ describe('checkActionLabel', () => {
     expect(checkActionLabel(1)).toBe('Check the line')
     expect(checkActionLabel(3)).toBe('Check the 3 lines')
     expect(checkActionLabel(0)).toBeNull()
+  })
+})
+
+describe('stepPlace', () => {
+  const steps = titleSteps({ audioReady: true, lineCount: 10, translatedCount: 10, exported: false, riskCount: 3 })
+
+  it('numbers the step among however many steps there are', () => {
+    expect(stepPlace(steps, 'check')).toBe('Step 4 of 5 · Check')
+    expect(stepPlace(steps, 'add')).toBe('Step 1 of 5 · Add')
+    expect(stepPlace(steps.filter((s) => s.key !== 'transcribe'), 'check')).toBe('Step 3 of 4 · Check')
+    expect(stepPlace([], 'check')).toBeNull()
   })
 })

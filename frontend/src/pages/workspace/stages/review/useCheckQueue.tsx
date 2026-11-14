@@ -94,7 +94,8 @@ export function useCheckQueue(d: Deps) {
 
   const lead: ReactNode = d.simple ? (
     <>
-      <CheckQueueSwitch queue={on} counts={counts} onPick={(q) => void d.changeFilter(q ? QUEUE_FILTER : 'all')} />
+      {/* The phone's card view leaves "F of M look fine" to the footer's "The other F lines…", so the switch row stays one line. */}
+      <CheckQueueSwitch queue={on} counts={counts} showFine={!(cardOnly && (counts?.risk ?? 0) > 0)} onPick={(q) => void d.changeFilter(q ? QUEUE_FILTER : 'all')} />
       {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
       {position && <p className="check-queue-position" data-testid="queue-position">{position}</p>}
     </>

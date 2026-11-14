@@ -54,3 +54,9 @@ export function checkActionLabel(risk: number | null): string | null {
   if (risk === null) return 'Check the lines'
   return risk === 1 ? 'Check the line' : `Check the ${risk} lines`
 }
+
+/** "Step 4 of 5 · Check": where `key` sits among the steps, for the one-line fold of the step tiles. */
+export function stepPlace(steps: Step[], key: StepKey): string | null {
+  const at = steps.findIndex((s) => s.key === key)
+  return at === -1 ? null : `Step ${at + 1} of ${steps.length} · ${steps[at].title}`
+}
