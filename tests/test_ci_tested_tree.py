@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import ci_changes  # noqa: E402
 import ci_tested_tree as ctt  # noqa: E402
 
-REPO, SHA, HEAD, TREE = "o/r", "m" * 40, "h" * 40, "t" * 40
+REPO, SHA, HEAD, TREE, BASE = "o/r", "m" * 40, "h" * 40, "t" * 40, "b" * 40
 ALL = ci_changes._all_true()
 
 
@@ -34,8 +34,17 @@ def zipped(record):
     return buf.getvalue()
 
 
-def fake_github(tested, tree=TREE, run=None, pulls=None):
-    record = {"tree": tree, "outputs": {k: str(v).lower() for k, v in tested.items()}}
+def trees(head=TREE, base=BASE):
+    return lambda ref="HEAD": {"HEAD": head, "HEAD^1": base}[ref]
+
+
+def green_run(**over):
+    return {"id": 7, "run_number": 3, "conclusion": "success", "head_repository": {"full_name": REPO},
+            "pull_requests": [{"number": 41, "base": {"ref": "baihe-subtitler"}}], **over}
+
+
+def fake_github(tested, tree=TREE, run=None, pulls=None, base_tree=BASE):
+    record = {"tree": tree, "base_tree": base_tree, "outputs": {k: str(v).lower() for k, v in tested.items()}}
     asked = []
 
     def get(url, token, raw=False):
@@ -43,11 +52,11 @@ def fake_github(tested, tree=TREE, run=None, pulls=None):
         assert token == "tok"
         if url.endswith(f"/commits/{SHA}/pulls"):
             return pulls if pulls is not None else [
-                {"merge_commit_sha": SHA, "merged_at": "2026-11-14T09:00:00Z", "head": {"sha": HEAD}}]
+                {"number": 41, "merge_commit_sha": SHA, "merged_at": "2026-11-14T09:00:00Z", "head": {"sha": HEAD},
+                 "base": {"ref": "baihe-subtitler"}}]
         if "/actions/workflows/tests.yml/runs" in url:
             assert f"head_sha={HEAD}" in url and "event=pull_request" in url
-            return {"workflow_runs": [run or {"id": 7, "run_number": 3, "conclusion": "success",
-                                               "head_repository": {"full_name": REPO}}]}
+            return {"workflow_runs": [run or green_run()]}
         if url.endswith("/actions/runs/7/artifacts?name=tested-tree"):
             return {"artifacts": [{"expired": False, "archive_download_url": "https://dl/7"}]}
         if url == "https://dl/7":
@@ -57,11 +66,11 @@ def fake_github(tested, tree=TREE, run=None, pulls=None):
     return get, asked
 
 
-def after_merge(get, merged=("services/x.py",), stdin=None, tree=TREE):
+def after_merge(get, merged=("services/x.py",), stdin=None, tree=None):
     out = io.StringIO()
     ctt.main(["--after-merge"], stdin=io.StringIO(stdin if stdin is not None else lines(ALL)), stdout=out,
              env={"GITHUB_REPOSITORY": REPO, "GITHUB_SHA": SHA, "GITHUB_TOKEN": "tok"},
-             tree=lambda: tree, get=get, merged_files=lambda: list(merged))
+             tree=tree or trees(), get=get, merged_files=lambda: list(merged))
     return ctt.parse_outputs(out.getvalue())
 
 
@@ -97,12 +106,31 @@ class TestAfterMerge:
         assert after_merge(get) == ALL
 
     def test_a_run_from_a_fork_does_not_count(self):
-        get, _ = fake_github(ALL, run={"id": 7, "run_number": 3, "conclusion": "success",
-                                       "head_repository": {"full_name": "someone/r"}})
+        get, _ = fake_github(ALL, run=green_run(head_repository={"full_name": "someone/r"}))
         assert after_merge(get) == ALL
 
+    @pytest.mark.parametrize("prs", [
+        [{"number": 99, "base": {"ref": "baihe-subtitler"}}],  # another PR from the same head
+        [{"number": 41, "base": {"ref": "evil-base"}}],  # the same head into a branch with its own workflow
+        [],
+    ])
+    def test_a_run_for_another_pr_or_base_branch_does_not_count(self, prs):
+        get, _ = fake_github(ALL, run=green_run(pull_requests=prs))
+        assert after_merge(get) == ALL
+
+    def test_a_pr_merged_into_another_branch_does_not_count(self):
+        get, _ = fake_github(ALL, pulls=[{"number": 41, "merge_commit_sha": SHA, "merged_at": "x",
+                                          "head": {"sha": HEAD}, "base": {"ref": "other"}}])
+        assert after_merge(get) == ALL
+
+    def test_a_merge_onto_another_base_than_the_run_tested_runs_everything(self):
+        # The same tree on another parent: a rebase merge of several commits, or a base that moved and back.
+        get, _ = fake_github(ALL)
+        assert after_merge(get, tree=trees(base="x" * 40)) == ALL
+
     def test_a_push_that_is_no_pr_merge_runs_everything(self):
-        get, _ = fake_github(ALL, pulls=[{"merge_commit_sha": "z" * 40, "merged_at": "x", "head": {"sha": HEAD}}])
+        get, _ = fake_github(ALL, pulls=[{"number": 41, "merge_commit_sha": "z" * 40, "merged_at": "x",
+                                          "head": {"sha": HEAD}, "base": {"ref": "baihe-subtitler"}}])
         assert after_merge(get) == ALL
 
     @pytest.mark.parametrize("merged", [[".github/workflows/tests.yml"], ["tools/ci_tested_tree.py"],
@@ -140,15 +168,15 @@ class TestAfterMerge:
 class TestWrite:
     def test_records_the_tree_and_the_outputs(self, tmp_path):
         path = tmp_path / "tested.json"
-        ctt.main(["--write", str(path)], stdin=io.StringIO(lines(ALL)), tree=lambda: TREE)
+        ctt.main(["--write", str(path)], stdin=io.StringIO(lines(ALL)), tree=trees())
         record = json.loads(path.read_text())
-        assert record["tree"] == TREE
+        assert record["tree"] == TREE and record["base_tree"] == BASE
         assert ctt.parse_outputs("\n".join(f"{k}={v}" for k, v in record["outputs"].items())) == ALL
 
     def test_never_fails_the_pr_run(self, tmp_path):
         path = tmp_path / "tested.json"
 
-        def no_git():
+        def no_git(ref="HEAD"):
             raise OSError("no git")
         assert ctt.main(["--write", str(path)], stdin=io.StringIO(lines(ALL)), tree=no_git) == 0
         assert not path.exists()

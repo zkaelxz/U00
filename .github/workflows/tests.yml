@@ -75,7 +75,8 @@ jobs:
         id: diff
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-          GITHUB_TOKEN: ${{ github.token }}
+          # Only the push lookup needs it; a PR run's step runs the PR's own code.
+          GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
           all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false'
           # The checkout is the merge commit; its first parent is the base.
@@ -85,7 +86,8 @@ jobs:
           out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS") || out=$all_true
           # A squash merge of a tree a green PR run already tested runs only what that run skipped.
           if [ "$GITHUB_EVENT_NAME" = push ]; then
-            out=$(printf '%s\n' "$out" | python3 tools/ci_tested_tree.py --after-merge) || out=$all_true
+            # A slow API must not time the job out (that would turn the run red, not run more).
+            out=$(printf '%s\n' "$out" | timeout 90 python3 tools/ci_tested_tree.py --after-merge) || out=$all_true
           fi
           # Fail open: an empty or partial answer runs everything.
           printf '%s\n' "$out" | grep -qx 'notes_only=\(true\|false\)' && \
@@ -98,7 +100,7 @@ jobs:
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
           # The tree this run tests (the PR merged into the base) and what it runs, for the push after a merge.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            printf '%s\n' "$out" | python3 tools/ci_tested_tree.py --write tested.json
+            printf '%s\n' "$out" | python3 tools/ci_tested_tree.py --write tested.json || true
           fi
 
       - name: Keep the tested tree for the push after a merge

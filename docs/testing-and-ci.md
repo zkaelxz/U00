@@ -65,10 +65,12 @@ PR as a draft, merge the base once when the work is done, then mark it ready. A 
 
 A squash merge of a PR whose last green run tested the same tree adds nothing that run did not test, so the push to
 `baihe-subtitler` runs only the groups that run skipped (`tools/ci_tested_tree.py`, tested by `tests/test_ci_tested_tree.py`).
-Each PR run's `changes` job records the tree it tests (the PR merged into the base) and its outputs as the `tested-tree`
-artifact (kept 14 days). The push run asks the API for the PR merged as that commit, its newest green Tests run at the PR's head
-from this repo (not a fork), and that run's record; when the recorded tree is the pushed tree, a group the PR run ran is switched
-off. `guards` and `test` always run, and `test-shard` runs at least the tests that read frontend files. The full suite counts as run
+Each PR run's `changes` job records the tree it tests (the PR merged into the base), the base tree under it and its outputs as
+the `tested-tree` artifact (kept 14 days). The push run asks the API for the PR merged into `baihe-subtitler` as that commit, its
+newest green Tests run at the PR's head from this repo (not a fork) for that PR into `baihe-subtitler` (a run of the same head
+into another branch, which would use that branch's own workflow, does not count), and that run's record; when the recorded tree
+is the pushed tree and the recorded base tree is the pushed commit's parent's, a group the PR run ran is switched off. The lookup
+has 90 seconds; a timeout runs everything. `guards` and `test` always run, and `test-shard` runs at least the tests that read frontend files. The full suite counts as run
 only when the PR ran it whole (not the sources subset). Anything else runs everything: no PR, a different tree (the base moved
 after the PR's last run), an expired or unreadable record, any API error, or a merge that changes an "everything" file (CI,
 `tools/ci_changes.py`, `tools/ci_tested_tree.py`, dependency files), since that PR's run used its own copy of the workflow. A

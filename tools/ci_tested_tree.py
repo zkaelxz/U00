@@ -8,7 +8,9 @@ last green run tested the same merge tree adds nothing that run did not test, so
 only the groups that run skipped. Every lookup failure prints the push run's outputs unchanged, so a
 broken lookup may cost minutes, never skip a job. A merge that changes CI or dependency files
 (ci_changes' "everything" files) always runs everything, since the PR run used its own copy of the
-workflow; so does a run from a fork. A nightly scheduled run still runs everything.
+workflow; so does a run from a fork, a run for another PR or base branch, and a merge onto a base
+other than the one the run tested (which also covers a rebase merge of several commits). A nightly
+scheduled run still runs everything.
 """
 import argparse
 import io
@@ -23,6 +25,7 @@ import zipfile
 import ci_changes
 
 ARTIFACT = "tested-tree"
+BASE_BRANCH = "baihe-subtitler"
 _FILE = "tested.json"
 _API = "https://api.github.com"
 _TIMEOUT = 10
@@ -99,15 +102,25 @@ def _get(url, token, raw=False):
     return json.loads(body)
 
 
-def find_tested(repo, sha, tree, token, get=_get):
-    """The outputs of a green Tests run of the PR merged as `sha` whose tested tree is `tree`, or None."""
+def _runs_for_pr(run, number) -> bool:
+    """Whether `run` was for PR `number` into the base branch: another PR from the same head (one into a
+    branch whose own workflow copy records anything) must not vouch for this merge."""
+    return any(p.get("number") == number and (p.get("base") or {}).get("ref") == BASE_BRANCH
+               for p in run.get("pull_requests") or [])
+
+
+def find_tested(repo, sha, tree, base_tree, token, get=_get):
+    """The outputs of a green Tests run of the PR merged as `sha` that tested `tree` on top of
+    `base_tree` (the base the merge landed on), or None."""
     pulls = get(f"{_API}/repos/{repo}/commits/{sha}/pulls", token)
-    heads = [p["head"]["sha"] for p in pulls if p.get("merge_commit_sha") == sha and p.get("merged_at")]
-    for head in heads:
+    merged = [p for p in pulls if p.get("merge_commit_sha") == sha and p.get("merged_at")
+              and (p.get("base") or {}).get("ref") == BASE_BRANCH]
+    for pr in merged:
         runs = get(f"{_API}/repos/{repo}/actions/workflows/tests.yml/runs"
-                   f"?event=pull_request&status=success&head_sha={head}&per_page=20", token)
+                   f"?event=pull_request&status=success&head_sha={pr['head']['sha']}&per_page=20", token)
         for run in sorted(runs.get("workflow_runs", []), key=lambda r: r.get("run_number", 0), reverse=True):
-            if run.get("conclusion") != "success" or (run.get("head_repository") or {}).get("full_name") != repo:
+            if (run.get("conclusion") != "success" or (run.get("head_repository") or {}).get("full_name") != repo
+                    or not _runs_for_pr(run, pr["number"])):
                 continue
             arts = get(f"{_API}/repos/{repo}/actions/runs/{run['id']}/artifacts?name={ARTIFACT}", token)
             for art in arts.get("artifacts", []):
@@ -116,7 +129,7 @@ def find_tested(repo, sha, tree, token, get=_get):
                 blob = get(art["archive_download_url"], token, raw=True)
                 with zipfile.ZipFile(io.BytesIO(blob)) as z:
                     record = json.loads(z.read(_FILE))
-                if record.get("tree") == tree:
+                if record.get("tree") == tree and record.get("base_tree") == base_tree:
                     return parse_outputs("\n".join(f"{k}={v}" for k, v in record["outputs"].items()))
     return None
 
@@ -132,7 +145,7 @@ def main(argv=None, stdin=None, stdout=None, env=None, tree=_tree, get=_get, mer
     if args.write:
         # Never fails the PR run: without the record the push after it simply runs everything.
         try:
-            record = {"tree": tree(), "outputs": {k: str(v).lower() for k, v in parse_outputs(text).items()}}
+            record = {"tree": tree(), "base_tree": tree("HEAD^1"), "outputs": {k: str(v).lower() for k, v in parse_outputs(text).items()}}
             with open(args.write, "w", encoding="utf-8") as f:
                 json.dump(record, f)
         except Exception as exc:
@@ -146,7 +159,8 @@ def main(argv=None, stdin=None, stdout=None, env=None, tree=_tree, get=_get, mer
     try:
         if any(ci_changes._forces_everything(f.strip()) for f in merged_files() if f.strip()):
             raise ValueError("the merge changes CI or dependency files")
-        tested = find_tested(env["GITHUB_REPOSITORY"], env["GITHUB_SHA"], tree(), env["GITHUB_TOKEN"], get)
+        tested = find_tested(env["GITHUB_REPOSITORY"], env["GITHUB_SHA"], tree(), tree("HEAD^1"),
+                             env["GITHUB_TOKEN"], get)
     except Exception as exc:
         print(f"ci_tested_tree: {type(exc).__name__}: {exc}; running everything the push needs", file=sys.stderr)
         tested = None
