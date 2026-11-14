@@ -486,8 +486,10 @@ def _columns_of_one_balloon(gray, a: dict, b: dict) -> bool:
     gap_y = max(a["y"], b["y"]) - min(a["y"] + a["h"], b["y"] + b["h"])
     if gap_x > 0 and gap_y > 0:
         return False
-    gap, narrow = (gap_x, min(a["w"], b["w"])) if gap_x > 0 else (gap_y, min(a["h"], b["h"]))
-    if gap > scanlate_tuning.BALLOON_COLUMN_GAP * narrow:
+    # Measured against the larger box: a small fragment (one OCR'd phrase) can
+    # sit far from the rest of a tall balloon's lettering and still be inside it.
+    gap, wide = (gap_x, max(a["w"], b["w"])) if gap_x > 0 else (gap_y, max(a["h"], b["h"]))
+    if gap > scanlate_tuning.BALLOON_COLUMN_GAP * wide:
         return False
     x0, y0 = max(0, min(a["x"], b["x"])), max(0, min(a["y"], b["y"]))
     x1 = min(gray.shape[1], max(a["x"] + a["w"], b["x"] + b["w"]))

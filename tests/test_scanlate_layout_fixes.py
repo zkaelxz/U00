@@ -39,6 +39,18 @@ def test_two_columns_of_one_balloon_become_one_box():
     assert (out[0]["x"], out[0]["y"]) == (115, 75)
 
 
+def test_far_apart_fragments_of_one_tall_balloon_become_one_box():
+    # A small fragment near the top and a larger one low down, with a gap
+    # wider than either box is tall: both still lie in the one balloon.
+    img = _page([(150, 200, 90, 190)], size=(420, 300))
+    _letters(img, 150, 60, 24, 60)
+    _letters(img, 130, 240, 40, 110)
+    top, low = _box(140, 55, 40, 40), _box(118, 215, 80, 140)
+    out = scanlate_detect.merge_fragment_boxes([top, low], img)
+    assert len(out) == 1
+    assert (out[0]["y"], out[0]["h"]) == (55, 300)
+
+
 def test_boxes_of_two_separate_balloons_stay_apart():
     img = _page([(90, 150, 60, 100), (215, 150, 60, 100)])
     _letters(img, 80, 90, 24, 120)

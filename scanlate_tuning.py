@@ -68,10 +68,10 @@ FRAGMENT_OVERLAP = 0.4
 FRAGMENT_ALIGNED = 0.6
 FRAGMENT_GAP = 0.3
 
-# Two boxes touching or this close (as a share of the narrower one's width, or
+# Two boxes touching or this close (as a share of the larger one's width, or
 # height when stacked) are the columns of one balloon when this share of each
 # lies inside the one balloon found around them.
-BALLOON_COLUMN_GAP = 0.6
+BALLOON_COLUMN_GAP = 1.5
 BALLOON_COLUMN_INSIDE = 0.7
 # A balloon interior covering this share of its box means the box lies within
 # the balloon (there is no outline in it to spare).
