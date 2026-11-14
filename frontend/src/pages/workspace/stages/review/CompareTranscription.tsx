@@ -101,7 +101,7 @@ export function CompareTranscription({
 }) {
   const textLang = useTitleTextLang()
   const { selectedIds } = useLineSelectionContext()
-  // "#/drama/3/review?tools=history&focus=compare" (a finished comparison's link) opens this section.
+  // "#/drama/3/review?tools=problems&focus=compare" (a finished comparison's link) opens this section.
   const focusSignal = useStageFocus('compare', 'review-compare')
   const panelRef = useRef<HTMLDivElement>(null)
   // Counted after mount so a section mounted by the very action that opens it still sees a change.

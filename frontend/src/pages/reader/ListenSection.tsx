@@ -74,7 +74,7 @@ export function ListenPicker({ dramaId, engines, engine, voices, disabled, onCha
       {voices.map((v) => (
         <p key={v.speaker_label} className="muted">
           {v.character_name || v.speaker_label}: {voiceState(v)}{' '}
-          <a href={`#/drama/${dramaId}/review?tools=voices`}>Change voice</a>
+          <a href={`#/drama/${dramaId}/review?tools=change`}>Change voice</a>
         </p>
       ))}
     </>

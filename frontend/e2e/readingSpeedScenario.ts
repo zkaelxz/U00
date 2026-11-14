@@ -36,7 +36,7 @@ export async function runReadingSpeedScenario(page: Page) {
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(3)
   await expect(page.getByTestId('line-counts')).toContainText('2 flagged')
 
-  await openTab(page, 'Fix')
+  await openTab(page, 'Look for problems')
   const fold = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: /^Flag lines for review$/ }) })
   if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
   await expect(fold).toHaveAttribute('open', '')
