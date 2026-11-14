@@ -62,6 +62,9 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const [cancelError, setCancelError] = useState<unknown>(null)
   // Why the form is showing again with a title already in the Library (null dramaId: nothing was created).
   const [note, setNote] = useState<{ kind: 'cancelled' | 'upload-lost'; dramaId: number | null } | null>(null)
+  // A hand-off that arrived while a saved run was still going. It stays out of the choices on screen,
+  // which that run's later steps read, until the box is back.
+  const [waiting, setWaiting] = useState<FileRunRequest | null>(null)
   const uploadAbort = useRef<AbortController | null>(null)
 
   const loading = runs || !!file
@@ -177,24 +180,37 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
     } finally { if (uploadAbort.current === abort) uploadAbort.current = null }
   }
 
-  // Once, after the first render: a run saved in storage wins over a hand-off, whose file is kept for after it.
+  const fillBox = useCallback((r: FileRunRequest) => {
+    setFile(r.file)
+    setPickedEngine(r.engine || null)
+    setLanguage(r.language)
+    setTitle(r.title)
+    setVariant(r.variant)
+  }, [setLanguage])
+
+  // Once, after the first render: a run saved in storage wins over a hand-off. The hand-off then waits
+  // untouched, so the saved run never translates with a translator or variant picked for another file.
   const resumed = useRef(false)
   useEffect(() => {
     if (resumed.current || !runs) return
     resumed.current = true
     const s = parseSaved(saved)
-    if (request) {
-      setFile(request.file)
-      setPickedEngine(request.engine || null)
-      setLanguage(request.language)
-      setTitle(request.title)
-      setVariant(request.variant)
-    }
     // A run that died before the upload finished has nothing to follow.
-    if (s && s.step !== 'upload') { setResuming(true); dispatch({ type: 'resume', saved: s }); return }
+    if (s && s.step !== 'upload') { setResuming(true); dispatch({ type: 'resume', saved: s }); setWaiting(request); return }
     if (s) setNote({ kind: 'upload-lost', dramaId: s.dramaId })
-    if (request) void start(request)
-  }, [saved, runs, request, setLanguage, start])
+    if (request) { fillBox(request); void start(request) }
+  }, [saved, runs, request, fillBox, start])
+
+  // Once the box is back, the waiting file is put in it to be started by hand: nobody pressed for it yet.
+  // One effect covers every way back (Make another, a cancel, any failure), and it lands after Make
+  // another's own clearing of the box.
+  const boxBack = flow.phase === 'idle' || flow.phase === 'error'
+  useEffect(() => {
+    if (!waiting || !boxBack) return
+    // eslint-disable-next-line react/set-state-in-effect -- the extra render happens once, when a waiting file is offered
+    setWaiting(null)
+    fillBox(waiting)
+  }, [waiting, boxBack, fillBox])
 
   const cancel = () => {
     if (jobId) cancelJob(jobId).then(() => setCancelError(null), setCancelError)
@@ -218,7 +234,7 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   return {
     flow, file, setFile, language, setLanguage, engine, setPickedEngine, list, engines, retryEngines: () => setEnginesTry((n) => n + 1),
     title, setTitle, variant, setVariant, defaultLocale, setBlockers, blocker: blockerText(!!file, blockers, engine),
-    job, jobId, stepNow, note, cancelError, downloadError, srt,
+    job, jobId, stepNow, note, waiting, cancelError, downloadError, srt,
     start, refused, choices, cancel, download, reset,
     /** The run's progress or its result, which takes the box's place on the Add page. */
     showingRun: flow.phase === 'running' || flow.phase === 'done',

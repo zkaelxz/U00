@@ -135,16 +135,21 @@ type Handoff = { kind: 'run-file'; request: FileRunRequest } | { kind: 'new-titl
 
 // A File can't go through the URL or storage, so the choice waits here for the page it opens.
 // Reading is separate from clearing so React's doubled first render in development reads the same value.
-let pending: Handoff | null = null
+let pending: { handoff: Handoff; at: number } | null = null
+
+/** Only the page being opened now may take a hand-off: going Back before it loads must not leave a run
+ *  that a much later visit starts with no press. */
+export const HANDOFF_LIFE_MS = 30_000
 
 export function handOff(h: Handoff): void {
-  pending = h
+  pending = { handoff: h, at: Date.now() }
 }
 
 export function peekHandoff<K extends Handoff['kind']>(kind: K): Extract<Handoff, { kind: K }> | null {
-  return pending?.kind === kind ? (pending as Extract<Handoff, { kind: K }>) : null
+  if (pending && Date.now() - pending.at > HANDOFF_LIFE_MS) pending = null
+  return pending?.handoff.kind === kind ? (pending.handoff as Extract<Handoff, { kind: K }>) : null
 }
 
 export function clearHandoff(h: Handoff | null): void {
-  if (h && pending === h) pending = null
+  if (h && pending?.handoff === h) pending = null
 }

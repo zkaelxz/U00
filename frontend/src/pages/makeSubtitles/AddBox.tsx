@@ -53,6 +53,9 @@ export function AddBox({ place, onNewTitle, request = null }: {
     if (fileInput.current) fileInput.current.value = ''
   }
   const newTitle = (start: NewTitleStart) => {
+    // New title keeps the link or the file's name, and a second press here would make a duplicate.
+    if (start && 'link' in start) clearLink()
+    else if (start) clearFile()
     if (onNewTitle) { onNewTitle(start); return }
     handOff({ kind: 'new-title', start })
     go({ name: 'library' })
@@ -98,7 +101,8 @@ export function AddBox({ place, onNewTitle, request = null }: {
                   else taker.typed(e.target.value)
                   pasted.current = false
                 }}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); taker.now(text) } }}
+                // Enter while an input method is composing only confirms the characters.
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); taker.now(text) } }}
               />
               <button type="button" className={buttonClass('secondary')} title="Or drop an audio or video file on this box" onClick={chooseFile}>
                 Choose a file

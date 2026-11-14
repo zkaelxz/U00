@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { MediaLinkProbe } from '../../api/linkDetails'
 import {
-  SETTLE_MS, clearHandoff, fileKind, foundForFile, foundForLink, handOff, linkCanRun, linkFrom, linkTaker, peekHandoff, planForFile,
+  HANDOFF_LIFE_MS, SETTLE_MS, clearHandoff, fileKind, foundForFile, foundForLink, handOff, linkCanRun, linkFrom, linkTaker, peekHandoff, planForFile,
   planForLink, type FileRunRequest,
 } from './addBoxModel'
 
@@ -92,6 +92,27 @@ describe('Add box hand-off', () => {
     clearHandoff(old)
     expect(peekHandoff('new-title')?.start).toBeNull()
     clearHandoff(peekHandoff('new-title'))
+  })
+
+  describe('lifetime', () => {
+    beforeEach(() => { vi.useFakeTimers() })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('is still there for a page that opens within its life', () => {
+      handOff({ kind: 'new-title', start: { link: LINK } })
+      vi.advanceTimersByTime(HANDOFF_LIFE_MS)
+      const h = peekHandoff('new-title')
+      expect(h?.start).toEqual({ link: LINK })
+      clearHandoff(h)
+    })
+    it('is gone once older than its life, and stays gone', () => {
+      const request: FileRunRequest = { file: new File(['x'], 'a.mp3'), engine: 'deepseek', language: 'ja', title: '', variant: '' }
+      handOff({ kind: 'run-file', request })
+      vi.advanceTimersByTime(HANDOFF_LIFE_MS + 1)
+      expect(peekHandoff('run-file')).toBeNull()
+      vi.setSystemTime(Date.now() - 2 * HANDOFF_LIFE_MS)
+      expect(peekHandoff('run-file')).toBeNull()
+    })
   })
 })
 

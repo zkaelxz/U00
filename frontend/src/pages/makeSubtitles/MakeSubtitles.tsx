@@ -78,6 +78,12 @@ export function FileRunStatus({ run }: { run: FileRun }) {
         ) : (
           <p><strong>Subtitles are ready.</strong></p>
         )}
+        {/* Inside the status, so a screen reader meets it with the run without focus moving to it. */}
+        {run.waiting && (
+          <p className="muted">
+            “{run.waiting.file.name}” has not been started, because this run was already under way. It will be here to start when this one is finished.
+          </p>
+        )}
       </div>
       <ErrorBanner error={run.cancelError ?? run.downloadError} />
       {busy ? (
