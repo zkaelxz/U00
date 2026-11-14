@@ -1,351 +1,191 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { ApiError, withSignal } from '../../api/client'
-import { getSubtitleText, markExported } from '../../api/export'
-import { getSettings } from '../../api/settings'
-import { cancelJob, probeJob } from '../../api/jobs'
-import { createDrama } from '../../api/library'
-import { translateApi } from '../../api/translate'
-import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
-import { uploadAndTranscribe } from '../../api/workspace'
 import { ButtonLink } from '../../components/Button'
-import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
-import { downloadText } from '../../components/downloadBlob'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { JOB_FAILED } from '../../components/errorMessages'
 import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
 import { RetryBanner } from '../../components/RetryBanner'
 import { Section } from '../../components/Section'
-import { useJob, useJobRun } from '../../hooks/useJob'
-import { useLoad } from '../../hooks/useLoad'
-import { usePersistedState } from '../../hooks/usePersistedState'
-import { useReattachJob } from '../../hooks/useReattachJob'
+import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import { buttonClass } from '../../components/uiClasses'
 import { engineLabel, languageLabel } from '../../labels'
-import { cancelNeedsConfirm, type JobRecord } from '../../types/jobs'
+import { cancelNeedsConfirm } from '../../types/jobs'
 import { PreflightCard } from '../preflight/PreflightCard'
-import type { PreflightRow } from '../preflight/preflightModel'
-import { UPLOAD_EXTENSIONS, checkUploadFile } from '../workspace/sourceForm'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
-import { buildRunBody, initialForm } from '../workspace/translateForm'
-import { exportFilename, srtFileText } from '../workspace/exportForm'
-import {
-  IDLE, STEPS, STEP_LABEL, STEP_STAGE, blockerText, flowReducer, mediaTypeFor, optionsSummary, parseSaved, percentText,
-  reattachIds, savedFor, stepForJob, titleFor, type FlowStep,
-} from './makeSubtitlesFlow'
+import { foundForFile, planForFile, type FileRunRequest } from './addBoxModel'
+import { STEPS, STEP_LABEL, STEP_STAGE, optionsSummary, percentText, titleFor, type FlowStep } from './makeSubtitlesFlow'
+import { LANGUAGES, type FileRun } from './useFileRun'
 import './makeSubtitles.css'
 
-const LANGUAGES = ['zh', 'ja', 'ko']
 const VARIANTS = ['en-US', 'en-GB', 'en-AU']
-const SRT_MIME = 'application/x-subrip'
 
-// A transcription that found no lines ends "done" with a failed_reason; translating it would only be refused.
-const failed = (job: JobRecord) => job.status === 'error' || job.outcome === 'failed' || !!job.result?.failed_reason
-const lostRun = () =>
-  new ApiError(404, { code: 'not_found', message: 'Lost track of this run while the page was closed. Open the title to see how far it got.' })
-
-// File to English SRT in one go. The stage stepper stays the way to fix a
-// step that went wrong: a failure links to the stage that owns it.
-export function MakeSubtitles() {
-  const [flow, dispatch] = useReducer(flowReducer, IDLE)
-  const [saved, setSaved] = usePersistedState<unknown>('makeSubtitles.run', null)
-  const [language, setLanguage] = usePersistedState('makeSubtitles.language', 'zh')
-  const [pickedEngine, setPickedEngine] = useState<string | null>(null)
-  const [file, setFile] = useState<File | null>(null)
-  const [title, setTitle] = useState('')
-  const [variant, setVariant] = useState('')
-  const [blockers, setBlockers] = useState<PreflightRow[]>([])
-  const [jobId, setJobId, runKey, adopt] = useJobRun()
-  const [srt, setSrt] = useState<string | null>(null)
-  // True only for a run found in storage: a fresh run has no earlier job to look for.
-  const [resuming, setResuming] = useState(false)
-  const [downloadError, setDownloadError] = useState<unknown>(null)
-  const [cancelError, setCancelError] = useState<unknown>(null)
-  // Why the form is showing again with a title already in the Library (null dramaId: nothing was created).
-  const [note, setNote] = useState<{ kind: 'cancelled' | 'upload-lost'; dramaId: number | null } | null>(null)
-  const uploadAbort = useRef<AbortController | null>(null)
-  const fileInput = useRef<HTMLInputElement>(null)
-  const status = useRef<HTMLDivElement>(null)
-
-  const [enginesTry, setEnginesTry] = useState(0)
-  const engines = useLoad(translateApi.engineList, enginesTry)
-  // Only labels the variant option; a person who cannot read Settings just sees the generic wording.
-  const settings = useLoad(getSettings, 0)
-  const defaultLocale = settings.data?.preferences.default_locale
-  const [dragging, setDragging] = useState(false)
-  const list = engines.data?.items ?? []
-  const defaultEngine = list.find((e) => e.name === engines.data?.default_engine)?.name ?? list[0]?.name ?? ''
-  const engine = pickedEngine ?? defaultEngine
-
-  // Read inside job callbacks, which outlive the render that created them.
-  const run = useRef<{ title: string; engine: string; variant: string; dramaId: number | null }>({ title: '', engine: '', variant: '', dramaId: null })
-  const dramaId = flow.phase === 'idle' ? null : flow.dramaId
-  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, engine, variant, dramaId } })
-  const stepNow = flow.phase === 'running' ? flow.step : null
-
-  useEffect(() => { setSaved(savedFor(flow)) }, [flow]) // setSaved is a fresh function each render
-  const resumed = useRef(false)
-  useEffect(() => {
-    if (resumed.current) return
-    resumed.current = true
-    const s = parseSaved(saved)
-    // A run that died before the upload finished has nothing to follow.
-    if (s && s.step !== 'upload') { setResuming(true); dispatch({ type: 'resume', saved: s }) }
-    else if (s) setNote({ kind: 'upload-lost', dramaId: s.dramaId })
-  }, [saved])
-
-  useEffect(() => { if (stepNow) status.current?.focus() }, [stepNow === null])
-
-  const fail = useCallback((error: unknown) => { setResuming(false); setJobId(null); dispatch({ type: 'fail', error }) }, [setJobId])
-
-  const exportStep = useCallback(async (id: number) => {
-    try {
-      const { text } = await getSubtitleText(id, { fmt: 'srt', field: 'en', includeNotes: false })
-      if (!text.trim()) throw new ApiError(404, { code: 'not_found', message: 'There are no English lines to export.' })
-      setSrt(text)
-      dispatch({ type: 'advance' })
-    } catch (e) { fail(e) }
-  }, [fail])
-
-  const translateStep = useCallback(async (id: number) => {
-    try {
-      const config = await getTranslateConfig(id)
-      const form = { ...initialForm(config), engine: run.current.engine }
-      if (run.current.variant) form.locale = run.current.variant
-      const started = await startTranslateRun(id, buildRunBody(form))
-      setJobId(started.job_id)
-    } catch (e) { fail(e) }
-  }, [fail, setJobId])
-
-  const onJobDone = useCallback((job: JobRecord) => {
-    if (job.status === 'cancelled' || job.outcome === 'cancelled') { setJobId(null); setNote({ kind: 'cancelled', dramaId: run.current.dramaId }); dispatch({ type: 'reset' }); return }
-    if (failed(job)) { fail(new ApiError(0, { code: JOB_FAILED, message: job.outcome_message || job.error || job.message })); return }
-    const step = stepForJob(job.job_id)
-    const id = Number(job.job_id.split('_').pop())
-    setJobId(null)
-    dispatch({ type: 'advance' })
-    if (step === 'transcribe') void translateStep(id)
-    else if (step === 'translate') void exportStep(id)
-  }, [fail, setJobId, translateStep, exportStep])
-
-  const { job } = useJob(jobId, { runKey, onDone: onJobDone })
-
-  // A reload mid-run: find the job still running and carry on from its step.
-  const ids = flow.phase === 'running' && flow.dramaId !== null && resuming && !jobId ? reattachIds(flow.dramaId) : []
-  const seen = useRef({ settled: 0, live: false })
-  const attach = useCallback((id: string) => {
-    seen.current.live = true
-    setResuming(false)
-    const step = stepForJob(id)
-    if (step) dispatch({ type: 'at', step })
-    adopt(id)
-  }, [adopt])
-  const lookup = useCallback((id: string) => {
-    const p = probeJob(id)
-    void p.then((j) => { if (j && !['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
-      .finally(() => {
-        seen.current.settled += 1
-        if (seen.current.settled === reattachIds(0).length && !seen.current.live) fail(lostRun())
-      })
-    return p
-  }, [fail])
-  useReattachJob(ids, attach, lookup)
-
-  const start = async () => {
-    if (!file) return
-    setSrt(null)
-    setDownloadError(null)
-    setNote(null)
-    // Checked before the title exists, so a wrong or empty file leaves nothing behind.
-    // The size limit reaches this page only with a title's media info, so the upload checks size.
-    const problem = checkUploadFile(file.name, file.size, Infinity)
-    if (problem) {
-      dispatch({ type: 'start' })
-      fail(new ApiError(422, { code: 'validation_error', message: problem }))
-      return
-    }
-    const abort = new AbortController()
-    uploadAbort.current = abort
-    let created: number | null = null
-    seen.current = { settled: 0, live: false }
-    setResuming(false)
-    dispatch({ type: 'start' })
-    try {
-      const d = await createDrama({
-        source_language: language, media_type: mediaTypeFor(file.name), title_en: titleFor(file.name, title),
-      })
-      created = d.id
-      dispatch({ type: 'created', dramaId: d.id })
-      if (abort.signal.aborted) throw new DOMException('Cancelled', 'AbortError')
-      const r = await uploadAndTranscribe(d.id, file, { source_language: language }, false, withSignal(abort.signal))
-      dispatch({ type: 'advance' })
-      setJobId(r.job_id)
-    } catch (e) {
-      // Aborting makes fetch reject; that is the user's choice, not a failure.
-      if (!abort.signal.aborted) { fail(e); return }
-      setResuming(false)
-      setNote({ kind: 'cancelled', dramaId: created })
-      dispatch({ type: 'reset' })
-    } finally { if (uploadAbort.current === abort) uploadAbort.current = null }
-  }
-
-  const dropFile = (e: React.DragEvent) => {
-    e.preventDefault()
-    setDragging(false)
-    const dropped = e.dataTransfer.files[0]
-    if (!dropped) return
-    // Keep the native input in step so it shows the name and a later form reset clears it.
-    if (fileInput.current) fileInput.current.files = e.dataTransfer.files
-    setFile(dropped)
-  }
-
-  const cancel = () => {
-    if (jobId) cancelJob(jobId).then(() => setCancelError(null), setCancelError)
-    else uploadAbort.current?.abort()
-  }
-
-  const download = async () => {
-    if (dramaId === null) return
-    setDownloadError(null)
-    try {
-      const text = srt ?? (await getSubtitleText(dramaId, { fmt: 'srt', field: 'en', includeNotes: false })).text
-      downloadText(srtFileText(text), exportFilename(run.current.title, dramaId, 'en', 'srt'), SRT_MIME)
-      void markExported(dramaId).catch(() => undefined)
-    } catch (e) { setDownloadError(e) }
-  }
-
-  const reset = () => { setJobId(null); setFile(null); setTitle(''); setSrt(null); setNote(null); dispatch({ type: 'reset' }) }
-
-  const blocker = blockerText(!!file, blockers, engine)
-  const busy = flow.phase === 'running'
-  const pct = percentText(job?.progress)
-
+/** What went wrong, or why the box is back with a title already made. It comes before the form it asks to fix. */
+export function FileRunNotice({ run }: { run: FileRun }) {
+  const { flow, note } = run
   return (
-    <Card className="make-subtitles" aria-label="Quick translate">
-      {flow.phase === 'idle' || flow.phase === 'error' ? (
-        <form className="stack" onSubmit={(e) => { e.preventDefault(); if (!blocker) void start() }}>
-          {/* What went wrong comes before the form it asks the viewer to fix. */}
-          {flow.phase === 'error' && (
-            <div className="stack">
-              <ErrorBanner error={flow.error} />
-              <p className="make-subtitles-failed">
-                <strong>Failed at {STEP_LABEL[flow.step]}.</strong>{' '}
-                {flow.dramaId !== null && (
-                  <ButtonLink size="sm" href={routeHref({ name: 'drama', id: flow.dramaId, stage: STEP_STAGE[flow.step] })}>
-                    Fix in {STAGE_LABELS[STEP_STAGE[flow.step] as StageId]}
-                  </ButtonLink>
-                )}
-              </p>
-            </div>
-          )}
-          {note && (
-            <p className="muted make-subtitles-note" role="status">
-              {note.kind === 'cancelled'
-                ? (note.dramaId !== null ? 'Cancelled. The title was kept.' : 'Cancelled.')
-                : 'The last run stopped before the upload finished.'}{' '}
-              {note.dramaId !== null && (
-                <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: note.dramaId, stage: null })}>Open title</ButtonLink>
-              )}
-            </p>
-          )}
-          <div className="make-subtitles-fields">
-            <Field label="Translator">
-              <select className="w-md" value={engine} disabled={!list.length} onChange={(e) => setPickedEngine(e.target.value)}>
-                {!list.length && <option value="">{engines.error ? 'Translators unavailable' : 'Loading translators...'}</option>}
-                {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
-              </select>
-            </Field>
-            <Field label="Source language">
-              <select className="w-md" value={LANGUAGES.includes(language) ? language : 'zh'} onChange={(e) => setLanguage(e.target.value)}>
-                {LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
-              </select>
-            </Field>
-            <div className={`make-subtitles-file${dragging ? ' is-dragging' : ''}`}
-              onDragOver={(e) => { e.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={dropFile}>
-              <Field label="Audio or video file">
-                <input ref={fileInput} type="file" accept={UPLOAD_EXTENSIONS.join(',')}
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-              </Field>
-            </div>
-          </div>
-          <RetryBanner error={engines.error} what="the translators" onRetry={() => setEnginesTry((n) => n + 1)} />
-          {engine && (
-            <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}
-              onReady={(_ok, rows) => setBlockers(rows)}
-              onUseEngine={(name) => setPickedEngine(name)} />
-          )}
-          <Section title="Options" summary={optionsSummary(file ? titleFor(file.name, title) : null, variant)}>
-            <div className="make-subtitles-fields">
-              <Field label="Title">
-                <input value={title} placeholder={file ? titleFor(file.name, '') : ''} onChange={(e) => setTitle(e.target.value)} />
-              </Field>
-              <Field label="English variant">
-                <select value={variant} onChange={(e) => setVariant(e.target.value)}>
-                  <option value="">{defaultLocale ? `Default (${humanize('locale', defaultLocale)})` : 'Settings default'}</option>
-                  {VARIANTS.map((v) => <option key={v} value={v}>{humanize('locale', v)}</option>)}
-                </select>
-              </Field>
-            </div>
-          </Section>
-          <div className="make-subtitles-go">
-            <button type="submit" className={buttonClass('primary')} disabled={!!blocker} aria-describedby="make-subtitles-blocker">
-              Make subtitles
-            </button>
-            {blocker && (
-              <p className="stage-blocker" id="make-subtitles-blocker">
-                <span>{blocker}</span>
-                {!file && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => fileInput.current?.click()}>Choose a file</button>}
-              </p>
-            )}
-          </div>
-        </form>
-      ) : (
+    <>
+      {flow.phase === 'error' && (
         <div className="stack">
-          <div ref={status} tabIndex={-1} role="status" aria-live="polite" className="make-subtitles-status">
-            {busy ? (
-              <>
-                <ol className="make-subtitles-steps">
-                  {STEPS.map((s: FlowStep) => (
-                    <li key={s} aria-current={s === stepNow ? 'step' : undefined}
-                      className={STEPS.indexOf(s) < STEPS.indexOf(stepNow!) ? 'is-done' : s === stepNow ? 'is-current' : undefined}>
-                      {STEP_LABEL[s]}{s === stepNow && pct && ` ${pct}`}
-                    </li>
-                  ))}
-                </ol>
-                {job?.message && <p className="muted">{job.message}</p>}
-              </>
-            ) : (
-              <p><strong>Subtitles are ready.</strong></p>
+          <ErrorBanner error={flow.error} />
+          <p className="make-subtitles-failed">
+            <strong>Failed at {STEP_LABEL[flow.step]}.</strong>{' '}
+            {flow.dramaId !== null && (
+              <ButtonLink size="sm" href={routeHref({ name: 'drama', id: flow.dramaId, stage: STEP_STAGE[flow.step] })}>
+                Fix in {STAGE_LABELS[STEP_STAGE[flow.step] as StageId]}
+              </ButtonLink>
             )}
-          </div>
-          <ErrorBanner error={cancelError ?? downloadError} />
-          {busy ? (
-            (jobId || stepNow === 'upload') && <div className="actions">
-              {job && (stepNow === 'transcribe' || cancelNeedsConfirm(job)) ? (
-                <ConfirmButton name="this run" label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" onConfirm={cancel} />
-              ) : (
-                <button type="button" className={buttonClass('secondary')} onClick={cancel}>Cancel</button>
-              )}
-            </div>
-          ) : (
-            <div className="make-subtitles-go">
-              <button type="button" className={buttonClass('primary')} onClick={() => void download()}>Download SRT</button>
-              <div className="actions">
-                {flow.phase === 'done' && (
-                  <>
-                    <ButtonLink variant="ghost" href={routeHref({ name: 'drama', id: flow.dramaId, stage: 'review' })}>Review lines</ButtonLink>
-                    <ButtonLink variant="ghost" href={routeHref({ name: 'drama', id: flow.dramaId, stage: null })}>Open title</ButtonLink>
-                  </>
-                )}
-                <button type="button" className={buttonClass('ghost')} onClick={reset}>Make another</button>
-              </div>
-            </div>
-          )}
+          </p>
         </div>
       )}
-    </Card>
+      {note && (
+        <p className="muted make-subtitles-note" role="status">
+          {note.kind === 'cancelled'
+            ? (note.dramaId !== null ? 'Cancelled. The title was kept.' : 'Cancelled.')
+            : 'The last run stopped before the upload finished.'}{' '}
+          {note.dramaId !== null && (
+            <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: note.dramaId, stage: null })}>Open title</ButtonLink>
+          )}
+        </p>
+      )}
+    </>
+  )
+}
+
+/** The run under way, then Download SRT. */
+export function FileRunStatus({ run }: { run: FileRun }) {
+  const { flow, job, jobId, stepNow } = run
+  const busy = flow.phase === 'running'
+  const pct = percentText(job?.progress)
+  const status = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (busy) status.current?.focus() }, [busy])
+  return (
+    <div className="stack">
+      <div ref={status} tabIndex={-1} role="status" aria-live="polite" className="make-subtitles-status">
+        {busy ? (
+          <>
+            <ol className="make-subtitles-steps">
+              {STEPS.map((s: FlowStep) => (
+                <li key={s} aria-current={s === stepNow ? 'step' : undefined}
+                  className={STEPS.indexOf(s) < STEPS.indexOf(stepNow!) ? 'is-done' : s === stepNow ? 'is-current' : undefined}>
+                  {STEP_LABEL[s]}{s === stepNow && pct && ` ${pct}`}
+                </li>
+              ))}
+            </ol>
+            {job?.message && <p className="muted">{job.message}</p>}
+          </>
+        ) : (
+          <p><strong>Subtitles are ready.</strong></p>
+        )}
+        {/* Inside the status, so a screen reader meets it with the run without focus moving to it. */}
+        {run.waiting && (
+          <p className="muted">
+            “{run.waiting.file.name}” has not been started, because this run was already under way.{' '}
+            {busy ? 'It will be here to start when this one is finished.' : 'Make another puts it in the box to start.'}
+          </p>
+        )}
+      </div>
+      <ErrorBanner error={run.cancelError ?? run.downloadError} />
+      {busy ? (
+        (jobId || stepNow === 'upload') && <div className="actions">
+          {job && (stepNow === 'transcribe' || cancelNeedsConfirm(job)) ? (
+            <ConfirmButton name="this run" label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" onConfirm={run.cancel} />
+          ) : (
+            <button type="button" className={buttonClass('secondary')} onClick={run.cancel}>Cancel</button>
+          )}
+        </div>
+      ) : (
+        <div className="make-subtitles-go">
+          <button type="button" className={buttonClass('primary')} onClick={() => void run.download()}>Download SRT</button>
+          <div className="actions">
+            {flow.phase === 'done' && (
+              <>
+                <ButtonLink variant="ghost" href={routeHref({ name: 'drama', id: flow.dramaId, stage: 'review' })}>Review lines</ButtonLink>
+                <ButtonLink variant="ghost" href={routeHref({ name: 'drama', id: flow.dramaId, stage: null })}>Open title</ButtonLink>
+              </>
+            )}
+            <button type="button" className={buttonClass('ghost')} onClick={run.reset}>Make another</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A chosen file in the Add box: what was found, what the main button will do, the run's choices under
+ * Change options, and Only add it. `onMake` (the Library) hands the run on instead of running it.
+ */
+export function FilePlan({ run, onChooseFile, onOnlyAdd, onClear, onMake }: {
+  run: FileRun
+  onChooseFile: () => void
+  onOnlyAdd: () => void
+  onClear: () => void
+  onMake?: (r: FileRunRequest) => void
+}) {
+  const pc = usePcOnly()
+  const { file, engine, list, engines, language, title, variant, defaultLocale, blocker } = run
+  const submit = () => {
+    if (blocker || !file) return
+    if (!onMake) { void run.start(run.choices(file)); return }
+    if (!run.refused(file)) onMake(run.choices(file))
+  }
+  return (
+    <form className="stack make-subtitles" onSubmit={(e) => { e.preventDefault(); submit() }}>
+      {file && (
+        <div className="add-box-found">
+          <p data-testid="add-found"><strong>Found:</strong> {foundForFile(file)}</p>
+          <p data-testid="add-plan">{planForFile({ pc, language: LANGUAGES.includes(language) ? language : 'zh', engine })}</p>
+        </div>
+      )}
+      <RetryBanner error={engines.error} what="the translators" onRetry={run.retryEngines} />
+      {engine && (
+        <PreflightCard needs={['whisper', 'ffmpeg', 'key']} engine={engine}
+          onReady={(_ok, rows) => run.setBlockers(rows)}
+          onUseEngine={(name) => run.setPickedEngine(name)} />
+      )}
+      <div className="make-subtitles-go">
+        <button type="submit" className={buttonClass('primary')} disabled={!!blocker} aria-describedby="make-subtitles-blocker">
+          Make English subtitles
+        </button>
+        {blocker && (
+          <p className="stage-blocker" id="make-subtitles-blocker">
+            <span>{blocker}</span>
+            {!file && <button type="button" className={buttonClass('ghost', 'sm')} onClick={onChooseFile}>Choose a file</button>}
+          </p>
+        )}
+      </div>
+      <Section title="Change options" summary={optionsSummary(file ? titleFor(file.name, title) : null, variant)}>
+        <div className="make-subtitles-fields">
+          <Field label="Translator">
+            <select className="w-md" value={engine} disabled={!list.length} onChange={(e) => run.setPickedEngine(e.target.value)}>
+              {!list.length && <option value="">{engines.error ? 'Translators unavailable' : 'Loading translators...'}</option>}
+              {list.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
+            </select>
+          </Field>
+          <Field label="Source language">
+            <select className="w-md" value={LANGUAGES.includes(language) ? language : 'zh'} onChange={(e) => run.setLanguage(e.target.value)}>
+              {LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+            </select>
+          </Field>
+          <Field label="Title">
+            <input value={title} placeholder={file ? titleFor(file.name, '') : ''} onChange={(e) => run.setTitle(e.target.value)} />
+          </Field>
+          <Field label="English variant">
+            <select value={variant} onChange={(e) => run.setVariant(e.target.value)}>
+              <option value="">{defaultLocale ? `Default (${humanize('locale', defaultLocale)})` : 'Settings default'}</option>
+              {VARIANTS.map((v) => <option key={v} value={v}>{humanize('locale', v)}</option>)}
+            </select>
+          </Field>
+        </div>
+      </Section>
+      {file && (
+        <div className="actions">
+          <button type="button" className={buttonClass('ghost')} onClick={onOnlyAdd}>Only add it, don&apos;t start</button>
+          <button type="button" className={buttonClass('ghost')} onClick={onClear}>Clear</button>
+        </div>
+      )}
+    </form>
   )
 }

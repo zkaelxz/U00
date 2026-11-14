@@ -17,9 +17,11 @@ import scanlate_art_text
 import scanlate_sfx
 import scanlate_tilt
 import scanlate_tuning
-from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
+from scanlate_detect import (balloon_outside_mask, bubble_erase_mask, bubble_shape_mask, decode_page,
+                             page_gray)
 from scanlate_inpaint import (
-    erase_box, InpaintModelUnavailable, background_is_dark, inpaint_region, lama_ml_weights_cached,
+    erase_box, InpaintModelUnavailable, background_is_dark, inpaint_region, is_art_mistaken_for_sign,
+    lama_ml_weights_cached, sign_text_line,
 )
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 from scanlate_watermark import is_site_mark_region, logo_box
@@ -225,6 +227,51 @@ def _split_twice(lines) -> bool:
     return any(a.endswith("-") and b.endswith("-") for a, b in zip(lines, lines[1:]))
 
 
+# Smallest share of the box width that the mask's centre of mass may sit off the box's centre
+# before the layout mask is rebuilt symmetric; below it the mask is taken as it is. The mass, not
+# the bounding box: a diagonal cut through one corner leaves the box nearly full width.
+_MIN_OFF_CENTRE = 0.03
+# Narrow balloons are off the box centre by a pixel or two from their outline alone, and
+# centring them on that moved their text the wrong way, so the offset must also be this many px.
+_MIN_OFF_CENTRE_PX = 8
+# The balloon has to fill the box this much for the box to stand for its outline, and the
+# mirrored half may add at most this share of the mask: more means the mask is not a balloon
+# with a bite out of it (a tail, a box wider than the balloon).
+_MIN_BALLOON_SHARE_OF_BOX = 0.75
+_MAX_MIRROR_GROWTH = 0.5
+# Moving a line further than this share of the box width is a different balloon shape (a glow or
+# a neighbouring balloon cut the mask), not a hatched corner, and carries the text out of the
+# outline where the balloon narrows.
+_MAX_RECENTRE_SHIFT = 0.12
+
+
+def _symmetrised(mask):
+    """`mask` joined with its mirror image about the box's centre column, or None when it should
+    stay as it is. Hatching inside a balloon is kept out of the layout mask, which leaves the
+    balloon's usable part off the box's centre and sets the text there; the box is the balloon's
+    extent, so its centre is the balloon's, and the intact side stands in for the hatched one."""
+    if mask is None or not mask.any():
+        return None
+    h, w = mask.shape
+    cols = np.nonzero(mask.any(axis=0))[0]
+    rows = np.nonzero(mask.any(axis=1))[0]
+    if (cols[-1] - cols[0] + 1 < _MIN_BALLOON_SHARE_OF_BOX * w
+            or rows[-1] - rows[0] + 1 < _MIN_BALLOON_SHARE_OF_BOX * h):
+        return None
+    if abs(np.nonzero(mask)[1].mean() - (w - 1) / 2) < max(_MIN_OFF_CENTRE * w, _MIN_OFF_CENTRE_PX):
+        return None
+    joined = mask | mask[:, ::-1]
+    return joined if joined.sum() <= (1 + _MAX_MIRROR_GROWTH) * mask.sum() else None
+
+
+def _inner_symmetric(mask):
+    """`mask` where its mirror image about the box's centre column is inside it too: a centred
+    layout that never leaves the balloon, because both sides are real, for when the joined mask
+    reaches over an outline that the balloon's lopsided shape put nearer on one side."""
+    inner = mask & mask[:, ::-1]
+    return inner if inner.any() else None
+
+
 def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLAIN):
     """Shape-aware counterpart to render_text_in_box()'s rectangle layout
     tries the largest font first, and for each size the
@@ -245,15 +292,39 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLA
     # Whole words down to the comfortable size, then hyphenated words down
     # to it, then smaller still, each time without a word cut in three pieces;
     # that is allowed only as a last resort.
-    passes = ((False, comfort, True), (True, comfort, False), (True, smallest, False),
-              (True, smallest, True))
-    for hyphenate, floor, split_twice_ok in passes:
+    # The side padding holds only down to the comfortable size: in a balloon too narrow for it
+    # there, text reaching the outline reads better than text shrunk below that size.
+    pad_em = scanlate_tuning.TYPESET_SIDE_PAD_EM if _has_notch(mask) else 0.0
+    passes = ((False, comfort, True, pad_em), (True, comfort, False, pad_em))
+    if pad_em:
+        passes += ((False, comfort, True, 0.0), (True, comfort, False, 0.0))
+    passes += ((True, smallest, False, 0.0), (True, smallest, True, 0.0))
+    for hyphenate, floor, split_twice_ok, pad_em in passes:
         for size in range(font_size, style.floor(floor, font_size) - 1, -1):
-            laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate)
+            laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate, pad_em)
             if laid_out is not None and (split_twice_ok
                                          or not _split_twice([ln[0] for ln in laid_out[1]])):
                 return laid_out
     return None
+
+
+# A balloon whose convex hull is this much bigger than it has a notch, lobe or tail; an oval's
+# hull adds well under 1%, the two-lobe and tailed balloons whose lines ran onto the outline 12-50%.
+_NOTCH_HULL_EXCESS = 0.05
+
+
+def _has_notch(mask) -> bool:
+    if not mask.any():
+        return False
+    try:
+        import cv2
+    except ImportError:
+        # OpenCV is optional and only adds the side padding; without it the text is laid out
+        # unpadded, as it was before the padding existed.
+        return False
+    hull = np.zeros(mask.shape, np.uint8)
+    cv2.fillPoly(hull, [cv2.convexHull(cv2.findNonZero(mask.astype(np.uint8)))], 1)
+    return hull.sum() > (1 + _NOTCH_HULL_EXCESS) * mask.sum()
 
 
 # A rectangle smaller than this share of the balloon would set the text far smaller than the
@@ -300,7 +371,7 @@ def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font, style
     return font, [(line, l + left, r + left, t + top) for line, l, r, t in placed]
 
 
-def _layout_at_size(draw, words, mask, mh, font, hyphenate):
+def _layout_at_size(draw, words, mask, mh, font, hyphenate, pad_em=0.0):
     line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
     widths = {}
 
@@ -310,11 +381,13 @@ def _layout_at_size(draw, words, mask, mh, font, hyphenate):
             widths[t] = bb[2] - bb[0]
         return widths[t]
 
+    pad = int(pad_em * (line_height - scanlate_tuning.TYPESET_LINE_GAP_PX))
     for n_lines in range(1, max(mh // line_height, 0) + 1):
         top0 = (mh - line_height * n_lines) // 2
         found = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
                  for i in range(n_lines)]
-        spans = [sp for sp in found if sp is not None]
+        spans = [(left + pad, right - pad) for left, right in (sp for sp in found if sp is not None)
+                 if right - left > 2 * pad]
         if len(spans) != len(found):
             continue
         queue = list(words)
@@ -417,11 +490,60 @@ def _note_missing_cjk_font(notes, regions) -> None:
 
 
 def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_layout: bool,
-                         style=_PLAIN):
-    """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline."""
-    laid_out = (_layout_in_rectangle(draw, text, mask, font_size, load_font, style)
-                if rect_layout else None)
-    return laid_out or _layout_in_mask(draw, text, mask, font_size, load_font, style)
+                         style=_PLAIN, dark=None):
+    """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline.
+    `dark`: boolean array the size of `mask`, True where the page is dark ink, so that centring
+    may spread the text over hatching but not over art, a frame or the outline."""
+    def lay_out(m):
+        laid_out = (_layout_in_rectangle(draw, text, m, font_size, load_font, style)
+                    if rect_layout else None)
+        return laid_out or _layout_in_mask(draw, text, m, font_size, load_font, style)
+
+    free = lay_out(mask)
+    joined = _symmetrised(mask)
+    for symmetric in ((joined, _inner_symmetric(mask)) if joined is not None else ()):
+        centred = lay_out(symmetric) if symmetric is not None else None
+        # Centring narrows each line, so it must not cost the balloon a smaller size or a
+        # different number of lines.
+        if centred is not None and (free is None or (
+                centred[0].size >= free[0].size and len(centred[1]) == len(free[1])
+                and not _recentred_too_far(free, centred, mask.shape[1]))) \
+                and not _on_dark_ink(draw, centred, mask, dark):
+            return centred
+    return free
+
+
+# Light hatching is mostly paper, so a sliver of dark pixels is what it takes to tell it from
+# art, a frame or the outline under the part of a line that lies outside the layout mask.
+_MAX_DARK_SHARE_OUTSIDE_MASK = 0.02
+_DARK_GRAY = 128
+
+
+def _on_dark_ink(draw, laid_out, mask, dark) -> bool:
+    """True when the part of `laid_out`'s lines outside `mask` lies over dark page pixels."""
+    if dark is None:
+        return False
+    font, placed = laid_out
+    outside = dark_outside = 0
+    for line, left, right, top in placed:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        x0 = int((left + right - (bbox[2] - bbox[0])) / 2)
+        rows = slice(max(top, 0), max(top + bbox[3] - bbox[1], 0))
+        cols = slice(max(x0, 0), max(x0 + bbox[2] - bbox[0], 0))
+        free_part = ~mask[rows, cols]
+        outside += int(free_part.sum())
+        dark_outside += int((dark[rows, cols] & free_part).sum())
+    return outside > 0 and dark_outside / outside > _MAX_DARK_SHARE_OUTSIDE_MASK
+
+
+def _recentred_too_far(free, centred, width: int) -> bool:
+    """True when the text of `centred` sits further than _MAX_RECENTRE_SHIFT of `width` sideways
+    from where `free` put it (compared by the mean centre of their lines, which may differ in
+    number and height)."""
+    def mean_centre(laid_out):
+        return sum((left + right) / 2 for _, left, right, _ in laid_out[1]) / len(laid_out[1])
+
+    return abs(mean_centre(centred) - mean_centre(free)) > _MAX_RECENTRE_SHIFT * width
 
 
 def _draw_laid_out(draw, box: dict, laid_out, align: str, fill, style=_PLAIN) -> None:
@@ -440,7 +562,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
                         mask=None, report: dict | None = None, rect_layout: bool = False,
-                        style: TypesetStyle = _PLAIN):
+                        style: TypesetStyle = _PLAIN, dark=None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
     report: when given, receives {"size": the font size that was drawn}.
@@ -476,7 +598,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     if mask is not None:
         load_font = (lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
                      else ImageFont.load_default(sz))
-        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout, style)
+        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout, style, dark)
         if laid_out is not None:
             if report is not None:
                 report["size"] = laid_out[0].size
@@ -713,6 +835,16 @@ def _sampled_inks(page, regions: list, match_color: bool):
     return [fade[0] if fade else ink for ink, fade in zip(inks, fades)], fades
 
 
+def _tilts_and_lines(page, regions: list):
+    """Per region its text angle, and for a sign whose lettering is one line on a pale band the
+    (strip, angle, size) of that line, which also gives the angle: the skew detector is thrown off by
+    the busy art round such a band."""
+    lines = [sign_text_line(page, b) if b.get("kind") == "sign" else None for b in regions]
+    angles = [line[1] if line else scanlate_tilt.estimate_text_angle(page, b)
+              for line, b in zip(lines, regions)]
+    return angles, lines
+
+
 def _text_fill(pil_img, box: dict, sampled=None):
     """The hand-set colour if any, then the colour sampled from the original lettering
     (when the person turned that on); else white lettering on a dark balloon,
@@ -796,12 +928,13 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         # style (scanlate_art_text); bubbles keep the balloon path below.
         captions = [b for b in to_render if b.get("kind") == "caption"]
         to_render = [b for b in to_render if b.get("kind") != "caption"]
+        to_render, art_signs = _split_art_signs(page, to_render)
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
         caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
                           for b, s in zip(captions, caption_styles)]
         # The ink is read before the erase below removes it.
         inks, fades = _sampled_inks(page, to_render, match_color)
-        angles = [scanlate_tilt.estimate_text_angle(page, b) for b in to_render]
+        angles, lines = _tilts_and_lines(page, to_render)
         _erase_site_stamps(page, bubbles)
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
@@ -819,10 +952,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
-                         rect_layout, look, angles, fades)
-        for b in bubbles:
-            if scanlate_sfx.is_glossed(b):
-                scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
+                         rect_layout, look, angles, fades, lines)
+        _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
         pil_img.save(result_path, "PNG")
         os.replace(result_path, out_path)
     finally:
@@ -835,37 +966,99 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
 # keeps each line centred on the balloon instead of on the part the hatching left. A bigger
 # notch (the waist of a two-lobe balloon) is real shape and stays.
 _MAX_DENT_FILL = 1.2
+# A dent is tone on the balloon's paper when at least this share of it is no darker than
+# CV_GREY_PAPER_FLOOR, and at most _DENT_MAX_OUTSIDE of it is the page's paper beyond the outline.
+# The spikes and speed lines that a jagged burst balloon meets are 55-90% light between their
+# strokes, and lines set into them ran onto the art.
+_DENT_MIN_PAPER = 0.9
+_DENT_MAX_OUTSIDE = 0.25
 
 
-def _without_small_dents(mask):
-    """`mask` with its convex hull filled in when that adds at most _MAX_DENT_FILL of its area."""
+def _without_small_dents(mask, page=None, outside=None, page_edge=None):
+    """`mask` with the dents in it filled in, when its convex hull adds at most _MAX_DENT_FILL of
+    its area. With `page` (the box's gray crop) only the parts of the hull that are
+    tone on the balloon's paper are filled: the notch where a lobe or the balloon's tail meets it
+    holds the dark art round the balloon, or the page's paper beyond its outline (`outside`, the
+    light paper reaching the box edge), and text set across it ran out of the balloon. A dent
+    touching `page_edge` (see _page_edge()) is filled whatever its tone."""
     if mask is None or not mask.any():
         return mask
     import cv2
     hull = np.zeros(mask.shape, np.uint8)
     cv2.fillPoly(hull, [cv2.convexHull(cv2.findNonZero(mask.astype(np.uint8)))], 1)
-    return hull.astype(bool) if hull.sum() <= _MAX_DENT_FILL * mask.sum() else mask
+    if hull.sum() > _MAX_DENT_FILL * mask.sum():
+        return mask
+    if page is None:
+        return hull.astype(bool)
+    paper = page >= scanlate_tuning.CV_GREY_PAPER_FLOOR
+    outside = np.zeros(mask.shape, bool) if outside is None else outside
+    count, parts = cv2.connectedComponents(((hull > 0) & ~mask).astype(np.uint8), connectivity=8)
+    filled = mask.copy()
+    for i in range(1, count):
+        part = parts == i
+        # A balloon cut off by the page's edge runs on past it, so a dent reaching that edge is
+        # its own lettering cut in half, not art beside it, however dark its strokes.
+        cut_by_page = page_edge is not None and page_edge[part].any()
+        if ((cut_by_page or paper[part].mean() >= _DENT_MIN_PAPER)
+                and outside[part].mean() <= _DENT_MAX_OUTSIDE):
+            filled |= part
+    return filled
+
+
+def _page_edge(page_shape, box: dict, shape):
+    """Boolean `shape` array of `box`: True on the page's outermost rows and columns and off the page."""
+    edge = np.zeros(shape, bool)
+    ph, pw = page_shape[:2]
+    if box["y"] <= 0: edge[: 1 - box["y"], :] = True
+    if box["x"] <= 0: edge[:, : 1 - box["x"]] = True
+    if box["y"] + shape[0] >= ph: edge[ph - 1 - box["y"]:, :] = True
+    if box["x"] + shape[1] >= pw: edge[:, pw - 1 - box["x"]:] = True
+    return edge
+
+
+def _box_gray(gray, box: dict, shape):
+    """The page's gray values under `box`, as an array of `shape` (the box's); 0 off the page."""
+    crop = np.zeros(shape, np.uint8)
+    x0, y0 = max(box["x"], 0), max(box["y"], 0)
+    x1, y1 = min(box["x"] + shape[1], gray.shape[1]), min(box["y"] + shape[0], gray.shape[0])
+    if x1 > x0 and y1 > y0:
+        crop[y0 - box["y"]:y1 - box["y"], x0 - box["x"]:x1 - box["x"]] = gray[y0:y1, x0:x1]
+    return crop
+
+
+def _layout_mask(image_path: str, b: dict, gray):
+    """The shape a balloon's text is set in: its interior with hatching dents filled in."""
+    mask = bubble_shape_mask(image_path, b, image=gray, margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
+    if mask is None:
+        return None
+    return _without_small_dents(mask, _box_gray(gray, b, mask.shape),
+                                balloon_outside_mask(image_path, b, image=gray),
+                                _page_edge(gray.shape, b, mask.shape))
 
 
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                      font_path: str | None, custom_fonts: dict | None, inks: list,
                      rect_layout: bool = False, style: TypesetStyle = _PLAIN,
                      angles: list | None = None,
-                     fades: "list[tuple | None] | None" = None) -> None:
+                     fades: "list[tuple | None] | None" = None,
+                     lines: "list[tuple | None] | None" = None) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
     then the real pass draws with sibling balloons held to a shared ratio. A balloon
     whose original lettering was tilted (`angles`, degrees) is set at that angle."""
-    masks = [(_without_small_dents(bubble_shape_mask(image_path, b, image=gray,
-                                                    margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX))
-              if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
-             for b in to_render]
+    masks = [_layout_mask(image_path, b, gray) if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS
+             else None for b in to_render]
 
     def draw(target, b, shape_mask, size, ink, report=None):
+        # Only a mask that centring would rebuild needs the dark pixels, so other balloons are
+        # drawn exactly as before.
+        extra: dict[str, Any] = ({"dark": _dark_under(gray, b, shape_mask.shape)}
+                                 if shape_mask is not None and gray is not None and _symmetrised(shape_mask) is not None
+                                 else {})
         render_text_in_box(target, b, b["translated_text"], font_size=size,
                            font_path=font_path,
                            font_category=b.get("font_category") or "regular",
                            custom_fonts=custom_fonts, mask=shape_mask, rect_layout=rect_layout, style=style,
-                           fill=_text_fill(target, b, ink), report=report)
+                           fill=_text_fill(target, b, ink), report=report, **extra)
 
     starts = [b.get("font_size", 18) for b in to_render]
     scratch = pil_img.copy()
@@ -879,16 +1072,17 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
             if m is not None:
                 _fill_balloon(pil_img, b, m, style.bubble_fill / 100)
     sizes = sibling_size_caps(list(zip(starts, fitted)))
-    for b, m, size, ink, angle, fade in zip(to_render, masks, sizes, inks,
-                                            angles or [0.0] * len(to_render),
-                                            fades or [None] * len(to_render)):
+    for b, m, size, ink, angle, fade, line in zip(to_render, masks, sizes, inks,
+                                                  angles or [0.0] * len(to_render),
+                                                  fades or [None] * len(to_render),
+                                                  lines or [None] * len(to_render)):
         region = (max(0, b["x"]), max(0, b["y"]), b["x"] + b["w"], b["y"] + b["h"])
         before = pil_img.crop(region) if fade else None
         tilted = False
-        if angle:
+        if angle or line:
             fill = _text_fill(pil_img, b, ink)
             tilted = scanlate_tilt.draw_tilted(
-                pil_img, b, m, angle, size,
+                pil_img, b, line[0] if line else m, angle, min(size, line[2]) if line else size,
                 lambda target, shifted, sz, shifted_mask: render_text_in_box(
                     target, shifted, b["translated_text"], font_size=sz, font_path=font_path,
                     font_category=b.get("font_category") or "regular", custom_fonts=custom_fonts,
@@ -899,6 +1093,48 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
             lettered = pil_img.crop(region)
             _fade_lettering(before, lettered, *fade)
             pil_img.paste(lettered, region[:2])
+
+
+def _dark_under(gray, box: dict, shape) -> "np.ndarray":
+    """Boolean array of `shape` (the box's): True where the page is dark ink; False off the page."""
+    dark = np.zeros(shape, bool)
+    x0, y0 = max(box["x"], 0), max(box["y"], 0)
+    x1, y1 = min(box["x"] + shape[1], gray.shape[1]), min(box["y"] + shape[0], gray.shape[0])
+    if x1 > x0 and y1 > y0:
+        dark[y0 - box["y"]:y1 - box["y"], x0 - box["x"]:x1 - box["x"]] = gray[y0:y1, x0:x1] < _DARK_GRAY
+    return dark
+
+
+def _split_art_signs(page, regions: list):
+    """(regions to erase and letter, regions that are art mistaken for signs). The art is
+    not erased: its translation is set beside it, as a sound effect's is."""
+    if not any(b.get("kind") == "sign" for b in regions):
+        return regions, []
+    import cv2
+    gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
+    art = [b for b in regions if is_art_mistaken_for_sign(gray, b)]
+    return [b for b in regions if not any(b is a for a in art)], art
+
+
+def _draw_glosses(pil_img, page, bubbles: list, art_signs: list, font_path) -> None:
+    """Sets beside each left-as-is sound effect its translation, and the same for each art
+    sign, inside its panel and clear of every other region, whose lettering is still there."""
+    for b in bubbles:
+        if scanlate_sfx.is_glossed(b):
+            scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
+    if not art_signs:
+        return
+    from scanlate_detect import detect_panels
+    from scanlate_regions import _panel_for_box
+    try:
+        panels = detect_panels("", image=page)
+    except ValueError:
+        panels = []
+    for a in art_signs:
+        index = _panel_for_box(a, panels)
+        scanlate_sfx.draw_gloss(pil_img, a, font_path=font_path,
+                                avoid=tuple(b for b in bubbles if b is not a),
+                                bounds=panels[index] if index is not None else None)
 
 
 def _fill_balloon(pil_img, box: dict, mask, share: float) -> None:
