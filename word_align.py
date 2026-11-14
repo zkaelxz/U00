@@ -196,11 +196,12 @@ def _group_aligned_words_into_lines(aligned_words, offset: float, min_pause_seco
     """
     if not aligned_words:
         return []
-    spans = _word_spans(source_text, [w for w, _, _ in aligned_words]) if source_text else None
+    text = source_text or ""
+    spans = _word_spans(text, [w for w, _, _ in aligned_words]) if text else None
 
     def text_of(first, last):
         if spans:
-            return source_text[spans[first][0]:spans[last][1]]
+            return text[spans[first][0]:spans[last][1]]
         return "".join(w for w, _, _ in aligned_words[first:last + 1])
 
     lines = []
