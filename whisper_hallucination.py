@@ -299,7 +299,7 @@ DROP_STOCK_PHRASE = "stock_phrase"
 DROP_INVENTED_LIST = "invented_list"
 # A loop over an hour of music can drop thousands of copies; the record only has to place them.
 MAX_DROP_RECORDS = 2000
-_drops = contextvars.ContextVar("whisper_drops", default=None)
+_drops: contextvars.ContextVar[list | None] = contextvars.ContextVar("whisper_drops", default=None)
 
 
 @contextlib.contextmanager
