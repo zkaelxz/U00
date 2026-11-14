@@ -174,6 +174,11 @@ def split_translation(text: str, weights: list):
     return [" ".join(words[a:b]) for a, b in zip(bounds, bounds[1:])]
 
 
+# Shown on each part when Baihe, not the model, decided where the English breaks.
+SPLIT_BY_LENGTH_NOTE = ("check: the model returned this sentence in one piece, so its English was "
+                        "split across the parts by length; check each part matches its audio")
+
+
 def settle_group(zh_parts: list, pieces: list):
     """The English for each fragment of one group given what the model
     returned per fragment id: the pieces as they are when each is non-empty

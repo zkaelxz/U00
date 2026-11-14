@@ -11,7 +11,7 @@ import { visibleRailGroups, type NavContext } from './navItems'
 import { Icon, navIconPath } from './navLinks'
 import './phoneBar.css'
 
-const BAR_LABELS = ['Library', 'Quick translate', 'Jobs']
+const BAR_LABELS = ['Library', 'Add', 'Jobs']
 const MORE_ICON = 'M5 12h.01M12 12h.01M19 12h.01'
 
 export function PhoneBar({ route, context, moreOpen, onMore }: { route: Route; context: NavContext; moreOpen: boolean; onMore: () => void }) {
@@ -25,7 +25,7 @@ export function PhoneBar({ route, context, moreOpen, onMore }: { route: Route; c
       {items.map(({ item, active }) => (
         <a key={item.label} href={routeHref(item.target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
           <Icon d={navIconPath(item.label)} />
-          <span>{item.label === 'Quick translate' ? 'Quick' : item.label}</span>
+          <span>{item.label}</span>
           {item.badge === 'running-jobs' && running > 0 && (
             <span className="phone-bar-badge" data-testid="phone-bar-jobs-count">{badgeText(running)}</span>
           )}

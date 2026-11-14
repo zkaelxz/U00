@@ -13,6 +13,8 @@ test.afterEach(async ({ page }) => {
 })
 
 const card = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Before you run' })
+// The Add box shows its run checks once it has a file.
+const AUDIO = { name: 'a.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') }
 
 test('installs Whisper in place, then Transcribe is available', async ({ page }) => {
   let installed = false
@@ -53,7 +55,7 @@ test('remote viewers see the state but no action buttons', async ({ page }) => {
   await expect(card(page).getByRole('button')).toHaveCount(0)
 })
 
-test('a key is added inline in Quick translate', async ({ page }) => {
+test('a key is added inline in the Add box', async ({ page }) => {
   await mockFirstRun(page)
   const posts: unknown[] = []
   await page.route('**/api/settings/keys/claude', (r) => {
@@ -62,7 +64,8 @@ test('a key is added inline in Quick translate', async ({ page }) => {
   })
   await page.route('**/api/diagnostics/**', (r) => r.fulfill({ status: 403, json: { code: 'forbidden', message: 'no' } }))
   await page.goto('/#/make-subtitles')
-  await expect(page.getByRole('region', { name: 'Quick translate' }).getByTestId('preflight-key')).toContainText('Missing')
+  await page.getByRole('region', { name: 'Add' }).getByLabel('Audio or video file').setInputFiles(AUDIO)
+  await expect(page.getByRole('region', { name: 'Add' }).getByTestId('preflight-key')).toContainText('Missing')
   await card(page).getByRole('button', { name: 'Add key' }).click()
   await card(page).getByRole('textbox', { name: 'Claude key' }).fill('not-a-real-key')
   await card(page).getByRole('button', { name: 'Save key' }).click()
@@ -75,6 +78,7 @@ test('a saved key the server does not pick up keeps the form open with the warni
   await page.route('**/api/settings/keys/claude', (r) => r.fulfill({ json: { engine: 'claude', configured: false } }))
   await page.route('**/api/diagnostics/**', (r) => r.fulfill({ status: 403, json: { code: 'forbidden', message: 'no' } }))
   await page.goto('/#/make-subtitles')
+  await page.getByRole('region', { name: 'Add' }).getByLabel('Audio or video file').setInputFiles(AUDIO)
   await card(page).getByRole('button', { name: 'Add key' }).click()
   await card(page).getByRole('textbox', { name: 'Claude key' }).fill('not-a-real-key')
   await card(page).getByRole('button', { name: 'Save key' }).click()

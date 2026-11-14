@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
+
 import { expect, test } from '@playwright/test'
 
 import { currentTime, FOUR_LINES, seedVideo, seekVideo, stubFullscreen } from './playerMocks'
@@ -127,6 +130,24 @@ test('full screen fills the screen when the video is pinned beside the lines', a
   await page.getByRole('button', { name: 'Full screen' }).click()
   await expect(page.getByRole('button', { name: 'Exit full screen' })).toBeVisible()
   await expect.poll(async () => (await box(page.locator('.review-stage'))).height).toBeGreaterThan(900 * 0.9)
+})
+
+test('with the video pinned beside the lines, Review opens at the top and the page ends with the lines section', async ({ page }) => {
+  // Sixty lines with the first flagged one far down: the starting line used to be scrolled into view, moving the page,
+  // and the bottom pager's screen-reader text escaped the lines scroller and stretched the page thousands of pixels.
+  const libraryDir = path.join(path.resolve(process.cwd(), '..'), 'frontend', 'test-results', 'e2e-library')
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+from core import Line
+db.save_lines(3, [Line(idx=i, start=i * 0.2, end=i * 0.2 + 0.15, zh=f'第{i}句', en=f'Line {i}', flag='uncertain' if i == 30 else None) for i in range(60)])
+`], { cwd: path.resolve(process.cwd(), '..') })
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.reload()
+  await expect(page.locator('.review-editor.has-side .review-line:not(.review-skeleton)')).toHaveCount(40)
+  await expect(page.locator('.review-line[aria-current="true"]')).toContainText('#31')
+  const scroll = () => page.evaluate(() => ({ y: window.scrollY, extra: document.documentElement.scrollHeight - window.innerHeight }))
+  await expect.poll(async () => (await scroll()).extra).toBeLessThan(200)
+  expect((await scroll()).y).toBe(0)
 })
 
 test('F and a double-click on the picture toggle full screen', async ({ page }) => {

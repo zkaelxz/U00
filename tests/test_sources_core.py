@@ -576,6 +576,41 @@ class TestFailureKinds:
         from sources import detect
         assert detect.classify(status, {}, "<p>x</p>", "https://a.invalid/", "") == [reason]
 
+    _CHAPTER = "<p>" + "这是一章免费的正文。" * 200 + "</p>"
+
+    def test_a_video_embed_is_not_drm(self):
+        from sources import detect
+        page = ('<html><body>' + self._CHAPTER + '<iframe src="https://www.youtube.com/embed/x" '
+                'allow="accelerometer; autoplay; encrypted-media; gyroscope"></iframe></body></html>')
+        assert detect.classify(200, {}, page, "https://a.invalid/c/1", "") == []
+        player = page.replace("</body>", "<script>navigator.requestMediaKeySystemAccess("
+                                         "'com.widevine.alpha', [])</script></body>")
+        assert FailureReason.DRM_DETECTED in detect.classify(200, {}, player, "https://a.invalid/", "")
+
+    def test_a_paid_chapters_menu_link_does_not_make_a_free_chapter_paid(self):
+        from sources import detect
+        page = ('<html><body><nav><a href="/paid">付费章节</a></nav>' + self._CHAPTER
+                + '</body></html>')
+        assert detect.classify(200, {}, page, "https://a.invalid/c/1", "") == []
+
+    def test_a_purchase_prompt_still_counts_on_a_long_page_and_on_a_short_one(self):
+        from sources import detect
+        long_page = '<html><body>' + self._CHAPTER + '<button>购买本章</button></body></html>'
+        assert FailureReason.PURCHASE_REQUIRED in detect.classify(
+            200, {}, long_page, "https://a.invalid/c/9", "")
+        short_page = '<html><body><p>试读</p><a href="/buy">购买本章</a></body></html>'
+        assert FailureReason.PURCHASE_REQUIRED in detect.classify(
+            200, {}, short_page, "https://a.invalid/c/9", "")
+        # A long preview whose call to action is a link, a button's value or written by a script.
+        for prompt in ('<a class="btn" href="/buy?c=9">购买本章</a>', '<input type="button" value="购买本章">',
+                       '<script>btn.textContent = "Unlock this chapter"</script>'):
+            page = '<html><body>' + self._CHAPTER + prompt + '</body></html>'
+            assert FailureReason.PURCHASE_REQUIRED in detect.classify(
+                200, {}, page, "https://a.invalid/c/9", ""), prompt
+        # A paid-chapters section named in the page's own text, not a menu link, still counts.
+        paid = '<html><body>' + self._CHAPTER + '<p>本章为付费章节</p></body></html>'
+        assert FailureReason.PURCHASE_REQUIRED in detect.classify(200, {}, paid, "https://a.invalid/c/9", "")
+
     def test_challenge_on_a_503_is_still_a_challenge_not_a_server_error(self):
         from sources import detect
         got = detect.classify(503, {"cf-mitigated": "challenge"}, "", "https://a.invalid/", "")

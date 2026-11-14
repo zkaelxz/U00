@@ -16,7 +16,7 @@ const NONE = { faster_whisper: false, ollama_reachable: false, key_claude: false
 const ids = (steps: { id: string }[]) => steps.map((s) => s.id)
 
 describe('firstRunSteps', () => {
-  it('lists key, transcription and Quick translate for an admin with nothing set up', () => {
+  it('lists key, transcription and Add for an admin with nothing set up', () => {
     const steps = firstRunSteps({ canSetUp: true, canCreate: true, readiness: NONE, totalDramas: 0 })
     expect(steps.map((s) => [s.id, s.done])).toEqual([['key', false], ['transcription', false], ['subtitles', false]])
     expect(steps.map((s) => s.href)).toEqual(['#/settings', '#/diagnostics?card=recommended', '#/make-subtitles'])

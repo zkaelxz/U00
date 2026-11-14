@@ -2,25 +2,25 @@ import { expect, test } from '@playwright/test'
 
 import { mockFirstRun } from './getStartedMocks'
 
-// Empty-library view: a card that points at the Quick translate page and the
+// Empty-library view: a card that points at the Add page and the
 // ways to find a title. Stats are mocked; nothing real is changed.
 
 test('lists the first steps with no key, and hides until shown again', async ({ page }) => {
   await mockFirstRun(page)
   await page.goto('/')
   const view = page.getByRole('region', { name: 'Get started' })
-  await expect(view.getByRole('link', { name: 'Quick translate', exact: true })).toHaveAttribute('href', '#/make-subtitles')
+  await expect(view.getByRole('link', { name: 'Add', exact: true })).toHaveAttribute('href', '#/make-subtitles')
   await expect(view.getByRole('link', { name: 'Add a translation key' })).toHaveAttribute('href', '#/settings')
   await expect(view.getByRole('link', { name: 'Install transcription' })).toHaveAttribute('href', '#/diagnostics?card=recommended')
-  // The flow itself lives on its own page now.
-  await expect(page.getByRole('region', { name: 'Quick translate' })).toHaveCount(0)
-  await expect(page.getByLabel('Audio or video file')).toHaveCount(0)
-  // One entry on the Library while the card shows: the header button waits for the card to go.
-  await expect(page.locator('.app-main').getByRole('link', { name: 'Quick translate', exact: true })).toHaveCount(1)
+  // The Add box is on the Library; a run itself shows on the Add page.
+  await expect(page.getByRole('region', { name: 'Add' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Make English subtitles' })).toHaveCount(0)
+  // No second way in from the header.
+  await expect(page.locator('.page-head').getByRole('link')).toHaveCount(0)
 
   await view.getByRole('button', { name: 'Hide' }).click()
   await expect(view).toHaveCount(0)
-  await expect(page.locator('.app-main').getByRole('link', { name: 'Quick translate', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'Add' })).toBeVisible()
   await page.reload()
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
@@ -28,23 +28,20 @@ test('lists the first steps with no key, and hides until shown again', async ({ 
   await expect(page.getByRole('region', { name: 'Get started' })).toBeVisible()
 })
 
-test('the card opens the Quick translate page', async ({ page }) => {
+test('the card opens the Add page', async ({ page }) => {
   await mockFirstRun(page)
   await page.goto('/')
-  await page.getByRole('region', { name: 'Get started' }).getByRole('link', { name: 'Quick translate', exact: true }).click()
+  await page.getByRole('region', { name: 'Get started' }).getByRole('link', { name: 'Add', exact: true }).click()
   await expect(page).toHaveURL(/#\/make-subtitles$/)
-  await expect(page.getByRole('heading', { name: 'Quick translate', level: 1 })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Quick translate' }).getByLabel('Audio or video file')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Add', level: 1 })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Add' }).getByRole('textbox', { name: 'Paste a link' })).toBeVisible()
 })
 
-test('a library with a title shows one small Quick translate button and no first-run card', async ({ page }) => {
+test('a library with a title shows the Add box and no first-run card', async ({ page }) => {
   await mockFirstRun(page, 1)
   await page.goto('/')
   await expect(page.getByTestId('stats')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Get started' })).toHaveCount(0)
-  const button = page.locator('.app-main').getByRole('link', { name: 'Quick translate', exact: true })
-  await expect(button).toHaveCount(1)
-  await expect(button).toHaveClass(/btn-sm/)
-  await expect(button).toHaveAttribute('href', '#/make-subtitles')
-  await expect(page.getByRole('region', { name: 'Quick translate' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Add' }).getByRole('heading', { name: 'Add something to translate' })).toBeVisible()
+  await expect(page.locator('.page-head').getByRole('link')).toHaveCount(0)
 })

@@ -93,6 +93,18 @@ export function stepForJob(jobId: string): FlowStep | null {
 export const reattachIds = (dramaId: number): string[] =>
   [`extract_audio_${dramaId}`, `transcribe_${dramaId}`, `translate_${dramaId}`]
 
+/** The finished job of the step a reloaded run was on, when none of its jobs is still going: that step
+ *  ended while the page was closed, so the run carries on from its result. The transcribe job is taken
+ *  over the extraction job that followed it, because only the transcribe record carries why it found no lines. */
+export function finishedStepJob<J>(step: FlowStep, dramaId: number, finished: ReadonlyMap<string, J>): J | null {
+  const ids = reattachIds(dramaId).filter((id) => stepForJob(id) === step).reverse()
+  for (const id of ids) {
+    const job = finished.get(id)
+    if (job) return job
+  }
+  return null
+}
+
 export const mediaTypeFor = (filename: string): 'video_drama' | 'audio_drama' =>
   isVideoFile(filename) ? 'video_drama' : 'audio_drama'
 
@@ -104,8 +116,10 @@ function titleStem(filename: string): string {
 
 export const titleFor = (filename: string, typed: string): string => typed.trim() || titleStem(filename)
 
-// In Latin-letter widths; a CJK or Hangul character takes two.
-const SUMMARY_TITLE_WIDTH = 24
+// In Latin-letter widths; a CJK or Hangul character takes two. 20 keeps the summary on one line under
+// "Change options" on a 360px phone with room to spare: at 24 it fitted by 2px, and wrapped where
+// the fonts render a little wider.
+const SUMMARY_TITLE_WIDTH = 20
 const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u
 
 /** The closed Options line. A file name can be hundreds of characters with no spaces, which would

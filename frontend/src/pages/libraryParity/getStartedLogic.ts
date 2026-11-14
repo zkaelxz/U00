@@ -41,6 +41,6 @@ export function firstRunSteps({ canSetUp, canCreate, readiness, totalDramas }: F
     done: !!readiness?.faster_whisper,
     href: canSetUp ? routeHref({ name: 'diagnostics', card: 'recommended' }) : null,
   })
-  if (canCreate) steps.push({ id: 'subtitles', label: 'Quick translate', done: totalDramas > 0, href: routeHref({ name: 'make-subtitles' }) })
+  if (canCreate) steps.push({ id: 'subtitles', label: 'Add', done: totalDramas > 0, href: routeHref({ name: 'make-subtitles' }) })
   return steps
 }

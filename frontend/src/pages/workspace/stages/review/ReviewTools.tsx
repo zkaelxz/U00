@@ -6,7 +6,8 @@ import { browserStorage } from '../../../../hooks/usePersistedState'
 import { useRoute } from '../../../../router'
 import { useSimple } from '../../StageContext'
 import {
-  groupOfTool, readLastTab, seedFirstCard, shownGroups, shownTools, writeLastTab, type ReviewTool, type ReviewToolsGroup,
+  groupOfTool, readAddedTools, readLastTab, seedFirstCard, shownGroups, shownTools, writeAddedTools, writeLastTab,
+  type ReviewTool, type ReviewToolsGroup,
 } from './reviewToolsTabs'
 
 const ID_PREFIX = 'review-tools'
@@ -55,9 +56,12 @@ interface Props {
 // the first time it is shown and then stays, so open folds and drafts survive a switch.
 export function ReviewTools({ dramaId, status, tools, attention = {}, request = null }: Props) {
   // A link or remembered choice for a group Simple leaves out opens Look for problems.
+  // A button that needs a tool Simple leaves out adds it for this title: Transcribe this gap
+  // starts its run in Re-transcribe, which must be mounted to start it and to apply what it heard.
   const simple = useSimple()
-  const visibleTools = useMemo(() => shownTools(simple), [simple])
-  const shown = useMemo(() => shownGroups(simple), [simple])
+  const [added, setAdded] = useState<ReadonlySet<ReviewTool>>(() => readAddedTools(browserStorage(), dramaId))
+  const visibleTools = useMemo(() => shownTools(simple, added), [simple, added])
+  const shown = useMemo(() => shownGroups(simple, added), [simple, added])
   const allowed = useCallback((g: ReviewToolsGroup) => shown.some((x) => x.id === g), [shown])
   const route = useRoute()
   const linked = route.name === 'drama' && route.id === dramaId ? route.tools : undefined
@@ -69,24 +73,33 @@ export function ReviewTools({ dramaId, status, tools, attention = {}, request = 
   })
   const [visited, setVisited] = useState<ReadonlySet<ReviewToolsGroup>>(() => new Set([tab]))
 
-  const select = useCallback((g: ReviewToolsGroup) => {
-    // A link for a group Simple leaves out keeps the group that is open.
-    if (!allowed(g)) return
+  const open = useCallback((g: ReviewToolsGroup) => {
     seedFirstCard(browserStorage(), g)
     setTabState(g)
     setVisited((v) => (v.has(g) ? v : new Set(v).add(g)))
     writeLastTab(browserStorage(), dramaId, g)
-  }, [dramaId, allowed])
+  }, [dramaId])
+  const select = useCallback((g: ReviewToolsGroup) => {
+    // A link for a group Simple leaves out keeps the group that is open.
+    if (allowed(g)) open(g)
+  }, [allowed, open])
 
   // A link's group wins over the remembered one, also while the stage is already open.
+  // Only when the link changes: adding a tool must not send the open group back to the link's.
+  const appliedLink = useRef<string | null>(null)
   useEffect(() => {
-    if (linked) select(linked)
-  }, [linked, select])
-  // A request for a tool this view leaves out keeps the group that is open,
-  // rather than opening a group where that tool is not shown.
+    const key = linked ? `${dramaId}:${linked}` : null
+    if (linked && key !== appliedLink.current) select(linked)
+    appliedLink.current = key
+  }, [dramaId, linked, select])
   const selectTool = useCallback((tool: ReviewTool) => {
-    if (visibleTools.some((t) => t.id === tool)) select(groupOfTool(tool))
-  }, [visibleTools, select])
+    if (!added.has(tool)) {
+      const next = new Set(added).add(tool)
+      setAdded(next)
+      writeAddedTools(browserStorage(), dramaId, next)
+    }
+    open(groupOfTool(tool))
+  }, [added, dramaId, open])
   const seenSeq = useRef(request?.seq ?? 0)
   useEffect(() => {
     if (request && request.seq !== seenSeq.current) {

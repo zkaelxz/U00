@@ -145,10 +145,10 @@ test('a 401 mid-visit shows a sign-in overlay above the still-mounted app', asyn
 })
 
 test('a 401 with a draft open keeps the draft; signing in from another tab brings it back', async ({ page }) => {
-  // New title is for sessions that hold library.create.
+  // The Add box, and with it New title, is for sessions that hold library.create.
   const s = await mockAuth(page, { ...ME.signedIn, permissions: [...ME.signedIn.permissions, 'library.create'] })
   await page.goto('/#/library')
-  await page.getByRole('button', { name: 'New title', exact: true }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   const title = page.getByRole('dialog', { name: 'New title' }).getByLabel('English title')
   await title.fill('Unsaved draft title')
   // The session ends on the server; the next jobs read (on focus) gets the 401.
