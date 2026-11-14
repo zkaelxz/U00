@@ -39,8 +39,8 @@ import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
 import {
-  currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, openFix, parkFix,
-  positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, spokenOrder, stepIndex,
+  currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, openFix, parkedOutcome,
+  parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, spokenOrder, stepIndex,
   titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 import './watch.css'
@@ -567,19 +567,20 @@ function useLineFix({ id, ordered, lineIndex, canEdit, ready, setLines, player, 
       const store = browserSession()
       const parked = readParkedFix(id, store)
       if (!parked) return
-      // The open box holds it from here.
+      // From here the open box holds it, or there is nothing to bring back.
       unparkFix(id, store)
-      if (!lineIndex.has(parked.lineId)) {
-        setStatus(RESTORE_GONE)
-        return
+      const index = lineIndex.get(parked.lineId)
+      const outcome = parkedOutcome(parked, index === undefined ? undefined : ordered[index])
+      if (outcome === 'gone') setStatus(RESTORE_GONE)
+      else if (outcome === 'open') {
+        setFix(unparkedFix(parked))
+        setStatus(RESTORED)
       }
-      setFix(unparkedFix(parked))
-      setStatus(RESTORED)
     }
     const running = leavingSaves.get(id)
     if (running) void running.then(offer)
     else offer()
-  }, [id, ready, canEdit, lineIndex])
+  }, [id, ready, canEdit, lineIndex, ordered])
 
   const startFix = () => {
     if (!canEdit || fix || !ready) return
@@ -595,6 +596,8 @@ function useLineFix({ id, ordered, lineIndex, canEdit, ready, setLines, player, 
 
   const cancel = () => {
     setFix(null)
+    // A fix brought back and then dropped is in no box any more, so the sentence that says it is goes with it.
+    setStatus('')
     focus(focusAfterFix('cancel'))
   }
 

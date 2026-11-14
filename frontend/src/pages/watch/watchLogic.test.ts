@@ -5,8 +5,8 @@ import type { ReviewLine } from '../../types/review'
 import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
   clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
-  lineHeading, lineToFix, openFix, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, spokenOrder,
-  stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
+  lineHeading, lineToFix, openFix, parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix,
+  spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 
 const line = (id: number, start: number, end: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -262,6 +262,15 @@ describe('the fix kept from being lost', () => {
     expect(() => parkFix(3, openFix(lines[1]), throwing)).not.toThrow()
     expect(readParkedFix(3, null)).toBeNull()
     expect(readParkedFix(3, throwing)).toBeNull()
+  })
+  it('on the next visit opens again, unless its line is gone or already says the fix', () => {
+    const parked = { lineId: 2, seen: 'en 2', draft: 'Mine' }
+    expect(parkedOutcome(parked, undefined)).toBe('gone')
+    expect(parkedOutcome(parked, { en: 'en 2' })).toBe('open')
+    // Changed by someone else meanwhile: it opens, and Save is then refused with what the line says now.
+    expect(parkedOutcome(parked, { en: 'Theirs' })).toBe('open')
+    // The save sent on leaving went through and only its answer was lost.
+    expect(parkedOutcome(parked, { en: 'Mine' })).toBe('saved')
   })
   it('opens again measured against the English seen first, so a line changed since is refused on Save', () => {
     expect(unparkedFix({ lineId: 2, seen: 'en 2', draft: 'Mine' })).toEqual({ lineId: 2, seen: 'en 2', draft: 'Mine', conflict: false, now: null, error: null })

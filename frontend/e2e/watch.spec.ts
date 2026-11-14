@@ -50,10 +50,13 @@ const pauseButton = (page: Page) => page.getByRole('button', { name: 'Pause', ex
 const field = (page: Page) => now(page).getByRole('textbox', { name: 'English' })
 const audioTime = (page: Page) => page.locator('audio').evaluate((a) => (a as HTMLAudioElement).currentTime)
 const isSave = (r: Request) => r.method() === 'POST' && /\/api\/lines\/dramas\/3\/lines\/\d+$/.test(new URL(r.url()).pathname)
-// The keys answer once the title is known to play, which can be after the lines are listed.
+// The keys answer once the title is known to play, which can be after the lines are listed. The page takes its
+// newest key handler just after the draw that shows both, so a key sent the instant they show can still be missed:
+// two frames later it cannot.
 const ready = async (page: Page) => {
   await expect(list(page).getByRole('listitem')).toHaveCount(24)
   await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
 }
 // Every save the page sends from here on, by its body.
 const saves = (page: Page) => {
@@ -279,6 +282,56 @@ test.describe('with sound', () => {
     expect((await sent).postDataJSON()).toEqual({ en: 'Line 2, kept for later', expected: { en: 'Line 2' } })
     await expect(now(page).getByRole('status')).toHaveText('Saved.')
     await expect(row(page, 2)).toContainText('Line 2, kept for later')
+  })
+
+  test('a fix brought back and then cancelled is dropped, and the sentence about it goes too', async ({ page }) => {
+    await page.route(/\/api\/lines\/dramas\/3\/lines\/\d+$/, (r) => r.request().method() === 'POST'
+      ? r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'boom' } } })
+      : r.fallback())
+    await page.goto('/#/watch/3')
+    await ready(page)
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('e')
+    await field(page).fill('Line 2, not wanted after all')
+    const refused = page.waitForResponse((r) => isSave(r.request()))
+    await page.getByRole('link', { name: 'Work on this title' }).click()
+    expect((await refused).status()).toBe(500)
+    await page.goto('/#/watch/3')
+    await ready(page)
+    await expect(field(page)).toHaveValue('Line 2, not wanted after all')
+    await expect(now(page).getByRole('status')).toHaveText('Your fix from before was not saved. It is back in the box.')
+    await now(page).getByRole('button', { name: 'Cancel' }).click()
+    await expect(field(page)).toHaveCount(0)
+    await expect(now(page).getByRole('status')).toHaveText('')
+    await expect(row(page, 2)).not.toContainText('not wanted')
+    expect(await page.evaluate(() => sessionStorage.getItem('baihe.watch.draft.3'))).toBeNull()
+  })
+
+  test('a fix whose save on leaving went through, though its answer was lost, is not offered back', async ({ page }) => {
+    // The server saves the line; the page never hears so.
+    await page.route(/\/api\/lines\/dramas\/3\/lines\/\d+$/, async (r) => {
+      if (r.request().method() !== 'POST') return r.fallback()
+      await r.fetch()
+      await r.abort()
+    })
+    await page.goto('/#/watch/3')
+    await ready(page)
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('e')
+    await field(page).fill('Line 2, saved unheard')
+    const lost = page.waitForEvent('requestfailed', isSave)
+    await page.getByRole('link', { name: 'Work on this title' }).click()
+    await lost
+    expect(await page.evaluate(() => sessionStorage.getItem('baihe.watch.draft.3'))).not.toBeNull()
+    await page.unroute(/\/api\/lines\/dramas\/3\/lines\/\d+$/)
+    await page.goto('/#/watch/3')
+    await ready(page)
+    await expect(row(page, 2)).toContainText('Line 2, saved unheard')
+    await expect(field(page)).toHaveCount(0)
+    await expect(now(page).getByRole('status')).toHaveText('')
+    expect(await page.evaluate(() => sessionStorage.getItem('baihe.watch.draft.3'))).toBeNull()
   })
 
   test('closing the tab with a fix typed asks first, and not when the box holds what the line says', async ({ context }) => {
@@ -517,12 +570,15 @@ test.describe('with sound', () => {
     const b = await boxes(page)
     expect(b.maxScroll - b.scrollTop).toBeLessThan(1)
 
-    // A press on a row brings it back: the next line starts and the list moves with it.
+    // A press on a row brings it back: the next line starts and the list moves with it. Paused there, so the place is
+    // measured without racing the line after.
     await rowButton(page, 17).click()
-    await expect.poll(() => currentRow(page)).toBe(18)
+    await expect.poll(() => currentRow(page), { timeout: 15_000 }).toBeGreaterThan(17)
+    await pauseButton(page).click()
+    const spoken = await currentRow(page)
     await expect(async () => {
       const b = await boxes(page)
-      expect((b.rows[17].top - b.list.top) / b.list.height).toBeCloseTo(0.3, 1)
+      expect((b.rows[spoken - 1].top - b.list.top) / b.list.height).toBeCloseTo(0.3, 1)
     }).toPass()
   })
 
@@ -535,7 +591,8 @@ test.describe('with sound', () => {
     const y = await page.evaluate(() => window.scrollY)
     expect(y).toBeGreaterThan(0)
     await list(page).evaluate((ol) => ol.querySelectorAll('button')[7].click())
-    await expect.poll(() => currentRow(page)).toBe(10)
+    // On past a line change, however slowly the sound starts.
+    await expect.poll(() => currentRow(page), { timeout: 15_000 }).toBeGreaterThan(8)
     await expect.poll(async () => (await boxes(page)).scrollTop).toBeGreaterThan(0)
     expect(await page.evaluate(() => window.scrollY)).toBe(y)
   })

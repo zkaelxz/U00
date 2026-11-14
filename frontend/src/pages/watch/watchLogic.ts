@@ -182,6 +182,13 @@ export function readParkedFix(dramaId: number, store: Store | null): ParkedFix |
   return null
 }
 
+/** What a parked fix comes to on the next visit: its line is gone; the line already says it (the save went through
+ *  and only its answer was lost), so there is nothing to bring back; or it opens again. */
+export function parkedOutcome(parked: ParkedFix, line: Pick<ReviewLine, 'en'> | undefined): 'gone' | 'saved' | 'open' {
+  if (!line) return 'gone'
+  return fixIsDirty({ seen: line.en, draft: parked.draft }) ? 'open' : 'saved'
+}
+
 /** A parked fix opened again: measured against the English that was seen when it was first opened, so a line
  *  changed since is refused on Save and shown under It now says. */
 export const unparkedFix = (p: ParkedFix): LineFix => ({ ...openFix({ id: p.lineId, en: p.seen }), draft: p.draft })
