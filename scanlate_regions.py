@@ -15,7 +15,7 @@ import numpy as np
 
 import scanlate_tuning
 
-from scanlate_detect import (TEXT_REGION_KINDS, classify_text_regions, detect_panels,
+from scanlate_detect import (TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions, detect_panels,
                              inset_box_for_ocr, page_gray)
 
 
@@ -201,6 +201,13 @@ def split_separate_lettering(gray, box: dict) -> list:
     x0, y0 = max(0, box["x"]), max(0, box["y"])
     roi = gray[y0:min(h, y0 + box["h"]), x0:min(w, x0 + box["w"])]
     if not roi.size:
+        return [box]
+    # A tall balloon of vertical lettering is one region however its columns
+    # fall apart: the gaps between phrases would otherwise cut it into pieces
+    # that are erased and fitted separately. Horizontal lettering in one
+    # outline still splits, since lobes and joined frames are drawn that way.
+    # The probe is CJK because vertical lettering is only ever CJK.
+    if _holds_balloon_interior(roi) and estimate_text_orientation(gray, box, "zh") == "vertical":
         return [box]
     ink = (roi < int(min(max(150, float(np.median(roi)) * 0.8), 240))).astype(np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
