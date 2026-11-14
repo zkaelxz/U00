@@ -688,6 +688,30 @@ class TestFilterHallucinatedSegments:
         assert params["min_repeat_count"].default == 4
 
 
+class TestDropRecord:
+    """What the filters remove is kept for the raw transcript, so the speech coverage
+    check can name the filter instead of saying Whisper heard nothing."""
+
+    def test_each_removed_segment_is_recorded_with_its_reason(self):
+        from whisper_hallucination import recording_drops
+        loop = [{"start": 10.0 + i, "end": 10.8 + i, "text": "谢谢"} for i in range(5)]
+        outro = [{"start": 60.0, "end": 62.0, "text": "Thanks for watching!"}]
+        with recording_drops() as dropped:
+            kept = filter_hallucinated_segments([{"start": 0.0, "end": 2.0, "text": "你好"}, *loop, *outro])
+        assert [s["text"] for s in kept] == ["你好", "谢谢"]
+        assert [(d["start"], d["reason"]) for d in dropped] == [
+            (11.0, "repeat"), (12.0, "repeat"), (13.0, "repeat"), (14.0, "repeat"), (60.0, "stock_phrase")]
+        assert dropped[-1]["text"] == "Thanks for watching!"
+
+    def test_a_filter_outside_a_run_records_nothing(self):
+        from whisper_hallucination import recording_drops
+        loop = [{"start": float(i), "end": i + 0.8, "text": "谢谢"} for i in range(5)]
+        filter_hallucinated_segments(loop)
+        with recording_drops() as dropped:
+            pass
+        assert dropped == []
+
+
 class TestStockPhraseFilter:
     def _seg(self, start, end, text):
         return {"start": start, "end": end, "text": text}
@@ -2500,6 +2524,63 @@ class TestExtendEndsToSpeech:
     def test_a_line_ending_in_silence_keeps_its_end(self):
         segs = [{"start": 1.0, "end": 2.5, "text": "a"}]
         assert segment_splitting.extend_ends_to_speech(segs, [(1.0, 1.8)])[0]["end"] == 2.5
+
+    @staticmethod
+    def _levels(loud_until: float, quiet_from: float = None, quiet_s: float = 9.0, length: float = 4.0):
+        """dB per 10 ms: -20 dB of speech, with -60 dB from quiet_from for quiet_s."""
+        levels = [-20.0] * int(round(length / 0.01))
+        if quiet_from is not None:
+            for j in range(int(round(quiet_from / 0.01)), min(int(round((quiet_from + quiet_s) / 0.01)), len(levels))):
+                levels[j] = -60.0
+        return levels
+
+    def test_growth_stops_where_the_audio_goes_quiet_inside_a_longer_span(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        out = segment_splitting.extend_ends_to_speech(segs, [(0.0, 9.0)], levels=self._levels(2.2, quiet_from=2.2))
+        assert out[0]["end"] == pytest.approx(2.2)
+
+    def test_a_dip_shorter_than_the_quiet_hold_does_not_stop_growth(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        levels = self._levels(2.2, quiet_from=2.2, quiet_s=segment_splitting.SPEECH_END_QUIET_S / 2)
+        out = segment_splitting.extend_ends_to_speech(segs, [(1.0, 2.4)], levels=levels)
+        assert out[0]["end"] == pytest.approx(2.4)
+
+    def test_audio_that_never_goes_quiet_grows_as_without_levels(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 5.0, "end": 6.0, "text": "b"}]
+        out = segment_splitting.extend_ends_to_speech(segs, [(1.0, 2.3), (5.0, 6.2)],
+                                                      levels=self._levels(9.0, length=7.0))
+        assert [round(s["end"], 2) for s in out] == [2.3, 6.2]
+
+    def test_quiet_already_at_the_end_keeps_the_end(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        out = segment_splitting.extend_ends_to_speech(segs, [(1.0, 2.4)], levels=self._levels(1.9, quiet_from=1.95))
+        assert out[0]["end"] == 2.0
+
+
+def test_loudness_levels_follow_the_audio_in_ten_millisecond_steps():
+    import numpy as np
+    import vad_segments
+    sr = 16000
+    t = np.arange(sr) / sr
+    audio = np.concatenate([0.5 * np.sin(2 * np.pi * 440 * t), np.zeros(sr)]).astype(np.float32)
+    levels = vad_segments.levels_db(audio, sr)
+    assert len(levels) == 200
+    assert levels[50] == pytest.approx(20 * np.log10(0.5 / np.sqrt(2)), abs=0.5)
+    assert levels[150] < -100
+
+
+def test_whisper_line_ends_stop_where_the_audio_goes_quiet(monkeypatch):
+    import types
+    import numpy as np
+    import vad_segments
+    sr = 16000
+    audio = np.concatenate([0.3 * np.ones(int(2.2 * sr)), np.zeros(int(0.8 * sr)), 0.3 * np.ones(sr)]).astype(np.float32)
+    monkeypatch.setitem(sys.modules, "faster_whisper",
+                        types.SimpleNamespace(decode_audio=lambda path, sampling_rate: audio))
+    monkeypatch.setattr(vad_segments, "speech_spans", lambda audio, sr, **kw: [vad_segments.Span(0.0, 4.0)])
+    segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+    out = whisper_transcribe._fit_to_speech(segs, "audio.wav")
+    assert out[0]["end"] == pytest.approx(2.2, abs=0.02)
 
 
 class TestTrimStartsToSpeech:
