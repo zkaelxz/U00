@@ -8,11 +8,11 @@
   color: inherit; text-decoration: none;
 }
 .title-step.is-current .title-step-link { border-color: var(--accent, #1f6fe0); }
-.title-step.is-open .title-step-link { border-bottom-color: var(--accent, #1f6fe0); background: var(--chip, #eef2f9); }
+.title-step.is-open .title-step-link { border-bottom-color: var(--accent, #1f6fe0); background: var(--surface-2); }
 .title-step.is-todo { opacity: 0.8; }
 .title-step-dot {
   flex: none; width: 1.8rem; height: 1.8rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700;
-  background: var(--chip, #eef2f9); color: inherit;
+  background: var(--surface-2); color: inherit;
 }
 .title-step.is-done .title-step-dot { background: #1f9d63; color: #fff; }
 .title-step.is-current .title-step-dot { background: var(--accent, #1f6fe0); color: #fff; }

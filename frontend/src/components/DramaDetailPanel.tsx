@@ -35,6 +35,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
   const [confirming, setConfirming] = useState(false)
   const [typed, setTyped] = useState('')
   const [deleteError, setDeleteError] = useState<unknown>(null)
+  const [deleting, setDeleting] = useState(false)
   const [moreSummary, setMoreSummary] = useState(false)
   const [copying, setCopying] = useState(false)
   // The copy route needs library.create, which members don't hold.
@@ -53,10 +54,18 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
     )
   }
 
+  // One request per confirmation: a second click while the first is in flight
+  // sent a second delete for a title the first was already removing.
   const remove = () => {
+    if (deleting) return
+    setDeleting(true)
+    setDeleteError(null)
     deleteDrama(dramaId).then(
       (r) => onDeleted?.(r),
-      (e: unknown) => setDeleteError(e),
+      (e: unknown) => {
+        setDeleteError(e)
+        setDeleting(false)
+      },
     )
   }
 
@@ -144,10 +153,10 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
               onChange={(e) => setTyped(e.target.value)}
             />
             <div className="actions">
-              <button type="button" className={buttonClass('danger')} disabled={!canConfirmDelete(typed)} onClick={remove}>
-                Delete permanently
+              <button type="button" className={buttonClass('danger')} disabled={deleting || !canConfirmDelete(typed)} onClick={remove}>
+                {deleting ? 'Deleting…' : 'Delete permanently'}
               </button>
-              <button type="button" className={buttonClass('ghost')} onClick={() => { setConfirming(false); setTyped(''); setDeleteError(null) }}>
+              <button type="button" className={buttonClass('ghost')} disabled={deleting} onClick={() => { setConfirming(false); setTyped(''); setDeleteError(null) }}>
                 Cancel
               </button>
             </div>
