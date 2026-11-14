@@ -559,7 +559,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             seg.pop(_SPAN_KEY, None)
         if filter_hallucination_repeats:
             # A default run calls the filter exactly as it always has.
-            extra = ({} if stock_isolation_sec == STOCK_PHRASE_ISOLATION_SEC
+            extra: dict = ({} if stock_isolation_sec == STOCK_PHRASE_ISOLATION_SEC
                      else {"stock_isolation_sec": stock_isolation_sec})
             result = filter_hallucinated_segments(result, filter_hallucination_repeats, **extra)
         return result
