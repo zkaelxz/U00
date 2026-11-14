@@ -1607,6 +1607,35 @@ class TestQwen3Backends:
         assert background_jobs.get_status(job_id)["result"]["asr_backend"] == "qwen3_asr"
         _clear(job_id)
 
+    def test_qwen3_text_gets_the_same_screens_as_whisper_text(self, isolated_db, monkeypatch):
+        """Whisper's text is screened inside transcribe_for_timing; Qwen's replaces it
+        later, so an isolated credit line is dropped and an over-fast line is flagged."""
+        import asr_backend
+        import whisper_hallucination as wh
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: [
+            {"start": 0.0, "end": 1.5, "text": "一"}, {"start": 2.0, "end": 3.0, "text": "二"},
+            {"start": 30.0, "end": 31.5, "text": "四"}, {"start": 60.0, "end": 61.0, "text": "三"}])
+        qwen = {0.0: "你好啊。", 2.0: "这是一句一秒钟之内根本不可能说完的非常非常长的话。",
+                30.0: "はい、はい、はい、はい、はい、はい", 60.0: "谢谢观看"}
+
+        class FakeQwen3ASR:
+            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
+                           batch_size=1, progress_cb=None, **_device_callbacks):
+                return [{"start": s["start"], "end": s["end"], "text": qwen[s["start"]]}
+                        for s in whisper_segments]
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
+
+        saved = isolated_db.load_lines(did)
+        assert [r["zh"] for r in saved] == ["你好啊。", qwen[2.0], qwen[30.0]]
+        assert saved[0]["flag"] is None
+        assert (saved[1]["flag"], saved[1]["flag_note"]) == (wh.IMPLAUSIBLE_FLAG, wh.IMPLAUSIBLE_RATE_NOTE)
+        # Qwen writes 、 between short replies at ordinary kana speed: flagged, never dropped.
+        assert (saved[2]["flag"], saved[2]["flag_note"]) == (wh.IMPLAUSIBLE_FLAG, wh.IMPLAUSIBLE_LIST_NOTE)
+        _clear(job_id)
+
     def test_long_qwen3_segment_becomes_several_subtitle_lines(self, isolated_db, monkeypatch):
         import asr_backend
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
