@@ -306,6 +306,15 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-chips { flex: 1 1 0; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .review-chip span { min-height: var(--touch); padding-inline: 10px; }
   .review-chips { gap: 2px; }
+  /* The scrollbar is hidden, so while more chips sit past the right edge the row fades out there: a cut chip reads as "scroll", not as broken.
+     With no room to scroll the timeline is inactive and the fade stays 0. */
+  @supports (animation-timeline: scroll()) {
+    .review-chips {
+      mask-image: linear-gradient(to right, #000 calc(100% - var(--chips-fade)), transparent);
+      animation: review-chips-fade linear both;
+      animation-timeline: scroll(self inline);
+    }
+  }
   /* Between lines the caption is a blank bar: on a phone it reads as an empty card. */
   .review-caption.is-empty { display: none; }
   .review-pager { margin-left: auto; }
@@ -603,3 +612,6 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Its (i) stays beside it: a phone's confirm button otherwise takes the whole row, pushed right. */
   .check-queue-mark .confirm-button { flex: 0 1 auto; justify-content: flex-start; }
 }
+
+@property --chips-fade { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@keyframes review-chips-fade { from { --chips-fade: 32px; } 99% { --chips-fade: 32px; } to { --chips-fade: 0px; } }

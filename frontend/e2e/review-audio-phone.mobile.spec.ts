@@ -41,3 +41,20 @@ test('phone: the floating player opens above the line bar, so Prev and Next stay
   expect(box.y + box.height).toBeLessThanOrEqual(bar.y)
   await page.getByRole('toolbar', { name: 'Line actions' }).getByRole('button', { name: /Next/ }).tap()
 })
+
+test('phone: when the filter chips scroll, the row fades at the edge they continue past', async ({ page }) => {
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
+from core import Line
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+db.save_lines(3, [Line(idx=i, start=i + 1, end=i + 1.5, zh='一', en='Line %d' % i) for i in range(120)])
+`], { cwd: repoRoot })
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/#/drama/3/review')
+  const chips = page.locator('.review-chips')
+  await expect(chips.getByText('All 120')).toBeVisible()
+  const fade = () => chips.evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--chips-fade')) || 0)
+  expect(await chips.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  expect(await fade()).toBeGreaterThan(0)
+  await chips.evaluate((el) => el.scrollTo({ left: el.scrollWidth }))
+  await expect.poll(fade).toBe(0)
+})
