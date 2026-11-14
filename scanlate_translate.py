@@ -158,12 +158,50 @@ def _matched_answer(text, ids: list, previous_context: str):
     if not isinstance(data, dict) or not isinstance(data.get("translations"), dict):
         return None, previous_context
     got = {str(k): v for k, v in data["translations"].items()}
+    # A model once closed the translations object after its first id and wrote the
+    # rest beside it; those ids are still answered by id, so they are read, not lost.
+    got.update({k: data[k] for k in ids if k not in got and isinstance(data.get(k), str)})
     if set(got) != set(ids) or not all(isinstance(v, str) for v in got.values()):
         return None, previous_context
     summary = data.get("context_summary")
     new_context = (summary.strip()[:_MAX_CONTEXT_CHARS]
                    if isinstance(summary, str) and summary.strip() else previous_context)
     return got, new_context
+
+
+# A rejected answer is usually a one-off (a dropped id, a cut-off reply), so a second
+# ask for just the missing regions mostly works; the cap keeps a page whose engine
+# keeps failing from costing one call per region.
+_MAX_SOLO_RETRIES = 6
+
+
+def retry_missing_regions(texts_by_id: dict, got: dict, engine, drama_meta: dict,
+                          previous_context: str = "", usage_cb=None, glossary_terms=None,
+                          character_notes: str = "", chapter_brief: str = "") -> dict:
+    """`got` plus a text-only retry for the ids of `texts_by_id` it lacks: first
+    the missing ones together, then (if some are still missing) a few alone, so
+    one region the model keeps tripping on cannot hold back the others. Returns
+    a new dict; an engine error on a retry is the same as no answer, because the
+    caller already holds a partial result worth keeping."""
+    out = dict(got)
+    missing = {k: v for k, v in texts_by_id.items() if k not in out}
+    if not missing:
+        return out
+    groups = [missing] if len(missing) > 1 else []
+    groups += [{k: v} for k, v in list(missing.items())[:_MAX_SOLO_RETRIES]]
+    for group in groups:
+        group = {k: v for k, v in group.items() if k not in out}
+        if not group:
+            continue
+        try:
+            answer, _ = translate_regions_by_id(
+                group, engine, drama_meta, previous_context=previous_context,
+                usage_cb=usage_cb, glossary_terms=glossary_terms,
+                character_notes=character_notes, chapter_brief=chapter_brief)
+        except Exception:
+            continue
+        out.update(answer or {})
+    return out
 
 
 def translate_regions_with_image(regions: list, image: bytes, mime: str, engine, drama_meta: dict,
