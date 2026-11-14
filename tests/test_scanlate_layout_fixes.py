@@ -324,3 +324,55 @@ def test_a_weak_lettering_box_without_a_rule_to_a_kept_one_is_dropped(monkeypatc
     assert [b["y"] for b in found] == [20]
     found = _detect_with_scores(monkeypatch, _form(), [(kept, 0.3), (weak, 0.05)])
     assert [b["y"] for b in found] == [20]
+
+
+def _cut_line_page(top):
+    """A balloon whose first line of lettering is hollow glyphs cut off at row `top`, as on
+    a page where a balloon runs on from the page before."""
+    img = _page([(200, top + 20, 150, 120)])
+    img[:top] = 70
+    for x in (130, 175, 220):                       # a glyph like 口 with its top cut off
+        img[top:top + 22, x:x + 4] = 0
+        img[top:top + 22, x + 24:x + 28] = 0
+        img[top + 18:top + 22, x:x + 28] = 0
+    _letters(img, 140, top + 45, 100, 16)          # the line OCR read, wholly inside
+    return img
+
+
+def test_lettering_cut_off_by_the_page_edge_is_erased():
+    img = _cut_line_page(0)
+    box = {"x": 110, "y": 0, "w": 160, "h": 80}
+    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    assert mask is not None
+    strokes = (img[:80, 110:270] == 0) & (np.arange(80)[:, None] < 22)
+    assert mask[strokes].all()
+
+
+def test_a_balloon_outline_cut_off_by_the_page_edge_is_not_erased():
+    img = _page([(200, 10, 80, 60)], ground=255)        # white page: paper round the balloon
+    img[0:22, 186:190] = img[0:22, 210:214] = img[18:22, 186:214] = 0   # a glyph the page cuts
+    _letters(img, 170, 28, 60, 12)
+    box = {"x": 100, "y": 0, "w": 200, "h": 90}
+    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    assert mask is not None
+    outline = img[:90, 100:300] == 0
+    outline[:50, 65:135] = False                        # the lettering, which may go
+    assert outline.any() and not mask[outline].any()
+    assert mask[:22, 86:114][img[:22, 186:214] == 0].all()
+
+
+def test_art_in_the_notch_of_two_lobes_cut_off_by_the_page_edge_is_not_erased():
+    img = np.full((300, 400), 70, np.uint8)             # grey art round the balloon
+    for cx in (160, 250):
+        cv2.ellipse(img, (cx, 40), (50, 60), 0, 0, 360, 0, -1)
+    for cx in (160, 250):
+        cv2.ellipse(img, (cx, 40), (47, 57), 0, 0, 360, 255, -1)
+    for x in (135, 260):                                # glyphs the page cuts, one per lobe
+        img[0:22, x:x + 4] = img[0:22, x + 24:x + 28] = img[18:22, x:x + 28] = 0
+    box = {"x": 110, "y": 0, "w": 200, "h": 100}
+    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    notch = np.zeros((100, 200), bool)
+    notch[:45, 85:105] = True                           # between the lobes, at the page edge
+    notch &= img[:100, 110:310] < 128
+    assert notch.any() and not mask[notch].any()
+    assert mask[:22, 25:53][img[:22, 135:163] == 0].all()

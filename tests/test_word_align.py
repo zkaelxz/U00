@@ -251,6 +251,42 @@ class TestRealignLongSegment:
         assert result == [{"start": 100.0, "end": 101.0, "text": "你好"},
                            {"start": 103.0, "end": 104.0, "text": "世界"}]
 
+    def _realign(self, monkeypatch, segment, language, aligned, words=None):
+        seen = {}
+        if words is not None:
+            monkeypatch.setattr(segment_module, "segment_and_annotate",
+                                lambda text, language, chinese_script="simplified":
+                                [(w, None) for w in words])
+        monkeypatch.setattr(audio_extract, "extract_audio_slice",
+                            lambda audio_path, start, end, out_path: open(out_path, "wb").close())
+
+        def fake_align(slice_path, ws, device="cpu"):
+            seen["words"] = ws
+            return [(w, a, b) for w, (a, b) in zip(ws, aligned)]
+        monkeypatch.setattr(word_align, "align_words", fake_align)
+        return word_align.realign_long_segment("/fake/audio.wav", segment, language,
+                                               min_pause_seconds=0.6), seen
+
+    def test_korean_lines_keep_their_spaces_and_are_aligned_by_written_words(self, monkeypatch):
+        segment = {"start": 0.0, "end": 20.0, "text": "안녕하세요 여러분 오늘은 날씨가 좋았어요"}
+        result, seen = self._realign(monkeypatch, segment, "ko",
+                                     [(0, 1), (1, 2), (5, 6), (6, 7), (7, 8)])
+        assert seen["words"] == ["안녕하세요", "여러분", "오늘은", "날씨가", "좋았어요"]
+        assert [ln["text"] for ln in result] == ["안녕하세요 여러분", "오늘은 날씨가 좋았어요"]
+
+    def test_a_space_in_chinese_text_survives_the_re_split(self, monkeypatch):
+        segment = {"start": 0.0, "end": 20.0, "text": "我们 OK 了吧好的"}
+        result, _ = self._realign(monkeypatch, segment, "zh",
+                                  [(0, 1), (1, 2), (2, 3), (3, 4), (6, 7)],
+                                  words=["我们", " ", "OK", " ", "了", "吧", "好的"])
+        assert [ln["text"] for ln in result] == ["我们 OK 了吧", "好的"]
+
+    def test_words_not_found_in_the_text_are_joined_as_before(self):
+        words = [("你好", 0.0, 1.0), ("世界", 1.0, 2.0)]
+        result = word_align._group_aligned_words_into_lines(words, offset=0.0,
+                                                            source_text="你 好 世 界")
+        assert result == [{"start": 0.0, "end": 2.0, "text": "你好世界"}]
+
     def test_an_alignment_exception_falls_back_to_the_original_segment_unchanged(self, monkeypatch):
         """Regression coverage for the documented real failure mode: a CTC
         aligner can fail outright on some CJK text. One line's failure

@@ -171,15 +171,16 @@ def _letters_in(seg):
     return len(_stock_key(seg["text"]))
 
 
-def screen_implausible_text(segments):
+def screen_implausible_text(segments, drop_lists: bool = True):
     """`segments` without the dense item lists no one could have said (a list of short
     items at LIST_DROP_MIN_CHARS_PER_SEC or more), and the other lists and over-fast
-    segments flagged IMPLAUSIBLE_FLAG, unless they carry a flag already."""
+    segments flagged IMPLAUSIBLE_FLAG, unless they carry a flag already. With
+    `drop_lists` off the dense lists are flagged too."""
     out = []
     for seg in segments:
         rate = _chars_per_sec(seg)
         is_list = _is_item_list(seg["text"])
-        if is_list and rate >= LIST_DROP_MIN_CHARS_PER_SEC:
+        if drop_lists and is_list and rate >= LIST_DROP_MIN_CHARS_PER_SEC:
             import applog
             applog.get_logger().info(
                 f"invented list dropped: segment {seg['start']:.1f}-{seg['end']:.1f}s "
@@ -287,7 +288,8 @@ def _without_phrase_loop(seg):
 
 
 def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEAT_COUNT,
-                                 stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC):
+                                 stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
+                                 drop_lists: bool = True):
     """
     Whisper is well known to loop a short phrase across MANY separate
     segments when fed silence or background music -- often a training-
@@ -350,4 +352,4 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEA
             out.extend(segments[i:j])
         i = j
     kept = [seg for k, seg in enumerate(out) if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)]
-    return screen_implausible_text(_flag_invented_text(kept))
+    return screen_implausible_text(_flag_invented_text(kept), drop_lists)
