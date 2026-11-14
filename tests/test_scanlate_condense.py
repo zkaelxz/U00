@@ -40,6 +40,13 @@ def test_the_budget_follows_the_size_the_text_was_set_at():
     assert limit == int(len(text) * (9 / 13) ** 2)
 
 
+def test_a_short_sound_word_on_a_small_band_is_not_sent_for_shortening():
+    bubbles = [{"kind": "sign", "translated_text": "Grrr..."}]
+    asked = []
+    scanlate_condense.condense_long_signs(bubbles, lambda b: 9, lambda wanted: asked.append(wanted) or {})
+    assert asked == []
+
+
 def test_an_answer_that_is_longer_empty_or_for_another_key_is_ignored():
     for answer in ({"0": "x" * 200}, {"0": "  "}, {"5": "Short"}, {"0": 7}, None):
         bubbles = _signs()[:1]

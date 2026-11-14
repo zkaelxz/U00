@@ -13,6 +13,11 @@ _NOTE = (" Keep every fact: each name, number, place and what happens. Drop only
          "soft phrasing, add nothing, and keep the tone of a sign or notice.")
 
 
+# A budget this small is a sound word or an exclamation ("Guh...") on a tiny band: there is
+# nothing to condense without losing it, and the call would be wasted.
+_SMALLEST_USEFUL_BUDGET = 12
+
+
 def condense_long_signs(bubbles: list, measure, ask) -> list:
     """Replaces, in place, the translated text of each sign that `measure` says would be set
     below the readable size with the shorter text `ask` returns for it. `measure(bubble)` is the
@@ -30,7 +35,9 @@ def condense_long_signs(bubbles: list, measure, ask) -> list:
             continue
         # Room for text grows with the square of the size, so this is the share that fits at the
         # readable size.
-        wanted[str(key)] = (text, max(8, int(len(text) * (fitted / comfort) ** 2)))
+        budget = int(len(text) * (fitted / comfort) ** 2)
+        if budget >= _SMALLEST_USEFUL_BUDGET:
+            wanted[str(key)] = (text, budget)
     if not wanted:
         return []
     changed = []
