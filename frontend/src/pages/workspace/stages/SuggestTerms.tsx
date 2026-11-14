@@ -1,5 +1,7 @@
 import { mediaKind } from '../detailsForm'
 import { useStage } from '../StageContext'
+import { stageLabel } from '../stages'
+import { titleKind } from '../titleKind'
 import { GlossaryExtract } from './GlossaryExtractPanel'
 import {
   SOURCE_TEXT,
@@ -17,7 +19,7 @@ export function useSuggestSources() {
   const { dramaId, drama } = useStage()
   const hasNovel = useHasNovel(dramaId, drama)
   const hasLines = useHasLines(dramaId)
-  const blockers = suggestBlockers(dramaId, hasNovel, hasLines)
+  const blockers = suggestBlockers(dramaId, hasNovel, hasLines, stageLabel('source', titleKind(drama.media_type, drama.content_mode)))
   const defaultSource = defaultSuggestSource(blockers, mediaKind(drama.media_type) !== 'audio')
   return { blockers, defaultSource, ready: hasNovel !== null && hasLines !== null }
 }

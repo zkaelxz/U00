@@ -8,6 +8,8 @@ import { buttonClass } from '../../../components/uiClasses'
 import { routeHref } from '../../../router'
 import { NEW_SERIES, newSeriesProblem, seriesUpdate } from '../detailsForm'
 import { useStage } from '../StageContext'
+import { stageLabel } from '../stages'
+import { titleKind } from '../titleKind'
 import './seriesAssign.css'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
@@ -89,7 +91,7 @@ export function SeriesAssign() {
         </p>
       )}
       <div className="series-assign-row">
-        <Field label="Series" help="Changing it here is the same as Series in Edit details (Media stage).">
+        <Field label="Series" help={`Changing it here is the same as Series in Edit details (${stageLabel('source', titleKind(drama.media_type, drama.content_mode))} stage).`}>
           <select value={choice} disabled={busy} onChange={(e) => { setProblem(null); setChoice(e.target.value) }}>
             <option value="">No series</option>
             {!listed && <option value={current}>{name}</option>}
