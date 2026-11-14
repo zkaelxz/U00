@@ -220,3 +220,42 @@ def test_a_sound_effect_gloss_with_nothing_to_avoid_goes_to_the_right_as_before(
     scanlate_sfx.draw_gloss(img, region)
     left, top, _, _ = _gloss_rect(blank, np.asarray(img))
     assert left >= 140 and top >= 90
+
+
+def _form(rule=True):
+    """Grey form cells with a label of separate glyphs in each, the cells parted by a slanted rule."""
+    img = np.full((170, 200), 200, np.uint8)
+    for top in (30, 110):
+        for left in range(55, 125, 22):
+            img[top:top + 16, left:left + 14] = 20
+    if rule:
+        cv2.line(img, (0, 78), (199, 94), 150, 1)
+    return img
+
+
+def test_form_labels_parted_by_a_rule_stay_apart():
+    labels = [_box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")]
+    assert len(scanlate_detect.merge_fragment_boxes(labels, _form())) == 2
+    assert len(scanlate_detect.merge_fragment_boxes(labels, _form(rule=False))) == 1
+
+
+def _detect_with_scores(monkeypatch, img, scored):
+    def ml(path, image=None, confidence=None, **kwargs):
+        return [dict(b, confidence=s) for b, s in scored if s >= confidence]
+    monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", ml)
+    monkeypatch.setattr(scanlate_detect, "_ml_failure", None)
+    return scanlate_detect.detect_bubbles("page.png", backend="ml", image=cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))
+
+
+def test_a_weak_form_label_beside_a_kept_one_is_kept(monkeypatch):
+    kept, weak = _box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")
+    found = _detect_with_scores(monkeypatch, _form(), [(kept, 0.3), (weak, 0.15)])
+    assert [b["y"] for b in found] == [20, 95]
+
+
+def test_a_weak_lettering_box_without_a_rule_to_a_kept_one_is_dropped(monkeypatch):
+    kept, weak = _box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")
+    found = _detect_with_scores(monkeypatch, _form(rule=False), [(kept, 0.3), (weak, 0.15)])
+    assert [b["y"] for b in found] == [20]
+    found = _detect_with_scores(monkeypatch, _form(), [(kept, 0.3), (weak, 0.05)])
+    assert [b["y"] for b in found] == [20]

@@ -517,21 +517,80 @@ def _fragments_of_one_region(a: dict, b: dict, gray=None) -> bool:
         return True
     # Lettering outside balloons has no outline between its pieces; balloons
     # side by side are separate however close.
-    if a.get("label") != _LOOSE_TEXT_LABEL:
+    if a.get("label") != _LOOSE_TEXT_LABEL or not _in_line(a, b):
         return False
+    # The labels in the cells of a form or table sit in line too, but a ruled line parts them.
+    return gray is None or not _ruled_line_between(gray, a, b)
+
+
+def _in_line(a: dict, b: dict) -> bool:
+    """Whether two boxes sit one above the other sharing columns, or side by side sharing rows,
+    close enough to be pieces of one line of lettering (FRAGMENT_ALIGNED, FRAGMENT_GAP)."""
     gap_limit = scanlate_tuning.FRAGMENT_GAP
     share_limit = scanlate_tuning.FRAGMENT_ALIGNED
-    # Stacked: they share columns and sit one above the other.
     shared_x = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
     gap_y = max(a["y"], b["y"]) - min(a["y"] + a["h"], b["y"] + b["h"])
     narrow = min(a["w"], b["w"])
     if narrow > 0 and shared_x >= share_limit * narrow and gap_y <= gap_limit * narrow:
         return True
-    # Side by side: they share rows and sit one beside the other.
     shared_y = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
     gap_x = max(a["x"], b["x"]) - min(a["x"] + a["w"], b["x"] + b["w"])
     short = min(a["h"], b["h"])
     return short > 0 and shared_y >= share_limit * short and gap_x <= gap_limit * short
+
+
+def _ruled_line_between(gray, a: dict, b: dict) -> bool:
+    """Whether a straight line darker than the paper runs right across the area the two boxes
+    cover, between their centres: the rule between two cells of a form. A letter's stroke is
+    shorter than the area is wide, so lettering cut into pieces has none."""
+    import cv2
+
+    x0, y0 = max(0, min(a["x"], b["x"])), max(0, min(a["y"], b["y"]))
+    x1 = min(gray.shape[1], max(a["x"] + a["w"], b["x"] + b["w"]))
+    y1 = min(gray.shape[0], max(a["y"] + a["h"], b["y"] + b["h"]))
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return False
+    crop = gray[y0:y1, x0:x1]
+    dark = (crop.astype(int) < np.median(crop) - scanlate_tuning.RULE_CONTRAST).astype(np.uint8) * 255
+    centres = [(box["x"] + box["w"] / 2 - x0, box["y"] + box["h"] / 2 - y0) for box in (a, b)]
+    stacked = abs(centres[1][1] - centres[0][1]) >= abs(centres[1][0] - centres[0][0])
+    across = (x1 - x0) if stacked else (y1 - y0)
+    length = int(scanlate_tuning.RULE_SPAN * across)
+    segments = cv2.HoughLinesP(dark, 1, np.pi / 180, threshold=max(10, length // 2),
+                               minLineLength=length, maxLineGap=scanlate_tuning.RULE_MAX_GAP_PX)
+    # Both ends near the edges of the area: a rule crosses its cell, a stroke stops inside the box.
+    reach = (1 - scanlate_tuning.RULE_SPAN) / 2 * across
+    for px, py, qx, qy in ([] if segments is None else segments.reshape(-1, 4).tolist()):
+        lo, hi = sorted((px, qx) if stacked else (py, qy))
+        if lo > reach or hi < across - 1 - reach:
+            continue
+        if _segments_cross((px, py), (qx, qy), *centres):
+            return True
+    return False
+
+
+def _segments_cross(p, q, r, s) -> bool:
+    def side(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    return side(p, q, r) * side(p, q, s) < 0 and side(r, s, p) * side(r, s, q) < 0
+
+
+def _form_cells(weak: list, kept: list, gray) -> list:
+    """The `weak` lettering boxes (scored under the model's threshold) that are cells of a form
+    whose other cells were kept: in line with a kept or already-taken lettering box and parted
+    from it by a ruled line. The labels of one form score alike, some just over the threshold
+    and some just under, so the threshold alone keeps half a form."""
+    taken = []
+    anchors = [b for b in kept if b.get("label") == _LOOSE_TEXT_LABEL]
+    left = [b for b in weak if b.get("label") == _LOOSE_TEXT_LABEL]
+    while True:
+        found = [w for w in left if any(_in_line(w, a) and _ruled_line_between(gray, w, a)
+                                        for a in anchors)]
+        if not found:
+            return taken
+        taken += found
+        anchors += found
+        left = [w for w in left if not any(w is f for f in found)]
 
 
 def merge_fragment_boxes(boxes: list, gray=None) -> list:
@@ -631,7 +690,17 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
     if remembered and time.monotonic() - remembered[0] < _ML_FAILURE_MEMORY_SECONDS:
         raise BubbleModelUnavailable(remembered[1])
     try:
-        return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, image=image, **kwargs))
+        threshold = kwargs.pop("confidence", None) or scanlate_tuning.ML_CONFIDENCE
+        found = detect_bubbles_ml(image_path, image=image,
+                                  confidence=min(threshold, scanlate_tuning.ML_FORM_CELL_CONFIDENCE),
+                                  **kwargs)
+        kept = [b for b in found if b.get("confidence", 1.0) >= threshold]
+        weak = [b for b in found if b.get("confidence", 1.0) < threshold]
+        gray = (page_gray(image_path, image)
+                if weak and any(b.get("label") == _LOOSE_TEXT_LABEL for b in kept) else None)
+        if gray is not None:
+            kept += _form_cells(weak, kept, gray)
+        return dedupe_overlapping_boxes(kept)
     except ImportError as exc:
         message = ("The ML detector needs extra packages:\n"
                    "    pip install transformers huggingface_hub\n\n" + ML_FALLBACK_SENTENCE)
