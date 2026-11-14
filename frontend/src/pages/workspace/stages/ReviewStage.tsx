@@ -84,6 +84,12 @@ export default function ReviewStage() {
     },
     [showTool],
   )
+  // Review's messages point to Records → Line history; their button opens it, also in Simple, which leaves Records out.
+  const [historySignal, setHistorySignal] = useState(0)
+  const openHistory = useCallback(() => {
+    setHistorySignal((n) => n + 1)
+    showTool('records')
+  }, [showTool])
   const [lineCount, setLineCount] = useState<number | null>(null)
   // A finding's line link: the editor opens that line (by id where known).
   const [goTo, setGoTo] = useState<{ target: LineTarget; seq: number; resolve: (m: string | null) => void } | null>(null)
@@ -125,6 +131,7 @@ export default function ReviewStage() {
         onCompareSelected={openCompare}
         onRetimeSelected={openRetime}
         onRetranscribeLines={openRetranscribe}
+        onOpenHistory={openHistory}
         goTo={goTo}
       />
       <ReviewChecks
@@ -144,7 +151,7 @@ export default function ReviewStage() {
                 attention={{ coverage: parts.coverageCount }}
                 tools={{
                   checks: jobs.check,
-                  flags: !!lineCount && <ReviewFlags onDone={changed} />,
+                  flags: !!lineCount && <ReviewFlags onDone={changed} onOpenHistory={openHistory} />,
                   coverage: parts.coverage,
                   compareTranscription: !!lineCount && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />,
                   audioTags: !!lineCount && <AiExtrasSenseVoice dramaId={dramaId} reloads={reloads} />,
@@ -159,7 +166,7 @@ export default function ReviewStage() {
                   retime: !!lineCount && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />,
                   retranscribe: !!lineCount && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={pendingRetranscribe} onRequestHandled={setHandledRetranscribeSeq} />,
                   voices: <VoiceClonePanel />,
-                  records: <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onReshaped={reshaped} jobRunning={jobRunning} onGoTo={goToLine} />,
+                  records: <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onReshaped={reshaped} jobRunning={jobRunning} onGoTo={goToLine} historySignal={historySignal || undefined} />,
                   versionsAndNotes: parts.history,
                   style: !!lineCount && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />,
                   burnPreview: !!lineCount && <AiExtrasBurnPreview dramaId={dramaId} />,

@@ -32,9 +32,9 @@ import { useLinesLoad } from './useLinesLoad'
 import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
-import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
+import { mentionsLineHistory, pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
 import { useSetSpeakerPanel } from './useSetSpeakerPanel'
-import { UndoNotice } from './UndoNotice'
+import { LineHistoryButton, UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
@@ -76,6 +76,8 @@ interface Props {
   onRetimeSelected?: () => void
   // Opens the Re-transcribe section; with line ids it starts a run on them.
   onRetranscribeLines?: (lineIds: number[] | null) => void
+  // Opens Records → Line history, which the Undo notice and its refusals point to.
+  onOpenHistory?: () => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
 
@@ -92,7 +94,7 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   const simple = useSimple()
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
@@ -417,8 +419,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {!searching && !queue.on && <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} onMove={(d, k) => void ctl.moveFlagged(d, k)} />}
         <p className="review-status" role="status">
           {status}
+          {onOpenHistory && mentionsLineHistory(status) && <> <LineHistoryButton onOpen={onOpenHistory} /></>}
         </p>
-        {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} />}
+        {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} onOpenHistory={onOpenHistory} />}
         {data === null && found === null ? (
           <RetryBanner error={error} what="the lines" onRetry={retry} />
         ) : (

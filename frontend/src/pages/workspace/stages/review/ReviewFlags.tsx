@@ -10,6 +10,8 @@ import { Section } from '../../../../components/Section'
 import { checkSourceText } from '../../../../api/sourceSuspect'
 import { useStage } from '../../StageContext'
 import { clearMessage, MODE_HELP, MODE_OPTIONS } from './readingSpeed'
+import { mentionsLineHistory } from './reviewLogic'
+import { LineHistoryButton } from './UndoNotice'
 import { TimingCheck } from './TimingCheck'
 import { plural } from '../../../../labels'
 
@@ -52,7 +54,7 @@ const ACTIONS: Action[] = [
 ]
 
 // Writes only flags and flag notes; the same endpoints Export used to host.
-export function ReviewFlags({ onDone }: { onDone: () => void }) {
+export function ReviewFlags({ onDone, onOpenHistory }: { onDone: () => void; onOpenHistory?: () => void }) {
   const { dramaId } = useStage()
   const [busy, setBusy] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, string>>({})
@@ -160,6 +162,7 @@ export function ReviewFlags({ onDone }: { onDone: () => void }) {
           </>
         )}
         {clearResult && <span role="status" data-testid="flag-result-clear">{clearResult}</span>}
+        {onOpenHistory && mentionsLineHistory(clearResult) && <LineHistoryButton onOpen={onOpenHistory} />}
       </div>
       </div>
     </Section>

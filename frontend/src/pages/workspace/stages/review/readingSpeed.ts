@@ -14,5 +14,5 @@ export function clearMessage(r: ClearReadingSpeedFlagsResult, recheck: boolean):
   if (r.cleared_count === 0 && r.flagged_count === 0) return 'No reading-speed flags to clear.'
   const cleared = `Cleared ${plural(r.cleared_count, 'reading-speed flag')}`
   const again = recheck ? `, flagged ${plural(r.flagged_count, 'line')} again` : ''
-  return `${cleared}${again}. Undo from Records, Line history.`
+  return `${cleared}${again}. Undo from Records → Line history.`
 }

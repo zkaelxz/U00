@@ -282,6 +282,10 @@ export function undoHandleOf(r: { history_id?: number | null; lines_fingerprint?
   return r.history_id && r.lines_fingerprint ? { historyId: r.history_id, fingerprint: r.lines_fingerprint } : null
 }
 
+// The words every Review message uses for the saved versions; a message with them gets a button that opens them.
+export const LINE_HISTORY_WORDS = 'Records → Line history'
+export const mentionsLineHistory = (text: string | null): boolean => !!text && text.includes(LINE_HISTORY_WORDS)
+
 export const UNDO_CHANGED_MESSAGE = 'The lines changed since. Restore from Records → Line history instead.'
 export const UNDO_GONE_MESSAGE = 'This change can no longer be undone here. Records → Line history has the saved versions.'
 // Not "use Records instead": a Records restore would delete that note or tag without asking.
