@@ -316,7 +316,12 @@ _NOTCH_HULL_EXCESS = 0.05
 def _has_notch(mask) -> bool:
     if not mask.any():
         return False
-    import cv2
+    try:
+        import cv2
+    except ImportError:
+        # OpenCV is optional and only adds the side padding; without it the text is laid out
+        # unpadded, as it was before the padding existed.
+        return False
     hull = np.zeros(mask.shape, np.uint8)
     cv2.fillPoly(hull, [cv2.convexHull(cv2.findNonZero(mask.astype(np.uint8)))], 1)
     return hull.sum() > (1 + _NOTCH_HULL_EXCESS) * mask.sum()
