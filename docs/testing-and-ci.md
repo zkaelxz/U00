@@ -61,6 +61,25 @@ fixes). A cache miss only costs the download. The ffmpeg apt install is not cach
 A draft PR runs no jobs, `test` included. Marking it ready for review (the `ready_for_review` trigger) starts the full run. Open a
 PR as a draft, merge the base once when the work is done, then mark it ready. A push to a ready PR runs as before.
 
+### After a merge
+
+A squash merge of a PR whose last green run tested the same tree adds nothing that run did not test, so the push to
+`baihe-subtitler` runs only the groups that run skipped (`tools/ci_tested_tree.py`, tested by `tests/test_ci_tested_tree.py`).
+Each PR run's `changes` job records the tree it tests (the PR merged into the base), the base tree under it and its outputs as
+the `tested-tree` artifact (kept 14 days). The push run asks the API for the PR merged into `baihe-subtitler` as that commit, its
+Tests runs at the PR's head, and their records. The newest run whose recorded tree is the pushed tree and whose recorded base
+tree is the pushed commit's parent's decides: if it is a green run from this repo (not a fork), a group it ran is switched off;
+if it failed, is still running or came from a fork, nothing is. Which PR a run names does not matter (GitHub empties that list
+once the PR closes): matching trees mean the same code and the same workflow, so a run of the same head into another branch
+can only count if that branch held exactly the base the merge landed on. The lookup
+has 90 seconds; a timeout runs everything. `guards` and `test` always run, and `test-shard` runs at least the tests that read frontend files. The full suite counts as run
+only when the PR ran it whole (not the sources subset). Anything else runs everything: no PR, a different tree (the base moved
+after the PR's last run), an expired or unreadable record, any API error, or a merge that changes an "everything" file (CI,
+`tools/ci_changes.py`, `tools/ci_tested_tree.py`, dependency files), since that PR's run used its own copy of the workflow. A
+nightly `schedule` run (03:23 UTC) runs everything on the newest commit, as the net for a skip that missed something. A dev copy
+still moves only to a commit whose push run passed (`lib/github_checks.py`); a shortened push run passes because the PR run of the
+same tree did.
+
 ### Which jobs a change runs
 
 `tools/ci_changes.py` (tested by `tests/test_ci_changes.py`) classifies the changed files of a PR. A job that is skipped
@@ -75,7 +94,7 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 
 | Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
 |---|---|---|---|
-| Push to `baihe-subtitler`, or any event that is not a pull request (a `merge_group` included) | false | true | true |
+| Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | false | true | true |
 | PR labelled `full-ci` | false | true | true |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
 | Every changed file is under `docs/archive/research/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
@@ -95,8 +114,8 @@ A sixth output, `run_app_checks` (the `smoke` and `frontend` jobs), is true unle
 A seventh output, `run_sources_subset`, is true when every changed file on a pull request is under `sources/adapters/` or is a
 `tests/test_sources_*.py` / `tests/test_api_sources_*.py` file. `test-shard` then runs one shard with only the adapter tests and the
 tests of rules every adapter must obey (`tools/ci_changes.py --sources-tests`; the lists are `SOURCES_TEST_GLOBS` and
-`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and a push to the base branch runs the whole
-suite, so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
+`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and the push after the merge runs the whole
+suite (a sources subset does not count as having run it), so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
 
 A fifth output, `run_caddy` (the `caddy` job), is true for every row that says "everything", and otherwise only when a changed
 file is under `deploy/caddy/` or `installer/caddy/`, or is `installer/service_config.py` or `tools/caddy_check.py`.
