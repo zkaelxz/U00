@@ -2,6 +2,7 @@
 // the component files so React fast refresh stays happy).
 
 import { isComicType } from '../pages/comic/comicLogic'
+import { titleKind } from '../pages/workspace/titleKind'
 import { routeHref } from '../router'
 
 type Titled = { title_en: string | null; title_zh: string | null }
@@ -15,6 +16,22 @@ const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/
 export const workspaceHref = (id: number, stage: string | null = null) => routeHref({ name: 'drama', id, stage })
 export const readHref = (d: { id: number; media_type: string | null }) =>
   routeHref({ name: isComicType(d.media_type) ? 'comic' : 'read', id: d.id, page: null })
+
+type Kinded = { id: number; media_type: string | null; content_mode?: string | null }
+
+/** How a title is taken in: Watch a video title, Listen to an audio title, Read the rest (novel, comic, subtitle-only). */
+export function readVerb(d: Omit<Kinded, 'id'>): 'Watch' | 'Listen' | 'Read' {
+  const kind = titleKind(d.media_type, d.content_mode)
+  return kind === 'video' ? 'Watch' : kind === 'audio' ? 'Listen' : 'Read'
+}
+
+/** A card's Reader link, named by `readVerb`, or Continue once the title has a saved reading place. Watch and Listen
+ *  open the Reader with its player fold open, or the word would promise something the page does not show. */
+export function readAction(d: Kinded, continuing = false): { label: string; href: string } {
+  const label = continuing ? 'Continue' : readVerb(d)
+  const watch = label === 'Watch' || label === 'Listen'
+  return { label, href: watch ? routeHref({ name: 'read', id: d.id, page: null, watch: true }) : readHref(d) }
+}
 
 /** Text for a card's title tile: the first CJK character of the original
  *  title, else up to two initials of the English title, else "?". */
@@ -110,4 +127,49 @@ export function cardNext(d: Progress & { id: number }): { label: string; href: s
   if (total <= 0 || d.status === 'exported') return null
   const stage = (d.translated_count ?? 0) < total ? 'translate' : 'review'
   return { label: stage === 'translate' ? 'Translate' : 'Review', href: workspaceHref(d.id, stage) }
+}
+
+/** The Library's loaded row for a title, as far as a Continue tile needs it. */
+export type ShelfRow = Progress & Kinded
+
+const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`
+
+// What a work tile leads to, by the same order as the title page's steps.
+function workStep(row: ShelfRow | undefined, mediaType: string | null): 'open' | 'translate' | 'check' | 'done' {
+  const total = row?.line_count ?? 0
+  // A comic's work is pages, which these line counts don't describe; a title the list hasn't loaded (a search or
+  // filter is on) has no counts at all.
+  if (!row || total <= 0 || isComicType(row.media_type) || isComicType(mediaType)) return 'open'
+  if ((row.translated_count ?? 0) < total) return 'translate'
+  return row.status === 'exported' ? 'done' : 'check'
+}
+
+/** Whether a tile's label needs the count of lines needing a look: only a work tile whose lines all have English and
+ *  that is not exported yet. */
+export const needsCheckCount = (x: ContinueItem, row: ShelfRow | undefined): boolean =>
+  x.kind === 'work' && workStep(row, x.mediaType) === 'check'
+
+/** A Continue tile's button: what it does next and the place it opens. `riskCount` is the number of lines needing a
+ *  look, null while unknown (not asked yet, still loading, or the request failed). */
+export function continueAction(x: ContinueItem, row: ShelfRow | undefined, riskCount: number | null): { label: string; href: string } {
+  if (x.kind === 'read') {
+    return {
+      label: x.page && x.page > 1 ? `Read from page ${x.page}` : 'Continue reading',
+      href: readHref({ id: x.dramaId, media_type: row?.media_type ?? null }),
+    }
+  }
+  const id = x.dramaId
+  switch (workStep(row, x.mediaType)) {
+    case 'open':
+      return { label: 'Open', href: workspaceHref(id) }
+    case 'translate': {
+      const left = (row?.line_count ?? 0) - (row?.translated_count ?? 0)
+      return { label: `Translate ${plural(left, 'line', 'lines')}`, href: workspaceHref(id, 'translate') }
+    }
+    case 'check':
+      if (riskCount === 0) return { label: 'Export', href: workspaceHref(id, 'export') }
+      return { label: riskCount === null ? 'Check the lines' : `Check ${plural(riskCount, 'line', 'lines')}`, href: workspaceHref(id, 'review') }
+    case 'done':
+      return readAction({ id, media_type: row?.media_type ?? null, content_mode: row?.content_mode })
+  }
 }

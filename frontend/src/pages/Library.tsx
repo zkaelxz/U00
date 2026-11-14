@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { createDrama, getContinueReading, getPresets, getRecent, getStats } from '../api/library'
+import { listLines } from '../api/review'
 import { coverUrl } from '../api/metadata'
 import { listAllSeries } from '../api/series'
 import type { DramaSummary } from '../api/types'
@@ -18,7 +19,7 @@ import { Section } from '../components/Section'
 import { PageShell } from '../components/PageShell'
 import { Sheet } from '../components/Sheet'
 import {
-  continueItems, dramaName, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
+  continueAction, continueItems, dramaName, needsCheckCount, tileHue, tileText, workspaceHref,
 } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
 import { useLoad, type Loaded } from '../hooks/useLoad'
@@ -56,12 +57,41 @@ import { mediaTypeFor, titleFor } from './makeSubtitles/makeSubtitlesFlow'
 
 const CONTINUE_SEEN_PREF = 'library.continue.hadItems'
 
-// "Continue": reading and workspace activity, one Resume tap each. Rendered
-// only when there is something to resume.
-function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
+// Lines needing a look (the check queue the title page counts), for the tiles whose label names them: asked once
+// per title while the page is open, and an answer that lands after its tile left the shelf is dropped.
+function useCheckCounts(ids: number[]): ReadonlyMap<number, number | null> {
+  const [counts, setCounts] = useState<ReadonlyMap<number, number | null>>(() => new Map())
+  const asked = useRef(new Set<number>())
+  const onShelf = useRef(new Set<number>())
+  const key = ids.join(',')
+  useEffect(() => {
+    const live = new Set(key ? key.split(',').map(Number) : [])
+    onShelf.current = live
+    for (const id of live) {
+      if (asked.current.has(id)) continue
+      asked.current.add(id)
+      const keep = (n: number | null) => {
+        if (!onShelf.current.has(id)) {
+          asked.current.delete(id)
+          return
+        }
+        setCounts((m) => new Map(m).set(id, n))
+      }
+      listLines(id, 1, 1, 'risk').then((r) => keep(typeof r.risk_count === 'number' ? r.risk_count : null), () => keep(null))
+    }
+  }, [key])
+  useEffect(() => () => {
+    onShelf.current = new Set()
+  }, [])
+  return counts
+}
+
+// "Continue": reading and workspace activity, one tap each on a button that names what comes next. Rendered
+// only when there is something to continue.
+function ContinueShelf({ continuing, recent, rows, phone }: {
   continuing: Loaded<{ items: Parameters<typeof continueItems>[0] }>
   recent: Loaded<{ items: Parameters<typeof continueItems>[1] }>
-  mediaTypes: Map<number, string | null>
+  rows: ReadonlyMap<number, DramaSummary>
   phone: boolean
 }) {
   const [all, setAll] = useState(false)
@@ -75,41 +105,39 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
   useEffect(() => {
     if (!loading) setHadItems(items.length > 0)
   }, [loading, items.length, setHadItems])
+  const limit = phone ? 1 : 4
+  const shown = loading ? [] : all ? items : items.slice(0, limit)
+  const risk = useCheckCounts(shown.filter((x) => needsCheckCount(x, rows.get(x.dramaId))).map((x) => x.dramaId))
   if (loading) return hadItems ? <div className="continue-skeleton skeleton-block" aria-hidden="true" /> : null
   if (!items.length) return null
-  const limit = phone ? 1 : 4
-  const shown = all ? items : items.slice(0, limit)
-  const href = (x: ContinueItem) =>
-    x.kind === 'read'
-      ? readHref({ id: x.dramaId, media_type: mediaTypes.get(x.dramaId) ?? null })
-      : workspaceHref(x.dramaId)
   return (
     <Card title={phone ? undefined : 'Continue'} className="continue-card" aria-label="Continue">
       <ul className="continue-list">
-        {shown.map((x) => (
-          <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
-            <span className={`continue-tile ${tileHue(x.dramaId)}`} aria-hidden="true">
-              {x.kind === 'read' && x.cover
-                ? <img src={coverUrl(x.dramaId)} alt="" loading="lazy" />
-                : tileText({ title_en: x.title, title_zh: x.titleZh })}
-            </span>
-            <div className="continue-text">
-              <span className="continue-title">{x.title}</span>
-              <span className="continue-meta">
-                {x.kind === 'read'
-                  ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
-                  : <>{x.status && <Badge kind="status" value={x.status} />}{!x.status && <span>Workspace</span>}</>}
-              </span>
-            </div>
-            <ButtonLink
-              size="sm"
-              href={href(x)}
-              aria-label={`Resume ${x.kind === 'read' ? 'reading' : 'work on'} ${x.title}`}
-            >
-              Resume
-            </ButtonLink>
-          </li>
-        ))}
+        {shown.map((x) => {
+          const next = continueAction(x, rows.get(x.dramaId), risk.get(x.dramaId) ?? null)
+          return (
+            <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
+              <div className="continue-row">
+                <span className={`continue-tile ${tileHue(x.dramaId)}`} aria-hidden="true">
+                  {x.kind === 'read' && x.cover
+                    ? <img src={coverUrl(x.dramaId)} alt="" loading="lazy" />
+                    : tileText({ title_en: x.title, title_zh: x.titleZh })}
+                </span>
+                <div className="continue-text">
+                  <span className="continue-title">{x.title}</span>
+                  <span className="continue-meta">
+                    {x.kind === 'read'
+                      ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
+                      : <>{x.status && <Badge kind="status" value={x.status} />}{!x.status && <span>Workspace</span>}</>}
+                  </span>
+                </div>
+                <ButtonLink size="sm" href={next.href} aria-label={`${next.label}: ${x.title}`} className="continue-next">
+                  {next.label}
+                </ButtonLink>
+              </div>
+            </li>
+          )
+        })}
       </ul>
       {items.length > limit && (
         <div className="actions">
@@ -349,7 +377,7 @@ export default function LibraryPage() {
     const d = items.find((x) => x.id === id)
     setSelected({ id, title: d ? dramaName(d) : 'Title details' })
   }
-  const mediaTypes = new Map(items.map((d) => [d.id, d.media_type]))
+  const rows = useMemo(() => new Map(items.map((d) => [d.id, d])), [items])
 
   // "Add a title by hand" (null) opens the sheet as New title always did, draft and all.
   const startNewTitle = (start: NewTitleStart) => {
@@ -449,7 +477,7 @@ export default function LibraryPage() {
       {/* Not on a phone: the box would push the first title card off the first screen; the header's Add opens it there. */}
       {canCreate && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
-      <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
+      <ContinueShelf continuing={continuing} recent={recent} rows={rows} phone={phone} />
 
       {!!allSeries.data?.items.length && (
         <details className="library-series-links" data-testid="library-series-links">

@@ -64,3 +64,68 @@ test('at 360px the loading grid matches the loaded card height and a long title 
   expect(Math.abs((await card.boundingBox())!.height - skeleton)).toBeLessThanOrEqual(4)
   await expectNoSidewaysScroll(page)
 })
+
+for (const width of [390, 320]) {
+  test(`at ${width}px each Continue button takes its own full-width row, 44px tall, with nothing cut off`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 780 })
+    const long = 'A rather long title that needs two lines on a phone'
+    await page.route('**/api/library/continue', (r) => r.fulfill({ json: { items: [{
+      drama_id: 2, title_en: long, title_zh: null, percent_complete: 40, last_page: 1234,
+      last_accessed_at: '2026-11-10T12:00:09', has_cover_art: false,
+    }] } }))
+    await page.route('**/api/library/recent', (r) => r.fulfill({ json: { items: [
+      { id: 1, title_en: 'Grandmaster of Demonic Cultivation', title_zh: null, status: 'aligned', media_type: 'audio_drama', updated_at: '2026-11-10T12:00:08' },
+      { id: 3, title_en: 'Signal', title_zh: null, status: 'translated', media_type: 'video_drama', updated_at: '2026-11-10T12:00:07' },
+    ] } }))
+    await page.route((u) => u.pathname === '/api/library/dramas', async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const res = await route.fetch()
+      const body = await res.json()
+      const counts: Record<number, object> = {
+        1: { line_count: 20000, translated_count: 8766, status: 'aligned' },
+        3: { line_count: 40, translated_count: 40, status: 'translated' },
+      }
+      await route.fulfill({ response: res, json: { ...body, items: body.items.map((d: { id: number }) => ({ ...d, ...counts[d.id] })) } })
+    })
+    await page.route('**/api/review/dramas/*/lines?*', (r) => r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'No.' } } }))
+    await page.goto('/')
+    const shelf = page.getByRole('region', { name: 'Continue' })
+    await expect(shelf.getByRole('link', { name: `Read from page 1234: ${long}`, exact: true })).toBeVisible()
+    await shelf.getByRole('button', { name: 'More (2)' }).tap()
+    await expect(shelf.getByRole('link', { name: 'Translate 11,234 lines: Grandmaster of Demonic Cultivation', exact: true })).toBeVisible()
+    await expect(shelf.getByRole('link', { name: 'Check the lines: Signal', exact: true })).toBeVisible()
+    const boxes = await shelf.locator('.continue-item').evaluateAll((items) => items.map((li) => {
+      const btn = li.querySelector('.continue-next') as HTMLElement
+      const text = li.querySelector('.continue-text') as HTMLElement
+      const title = li.querySelector('.continue-title') as HTMLElement
+      const inner = li.getBoundingClientRect()
+      const b = btn.getBoundingClientRect()
+      const t = text.getBoundingClientRect()
+      const pad = parseFloat(getComputedStyle(li).paddingLeft) + parseFloat(getComputedStyle(li).paddingRight)
+      // The label's own box: the button's scrollWidth also counts the ::after that widens its tap area.
+      const range = document.createRange()
+      range.selectNodeContents(btn)
+      const label = range.getBoundingClientRect()
+      return {
+        below: b.top >= t.bottom, height: b.height, fullWidth: Math.abs(b.width - (inner.width - pad - 2)) <= 1,
+        insideItem: b.left >= inner.left && b.right <= inner.right,
+        buttonCut: label.left < b.left || label.right > b.right || label.bottom > b.bottom, titleCut: title.scrollWidth > title.clientWidth,
+      }
+    }))
+    expect(boxes).toHaveLength(3)
+    for (const box of boxes) {
+      expect(box).toMatchObject({ below: true, fullWidth: true, insideItem: true, buttonCut: false, titleCut: false })
+      expect(box.height).toBeGreaterThanOrEqual(44)
+    }
+    await expectNoSidewaysScroll(page)
+    // The cards' quiet buttons (Listen, Watch, Details, Translate, Review) keep each word whole on one line.
+    const broken = await page.locator('.drama-grid:not(.skeleton) .drama-card-foot .btn').evaluateAll((btns) => btns
+      .filter((b) => {
+        const range = document.createRange()
+        range.selectNodeContents(b)
+        return range.getClientRects().length > 1
+      })
+      .map((b) => b.textContent))
+    expect(broken).toEqual([])
+  })
+}

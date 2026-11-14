@@ -24,7 +24,7 @@ import {
   NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
   type MoreFilters,
 } from './libraryFilters'
-import { countDramas, dramaName, hideLibraryBar, readHref, workspaceHref } from './libraryView'
+import { countDramas, dramaName, hideLibraryBar, readAction, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { buttonClass } from './uiClasses'
@@ -58,7 +58,7 @@ interface Props {
   // GET /api/series failed: grouping by series falls back to the plain list, with a Retry.
   seriesError?: boolean
   onRetrySeries?: () => void
-  // Titles with a saved reading position (the Continue shelf's): cards offer Continue instead of Read.
+  // Titles with a saved reading position (the Continue shelf's): cards offer Continue instead of Watch, Listen or Read.
   continuing?: ReadonlySet<number>
   // The titles on screen (expanded groups, display order), for pruning the selection to what the viewer can see.
   onVisible?: (items: DramaSummary[]) => void
@@ -240,6 +240,7 @@ export function LibraryList({
                     <tbody>
                       {list.map((d) => {
                         const title = dramaName(d)
+                        const read = readAction(d)
                         return (
                           <tr key={d.id} className={d.id === selectedId ? 'selected' : undefined}>
                             {checking && (
@@ -265,7 +266,7 @@ export function LibraryList({
                             <td>{d.status && <Badge kind="status" value={d.status} />}</td>
                             <td className="tags-col">{d.custom_tags.join(', ')}</td>
                             <td className="row-actions">
-                              <a className={buttonClass('ghost', 'sm')} href={readHref(d)} aria-label={`Read ${title}`}>Read</a>
+                              <a className={buttonClass('ghost', 'sm')} href={read.href} aria-label={`${read.label} ${title}`}>{read.label}</a>
                               <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
                                 Details
                               </button>

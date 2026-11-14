@@ -1,18 +1,27 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 // Seed data: e2e/serve_seeded_api.py.
 // Creates then deletes its own drama so the seeded three are unchanged afterwards.
 
 test('stats line, Continue shelf and global line search', async ({ page }) => {
+  // Other specs write lines for Signal into the shared library; with none it is the Open tile whatever ran before.
+  await page.route((u) => u.pathname === '/api/library/dramas', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const res = await route.fetch()
+    const body = await res.json()
+    const items = body.items.map((d: { title_en: string }) => (d.title_en === 'Signal' ? { ...d, line_count: 0, translated_count: 0 } : d))
+    await route.fulfill({ response: res, json: { ...body, items } })
+  })
   await page.goto('/')
   await expect(page.getByTestId('stats')).toContainText('3 titles')
   const shelf = page.getByRole('region', { name: 'Continue' })
   // One entry per seeded drama (reading or workspace activity).
   await expect(shelf.getByRole('listitem')).toHaveCount(3)
-  const resume = shelf.getByRole('link', { name: 'Resume work on Signal' })
-  // The drama's current stage: no stage in the link (the workspace picks it, #433) or an explicit one.
-  await expect(resume).toHaveAttribute('href', /#\/drama\/\d+$/)
-  await expect(resume).toHaveClass(/btn/)
+  const open = shelf.getByRole('link', { name: 'Open: Signal', exact: true })
+  // A title with no lines yet opens on its current stage: no stage in the link (the workspace picks it).
+  await expect(open).toHaveAttribute('href', /#\/drama\/\d+$/)
+  await expect(open).toHaveText('Open')
+  await expect(open).toHaveClass(/btn/)
 
   await page.getByRole('radio', { name: 'Lines' }).check()
   await page.getByLabel('Search all lines').fill('zzz-no-such-line')
@@ -196,4 +205,102 @@ test('a link in the Add box, Only add it, opens New title with it filled in; tit
   })
   expect(style.whiteSpace).not.toBe('nowrap')
   expect(style.textOverflow).not.toBe('ellipsis')
+})
+
+// The Continue shelf and the list it reads its counts from, mocked so the tiles stand in known states. Newest first:
+// Blessing read to page 12; Grandmaster with lines left; Signal translated (the check state); Harbor Lights exported;
+// Quiet Stream also in the check state, past the four a computer shows until More.
+const row = (id: number, title_en: string, media_type: string, over: Record<string, unknown>) => ({
+  id, title_en, title_zh: null, author: null, studio: null, director: null, voice_actors: null, status: 'aligned',
+  source_language: 'zh', media_type, content_mode: null, series_id: null, translation_engine: null, custom_tags: [],
+  created_at: null, updated_at: '2026-11-10T12:00:00', ...over,
+})
+const SHELF_ROWS = [
+  row(1, 'Grandmaster of Demonic Cultivation', 'audio_drama', { line_count: 2000, translated_count: 766 }),
+  row(2, "Heaven Official's Blessing", 'novel', { line_count: 90, translated_count: 90 }),
+  row(3, 'Signal', 'video_drama', { line_count: 40, translated_count: 40, status: 'translated' }),
+  row(61, 'Harbor Lights', 'video_drama', { line_count: 12, translated_count: 12, status: 'exported' }),
+  row(62, 'Quiet Stream', 'asmr', { line_count: 8, translated_count: 8, status: 'translated' }),
+]
+
+async function mockShelf(page: Page, risk: (id: number) => number | null) {
+  await page.route('**/api/library/continue', (r) => r.fulfill({ json: { items: [{
+    drama_id: 2, title_en: "Heaven Official's Blessing", title_zh: null, percent_complete: 40, last_page: 12,
+    last_accessed_at: '2026-11-10T12:00:09', has_cover_art: false,
+  }] } }))
+  await page.route('**/api/library/recent', (r) => r.fulfill({ json: { items: SHELF_ROWS.filter((d) => d.id !== 2).map((d, n) => ({
+    id: d.id, title_en: d.title_en, title_zh: null, status: d.status, media_type: d.media_type, updated_at: `2026-11-10T12:00:0${8 - n}`,
+  })) } }))
+  await page.route((u) => u.pathname === '/api/library/dramas', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ json: { items: SHELF_ROWS, count: SHELF_ROWS.length } }) : r.fallback())
+  const asked: number[] = []
+  await page.route('**/api/review/dramas/*/lines?*', (r) => {
+    const url = new URL(r.request().url())
+    if (url.searchParams.get('only') !== 'risk') return r.fallback()
+    const id = Number(url.pathname.split('/')[4])
+    asked.push(id)
+    const n = risk(id)
+    return n === null
+      ? r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } })
+      : r.fulfill({ json: { items: [], total: n, page: 1, page_size: 1, risk_count: n } })
+  })
+  return asked
+}
+
+test('Continue tiles name the next step and open it; only a tile waiting on a check asks for its count', async ({ page }) => {
+  const asked = await mockShelf(page, (id) => (id === 3 ? 3 : 0))
+  await page.goto('/')
+  const shelf = page.getByRole('region', { name: 'Continue' })
+  await expect(shelf.getByRole('listitem')).toHaveCount(4)
+  const tiles: [string, string, string][] = [
+    ['Read from page 12', "Heaven Official's Blessing", '#/read/2'],
+    ['Translate 1,234 lines', 'Grandmaster of Demonic Cultivation', '#/drama/1/translate'],
+    ['Check 3 lines', 'Signal', '#/drama/3/review'],
+    ['Watch', 'Harbor Lights', '#/read/61?watch=1'],
+  ]
+  for (const [label, title, href] of tiles) {
+    const link = shelf.getByRole('link', { name: `${label}: ${title}`, exact: true })
+    await expect(link).toHaveText(label)
+    await expect(link).toHaveAttribute('href', href)
+  }
+  // The badge and the reading line stay as they were.
+  await expect(shelf).toContainText('Reading · page 12 · 40%')
+  expect(asked).toEqual([3])
+
+  // Quiet Stream comes on screen with More: asked then, and nothing needs a look, so it says Export.
+  await shelf.getByRole('button', { name: 'More (1)' }).click()
+  await expect(shelf.getByRole('link', { name: 'Export: Quiet Stream', exact: true })).toHaveAttribute('href', '#/drama/62/export')
+  expect(asked).toEqual([3, 62])
+  await shelf.getByRole('button', { name: 'Less' }).click()
+  await shelf.getByRole('button', { name: 'More (1)' }).click()
+  await expect(shelf.getByRole('link', { name: 'Export: Quiet Stream', exact: true })).toBeVisible()
+  expect(asked).toEqual([3, 62])
+
+  await shelf.getByRole('link', { name: 'Check 3 lines: Signal' }).click()
+  await expect(page).toHaveURL(/#\/drama\/3\/review$/)
+})
+
+test('a failed count request leaves Check the lines, with no error on the page', async ({ page }) => {
+  const asked = await mockShelf(page, () => null)
+  await page.goto('/')
+  const shelf = page.getByRole('region', { name: 'Continue' })
+  const check = shelf.getByRole('link', { name: 'Check the lines: Signal', exact: true })
+  await expect(check).toHaveAttribute('href', '#/drama/3/review')
+  await expect.poll(() => asked).toEqual([3])
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
+test('cards say Watch for video and Listen for audio, opening the Reader with the player; Read stays for the rest', async ({ page }) => {
+  await mockShelf(page, () => 0)
+  await page.goto('/')
+  const titles = page.getByRole('region', { name: 'Titles' })
+  await expect(titles.getByRole('link', { name: 'Watch Signal', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
+  await expect(titles.getByRole('link', { name: 'Listen Grandmaster of Demonic Cultivation', exact: true })).toHaveAttribute('href', '#/read/1?watch=1')
+  // Blessing has a saved reading place, so its card says Continue; the list view names it by kind.
+  await expect(titles.getByRole('link', { name: "Continue Heaven Official's Blessing", exact: true })).toHaveAttribute('href', '#/read/2')
+  await titles.getByRole('radio', { name: 'List' }).check()
+  await expect(titles.getByRole('link', { name: 'Watch Signal', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
+  await expect(titles.getByRole('link', { name: "Read Heaven Official's Blessing", exact: true })).toHaveAttribute('href', '#/read/2')
+  await titles.getByRole('button', { name: 'Details: Signal' }).click()
+  await expect(page.getByRole('dialog', { name: 'Signal' }).getByRole('link', { name: 'Watch', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
 })

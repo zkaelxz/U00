@@ -16,19 +16,24 @@ const html = (items: DramaSummary[], selectedId: number | null = null) =>
   renderToStaticMarkup(createElement(DramaCards, { items, selectedId, onSelect: () => {} }))
 
 describe('DramaCards', () => {
-  it('links the title to the workspace, with Read and Details as quiet buttons', () => {
+  it('links the title to the workspace, with Listen and Details as quiet buttons on an audio title', () => {
     const out = html([drama({})])
     // The title attribute carries the whole name when the card clamps it to two lines.
     expect(out).toContain('href="#/drama/7" title="Moonlit">Moonlit</a>')
     expect(out).toContain('月光')
     expect(out).toContain('aria-label="Details: Moonlit"')
-    expect(out).toContain('href="#/read/7" aria-label="Read Moonlit" class="btn btn-ghost btn-sm drama-card-read"')
+    expect(out).toContain('href="#/read/7?watch=1" aria-label="Listen Moonlit" class="btn btn-ghost btn-sm drama-card-read"')
     expect(out).not.toContain('btn-primary')
   })
 
-  it('says Continue instead of Read for a title with a saved reading position', () => {
+  it('names the quiet button by the kind of title: Watch a video, Read a novel', () => {
+    expect(html([drama({ media_type: 'video_drama' })])).toContain('href="#/read/7?watch=1" aria-label="Watch Moonlit" class="btn btn-ghost btn-sm drama-card-read">Watch<')
+    expect(html([drama({ media_type: 'novel' })])).toContain('href="#/read/7" aria-label="Read Moonlit" class="btn btn-ghost btn-sm drama-card-read">Read<')
+  })
+
+  it('says Continue instead of Listen, Watch or Read for a title with a saved reading position', () => {
     const out = renderToStaticMarkup(createElement(DramaCards, {
-      items: [drama({}), drama({ id: 8, title_en: 'Other' })], selectedId: null, onSelect: () => {}, continuing: new Set([7]),
+      items: [drama({}), drama({ id: 8, title_en: 'Other', media_type: 'novel' })], selectedId: null, onSelect: () => {}, continuing: new Set([7]),
     }))
     expect(out).toContain('href="#/read/7" aria-label="Continue Moonlit"')
     expect(out).toContain('href="#/read/8" aria-label="Read Other"')
