@@ -194,6 +194,8 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
   .review-editor.has-side > .review-watch { max-height: 52vh; }
   .review-editor.has-side > .review-watch .review-stage { max-height: 14vh; }
 }
+/* Full screen: the side-video caps above (higher specificity) would otherwise shrink the picture to a small box on a black screen. */
+.review-editor.has-side > .review-watch .review-player-frame.is-fullscreen .review-stage { max-height: none; }
 .review-replace { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
 .review-replace-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .review-replace-head h2 { margin: 0; }
