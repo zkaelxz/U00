@@ -668,6 +668,30 @@ class TestFilterHallucinatedSegments:
         assert params["min_repeat_count"].default == 4
 
 
+class TestDropRecord:
+    """What the filters remove is kept for the raw transcript, so the speech coverage
+    check can name the filter instead of saying Whisper heard nothing."""
+
+    def test_each_removed_segment_is_recorded_with_its_reason(self):
+        from whisper_hallucination import recording_drops
+        loop = [{"start": 10.0 + i, "end": 10.8 + i, "text": "谢谢"} for i in range(5)]
+        outro = [{"start": 60.0, "end": 62.0, "text": "Thanks for watching!"}]
+        with recording_drops() as dropped:
+            kept = filter_hallucinated_segments([{"start": 0.0, "end": 2.0, "text": "你好"}, *loop, *outro])
+        assert [s["text"] for s in kept] == ["你好", "谢谢"]
+        assert [(d["start"], d["reason"]) for d in dropped] == [
+            (11.0, "repeat"), (12.0, "repeat"), (13.0, "repeat"), (14.0, "repeat"), (60.0, "stock_phrase")]
+        assert dropped[-1]["text"] == "Thanks for watching!"
+
+    def test_a_filter_outside_a_run_records_nothing(self):
+        from whisper_hallucination import recording_drops
+        loop = [{"start": float(i), "end": i + 0.8, "text": "谢谢"} for i in range(5)]
+        filter_hallucinated_segments(loop)
+        with recording_drops() as dropped:
+            pass
+        assert dropped == []
+
+
 class TestStockPhraseFilter:
     def _seg(self, start, end, text):
         return {"start": start, "end": end, "text": text}

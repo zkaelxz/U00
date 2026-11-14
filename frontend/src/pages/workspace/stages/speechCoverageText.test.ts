@@ -16,6 +16,13 @@ describe('speech coverage text', () => {
     expect(rawStatusText('unknown')).toBe('No raw transcript to compare with')
   })
 
+  it('names the filter that removed what Whisper wrote', () => {
+    expect(rawStatusText('filtered', ['repeat'])).toBe('Whisper wrote text here; the repeat filter (a line looped many times) removed it')
+    expect(rawStatusText('filtered', ['stock_phrase', 'invented_list']))
+      .toBe('Whisper wrote text here; the credit-phrase filter and the invented-list filter removed it')
+    expect(rawStatusText('filtered')).toBe('Whisper wrote text here; a filter removed it')
+  })
+
   it('shows a gap range as clocks', () => {
     expect(gapRange(65, 3725)).toBe('1:05–1:02:05')
   })

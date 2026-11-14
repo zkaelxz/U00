@@ -51,6 +51,21 @@ class TestFindGaps:
         assert by_start[10.0]["raw_status"] == "lost_after"
         assert by_start[10.0]["raw_text"] == "你好吗"
 
+    def test_text_a_filter_removed_is_named_instead_of_never_heard(self):
+        speech = [(0.0, 5.0), (10.0, 15.0)]
+        dropped = [{"start": 10.0, "end": 12.0, "text": "谢谢观看", "reason": "repeat"},
+                   {"start": 12.0, "end": 14.0, "text": "谢谢观看", "reason": "repeat"}]
+        gaps = {g["start"]: g for g in svc.find_gaps(speech, [], [], 2.0, dropped)["gaps"]}
+        assert gaps[10.0]["raw_status"] == "filtered"
+        assert gaps[10.0]["filter_reasons"] == ["repeat"]
+        assert gaps[10.0]["raw_text"] == "谢谢观看 谢谢观看"
+        assert gaps[0.0]["raw_status"] == "none" and gaps[0.0]["filter_reasons"] == []
+
+    def test_text_still_in_the_transcript_wins_over_a_drop_record(self):
+        gap = svc.find_gaps([(10.0, 15.0)], [], [{"start": 10.0, "end": 14.0, "text": "你好"}], 2.0,
+                            [{"start": 10.0, "end": 14.0, "text": "x", "reason": "repeat"}])["gaps"][0]
+        assert gap["raw_status"] == "lost_after" and gap["raw_text"] == "你好"
+
     def test_no_raw_transcript_is_unknown_not_none(self):
         gaps = svc.find_gaps([(0.0, 5.0)], [], None, 2.0)
         assert gaps["raw_available"] is False
@@ -131,6 +146,19 @@ class TestJob:
         assert result["raw_available"] is True
         # Read-only: the saved line is untouched.
         assert [ln.zh for ln in isolated_db.load_line_objects(drama)] == ["covered"]
+
+    def test_a_drop_saved_with_the_raw_transcript_names_the_filter(self, isolated_db, drama, fake_audio):
+        isolated_db.save_lines(drama, [Line(idx=0, start=5.0, end=15.0, zh="covered")])
+        raw_transcript.write_raw_transcript(
+            isolated_db.drama_dir(drama), [], [], "whisper",
+            dropped=[{"start": 596.0, "end": 603.0, "text": "Thanks for watching", "reason": "stock_phrase"},
+                     {"start": 1.0, "end": 2.0, "reason": "repeat"}])  # malformed: no text
+        svc.start_speech_coverage(drama, min_gap_seconds=2.0)
+        status = _wait(drama)
+        assert status["status"] == "done", status["message"]
+        gap = status["result"]["gaps"][0]
+        assert gap["raw_status"] == "filtered"
+        assert gap["filter_reasons"] == ["stock_phrase"] and gap["raw_text"] == "Thanks for watching"
 
     def test_unreadable_audio_fails_softly(self, isolated_db, drama, monkeypatch):
         monkeypatch.setattr(svc, "_audio_seconds", lambda path: None)

@@ -6,8 +6,18 @@ export const DEFAULT_MIN_GAP_SECONDS = 2
 // Where the audio can start playing: a moment before the gap so its first word is heard.
 export const PLAY_LEAD_SECONDS = 0.5
 
-export function rawStatusText(status: RawStatus): string {
+const FILTER_NAME: Record<string, string> = {
+  repeat: 'the repeat filter (a line looped many times)',
+  stock_phrase: 'the credit-phrase filter',
+  invented_list: 'the invented-list filter',
+}
+
+export function rawStatusText(status: RawStatus, filterReasons: readonly string[] = []): string {
   if (status === 'lost_after') return 'Whisper produced text here but it was lost afterwards'
+  if (status === 'filtered') {
+    const names = filterReasons.map((r) => FILTER_NAME[r] ?? 'a filter')
+    return `Whisper wrote text here; ${names.length ? names.join(' and ') : 'a filter'} removed it`
+  }
   if (status === 'none') return 'Whisper produced nothing here'
   return 'No raw transcript to compare with'
 }
