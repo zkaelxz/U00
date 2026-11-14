@@ -40,6 +40,17 @@ def is_active(style_guidelines: str | None) -> bool:
 _ORDINARY_CATEGORIES = ("culture_item",)
 
 
+def _name_terms(glossary_terms) -> list:
+    return [t for t in glossary_terms or [] if t.get("category") not in _ORDINARY_CATEGORIES]
+
+
+def required_terms(glossary_terms, style_guidelines: str | None) -> list:
+    """The glossary terms a run makes the English use. Under the plain recipe only the
+    ones its prompt lists: a line saying "steak" for a dropped 牛肉 = beef entry must not
+    be re-asked (a paid request) and flagged for it."""
+    return _name_terms(glossary_terms) if is_active(style_guidelines) else (glossary_terms or [])
+
+
 def names_glossary(glossary_terms) -> str:
     """The glossary as a flat source -> English list of names and special terms.
     Policy rules and category labels are left out: a rule block is what the recipe
@@ -49,8 +60,7 @@ def names_glossary(glossary_terms) -> str:
     shown only the main spelling would not connect that line to the English name."""
     rows = [f"{' / '.join(dict.fromkeys(glossary_term_forms(t)))} -> {t['term_translation']}"
             + (f" ({t['notes']})" if t.get("notes") else "")
-            for t in glossary_terms or []
-            if t.get("term_translation") and t.get("category") not in _ORDINARY_CATEGORIES]
+            for t in _name_terms(glossary_terms) if t.get("term_translation")]
     return _GLOSSARY_HEADING + "\n" + "\n".join(rows) if rows else ""
 
 

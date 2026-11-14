@@ -102,6 +102,30 @@ def test_a_local_model_gets_the_names_in_the_first_request_too():
     assert prompts.build_batch_user_message(first, "1. a").startswith("REQUIRED NAMES")
 
 
+def test_the_plain_stream_recipe_requires_only_the_terms_its_prompt_lists():
+    """The plain recipe leaves ordinary words (culture_item) out of its glossary, so a
+    line saying "steak" for 牛肉 = beef is not re-asked or flagged for it."""
+    from engine_backends import stream_recipe
+    terms = TERMS + [{"term_original": "牛肉", "term_translation": "beef", "aliases": "",
+                      "category": "culture_item", "enforce_exact": 0, "notes": ""}]
+    lines = [Line(idx=0, start=0, end=1, zh="白上吹雪吃牛肉", id=10)]
+    guidelines = stream_recipe.build_guidelines(terms)
+    engine = ScriptedEngine({10: "Shirakami Fubuki eats steak."}, name="ollama")
+    out = translate_pipeline.translate_lines_with_engine(
+        lines, engine, drama_meta={"source_language": "zh"}, glossary_terms=terms,
+        style_guidelines=guidelines, context_window=0, context_window_ahead=0)[0]
+    assert len(engine.calls) == 1 and not out[0].flag
+    assert engine.calls[0]["context"]["glossary_required"] == [("白上吹雪", "Shirakami Fubuki")]
+    # Outside the recipe the same entry is required, as before.
+    engine = ScriptedEngine({10: "Shirakami Fubuki eats steak."}, {10: "Shirakami Fubuki eats beef."},
+                            name="ollama")
+    lines = [Line(idx=0, start=0, end=1, zh="白上吹雪吃牛肉", id=10)]
+    out = translate_pipeline.translate_lines_with_engine(
+        lines, engine, drama_meta={"source_language": "zh"}, glossary_terms=terms,
+        context_window=0, context_window_ahead=0)[0]
+    assert len(engine.calls) == 2 and out[0].en == "Shirakami Fubuki eats beef."
+
+
 def test_a_cloud_engine_first_request_has_no_extra_block():
     engine = ScriptedEngine({10: "Shirakami Fubuki", 11: "ok", 12: "Shirakami Fubuki"})
     _run(engine, _lines())

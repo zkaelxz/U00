@@ -13,13 +13,14 @@ import {
   saveToVoiceBank,
   uploadReferenceClip,
 } from '../../../api/voiceClone'
+import { voiceBankAudioUrl } from '../../../api/voiceBankAudio'
+import { ClipPlayButton } from '../../../components/ClipPlayButton'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
-import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
 import { voiceCloneJobId } from '../stageJobIds'
@@ -249,7 +250,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, extracting, o
               </select>
             </Field>
             {bankId && (
-              <VoiceBankPlayButton key={bankId} entryId={Number(bankId)} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
+              <ClipPlayButton key={bankId} src={voiceBankAudioUrl(Number(bankId))} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
             )}
             <button
               type="button"
