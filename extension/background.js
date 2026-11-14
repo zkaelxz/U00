@@ -67,6 +67,7 @@ function base(serverUrl) {
 // earlier and reported honestly: the app keeps working on it.
 const CALL_TIMEOUT_MS = 4.5 * 60 * 1000;
 const STILL_WORKING = "Baihe is still working; send the rest later.";
+const TIMED_OUT = "Baihe is still working on this. Check the drama in Baihe in a few minutes; pages already read are kept.";
 
 // Requests in flight, so a Cancel can end the wait for them at once instead of after the app answers.
 const inflight = new Set();
@@ -86,7 +87,44 @@ function abortSends() {
   return { ok: true, data: { aborted: inflight.size } };
 }
 
-async function call(path, { method = "GET", body = null } = {}) {
+// A streamed answer (one JSON line per finished page, then {done} or {error}) as the
+// ordinary {ok, data} shape, with data.pages built from the page lines. `onPage` hears each
+// page as its line arrives. An answer cut off after some pages keeps those pages and says why
+// the rest are missing in data.cutOff, since they are already drawn on the reader's page.
+async function readPageLines(response, onPage) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const pages = [];
+  let buffer = "";
+  let last = null;
+  const take = (text) => {
+    if (!text.trim()) return;
+    const line = JSON.parse(text);
+    if (line && line.page) {
+      pages.push(line.page);
+      try { onPage(line.page); } catch (e) { /* drawing early is a nicety; the page is still returned */ }
+    } else {
+      last = line;
+    }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf("\n")) >= 0) {
+      take(buffer.slice(0, cut));
+      buffer = buffer.slice(cut + 1);
+    }
+    if (done) break;
+  }
+  take(buffer + decoder.decode());
+  if (last && last.done) return { ok: true, data: { ...last.done, pages } };
+  const reason = (last && last.error) || "The app stopped answering partway through.";
+  if (!pages.length) return { ok: false, error: reason, status: (last && last.status) || 500 };
+  return { ok: true, data: { pages, cutOff: reason } };
+}
+
+async function call(path, { method = "GET", body = null, onPage = null } = {}) {
   const { token, serverUrl } = await settings();
   if (!token) {
     return { ok: false, error: "No token yet. Open the extension's options and paste the token from Baihe's Settings." };
@@ -119,7 +157,7 @@ async function call(path, { method = "GET", body = null } = {}) {
       return {
         ok: false,
         timedOut: true,
-        error: "Baihe is still working on this. Check the drama in Baihe in a few minutes; pages already read are kept.",
+        error: TIMED_OUT,
       };
     }
     // A refused connection is the ordinary "the app isn't running" case,
@@ -130,6 +168,20 @@ async function call(path, { method = "GET", body = null } = {}) {
         ? `Couldn't reach Baihe at ${serverUrl}.`
         : `Couldn't reach Baihe on ${base()}. Is the app running, with the Extension bridge switch on in Settings → Browser extension?`,
     };
+  }
+  const type = (response.headers && response.headers.get && response.headers.get("content-type")) || "";
+  if (response.ok && onPage && type.includes("ndjson")) {
+    try {
+      return await readPageLines(response, onPage);
+    } catch (e) {
+      if (controller.userAbort) return { ok: false, cancelled: true, error: "Cancelled." };
+      return e && e.name === "AbortError"
+        ? { ok: false, timedOut: true, error: TIMED_OUT }
+        : { ok: false, error: "The app's answer could not be read." };
+    } finally {
+      clearTimeout(timer);
+      inflight.delete(controller);
+    }
   }
   let payload = null;
   try {
@@ -305,17 +357,24 @@ function planBatches(images, cap, minSize = 1) {
 // A whole chapter is many requests, never one: the bridge caps a request, and
 // one failing batch must not hide the pages that did arrive. The totals let
 // the popup show sent vs. received vs. stored instead of a bare page count.
-async function sendImages(message) {
+async function sendImages(message, sender) {
   const runId = crypto.randomUUID();
   activeRuns.add(runId);
+  // Each finished page goes straight back to the tab that sent it, so the reader sees it
+  // drawn while the rest of the batch is still being worked on.
+  const tab = sender && sender.tab;
+  const onPage = tab && chrome.tabs && chrome.tabs.sendMessage
+    ? (page) => chrome.tabs.sendMessage(tab.id, { type: "pageReady", page },
+                                        { frameId: sender.frameId || 0 }).catch(() => {})
+    : () => {};
   try {
-    return await sendImagesRun(message, runId);
+    return await sendImagesRun(message, runId, onPage);
   } finally {
     activeRuns.delete(runId);
   }
 }
 
-async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages }, runId) {
+async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages }, runId, onPage = () => {}) {
   if (!images || !images.length) {
     return { ok: false, error: "No page images were found on this page." };
   }
@@ -328,7 +387,10 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
     // /pages is the only route that runs the page filter, so a chapter of two or more images uses it even if the filter later leaves one.
     const answer = await call(batch.length === 1 && images.length === 1 ? "/page" : "/pages", {
       method: "POST",
+      onPage,
       body: {
+        // An older app ignores it and answers the whole batch at once.
+        stream: true,
         images: batch,
         drama_id: dramaId || null,
         source_url: sourceUrl || "",
@@ -378,6 +440,15 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
       continue;
     }
     const data = answer.data || {};
+    if (data.cutOff) {
+      // The pages that arrived are kept (and already drawn); the rest of the batch is named.
+      const arrived = new Set((data.pages || []).map((p) => p.key));
+      const missing = batch.filter((image) => !arrived.has(image.key));
+      for (const image of missing) merged.failed.push({ key: image.key, url: image.url || "", error: data.cutOff });
+      firstError = firstError || { ok: false, error: data.cutOff };
+      data.received = batch.length - missing.length;
+      data.stored = (data.pages || []).filter((p) => p.stored).length;
+    }
     merged.pages.push(...(data.pages || []));
     merged.skipped.push(...(data.skipped || []));
     merged.failed.push(...(data.failed || []));
@@ -674,7 +745,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           respond(await health());
           break;
         case "send":
-          respond(await sendImages(message));
+          respond(await sendImages(message, sender));
           break;
         // Interim status from the content script; the popup, if open,
         // receives it too. Nothing to do here.

@@ -760,6 +760,43 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _stream_pages(self, payload, images):
+        """/pages as one JSON line per page as it finishes, then a last line with the rest of the
+        answer (extension_bridge_service.streamed_lines), so the extension draws each page without
+        waiting for the batch. Nothing is sent until the first line, so a refusal before any page
+        is still an ordinary error answer; after that only a last {"error"} line can say so."""
+        from services import extension_bridge_service
+        state = {"started": False, "gone": False}
+
+        def write(line: dict):
+            if not state["started"]:
+                # No length is known up front, so the end of the body is the end of the connection.
+                self.close_connection = True
+                self.send_response(200)
+                self.send_header("Content-Type", extension_bridge_service.STREAM_CONTENT_TYPE)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                state["started"] = True
+            if state["gone"]:
+                return
+            try:
+                self.wfile.write(json.dumps(line).encode("utf-8") + b"\n")
+                self.wfile.flush()
+            except OSError:
+                state["gone"] = True   # the extension stopped listening; the run goes on
+
+        try:
+            extension_bridge_service.streamed_lines(payload, images, write)
+        except EndpointError as e:
+            if not state["started"]:
+                raise
+            write({"error": e.message, "status": e.status})
+        except Exception:
+            if not state["started"]:
+                raise
+            write({"error": "the app failed to answer this request", "status": 500})
+
     def _fail(self, error):
         # Keep-alive is on (HTTP/1.1), and a refusal usually happens
         # *before* the request body has been read -- an unauthenticated
@@ -810,6 +847,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             images = payload.get("images")
             extension_bridge_service.validate_image_batch(route == "/page", images)
+            if route == "/pages" and payload.get("stream") is True:
+                self._stream_pages(payload, images)
+                return
             self._send_json(200, extension_bridge_service.run_images(payload, images))
         except EndpointError as e:
             self._fail(e)

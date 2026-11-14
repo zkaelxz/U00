@@ -50,7 +50,7 @@ function container(children) {
   return parent;
 }
 
-function loadContent({ images = [], canvases = [], fetchImage, screenshot = null }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null }) {
   const sent = [];
   const shots = [];
   const marks = [];
@@ -66,12 +66,13 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
     return c;
   };
   const document = {
-    title: "", body: { innerText: "", appendChild() {} },
+    title: "", body: { innerText: "", appendChild: (node) => marks.push(`draw ${node.className || ""}`) },
     documentElement: { appendChild() {}, scrollHeight: 800,
       setAttribute: (name) => marks.push(`set ${name}`), removeAttribute: (name) => marks.push(`remove ${name}`) },
     images, head: { appendChild() {} },
     querySelectorAll: (sel) => (sel === "canvas" ? canvases : []),
-    createElement: (tag) => (tag === "canvas" ? cropCanvas() : { style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
+    createElement: (tag) => (tag === "canvas" ? cropCanvas() : { style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {},
+                                                                 classList: { toggle() {}, add() {}, remove() {} } }),
     getElementById: () => null,
   };
   const sandbox = {
@@ -99,7 +100,11 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
             shots.push(marks.slice());
             return screenshot.reply || { ok: true, data: { data: Buffer.from(PNG).toString("base64") } };
           }
-          if (message.type === "send") { sent.push(message); return { ok: true, data: { pages: [] } }; }
+          if (message.type === "send") {
+            sent.push(message);
+            if (onSend) await onSend(message, (m) => new Promise((resolve) => listener(m, {}, resolve)));
+            return { ok: true, data: { pages: [] } };
+          }
           if (message.type === "progress") progress.push(message);
           if (message.type === "captureSummary") summaries.push(message);
           return { ok: true };
@@ -189,6 +194,19 @@ async function content(scenario) {
         tall: await shoot({ screenshot: { on: true } }, [800, 1200]),
         refused: await shoot({ screenshot: { on: true, reply: { ok: false, error: "the browser would not take a picture of the tab" } } }),
       };
+    }
+    case "page_drawn_before_its_batch_answers": {
+      // The worker forwards a finished page while its batch is still out; the batch's own
+      // answer then carries no pages. The page must be drawn before that answer arrives.
+      let drawnWhileOut = null;
+      const onSend = async (message, tell) => {
+        await tell({ type: "pageReady", page: { key: message.images[0].key, regions: [],
+                                               typeset_image: "data:image/jpeg;base64,AAAA" } });
+        drawnWhileOut = h.marks.filter((m) => m.startsWith("draw ")).slice();
+      };
+      const h = loadContent({ images: [img()], fetchImage: okImage(), onSend });
+      const result = await h.ask(visible);
+      return { ok: result.ok, sends: h.sent.length, drawnWhileOut };
     }
     case "canvas_tainted_no_url": {
       const canvas = fakeCanvas(800, 1200);
@@ -872,14 +890,28 @@ async function contentExpression(expression) {
   return JSON.stringify(await vm.runInContext(expression, sandbox));
 }
 
+// A streamed bridge answer: each line is its own chunk, split mid-line once to check the reassembly.
+function streamedReply(lines) {
+  const text = lines.map((line) => JSON.stringify(line) + "\n").join("");
+  const cut = Math.floor(text.length / 3);
+  const chunks = [text.slice(0, cut), text.slice(cut)].map((part) => new TextEncoder().encode(part));
+  return {
+    ok: true, status: 200,
+    headers: { get: (name) => (name.toLowerCase() === "content-type" ? "application/x-ndjson" : null) },
+    body: { getReader: () => ({ read: async () => (chunks.length ? { value: chunks.shift(), done: false } : { done: true }) }) },
+  };
+}
+
 async function batching(scenarioJson) {
   const scenario = JSON.parse(scenarioJson);
   const requests = [];
+  const forwarded = [];
   let listener = null;
   const sandbox = {
     chrome: {
       runtime: { onInstalled: { addListener() {} }, onMessage: { addListener(fn) { listener = fn; } } },
       storage: { local: { get: async () => ({ token: "t" }), set: async () => {}, remove() {} } },
+      tabs: { sendMessage: async (tabId, message, options) => { forwarded.push({ tabId, type: message.type, key: message.page.key, frameId: options.frameId }); } },
     },
     fetch: async (url, init) => {
       const pathname = new URL(url).pathname;
@@ -888,8 +920,9 @@ async function batching(scenarioJson) {
       }
       if (pathname === "/cancel") return { ok: true, status: 200, json: async () => ({ cancelled: true }) };
       const body = JSON.parse(init.body);
-      requests.push({ path: pathname, keys: body.images.map((i) => i.key) });
+      requests.push({ path: pathname, keys: body.images.map((i) => i.key), stream: body.stream === true });
       const reply = scenario.reply(requests.length, body);
+      if (reply.lines) return streamedReply(reply.lines);
       if (reply.abort) {
         const aborted = new Error("aborted");
         aborted.name = "AbortError";
@@ -897,8 +930,8 @@ async function batching(scenarioJson) {
       }
       return { ok: reply.status === 200, status: reply.status, json: async () => reply.body };
     },
-    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error,
-    setTimeout, clearTimeout, AbortController, crypto: globalThis.crypto,
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Set,
+    setTimeout, clearTimeout, AbortController, TextDecoder, crypto: globalThis.crypto,
   };
   sandbox.globalThis = sandbox;
   sandbox.importScripts = (name) => vm.runInContext(read(name), sandbox);
@@ -909,7 +942,8 @@ async function batching(scenarioJson) {
     ({ key: "k" + i, data: "x".repeat(scenario.size || 4), content_type: "image/png", url: "u" + i }));
   return new Promise((resolve) => {
     listener({ type: "send", images, dramaId: 1, store: true, sourceUrl: "https://s/c", filterPages: true },
-              {}, (result) => resolve({ result, requests }));
+              scenario.fromTab ? { tab: { id: 7 }, frameId: 3 } : {},
+              (result) => resolve({ result, requests, forwarded }));
   });
 }
 

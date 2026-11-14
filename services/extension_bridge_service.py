@@ -450,3 +450,12 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
             "already_stored": sum(1 for r in results if r.get("already_stored")),
             **({"stopped": stopped} if stopped else {})}
 
+
+STREAM_CONTENT_TYPE = "application/x-ndjson"
+
+
+def streamed_lines(payload, images, write, principal=None) -> None:
+    """run_images for a request that asked for `stream`: `write` gets {"page": result} as each
+    page finishes, then {"done": the answer without its pages}, which the extension already has."""
+    answer = run_images(payload, images, principal=principal, on_page=lambda page: write({"page": page}))
+    write({"done": {key: value for key, value in answer.items() if key != "pages"}})

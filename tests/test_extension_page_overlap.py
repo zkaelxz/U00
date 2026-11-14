@@ -1,6 +1,7 @@
 """The pages of one extension request overlap (the next is read while one translates) but keep
-the order a one-at-a-time loop gave. The scanlate steps are faked; nothing loads a model or calls
-a network."""
+the order a one-at-a-time loop gave, and a request that asks for `stream` hears each page as it
+finishes. The scanlate steps are faked; nothing loads a model or calls a network."""
+import json
 import threading
 import time
 
@@ -11,7 +12,7 @@ import page_server
 from memory_headroom import HeadroomError
 from services import extension_bridge_service as bridge
 
-from tests.test_page_server import _b64, _png_bytes, _reset_module_state  # noqa: F401
+from tests.test_page_server import _b64, _png_bytes, _post, token, _reset_module_state  # noqa: F401
 
 CHAPTER = "https://example.com/comic/1"
 
@@ -137,3 +138,55 @@ def test_each_page_is_heard_as_it_finishes_and_a_listener_that_fails_stops_nothi
     answer = bridge.run_images(payload, payload["images"], on_page=listener)
     assert sorted(heard) == ["k0", "k1", "k2"]
     assert len(answer["pages"]) == 3
+
+
+def _lines(handler):
+    return [json.loads(line) for line in handler.wfile.getvalue().decode("utf-8").splitlines()]
+
+
+def test_a_streamed_batch_sends_one_line_per_page_then_the_rest_of_the_answer(token, pipeline):
+    handler = _post(token, {"images": _images(3), "store": False, "filter_pages": False,
+                            "stream": True}, path="/pages")
+    assert handler.status == 200
+    assert handler.header("Content-Type") == bridge.STREAM_CONTENT_TYPE
+    lines = _lines(handler)
+    assert sorted(line["page"]["key"] for line in lines[:-1]) == ["k0", "k1", "k2"]
+    done = lines[-1]["done"]
+    assert "pages" not in done and done["received"] == 3 and done["failed"] == []
+
+
+def test_a_stream_refused_before_any_page_is_an_ordinary_error_answer(token, pipeline):
+    images = _images(2)
+    images[1]["data"] = "not base64!"
+    handler = _post(token, {"images": images, "store": False, "stream": True}, path="/pages")
+    assert handler.status == 400
+    assert "base64" in handler.payload["error"]
+
+
+def test_without_stream_the_answer_is_unchanged(token, pipeline):
+    handler = _post(token, {"images": _images(2), "store": False, "filter_pages": False}, path="/pages")
+    assert handler.status == 200 and [p["key"] for p in handler.payload["pages"]] == ["k0", "k1"]
+
+
+class TestDeviceTokenRoute:
+    def test_a_members_batch_streams_too(self, pipeline):
+        from tests.test_extension_bridge_routes import BASE, _auth, _client, _member, _png
+        _, member_token = _member("a@example.com")
+        img = lambda key: {"key": key, "data": _png(), "content_type": "image/png"}  # noqa: E731
+        with _client().stream("POST", f"{BASE}/pages", headers=_auth(member_token), json={
+                "images": [img("a"), img("b")], "store": False, "filter_pages": False,
+                "stream": True}) as r:
+            assert r.status_code == 200
+            assert r.headers["content-type"].startswith(bridge.STREAM_CONTENT_TYPE)
+            lines = [json.loads(line) for line in r.iter_lines() if line]
+        assert sorted(line["page"]["key"] for line in lines[:-1]) == ["a", "b"]
+        assert "pages" not in lines[-1]["done"]
+
+    def test_a_members_stream_into_someone_elses_title_is_still_a_404(self, pipeline):
+        from tests.test_extension_bridge_routes import BASE, _auth, _client, _drama, _member, _png
+        _, member_token = _member("a@example.com")
+        other, _ = _member("b@example.com")
+        r = _client().post(f"{BASE}/pages", headers=_auth(member_token), json={
+            "drama_id": _drama(other["id"], "Theirs"), "stream": True,
+            "images": [{"key": "k", "data": _png(), "content_type": "image/png"}]})
+        assert (r.status_code, r.json()) == (404, {"error": "no such drama"})

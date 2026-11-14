@@ -14,8 +14,9 @@ HARNESS = Path(__file__).resolve().parent / "js" / "extension_harness.mjs"
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
 
 
-def run(count, reply_src, cap=12, size=4):
-    scenario = json.dumps({"count": count, "cap": cap, "replySrc": reply_src, "size": size})
+def run(count, reply_src, cap=12, size=4, from_tab=False):
+    scenario = json.dumps({"count": count, "cap": cap, "replySrc": reply_src, "size": size,
+                           "fromTab": from_tab})
     out = subprocess.run(["node", str(HARNESS), "batching", scenario],
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
@@ -111,3 +112,36 @@ def test_a_timed_out_batch_stops_the_chapter_instead_of_overlapping_the_next():
     assert [f["key"] for f in data["failed"]] == [f"k{i}" for i in range(10, 30)]
     assert "still working" in data["failed"][0]["error"]
     assert "still working" in data["stopped"]["message"] and "later" in data["stopped"]["message"]
+
+
+STREAMED = """(n, body) => ({ lines: [
+    ...body.images.slice().reverse().map((i) => ({ page: { key: i.key, regions: [], stored: true } })),
+    { done: { skipped: [], failed: [], received: body.images.length, stored: body.images.length } }] })"""
+
+
+def test_a_streamed_answer_forwards_each_page_to_the_tab_as_it_arrives():
+    got = run(3, STREAMED, from_tab=True)
+    assert all(r["stream"] for r in got["requests"])
+    assert [(f["tabId"], f["type"], f["key"], f["frameId"]) for f in got["forwarded"]] == [
+        (7, "pageReady", "k2", 3), (7, "pageReady", "k1", 3), (7, "pageReady", "k0", 3)]
+    data = got["result"]["data"]
+    assert sorted(p["key"] for p in data["pages"]) == ["k0", "k1", "k2"]
+    assert (data["sent"], data["received"], data["stored"]) == (3, 3, 3)
+
+
+def test_a_stream_cut_off_keeps_the_pages_that_arrived_and_names_the_rest():
+    reply = """(n, body) => ({ lines: [{ page: { key: body.images[0].key, regions: [], stored: true } },
+                                     { error: "the app failed to answer this request", status: 500 }] })"""
+    data = run(3, reply, from_tab=True)["result"]["data"]
+    assert [p["key"] for p in data["pages"]] == ["k0"]
+    assert [f["key"] for f in data["failed"]] == ["k1", "k2"]
+    assert "failed to answer" in data["failed"][0]["error"]
+    assert (data["received"], data["stored"]) == (1, 1)
+
+
+def test_a_page_heard_early_is_drawn_before_its_batch_answers():
+    out = subprocess.run(["node", str(HARNESS), "content", "page_drawn_before_its_batch_answers"],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got == {"ok": True, "sends": 1, "drawnWhileOut": ["draw baihe-layer"]}
