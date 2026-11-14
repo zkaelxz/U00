@@ -387,14 +387,15 @@ export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
   return true
 }
 
-export function emptyMessage(filter: LineFilter, term: string): string {
+// sourceStage: the first stage's name as the title's kind shows it (stageLabel).
+export function emptyMessage(filter: LineFilter, term: string, sourceStage: string): string {
   if (term) return `No lines match “${term}”.`
   if (filter === 'flagged') return 'No flagged lines. Nice.'
   if (filter === 'untranslated') return 'Every line has English.'
   if (filter === 'unreviewed') return 'Every translated line is checked.'
   if (filter === 'shaky') return 'No unchecked lines Whisper was unsure of.'
   if (filter === 'risk') return 'No unchecked line has a flag or low confidence.'
-  return 'No lines yet. Transcribe on Media first.'
+  return `No lines yet. Add them on ${sourceStage} first.`
 }
 
 /** One line per speaker, e.g. "Anna  3:40 · 62% · 41 turns", biggest first. */
