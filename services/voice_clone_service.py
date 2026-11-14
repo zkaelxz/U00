@@ -57,6 +57,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
+from typing import Optional
 
 import background_jobs
 from jobs import job_launch
@@ -345,17 +346,46 @@ def _save_manifest(drama_id: int, manifest: dict):
                  prefix=".manifest_", suffix=".json")
 
 
-def _line_speakers(lines) -> dict:
-    return {ln.get("id"): ln.get("speaker") for ln in lines if ln.get("speaker")}
+def _line_speakers(lines) -> tuple:
+    """(speaker by line id, [(start, end, speaker)]) for lines that have one."""
+    by_id, spans = {}, []
+    for ln in lines:
+        sp = ln.get("speaker")
+        if not sp:
+            continue
+        by_id[ln.get("id")] = sp
+        try:
+            spans.append((float(ln["start"]), float(ln["end"]), sp))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return by_id, spans
 
 
-def _clip_owner(cand: dict, found_for: str, line_speakers: dict) -> str:
+def _overlap_owner(start: float, end: float, spans) -> Optional[str]:
+    """The speaker whose lines cover most of [start, end], or None."""
+    totals = {}
+    for s, e, sp in spans:
+        overlap = min(end, e) - max(start, s)
+        if overlap > 0:
+            totals[sp] = totals.get(sp, 0.0) + overlap
+    return max(totals, key=totals.get) if totals else None
+
+
+def _clip_owner(cand: dict, found_for: str, line_speakers: tuple) -> str:
     """Whose voice a candidate is now: the speaker of the line it was matched
-    to, so a swap, rename, merge or Set speaker (which move lines, not the
-    manifest) carries the clip along with its line and an undo carries it
-    back. A clip that matched no line, or whose line is gone or has no
-    speaker, stays with the speaker it was found for."""
-    return line_speakers.get(cand.get("line_id")) or found_for
+    to, else of the lines it overlaps most, so a swap, rename, merge or Set
+    speaker (which move lines, not the manifest) carries the clip along with
+    its lines and an undo carries it back. A clip that touches no line stays
+    with the speaker it was found for."""
+    by_id, spans = line_speakers
+    owner = by_id.get(cand.get("line_id"))
+    if owner:
+        return owner
+    try:
+        owner = _overlap_owner(float(cand["start"]), float(cand["end"]), spans)
+    except (KeyError, TypeError, ValueError):
+        owner = None
+    return owner or found_for
 
 
 def _candidates_by_owner(manifest: dict, line_speakers: dict) -> dict:
@@ -371,20 +401,26 @@ def _candidates_by_owner(manifest: dict, line_speakers: dict) -> dict:
 
 
 def _speaker_segments(drama_id: int, speaker_label: str, lines: list) -> list:
-    """[(start, end)] for this speaker: diarization turns if stored, else
-    the speaker's own transcript lines."""
+    """[(start, end)] for this speaker: the stored diarization turns that
+    fall mostly on this speaker's lines, else the speaker's own transcript
+    lines. Turns are matched by time, not by their label, because a swap,
+    rename or merge relabels lines and never the stored turns."""
     import diarize
     try:
         turns = diarize.load_turns(_drama_path(drama_id)) or []
     except (OSError, ValueError):
         turns = []
+    spans = _line_speakers(lines)[1]
     segs = []
     for t in turns:
-        if isinstance(t, dict) and t.get("speaker") == speaker_label:
-            try:
-                segs.append((float(t["start"]), float(t["end"])))
-            except (KeyError, TypeError, ValueError):
-                continue
+        if not isinstance(t, dict):
+            continue
+        try:
+            start, end = float(t["start"]), float(t["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if _overlap_owner(start, end, spans) == speaker_label:
+            segs.append((start, end))
     if segs:
         return segs
     return [(float(ln["start"]), float(ln["end"])) for ln in lines

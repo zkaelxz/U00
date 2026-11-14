@@ -406,6 +406,33 @@ class TestExtract:
         assert self._clips(client, did) == {"A": [7.0], "B": [6.0]}
         assert client.get(f"{BASE}/{did}/reference-clips/candidates/{b_id}/audio").status_code == 200
 
+    def _turns(self, did):
+        # Turns start a little after their line, so no line start falls in a turn:
+        # the clips match no line and are placed by overlap alone.
+        import diarize
+        diarize.save_turns(db.drama_dir(did), [{"speaker": "A", "start": 0.5, "end": 6.0},
+                                                {"speaker": "B", "start": 7.5, "end": 14.0}])
+
+    def test_a_clip_with_no_matched_line_follows_the_line_it_overlaps(self, client, isolated_db, tools):
+        did = _drama(speakers=("A", "B"), durations=[6.0, 7.0])
+        self._turns(did)
+        self._run(client, did, "A")
+        assert self._clips(client, did) == {"A": [5.5]}
+        assert client.post(f"{BASE}/{did}/swap-speakers", json={"first": "A", "second": "B"}).status_code == 200
+        # A keeps its (now empty) entry from the search it ran.
+        assert self._clips(client, did) == {"A": [], "B": [5.5]}
+
+    def test_finding_clips_after_a_swap_cuts_the_turns_of_the_lines_the_speaker_has_now(
+            self, client, isolated_db, tools):
+        # The stored turns keep their old labels; the lines say whose voice is whose.
+        did = _drama(speakers=("A", "B"), durations=[6.0, 7.0])
+        self._turns(did)
+        assert client.post(f"{BASE}/{did}/swap-speakers", json={"first": "A", "second": "B"}).status_code == 200
+        self._run(client, did, "A")
+        cmd = tools["cuts"][-1]
+        assert cmd[cmd.index("-ss") + 1] == "7.500"
+        assert self._clips(client, did) == {"A": [6.5]}
+
     def test_clips_follow_a_rename(self, client, isolated_db, tools):
         did = _drama(speakers=("A", "B"), durations=[6.0, 7.0])
         self._run(client, did, "A")
