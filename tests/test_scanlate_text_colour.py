@@ -76,6 +76,114 @@ def test_anti_aliased_edges_do_not_wash_out_the_sampled_colour():
     assert scanlate_render.sampled_ink_color(page, {"x": 0, "y": 0, "w": 200, "h": 80}) == (214, 130, 40)
 
 
+def _faded_page(top_bgr, bottom_bgr):
+    page = np.full((100, 160, 3), 255, np.uint8)
+    for row in range(35, 55):
+        share = (row - 35) / 19
+        page[row, 40:120] = [round(t * (1 - share) + b * share) for t, b in zip(top_bgr, bottom_bgr)]
+    return page
+
+
+def test_lettering_that_fades_between_two_colours_is_sampled_as_a_fade():
+    fade = scanlate_render.sampled_ink_fade(_faded_page((30, 120, 230), (200, 40, 120)), BOX)
+    assert fade is not None
+    top, bottom = fade
+    assert top[0] > bottom[0] and top[2] < bottom[2]  # orange-ish above, purple-ish below
+
+
+@pytest.mark.parametrize("ink", [(30, 60, 200), (20, 20, 20), (250, 250, 250)])
+def test_single_colour_lettering_is_not_a_fade(ink):
+    assert scanlate_render.sampled_ink_fade(_faded_page(ink, ink), BOX) is None
+
+
+def test_art_touching_the_box_edge_is_not_read_as_a_fade():
+    page = _faded_page((30, 60, 200), (30, 60, 200))
+    page[:, :10] = (40, 160, 40)  # a leaf running down the box edge
+    page[:15, :] = (60, 40, 220)  # a rose along the top
+    assert scanlate_render.sampled_ink_fade(page, BOX) is None
+
+
+def test_two_unrelated_colours_with_nothing_between_are_not_a_fade():
+    page = np.full((100, 160, 3), 255, np.uint8)
+    page[30:38, 40:120] = (30, 60, 200)
+    page[38:47, 40:120] = (200, 200, 60)
+    page[47:55, 40:120] = (40, 170, 40)
+    assert scanlate_render.sampled_ink_fade(page, BOX) is None
+
+
+def test_a_two_line_balloon_with_a_step_between_the_lines_is_still_a_fade():
+    page = np.full((100, 160, 3), 255, np.uint8)
+    page[20:40, 40:120] = (160, 100, 50)
+    page[60:80, 40:120] = (90, 50, 20)
+    assert scanlate_render.sampled_ink_fade(page, {"x": 20, "y": 10, "w": 120, "h": 80}) is not None
+
+
+def test_a_thin_coloured_outline_is_not_read_as_a_fade():
+    page = np.full((160, 160, 3), 255, np.uint8)
+    for row in (20, 21, 120, 121):
+        page[row, 30:130] = (100, 60, 200) if row < 60 else (110, 180, 230)
+    for col in (30, 31, 128, 129):
+        for row in range(20, 122):
+            page[row, col] = (100, 60, 200) if row < 70 else (110, 180, 230)
+    assert scanlate_render.sampled_ink_fade(page, {"x": 10, "y": 5, "w": 140, "h": 140}) is None
+
+
+def test_a_thick_balloon_outline_round_the_box_is_not_read_as_a_fade():
+    page = np.full((160, 160, 3), 255, np.uint8)
+    page[20:30, 20:140] = (60, 90, 180)
+    page[130:140, 20:140] = (90, 170, 220)
+    page[20:140, 20:30] = (75, 130, 200)
+    page[20:140, 130:140] = (75, 130, 200)
+    assert scanlate_render.sampled_ink_fade(page, {"x": 10, "y": 10, "w": 140, "h": 140}) is None
+
+
+def test_a_dark_dull_end_still_counts_when_the_other_end_is_a_real_colour():
+    fade = scanlate_render.sampled_ink_fade(_faded_page((90, 70, 50), (190, 100, 190)), BOX)
+    assert fade is not None
+
+
+def test_the_fade_recolours_the_drawn_lettering_from_top_to_bottom():
+    from PIL import ImageDraw
+    before = Image.new("RGB", (120, 60), "white")
+    after = before.copy()
+    ImageDraw.Draw(after).rectangle((10, 5, 110, 55), fill=(230, 120, 30))
+    scanlate_render._fade_lettering(before, after, (230, 120, 30), (120, 40, 200))
+    assert after.getpixel((60, 6))[2] < 80      # still orange at the top
+    assert after.getpixel((60, 54))[2] > 150    # purple at the bottom
+    assert after.getpixel((2, 2)) == (255, 255, 255)  # paper is left alone
+
+
+def test_a_hand_set_colour_beats_a_sampled_fade(tmp_path):
+    src, out = tmp_path / "page.png", str(tmp_path / "out.png")
+    cv2.imwrite(str(src), _faded_page((30, 120, 230), (200, 40, 120)))
+    region = dict(BOX, kind="bubble", translated_text="Hello there", source_text="안녕", skip=0,
+                  text_color="#00ff00")
+    scanlate_render.process_page(str(src), [region], out, match_color=True)
+    rendered = np.asarray(Image.open(out).convert("RGB")).astype(int)
+    green = (rendered[:, :, 1] > 200) & (rendered[:, :, 0] < 60) & (rendered[:, :, 2] < 60)
+    assert green.any()
+
+
+@pytest.mark.parametrize("angle", [0.0, 6.0])
+def test_a_faded_original_is_lettered_as_a_fade(tmp_path, monkeypatch, angle):
+    monkeypatch.setattr(scanlate_render.scanlate_tilt, "estimate_text_angle", lambda page, box: angle)
+    src, out = tmp_path / "page.png", str(tmp_path / "out.png")
+    page = np.full((200, 320, 3), 255, np.uint8)
+    for row in range(50, 110):
+        share = (row - 50) / 59
+        page[row, 50:230] = [round(t * (1 - share) + b * share) for t, b in zip((30, 120, 230), (200, 40, 120))]
+    cv2.imwrite(str(src), page)
+    region = {"x": 20, "y": 20, "w": 240, "h": 120, "kind": "bubble", "translated_text": "Hello there",
+              "source_text": "안녕", "skip": 0}
+    scanlate_render.process_page(str(src), [region], out, match_color=True)
+    rendered = np.asarray(Image.open(out).convert("RGB")).astype(int)
+    coloured = (rendered.max(axis=2) - rendered.min(axis=2)) > 60
+    rows = np.where(coloured.any(axis=1))[0]
+    top = rendered[rows.min() + 1][coloured[rows.min() + 1]].mean(axis=0)
+    bottom = rendered[rows.max() - 1][coloured[rows.max() - 1]].mean(axis=0)
+    assert top[0] > bottom[0] + 30 and bottom[2] > top[2] + 30
+
+
 def test_a_dent_in_the_balloon_does_not_pull_the_text_off_centre():
     mask = np.zeros((60, 100), bool)
     mask[5:55, 5:95] = True
