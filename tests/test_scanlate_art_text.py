@@ -453,3 +453,64 @@ def test_outlined_caption_on_dark_art_is_painted_out_with_the_art_tone_without_t
     erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
     assert int(erased.max()) < 90
     assert abs(float(erased.mean()) - 30) < 15
+
+
+def test_a_large_sign_on_mid_tone_art_is_not_filled_with_black():
+    # The lettered block is wider than the fill's blur reaches, which used to fade
+    # the fill to black in its middle.
+    page = np.full((420, 700, 3), (70, 80, 90), np.uint8)
+    for row, y in enumerate((130, 210, 290)):
+        cv2.putText(page, "WWWWWWWWWWWW", (60, y), cv2.FONT_HERSHEY_SIMPLEX, 2.4, (255, 255, 255), 14)
+    box = {"x": 40, "y": 60, "w": 620, "h": 270}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="cv", on_art=True)
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert float(erased.mean()) > 60
+    assert int(erased.min()) > 45
+
+
+def test_the_art_fill_fades_in_from_the_box_edge_instead_of_leaving_a_seam():
+    page = np.full((420, 700, 3), (70, 80, 90), np.uint8)
+    page[:, :350] = (40, 70, 60)
+    before = page.copy()
+    for y in (130, 210, 290):
+        cv2.putText(page, "WWWWWWWWWWWW", (60, y), cv2.FONT_HERSHEY_SIMPLEX, 2.4, (255, 255, 255), 14)
+    box = {"x": 40, "y": 60, "w": 620, "h": 270}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="cv", on_art=True)
+    edge = page[box["y"] - 4, 100:600].astype(int)
+    assert np.abs(edge - before[box["y"] - 4, 100:600]).max() == 0
+
+
+def test_a_dark_art_sign_goes_through_lama_when_the_model_is_usable(monkeypatch):
+    page = _outlined_red_lettering_on_dark_art()
+    seen = {}
+
+    def fake_lama(roi, mask, hf_token=None, allow_download=True):
+        seen["mask_area"] = int((mask > 0).sum())
+        return np.full_like(roi, 25)
+
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", fake_lama)
+    box = {"x": 70, "y": 120, "w": 460, "h": 140}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="ml", on_art=True)
+    assert seen["mask_area"] > 0
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert int(erased.max()) < 90
+
+
+def test_a_dark_art_sign_falls_back_to_the_tone_fill_when_lama_fails(monkeypatch):
+    def broken(*a, **k):
+        raise RuntimeError("no weights")
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", broken)
+    page = _outlined_red_lettering_on_dark_art()
+    box = {"x": 70, "y": 120, "w": 460, "h": 140}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="ml", spare_art=True)
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert int(erased.max()) < 90
+
+
+def test_dark_art_lama_mask_covers_the_letters_but_not_pale_art_beside_them():
+    page = np.full((300, 500, 3), (45, 30, 20), np.uint8)
+    page[:, 200:300] = (120, 160, 190)
+    cv2.putText(page, "HELLO", (20, 160), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 6)
+    mask = scanlate_inpaint._dark_art_stroke_mask(page)
+    assert mask[:, 230:270].max() == 0 or mask[:, 230:270].mean() < 5
+    assert mask[120:170, 20:190].mean() > 40
