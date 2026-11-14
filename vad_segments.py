@@ -93,6 +93,24 @@ def speech_spans(audio, sr: int, *, threshold: float = THRESHOLD,
     return _normalize(kept, duration)
 
 
+LEVEL_HOP_S = 0.01
+
+
+def levels_db(audio, sr: int, hop_s: float = LEVEL_HOP_S) -> np.ndarray:
+    """Loudness in dB at each hop_s step: the RMS of the two steps that start there.
+    Summed a minute at a time so a long file needs no second full-length float copy."""
+    hop = max(1, int(round(hop_s * sr)))
+    audio = np.asarray(audio)
+    n = audio.shape[0] // hop
+    sums = np.zeros(n, dtype=np.float64)
+    block = hop * int(round(60.0 / hop_s))
+    for k in range(0, n * hop, block):
+        chunk = np.asarray(audio[k:min(k + block, n * hop)], dtype=np.float64)
+        sums[k // hop:k // hop + chunk.shape[0] // hop] = (chunk * chunk).reshape(-1, hop).sum(axis=1)
+    pairs = sums + np.append(sums[1:], 0.0)
+    return 10.0 * np.log10(pairs / (2 * hop) + 1e-12)
+
+
 def merge_close(spans, gap_s: float = 0.3) -> list:
     """Joins neighbouring spans separated by at most gap_s."""
     out = []
