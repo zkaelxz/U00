@@ -11,12 +11,13 @@ import { humanize, humanizeValue } from '../../../../components/labels'
 import { capFirst, languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
-import type { ReviewLine, TmSuggestion } from '../../../../types/review'
+import type { ReviewLine, SpeakerGuess, TmSuggestion } from '../../../../types/review'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
+import { RowSpeakerGuesses } from './SpeakerGuesses'
 import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
@@ -93,6 +94,8 @@ export interface RowActions {
   applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void
   acceptTm: (id: number, entryId: number, expectedEn: string) => void
+  // Gives a line with no speaker one of its suggested speakers; true once saved.
+  acceptSpeaker: (id: number, speaker: string) => Promise<boolean>
   dismissTm: (s: TmSuggestion) => void
   clearIssue: () => void
   reload: () => void
@@ -121,6 +124,8 @@ interface Props {
   tm: TmSuggestion | null
   // The stronger engine offered for this hard line, if any.
   stronger?: StrongerOffer | null
+  // Speakers to offer while the line has none.
+  guesses?: SpeakerGuess[] | null
   // The corrected times saved for this timing-flagged line, if any.
   timingSnap?: TimingSuggestion | null
   issue: RowIssue | null
@@ -345,7 +350,7 @@ function QueueCardNotes({ dramaId, line, isPhone, active, actions }: {
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, simple = false, queue = false, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, timingSnap, issue, actions, simple = false, queue = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -476,6 +481,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       {line.flag === TIMING_UNCERTAIN_FLAG && (active || !isPhone) && (
         <TimingUncertainActions dramaId={dramaId} lineId={line.id} snap={timingSnap ?? null} actions={actions} jobRunning={jobRunning} />
       )}
+      {!prose && !draft && <RowSpeakerGuesses line={line} guesses={guesses} active={active} isPhone={isPhone} actions={actions} />}
       <div className="review-body">
         <div lang={textLang} className="review-zh">{line.zh}</div>
         {draft ? (

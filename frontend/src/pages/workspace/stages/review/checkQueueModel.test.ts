@@ -13,7 +13,7 @@ const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
 
 const page = (lines: ReviewLine[], over: Partial<ReviewLinesPage> = {}): ReviewLinesPage => ({
   lines, page: 1, page_size: 40, total: lines.length, flagged_count: 0, untranslated_count: 0,
-  unreviewed_count: 0, shaky_count: 0, risk_count: lines.length, ...over,
+  unreviewed_count: 0, shaky_count: 0, risk_count: lines.length, no_speaker_count: 0, ...over,
 })
 
 describe('initialLinesFilter', () => {

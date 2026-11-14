@@ -1,4 +1,6 @@
+import { setLineSpeaker } from '../../../../api/characters'
 import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
+import { lineNumber } from '../../../../lineNumber'
 import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setReviewed } from '../../../../api/review'
 import type { NoteDraft, RowActions } from './LineRow'
 import type { LinesControllerDeps, LinesCore } from './linesController'
@@ -175,6 +177,27 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
         setIssue(null)
         st.current.onChanged()
       }, (e) => failLine(id, e))
+    },
+    acceptSpeaker: async (id, speaker) => {
+      const blocked = await beforeWrite([id])
+      if (blocked) {
+        setStatus(blocked)
+        return false
+      }
+      const line = find(id)
+      try {
+        const r = await setLineSpeaker(dramaId, [id], speaker)
+        afterWrite([id])
+        if (line) {
+          replaceLine({ ...line, speaker, speaker_manual: true })
+          deps.setSpeakerUndo?.({ lineNumber: lineNumber(line.idx), speaker, entries: r.undo })
+        }
+        st.current.onChanged()
+        return true
+      } catch (e) {
+        setError(e)
+        return false
+      }
     },
     dismissTm: (s) => dismissTmEverywhere(dramaId, s),
     clearIssue: () => setIssue(null),

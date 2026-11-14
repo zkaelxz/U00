@@ -32,7 +32,7 @@ import { useLinesLoad } from './useLinesLoad'
 import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
-import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
+import { needsSpeaker, pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
 import { useSetSpeakerPanel } from './useSetSpeakerPanel'
 import { UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
@@ -49,6 +49,7 @@ import { useAudioToolNeed } from '../../../readiness/useAudioToolNeed'
 import { useReviewShortcuts } from './useReviewShortcuts'
 import { useTimingSnap } from './useTimingSnap'
 import { useTmByLine } from './useTmByLine'
+import { useSpeakerGuesses, useSpeakerUndo } from './useSpeakerFill'
 import { LineStepButtons } from './LineStepButtons'
 import { lineNumber } from '../../../../lineNumber'
 import { browserStorage } from '../../../../hooks/usePersistedState'
@@ -201,12 +202,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     st.current = { shown, edit, page, pages, filter, searching, onChanged, jobRunning, activeId }
   })
 
+  const speakerUndo = useSpeakerUndo(dramaId, onChanged, setStatus, setError)
   const ctl = useMemo(
     () =>
       createLinesController({
         dramaId, st, pending, focusActive, player, selectRef, showOnPageRef,
         setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage, setFilter,
-        setError, setSheet, setStructError, setAi, setRetranscribeFocusId,
+        setError, setSheet, setStructError, setAi, setRetranscribeFocusId, setSpeakerUndo: speakerUndo.setUndo,
       }),
     [dramaId],
   )
@@ -281,6 +283,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Lines to offer the stronger engine for (no engine call).
   const strongerByLine = useStrongerOffers(dramaId, reloads)
   const tmByLine = useTmByLine(dramaId, shown, reloads)
+  const noSpeakerCount = data?.no_speaker_count ?? 0
+  const guessesByLine = useSpeakerGuesses(dramaId, shown, reloads, !prose && noSpeakerCount > 0)
   const timingByLine = useTimingSnap(dramaId, shown, reloads)
 
   // ---- shortcuts ----
@@ -288,8 +292,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useReviewShortcuts({
     ctl, actions, selection, player, listRef, searchRef, mediaKind, isPhone,
     sheetOpen: sheet !== null, keysOpen, page, pages, searching, limited, active, edit, ai,
-    setAi, setKeysOpen, setStatus, queue: queue.on,
+    setAi, setKeysOpen, setStatus, queue: queue.on, noSpeakerCount,
+    activeGuesses: active && needsSpeaker(active) ? guessesByLine.get(active.id) ?? [] : [],
   })
+
 
   const counts = data
     ? { all: allTotal, flagged: data.flagged_count, untranslated: data.untranslated_count, unreviewed: data.unreviewed_count ?? 0, shaky: data.shaky_count ?? 0, risk: data.risk_count ?? 0 }
@@ -414,11 +420,12 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
-        {!searching && !queue.on && <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} onMove={(d, k) => void ctl.moveFlagged(d, k)} />}
+        {!searching && !queue.on && <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} noSpeakerCount={prose ? 0 : noSpeakerCount} onMove={(d, k) => void ctl.moveFlagged(d, k)} />}
         <p className="review-status" role="status">
           {status}
         </p>
         {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} />}
+
         {data === null && found === null ? (
           <RetryBanner error={error} what="the lines" onRetry={retry} />
         ) : (
@@ -482,6 +489,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               ai={ai?.lineId === l.id ? ai.mode : null}
               tm={tmByLine.get(l.id) ?? null}
               stronger={strongerByLine.get(l.id) ?? null}
+              guesses={guessesByLine.get(l.id) ?? null}
               timingSnap={timingByLine.get(l.id) ?? null}
               issue={issue?.lineId === l.id ? issue : null}
               actions={actions}
@@ -493,6 +501,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             />
           ))}
         </ul>
+        {/* Under the list, so taking a speaker never pushes the rows down; it sticks to the bottom of the screen. */}
+        {speakerUndo.node}
         {selection.count > 0 && <SelectionBar ctx={selectionCtx} />}
         {showPager && (
           <div className="review-bottom-pager">

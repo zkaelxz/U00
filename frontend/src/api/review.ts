@@ -27,6 +27,8 @@ import type {
   ReviewMatch,
   ReviewNote,
   TmSuggestion,
+  StepKind,
+  LineSpeakerGuesses,
   VersionItem,
   VersionActivateResult,
   BlockedRetryResult,
@@ -121,6 +123,12 @@ export const listTmSuggestions = (id: number, f?: Fetch, lineIds?: number[]) =>
     f,
   )
 
+export const listSpeakerSuggestions = (id: number, lineIds: number[], f?: Fetch) =>
+  getJson<{ lines: LineSpeakerGuesses[] }>(
+    `${review(id)}/speaker-suggestions?${lineIds.map((l) => `line_id=${l}`).join('&')}`,
+    f,
+  )
+
 // body: only the fields the user set; {} leaves engine, model and cap to the server.
 export const startReviewJob = (id: number, kind: ReviewJobKind, body: ReviewJobBody = {}, f?: Fetch) =>
   postJson<ReviewJobStarted>(`/api/review-jobs/dramas/${id}/${kind}`, body, f)
@@ -201,7 +209,7 @@ export const flaggedAdjacent = (
   pageSize: number,
   only: LineFilter,
   f?: Fetch,
-  kind: 'flagged' | 'unreviewed' = 'flagged',
+  kind: StepKind = 'flagged',
 ) =>
   getJson<FlaggedPosition>(
     `${review(id)}/flagged-adjacent?direction=${direction}&page_size=${pageSize}&only=${only}` +

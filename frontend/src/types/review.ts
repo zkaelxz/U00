@@ -173,6 +173,13 @@ export interface ShortenResult {
   lines: { id: number; idx: number; before: string; after: string }[]
 }
 
+// Speakers offered for a line with none, most-supported first (nothing is applied).
+export type SpeakerGuess = Schemas['ReviewSpeakerGuess']
+export type LineSpeakerGuesses = Schemas['ReviewLineSpeakerGuesses']
+
+// What previous/next steps to: flagged lines, unchecked translations, or lines still needing a speaker.
+export type StepKind = 'flagged' | 'unreviewed' | 'no_speaker'
+
 // Review parity R08: the nearest flagged line across pages (all null: none).
 export interface FlaggedPosition {
   line_id: number | null

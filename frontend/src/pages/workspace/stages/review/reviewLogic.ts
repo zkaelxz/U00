@@ -364,6 +364,17 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   return short ? `Untr.${n}` : `Untranslated${n}`
 }
 
+/** Has words but no speaker, and nobody cleared it on purpose or marked it a sound cue (review_lines_service.needs_speaker). */
+export const needsSpeaker = (line: Pick<ReviewLine, 'speaker' | 'speaker_manual' | 'sfx' | 'zh' | 'en'>) =>
+  !line.speaker && !line.speaker_manual && !line.sfx && !!(line.zh.trim() || line.en.trim())
+
+/** Next/previous line still needing a speaker in search results after `fromIndex` (-1 = from the edge). */
+export function nextNeedingSpeakerId(lines: ReviewLine[], fromIndex: number, delta: 1 | -1): number | null {
+  const start = fromIndex === -1 ? (delta > 0 ? 0 : lines.length - 1) : fromIndex + delta
+  for (let j = start; j >= 0 && j < lines.length; j += delta) if (needsSpeaker(lines[j])) return lines[j].id
+  return null
+}
+
 /** A translated line nobody has marked checked (review_lines_service._is_unreviewed). */
 const isUnreviewed = (line: Pick<ReviewLine, 'en' | 'reviewed'>) => !!line.en.trim() && !line.reviewed
 

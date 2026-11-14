@@ -8273,7 +8273,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The nearest flagged (or unreviewed) line before/after a line, across pages */
+        /** The nearest flagged (unreviewed, or no-speaker) line before/after a line, across pages */
         get: operations["get_review_flagged_adjacent_api_review_dramas__drama_id__flagged_adjacent_get"];
         put?: never;
         post?: never;
@@ -8449,6 +8449,23 @@ export interface paths {
         };
         /** Lines whose source text changed after they were translated */
         get: operations["get_review_source_changed_api_review_dramas__drama_id__source_changed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review/dramas/{drama_id}/speaker-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Speakers to offer for lines that have none (nothing is applied) */
+        get: operations["get_review_speaker_suggestions_api_review_dramas__drama_id__speaker_suggestions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -25636,6 +25653,16 @@ export interface components {
             /** Page All */
             page_all: number | null;
         };
+        /** ReviewLineSpeakerGuesses */
+        ReviewLineSpeakerGuesses: {
+            /** Line Id */
+            line_id: number;
+            /**
+             * Speakers
+             * @description Most-supported first, at most three.
+             */
+            speakers: components["schemas"]["ReviewSpeakerGuess"][];
+        };
         /** ReviewLinesCoverage */
         ReviewLinesCoverage: {
             /** Blank En */
@@ -25805,6 +25832,12 @@ export interface components {
             flagged_count: number;
             /** Lines */
             lines: components["schemas"]["ReviewLinesLine"][];
+            /**
+             * No Speaker Count
+             * @description Lines with words but no speaker that nobody cleared by hand, in the whole drama; 0 when no line has a speaker.
+             * @default 0
+             */
+            no_speaker_count: number;
             /** Page */
             page: number;
             /** Page Size */
@@ -26136,6 +26169,24 @@ export interface components {
             count: number;
             /** Line Ids */
             line_ids: number[];
+        };
+        /** ReviewSpeakerGuess */
+        ReviewSpeakerGuess: {
+            /**
+             * Reasons
+             * @description Why it is offered: the nearest line above or below with a speaker has it, or the speaker detection's own (unsure) pick for this line maps to it.
+             */
+            reasons: ("above" | "below" | "voice")[];
+            /** Speaker */
+            speaker: string;
+        };
+        /** ReviewSpeakerSuggestions */
+        ReviewSpeakerSuggestions: {
+            /**
+             * Lines
+             * @description Only lines that still need a speaker and have at least one guess, in line order.
+             */
+            lines: components["schemas"]["ReviewLineSpeakerGuesses"][];
         };
         /**
          * RomanizeCreditsRequest
@@ -56330,7 +56381,7 @@ export interface operations {
                 from_line_id?: number | null;
                 page_size?: number;
                 only?: string;
-                kind?: "flagged" | "unreviewed";
+                kind?: "flagged" | "unreviewed" | "no_speaker";
             };
             header?: never;
             path: {
@@ -56775,6 +56826,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_speaker_suggestions_api_review_dramas__drama_id__speaker_suggestions_get: {
+        parameters: {
+            query: {
+                line_id: number[];
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSpeakerSuggestions"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

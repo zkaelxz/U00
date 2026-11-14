@@ -2,7 +2,7 @@ import type { Dispatch, RefObject, SetStateAction } from 'react'
 
 import type { PlayerMediaKind } from '../../../../api/media'
 import { useShortcut } from '../../../../hooks/useShortcut'
-import type { ReviewLine } from '../../../../types/review'
+import type { ReviewLine, SpeakerGuess } from '../../../../types/review'
 import type { EditState, RowActions } from './LineRow'
 import type { createLinesController } from './linesController'
 import type { PlayerHandle } from './Player'
@@ -32,6 +32,9 @@ interface ReviewShortcutsDeps {
   setAi: Dispatch<SetStateAction<{ lineId: number; mode: PanelMode } | null>>
   setKeysOpen: Dispatch<SetStateAction<boolean>>
   setStatus: Dispatch<SetStateAction<string | null>>
+  // The active line's suggested speakers, when it has none yet.
+  activeGuesses: SpeakerGuess[]
+  noSpeakerCount: number
   // Simple's check queue: R on an unchecked card moves on to the next one, like its "Looks right, next".
   queue?: boolean
 }
@@ -40,7 +43,7 @@ interface ReviewShortcutsDeps {
 export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
   const {
     ctl, actions, selection, player, listRef, searchRef, mediaKind, isPhone, sheetOpen, keysOpen,
-    page, pages, searching, limited, active, edit, ai, setAi, setKeysOpen, setStatus, queue = false,
+    page, pages, searching, limited, active, edit, ai, setAi, setKeysOpen, setStatus, activeGuesses, noSpeakerCount, queue = false,
   } = deps
   const toggleFocusedRow = (target: HTMLElement) => {
     const id = target.matches?.('.review-line') ? Number(target.getAttribute('data-line-id')) : NaN
@@ -77,6 +80,10 @@ export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
       case 'alt+arrowdown':
       case 'alt+arrowup':
         void ctl.moveFlagged(combo === 'alt+arrowdown' ? 1 : -1)
+        return true
+      case 'n':
+        if (!noSpeakerCount) return false
+        void ctl.moveFlagged(event.shiftKey ? -1 : 1, 'no_speaker')
         return true
       case ']':
       case '[': {
@@ -162,6 +169,17 @@ export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
       case 'w':
         actions.setAi(active.id, 'explain')
         return true
+      case '1':
+      case '2':
+      case '3': {
+        const guess = activeGuesses[Number(combo) - 1]
+        if (!guess) return false
+        // Filling blanks is a run over many lines, so the key moves on like Enter does while editing.
+        void actions.acceptSpeaker(active.id, guess.speaker).then((ok) => {
+          if (ok) void ctl.moveFlagged(1, 'no_speaker')
+        })
+        return true
+      }
       case 'escape':
         if (ai) {
           setAi(null)

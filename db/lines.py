@@ -520,7 +520,8 @@ def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     return lines_from_rows(db.load_lines(drama_id, with_words, ids))
 
 
-LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note reviewed confidence")
+LineText = collections.namedtuple(
+    "LineText", "id idx zh en speaker speaker_manual sfx flag flag_note reviewed confidence")
 
 
 def load_line_texts(drama_id: int) -> list:

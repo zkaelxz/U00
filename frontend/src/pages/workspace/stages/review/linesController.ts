@@ -4,6 +4,7 @@ import { hasStatus } from '../../../../api/client'
 import { applyFindReplace, patchLine } from '../../../../api/review'
 import { listAllLines } from '../../../../api/restructure'
 import { lineNumber } from '../../../../lineNumber'
+import type { SpeakerChangeEntry } from '../../../../types/characters'
 import type { ApplyResult, LineFilter, ReviewLine, ReviewLinesPage, ReviewMatch } from '../../../../types/review'
 import { buildRowActions } from './lineRowActions'
 import { createMoveFlagged } from './lineFlaggedMove'
@@ -54,6 +55,14 @@ export interface LinesControllerDeps {
   setStructError: Dispatch<SetStateAction<unknown>>
   setAi: Dispatch<SetStateAction<{ lineId: number; mode: PanelMode } | null>>
   setRetranscribeFocusId: Dispatch<SetStateAction<number | null>>
+  // The last suggested speaker taken, while it can be undone.
+  setSpeakerUndo?: Dispatch<SetStateAction<SpeakerUndo | null>>
+}
+
+export interface SpeakerUndo {
+  lineNumber: number
+  speaker: string
+  entries: SpeakerChangeEntry[]
 }
 
 // What the extracted action builders (lineRowActions, lineTiming, lineFlaggedMove) need from the
