@@ -185,7 +185,8 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
   }
   .review-editor.has-side > .review-watch { grid-row: 1; position: static; height: auto; max-height: 62vh; }
   .review-editor.has-side > .review-watch .review-stage { max-height: 22vh; }
-  .review-editor.has-side > .review-main { grid-row: 2; align-self: stretch; min-height: 0; overflow-y: auto; align-content: start; }
+  /* position: relative so absolutely placed children (the sr-only page and line counts) are clipped by this scroller; anchored to the sticky section instead, they sat at their place in the full list and stretched the page into empty space below. */
+  .review-editor.has-side > .review-main { grid-row: 2; align-self: stretch; min-height: 0; overflow-y: auto; align-content: start; position: relative; }
   .review-editor.has-side .review-toolbar { top: 0; }
   .review-editor.has-side .review-line { scroll-margin-top: calc(var(--review-toolbar-h, 9rem) + var(--space-2)); }
   .review-editor.has-side.is-replacing .review-line { scroll-margin-top: var(--space-2); }
