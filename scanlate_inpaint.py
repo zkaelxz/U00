@@ -639,6 +639,67 @@ def _without_hatching(gray_roi, keep):
     return cleared
 
 
+def _inside_in_crop(inside, box: dict, x: int, y: int, bw: int, bh: int):
+    """The balloon's `inside` array (laid over `box`) as a bool array over the padded crop
+    that starts at (x, y), False outside the box."""
+    keep = np.zeros((bh, bw), dtype=bool)
+    oy, ox = box["y"] - y, box["x"] - x
+    part = inside[max(0, -oy):, max(0, -ox):]
+    part = part[:bh - max(oy, 0), :bw - max(ox, 0)]
+    keep[max(oy, 0):max(oy, 0) + part.shape[0], max(ox, 0):max(ox, 0) + part.shape[1]] = part
+    return keep
+
+
+def _lettering_glyphs(gray_roi):
+    """Label image, stats and centres of the dark marks of `gray_roi`, and the ids of those
+    that look like a glyph: of letter size and sitting on pale paper (a ring round them
+    that is mostly light), as lettering on a white band does and art's own line work
+    mostly does not."""
+    import cv2
+    h, w = gray_roi.shape
+    count, labels, stats, centres = cv2.connectedComponentsWithStats(
+        (gray_roi < scanlate_tuning.LINE_INK_LEVEL).astype(np.uint8), connectivity=8)
+    ring_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    glyphs = []
+    for i in range(1, count):
+        x, y, cw, ch, area = stats[i]
+        if area < scanlate_tuning.LINE_GLYPH_MIN_AREA or not (
+                scanlate_tuning.LINE_GLYPH_MIN_SPAN <= max(cw, ch) <= scanlate_tuning.LINE_GLYPH_MAX_SPAN * h):
+            continue
+        x0, y0, x1, y1 = max(0, x - 5), max(0, y - 5), min(w, x + cw + 5), min(h, y + ch + 5)
+        mark = (labels[y0:y1, x0:x1] == i).astype(np.uint8)
+        ring = (cv2.dilate(mark, ring_kernel) > 0) & (mark == 0)
+        if (gray_roi[y0:y1, x0:x1][ring] >= scanlate_tuning.LINE_PAPER_LEVEL).mean() >= scanlate_tuning.LINE_RING_PALE_SHARE:
+            glyphs.append(i)
+    return labels, stats, centres, glyphs
+
+
+def _strokes_on_a_line(gray_roi):
+    """uint8 mask (255 = erase) of one line of dark lettering set on a pale band over busy
+    art, or None when the crop holds no such line. The paper-relative mask reads the dark
+    art round such a band as lettering too, covers nearly the whole crop, and the
+    repaint whitened the art out. The letters are found as glyph-sized dark marks on pale
+    paper that lie along one straight (possibly tilted) line; marks off that line (windows,
+    hatching) are left alone."""
+    import cv2
+    labels, stats, centres, glyphs = _lettering_glyphs(gray_roi)
+    anchors = [i for i in glyphs if stats[i, cv2.CC_STAT_AREA] >= scanlate_tuning.LINE_ANCHOR_AREA]
+    if len(anchors) < scanlate_tuning.LINE_MIN_GLYPHS:
+        return None
+    points = np.array([centres[i] for i in anchors], np.float32)
+    vx, vy, px, py = cv2.fitLine(points, cv2.DIST_HUBER, 0, 0.01, 0.01).ravel()
+    typical = float(np.median([max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) for i in anchors]))
+    along = (points[:, 0] - px) * vx + (points[:, 1] - py) * vy
+    if float(along.max() - along.min()) < scanlate_tuning.LINE_MIN_LENGTH_IN_GLYPHS * typical:
+        return None
+    mask = np.zeros(gray_roi.shape, np.uint8)
+    for i in glyphs:
+        reach = scanlate_tuning.LINE_REACH * max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT], typical)
+        if abs((centres[i][0] - px) * vy - (centres[i][1] - py) * vx) <= reach:
+            mask[labels == i] = 255
+    return cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+
+
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
                     backend: str = "auto", hf_token: str | None = None, image=None, inside=None,
                     spare_art: bool = False, on_art: bool = False, grow: float = 1.0):
@@ -691,16 +752,18 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     if inside is not None:
-        keep = np.zeros(gray_roi.shape, dtype=bool)
-        oy, ox = box["y"] - y, box["x"] - x
-        part = inside[max(0, -oy):, max(0, -ox):]
-        part = part[:bh - max(oy, 0), :bw - max(ox, 0)]
-        keep[max(oy, 0):max(oy, 0) + part.shape[0], max(ox, 0):max(ox, 0) + part.shape[1]] = part
+        keep = _inside_in_crop(inside, box, x, y, bw, bh)
         mask = _lettering_mask(_without_hatching(gray_roi, keep))
         mask[~keep] = 0
     else:
         mask = _lettering_mask(gray_roi)
-    if inside is None and spare_art:
+    line = None
+    if inside is None and on_art and (mask > 0).mean() > scanlate_tuning.LINE_ONLY_MASK_SHARE:
+        line = _strokes_on_a_line(gray_roi)
+    line_only = line is not None
+    if line_only:
+        mask = line
+    elif inside is None and spare_art:
         _drop_marks_running_off_edge(mask)
     elif inside is None and on_art:
         _drop_hollow_frames(mask, gray_roi)
@@ -721,15 +784,13 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
     if inside is not None and not background_is_dark(gray_roi):
         inpainted_roi = _flatten_plain_paper(roi, inpainted_roi, mask, keep)
-    elif inside is None and on_art and not background_is_dark(gray_roi) and mask.any():
+    elif inside is None and on_art and not line_only and not background_is_dark(gray_roi) and mask.any():
         inpainted_roi = _flatten_around_lettering(roi, inpainted_roi, mask)
     img[y:y + bh, x:x + bw] = inpainted_roi
 
     if out_path:
         cv2.imwrite(out_path, img)
-        result = out_path
-    else:
-        result = img
+    result = out_path or img
 
     if fallback_error is not None:
         fallback_error.fell_back_to_cv = True
@@ -825,9 +886,7 @@ def inpaint_mask_region(image_path: str, mask, out_path: str | None = None, padd
 
     if out_path:
         cv2.imwrite(out_path, img)
-        result = out_path
-    else:
-        result = img
+    result = out_path or img
 
     if fallback_error is not None:
         fallback_error.fell_back_to_cv = True
