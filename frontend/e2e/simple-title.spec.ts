@@ -1,4 +1,5 @@
 import { GLOSSARY_SENTENCE, seedCheckLines, seedLines } from './compareSelectedHelpers'
+import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 import type { Page } from '@playwright/test'
 
@@ -11,6 +12,8 @@ const progress = (id: number, lines: number, untranslated: number) => ({
   drama_id: id, stage_index: 1, stage: 'translate', line_count: lines, untranslated_count: untranslated,
   flagged_count: 0, has_audio: false, has_dub_track: false, exported: false, stages: [],
 })
+// A step link reads "Done · Add", "Now · Translate, 4 of 10 left" or just "Export": this matches the step's name in any of them.
+const step = (name: string) => new RegExp(`(^|· )${name}(,|$)`)
 
 test('Simple shows the five actions and the episode, and Full brings the stage tabs back', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 10) }))
@@ -19,13 +22,13 @@ test('Simple shows the five actions and the episode, and Full brings the stage t
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await expect(page).toHaveURL(/#\/drama\/1$/)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  // The step tabs open each stage; the current step's action is the main button, and Add media, Redo and Glossary stay beside it.
+  // The step links open each stage; the current step's action is the main button, and Add media, Redo and Glossary are in the header.
   const tabs = page.getByRole('list', { name: 'Steps' })
-  await expect(tabs.getByRole('link', { name: /^Add/ })).toHaveAttribute('href', '#/drama/1/source?tab=add')
-  await expect(tabs.getByRole('link', { name: /^Transcribe/ })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
-  await expect(tabs.getByRole('link', { name: /^Translate/ })).toHaveAttribute('href', '#/drama/1/translate')
-  await expect(tabs.getByRole('link', { name: /^Check/ })).toHaveAttribute('href', '#/drama/1/review')
-  await expect(tabs.getByRole('link', { name: /^Export/ })).toHaveAttribute('href', '#/drama/1/export')
+  await expect(tabs.getByRole('link', { name: step('Add') })).toHaveAttribute('href', '#/drama/1/source?tab=add')
+  await expect(tabs.getByRole('link', { name: step('Transcribe') })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
+  await expect(tabs.getByRole('link', { name: step('Translate') })).toHaveAttribute('href', '#/drama/1/translate')
+  await expect(tabs.getByRole('link', { name: step('Check') })).toHaveAttribute('href', '#/drama/1/review')
+  await expect(tabs.getByRole('link', { name: step('Export') })).toHaveAttribute('href', '#/drama/1/export')
   await expect(page.getByRole('link', { name: 'Translate 10 lines', exact: true })).toHaveAttribute('href', '#/drama/1/translate')
   await expect(page.getByRole('link', { name: 'Redo transcription' })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
   await expect(page.getByRole('link', { name: 'Add media', exact: true })).toHaveAttribute('href', '#/drama/1/source?tab=add')
@@ -47,7 +50,7 @@ test('the choice is remembered, and a link that names a stage still opens that s
   })
   await page.goto('/#/drama/3')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
-  await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: /^Transcribe/ })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
+  await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: step('Transcribe') })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
   await page.getByRole('tab', { name: 'Episodes' }).click()
   await expect(page.getByRole('list', { name: 'Episodes' })).toContainText('Not transcribed')
   await page.reload()
@@ -66,7 +69,7 @@ test('Simple leaves the advanced controls out of the stages, and Full brings the
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 10) }))
   await page.goto('/#/drama/1')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
-  await page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: /^Export/ }).click()
+  await page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: step('Export') }).click()
   await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
   await expect(page.getByRole('group', { name: 'Subtitle file' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Burned-in video' })).toHaveCount(0)
@@ -207,9 +210,10 @@ test('Simple lists the steps with the current one marked and its notes', async (
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   const steps = page.getByRole('list', { name: 'Steps' })
   await expect(steps.getByRole('listitem')).toHaveCount(5)
-  await expect(steps.locator('[aria-current="step"]')).toContainText('Translate')
-  await expect(steps.locator('[aria-current="step"]')).toContainText('4 of 10 lines left')
-  await expect(steps).toContainText('10 lines')
+  await expect(steps.locator('[aria-current="step"]')).toHaveText('Now · Translate, 4 of 10 left')
+  await expect(steps.getByRole('link')).toHaveText(['Done · Add', 'Done · Transcribe, 10 lines', 'Now · Translate, 4 of 10 left', /^Next · Check(, .+)?$/, 'Export'])
+  // The longer guidance stays as each link's tooltip.
+  await expect(steps.getByRole('link', { name: step('Export') })).toHaveAttribute('title', 'SRT, VTT, ASS or video')
 })
 
 test('with lines the title opens on a progress bar and the first lines, with the step tabs above them', async ({ page }) => {
@@ -243,10 +247,10 @@ test('an audio or video Simple stage keeps the title page step tabs above it, so
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/1/translate')
   const steps = page.getByRole('list', { name: 'Steps' })
-  await expect(steps.getByRole('link', { name: /^Check/ })).toHaveAttribute('href', '#/drama/1/review')
+  await expect(steps.getByRole('link', { name: step('Check') })).toHaveAttribute('href', '#/drama/1/review')
   await expect(page.getByRole('navigation', { name: 'Title steps' })).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  await steps.getByRole('link', { name: /^Check/ }).click()
+  await steps.getByRole('link', { name: step('Check') }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/review$/)
   await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible()
   await page.getByRole('link', { name: 'Back to title page' }).click()
@@ -459,7 +463,7 @@ test.describe('the check queue', () => {
     await expect(page.getByTestId('queue-fine')).toHaveText('24 of 24 look fine')
     // Nothing needs a look, so no line can be marked unseen: Mark the rest is ready.
     await expect(page.getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeEnabled()
-    await expect(page.getByRole('list', { name: 'Steps' }).locator('[aria-current="step"]')).toContainText('Nothing needs a look')
+    await expect(page.getByRole('list', { name: 'Steps' }).locator('[aria-current="step"]')).toHaveText('Now · Check, nothing needs a look')
     await expect(page.getByRole('link', { name: 'Export', exact: true }).first()).toHaveAttribute('href', '#/drama/3/export')
     // The Review tools still show beside an empty queue.
     await expect(page.getByRole('tablist', { name: 'Review tools' })).toBeVisible()
@@ -509,5 +513,83 @@ test.describe('the check queue', () => {
     await expect(page.getByRole('radio', { name: /^All lines/ })).toBeChecked()
     await expect(card(page, 5)).toHaveAttribute('aria-current', 'true')
   })
-})
 
+  test('the five step links share one line at 1440 wide, with the open step outlined', async ({ page }) => {
+    seedCheckLines({ untranslated: true })
+    await simple(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const links = page.getByRole('list', { name: 'Steps' }).getByRole('link')
+    const texts = ['Done · Add', 'Done · Transcribe, 24 lines', 'Now · Translate, 1 of 24 left', 'Next · Check, 3 lines need a look', 'Export']
+    await expect(links).toHaveText(texts)
+    const tops = await links.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
+    expect(new Set(tops).size, `the step links' tops ${tops}`).toBe(1)
+    for (let n = 0; n < 5; n++) expect((await links.nth(n).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    const outlined = page.locator('.title-step.is-marked')
+    // On the title page no stage is open, so the current step is outlined; on a stage page, the stage's own step.
+    await expect(outlined).toHaveCount(1)
+    await expect(outlined).toHaveText('Now · Translate, 1 of 24 left')
+    expect(await outlined.getByRole('link').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('2px')
+    await page.goto('/#/drama/3/review')
+    await expect(links).toHaveText(texts)
+    await expect(outlined).toHaveText('Next · Check, 3 lines need a look')
+    await page.goto('/#/drama/3/export')
+    await expect(outlined).toHaveText('Export')
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('the header holds Add media, Redo transcription, Glossary, the switch and More, with no second row of links', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    const header = page.locator('.workspace-header')
+    await expect(header.getByRole('link', { name: 'Add media', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=add')
+    await expect(header.getByRole('link', { name: 'Redo transcription', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
+    await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    await expect(header.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
+    for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(page.getByRole('link', { name, exact: true })).toHaveCount(1)
+    // The main button has a row of its own under the steps.
+    const main = page.getByRole('link', { name: 'Check the 3 lines', exact: true })
+    await expect(main).toHaveCount(1)
+    expect((await main.boundingBox())!.y).toBeGreaterThan((await page.getByRole('list', { name: 'Steps' }).boundingBox())!.y)
+    const more = header.getByRole('button', { name: 'More', exact: true })
+    await expect(page.getByRole('button', { name: 'Open folder' })).toBeHidden()
+    await more.click()
+    await expect(more).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
+    // The source page link, or the way to add one when the title has none.
+    await expect(page.locator('.title-top-more-row').locator('.ws-source, .ws-source-add')).toBeVisible()
+    await more.click()
+    await expect(page.getByRole('button', { name: 'Open folder' })).toBeHidden()
+    // The stage pages share the header.
+    await page.goto('/#/drama/3/translate')
+    await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    await expect(header.getByRole('button', { name: 'More', exact: true })).toBeVisible()
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('on Review the main button leads the Need a look row, and without lines it keeps its own row', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const main = page.getByRole('button', { name: 'Check the 3 lines', exact: true })
+    const switchRow = page.getByRole('group', { name: 'Lines to show' })
+    await expect(switchRow).toBeVisible()
+    await expect(main).toHaveCount(1)
+    const m = (await main.boundingBox())!
+    const sw = (await switchRow.boundingBox())!
+    expect(m.x + m.width, 'the button is left of the switch').toBeLessThanOrEqual(sw.x)
+    expect(Math.abs((m.y + m.height / 2) - (sw.y + sw.height / 2)), 'the button and the switch share a row').toBeLessThan(m.height / 2)
+    await expect(page.locator('.review-queue-row').getByRole('button', { name: 'Check the 3 lines', exact: true })).toHaveCount(1)
+
+    clearLines()
+    await page.route('**/api/transcribe/dramas/3/config', async (route) => {
+      const resp = await route.fetch()
+      await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: false } })
+    })
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review')
+    await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link').first()).toHaveText('Now · Add')
+    const add = page.getByRole('link', { name: 'Add media', exact: true })
+    await expect(add).toHaveCount(1)
+    await expect(add).toHaveClass(/btn-primary/)
+  })
+})

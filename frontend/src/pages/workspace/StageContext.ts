@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 
 import type { DramaDetail } from '../../api/types'
 import { useRoute, type DramaFocus } from '../../router'
@@ -15,6 +15,13 @@ export interface StageContextValue {
   simple: boolean
   // Simple's Check button, pressed on the Review page: each new value opens the check queue at its first line.
   checkSignal?: number
+  // Simple's main button on desktop Review, for the Need a look row to show first; onShown tells the page whether that row drew it.
+  checkLead?: CheckLead
+}
+
+export interface CheckLead {
+  action: ReactNode
+  onShown: (shown: boolean) => void
 }
 
 export const StageContext = createContext<StageContextValue | null>(null)
@@ -29,6 +36,8 @@ export function useStage(): StageContextValue {
 export const useSimple = (): boolean => useContext(StageContext)?.simple ?? false
 
 export const useCheckSignal = (): number => useContext(StageContext)?.checkSignal ?? 0
+
+export const useCheckLead = (): CheckLead | undefined => useContext(StageContext)?.checkLead
 
 /**
  * For a panel a deep link ("?focus=glossary") points at: a Section openSignal that

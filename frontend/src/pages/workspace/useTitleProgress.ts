@@ -54,10 +54,10 @@ export function useTitleProgress(id: number, comic: boolean) {
     }
   }, [id, comic])
 
-  const onFlowProgress = () => {
+  const onFlowProgress = useCallback(() => {
     setFlowOn(true)
     setTick((t) => t + 1)
-  }
+  }, [])
   // Stable, so a stage page can refresh the counts after every write without remaking its context.
   const refresh = useCallback(() => setTick((t) => t + 1), [])
   return { lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, refresh }

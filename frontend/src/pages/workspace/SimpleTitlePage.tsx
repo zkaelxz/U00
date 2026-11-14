@@ -11,7 +11,7 @@ import { routeHref } from '../../router'
 import { ComicChapterList } from './ComicChapterList'
 import { TitleLines, TitleProgress } from './TitleLines'
 import { TitlePanel } from './TitlePanel'
-import { TitleSteps } from './TitleSteps'
+import { TitleTop } from './TitleTop'
 import { useTitleProgress } from './useTitleProgress'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { episodeRows, type EpisodeInput, type TitleView } from './titleView'
@@ -77,37 +77,39 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
 
   return (
     <section className="workspace novel-title" aria-label={`Title ${id} workspace`}>
-      <header className="workspace-header">
-        <ButtonLink href={routeHref({ name: 'library' })} variant="ghost" size="sm" className="ws-back" aria-label="Back to Library">
-          <span aria-hidden="true">‹</span>
-          <span className="ws-back-text" aria-hidden="true">Library</span>
-        </ButtonLink>
-        <h1 data-testid="drama-title" title={title}>{title}</h1>
-        <div className="ws-badges">
-          <Badge kind="mediaType" value={drama.media_type} />
-        </div>
-        <JobPill dramaId={id} onFinished={() => undefined} />
-        <TitleViewSwitch view="simple" onChange={onView} />
-        <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />
-      </header>
       {comic ? (
-        <div className="actions">
-          <ButtonLink href={routeHref({ name: 'comic', id, page: null })} variant="primary">Open in Scanlate</ButtonLink>
-          <ButtonLink href={stage('source', 'add')}>Add pages</ButtonLink>
-          <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
-          <ButtonLink href={stage('export')}>Export</ButtonLink>
-        </div>
+        <>
+          <header className="workspace-header">
+            <ButtonLink href={routeHref({ name: 'library' })} variant="ghost" size="sm" className="ws-back" aria-label="Back to Library">
+              <span aria-hidden="true">‹</span>
+              <span className="ws-back-text" aria-hidden="true">Library</span>
+            </ButtonLink>
+            <h1 data-testid="drama-title" title={title}>{title}</h1>
+            <div className="ws-badges">
+              <Badge kind="mediaType" value={drama.media_type} />
+            </div>
+            <JobPill dramaId={id} onFinished={() => undefined} />
+            <TitleViewSwitch view="simple" onChange={onView} />
+            <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />
+          </header>
+          <div className="actions">
+            <ButtonLink href={routeHref({ name: 'comic', id, page: null })} variant="primary">Open in Scanlate</ButtonLink>
+            <ButtonLink href={stage('source', 'add')}>Add pages</ButtonLink>
+            <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
+            <ButtonLink href={stage('export')}>Export</ButtonLink>
+          </div>
+        </>
       ) : (
         <>
-          <TitleSteps
+          <TitleTop
             id={id}
-            audioReady={audioReady}
-            lineCount={lineCount}
-            translatedCount={translatedCount}
-            exported={exported}
-            riskCount={riskCount}
-            flowOn={flowOn}
-            onFlowProgress={onFlowProgress}
+            drama={drama}
+            title={title}
+            back={{ href: routeHref({ name: 'library' }), label: 'Back to Library', text: 'Library' }}
+            badge
+            onJobFinished={() => undefined}
+            onView={onView}
+            progress={{ audioReady, lineCount, translatedCount, exported, riskCount, flowOn, onFlowProgress }}
           />
           <div className={hasLines ? 'title-studio has-panel' : 'title-studio'}>
             {hasLines && (

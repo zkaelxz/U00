@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject, type React
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { useRoute } from '../../../../router'
-import { useCheckSignal } from '../../StageContext'
-import { CheckedUndo, CheckQueueFooter, CheckQueueSwitch } from './CheckQueue'
+import { useCheckLead, useCheckSignal } from '../../StageContext'
+import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch } from './CheckQueue'
 import { initialLinesFilter, nextText, positionText, QUEUE_FILTER, queueCounts } from './checkQueueModel'
 import type { LinesController, LinesState, Pending } from './linesController'
 import { PAGE_SIZE } from './reviewLogic'
@@ -54,6 +54,7 @@ export function useCheckQueue(d: Deps) {
 
   // Simple's Check button, pressed on this page: open the queue on its first card.
   const signal = useCheckSignal()
+  const checkLead = useCheckLead()
   const seenSignal = useRef(signal)
   const openRef = useRef<() => Promise<void>>(async () => {})
   useEffect(() => {
@@ -108,6 +109,7 @@ export function useCheckQueue(d: Deps) {
 
   const lead: ReactNode = d.simple ? (
     <>
+      {checkLead && <CheckLeadAction lead={checkLead} />}
       {/* The phone's card view leaves "F of M look fine" to the footer's "The other F lines…", so the switch row stays one line. */}
       <CheckQueueSwitch queue={on} counts={counts} showFine={!(cardOnly && (counts?.risk ?? 0) > 0)} onPick={(q) => void d.changeFilter(q ? QUEUE_FILTER : 'all')} />
       {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}

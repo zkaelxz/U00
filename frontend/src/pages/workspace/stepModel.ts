@@ -55,8 +55,63 @@ export function checkActionLabel(risk: number | null): string | null {
   return risk === 1 ? 'Check the line' : `Check the ${risk} lines`
 }
 
-/** "Step 4 of 5 · Check": where `key` sits among the steps, for the one-line fold of the step tiles. */
+/** "Step 4 of 5 · Check": where `key` sits among the steps, for the phone's one button that opens the steps. */
 export function stepPlace(steps: Step[], key: StepKey): string | null {
   const at = steps.findIndex((s) => s.key === key)
   return at === -1 ? null : `Step ${at + 1} of ${steps.length} · ${steps[at].title}`
+}
+
+/**
+ * The step to mark: the one whose page is open, else the current one; once every step is done, the last.
+ * Null while the progress is loading and no step's page is open, so nothing is marked that may be wrong.
+ */
+export function focusStep(steps: Step[], open: StepKey | null): StepKey | null {
+  if (open) return open
+  const current = steps.find((s) => s.state === 'current')
+  if (current) return current.key
+  return steps.length > 0 && steps.every((s) => s.state === 'done') ? steps[steps.length - 1].key : null
+}
+
+export type StepWord = 'Done' | 'Now' | 'Next'
+
+export interface StepLink {
+  key: StepKey
+  state: StepState
+  /** Null for the steps after Next, and for every step while the progress is loading. */
+  word: StepWord | null
+  name: string
+  /** Read after a comma, so it is shorter than the step's tooltip. */
+  note: string | null
+  /** The longer guidance the step tiles used to show, kept as the link's tooltip so none of it is lost. */
+  tip: string
+  marked: boolean
+}
+
+/** The one-line step links: "Done · Transcribe, 24 lines", "Now · Check, 3 lines need a look", "Next · Export", "Export". */
+export function stepLinks(i: StepInput, open: StepKey | null = null): StepLink[] {
+  const steps = titleSteps(i)
+  const marked = focusStep(steps, open)
+  const at = steps.findIndex((s) => s.state === 'current')
+  const lines = i.lineCount ?? 0
+  const left = lines - i.translatedCount
+  const risk = i.riskCount ?? null
+  const shortNote = (s: Step): string | null => {
+    if (i.lineCount === null) return null
+    if (s.key === 'transcribe' && s.state === 'done') return `${lines} ${lines === 1 ? 'line' : 'lines'}`
+    if (s.key === 'translate' && lines > 0 && left > 0) return `${left} of ${lines} left`
+    if (s.key === 'check' && risk !== null && s.state !== 'done') {
+      if (risk === 0) return 'nothing needs a look'
+      return risk === 1 ? '1 line needs a look' : `${risk} lines need a look`
+    }
+    return null
+  }
+  return steps.map((s, n) => ({
+    key: s.key,
+    state: s.state,
+    word: s.state === 'done' ? 'Done' : s.state === 'current' ? 'Now' : at !== -1 && n === at + 1 ? 'Next' : null,
+    name: s.title,
+    note: shortNote(s),
+    tip: s.note,
+    marked: s.key === marked,
+  }))
 }

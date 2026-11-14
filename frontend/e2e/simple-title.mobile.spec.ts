@@ -12,8 +12,10 @@ const progress = {
 }
 
 const main = 'Translate 10 lines'
-// On a phone these three sit behind the More menu.
+// On a phone these three sit in the panel the steps button opens.
 const more = ['Add media', 'Redo transcription', 'Glossary']
+// Its name starts with the drawn ▸ marker, so the pattern is not anchored.
+const stepsButton = (page: Page) => page.getByRole('button', { name: /Step \d of 5 · / })
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress }))
@@ -30,29 +32,64 @@ async function expectTall(loc: Locator, what: string) {
   expect(box?.height ?? 0, `${what} is too short to tap`).toBeGreaterThanOrEqual(44)
 }
 
-// In Full on a phone the switch lives in the Title actions sheet, which keeps the sticky strip one row.
+// In Full on a phone the switch lives in the Title actions sheet, which keeps the sticky strip one row. In Simple it is
+// behind the steps button, so the click is not followed by check()'s look at a radio that is no longer on screen.
 async function chooseSimple(page: Page) {
   await page.getByRole('button', { name: 'Title actions' }).tap()
-  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await expect(stepsButton(page)).toBeVisible()
 }
 
-test('Simple fits a phone: switch and the step actions visible, tall enough to tap, no sideways scroll', async ({ page }) => {
+test('Simple fits a phone: one steps button opens the steps and the title controls, the main button under the header, no sideways scroll', async ({ page }) => {
   await page.goto('/#/drama/1')
   await chooseSimple(page)
-  await expect(page.getByRole('link', { name: 'Translate 10 lines', exact: true })).toBeVisible()
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    const header = page.locator('.workspace-header')
+    const button = stepsButton(page)
+    await expect(button).toHaveText('Step 3 of 5 · Translate')
+    await expectTall(button, `the steps button at ${width}px`)
+    await expect(header.getByRole('button', { name: 'Step 3 of 5 · Translate' })).toHaveCount(1)
+    await expect(button).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('list', { name: 'Steps' })).toBeHidden()
 
-  // The radios are visually hidden; the visible control is their label.
-  for (const name of ['Simple', 'Full']) {
-    await expectTall(page.locator('label').filter({ hasText: new RegExp(`^${name}$`) }).first(), `${name} switch`)
+    // The main button spans the page directly under the header.
+    const mainLink = page.getByRole('link', { name: main, exact: true })
+    await expectTall(mainLink, main)
+    const h = (await header.boundingBox())!
+    const m = (await mainLink.boundingBox())!
+    expect(m.y, `the main button is under the header at ${width}px`).toBeGreaterThanOrEqual(h.y + h.height)
+    expect(m.y - (h.y + h.height), `nothing sits between the header and the main button at ${width}px`).toBeLessThan(24)
+    expect(Math.abs(m.width - h.width), `the main button is full width at ${width}px`).toBeLessThanOrEqual(1)
+
+    await button.tap()
+    await expect(button).toHaveAttribute('aria-expanded', 'true')
+    const panel = page.locator(`[id="${await button.getAttribute('aria-controls')}"]`)
+    await expect(panel).toBeVisible()
+    const tabs = panel.getByRole('list', { name: 'Steps' }).getByRole('link')
+    await expect(tabs).toHaveText(['Done · Add', 'Done · Transcribe, 10 lines', 'Now · Translate, 10 of 10 left', /^Next · Check(, .+)?$/, 'Export'])
+    for (let n = 0; n < 5; n++) await expectTall(tabs.nth(n), `step ${n + 1} at ${width}px`)
+    for (const name of more) await expectTall(panel.getByRole('link', { name, exact: true }), `${name} at ${width}px`)
+    // The radios are visually hidden; the visible control is their label.
+    for (const name of ['Simple', 'Full']) {
+      await expectTall(panel.locator('label').filter({ hasText: new RegExp(`^${name}$`) }).first(), `${name} switch at ${width}px`)
+    }
+    await expectTall(panel.getByRole('button', { name: 'Open folder' }), `Open folder at ${width}px`)
+    // In this order: the steps, the three links, the switch, Open folder, then the source link or the way to add one.
+    const order = [
+      panel.getByRole('list', { name: 'Steps' }), ...more.map((name) => panel.getByRole('link', { name, exact: true })),
+      panel.getByRole('group', { name: 'Title view' }), panel.getByRole('button', { name: 'Open folder' }), panel.locator('.ws-source, .ws-source-add'),
+    ]
+    const handles = await Promise.all(order.map((l) => l.elementHandle()))
+    for (let n = 1; n < handles.length; n++) {
+      const follows = await page.evaluate(([a, b]) => !!(a!.compareDocumentPosition(b!) & Node.DOCUMENT_POSITION_FOLLOWING), [handles[n - 1], handles[n]])
+      expect(follows, `panel item ${n + 1} follows item ${n}`).toBe(true)
+    }
+    await expect(page.locator('.title-top-more')).toHaveCount(0)
+    await expectNoSidewaysScroll(page)
+    await button.tap()
+    await expect(page.getByRole('list', { name: 'Steps' })).toBeHidden()
   }
-  await expectTall(page.getByRole('link', { name: main, exact: true }), main)
-  await expectTall(page.locator('summary', { hasText: 'More' }), 'More')
-  await page.locator('summary', { hasText: 'More' }).tap()
-  for (const name of more) await expectTall(page.getByRole('link', { name, exact: true }), name)
-  const tabs = page.getByRole('list', { name: 'Steps' }).getByRole('link')
-  await expect(tabs).toHaveCount(5)
-  for (let n = 0; n < 5; n++) await expectTall(tabs.nth(n), `step tab ${n + 1}`)
-  await expectNoSidewaysScroll(page)
 })
 
 test('choosing Simple then reloading keeps Simple', async ({ page }) => {
@@ -62,6 +99,8 @@ test('choosing Simple then reloading keeps Simple', async ({ page }) => {
   await page.reload()
   await expect(page.getByRole('link', { name: 'Translate 10 lines', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  // The switch is in the panel the steps button opens.
+  await stepsButton(page).tap()
   await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
 })
 
@@ -82,15 +121,19 @@ test('with lines the phone shows the bar, the steps and long lines wrapped, with
   await expectNoSidewaysScroll(page)
 })
 
-test('the step tabs and buttons on a stage page are tall enough to tap and do not scroll sideways', async ({ page }) => {
+test('the step links and buttons on a stage page are tall enough to tap and do not scroll sideways', async ({ page }) => {
   await page.goto('/#/drama/1')
   await chooseSimple(page)
   await page.goto('/#/drama/1/translate')
+  await expectTall(page.getByRole('link', { name: main, exact: true }), main)
+  // The open stage's step names the button.
+  await expect(stepsButton(page)).toHaveText('Step 3 of 5 · Translate')
+  await page.goto('/#/drama/1/export')
+  await expect(stepsButton(page)).toHaveText('Step 5 of 5 · Export')
+  await stepsButton(page).tap()
   const links = page.getByRole('list', { name: 'Steps' }).getByRole('link')
   await expect(links).toHaveCount(5)
-  for (let n = 0; n < 5; n++) await expectTall(links.nth(n), `step tab ${n + 1}`)
-  await expectTall(page.getByRole('link', { name: main, exact: true }), main)
-  await page.locator('summary', { hasText: 'More' }).tap()
+  for (let n = 0; n < 5; n++) await expectTall(links.nth(n), `step link ${n + 1}`)
   for (const name of more) await expectTall(page.getByRole('link', { name, exact: true }), name)
   await expectNoSidewaysScroll(page)
 })
@@ -156,7 +199,7 @@ test.describe(() => {
       await expectNoSidewaysScroll(page)
     }
 
-    // One line stands for the step tiles; it opens them as they are on the title page, with the title's controls, and closes again.
+    // One button stands for the steps; it opens them as they are on the title page, with the title's controls, and closes again.
     const fold = page.getByRole('button', { name: 'Step 4 of 5 · Check' })
     await expectTall(fold, 'the steps line')
     await expect(fold).toHaveAttribute('aria-expanded', 'false')
@@ -165,7 +208,7 @@ test.describe(() => {
     await expect(fold).toHaveAttribute('aria-expanded', 'true')
     await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link')).toHaveCount(5)
     await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
-    await expect(page.locator('summary', { hasText: 'More' })).toBeVisible()
+    for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expectTall(page.getByRole('link', { name, exact: true }), name)
     await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
     await expectNoSidewaysScroll(page)
