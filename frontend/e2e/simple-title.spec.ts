@@ -1,4 +1,4 @@
-import { GLOSSARY_NOTE, seedCheckLines, seedLines } from './compareSelectedHelpers'
+import { GLOSSARY_SENTENCE, seedCheckLines, seedLines } from './compareSelectedHelpers'
 import { clearLines } from './resegmentLlmMocks'
 import type { Page } from '@playwright/test'
 
@@ -352,10 +352,31 @@ test.describe('the check queue', () => {
     await expect(page.getByTestId('queue-fine')).toHaveText('20 of 24 look fine')
     // Riskiest first: the glossary name, then the line Whisper was unsure of, then the fast one.
     await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
-    await expect(card(page, 24).getByTestId('line-flag')).toContainText(`Glossary missing · ${GLOSSARY_NOTE}`)
-    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure of this line (50% sure)')
-    await expect(card(page, 12).getByTestId('line-flag')).toContainText('Reading speed · 25.2 characters/second')
+    // The open card says why in a plain sentence; the closed ones in a few words, as a chip in their meta line.
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await expect(card(page, 24).getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure')
+    await expect(card(page, 12).getByTestId('queue-reason')).toHaveText('Fast to read, 25 characters a second')
+    await expect(page.locator('.review-line').getByTestId('line-flag')).toHaveCount(0)
     await expect(card(page, 24).getByRole('link', { name: 'Open glossary' })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    // The English under its label, boxed like a field; the buttons in the drawing's order, with the green finishing step last.
+    await expect(card(page, 24).locator('.review-queue-label')).toHaveText('English')
+    const box = card(page, 24).getByTestId('line-en')
+    expect(await box.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
+    await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
+      .toHaveText(['Open glossary', 'Improve translation', 'Edit details', 'Dismiss flag', 'Looks right, next'])
+    const done = card(page, 24).getByRole('button', { name: 'Looks right, next' })
+    const [fill, ok] = await done.evaluate((el) => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--ok)'
+      document.body.append(probe)
+      const okColour = getComputedStyle(probe).color
+      probe.remove()
+      return [getComputedStyle(el).backgroundColor, okColour]
+    })
+    expect(fill, 'Looks right, next is the green button').toBe(ok)
+    const [doneBox, cardBox] = [await done.boundingBox(), await card(page, 24).boundingBox()]
+    expect((cardBox?.x ?? 0) + (cardBox?.width ?? 0) - ((doneBox?.x ?? 0) + (doneBox?.width ?? 0)), 'Looks right, next sits at the far right').toBeLessThan(40)
     // The queue's bar is only its switch: the filters and the step buttons are under All.
     await expect(page.getByRole('radiogroup', { name: 'Show' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Next flagged ›' })).toHaveCount(0)
@@ -371,6 +392,10 @@ test.describe('the check queue', () => {
     await card(page, 24).getByRole('button', { name: 'Looks right, next' }).click()
     await expect(page.locator('.review-line .review-idx')).toHaveText(['#7', '#12'])
     await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
+    // Open, the unsure line says it all and offers Re-transcribe, held back with the line menu's reason on a title without audio.
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure of this line (50% sure)')
+    await expect(card(page, 7).getByRole('button', { name: 'Re-transcribe…' })).toBeDisabled()
+    await expect(card(page, 7).getByRole('toolbar')).toContainText('Needs this title’s audio or video.')
     await expect(page.getByText('Need a look 2', { exact: true })).toBeVisible()
     await expect(page.getByTestId('checked-undo')).toContainText('Line #24 marked checked.')
     await page.getByTestId('checked-undo').getByRole('button', { name: 'Undo' }).click()

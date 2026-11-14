@@ -69,6 +69,8 @@ const PAIRS: [string, string][] = [
   ['--muted', '--bg'],
   ['--muted', '--surface'],
   ['--on-accent', '--accent'],
+  // The green Looks right, next button (.btn-ok).
+  ['--on-accent', '--ok'],
   ['--text', '--highlight'],
   ['--muted', '--highlight'],
   ['--muted', '--surface-2'],
@@ -346,7 +348,7 @@ describe('disabled buttons (3:1)', () => {
     expect(m, selector).toBeTruthy()
     return { token: m![1], pct: +m![2], base: m![3] }
   }
-  const generic = mixOf('.btn.btn-primary:disabled,\n.btn.btn-secondary:disabled,\n.btn.btn-ghost:disabled,\n.btn.btn-danger:disabled')
+  const generic = mixOf('.btn.btn-primary:disabled,\n.btn.btn-secondary:disabled,\n.btn.btn-ghost:disabled,\n.btn.btn-danger:disabled,\n.btn.btn-ok:disabled')
   const primary = mixOf('.btn.btn-primary:disabled')
   const legacyPrimary = mixOf('button.primary:disabled')
 

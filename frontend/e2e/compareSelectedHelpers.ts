@@ -24,6 +24,9 @@ print(','.join(str(l.id) for l in db.load_line_objects(3)))
 // 24 translated lines on drama 3, none checked. With `warnings`, three of them need a look: #24 misses a glossary
 // name, #12 is too fast to read (both flagged) and Whisper was unsure of #7 (unflagged); with `untranslated`, #3 has no English.
 export const GLOSSARY_NOTE = 'Glossary: 夷陵老祖 -> Yiling Patriarch missing'
+// What the check queue's open card says for that note.
+export const GLOSSARY_SENTENCE = 'The glossary writes 夷陵老祖 as “Yiling Patriarch”, but the English doesn’t use that name. ' +
+  'Put it in the English, or change the glossary if the name is wrong.'
 export function seedCheckLines({ warnings = true, untranslated = false } = {}): void {
   const code = `import db
 db.configure_library_dir(${JSON.stringify(libraryDir)})

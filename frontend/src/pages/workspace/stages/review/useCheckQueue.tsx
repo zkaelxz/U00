@@ -1,5 +1,5 @@
 /** The check queue's part of the Review line list: the view it opens on, the rows it shows, and the switch, footer and Undo around them. */
-import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
@@ -9,6 +9,8 @@ import { CheckedUndo, CheckQueueFooter, CheckQueueSwitch } from './CheckQueue'
 import { initialLinesFilter, nextText, positionText, QUEUE_FILTER, queueCounts } from './checkQueueModel'
 import type { LinesController, LinesState, Pending } from './linesController'
 import { PAGE_SIZE } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE } from './reviewResegment'
+import { retranscribeMenuState } from './retranscribeLogic'
 import { useUndoOffer } from './undoOffer'
 
 /** The view the line list opens on: the check queue in Simple, unless the link names lines (initialLinesFilter). */
@@ -24,6 +26,8 @@ interface Deps {
   searching: boolean
   isPhone: boolean
   jobRunning: boolean
+  canRetranscribeLine: boolean
+  retranscribeNeed: { reason: string } | null
   data: ReviewLinesPage | null
   // The view `data` was loaded for, and whether it is the answer to the latest view and reload asked for.
   dataFilter: LineFilter | null
@@ -84,6 +88,12 @@ export function useCheckQueue(d: Deps) {
       .finally(() => setUndoing(false))
   }
 
+  const needReason = d.retranscribeNeed?.reason ?? null
+  // The line menu's own gating for Re-transcribe…, kept stable so a card only redraws when it changes.
+  const retranscribe = useMemo(
+    () => (on ? retranscribeMenuState(d.canRetranscribeLine, d.jobRunning ? JOB_RUNNING_MESSAGE : null, needReason) : null),
+    [on, d.canRetranscribeLine, d.jobRunning, needReason],
+  )
   const counts = d.data ? queueCounts(d.data, d.allTotal) : null
   const cardOnly = on && d.isPhone
   const position = cardOnly && d.data ? positionText(d.shown, d.activeId, d.page, PAGE_SIZE, d.data.total) : null
@@ -126,6 +136,7 @@ export function useCheckQueue(d: Deps) {
     // A phone shows one card at a time.
     rows: cardOnly ? d.shown.filter((l) => l.id === d.activeId) : d.shown,
     toolbar: { lead, bare: on },
+    retranscribe,
     after,
     bar: (line: ReviewLine) => (on ? { onSkip: skip, onLooksRight: () => ctl.actions.reviewAndNext(line.id) } : undefined),
   }

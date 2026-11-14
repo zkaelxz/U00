@@ -14,11 +14,10 @@ interface Deps {
   setSheet: Dispatch<SetStateAction<SheetState | null>>
   setStructError: Dispatch<SetStateAction<unknown>>
   setSheetNote: Dispatch<SetStateAction<string | null>>
-  setRetranscribeFocusId: Dispatch<SetStateAction<number | null>>
 }
 
 // What the "⋯" line sheet does for its line. Rebuilt every render, since it reads the open line.
-export function buildSheetActions({ sheetLine, ctl, edits, player, setSheet, setStructError, setSheetNote, setRetranscribeFocusId }: Deps): SheetActions {
+export function buildSheetActions({ sheetLine, ctl, edits, player, setSheet, setStructError, setSheetNote }: Deps): SheetActions {
   const { actions } = ctl
   const closeSheetThen = (fn: () => void) => {
     setSheet(null)
@@ -38,12 +37,7 @@ export function buildSheetActions({ sheetLine, ctl, edits, player, setSheet, set
     onPlayRange: (start, end) => sheetLine && player.current?.playLine({ id: sheetLine.id, idx: sheetLine.idx, start, end }),
     onPlay: () => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine)),
     onEditDetails: () => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true)),
-    onRetranscribe: () =>
-      closeSheetThen(() => {
-        if (!sheetLine) return
-        const id = sheetLine.id
-        void ctl.openEdit(id, true).then((ok) => ok && setRetranscribeFocusId(id))
-      }),
+    onRetranscribe: () => closeSheetThen(() => sheetLine && actions.retranscribe(sheetLine.id)),
     onImprove: () => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'improve')),
     onWhy: () => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'explain')),
     onTool: (mode) => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, mode)),

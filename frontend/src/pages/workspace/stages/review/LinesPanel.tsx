@@ -271,7 +271,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
-  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError })
+  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError })
   const toggleReplace = () => {
     const next = !replaceOpen
     setReplaceOpen(next)
@@ -487,6 +487,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               actions={actions}
               simple={simple}
               queue={queue.on}
+              retranscribe={queue.retranscribe}
               searchHit={searching}
               jumped={jumpedId === l.id}
               focusRetranscribe={retranscribeFocusId === l.id}
@@ -538,7 +539,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           retranscribeNeed={retranscribeNeed}
           timingSnap={sheetLine ? timingByLine.get(sheetLine.id) ?? null : null}
           sourceLanguage={sourceLanguage}
-          actions={buildSheetActions({ sheetLine, ctl, edits, player, setSheet, setStructError, setSheetNote, setRetranscribeFocusId })}
+          actions={buildSheetActions({ sheetLine, ctl, edits, player, setSheet, setStructError, setSheetNote })}
         />
         <ShortcutSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
       </div>
