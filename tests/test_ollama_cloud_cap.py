@@ -151,3 +151,10 @@ def test_an_unattended_run_on_a_cloud_tag_needs_a_cap(isolated_db, monkeypatch):
     with pytest.raises(UnsupportedOperationError):
         paid_job_service.require_cap_for_unattended("ollama", False, CLOUD)
     paid_job_service.require_cap_for_unattended("ollama", False, "gemma4:12b")
+
+
+def test_an_unpriced_cloud_tag_is_costed_at_the_dearest_known_cloud_rate():
+    from engine_backends import pricing
+    cost = pricing.estimate_cost("qwen3-coder:cloud", 1_000_000, 1_000_000)
+    assert cost == pytest.approx(0.14 + 0.40)
+    assert pricing.estimate_cost("gemma4:12b", 1_000_000, 1_000_000) == 0.0
