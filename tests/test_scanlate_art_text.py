@@ -470,7 +470,7 @@ def test_a_large_sign_on_mid_tone_art_is_not_filled_with_black():
 
 def test_the_art_fill_fades_in_from_the_box_edge_instead_of_leaving_a_seam():
     page = np.full((420, 700, 3), (70, 80, 90), np.uint8)
-    page[:, :350] = (120, 130, 60)
+    page[:, :350] = (40, 70, 60)
     before = page.copy()
     for y in (130, 210, 290):
         cv2.putText(page, "WWWWWWWWWWWW", (60, y), cv2.FONT_HERSHEY_SIMPLEX, 2.4, (255, 255, 255), 14)
