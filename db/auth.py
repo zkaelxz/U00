@@ -533,7 +533,12 @@ def auth_rotate_session(session_id: int, user_id: int, id_hash: str, csrf_hash: 
                 "WHERE id = ? AND user_id = ?", (session_id, user_id)).fetchone()
             if old is None:
                 return None
-            conn.execute("DELETE FROM auth_sessions WHERE id = ?", (session_id,))
+            # The SELECT runs before the write transaction opens, so a sign-out or a
+            # second rotate of the same session can delete it in between; inserting
+            # anyway would bring back a session that was ended, or make two out of one.
+            if conn.execute("DELETE FROM auth_sessions WHERE id = ? AND user_id = ?",
+                            (session_id, user_id)).rowcount == 0:
+                return None
             cur = conn.execute(
                 "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, "
                 "last_seen_at, user_agent_short, device_label, ip_prefix, csrf_hash, "

@@ -252,6 +252,44 @@ def test_rotation_of_a_session_revoked_meanwhile_is_401(isolated_db, monkeypatch
     assert db.auth_list_sessions(u["id"]) == []
 
 
+def test_a_session_deleted_between_rotations_read_and_delete_is_not_brought_back(
+        isolated_db, monkeypatch):
+    """A sign-out (or a second rotate) can land after the rotate has read the
+    old row and before it deletes it; the rotate must then add no new row."""
+    import db.auth as db_auth
+    u, phone, _pc = _member()
+    real_get_conn = db.get_conn
+
+    class _RacingConn:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self._conn.__exit__(*exc)
+
+        def execute(self, sql, params=()):
+            if sql.startswith("DELETE FROM auth_sessions"):
+                with contextlib.closing(real_get_conn()) as other:
+                    other.execute("DELETE FROM auth_sessions WHERE id = ?", (phone["session_id"],))
+                    other.commit()
+            return self._conn.execute(sql, params)
+
+    monkeypatch.setattr(db_auth.db, "get_conn", lambda: _RacingConn(real_get_conn()))
+    sid = db.auth_rotate_session(phone["session_id"], u["id"], "new-id-hash", "new-csrf-hash",
+                                 time.time(), "203.0.113")
+    monkeypatch.undo()
+    assert sid is None
+    assert phone["session_id"] not in [r["id"] for r in db.auth_list_sessions(u["id"])]
+    assert db.auth_get_session_by_hash("new-id-hash") is None
+
+
 # --- admins: PC-only (D5) ------------------------------------------------------------------
 
 def test_admin_away_from_the_pc_can_list_but_not_revoke(isolated_db):
