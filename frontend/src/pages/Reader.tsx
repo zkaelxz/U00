@@ -41,6 +41,8 @@ import { ChapterJump } from './reader/ReaderChapters'
 import { ReaderTermPanels } from './reader/ReaderTermTools'
 import { lineEditPatch } from './reader/readerLineEdit'
 import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
+import { stageLabel } from './workspace/stages'
+import { titleKind } from './workspace/titleKind'
 import { useSession } from '../hooks/useSession'
 import { holds } from './diagnostics/adminUsers'
 import { useAction } from './reader/useReaderAction'
@@ -181,6 +183,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState('und')
   const [mediaType, setMediaType] = useState<string | null>(null)
+  const [sourceStage, setSourceStage] = useState<string | null>(null) // null until the title loads: the name depends on its kind
   const [overview, setOverview] = useState<ReaderOverview | null>(null)
   const [data, setData] = useState<ReaderPageData | null>(null)
   // The iframe's document URL, set with the counts it belongs to, so a failed
@@ -221,6 +224,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
         setSourceUrl(d.source_url ?? null)
         if (d.source_language) setSourceLanguage(d.source_language)
         setMediaType(d.media_type)
+        setSourceStage(stageLabel('source', titleKind(d.media_type, d.content_mode)))
       },
       (e) => {
         if (cancelled) return
@@ -472,7 +476,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       {empty ? (
         <section className="panel">
           <p>No lines to read yet.</p>
-          <ButtonLink href={workspaceHref}>Add lines on Media</ButtonLink>
+          <ButtonLink href={workspaceHref}>{sourceStage ? `Add lines on ${sourceStage}` : 'Add lines'}</ButtonLink>
         </section>
       ) : (
         <>
