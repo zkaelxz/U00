@@ -2,15 +2,23 @@ import { useEffect, useState } from 'react'
 
 import { mergeSpeakers, rememberSeriesCharacter, renameSpeaker, swapSpeakers, undoMergeSpeakers, undoRenameSpeaker, undoSpeakerChange } from '../../../api/characters'
 import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, saveCharacter } from '../../../api/translateStage'
+import { voiceBankAudioUrl } from '../../../api/voiceBankAudio'
+import { candidateAudioUrl, extractCandidates, listCandidates } from '../../../api/voiceClone'
+import { ClipPlayButton } from '../../../components/ClipPlayButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { isForbidden, LINES_READ_FORBIDDEN } from '../../../components/errorMessages'
+import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
 import { Section } from '../../../components/Section'
-import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
+import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { useJob, useJobRun } from '../../../hooks/useJob'
+import { useReattachJob } from '../../../hooks/useReattachJob'
+import { isTerminalStatus, jobFailed } from '../../../types/jobs'
 import type { MergeResult, RememberResult, RenameResult, RenameUndo, SpeakerChangeEntry, SpeakerChangeResult } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
+import type { VoiceCloneCandidates, VoiceCloneSpeakerCandidates } from '../../../types/voiceClone'
 import { useStage, useStageFocus } from '../StageContext'
+import { voiceCloneJobId } from '../stageJobIds'
 import { SeriesCast } from './SeriesCast'
 import { VoiceSuggestions } from './VoiceSuggestions'
 import {
@@ -27,13 +35,74 @@ import {
 } from './characterForm'
 import { VOICE_CLIP_NOTE, leavesVoiceClip, mergeChoices, mergeSummary, readMergeUndo, saveMergeUndo, undoIdSurvives, type MergeChoice, type MergeUndoHandle } from './mergeSpeakers'
 import { readRenameUndo, renameProblem, saveRenameUndo, takenNames } from './renameSpeaker'
+import { candidatesFor, formatSeconds, skipText } from './voiceClone'
 import './characters.css'
-
-const COLUMNS = 6
 
 const formKey = (e: CharacterEntry) => JSON.stringify(toCharacterForm(e))
 
-function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, onSaved, onRemembered, onRenamed, onMerged, onSwapped }: {
+// Sample clips are the same candidates Review > Voices finds for a reference
+// clip, so finding them here also fills that list (and replaces what it had
+// for this speaker).
+interface SampleProps {
+  candidates: VoiceCloneSpeakerCandidates | null
+  // One extraction runs per title at a time, whichever speaker it is for.
+  extracting: boolean
+  finding: boolean
+  // Why the last search for this speaker failed, in words.
+  failed: string | null
+  error: unknown
+  onFind: () => void
+  onDismiss: () => void
+}
+
+function SampleCell({ label, sample }: { label: string; sample: SampleProps }) {
+  const { dramaId } = useStage()
+  const clips = sample.candidates?.candidates ?? []
+  return (
+    <td role="cell" data-label="Sample" className="card-meta character-sample">
+      {clips.length > 0 ? (
+        <span className="character-sample-clips" role="group" aria-label={`Sample clips for ${label}`}>
+          {clips.map((c, i) => (
+            <ClipPlayButton
+              key={c.id}
+              src={candidateAudioUrl(dramaId, c.id)}
+              name={`sample ${i + 1} for ${label}`}
+              text={String(i + 1)}
+              title={`${formatSeconds(c.duration)}${c.ref_text ? ` · ${c.ref_text}` : ''}`}
+            />
+          ))}
+        </span>
+      ) : (
+        <button
+          type="button"
+          className={buttonClass('ghost', 'sm')}
+          aria-label={`Find sample clips for ${label}`}
+          disabled={sample.extracting}
+          title={sample.extracting && !sample.finding
+            ? 'Another speaker\'s clips are being found; wait for it to finish.'
+            : 'Cuts a few short clips of this speaker from the audio, so you can hear whose voice it is.'}
+          onClick={sample.onFind}
+        >
+          {sample.finding ? 'Finding…' : 'Find clips'}
+        </button>
+      )}
+    </td>
+  )
+}
+
+function SampleNotes({ label, sample }: { label: string; sample: SampleProps }) {
+  const skip = skipText(sample.candidates)
+  if (!skip && !sample.failed && !sample.error) return null
+  return (
+    <div className="character-extras" data-testid={`sample-notes-${label}`}>
+      {skip && <p className="muted character-samples">{skip}</p>}
+      {sample.failed && <p className="error" role="alert">{sample.failed}</p>}
+      <ErrorBanner error={sample.error} describe={{ serverText: true }} onDismiss={sample.onDismiss} />
+    </div>
+  )
+}
+
+function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip, sample, columns, onSaved, onRemembered, onRenamed, onMerged, onSwapped }: {
   entry: CharacterEntry
   engines: CloneEngines | null
   bank: VoiceBankEntry[]
@@ -41,6 +110,9 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   taken: string[]
   mergeTargets: MergeChoice[]
   leavesClip: (target: string) => boolean
+  // Null when the title has no audio to cut a sample from.
+  sample: SampleProps | null
+  columns: number
   onSaved: (e: CharacterEntry) => void
   onRemembered: (r: RememberResult) => void
   onRenamed: (r: RenameResult) => void
@@ -166,6 +238,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
           </div>
         </td>
         <td role="cell" data-label="Lines" className="card-meta">{entry.line_count}</td>
+        {sample && <SampleCell label={label} sample={sample} />}
         <td role="cell" data-label="Reference" className="card-meta">{reference}</td>
         <td role="cell" className="card-action">
           <button type="button" className={buttonClass('secondary', 'sm')} disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>Save</button>
@@ -174,7 +247,8 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
         </td>
       </tr>
       <tr role="row" className="card-extra">
-        <td role="cell" colSpan={COLUMNS}>
+        <td role="cell" colSpan={columns}>
+          {sample && <SampleNotes label={label} sample={sample} />}
           {(samples || entry.series_character_id || canRemember(entry, hasSeries)) && (
             <div className="character-extras" data-testid={`character-extras-${label}`}>
               {samples && <p className="muted character-samples">{samples}</p>}
@@ -303,7 +377,7 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                         ))}
                       </select>
                       {bankId && (
-                        <VoiceBankPlayButton key={bankId} entryId={Number(bankId)} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
+                        <ClipPlayButton key={bankId} src={voiceBankAudioUrl(Number(bankId))} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
                       )}
                       <button type="button" className={buttonClass('secondary', 'sm')} disabled={!bankId || busy} title={bankId ? undefined : 'Choose a voice first.'} onClick={apply}>
                         Apply
@@ -343,6 +417,54 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
     setMergeUndo(null)
     saveMergeUndo(dramaId, null)
   }
+  const [cands, setCands] = useState<VoiceCloneCandidates | null>(null)
+  const [candReload, setCandReload] = useState(0)
+  const [findFor, setFindFor] = useState<string | null>(null)
+  // The start request is in flight: a second press would only be refused.
+  const [findStarting, setFindStarting] = useState(false)
+  const [findError, setFindError] = useState<{ label: string; error: unknown } | null>(null)
+  const [findJobId, setFindJobId, findRunKey, adoptFindJob] = useJobRun()
+  // Picks up a search still running from an earlier visit (or from Review >
+  // Voices), so the buttons stay disabled and the clips appear when it ends.
+  useReattachJob(drama.has_audio ? [voiceCloneJobId(dramaId)] : [], adoptFindJob)
+  const { job: findJob, error: findPollError } = useJob(findJobId, {
+    runKey: findRunKey,
+    onDone: () => setCandReload((n) => n + 1),
+  })
+  const finding = findStarting || (findJobId !== null && !findPollError && !(findJob && isTerminalStatus(findJob.status)))
+  const findFailed = findJob && findFor && jobFailed(findJob)
+    ? `Couldn't find clips: ${(findJob.error && safeDetail(findJob.error)) || 'the search failed.'}`
+    : null
+  const startFind = (label: string) => {
+    setFindError(null)
+    setFindFor(label)
+    setFindStarting(true)
+    extractCandidates(dramaId, label).then((r) => {
+      setFindStarting(false)
+      setFindJobId(r.job_id)
+    }, (error: unknown) => {
+      setFindStarting(false)
+      setFindFor(null)
+      setFindError({ label, error })
+    })
+  }
+  useCancellableEffect((cancelled) => {
+    if (!drama.has_audio) return
+    // A convenience: without it the rows offer Find clips.
+    listCandidates(dramaId).then((c) => !cancelled() && setCands(c), () => undefined)
+  }, [dramaId, drama.has_audio, candReload])
+  const sampleFor = (label: string): SampleProps | null => drama.has_audio
+    ? {
+        candidates: candidatesFor(cands, label),
+        extracting: finding,
+        finding: finding && findFor === label,
+        failed: findFor === label ? findFailed : null,
+        error: findError?.label === label ? findError.error : null,
+        onFind: () => startFind(label),
+        onDismiss: () => setFindError(null),
+      }
+    : null
+  const columns = drama.has_audio ? 7 : 6
 
   // Replace by speaker label, never by position.
   const replace = (saved: CharacterEntry) => {
@@ -485,7 +607,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
       {entries && entries.length > 0 && (
         <div className="table-scroll"><table role="table" className="card-table">
           <thead>
-            <tr role="row"><th role="columnheader">Speaker</th><th role="columnheader">Name</th><th role="columnheader">Gender</th><th role="columnheader">Lines</th><th role="columnheader">Reference</th><th role="columnheader"><span className="visually-hidden">Save</span></th></tr>
+            <tr role="row"><th role="columnheader">Speaker</th><th role="columnheader">Name</th><th role="columnheader">Gender</th><th role="columnheader">Lines</th>{drama.has_audio && <th role="columnheader">Sample</th>}<th role="columnheader">Reference</th><th role="columnheader"><span className="visually-hidden">Save</span></th></tr>
           </thead>
           <tbody>
             {entries.map((e) => (
@@ -498,6 +620,8 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
                 taken={takenNames(entries, e.speaker_label)}
                 mergeTargets={mergeChoices(entries, e)}
                 leavesClip={(t) => leavesVoiceClip(e, entries.find((x) => x.speaker_label === t))}
+                sample={sampleFor(e.speaker_label)}
+                columns={columns}
                 onSaved={(saved) => {
                   replace(saved)
                   setSuggestRefresh((n) => n + 1)

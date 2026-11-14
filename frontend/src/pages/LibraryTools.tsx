@@ -6,7 +6,9 @@ import {
   renameVoiceBankEntry,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
+import { voiceBankAudioUrl } from '../api/voiceBankAudio'
 import { Badge } from '../components/Badge'
+import { ClipPlayButton } from '../components/ClipPlayButton'
 import { ButtonLink } from '../components/Button'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -14,7 +16,6 @@ import { Field } from '../components/Field'
 import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { SharingControl } from '../components/SharingControl'
-import { VoiceBankPlayButton } from '../components/VoiceBankPlayButton'
 import { countDramas, dramaName, parseTime, readHref, workspaceHref } from '../components/libraryView'
 import { buttonClass } from '../components/uiClasses'
 import { useHolds } from '../hooks/useHolds'
@@ -334,7 +335,7 @@ export default function LibraryToolsPage() {
             rename={renameVoiceBankEntry}
             onDeleted={onChanged}
             extra={(id, name) => voices.data?.items.find((v) => v.id === id)?.clip_available
-              ? <VoiceBankPlayButton entryId={id} name={name} /> : null}
+              ? <ClipPlayButton src={voiceBankAudioUrl(id)} name={name} /> : null}
           />
         </ToolSection>
         <ToolSection card="saved-manga" ready={organizeReady} first={firstOf(organizeShown) === 3} count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
