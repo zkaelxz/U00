@@ -90,6 +90,7 @@ def set_enabled(enabled, start_now: bool = True) -> dict:
         if enabled and start_now:
             push_translation_config()
             page_server.ensure_server_started()
+            page_server.warm_models_soon()
         elif not enabled:
             page_server.stop_server()
         status = get_status()

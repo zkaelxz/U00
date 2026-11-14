@@ -294,6 +294,8 @@ def start_background_services(features_off=frozenset()) -> dict:
                 log_warning("browser-extension engine was not set: %s", exc)
             page_server.ensure_server_started()
             state["page_server"] = page_server.server_running()
+            if state["page_server"]:
+                page_server.warm_models_soon()
     except Exception as exc:
         log_warning("browser-extension endpoint did not start: %s", exc)
     _started = state

@@ -217,7 +217,7 @@ The endpoint's routes:
 |---|---|
 | `GET /health` | Confirms the app is up, lists the dramas to send to, and advertises `max_images_per_request` (the extension batches to it). |
 | `POST /page` | One image. |
-| `POST /pages` | Several, up to the advertised cap per request. Answers `pages`, `skipped`, `failed`, `received`, `stored`, `already_stored` and, when a run stops early, `stopped`. |
+| `POST /pages` | Several, up to the advertised cap per request. Answers `pages`, `skipped`, `failed`, `received`, `stored`, `already_stored` and, when a run stops early, `stopped`. With `"stream": true` (the extension from 1.2.8 sends it) the answer is `application/x-ndjson`: one `{"page": ...}` line as each page finishes, then `{"done": ...}` with everything but `pages`; a failure after the first line ends with `{"error", "status"}`, and a refusal before it is an ordinary error answer. Two pages are worked on at once, but each is read after the one before it was read and translated after it was translated, so stored order and each page's previous-page context are unchanged. |
 | `POST /text` | A block of raw page text. |
 | `POST /novel` | A web-novel page's text, appended to a novel title as a new raw chapter. |
 | `POST /title` | Finds or creates the title (and series) for a page: `url`, `titles` (page title candidates), `language`, `kind` (`comic` or `novel`) and the `create`, `fill`, `series` switches. Answers ids, booleans, the stored display name and which blank fields were filled; never the address. |
