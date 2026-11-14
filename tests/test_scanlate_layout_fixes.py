@@ -143,6 +143,64 @@ def test_a_sky_that_fades_behind_the_lettering_is_not_whitened_into_a_box():
 
 
 
+def _band_over_art_page():
+    """Black-and-white hatched art with a white caption band tilted 8 degrees across it, a line of
+    dark glyphs on the band and stray dark marks above it."""
+    import cv2
+    # Dense hatching: the paper-relative lettering mask grows across it and covers the crop.
+    page = np.where((np.arange(400)[None, :] // 3 + np.arange(200)[:, None] // 40) % 2 == 0, 0, 255)
+    page = page.astype(np.uint8)
+    band = np.zeros_like(page)
+    cv2.fillConvexPoly(band, np.array([[10, 75], [390, 105], [390, 135], [10, 105]]), 255)
+    page[band > 0] = 255
+    glyphs = np.zeros_like(page)
+    for i in range(10):
+        x = 30 + i * 34
+        y = 85 + int(i * 34 * 0.0787)
+        cv2.rectangle(glyphs, (x, y), (x + 10, y + 12), 255, 3)
+        cv2.line(glyphs, (x + 2, y + 6), (x + 8, y + 6), 255, 2)
+    page[glyphs > 0] = 0
+    return page, band > 0, glyphs > 0
+
+
+def test_a_line_of_lettering_on_a_white_band_is_erased_without_whitening_the_art():
+    page, band, glyphs = _band_over_art_page()
+    bgr = np.dstack([page] * 3).copy()
+    box = {"x": 0, "y": 40, "w": 400, "h": 140}
+    out = scanlate_inpaint.inpaint_region(None, box, image=bgr.copy(), backend="cv", on_art=True)
+    out_gray = out[..., 0]
+    assert (out_gray[glyphs] > 200).mean() > 0.9                    # the lettering is gone
+    art = ~band
+    art[:40] = art[180:] = False
+    assert (out_gray[art] == page[art]).mean() > 0.99               # the art round it is untouched
+
+
+def test_art_with_no_line_of_lettering_keeps_the_usual_mask():
+    page, _band, _glyphs = _band_over_art_page()
+    assert scanlate_inpaint._strokes_on_a_line(page[:60, :200]) is None
+    assert scanlate_inpaint._strokes_on_a_line(page) is not None
+
+
+def test_a_sign_that_is_one_line_on_a_tilted_band_is_set_along_the_band(tmp_path):
+    import scanlate_render
+    from PIL import Image
+    page, band, _glyphs = _band_over_art_page()
+    src = tmp_path / "band.png"
+    Image.fromarray(page).convert("RGB").save(src)
+    sign = {"x": 0, "y": 40, "w": 400, "h": 140, "kind": "sign", "kind_confidence": 0.5,
+            "translated_text": "Traffic congestion on both lines, service suspended until further notice", "font_size": 40}
+    out = scanlate_render.process_page(str(src), [sign], str(tmp_path / "out.png"))[0]
+    result = np.asarray(Image.open(out).convert("L"))
+    drawn = (result < 200) & (page > 200) & band          # text darkening the white band (antialiasing and font vary by machine)
+    outside = (result != page) & ~band
+    outside[:40] = outside[180:] = False
+    assert drawn.sum() > 150
+    assert outside.sum() < 0.01 * drawn.sum()             # none of the English spills onto the art
+    ys, xs = np.nonzero(drawn)
+    slope = np.polyfit(xs, ys, 1)[0]
+    assert 0.04 < slope < 0.12                            # runs down to the right like the band
+
+
 def _sign(x, y, w, h, confidence=0.5, **extra):
     return {"x": x, "y": y, "w": w, "h": h, "kind": "sign", "kind_confidence": confidence, **extra}
 
