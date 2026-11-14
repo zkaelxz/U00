@@ -32,9 +32,6 @@ export function ExportBlock({ id, opening, reason, hint, children, status }: Pro
   return (
     <div className="export-block" role="group" aria-label={title}>
       <Section
-        // What can run is only known once the page's reads answer, which can move the opening block. Section
-        // reads its default when it mounts, so the two blocks that swap mount again (a remembered state still wins).
-        key={opening ? 'opening' : 'other'}
         group="export"
         storageKey={exportBlockStorageKey(kind, id)}
         title={title}

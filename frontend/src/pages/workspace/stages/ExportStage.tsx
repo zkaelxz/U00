@@ -37,6 +37,8 @@ const allowed = <T extends string>(options: readonly T[], v: unknown, fallback: 
 // A title with no draft yet starts from the viewer's last format and language (rule 12).
 const LAST_CHOICE_PREF = 'export.last'
 const EXPORT_DRAFT_SHAPE = { fmt: 'srt' }
+// A read that hangs must not keep the exports off the page; past this the pick uses what is known.
+const PICK_WAIT_MS = 2000
 
 export default function ExportStage() {
   const features = useFeatures()
@@ -49,7 +51,7 @@ export default function ExportStage() {
   const [optionsError, setOptionsError] = useState<unknown>(null)
   const [startError, setStartError] = useState<StartError | null>(null)
   const kind = titleKind(drama.media_type, drama.content_mode)
-  const inputs = useExportInputs(dramaId, kind, drama.content_mode === 'novel_narration')
+  const { inputs, settled } = useExportInputs(dramaId, kind, drama.content_mode === 'novel_narration')
   const { readiness: setup } = useReadiness()
   // A missing FFmpeg has its own card above; this is only the build that lacks libass.
   const libass = setup?.ffmpeg ? libassNeed(setup) : null
@@ -115,7 +117,18 @@ export default function ExportStage() {
     options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
   const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)
   const shown = shownExportBlocks(kind, simple)
-  const opening = openingExportBlock(shown, reasonOf)
+  // Picked once, after the reads that decide the reasons have answered, and the blocks mount only then: a block that
+  // opened later could fold under a click aimed at it, and remounting one would drop a started export. From then on
+  // only the viewer opens and folds blocks. The libass check is not awaited: Burned-in video always comes after Video
+  // with a subtitle track, which can run whenever Burned-in video could.
+  const [picked, setPicked] = useState<{ dramaId: number; id: ExportBlockId } | null>(null)
+  const [waitedFor, setWaitedFor] = useState<number | null>(null)
+  useEffect(() => {
+    const t = setTimeout(() => setWaitedFor(dramaId), PICK_WAIT_MS)
+    return () => clearTimeout(t)
+  }, [dramaId])
+  if ((settled || waitedFor === dramaId) && picked?.dramaId !== dramaId) setPicked({ dramaId, id: openingExportBlock(shown, reasonOf) })
+  const opening = picked?.dramaId === dramaId ? picked.id : null
   const share = (id: ExportBlockId) => ({ startError, onStartError: setStartError, reason: reasonOf(id), opening: opening === id })
   const blocks: Record<ExportBlockId, ReactNode> = {
     subtitles: (
@@ -180,7 +193,7 @@ export default function ExportStage() {
         <SourceChangedWarning dramaId={dramaId} />
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
       </section>
-      {shown.map((id) => blocks[id])}
+      {opening === null ? <div className="skeleton-block export-blocks-skeleton" aria-hidden="true" /> : shown.map((id) => blocks[id])}
       {!simple && featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
       {/* After the exports, so the status isn't offered before there is anything to mark. */}
       <div className="panel">
