@@ -491,13 +491,15 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
                     store: bool = True, member: bool = False, typeset: bool = False,
-                    typeset_style=None) -> dict:
+                    typeset_style=None, turn=page_turns.UNORDERED) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
 
     Detection and OCR run under `_PIPELINE_LOCK` -- see this module's
     docstring on `scanlate`'s unlocked model caches. Translation does not.
+    `turn` (a `page_turns.PageOrder` turn) orders reading and translating
+    against the other pages of the same request.
     """
     import db
     import scanlate
@@ -527,7 +529,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     try:
         # The discard runs before the lock is released, while no other
         # request can have seen the page.
-        with PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
+        with turn.reading(), PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
             if store and drama is not None and drama_id is not None:
                 page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
                 if page is None:
@@ -592,16 +594,18 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
-            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member,
-                                          image=data)
+            with turn.translating():
+                reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
+                                                 config, member, image=data)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
         notes.extend(_detect_notes(detect_notes, member))
-        translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                 notes, member, data)
+        with turn.translating():
+            translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
+                                                     notes, member, data)
         if typeset and temp_path and page is None:
             typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style)
         if page is not None:

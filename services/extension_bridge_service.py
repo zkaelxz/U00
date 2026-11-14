@@ -8,6 +8,7 @@ token, the local owner) and the device-token routes
 title list to what they can see and sends only into a title they can edit.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -17,6 +18,7 @@ import time
 import db
 import page_capture_checks
 import page_server
+import page_turns
 from services import ownership_service
 from lib.errors import ServiceError
 
@@ -298,17 +300,8 @@ def _run_cancelled(run_id: str) -> bool:
         return bool(run_id) and run_id in _cancelled_runs
 
 
-def run_images(payload, images, principal=None) -> dict:
-    """principal None is the PC's own token (the local owner); a device
-    token passes its member, who may only send into a title they can edit."""
+def _decode_images(images) -> list:
     import base64
-    drama_id = payload.get("drama_id")
-    store = bool(payload.get("store", True))
-    typeset = payload.get("typeset") is True
-    typeset_style = _typeset_style(payload.get("typeset_style"))
-    require_drama_access(principal, drama_id)
-    source_url = str(payload.get("source_url") or "")
-    source_language = str(payload.get("source_language") or "")
     decoded = []
     for image in images:
         if not isinstance(image, dict):
@@ -333,6 +326,93 @@ def run_images(payload, images, principal=None) -> dict:
             "content_type": str(image.get("content_type") or ""),
             "content": content,
         })
+    return decoded
+
+
+def _translate_one(image: dict, job: dict, turn):
+    """One page of a request as (outcome, value): ("page", result), ("failed", entry),
+    ("fatal", entry) when every later page would fail the same way, or ("stopped", None)."""
+    try:
+        if page_capture_checks.looks_blank(image["content"]):
+            raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")
+        result = page_server.translate_image(
+            image["content"], image["content_type"], drama_id=job["drama_id"],
+            source_url=job["source_url"], source_language=job["source_language"], store=job["store"],
+            member=job["member"], typeset=job["typeset"] and not job["store"],
+            typeset_style=job["typeset_style"], turn=turn)
+    except page_turns.Stopped:
+        return "stopped", None
+    except page_server.EndpointError as e:
+        if job["single"] and e.status in (404, 413, 415):
+            raise
+        return "failed", {"key": image["key"], "url": image["url"], "error": e.message}
+    except Exception as e:
+        # The raw text can carry the OS user name or library path
+        # and the extension shows it on the page being read, so
+        # only a fixed message leaves; the detail stays in the log.
+        page_capture_checks.log_page_failure(e)
+        entry = {"key": image["key"], "url": image["url"], "error": page_capture_checks.page_failure_message(e)}
+        # Every remaining page would fail the same way and each would leave a stored, empty page behind.
+        return ("fatal" if page_capture_checks.is_request_fatal(e) else "failed"), entry
+    if job["typeset"] and job["store"]:
+        typeset_started = time.monotonic()
+        _typeset_stored_page(result, job["drama_id"], member=job["member"])
+        result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
+    _record_run_notes(result)
+    result["key"] = image["key"]
+    result["url"] = image["url"]
+    return "page", result
+
+
+# Two pages at a time: the model call is most of a page's time, so the next page is read (and the
+# last one lettered) while one translates. Pages still read and translate in page order
+# (page_turns.PageOrder), so a third worker would only wait behind the same turns.
+PAGES_AT_ONCE = 2
+
+
+def _translate_all(decoded: list, job: dict, on_page=None) -> list:
+    """Each image's (outcome, value), in the images' order. `on_page(result)` is called as each
+    page finishes, from a worker thread, one call at a time."""
+    halted = threading.Event()
+    order = page_turns.PageOrder(len(decoded), lambda: halted.is_set() or _run_cancelled(job["run_id"]))
+    outcomes = [("stopped", None)] * len(decoded)
+    report_lock = threading.Lock()
+
+    def work(index):
+        try:
+            outcome = _translate_one(decoded[index], job, order.turn(index))
+            outcomes[index] = outcome
+            if outcome[0] == "fatal":
+                halted.set()
+            elif outcome[0] == "page" and on_page is not None:
+                with report_lock, contextlib.suppress(Exception):
+                    # A listener that has gone (the extension closed the connection) must not stop
+                    # the run: the app keeps working on a dropped batch, as it always has.
+                    on_page(outcome[1])
+        finally:
+            order.finish(index)
+
+    if len(decoded) == 1:
+        work(0)
+        return outcomes
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=PAGES_AT_ONCE, thread_name_prefix="bridge-page") as pool:
+        for future in [pool.submit(work, i) for i in range(len(decoded))]:
+            future.result()
+    return outcomes
+
+
+def run_images(payload, images, principal=None, on_page=None) -> dict:
+    """principal None is the PC's own token (the local owner); a device
+    token passes its member, who may only send into a title they can edit.
+    `on_page(result)` hears each page as soon as it is done; the answer
+    still lists every page, in the order they were sent."""
+    drama_id = payload.get("drama_id")
+    store = bool(payload.get("store", True))
+    typeset_style = _typeset_style(payload.get("typeset_style"))
+    require_drama_access(principal, drama_id)
+    source_url = str(payload.get("source_url") or "")
+    decoded = _decode_images(images)
 
     # Let the existing page-image filter decide what is a real page,
     # but only when there is a set worth clustering: filtering a
@@ -346,54 +426,27 @@ def run_images(payload, images, principal=None) -> dict:
         if not decoded:
             raise page_server.EndpointError(422, "none of those images look like comic pages")
 
+    job = {"drama_id": drama_id, "source_url": source_url, "store": store,
+           "source_language": str(payload.get("source_language") or ""),
+           "typeset": payload.get("typeset") is True, "typeset_style": typeset_style,
+           "member": principal is not None, "single": len(decoded) == 1, "run_id": _run_id(payload)}
     # One bad page must not discard the rest of a chapter: each failure
     # is named so the person sees a mismatch instead of a short count.
-    results = []
-    failed = []
-    stopped = ""
-    run_id = _run_id(payload)
-    for image in decoded:
-        if _run_cancelled(run_id):
+    results, failed, stopped = [], [], ""
+    for outcome, value in _translate_all(decoded, job, on_page):
+        if outcome == "page":
+            results.append(value)
+        elif outcome in ("failed", "fatal"):
+            failed.append(value)
+            if outcome == "fatal":
+                stopped = value["error"]
+        elif not stopped:
             stopped = "cancelled by the extension"
-            break
-        try:
-            if page_capture_checks.looks_blank(image["content"]):
-                raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")
-            result = page_server.translate_image(
-                image["content"], image["content_type"], drama_id=drama_id,
-                source_url=source_url, source_language=source_language, store=store,
-                member=principal is not None, typeset=typeset and not store,
-                typeset_style=typeset_style)
-        except page_server.EndpointError as e:
-            if len(decoded) == 1 and e.status in (404, 413, 415):
-                raise
-            failed.append({"key": image["key"], "url": image["url"], "error": e.message})
-            continue
-        except Exception as e:
-            # The raw text can carry the OS user name or library path
-            # and the extension shows it on the page being read, so
-            # only a fixed message leaves; the detail stays in the log.
-            page_capture_checks.log_page_failure(e)
-            failed.append({"key": image["key"], "url": image["url"],
-                           "error": page_capture_checks.page_failure_message(e)})
-            if page_capture_checks.is_request_fatal(e):
-                # Every remaining page would fail the same way and
-                # each would leave a stored, empty page behind.
-                stopped = page_capture_checks.page_failure_message(e)
-                break
-            continue
-        if typeset and store:
-            typeset_started = time.monotonic()
-            _typeset_stored_page(result, drama_id, member=principal is not None)
-            result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
-        _record_run_notes(result)
-        result["key"] = image["key"]
-        result["url"] = image["url"]
-        results.append(result)
     if store:
-        _record_chapter(drama_id, results, source_url, run_id)
+        _record_chapter(drama_id, results, source_url, job["run_id"])
     return {"pages": results, "skipped": skipped, "failed": failed,
             "received": len(images),
             "stored": sum(1 for r in results if r.get("stored")),
             "already_stored": sum(1 for r in results if r.get("already_stored")),
             **({"stopped": stopped} if stopped else {})}
+
