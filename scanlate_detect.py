@@ -404,6 +404,7 @@ def _contained_share(a: dict, b: dict) -> float:
 # whole balloon, which is the cleaner crop boundary to keep over a
 # "text_bubble"/"text_free" box describing the same physical object.
 _LABEL_MERGE_PRIORITY = {"bubble": 0, "text_bubble": 1, "text_free": 1}
+_TEXT_LABELS = ("text_bubble", "text_free")
 
 
 def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) -> list:
@@ -467,8 +468,17 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) ->
         current = winner_of.get(root)
         if current is None or rank(boxes[i]) < rank(boxes[current]):
             winner_of[root] = i
-    keep = set(winner_of.values())
-    return [b for i, b in enumerate(boxes) if i in keep]
+    lines_of = {}
+    for i in range(n):
+        if boxes[i].get("label") in _TEXT_LABELS:
+            lines_of.setdefault(find(i), []).append(
+                {k: boxes[i][k] for k in ("x", "y", "w", "h")})
+    kept = []
+    for root, i in sorted(winner_of.items(), key=lambda t: t[1]):
+        # The text boxes merged away are where the lettering lies, which
+        # split_separate_lettering() must not cut through.
+        kept.append(dict(boxes[i], text_boxes=lines_of[root]) if root in lines_of else boxes[i])
+    return kept
 
 
 _LOOSE_TEXT_LABEL = "text_free"
@@ -570,7 +580,11 @@ def merge_fragment_boxes(boxes: list, gray=None) -> list:
                                          -(b.get("confidence") or 0.0)))
         x1, y1 = min(b["x"] for b in group), min(b["y"] for b in group)
         x2, y2 = max(b["x"] + b["w"] for b in group), max(b["y"] + b["h"] for b in group)
-        merged.append((members[0], dict(best, x=x1, y=y1, w=x2 - x1, h=y2 - y1)))
+        joined = dict(best, x=x1, y=y1, w=x2 - x1, h=y2 - y1)
+        text_boxes = [t for b in group for t in b.get("text_boxes", ())]
+        if text_boxes:
+            joined["text_boxes"] = text_boxes
+        merged.append((members[0], joined))
     return [b for _, b in sorted(merged, key=lambda t: t[0])]
 
 
