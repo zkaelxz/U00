@@ -249,24 +249,36 @@ test('an audio or video Simple stage keeps the title page step tabs above it, so
   await expect(page).toHaveURL(/#\/drama\/1$/)
 })
 
-test('Simple Review keeps Check and Fix and the Replace button; Full keeps every tool tab and the row-density, Go to and Shortcuts controls', async ({ page }) => {
+test('Simple Review keeps the checks, Fix flagged lines, flags and Mark episode reviewed and the Replace button; Full keeps every tool group and the row-density, Go to and Shortcuts controls', async ({ page }) => {
   seedLines(3)
   await page.goto('/#/drama/3')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/3/review')
   const tabs = page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')
-  await expect(tabs).toHaveText(['Check', 'Fix'])
+  await expect(tabs).toHaveText(['Look for problems', 'Change many lines', 'Finish'])
+  // The same tools the Check and Fix tabs held, and none of the others.
+  const titles = page.locator('.review-toolbox-panel:not([hidden]) details.section:not(details.section details.section) > summary .section-title')
+  await expect(page.getByRole('list', { name: 'AI checks to run' })).toBeVisible()
+  await expect(titles).toHaveText(['Check options', 'Flag lines for review'])
+  await tabs.filter({ hasText: 'Change many lines' }).click()
+  await expect(page.getByRole('group', { name: 'Fix flagged lines' })).toBeVisible()
+  await expect(titles).toHaveText(['Options'])
+  await tabs.filter({ hasText: 'Finish' }).click()
+  await expect(titles).toHaveText(['Mark episode reviewed'])
   await expect(page.getByRole('button', { name: 'Replace…' })).toBeVisible()
   for (const name of ['Compact rows', 'Shortcuts']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Go to line number')).toHaveCount(0)
-  // A link naming a tool that Simple leaves out opens Check instead of an empty page.
-  await page.goto('/#/drama/3/review?tools=history')
-  await expect(page.getByRole('tab', { name: 'Check' })).toHaveAttribute('aria-selected', 'true')
+  // A link naming a group, or an old tab, that Simple leaves out opens Look for problems instead of an empty page.
+  for (const tools of ['records', 'history']) {
+    await page.goto('about:blank')
+    await page.goto(`/#/drama/3/review?tools=${tools}`)
+    await expect(page.getByRole('tab', { name: 'Look for problems' })).toHaveAttribute('aria-selected', 'true')
+  }
 
   await page.goto('/#/drama/3')
   await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await page.goto('/#/drama/3/review')
-  await expect(tabs).toHaveText(['Check', 'Fix', 'Coverage', 'Voices', 'Restructure', 'History', 'Extras'])
+  await expect(tabs).toHaveText(['Look for problems', 'Change many lines', 'Records', 'Finish'])
   for (const name of ['Compact rows', 'Shortcuts']) await expect(page.getByRole('button', { name, exact: true })).toBeVisible()
   await expect(page.getByLabel('Go to line number')).toBeVisible()
 })
