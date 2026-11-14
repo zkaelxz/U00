@@ -49,7 +49,7 @@ import { SERIES_HELP } from '../helpText'
 import { NewTitleLink } from './NewTitleLink'
 import { createdFromLinkNote } from './linkFill'
 import { ADD_LINK_ID, AddBox } from './makeSubtitles/AddBox'
-import { clearHandoff, peekHandoff, type NewTitleStart } from './makeSubtitles/addBox'
+import { clearHandoff, peekHandoff, type NewTitleStart } from './makeSubtitles/addBoxModel'
 import { mediaTypeFor, titleFor } from './makeSubtitles/makeSubtitlesFlow'
 
 

@@ -20,7 +20,7 @@ import type { PreflightRow } from '../preflight/preflightModel'
 import { checkUploadFile } from '../workspace/sourceForm'
 import { buildRunBody, initialForm } from '../workspace/translateForm'
 import { exportFilename, srtFileText } from '../workspace/exportForm'
-import type { FileRunRequest } from './addBox'
+import type { FileRunRequest } from './addBoxModel'
 import {
   IDLE, blockerText, flowReducer, mediaTypeFor, parseSaved, reattachIds, savedFor, stepForJob, titleFor,
 } from './makeSubtitlesFlow'

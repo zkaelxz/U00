@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 
 import { PageShell } from '../components/PageShell'
 import { AddBox } from './makeSubtitles/AddBox'
-import { clearHandoff, peekHandoff } from './makeSubtitles/addBox'
+import { clearHandoff, peekHandoff } from './makeSubtitles/addBoxModel'
 
 export default function MakeSubtitlesPage() {
   const [handoff] = useState(() => peekHandoff('run-file'))

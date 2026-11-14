@@ -18,7 +18,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { QuickVideoRun, QuickVideoSettings, QuickVideoStep } from '../../types/quickVideo'
-import { foundForLink, linkCanRun, planForLink, type LinkProbeState } from './addBox'
+import { foundForLink, linkCanRun, planForLink, type LinkProbeState } from './addBoxModel'
 import { settingText } from './makeSubtitlesFlow'
 
 const POLL_MS = 3000

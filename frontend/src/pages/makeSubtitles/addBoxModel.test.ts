@@ -4,7 +4,7 @@ import type { MediaLinkProbe } from '../../api/linkDetails'
 import {
   SETTLE_MS, clearHandoff, fileKind, foundForFile, foundForLink, handOff, linkCanRun, linkFrom, linkTaker, peekHandoff, planForFile,
   planForLink, type FileRunRequest,
-} from './addBox'
+} from './addBoxModel'
 
 const probe = (o: Partial<MediaLinkProbe>): MediaLinkProbe => ({
   kind: 'video', title: '', channel: '', release_date: '', is_live: false, summary: '', platform: '',
