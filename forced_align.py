@@ -184,8 +184,9 @@ def _repair_unit_spans(spans, lo: float, hi: float):
     (Qwen3-ASR issue #197), which collapse subtitle lines to zero length.
     A run of zero-length spans is spread evenly over the gap between the
     previous span's end and the next span's start (or lo/hi at the ends); if
-    that gap is itself empty the spans stay zero-length so _bad_line_timings
-    still sends the line to the coarse-timing fallback."""
+    that gap is itself empty the spans stay zero-length: a line made only of
+    such spans falls back to coarse timing, while a zero-length unit between
+    touching neighbours inside a line keeps the line's aligner times."""
     fixed, prev_end = [], lo
     for start, end in spans:
         start = min(max(start, prev_end, lo), hi)
@@ -302,13 +303,18 @@ TIMING_REPAIRED_NOTE = ("Forced alignment returned zero-length or out-of-order t
 
 
 def _bad_line_timings(per_line_times) -> set:
-    """Line indices whose aligned units include a zero-duration span
-    (Qwen3-ASR issue #197) or whose unit start times go backwards -- the
-    aligner's known failure modes, where its timing can't be trusted."""
+    """Line indices whose aligned unit start times go backwards, or whose units
+    are all zero-duration -- the aligner's known failure modes, where its timing
+    can't be trusted.
+
+    A lone zero-duration unit (Qwen3-ASR issue #197) is not enough: the aligner
+    times sit on an 80 ms grid, so a fast character gets start == end, and when
+    its neighbours touch there is no gap to spread it over. The line's other
+    units are still real, so it keeps them."""
     bad = set()
     for li, times in per_line_times.items():
         spans = list(zip(times[0::2], times[1::2]))
-        if (any(end <= start for start, end in spans)
+        if (all(end <= start for start, end in spans)
                 or any(b[0] < a[0] for a, b in zip(spans, spans[1:]))):
             bad.add(li)
     return bad
