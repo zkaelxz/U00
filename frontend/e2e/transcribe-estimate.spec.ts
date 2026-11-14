@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { mockTranscribeCard, type MockJob } from './transcribeEstimateMocks'
 
@@ -35,6 +35,17 @@ test('no estimate (and no error) when the audio length is unknown', async ({ pag
   await expect(page.locator('.error-banner')).toHaveCount(0)
 })
 
+// The clock moves on only once the card has read the job during that time, so
+// each value set below reaches the card while it is current. A clock jump
+// takes a few ms, often less than a mocked read takes to answer, and the card
+// asks again only after the last read answers: without the wait whole steps
+// went unseen and the card rightly read the progress as stalled.
+async function runForWithJobRead(page: Page, ms: number) {
+  const read = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/jobs/transcribe_1')
+  await page.clock.runFor(ms)
+  await read
+}
+
 test('the job card shows elapsed, then "about N min left", and only elapsed in a no-percent step', async ({ page }) => {
   const job: MockJob = { progress: 0, message: 'Transcribing... starting; the percent appears once the first lines are found' }
   await page.clock.install()
@@ -49,11 +60,11 @@ test('the job card shows elapsed, then "about N min left", and only elapsed in a
   // 1% every 5 s from 10%: not shown before 30 s have passed since the first percent...
   job.progress = 0.1
   job.message = 'Transcribing... 10%'
-  await page.clock.runFor(2000)
+  await runForWithJobRead(page, 2000)
   for (let i = 1; i <= 4; i++) {
     job.progress = 0.1 + i * 0.01
     job.message = `Transcribing... ${Math.round(job.progress * 100)}%`
-    await page.clock.runFor(5000)
+    await runForWithJobRead(page, 5000)
   }
   await expect(page.getByTestId('job-percent')).toHaveText('14%')
   await expect(elapsed).not.toContainText('left')
@@ -61,7 +72,7 @@ test('the job card shows elapsed, then "about N min left", and only elapsed in a
   for (let i = 5; i <= 10; i++) {
     job.progress = 0.1 + i * 0.01
     job.message = `Transcribing... ${Math.round(job.progress * 100)}%`
-    await page.clock.runFor(5000)
+    await runForWithJobRead(page, 5000)
   }
   await expect(elapsed).toContainText(/about \d+ min left/)
 
