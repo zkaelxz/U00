@@ -65,3 +65,21 @@ test('phone: keyboard reaches the active row box and then the selection bar', as
   }
   await expect(page.getByTestId('selection-bar').locator(':focus')).toHaveCount(1)
 })
+
+test('phone: the selection bar stays one row and lists its actions in a sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  for (const n of [1, 2, 3]) await box(page, n).tap()
+  const bar = page.getByTestId('selection-bar')
+  await expect(bar).toContainText('3 selected')
+  // One row of 44px buttons plus the bar's padding: the ticked lines keep the screen.
+  expect((await bar.boundingBox())!.height).toBeLessThanOrEqual(64)
+
+  await bar.getByRole('button', { name: 'Actions…' }).tap()
+  const sheet = page.getByRole('dialog', { name: '3 selected' })
+  await expect(sheet.getByRole('list', { name: 'Actions for the selected lines' }).getByRole('button')).toHaveText(['Copy line numbers', 'Compare transcription…', 'Re-time with Qwen3 aligner…', 'Set speaker…', 'Re-transcribe selected'])
+  await sheet.getByRole('button', { name: 'Set speaker…' }).tap()
+  await expect(sheet).toBeHidden()
+  await expect(page.getByLabel('Speaker for 3 lines')).toBeInViewport()
+})
