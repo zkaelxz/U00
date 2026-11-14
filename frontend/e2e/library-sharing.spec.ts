@@ -49,12 +49,14 @@ test('no control with sign-in off', async ({ page }) => {
 // A household member holds no admin.library: the server refuses these writes, so the page must
 // not offer them. The server still enforces; this is only the UX.
 test.describe('member without admin.library', () => {
-  test('no New title, bulk status or Rename', async ({ page }) => {
+  test('no Add box, New title, bulk status or Rename', async ({ page }) => {
     await mockLibrarySharing(page, ME.signedIn)
     await page.route('**/api/library/presets', (r) => r.fulfill({ json: { items: [{ id: 4, name: 'Fast draft', translation_engine: 'claude' }] } }))
     await page.goto('/')
     await expect(page.locator('li.drama-card', { hasText: 'Hidden Letters' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'New title' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Add' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Add a title by hand' })).toHaveCount(0)
 
     await page.getByRole('button', { name: 'Select', exact: true }).click()
     await page.getByRole('checkbox', { name: 'Select Hidden Letters' }).check()
@@ -70,7 +72,7 @@ test.describe('member without admin.library', () => {
     await expect(page.getByTestId('no-rename-note').first()).toBeVisible()
   })
 
-  test('an empty library points to Sources and Discover, not New title', async ({ page }) => {
+  test('an empty library points to Sources and Discover, not the Add box', async ({ page }) => {
     await mockLibrarySharing(page, ME.signedIn)
     await page.route('**/api/library/dramas', (r) => r.fulfill({ json: { items: [], count: 0 } }))
     await page.route('**/api/library/stats', (r) => r.fulfill({ json: {
@@ -81,6 +83,7 @@ test.describe('member without admin.library', () => {
     await page.getByRole('button', { name: 'Hide' }).first().click()
     await expect(page.getByTestId('member-empty-note').getByRole('link', { name: 'Sources' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'New title' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Add' })).toHaveCount(0)
     // Said once: the list's own empty card would repeat the page's note.
     await expect(page.getByText(/No titles yet/)).toHaveCount(1)
   })

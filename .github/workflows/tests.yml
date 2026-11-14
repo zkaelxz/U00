@@ -8,6 +8,11 @@ name: Tests
 on:
   push:
     branches: [baihe-subtitler]
+  # A push skips the groups a green PR run of the identical tree already ran
+  # (tools/ci_tested_tree.py); this nightly run still runs everything, as the
+  # net for anything a classifier skip missed.
+  schedule:
+    - cron: "23 3 * * *"
   # The merge queue tests the queued result on a temporary branch, not a PR
   # head; `changes` runs everything for it, as for a push to the base.
   merge_group:
@@ -34,16 +39,23 @@ concurrency:
 
 jobs:
   # Which jobs a change needs; the rules live in tools/ci_changes.py and are
-  # tabled in docs/testing-and-ci.md. Every push to the base branch, the
+  # tabled in docs/testing-and-ci.md. A push to the base branch, the
   # `full-ci` label, a change to CI or dependency files, or any error in the
-  # classification runs everything. A skipped job counts as passed for branch
-  # protection.
+  # classification runs everything, except that a push of a tree a green PR
+  # run already tested runs only what that run skipped. A skipped job counts
+  # as passed for branch protection.
   changes:
     # Every other job needs this one, so a draft PR skips them all. The merge
     # queue and pushes are never drafts.
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
+    # actions: read lets a push run find the merged PR's green run and read the
+    # tree it recorded; nothing here writes.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       notes_only: ${{ steps.diff.outputs.notes_only }}
       run_e2e: ${{ steps.diff.outputs.run_e2e }}
@@ -63,6 +75,8 @@ jobs:
         id: diff
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # Only the push lookup needs it; a PR run's step runs the PR's own code.
+          GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
           all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false'
           # The checkout is the merge commit; its first parent is the base.
@@ -70,6 +84,11 @@ jobs:
           # of frontend/ still counts as touching it. tools/ci_changes.py
           # runs everything for any event but a pull request.
           out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS") || out=$all_true
+          # A squash merge of a tree a green PR run already tested runs only what that run skipped.
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            # A slow API must not time the job out (that would turn the run red, not run more).
+            out=$(printf '%s\n' "$out" | timeout 90 python3 tools/ci_tested_tree.py --after-merge) || out=$all_true
+          fi
           # Fail open: an empty or partial answer runs everything.
           printf '%s\n' "$out" | grep -qx 'notes_only=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
@@ -79,6 +98,24 @@ jobs:
             printf '%s\n' "$out" | grep -qx 'run_app_checks=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_sources_subset=\(true\|false\)' || out=$all_true
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
+          # The tree this run tests (the PR merged into the base) and what it runs, for the push after a merge.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            printf '%s\n' "$out" | python3 tools/ci_tested_tree.py --write tested.json || true
+          fi
+
+      - name: Keep the tested tree for the push after a merge
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: tested-tree
+          path: tested.json
+          retention-days: 14
+          if-no-files-found: ignore
+          overwrite: true
+        # Without the record the push after a merge just runs everything; a stalled upload must not
+        # use up the job's few minutes and turn the PR red.
+        continue-on-error: true
+        timeout-minutes: 1
 
       # The frontend-only subset of `test` is a few files, so it gets one job
       # instead of four runners each paying for an install.
