@@ -160,10 +160,11 @@ def _extend_to_speech_end(result: list, audio_path: str) -> list:
         audio = decode_audio(audio_path, sampling_rate=16000)
         spans = [(s.start_s, s.end_s) for s in vad_segments.speech_spans(
             audio, 16000, threshold=0.4, min_silence_ms=150, pad_ms=0)]
+        levels = vad_segments.levels_db(audio, 16000)
     except Exception:
         # Timing polish only: a missing decoder or detector must not fail the transcription.
         return result
-    return extend_ends_to_speech(result, spans)
+    return extend_ends_to_speech(result, spans, levels=levels, levels_hop_s=vad_segments.LEVEL_HOP_S)
 
 
 def _progress_reporter(progress_cb, resume: "_Resume", duration: float):
