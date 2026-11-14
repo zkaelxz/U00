@@ -848,6 +848,11 @@ def classify_text_regions(image_path: str, boxes, image=None):
             edge_aligned = x < w * 0.05 or (x + bw) > w * 0.95
             kind = "narration" if (aspect > 3.0 and edge_aligned) else "bubble"
             conf = 0.75
+        elif _holds_balloon_interior(roi):
+            # A balloon shaded grey inside is no lighter than art, so the light
+            # share can't tell it from a sign; its outline can.
+            kind = "bubble"
+            conf = 0.6
         elif mean_val < 140 and fill_uniformity < 0.4:
             # Dark and busy -- lettering laid over artwork.
             kind = "sfx"
@@ -865,6 +870,12 @@ def classify_text_regions(image_path: str, boxes, image=None):
 
         out.append(dict(b, kind=kind, kind_confidence=conf))
     return out
+
+
+def _holds_balloon_interior(roi) -> bool:
+    """True when an outlined balloon interior fills most of `roi` (gray)."""
+    found = _balloon_interior(roi)
+    return found is not None and float(found[0].mean()) >= scanlate_tuning.CLASSIFY_BALLOON_FILL
 
 
 def _balloon_interior(roi):

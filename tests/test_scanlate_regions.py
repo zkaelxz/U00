@@ -285,11 +285,12 @@ class TestShapeAwareFitting:
         assert mask[110, 200]                         # centre is inside
 
     @staticmethod
-    def _grey_balloon_page(tmp_path, art_level=60):
+    def _grey_balloon_page(tmp_path, art_level=60, canvas=(400, 600)):
         cv2 = pytest.importorskip("cv2")
-        img = np.full((400, 600, 3), art_level, np.uint8)
-        yy, xx = np.mgrid[:400, :600]
-        dist = np.hypot(xx - 300, yy - 200)
+        h, w = canvas
+        img = np.full((h, w, 3), art_level, np.uint8)
+        yy, xx = np.mgrid[:h, :w]
+        dist = np.hypot(xx - w // 2, yy - h // 2)
         img[dist <= 140] = 0
         # Shaded to grey right out to the outline: nothing is as light as the usual floor.
         grey = np.clip(255 - 130 * np.clip(1 - dist / 400, 0, 1) ** 0.8, 0, 255)
@@ -306,6 +307,11 @@ class TestShapeAwareFitting:
         assert mask is not None
         assert mask[140, 150] and not mask[0, 0] and not mask[-1, -1]
         assert scanlate_detect.bubble_erase_mask(page, box)[0, 0] == 0
+
+    def test_a_grey_shaded_balloon_is_classified_as_a_bubble_not_a_sign(self, tmp_path):
+        page = self._grey_balloon_page(tmp_path, canvas=(800, 1000))
+        box = {"x": 350, "y": 250, "w": 300, "h": 300}
+        assert scanlate_detect.classify_text_regions(page, [box])[0]["kind"] == "bubble"
 
     def test_a_grey_patch_of_art_without_an_outline_is_not_a_balloon(self, tmp_path):
         cv2 = pytest.importorskip("cv2")

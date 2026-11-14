@@ -82,6 +82,8 @@ BALLOON_FILLS_BOX = 0.9
 # caption box rather than lettering on the art.
 CLASSIFY_LIGHT_LEVEL = 200
 CLASSIFY_MIN_LIGHT_SHARE = 0.55
+# A box this much filled by an outlined balloon interior is a balloon whatever its shade.
+CLASSIFY_BALLOON_FILL = 0.5
 # Lettering on dark, busy art is first guessed to be a sound effect. Once it
 # is read, a sound effect is a few big characters: more characters than this,
 # or more lines, is a caption or sign on the art and is translated like one.
