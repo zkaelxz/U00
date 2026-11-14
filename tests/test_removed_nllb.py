@@ -182,7 +182,7 @@ class TestOllamaDefaultAgrees:
         assert row["model"] == row["builtin_model"] == "translategemma:27b"
         ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
         assert ollama["models"] == ["translategemma:27b", "translategemma:12b",
-                                    "gemma4:31b-cloud", "gemma4:cloud"]
+                                    "gemma4:31b-cloud"]
 
     def test_no_diagnostics_entry_for_the_removed_engine(self):
         import diagnostics

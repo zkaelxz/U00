@@ -11368,7 +11368,6 @@
     "tests/test_ollama_cloud.py::test_cloud_models_never_become_default_or_fallback_choice": 0.023834840000063195,
     "tests/test_ollama_cloud.py::test_cloud_results_matched_by_id_not_position": 0.018503433000205405,
     "tests/test_ollama_cloud.py::test_cloud_tag_cannot_replace_the_ollama_default[gemma4:31b-cloud]": 0.03719968599989443,
-    "tests/test_ollama_cloud.py::test_cloud_tag_cannot_replace_the_ollama_default[gemma4:cloud]": 0.02895553099983772,
     "tests/test_ollama_cloud.py::test_cloud_tag_cannot_replace_the_ollama_default[gpt-oss:120b-cloud]": 0.04138376399964727,
     "tests/test_ollama_cloud.py::test_cloud_tag_gate_unit": 0.011755075000110082,
     "tests/test_ollama_cloud.py::test_cloud_tag_live_start_needs_engines_paid": 0.7954037380002319,

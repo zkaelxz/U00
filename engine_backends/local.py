@@ -118,7 +118,6 @@ OLLAMA_MODELS = {
 # starts sending text off the PC without the owner picking one.
 OLLAMA_CLOUD_MODELS = {
     "gemma4:31b-cloud": "Gemma 4 31B -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; billed per token (about 1 cent per 200-line title)",
-    "gemma4:cloud": "Gemma 4 -- CLOUD: runs on Ollama's servers, sends your subtitle text off this PC; needs Ollama sign-in; billed per token",
 }
 
 
@@ -180,7 +179,7 @@ def _cloud_key_for(model):
 
 def direct_cloud_model(tag: str) -> str:
     """ollama.com names a model without the app's cloud suffix:
-    "gemma4:31b-cloud" -> "gemma4:31b", "gemma4:cloud" -> "gemma4"."""
+    "gemma4:31b-cloud" -> "gemma4:31b", "qwen3-coder:cloud" -> "qwen3-coder"."""
     for suffix in ("-cloud", ":cloud"):
         if tag.lower().endswith(suffix):
             return tag[:-len(suffix)]
