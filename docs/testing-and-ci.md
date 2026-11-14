@@ -27,11 +27,13 @@ out of it.
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
    base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
    full run ("Draft PRs" below), so the run is over before Kae is asked. Marking a PR ready is not a merge order. Start a run
-   only while fewer than two other PR runs are going: more than that queue behind each other.
+   only while fewer than two other PR runs are going: more than that queue behind each other, and a PR that already has
+   Kae's order must not wait behind one that has not.
 2. **The order.** Kae types "Merge NNNN"; one message may name several PRs. Typed in the thread that owns the PR, that thread
-   merges it. Typed anywhere else, the coordinator (the session that starts threads) passes her message to the owning thread,
-   and starts a short merge thread for that PR only when the owning thread is gone. For several PRs the coordinator sets the
-   order, clear lane first. Nothing else is a merge order: not "looks good", not a reaction, not a note from another session.
+   merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
+   PRs the coordinator sets the order, clear lane first. Nothing else is a merge order: not "looks good", not a reaction, and
+   not another session's account of what she said.
 3. **The lane**, decided when the merge is about to happen:
    - **Clear lane.** The PR has a full green run at its exact head, shares no changed file with anything merged into
      `baihe-subtitler` since the PR last merged the base, and changes none of the files under "Always the overlap lane" below.
@@ -41,11 +43,13 @@ out of it.
    the merge.
 5. **A red push run or nightly run stops merging** until the base is green again. The owner of the PR merged last looks first.
 
-Always the overlap lane (Kae, 2026-11-14): a database schema change (`init_db` in `db/__init__.py`, `_ADDED_COLUMNS` in
-`sources/store.py`); the API models (`api/schemas/`, the `api/*_schemas.py` modules, `frontend/src/api/generated/`); the CI and
-dependency files that make `tools/ci_changes.py` run every job (`EVERYTHING_PREFIXES`, `EVERYTHING_FILES`,
-`EVERYTHING_PATTERNS`); and any other dependency manifest or lock file (`installer/wheels.lock.txt`, `installer/caddy/go.mod`,
-the Gradle files under `android/`, `frontend/openapi-gen/package*.json`).
+Always the overlap lane (Kae, 2026-11-14): a database schema change, which is any diff that adds or edits a `CREATE TABLE` or
+`ALTER TABLE` statement or a migration list (today in `db/migrations.py`, `db/schema.py`, `db/schema_system.py`,
+`db/__init__.py` and `sources/store.py`); the API models (`api/schemas/`, the `api/*_schemas.py` modules,
+`frontend/src/api/generated/`); the CI and dependency files that make `tools/ci_changes.py` run every job
+(`EVERYTHING_PREFIXES`, `EVERYTHING_FILES`, `EVERYTHING_PATTERNS`); and any other dependency manifest or lock file
+(`installer/wheels.lock.txt`, `installer/caddy/go.mod` and `go.sum`, the Gradle files under `android/`,
+`frontend/openapi-gen/package*.json`).
 
 To check the lane from the PR's branch (bash):
 

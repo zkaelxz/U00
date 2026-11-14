@@ -45,7 +45,7 @@ git push origin HEAD:<branch>
 ```
 - Open a PR into `baihe-subtitler` with the GitHub MCP tools. The body covers: what changed in plain words, the tests run and their counts, and known gaps and doubts from the branch report.
 - End the PR body with the session's attribution lines.
-- Squash-merge it once CI is green. If Actions minutes have run out, the full local suite is the gate.
+- Squash-merge it as `docs/testing-and-ci.md`, "Merge flow", says: after Kae's order, on a full green Tests run at the exact head. If Actions minutes have run out, the full local suite is the gate.
 - Remove the scratch worktree: `git worktree remove <path>`.
 
 ## 5. After merging
