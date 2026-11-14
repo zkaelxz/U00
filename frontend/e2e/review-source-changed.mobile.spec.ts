@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { openFoldFor } from './reviewFolds'
 import { mockSourceChanged } from './sourceChangedMocks'
 
 // Phone: the "Source changed" badge, the Review checks count and both actions
@@ -11,7 +12,8 @@ test.afterEach(async ({ page }) => {
 
 test('phone: badge, count and both actions on screen', async ({ page }) => {
   await mockSourceChanged(page)
-  await page.goto('/#/drama/3/review?tools=coverage')
+  await page.goto('/#/drama/3/review?tools=problems')
+  await openFoldFor(page, 'Source changed')
   await expect(page.locator('.review-line[data-line-id="1"]').getByTestId('source-changed-badge')).toHaveText('Source changed')
   const panel = page.getByTestId('source-changed')
   await expect(panel.getByTestId('source-changed-count')).toHaveText('2 lines changed in the source since they were translated.')

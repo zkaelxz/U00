@@ -16,9 +16,12 @@ bridge's own limit, since the proxy's small default body cap is lifted for
 `/api/ext-bridge/pages` and `/page`.
 """
 
+import asyncio
+import json
+
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 import page_server
 from api.auth import holds, require_device_token, require_engines_allowed
@@ -74,11 +77,54 @@ def _refuse_when_cap_spent() -> None:
         raise page_server.EndpointError(429, e.message) from None
 
 
-def _images(payload: dict, single: bool, principal) -> dict:
+def _images(payload: dict, single: bool, principal, write=None) -> dict | None:
     images = payload.get("images")
     extension_bridge_service.validate_image_batch(single, images)
     _refuse_when_cap_spent()
+    if write is not None:
+        return extension_bridge_service.streamed_lines(payload, images, write, principal=principal)
     return extension_bridge_service.run_images(payload, images, principal=principal)
+
+
+async def _streamed(work) -> StreamingResponse:
+    """Runs `work(write)` on a worker thread and answers with the lines it writes as they come.
+    The answer starts only with the first line, so a refusal raised before it (a bad batch, the
+    spending cap, no such title) is re-raised here and becomes the usual error answer."""
+    loop = asyncio.get_running_loop()
+    lines: asyncio.Queue = asyncio.Queue()
+
+    def put(item):
+        loop.call_soon_threadsafe(lines.put_nowait, item)
+
+    def run():
+        try:
+            work(lambda line: put(("line", line)))
+        except BaseException as e:   # handed to the request, which decides what the caller sees
+            put(("error", e))
+        finally:
+            put(("end", None))
+
+    asyncio.ensure_future(run_in_threadpool(run))
+    kind, first = await lines.get()
+    if kind == "error":
+        raise first
+
+    async def body():
+        item = (kind, first)
+        while item[0] != "end":
+            if item[0] == "line":
+                yield json.dumps(item[1]).encode("utf-8") + b"\n"
+            else:
+                import applog
+                applog.get_logger().warning("Extension bridge stream failed", exc_info=item[1])
+                status = item[1].status if isinstance(item[1], page_server.EndpointError) else 500
+                message = (item[1].message if isinstance(item[1], page_server.EndpointError)
+                           else "the app failed to answer this request")
+                yield json.dumps({"error": message, "status": status}).encode("utf-8") + b"\n"
+            item = await lines.get()
+
+    return StreamingResponse(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,
+                             headers=_NO_STORE)
 
 
 def _text(payload: dict, principal) -> dict:
@@ -107,12 +153,15 @@ def _require_held(request: Request, permissions) -> None:
         raise ForbiddenError("Not allowed.")
 
 
-async def _handle(request: Request, work, uses_engine: bool = False, needs=()):
+async def _handle(request: Request, work, uses_engine: bool = False, needs=(), streamed=None):
+    """`streamed(payload, write)`: the work for a request that asks for `stream`."""
     try:
         _require_held(request, needs)
         if uses_engine:
             _require_engine_allowed(request)
         payload = await _json_body(request)
+        if streamed is not None and payload.get("stream") is True:
+            return await _streamed(lambda write: streamed(payload, write))
         return _answer(200, await run_in_threadpool(work, payload))
     except page_server.EndpointError as e:
         return _refusal(e)
@@ -145,7 +194,8 @@ async def post_page(request: Request):
 async def post_pages(request: Request):
     principal = request.state.principal
     return await _handle(request, lambda payload: _images(payload, False, principal), uses_engine=True,
-                         needs=_ENGINE_WRITE)
+                         needs=_ENGINE_WRITE,
+                         streamed=lambda payload, write: _images(payload, False, principal, write))
 
 
 @router.post("/text", dependencies=[require_device_token()],
@@ -185,7 +235,7 @@ async def post_title(request: Request):
 async def post_capture_summary(request: Request):
     principal = request.state.principal
     return await _handle(request, lambda payload: extension_bridge_service.record_capture_summary(
-        payload, principal=principal))
+        payload, principal=principal), needs=_WRITE)
 
 
 @router.post("/cancel", dependencies=[require_device_token()],
