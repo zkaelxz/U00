@@ -6,19 +6,24 @@ engine is told why each line was flagged and shown its current English, so it
 can fix that one problem (or say the English is already right); a
 translation-only engine can't take instructions and just translates the source
 again. Either way a reply identical to the current English changes nothing: the
-flag stays, because nothing was fixed. The caller saves the lines (field-scoped,
+flag stays, because nothing was fixed. Unless the reply check is off for the
+engine, a reply that is JSON, reasoning, has source script left in or is far too
+long is not used (as an Ollama run refuses it; a cloud run asks again and flags
+instead, which a one-shot fix can't), and new English that still lacks a glossary
+name keeps the line flagged for that name. The caller saves the lines (field-scoped,
 skipping any the user edited meanwhile; see fixflag_transcribe.save_fixed).
 
 Timing flags never reach the engine: rewording the English can't move a
 subtitle onto its audio, so split_timing_flags drops them before any call.
 """
 import db
-from engine_backends import flag_reasons, shared, pricing
+from engine_backends import engine_registry, flag_reasons, glossary_check, shared, pricing, stream_recipe
 from engine_backends import prompts as engine_prompts
 from engine_backends import llm_tasks as engine_llm_tasks
 from engine_backends import llm_tasks
 from engine_backends.run_limits import TranslateRunStopped
-from services import fixflag_transcribe
+from engine_backends.translation_guard import allowed_source_runs, unusable_reply
+from services import fixflag_transcribe, settings_service
 
 # Small enough that one reply with a reason per line fits the 4000-token reply
 # cap, and that the cost cap is checked often.
@@ -131,6 +136,13 @@ def _translate_batch(batch, engine, base_context, character_names, source_langua
     return {ln.idx: text for ln, text in zip(batch, out)}
 
 
+def reply_check_on(engine_choice: str, model) -> bool:
+    """Whether replies are checked: the translate run's switch (Settings, else the
+    engine's default), so the engines a run trusts are trusted here too."""
+    forced = settings_service.reply_guard_override()
+    return engine_registry.default_reply_guard(engine_choice, model) if forced is None else forced
+
+
 def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, character_names,
               source_language, heard_by_idx, translate, cost_cap_usd, check_cancel,
               on_progress, errors, all_lines=None) -> dict:
@@ -172,6 +184,10 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
         db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
                      "fix_flagged_line", inp, out, cost)
 
+    glossary_terms = base_context.get("glossary_terms") or []
+    allowed_runs = allowed_source_runs(glossary_terms, base_context.get("style_guidelines", ""))
+    required = stream_recipe.required_terms(glossary_terms, base_context.get("style_guidelines"))
+    check_replies = reply_check_on(engine_choice, getattr(engine, "model", None))
     llm = getattr(engine, "supports_reference", False)
     batches = [to_translate[i:i + BATCH_SIZE] for i in range(0, len(to_translate), BATCH_SIZE)]
     for n, batch in enumerate(batches):
@@ -200,7 +216,16 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
             if new == (ln.en or "").strip():
                 unchanged += 1
                 continue
+            if check_replies and (reason := unusable_reply(ln.zh, new, allowed_runs)):
+                errors.append(f"line {ln.idx + 1}: the reply was not used ({reason})")
+                continue
             ln.en = new
+            missing = glossary_check.missing_terms(ln.zh, new, required)
+            if missing:
+                # The new English still lacks a glossary name: the line stays in review, with
+                # the note saying which name, whatever it was flagged for before.
+                ln.flag, ln.flag_note = glossary_check.GLOSSARY_FLAG, glossary_check.flag_note(missing)
+                continue
             ln.flag, ln.flag_note = None, ""
             fixed += 1
         on_progress(sum(len(b) for b in batches[:n + 1]), len(to_translate))

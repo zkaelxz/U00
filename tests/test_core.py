@@ -534,6 +534,14 @@ class TestFilterHallucinatedSegments:
     def _seg(self, start, end, text):
         return {"start": start, "end": end, "text": text}
 
+    def test_a_dense_list_is_dropped_unless_lists_are_only_flagged(self):
+        from whisper_hallucination import IMPLAUSIBLE_LIST_NOTE
+        seg = self._seg(10.0, 11.5, "はい、はい、はい、はい、はい、はい")
+        assert filter_hallucinated_segments([seg]) == []
+        out = filter_hallucinated_segments([seg], drop_lists=False)
+        assert [(s["text"], s["flag"], s["flag_note"]) for s in out] == [
+            (seg["text"], "text_uncertain", IMPLAUSIBLE_LIST_NOTE)]
+
     def test_a_short_run_is_left_untouched(self):
         segments = [self._seg(0, 1, "hello"), self._seg(1, 2, "hello"),
                     self._seg(2, 3, "world")]
@@ -558,6 +566,35 @@ class TestFilterHallucinatedSegments:
     def test_a_one_character_run_of_ten_is_a_loop(self):
         segments = [self._seg(i, i + 1, "有。") for i in range(10)]
         assert filter_hallucinated_segments(segments) == [segments[0]]
+
+    def test_the_same_reply_minutes_apart_is_kept_and_sent_to_review(self):
+        # Real replies, or a loop over music where each burst came out alone: kept, and checked.
+        from whisper_hallucination import REPEAT_GAP_NOTE
+        segments = [self._seg(i * 120, i * 120 + 0.8, "はい。") for i in range(4)]
+        out = filter_hallucinated_segments(segments)
+        assert [(s["start"], s["text"]) for s in out] == [(s["start"], s["text"]) for s in segments]
+        assert [s.get("flag_note") for s in out] == [None] + [REPEAT_GAP_NOTE] * 3
+        assert {s.get("flag") for s in out[1:]} == {"text_uncertain"}
+
+    def test_a_reply_heard_now_and_then_too_few_times_to_loop_is_not_flagged(self):
+        segments = [self._seg(i * 120, i * 120 + 0.8, "はい。") for i in range(3)]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_a_long_gap_ends_a_run_and_the_close_copies_still_collapse(self, monkeypatch):
+        import applog
+        messages = []
+
+        class _Log:
+            def info(self, message):
+                messages.append(message)
+        monkeypatch.setattr(applog, "get_logger", lambda *a, **k: _Log())
+        loop = [self._seg(i, i + 1, "请订阅") for i in range(5)]
+        later = self._seg(300, 301, "请订阅")
+        from whisper_hallucination import REPEAT_GAP_NOTE
+        out = filter_hallucinated_segments(loop + [later])
+        assert [s["start"] for s in out] == [0, 300]
+        assert out[0].get("flag") is None and out[1].get("flag_note") == REPEAT_GAP_NOTE
+        assert messages == ["repeat filter: 4 copies of one line removed after 0.0s (to 5.0s)"]
 
     def test_repeats_that_differ_only_in_punctuation_collapse(self):
         segments = [self._seg(i, i + 1, text) for i, text in
@@ -2518,8 +2555,67 @@ def test_whisper_line_ends_stop_where_the_audio_goes_quiet(monkeypatch):
                         types.SimpleNamespace(decode_audio=lambda path, sampling_rate: audio))
     monkeypatch.setattr(vad_segments, "speech_spans", lambda audio, sr, **kw: [vad_segments.Span(0.0, 4.0)])
     segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
-    out = whisper_transcribe._extend_to_speech_end(segs, "audio.wav")
+    out = whisper_transcribe._fit_to_speech(segs, "audio.wav")
     assert out[0]["end"] == pytest.approx(2.2, abs=0.02)
+
+
+class TestTrimStartsToSpeech:
+    def test_a_line_starting_in_silence_starts_just_before_its_speech(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        out = segment_splitting.trim_starts_to_speech(segs, [(1.3, 2.0)])
+        assert out[0]["start"] == pytest.approx(1.3 - WORD_EDGE_PAD_START)
+
+    def test_the_trim_is_capped(self):
+        segs = [{"start": 1.0, "end": 3.0, "text": "a"}]
+        out = segment_splitting.trim_starts_to_speech(segs, [(2.5, 3.0)])
+        assert out[0]["start"] == pytest.approx(1.0 + segment_splitting.SPEECH_START_MAX_TRIM)
+
+    def test_a_line_starting_in_speech_or_holding_none_keeps_its_start(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 3.0, "end": 4.0, "text": "b"}]
+        out = segment_splitting.trim_starts_to_speech(segs, [(0.5, 1.5), (4.5, 5.0)])
+        assert [s["start"] for s in out] == [1.0, 3.0]
+
+    def test_a_line_starting_in_speech_keeps_its_start_even_with_more_speech_after_a_pause(self):
+        segs = [{"start": 1.0, "end": 3.0, "text": "a"}]
+        assert segment_splitting.trim_starts_to_speech(segs, [(0.8, 1.2), (1.6, 3.0)])[0]["start"] == 1.0
+
+    def test_speech_starting_within_the_pad_moves_nothing(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        assert segment_splitting.trim_starts_to_speech(segs, [(1.05, 2.0)])[0]["start"] == 1.0
+
+    def test_trimming_twice_changes_nothing_more(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        once = segment_splitting.trim_starts_to_speech(segs, [(1.3, 2.0)])[0]["start"]
+        assert segment_splitting.trim_starts_to_speech(segs, [(1.3, 2.0)])[0]["start"] == once
+
+
+def test_whisper_lines_are_fitted_to_the_detected_speech_at_both_edges(monkeypatch):
+    import types
+    import vad_segments
+    monkeypatch.setitem(sys.modules, "faster_whisper",
+                        types.SimpleNamespace(decode_audio=lambda path, sampling_rate: [0.0]))
+    monkeypatch.setattr(vad_segments, "speech_spans", lambda audio, sr, **kw: [
+        vad_segments.Span(1.4, 2.3), vad_segments.Span(4.0, 5.0)])
+    segs = [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 4.0, "end": 4.6, "text": "b"}]
+    out = whisper_transcribe._fit_to_speech(segs, "audio.wav")
+    assert [(round(s["start"], 2), round(s["end"], 2)) for s in out] == [(1.3, 2.3), (4.0, 5.0)]
+
+
+def test_difficult_audio_extends_ends_but_keeps_starts(monkeypatch):
+    import types
+    import vad_segments
+    monkeypatch.setitem(sys.modules, "faster_whisper",
+                        types.SimpleNamespace(decode_audio=lambda path, sampling_rate: [0.0]))
+    monkeypatch.setattr(vad_segments, "speech_spans", lambda audio, sr, **kw: [vad_segments.Span(1.4, 2.3)])
+    segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+    out = whisper_transcribe._fit_to_speech(segs, "audio.wav", trim_starts=False)
+    assert (out[0]["start"], round(out[0]["end"], 2)) == (1.0, 2.3)
+
+
+def test_whisper_lines_keep_their_times_without_the_detector(monkeypatch):
+    monkeypatch.setitem(sys.modules, "faster_whisper", None)
+    segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+    assert whisper_transcribe._fit_to_speech(segs, "audio.wav") == [{"start": 1.0, "end": 2.0, "text": "a"}]
 
 
 def test_segment_texts_join_without_spaces_next_to_cjk_and_with_them_between_words():
