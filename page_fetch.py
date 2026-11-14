@@ -42,6 +42,20 @@ EMPTY_STATE_MARKERS = [
 ]
 
 
+# An image-only comic page has almost no text and plenty of scripts, which is exactly
+# what a shell looks like; its page images are what tell it apart. No "<" inside the
+# tag, so an unclosed one can't make the match scan to the end of the page.
+_IMG_TAG_RE = re.compile(r"<img\b[^<>]*>", re.I)
+_IMG_SRC_RE = re.compile(r"""\b(?:data-)?src\s*=\s*["']?[^"'\s>]""", re.I)
+_FURNITURE_IMG_RE = re.compile(r"logo|icon|avatar|sprite|banner|emoji|qrcode|loading", re.I)
+MIN_CONTENT_IMAGES = 3
+
+
+def _content_image_count(html: str) -> int:
+    return sum(1 for tag in _IMG_TAG_RE.findall(html or "")
+               if _IMG_SRC_RE.search(tag) and not _FURNITURE_IMG_RE.search(tag))
+
+
 def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
     """
     Heuristic check for "this fetch returned a shell, not content".
@@ -55,13 +69,15 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
 
     text_len = len((extracted_text or "").strip())
     html_len = len(html or "")
+    images = _content_image_count(html)
+    image_page = images >= MIN_CONTENT_IMAGES
 
     # A content page has a decent text-to-markup ratio. A shell doesn't.
-    if html_len > 2000 and text_len < 600:
+    if html_len > 2000 and text_len < 600 and not image_page:
         reasons.append("very little text relative to page size")
         score += 0.4
 
-    if any(m in (html or "") for m in SPA_ROOT_MARKERS):
+    if any(m in (html or "") for m in SPA_ROOT_MARKERS) and not image_page:
         reasons.append("page uses a JavaScript app container")
         score += 0.3
 
@@ -74,7 +90,7 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
 
     # Lots of <script> and little else.
     script_count = len(re.findall(r"<script", html or "", flags=re.I))
-    if script_count > 8 and text_len < 1500:
+    if script_count > 8 and text_len < 1500 and not image_page:
         reasons.append(f"{script_count} scripts but little rendered text")
         score += 0.2
 
