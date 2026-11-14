@@ -6,7 +6,8 @@ import { browserStorage } from '../../../../hooks/usePersistedState'
 import { useRoute } from '../../../../router'
 import { useSimple } from '../../StageContext'
 import {
-  groupOfTool, readLastTab, seedFirstCard, shownGroups, shownTools, writeLastTab, type ReviewTool, type ReviewToolsGroup,
+  groupOfTool, readAddedTools, readLastTab, seedFirstCard, shownGroups, shownTools, writeAddedTools, writeLastTab,
+  type ReviewTool, type ReviewToolsGroup,
 } from './reviewToolsTabs'
 
 const ID_PREFIX = 'review-tools'
@@ -55,10 +56,10 @@ interface Props {
 // the first time it is shown and then stays, so open folds and drafts survive a switch.
 export function ReviewTools({ dramaId, status, tools, attention = {}, request = null }: Props) {
   // A link or remembered choice for a group Simple leaves out opens Look for problems.
-  // A button that needs a tool Simple leaves out adds it for the visit: Transcribe this gap
+  // A button that needs a tool Simple leaves out adds it for this title: Transcribe this gap
   // starts its run in Re-transcribe, which must be mounted to start it and to apply what it heard.
   const simple = useSimple()
-  const [added, setAdded] = useState<ReadonlySet<ReviewTool>>(() => new Set())
+  const [added, setAdded] = useState<ReadonlySet<ReviewTool>>(() => readAddedTools(browserStorage(), dramaId))
   const visibleTools = useMemo(() => shownTools(simple, added), [simple, added])
   const shown = useMemo(() => shownGroups(simple, added), [simple, added])
   const allowed = useCallback((g: ReviewToolsGroup) => shown.some((x) => x.id === g), [shown])
@@ -92,9 +93,13 @@ export function ReviewTools({ dramaId, status, tools, attention = {}, request = 
     appliedLink.current = key
   }, [dramaId, linked, select])
   const selectTool = useCallback((tool: ReviewTool) => {
-    setAdded((a) => (a.has(tool) ? a : new Set(a).add(tool)))
+    if (!added.has(tool)) {
+      const next = new Set(added).add(tool)
+      setAdded(next)
+      writeAddedTools(browserStorage(), dramaId, next)
+    }
     open(groupOfTool(tool))
-  }, [open])
+  }, [added, dramaId, open])
   const seenSeq = useRef(request?.seq ?? 0)
   useEffect(() => {
     if (request && request.seq !== seenSeq.current) {

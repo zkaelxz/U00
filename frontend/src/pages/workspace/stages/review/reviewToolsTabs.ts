@@ -94,6 +94,17 @@ export const FIRST_CARD: Record<ReviewToolsGroup, string | null> = {
 }
 
 const tabPrefKey = (dramaId: number) => `review.tools.tab.${dramaId}`
+const addedPrefKey = (dramaId: number) => `review.tools.added.${dramaId}`
+
+// Kept per title so a run left before Apply can still be reached in Simple on the next visit.
+export function readAddedTools(storage: StorageLike | null, dramaId: number): ReadonlySet<ReviewTool> {
+  const saved = readPref<unknown>(storage, addedPrefKey(dramaId), [])
+  return new Set(Array.isArray(saved) ? REVIEW_TOOLS.filter((t) => saved.includes(t.id)).map((t) => t.id) : [])
+}
+
+export function writeAddedTools(storage: StorageLike | null, dramaId: number, tools: ReadonlySet<ReviewTool>): void {
+  writePref(storage, addedPrefKey(dramaId), [...tools])
+}
 const seededPrefKey = (group: ReviewToolsGroup) => `review.tools.seeded.${group}`
 
 export function readLastTab(storage: StorageLike | null, dramaId: number): ReviewToolsGroup {
