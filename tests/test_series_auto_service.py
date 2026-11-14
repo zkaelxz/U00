@@ -9,7 +9,7 @@ from core import Line
 from engine_backends import local
 from jobs import job_launch, job_runner
 from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
-from services import (export_service, queue_service as q, series_auto_service as auto,
+from services import (auth_service, export_service, queue_service as q, series_auto_service as auto,
                       title_copy_service, transcribe_service, translate_run_service)
 
 WAIT = 10
@@ -307,7 +307,9 @@ def test_a_stopped_episode_is_announced_once(jobs, told):
     auto.scan()
     (call,) = told
     assert call["text"].startswith("Ep 1 stopped at transcribe:") and "engine said no" in call["text"]
-    assert call["push_text"] == call["text"]
+    # The push is built from fixed parts: the reason stays in the bell.
+    assert call["push_text"] == ("Ep 1 stopped at transcribe. Retry it on the Jobs page, "
+                                 "or press Continue to skip it.")
     assert call["target"] == {"page": "series", "series_id": sid}
     assert call["text"] == auto.get_state(None, sid)["hold"]
 
@@ -341,7 +343,7 @@ def test_an_episode_that_cannot_be_queued_is_announced_once(jobs, told, monkeypa
     auto.scan()
     (call,) = told
     assert call["text"] == "Ep 1 could not be queued: No key for this engine."
-    assert call["push_text"] == "An episode could not be queued: No key for this engine."
+    assert call["push_text"] == "An episode could not be queued. Open the series page to see why."
     assert call["target"] == {"page": "series", "series_id": sid}
 
 
@@ -370,3 +372,140 @@ def test_a_failing_announcement_never_breaks_the_hold(jobs, monkeypatch):
     _run_episode(jobs, e1)
     auto.scan()
     assert auto.get_state(None, sid)["hold_kind"] == "review"
+
+
+def _fail_first_episode(jobs, sid, e1, reason=None):
+    """Runs episode 1's transcribe into a failure; `reason` replaces the item's error text."""
+    auto.scan()
+    jobs.fail.add(f"transcribe_{e1}")
+    q.start(None)
+    q.tick()
+    jobs.finish(f"transcribe_{e1}")
+    q.tick()
+    while any(st == "waiting" for *_, st in _auto_steps()):
+        q.tick()
+    if reason is not None:
+        with q._lock:
+            doc = q._load()
+            for item in doc["items"]:
+                if item["status"] == "failed":
+                    item["reason"] = reason
+            q._save(doc)
+
+
+@pytest.fixture
+def pushes(monkeypatch):
+    """The real notify_waiting with a channel set: (bell entries, pushed texts)."""
+    from services import notification_service as ns
+    monkeypatch.setenv("BAIHE_DISCORD_WEBHOOK_URL",
+                       "https://discord.com/api/webhooks/123456789012345678/"
+                       "SECRETtokenABCDEFGHIJKLMNOPQRSTUVWXYZ_-0123")
+    monkeypatch.delenv(ns.DISABLED_ENV, raising=False)
+    monkeypatch.setattr(ns, "_schedule_flush", lambda: type("T", (), {"cancel": lambda self: None})())
+    ns.reset_for_tests()
+    yield (lambda: [e["text"] for e in ns.list_recent(None) if e["kind"] == "waiting"],
+           lambda: [m for st, m, _c in ns._pending if st == "waiting"])
+    ns.reset_for_tests()
+
+
+LEAKY = ("FileNotFoundError: /home/kae/Baihe/dramas/12/Ep 1 01.mp3; "
+         "HTTPConnectionPool(host='192.168.1.20', port=11434): Max retries exceeded with url: /api/chat")
+
+
+@pytest.mark.parametrize("private", [False, True])
+def test_a_stopped_episode_push_never_quotes_its_error(jobs, pushes, private):
+    bell, pushed = pushes
+    sid, (e1, *_rest) = _series()
+    if private:
+        db.update_drama(e1, is_private=1, owner_user_id=5)
+    _on(sid)
+    _fail_first_episode(jobs, sid, e1, LEAKY)
+    auto.scan()
+    shown = "An episode" if private else "Ep 1"
+    assert pushed() == [f"Waiting for you: {shown} stopped at transcribe. Retry it on the Jobs page, "
+                        "or press Continue to skip it."]
+    for bit in ("01.mp3", "/home", "192.168.1.20", "11434", "/api/chat", "HTTPConnectionPool"):
+        assert bit not in pushed()[0]
+    (entry,) = bell()
+    assert entry.startswith("Waiting for you: Ep 1 stopped at transcribe: ")
+    assert "192.168.1.20" in entry and "01.mp3" in entry     # the bell keeps the reason
+
+
+@pytest.mark.parametrize("private", [False, True])
+def test_removed_queue_items_hold_push_sentence(jobs, told, private):
+    sid, (e1, *_rest) = _series()
+    if private:
+        db.update_drama(e1, is_private=1, owner_user_id=5)
+    _on(sid)
+    auto.scan()
+    q.remove_waiting_auto_items(sid)
+    auto.scan()
+    (call,) = told
+    assert call["text"] == "Ep 1's queue items were removed before they finished."
+    shown = "An episode" if private else "Ep 1"
+    assert call["push_text"] == f"{shown}'s queue items were removed before they finished."
+
+
+def test_an_episode_that_cannot_be_queued_names_a_shared_title_but_not_the_error(jobs, told,
+                                                                                 monkeypatch):
+    sid, (_e1, *_rest) = _series()
+
+    def refuse(*a, **k):
+        raise UnsupportedOperationError("No key at http://192.168.1.20:11434 for Ep 1 01.mp3.")
+    monkeypatch.setattr(q, "add_auto_episode", refuse)
+    _on(sid)
+    auto.scan()
+    (call,) = told
+    assert call["text"].startswith("Ep 1 could not be queued: No key at")
+    assert call["push_text"] == "Ep 1 could not be queued. Open the series page to see why."
+
+
+def test_a_stopped_private_episode_push_says_an_episode(jobs, told):
+    sid, (e1, *_rest) = _series()
+    db.update_drama(e1, is_private=1, owner_user_id=5)
+    _on(sid)
+    _fail_first_episode(jobs, sid, e1)
+    auto.scan()
+    (call,) = told
+    assert call["push_text"] == ("An episode stopped at transcribe. Retry it on the Jobs page, "
+                                 "or press Continue to skip it.")
+
+
+def test_a_hold_entry_follows_what_its_owner_can_still_see(jobs):
+    """A hold's entry has no job id, so the bell checks the title or series it points at."""
+    from services import notification_service as ns
+    ns.reset_for_tests()
+    member = auth_service.add_user("kid@example.com")
+    kid = {"user_id": member["id"], "is_admin": False, "is_local_owner": False}
+    admin = {"user_id": 999, "is_admin": True, "is_local_owner": False}
+    sid, (e1, *_rest) = _series()
+    try:
+        ns.notify_waiting("Spending ceiling reached.", push_text="x", owner_user_id=member["id"],
+                          target={"page": "series", "series_id": sid})
+        ns.notify_waiting("Ep 1 is done.", push_text="x", owner_user_id=member["id"],
+                          target={"page": "review", "drama_id": e1})
+        ns.notify_waiting("The queue stopped.", push_text="x", owner_user_id=member["id"],
+                          target={"page": "jobs"})
+
+        def texts(p):
+            return [e["text"] for e in ns.list_recent(p) if e["kind"] == "waiting"]
+        everything = ["Waiting for you: The queue stopped.", "Waiting for you: Ep 1 is done.",
+                      "Waiting for you: Spending ceiling reached."]
+        assert texts(kid) == everything
+        db.update_drama(e1, is_private=1, owner_user_id=5)
+        assert texts(kid) == everything[:1] + everything[2:]
+        _make_series_private(sid, 5)
+        assert texts(kid) == everything[:1]
+        assert texts(admin) == everything
+        assert texts(None) == everything
+    finally:
+        ns.reset_for_tests()
+
+
+def _make_series_private(series_id, owner):
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE series SET is_private = 1, owner_user_id = ? WHERE id = ?",
+                     (owner, series_id))
+        conn.commit()
+

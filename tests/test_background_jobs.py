@@ -1981,6 +1981,44 @@ class TestNotifyOnCompletion:
         assert "A translation job" in calls[0]["message"]
         assert "Fail" in calls[0]["message"]
 
+    def test_a_waiting_job_pops_up_the_bells_sentence(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
+        job_settings.set_notify_on_completion(True)
+        did = db.create_drama(title_en="Moonlit Garden", owner_user_id=5, is_private=1)
+        desc = f"Glossary from lines (title #{did})"
+
+        job_settings._notify_job_finished(desc, "done", waiting={
+            "text": "12 glossary names to review", "target": {"page": "glossary", "drama_id": did}})
+        # The PC's own pop-up names even a private title, as the bell does there.
+        assert calls[-1]["message"] == "Waiting for you: 12 glossary names to review - Moonlit Garden"
+        job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
+                                          waiting={"cap": True})
+        assert calls[-1]["message"] == \
+            "Waiting for you: Translation stopped at the spending cap - Moonlit Garden"
+        job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
+                                          waiting={"reason": "3 requests failed in a row"})
+        assert calls[-1]["message"] == \
+            "Waiting for you: Translation stopped - Moonlit Garden. 3 requests failed in a row"
+        # A failed job keeps "Failed"; a broken note falls back to "Finished", never raising.
+        job_settings._notify_job_finished(desc, "error", waiting={"cap": True})
+        assert calls[-1]["message"] == f"Failed: {desc}"
+        from services import notification_service
+
+        def boom(*a, **k):
+            raise RuntimeError("down")
+        monkeypatch.setattr(notification_service, "waiting_job_message", boom)
+        job_settings._notify_job_finished(desc, "done", waiting={"cap": True})
+        assert calls[-1]["message"] == f"Finished: {desc}"
+
     def test_notify_job_finished_does_nothing_when_disabled(self, monkeypatch):
         import sys
         import types

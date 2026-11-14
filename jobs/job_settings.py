@@ -108,9 +108,18 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
         return
     try:
         from plyer import notification
+        waiting_message = None
+        if status == "done" and isinstance(waiting, dict):
+            # The pop-up is on the PC itself, so it says what the bell says.
+            try:
+                from services import notification_service
+                waiting_message = notification_service.waiting_job_message(description, waiting)
+            except Exception:
+                waiting_message = None   # the plain "Finished" pop-up still shows
         notification.notify(
             title="Baihe Studio",
-            message=(f"Finished with errors: {description}" if status == "done" and with_errors
+            message=(waiting_message if waiting_message else
+                     f"Finished with errors: {description}" if status == "done" and with_errors
                      and description else
                      f"Finished: {description}" if status == "done" and description else
                      "Finished: background job" if status == "done" else

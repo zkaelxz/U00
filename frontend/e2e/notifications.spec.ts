@@ -315,7 +315,7 @@ test('header bell: empty list, and hidden when the list is refused', async ({ pa
   const button = page.getByRole('button', { name: 'Notifications', exact: true })
   await button.click()
   const panel = page.getByRole('region', { name: 'Recent notifications' })
-  await expect(panel.getByText('Nothing yet. Finished and failed jobs show up here.')).toBeVisible()
+  await expect(panel.getByText('Nothing yet. Finished and failed jobs, and runs that are waiting for you, show up here.')).toBeVisible()
   await expect(panel.getByRole('listitem')).toHaveCount(0)
 
   await page.route((u) => u.pathname === '/api/notifications', (route) =>

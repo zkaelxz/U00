@@ -634,12 +634,12 @@ def clean_target(target):
 
 
 def _waiting_text(text) -> str:
-    """The prefix, then the text tidied, with secrets and every link taken
-    out: a push never carries an address, and a hold can quote a queue
-    item's error."""
+    """The prefix, then the text with every link that starts with a scheme
+    ("https://...") taken out and secrets redacted, cut to length last: a
+    key cut in half by the limit would no longer match the redaction."""
     from services import jobs_service
-    text = jobs_service.URL_PATTERN.sub("[link removed]", _tidy(text, _WAITING_MAX))
-    return redact_secrets(WAITING_PREFIX + text)
+    text = redact_secrets(jobs_service.URL_PATTERN.sub("[link removed]", str(text)))
+    return WAITING_PREFIX + _tidy(text, _WAITING_MAX)
 
 
 def _record(kind, text, job_id, owner_user_id, extra=None):
@@ -669,6 +669,21 @@ def record_event(kind, text) -> None:
         pass
 
 
+def _sees_target(principal, event) -> bool:
+    """A waiting entry names the title or series its target points at, and
+    a hold's entry is kept for its owner alone (no job id): once that title
+    or series is no longer visible to them, neither is the entry."""
+    from services import ownership_service
+    target = event.get("target") or {}
+    if event["kind"] != "waiting" or ownership_service.sees_every_job(principal):
+        return True
+    if "drama_id" in target:
+        return ownership_service.can_see(principal, "drama", target["drama_id"])
+    if "series_id" in target:
+        return ownership_service.can_see(principal, "series", target["series_id"])
+    return True
+
+
 def list_recent(principal=None, limit=RECENT_MAX) -> list:
     """Newest first: {id, at, kind, text}. Job events only for a caller who
     can see that job; new-chapter events for everyone (household-wide)."""
@@ -680,7 +695,8 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
         if e["kind"] != "chapters":
             try:
                 visible = ownership_service.can_see_job(principal, e["job_id"] or "",
-                                                        e["owner_user_id"])
+                                                        e["owner_user_id"]) \
+                    and _sees_target(principal, e)
             except Exception:
                 visible = False
             if not visible:
@@ -717,6 +733,12 @@ def _waiting_job_text(description, note, shared_only) -> str:
     if isinstance(reason, str) and reason.strip():
         text += f". {_tidy(reason, 160)}"
     return text
+
+
+def waiting_job_message(description, note) -> str:
+    """The bell's sentence for a done job's waiting note, for the desktop
+    pop-up on the PC itself (job_settings._notify_job_finished)."""
+    return _waiting_text(_waiting_job_text(description, note, False))
 
 
 def notify_job_finished(description, status, job_id=None, owner_user_id=None,

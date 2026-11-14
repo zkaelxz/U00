@@ -108,5 +108,5 @@ export function isoTime(at: number): string | undefined {
   return Number.isFinite(d.getTime()) ? d.toISOString() : undefined
 }
 
-export const EMPTY_TEXT = 'Nothing yet. Finished and failed jobs show up here.'
+export const EMPTY_TEXT = 'Nothing yet. Finished and failed jobs, and runs that are waiting for you, show up here.'
 export const KEPT_NOTE = 'This list is kept until the app restarts.'

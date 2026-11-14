@@ -1194,3 +1194,22 @@ def test_recent_route_returns_a_waiting_entry_with_its_target(env, no_timer):
                                   "kind": "waiting", "target": {"page": "jobs"},
                                   "text": "Waiting for you: The queue stopped because an item "
                                           "failed. Start the queue to go on."}]
+
+
+@pytest.mark.parametrize("kept", [3, 7, 12, 16])
+def test_waiting_text_redacts_a_key_that_straddles_the_length_cut(env, no_timer, kept):
+    """`kept`: how many characters of the key would be left before the cut."""
+    _write(env, discord=DISCORD)
+    key = "sk-ant-api03-" + "K" * 40
+    text = "x" * (ns._WAITING_MAX - 2 - kept) + " " + key + " tail"
+    ns.notify_waiting(text, push_text=text)
+    ((_s, pushed, _c),) = ns._pending
+    (entry,) = _waiting()
+    for out in (pushed, entry["text"]):
+        assert "sk-" not in out and "KK" not in out
+        assert len(out) <= len(ns.WAITING_PREFIX) + ns._WAITING_MAX
+
+
+def test_waiting_job_message_is_the_bell_sentence():
+    assert ns.waiting_job_message("Translation", {"cap": True}) == \
+        "Waiting for you: Translation stopped at the spending cap"
