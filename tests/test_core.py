@@ -2473,6 +2473,65 @@ class TestExtendEndsToSpeech:
         assert segment_splitting.extend_ends_to_speech(segs, [(1.0, 1.8)])[0]["end"] == 2.5
 
 
+class TestTrimStartsToSpeech:
+    def test_a_line_starting_in_silence_starts_just_before_its_speech(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        out = segment_splitting.trim_starts_to_speech(segs, [(1.3, 2.0)])
+        assert out[0]["start"] == pytest.approx(1.3 - WORD_EDGE_PAD_START)
+
+    def test_the_trim_is_capped(self):
+        segs = [{"start": 1.0, "end": 3.0, "text": "a"}]
+        out = segment_splitting.trim_starts_to_speech(segs, [(2.5, 3.0)])
+        assert out[0]["start"] == pytest.approx(1.0 + segment_splitting.SPEECH_START_MAX_TRIM)
+
+    def test_a_line_starting_in_speech_or_holding_none_keeps_its_start(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 3.0, "end": 4.0, "text": "b"}]
+        out = segment_splitting.trim_starts_to_speech(segs, [(0.5, 1.5), (4.5, 5.0)])
+        assert [s["start"] for s in out] == [1.0, 3.0]
+
+    def test_a_line_starting_in_speech_keeps_its_start_even_with_more_speech_after_a_pause(self):
+        segs = [{"start": 1.0, "end": 3.0, "text": "a"}]
+        assert segment_splitting.trim_starts_to_speech(segs, [(0.8, 1.2), (1.6, 3.0)])[0]["start"] == 1.0
+
+    def test_speech_starting_within_the_pad_moves_nothing(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        assert segment_splitting.trim_starts_to_speech(segs, [(1.05, 2.0)])[0]["start"] == 1.0
+
+    def test_trimming_twice_changes_nothing_more(self):
+        segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+        once = segment_splitting.trim_starts_to_speech(segs, [(1.3, 2.0)])[0]["start"]
+        assert segment_splitting.trim_starts_to_speech(segs, [(1.3, 2.0)])[0]["start"] == once
+
+
+def test_whisper_lines_are_fitted_to_the_detected_speech_at_both_edges(monkeypatch):
+    import types
+    import vad_segments
+    monkeypatch.setitem(sys.modules, "faster_whisper",
+                        types.SimpleNamespace(decode_audio=lambda path, sampling_rate: [0.0]))
+    monkeypatch.setattr(vad_segments, "speech_spans", lambda audio, sr, **kw: [
+        vad_segments.Span(1.4, 2.3), vad_segments.Span(4.0, 5.0)])
+    segs = [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 4.0, "end": 4.6, "text": "b"}]
+    out = whisper_transcribe._fit_to_speech(segs, "audio.wav")
+    assert [(round(s["start"], 2), round(s["end"], 2)) for s in out] == [(1.3, 2.3), (4.0, 5.0)]
+
+
+def test_difficult_audio_extends_ends_but_keeps_starts(monkeypatch):
+    import types
+    import vad_segments
+    monkeypatch.setitem(sys.modules, "faster_whisper",
+                        types.SimpleNamespace(decode_audio=lambda path, sampling_rate: [0.0]))
+    monkeypatch.setattr(vad_segments, "speech_spans", lambda audio, sr, **kw: [vad_segments.Span(1.4, 2.3)])
+    segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+    out = whisper_transcribe._fit_to_speech(segs, "audio.wav", trim_starts=False)
+    assert (out[0]["start"], round(out[0]["end"], 2)) == (1.0, 2.3)
+
+
+def test_whisper_lines_keep_their_times_without_the_detector(monkeypatch):
+    monkeypatch.setitem(sys.modules, "faster_whisper", None)
+    segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+    assert whisper_transcribe._fit_to_speech(segs, "audio.wav") == [{"start": 1.0, "end": 2.0, "text": "a"}]
+
+
 def test_segment_texts_join_without_spaces_next_to_cjk_and_with_them_between_words():
     from line_alignment import join_segment_texts
 

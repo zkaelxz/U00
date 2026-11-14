@@ -9,7 +9,8 @@ import os
 import re
 
 import whisper_models
-from segment_splitting import _word_dicts, extend_ends_to_speech, settle_overlaps, tighten_to_words
+from segment_splitting import (_word_dicts, extend_ends_to_speech, settle_overlaps, tighten_to_words,
+                               trim_starts_to_speech)
 from whisper_hallucination import (STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments,
                                    is_stock_phrase)
 
@@ -151,9 +152,11 @@ def _spoken_end(seg: dict) -> float:
     return words[-1]["end"] if words else seg["end"]
 
 
-def _extend_to_speech_end(result: list, audio_path: str) -> list:
-    """Lines end where Whisper's last word does, which is early; stretch them to the speech
-    the detector hears. Without the audio or the detector the lines keep their times."""
+def _fit_to_speech(result: list, audio_path: str, trim_starts: bool = True) -> list:
+    """Whisper's word times put line starts in the silence before the voice and line ends
+    before it stops; move both to the speech the detector hears. trim_starts False only
+    extends ends: lengthening is harmless when the detector misses speech, a trim is not.
+    Without the audio or the detector the lines keep their times."""
     try:
         from faster_whisper import decode_audio
         import vad_segments
@@ -163,6 +166,8 @@ def _extend_to_speech_end(result: list, audio_path: str) -> list:
     except Exception:
         # Timing polish only: a missing decoder or detector must not fail the transcription.
         return result
+    if trim_starts:
+        trim_starts_to_speech(result, spans)
     return extend_ends_to_speech(result, spans)
 
 
@@ -552,7 +557,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             on_kept=resume.keep if resume.on_unit and not fast_mode else None)
         result = resume.merged(result)
         settle_overlaps(result)
-        _extend_to_speech_end(result, audio_path)
+        # Difficult audio is the shouted or whispered speech Silero scores as silence.
+        _fit_to_speech(result, audio_path, trim_starts=not difficult_audio)
         if not fast_mode:
             result = _rehear_sparse(m, audio_path, kwargs, result, prompt_keys)
         for seg in result:
