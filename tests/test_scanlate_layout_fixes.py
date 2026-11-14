@@ -179,3 +179,23 @@ def test_art_with_no_line_of_lettering_keeps_the_usual_mask():
     page, _band, _glyphs = _band_over_art_page()
     assert scanlate_inpaint._strokes_on_a_line(page[:60, :200]) is None
     assert scanlate_inpaint._strokes_on_a_line(page) is not None
+
+
+def test_a_sign_that_is_one_line_on_a_tilted_band_is_set_along_the_band(tmp_path):
+    import scanlate_render
+    from PIL import Image
+    page, band, _glyphs = _band_over_art_page()
+    src = tmp_path / "band.png"
+    Image.fromarray(page).convert("RGB").save(src)
+    sign = {"x": 0, "y": 40, "w": 400, "h": 140, "kind": "sign", "kind_confidence": 0.5,
+            "translated_text": "Traffic congestion on both lines", "font_size": 16}
+    out = scanlate_render.process_page(str(src), [sign], str(tmp_path / "out.png"))[0]
+    result = np.asarray(Image.open(out).convert("L"))
+    drawn = (result < 100) & (page > 200) & band          # dark text over the white band
+    outside = (result != page) & ~band
+    outside[:40] = outside[180:] = False
+    assert drawn.sum() > 150
+    assert outside.sum() < 0.01 * drawn.sum()             # none of the English spills onto the art
+    ys, xs = np.nonzero(drawn)
+    slope = np.polyfit(xs, ys, 1)[0]
+    assert 0.04 < slope < 0.12                            # runs down to the right like the band

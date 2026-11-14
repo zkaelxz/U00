@@ -3,6 +3,7 @@ scanlate_inpaint.py -- erase the original text inside a bubble or mask
 (LaMa-manga model, or plain OpenCV inpainting as the fallback).
 """
 
+import math
 import os
 from typing import Any
 
@@ -757,20 +758,31 @@ def _lettering_glyphs(gray_roi):
 
 
 def _strokes_on_a_line(gray_roi):
-    """uint8 mask (255 = erase) of one line of dark lettering set on a pale band over busy
-    art, or None when the crop holds no such line. The paper-relative mask reads the dark
+    """(mask, slant in degrees, typical glyph size) of one line of dark lettering set on a pale
+    band over busy art, or None when the crop holds no such line; the mask is uint8, 255 =
+    erase. The paper-relative mask reads the dark
     art round such a band as lettering too, covers nearly the whole crop, and the
     repaint whitened the art out. The letters are found as glyph-sized dark marks on pale
     paper that lie along one straight (possibly tilted) line; marks off that line (windows,
     hatching) are left alone."""
     import cv2
     labels, stats, centres, glyphs = _lettering_glyphs(gray_roi)
-    anchors = [i for i in glyphs if stats[i, cv2.CC_STAT_AREA] >= scanlate_tuning.LINE_ANCHOR_AREA]
+    anchors = [i for i in glyphs if stats[i, cv2.CC_STAT_AREA] >= scanlate_tuning.LINE_ANCHOR_AREA
+               and min(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= scanlate_tuning.LINE_ANCHOR_THICKNESS]
     if len(anchors) < scanlate_tuning.LINE_MIN_GLYPHS:
         return None
-    points = np.array([centres[i] for i in anchors], np.float32)
-    vx, vy, px, py = cv2.fitLine(points, cv2.DIST_HUBER, 0, 0.01, 0.01).ravel()
     typical = float(np.median([max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) for i in anchors]))
+    # Refitted on the marks that lie along the first fit, so a few stray marks (hatching, windows)
+    # cannot hold the angle off the real line.
+    for _ in range(2):
+        points = np.array([centres[i] for i in anchors], np.float32)
+        vx, vy, px, py = cv2.fitLine(points, cv2.DIST_HUBER, 0, 0.01, 0.01).ravel()
+        near = [i for i in anchors if abs((centres[i][0] - px) * vy - (centres[i][1] - py) * vx)
+                <= scanlate_tuning.LINE_REACH * max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT], typical)]
+        if len(near) < scanlate_tuning.LINE_MIN_GLYPHS:
+            return None
+        anchors = near
+    points = np.array([centres[i] for i in anchors], np.float32)
     along = (points[:, 0] - px) * vx + (points[:, 1] - py) * vy
     if float(along.max() - along.min()) < scanlate_tuning.LINE_MIN_LENGTH_IN_GLYPHS * typical:
         return None
@@ -779,7 +791,31 @@ def _strokes_on_a_line(gray_roi):
         reach = scanlate_tuning.LINE_REACH * max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT], typical)
         if abs((centres[i][0] - px) * vy - (centres[i][1] - py) * vx) <= reach:
             mask[labels == i] = 255
-    return cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+    grown = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+    return grown, math.degrees(math.atan2(vy, vx)) * (1 if vx >= 0 else -1), typical
+
+
+def sign_text_line(page_bgr, box: dict):
+    """(corridor, angle) of the single line of lettering on a pale band over busy art, or None.
+    `corridor` is a bool array the size of `box`, True along the line's own strip, and `angle`
+    its slant in degrees (positive when it runs down to the right), so the English can be set
+    along the band instead of in the level box that spills over the art. Read from the page
+    before the erase, and only where the erase itself takes the line-only path."""
+    import cv2
+    h, w = page_bgr.shape[:2]
+    x, y = max(0, box["x"]), max(0, box["y"])
+    gray = cv2.cvtColor(page_bgr[y:min(h, y + box["h"]), x:min(w, x + box["w"])], cv2.COLOR_BGR2GRAY)
+    if gray.size == 0 or (_lettering_mask(gray) > 0).mean() <= scanlate_tuning.LINE_ONLY_MASK_SHARE:
+        return None
+    found = _strokes_on_a_line(gray)
+    if found is None:
+        return None
+    strokes, angle, typical = found
+    reach = max(3, round(scanlate_tuning.LINE_CORRIDOR_CLOSE * typical)) | 1
+    corridor = cv2.morphologyEx(strokes, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (reach, reach)))
+    margin = max(3, round(scanlate_tuning.LINE_CORRIDOR_MARGIN * typical)) | 1
+    corridor = cv2.dilate(corridor, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin, margin)))
+    return corridor > 0, angle
 
 
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
@@ -844,7 +880,7 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         line = _strokes_on_a_line(gray_roi)
     line_only = line is not None
     if line_only:
-        mask = line
+        mask = line[0]
     elif inside is None and spare_art:
         _drop_marks_running_off_edge(mask)
     elif inside is None and on_art:

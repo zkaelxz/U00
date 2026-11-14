@@ -230,6 +230,12 @@ LINE_GLYPH_MAX_SPAN = 0.4
 # The line is fitted through glyphs of at least ANCHOR_AREA; it needs MIN_GLYPHS of them
 # spread over MIN_LENGTH_IN_GLYPHS glyph heights, and a glyph joins it within REACH heights.
 LINE_ANCHOR_AREA = 25
+# and at least ANCHOR_THICKNESS thick both ways: thin stripes of hatching are not letters.
+LINE_ANCHOR_THICKNESS = 4
 LINE_MIN_GLYPHS = 4
 LINE_MIN_LENGTH_IN_GLYPHS = 3.0
 LINE_REACH = 0.5
+# The strip the English is set in is the lettering line closed over its gaps (CLOSE glyph heights)
+# and widened (MARGIN glyph heights) so the text has a little air round it.
+LINE_CORRIDOR_CLOSE = 2.5
+LINE_CORRIDOR_MARGIN = 0.4
