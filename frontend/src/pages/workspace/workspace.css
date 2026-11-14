@@ -123,7 +123,8 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }
   /* On the Simple page the switch takes its own row so the title keeps room; in Full it sits in the Title actions sheet to keep the sticky strip one row. */
   .novel-title .workspace-header:has(> .title-view-switch) { flex-wrap: wrap; }
-  .novel-title .workspace-header > .title-view-switch { order: 10; flex: 1 0 100%; margin-left: 0; }
+  .novel-title .workspace-header > .title-view-switch { order: 10; flex: 1 1 10rem; margin-left: 0; }
+  .novel-title .workspace-header > .ws-folder { order: 11; }
 
   /* Phone stepper: a 5-column grid, marker above the label, no sideways scroll; counts hidden. */
   .stage-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: var(--space-2) 0; }
