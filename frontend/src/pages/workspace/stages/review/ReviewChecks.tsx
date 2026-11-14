@@ -43,7 +43,7 @@ interface Props {
 interface CheckParts {
   coverage: ReactNode
   // Gaps, untranslated lines, pacing problems and changed-source lines: the
-  // Coverage tab's badge, and 0 when its panel has nothing to show.
+  // badge on the group that holds Coverage, and 0 when it has nothing to show.
   coverageCount: number
   shorten: ReactNode
   history: ReactNode

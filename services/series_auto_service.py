@@ -15,7 +15,7 @@ from typing import Optional
 import db
 from engine_backends import shared as engine_shared
 from lib.errors import ConflictError, InvalidInputError, NotFoundError, ServiceError, UnsupportedOperationError
-from services import auth_service, ownership_service
+from services import auth_service, ownership_service, title_copy_service
 
 # Pre-filled when the series is switched on. It is stored on the series either way, so there is no
 # global setting: a paid run always starts from a figure its owner saw and accepted.
@@ -201,9 +201,12 @@ def _hold(series_id: int, state: dict, kind: str, text: str) -> None:
 def _next_episode(series_id: int, state: dict) -> Optional[dict]:
     """The first title in reading order that has media, no lines and was not queued by this
     pipeline already. A title queued once is never queued again on its own, so a failed one is
-    left for Retry rather than looping."""
+    left for Retry rather than looping. A test copy is never an episode: paying to run it was
+    not asked for."""
     for drama in db.list_dramas_by_series(series_id):
         if drama["id"] in state["queued"]:
+            continue
+        if db.has_custom_tag(drama, title_copy_service.COPY_TAG):
             continue
         if not (drama.get("audio_filename") or drama.get("source_video_filename")):
             continue
