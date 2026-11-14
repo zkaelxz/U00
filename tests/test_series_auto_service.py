@@ -9,8 +9,9 @@ from core import Line
 from engine_backends import local
 from jobs import job_launch, job_runner
 from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
-from services import (auth_service, export_service, queue_service as q, series_auto_service as auto,
-                      title_copy_service, transcribe_service, translate_run_service)
+from services import (auth_service, export_service, ownership_service, queue_service as q,
+                      series_auto_service as auto, title_copy_service, transcribe_service,
+                      translate_run_service)
 
 WAIT = 10
 
@@ -504,8 +505,12 @@ def test_a_hold_entry_follows_what_its_owner_can_still_see(jobs):
         ns.reset_for_tests()
 
 
-def test_a_stopped_hold_entry_is_hidden_once_its_episode_goes_private(jobs):
-    """The stopped hold's entry points at the series but names the episode and quotes its error."""
+@pytest.mark.parametrize("how", ["its own flag", "moved into a private series"])
+def test_a_stopped_hold_entry_is_hidden_once_its_episode_goes_private(jobs, how):
+    """The stopped hold's entry points at the series but names the episode and quotes its error.
+    The app clears a title's own private flag while it is in a series, so today an episode goes
+    out of a member's sight by moving into a series they cannot see; a row from before that rule
+    can still carry its own flag."""
     from services import notification_service as ns
     ns.reset_for_tests()
     member = auth_service.add_user("kid@example.com")
@@ -522,7 +527,13 @@ def test_a_stopped_hold_entry_is_hidden_once_its_episode_goes_private(jobs):
             return [e["text"] for e in ns.list_recent(p) if e["kind"] == "waiting"]
         (entry,) = texts(kid)
         assert entry.startswith("Waiting for you: Ep 1 stopped at transcribe: ")
-        db.update_drama(e1, is_private=1, owner_user_id=5)
+        if how == "its own flag":
+            db.update_drama(e1, is_private=1, owner_user_id=5)
+        else:
+            elsewhere = db.get_or_create_series("Locked Shelf")
+            _make_series_private(elsewhere, 5)
+            db.update_drama(e1, series_id=elsewhere)
+        assert ownership_service.can_see(kid, "series", sid)
         assert texts(kid) == []
         assert texts(admin) == [entry] and texts(None) == [entry]
     finally:

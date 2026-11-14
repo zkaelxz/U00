@@ -1211,7 +1211,7 @@ def test_waiting_text_redacts_a_key_that_straddles_the_length_cut(env, no_timer,
         assert len(out) <= len(ns.WAITING_PREFIX) + ns._WAITING_MAX
 
 
-def test_waiting_job_message_is_the_bell_sentence():
+def test_waiting_job_message_is_the_bell_sentence(env):
     assert ns.waiting_job_message("Translation", {"cap": True}) == \
         "Waiting for you: Translation stopped at the spending cap"
 
