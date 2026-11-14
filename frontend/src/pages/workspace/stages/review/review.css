@@ -601,3 +601,42 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Its (i) stays beside it: a phone's confirm button otherwise takes the whole row, pushed right. */
   .check-queue-mark .confirm-button { flex: 0 1 auto; justify-content: flex-start; }
 }
+
+/* A queue card (LineRow with queue): the reason as a chip in the meta line, the English as a box to type in, and one
+   green finishing button. Every text wraps rather than being cut off. */
+.review-queue-reason {
+  flex: 0 1 auto; min-width: 0; padding: 2px var(--space-2); border-radius: var(--radius-sm);
+  font-size: var(--text-sm); line-height: 1.4; color: var(--warn); white-space: normal; overflow-wrap: anywhere;
+  /* Opaque over the surface: the soft tint alone turned grey on the open card's blue. */
+  background: color-mix(in srgb, var(--warn) 16%, var(--surface));
+}
+/* A closed card's chip sits at the end of its line, beside ⋯, like the drawing's list. */
+.review-line.is-queue:not(.is-active) .review-queue-reason { margin-left: auto; }
+.review-line.is-queue:not(.is-active) .review-queue-reason + .review-more { margin-left: 0; }
+.review-line.is-queue.is-active { border-radius: var(--radius); padding-block: var(--space-3); }
+.review-line.is-queue.is-active .review-zh { font-size: var(--text-lg); }
+.review-queue-en { display: grid; gap: var(--space-1); min-width: 0; }
+.review-queue-label { font-size: var(--text-sm); color: var(--muted); }
+.stage-review .review-queue-en button.review-en {
+  /* Flex so a short English sits at the top of the box, where typing starts, not in its middle. */
+  display: flex; align-items: flex-start; width: 100%; min-height: 3.2lh; padding: var(--space-2) var(--space-3); line-height: 1.4;
+  border: 1px solid var(--field-edge); border-radius: var(--radius-sm); background: var(--field-bg); color: var(--text);
+}
+.stage-review .review-queue-en button.review-en:hover:not(:disabled) { outline: none; border-color: var(--accent); background: var(--field-bg); }
+.stage-review .review-queue-en button.review-en:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--field-bg); }
+.review-queue-tools { gap: var(--space-2); margin-top: var(--space-3); }
+.review-queue-tools .review-queue-done { margin-left: auto; }
+.review-queue-why { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); line-height: 1.4; color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--surface)); overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  .review-queue-tools .btn { min-height: var(--touch); }
+}
+@media (max-width: 640px) {
+  /* The meta line reaches the bottom of ⋯'s 44px box, so the Why box under it never sits in that tap area. */
+  .review-line.is-queue .review-line-meta { min-height: calc(var(--touch) - var(--space-1)); }
+  .review-line.is-queue.is-active { padding-block: var(--space-1) var(--space-3); }
+  .review-line.is-queue.is-active .review-body { margin-top: var(--space-3); }
+  .review-line.is-queue .review-queue-en { margin-top: var(--space-2); }
+  /* Play and Skip for now keep their own width on one line; the green step takes the rest, as drawn. */
+  .review-editbar.is-queue button { flex: 0 1 auto; padding-inline: var(--space-3); }
+  .review-editbar.is-queue .review-queue-done { flex: 1 1 0; }
+}

@@ -136,6 +136,7 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
         st.current.onChanged()
       }, (e) => failLine(id, e))
     },
+    retranscribe: (id) => void openEdit(id, true).then((ok) => ok && setRetranscribeFocusId(id)),
     checkTiming: () => {
       startTimingCheck(dramaId).then(
         () => {

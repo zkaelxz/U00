@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-import { seedCheckLines } from './compareSelectedHelpers'
+import { GLOSSARY_SENTENCE, seedCheckLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 
@@ -109,14 +109,37 @@ test.describe(() => {
     await expect(position).toHaveText('1 of 3 to look at')
     await expect(cards).toHaveCount(1)
     await expect(cards.locator('.review-idx')).toHaveText('#24')
-    await expect(page.getByText('Next: line 7, Whisper was unsure · line 12, reading speed')).toBeVisible()
+    await expect(page.getByText('Next: line 7, Whisper was unsure · line 12, fast to read, 25 characters a second')).toBeVisible()
+    // The drawn card: Why in a plain sentence, the English under its label in a box, the buttons under it, and a green
+    // Looks right, next beside Skip for now. Tapping the box edits, so the bar has no Edit button.
+    await expect(cards.getByTestId('queue-reason')).toHaveText(`Why: ${GLOSSARY_SENTENCE}`)
+    await expect(cards.locator('.review-queue-label')).toHaveText('English')
+    expect(await cards.getByTestId('line-en').evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
     await expect(cards.getByRole('link', { name: 'Open glossary' })).toBeVisible()
+    for (const target of [cards.getByRole('button', { name: 'See the lines around it' }), cards.getByRole('link', { name: 'Open glossary' }),
+      cards.getByRole('button', { name: 'Improve translation' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
+    await expect(bar.getByRole('button')).toHaveText(['Skip for now', 'Looks right, next'])
+    const fill = await bar.getByRole('button', { name: 'Looks right, next' }).evaluate((el) => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--ok)'
+      document.body.append(probe)
+      const ok = getComputedStyle(probe).color
+      probe.remove()
+      return getComputedStyle(el).backgroundColor === ok
+    })
+    expect(fill, 'Looks right, next is the green button').toBe(true)
+    await cards.getByTestId('line-en').tap()
+    await expect(cards.getByRole('textbox', { name: 'Translation' })).toBeVisible()
+    await bar.getByRole('button', { name: 'Cancel' }).tap()
+    await expect(cards.getByTestId('line-en')).toBeVisible()
+    await expectNoSidewaysScroll(page)
 
     await bar.getByRole('button', { name: 'Skip for now' }).tap()
     await expect(position).toHaveText('2 of 3 to look at')
     await expect(cards.locator('.review-idx')).toHaveText('#7')
     const reason = cards.getByTestId('queue-reason')
-    await expect(reason).toHaveText('Whisper was unsure of this line (50% sure)')
+    await expect(reason).toHaveText('Why: Whisper was unsure of this line (50% sure)')
+    await expectTall(cards.getByRole('button', { name: 'Re-transcribe…' }), 'Re-transcribe…')
 
     // The first card starts near the top: measured 211px at 390 and 239px at 320, with the steps folded into one line.
     const cardTopAtMost = { 390: 225, 320: 255 }
