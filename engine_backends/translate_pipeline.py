@@ -272,6 +272,8 @@ class _TranslateRun:
         self.bi = 0
         self.batch_label = ""
         self.groups = []
+        # Lines whose English this attempt split by length; flagged only once that English lands.
+        self.split_by_length = set()
         self.character_names = args.character_names or {}
         self.allowed_runs = allowed_source_runs(args.glossary_terms, args.style_guidelines)
         # A local model works through a long system prompt unevenly, so for it the
@@ -423,20 +425,24 @@ class _TranslateRun:
         sentence_groups.settle_group); fragments of a group the model's
         reply can't be used for are translated the normal way, in one
         extra request, so the mode never leaves a blank the plain path
-        wouldn't."""
+        wouldn't. Parts whose English was split by length rather than by
+        the model are flagged for review."""
         if len(translations) != len(chunk):
             return translations  # reported as a length mismatch by the caller
         position = {id(ln): p for p, ln in enumerate(chunk)}
         out, redo = list(translations), []
         for group in chunk_groups:
             where = [position[id(ln)] for ln in group]
-            settled = sentence_groups.settle_group(
-                [ln.zh for ln in group], [out[p] for p in where])
+            pieces = [out[p] for p in where]
+            settled = sentence_groups.settle_group([ln.zh for ln in group], pieces)
             if settled is None:
                 redo.extend(where)
-            else:
-                for p, text in zip(where, settled):
-                    out[p] = text
+                continue
+            split_by_length = settled != [(t or "").strip() for t in pieces]
+            for p, text in zip(where, settled):
+                out[p] = text
+                if split_by_length:
+                    self.split_by_length.add(id(chunk[p]))
         if redo:
             redo_lines = [chunk[p] for p in redo]
             for p, text in zip(redo, self._call_engine(redo_lines, self._context_for(redo_lines))):
@@ -458,6 +464,7 @@ class _TranslateRun:
                                                 usage_cb=self._record_usage, pass_cb=self._on_pass,
                                                 resume=finished_passes))
         chunk_groups = sentence_groups.complete_groups(chunk, self.groups)
+        self.split_by_length.difference_update(id(ln) for ln in chunk)
         if chunk_groups:
             position = {id(ln): p for p, ln in enumerate(chunk)}
             chunk_context["sentence_groups"] = [[position[id(ln)] for ln in g]
@@ -533,6 +540,7 @@ class _TranslateRun:
             if (tr or "").strip():
                 ln.en = keep_first_alternative(strip_echoed_label(self.character_names.get(ln.speaker), tr))
                 source_change.clear_for_new_english(ln)
+                self._flag_if_split(ln)
                 self.translated.append(ln)
                 fresh.append(ln)
             else:
@@ -558,6 +566,14 @@ class _TranslateRun:
             # Source script in a novel is wrong whichever engine wrote it, so this
             # one check does not follow the engines the general guard is off for.
             self._guard_novel_script_leaks(fresh)
+
+    def _flag_if_split(self, ln):
+        """Baihe, not the model, chose where this part's English breaks, so it goes to review.
+        A flagged line never joins a group (sentence_groups), so no flag is replaced."""
+        if id(ln) in self.split_by_length:
+            self.split_by_length.discard(id(ln))
+            ln.flag = "uncertain_translation"
+            ln.flag_note = sentence_groups.SPLIT_BY_LENGTH_NOTE
 
     _EMPTY_RETRY_DEPTH = 2
 
@@ -587,6 +603,7 @@ class _TranslateRun:
                 if (tr or "").strip():
                     ln.en = tr
                     source_change.clear_for_new_english(ln)
+                    self._flag_if_split(ln)
                     self.translated.append(ln)
                     fresh.append(ln)
                 else:
