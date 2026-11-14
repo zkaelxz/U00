@@ -151,3 +151,9 @@ def test_an_unattended_run_on_a_cloud_tag_needs_a_cap(isolated_db, monkeypatch):
     with pytest.raises(UnsupportedOperationError):
         paid_job_service.require_cap_for_unattended("ollama", False, CLOUD)
     paid_job_service.require_cap_for_unattended("ollama", False, "gemma4:12b")
+
+
+def test_the_retired_gemma4_cloud_tag_stays_priced_for_the_caps():
+    from engine_backends import pricing
+    assert "gemma4:cloud" in pricing.PRICING_PER_MILLION_TOKENS
+    assert "gemma4:cloud" not in local.OLLAMA_CLOUD_MODELS

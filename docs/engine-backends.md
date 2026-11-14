@@ -144,7 +144,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     The `OLLAMA_CLOUD_MODELS` tag (`gemma4:31b-cloud`) is Ollama's hosted
     model, reached through the same local server after `ollama signin` (the owner's
     account): the subtitle text is processed on Ollama's servers and billed per token
-    (priced in `PRICING_PER_MILLION_TOKENS`, so the spend caps count it).
+    (priced in `PRICING_PER_MILLION_TOKENS`, so the spend caps count it; the retired `gemma4:cloud` tag stays priced there for settings that still name it).
     It is never a default or fallback, is skipped by the GPU/headroom checks
     (`ollama_touches_local_gpu`, which also decides whether a job takes the GPU queue slot), and a 429 becomes `OllamaCloudLimitError`, which the normal
     backoff retries. A signed-in member who saved their own Ollama key has their cloud calls
