@@ -1,6 +1,6 @@
 """Condensing a sign's English when it is too long for the band it sits on."""
-import cv2
 import numpy as np
+import pytest
 
 import scanlate_condense
 import scanlate_render
@@ -75,6 +75,7 @@ def test_an_unreadable_engine_reply_gives_no_answer(monkeypatch):
 
 
 def test_a_long_text_on_a_one_line_band_is_set_smaller_than_a_short_one():
+    cv2 = pytest.importorskip("cv2")
     from tests.test_scanlate_layout_fixes import _band_over_art_page
     page, _band, _glyphs = _band_over_art_page()
     bgr = cv2.cvtColor(page, cv2.COLOR_GRAY2BGR)
@@ -87,6 +88,7 @@ def test_a_long_text_on_a_one_line_band_is_set_smaller_than_a_short_one():
 
 
 def test_a_sign_without_a_band_has_no_fitted_size():
+    pytest.importorskip("cv2")
     page = np.full((100, 200, 3), 255, np.uint8)
     assert scanlate_render.sign_fitted_size(page, {"x": 0, "y": 0, "w": 200, "h": 100}, "Closed") is None
 
