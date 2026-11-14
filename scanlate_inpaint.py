@@ -504,6 +504,25 @@ def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     return blended[y - y0:y - y0 + bh, x - x0:x - x0 + bw]
 
 
+# Lettering is near-white and barely coloured; pale art such as a tan coat is
+# brighter than the dark ground but fails one of these, so it stays unmasked.
+_STROKE_MIN_GRAY = 200
+_STROKE_MAX_SATURATION = 60
+
+
+def _dark_art_stroke_mask(crop):
+    """uint8 mask (255 = erase) of just the white letter strokes and their fill
+    plus a thin margin for the glow, so LaMa repaints the lettering and leaves
+    the art between and around the letters alone."""
+    import cv2
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    saturation = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1]
+    core = ((gray >= _STROKE_MIN_GRAY) & (saturation <= _STROKE_MAX_SATURATION)).astype(np.uint8) * 255
+    core = cv2.dilate(core, np.ones((3, 3), np.uint8), iterations=2)
+    core = _fill_enclosed_holes(core)
+    return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13)))
+
+
 def _dark_art_inpaint(img, x: int, y: int, bw: int, bh: int, backend: str, hf_token):
     """The crop for lettering on dark art. LaMa keeps the art's edges and
     texture where the flat tone fill smears them, so it goes first when the
@@ -512,7 +531,9 @@ def _dark_art_inpaint(img, x: int, y: int, bw: int, bh: int, backend: str, hf_to
     crop = img[y:y + bh, x:x + bw]
     if _resolve_inpaint_backend(backend) != "ml" or not _pale_pixels(crop).any():
         return _dark_art_fill(img, x, y, bw, bh)
-    mask = _dark_art_lettering_mask(crop)
+    mask = _dark_art_stroke_mask(crop)
+    if not mask.any():
+        return _dark_art_fill(img, x, y, bw, bh)
     lama, _ = _try_ml_inpaint(crop, mask, hf_token, backend)
     if lama is None:
         return _dark_art_fill(img, x, y, bw, bh)

@@ -505,3 +505,12 @@ def test_a_dark_art_sign_falls_back_to_the_tone_fill_when_lama_fails(monkeypatch
     scanlate_inpaint.inpaint_region(None, box, image=page, backend="ml", spare_art=True)
     erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
     assert int(erased.max()) < 90
+
+
+def test_dark_art_lama_mask_covers_the_letters_but_not_pale_art_beside_them():
+    page = np.full((300, 500, 3), (45, 30, 20), np.uint8)
+    page[:, 200:300] = (120, 160, 190)
+    cv2.putText(page, "HELLO", (20, 160), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 6)
+    mask = scanlate_inpaint._dark_art_stroke_mask(page)
+    assert mask[:, 230:270].max() == 0 or mask[:, 230:270].mean() < 5
+    assert mask[120:170, 20:190].mean() > 40
