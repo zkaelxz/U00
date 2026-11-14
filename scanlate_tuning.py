@@ -157,13 +157,15 @@ TYPESET_SIBLING_MAX_SHRINK = 0.75
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
 # Lettering is followed when it is a single line (stretched at least ELONGATION times
-# longer than thick) slanted between MIN and MAX degrees; a flatter slant is scan noise
+# longer than thick, in one band of rows) slanted between MIN and MAX degrees; a flatter slant is scan noise
 # and a steeper one is a vertical column. The tilted text may leave the balloon by at
 # most MAX_OUTSIDE_SHARE of its ink, else it is set level.
-TILT_MIN_DEG = 5.0
+TILT_MIN_DEG = 10.0
 TILT_MAX_DEG = 45.0
 TILT_MIN_ELONGATION = 2.5
 TILT_MIN_INK_PX = 40
+TILT_GLYPH_MAX_OF_BOX = 0.4
+TILT_BAND_ROW_SHARE = 0.25
 TILT_MAX_OUTSIDE_SHARE = 0.005
 
 # --- Cleanup (scanlate_inpaint) ---

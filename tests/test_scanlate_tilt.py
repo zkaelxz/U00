@@ -31,11 +31,35 @@ def test_tilted_single_line_is_measured(angle):
 
 
 def test_level_line_has_no_angle():
-    assert scanlate_tilt.estimate_text_angle(_page_with_blocks(2), BOX) == 0.0
+    assert scanlate_tilt.estimate_text_angle(_page_with_blocks(7), BOX) == 0.0
 
 
 def test_vertical_column_has_no_angle():
     assert scanlate_tilt.estimate_text_angle(_page_with_blocks(85), BOX) == 0.0
+
+
+def test_staggered_level_lines_have_no_angle():
+    """Two level lines, the second indented, read as a slanted blob to a plain axis fit."""
+    page = np.full((200, 240, 3), 255, np.uint8)
+    for col in range(30, 190, 30):
+        page[60:84, col:col + 22] = 20
+    for col in range(60, 210, 30):
+        page[110:134, col:col + 22] = 20
+    assert scanlate_tilt.estimate_text_angle(page, BOX) == 0.0
+
+
+def test_tilted_line_cut_tight_by_the_box_is_still_measured():
+    page = _page_with_blocks(25)
+    ys, xs = np.nonzero(page[:, :, 0] < 128)
+    tight = {"x": int(xs.min()), "y": int(ys.min()), "w": int(xs.max() - xs.min() + 1),
+             "h": int(ys.max() - ys.min() + 1)}
+    assert scanlate_tilt.estimate_text_angle(page, tight) == pytest.approx(25, abs=4)
+
+
+def test_long_mark_along_the_box_edge_is_not_lettering():
+    page = _page_with_blocks(25)
+    page[190:198, :] = 20
+    assert scanlate_tilt.estimate_text_angle(page, BOX) == pytest.approx(25, abs=4)
 
 
 def test_block_of_several_lines_has_no_angle():

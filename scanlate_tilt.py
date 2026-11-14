@@ -20,10 +20,15 @@ def estimate_text_angle(page_bgr, box: dict) -> float:
     if roi.shape[0] < 8 or roi.shape[1] < 8:
         return 0.0
     ink = _lettering_mask(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)) > 0
-    # Marks touching the crop's edge are the balloon outline or the art, not lettering.
-    count, labels = cv2.connectedComponents(ink.astype(np.uint8), connectivity=8)
-    edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
-    ink &= ~np.isin(labels, edge[edge > 0])
+    # A mark that touches the crop's edge and is long is the balloon outline or the art; one
+    # glyph-sized is lettering that the box was cut tight around, which is common on narrow strips.
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(ink.astype(np.uint8), connectivity=8)
+    longest = max(roi.shape[:2]) * scanlate_tuning.TILT_GLYPH_MAX_OF_BOX
+    for i in range(1, count):
+        left, top, width, height = stats[i, :4]
+        touches = left == 0 or top == 0 or left + width == roi.shape[1] or top + height == roi.shape[0]
+        if touches and max(width, height) > longest:
+            ink[labels == i] = False
     ys, xs = np.nonzero(ink)
     if len(xs) < scanlate_tuning.TILT_MIN_INK_PX:
         return 0.0
@@ -34,7 +39,26 @@ def estimate_text_angle(page_bgr, box: dict) -> float:
     angle = (angle + 90) % 180 - 90
     if not scanlate_tuning.TILT_MIN_DEG <= abs(angle) <= scanlate_tuning.TILT_MAX_DEG:
         return 0.0
+    # Two or three level lines, staggered, also read as a slanted blob. A single tilted line
+    # smears across the rows in one band; separate bands mean it is a block of level lines.
+    if _row_bands(ys) > 1:
+        return 0.0
     return angle
+
+
+def _row_bands(ys) -> int:
+    """How many separate bands of rows the ink occupies: a row counts when it holds at least
+    TILT_BAND_ROW_SHARE of the busiest row's ink, and a band thinner than 3 rows is noise."""
+    rows = np.bincount(ys - ys.min())
+    busy = rows >= scanlate_tuning.TILT_BAND_ROW_SHARE * rows.max()
+    bands, run = 0, 0
+    for row in list(busy) + [False]:
+        if row:
+            run += 1
+        else:
+            bands += run >= 3
+            run = 0
+    return bands
 
 
 def draw_tilted(pil_img, box: dict, mask, angle: float, size: int, draw_text) -> bool:
