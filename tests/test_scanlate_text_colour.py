@@ -8,6 +8,7 @@ PIL = pytest.importorskip("PIL")
 from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_render
+import scanlate_tuning
 
 BOX = {"x": 20, "y": 20, "w": 120, "h": 50}
 
@@ -277,6 +278,24 @@ def test_a_line_keeps_clear_of_the_edge_of_a_balloon_with_a_tail():
     ink = np.flatnonzero((np.asarray(img.convert("L")) < 128).any(axis=0))
     pad = 0.2 * report["size"]
     assert ink.min() >= pad and ink.max() <= 199 - pad
+
+
+def test_a_narrow_balloon_with_a_tail_keeps_its_text_at_the_comfortable_size():
+    word = "Honest!!"
+    comfort = scanlate_tuning.TYPESET_COMFORT_PX
+    path = scanlate_render._find_font(None)
+    font = ImageFont.truetype(path, comfort) if path else ImageFont.load_default(comfort)
+    left, _, right, _ = ImageDraw.Draw(Image.new("RGB", (1, 1))).textbbox((0, 0), word, font=font)
+    width = right - left + 4
+    mask = np.zeros((80, width), np.uint8)
+    mask[:40] = 1
+    cv2.fillPoly(mask, [np.array([[2, 39], [width // 2, 39], [4, 79]])], 1)
+    assert scanlate_render._has_notch(mask.astype(bool))
+    img = Image.new("RGB", (width, 80), "white")
+    report = {}
+    scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": width, "h": 80}, word,
+                                       font_size=comfort, mask=mask.astype(bool), report=report)
+    assert report["size"] == comfort
 
 
 def test_a_line_in_a_balloon_without_a_notch_may_reach_its_outline_rather_than_shrink():

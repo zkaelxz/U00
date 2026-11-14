@@ -246,10 +246,14 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLA
     # Whole words down to the comfortable size, then hyphenated words down
     # to it, then smaller still, each time without a word cut in three pieces;
     # that is allowed only as a last resort.
-    passes = ((False, comfort, True), (True, comfort, False), (True, smallest, False),
-              (True, smallest, True))
+    # The side padding holds only down to the comfortable size: in a balloon too narrow for it
+    # there, text reaching the outline reads better than text shrunk below that size.
     pad_em = scanlate_tuning.TYPESET_SIDE_PAD_EM if _has_notch(mask) else 0.0
-    for hyphenate, floor, split_twice_ok in passes:
+    passes = ((False, comfort, True, pad_em), (True, comfort, False, pad_em))
+    if pad_em:
+        passes += ((False, comfort, True, 0.0), (True, comfort, False, 0.0))
+    passes += ((True, smallest, False, 0.0), (True, smallest, True, 0.0))
+    for hyphenate, floor, split_twice_ok, pad_em in passes:
         for size in range(font_size, style.floor(floor, font_size) - 1, -1):
             laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate, pad_em)
             if laid_out is not None and (split_twice_ok
