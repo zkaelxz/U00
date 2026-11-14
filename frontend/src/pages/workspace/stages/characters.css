@@ -14,3 +14,4 @@
 .character-merge select { flex: 1 1 14rem; min-width: 0; }
 .character-merge-confirm { flex: 1 1 100%; margin: 0; overflow-wrap: anywhere; }
 .character-notice { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.character-sample-clips { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; }

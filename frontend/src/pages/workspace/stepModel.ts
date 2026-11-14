@@ -11,6 +11,8 @@ export interface StepInput {
   lineCount: number | null
   translatedCount: number
   exported: boolean
+  /** Lines the check queue lists (the Review risk view); null until known or when it can't be read. */
+  riskCount?: number | null
 }
 
 export interface Step {
@@ -32,10 +34,29 @@ export function titleSteps(i: StepInput): Step[] {
       key: 'translate', title: 'Translate', done: allTranslated,
       note: lines === 0 ? 'Needs lines first' : allTranslated ? 'Every line has English' : `${left} of ${lines} line${lines === 1 ? '' : 's'} left`,
     },
-    { key: 'check', title: 'Check', done: i.exported, note: 'Read and fix the lines' },
+    { key: 'check', title: 'Check', done: i.exported, note: checkNote(i.riskCount ?? null) },
     { key: 'export', title: 'Export', done: i.exported, note: 'SRT, VTT, ASS or video' },
   ]
   if (!known) return rows.map((r) => ({ key: r.key, title: r.title, note: '', state: 'todo' as const }))
   const current = rows.findIndex((r) => !r.done)
   return rows.map((r, n) => ({ key: r.key, title: r.title, note: r.note, state: r.done ? 'done' : n === current ? 'current' : 'todo' }))
+}
+
+function checkNote(risk: number | null): string {
+  if (risk === null) return 'Read and fix the lines'
+  if (risk === 0) return 'Nothing needs a look'
+  return risk === 1 ? '1 line needs a look' : `${risk} lines need a look`
+}
+
+/** The Check step's main button, which names the lines it opens; null when nothing needs a look and Export comes next. */
+export function checkActionLabel(risk: number | null): string | null {
+  if (risk === 0) return null
+  if (risk === null) return 'Check the lines'
+  return risk === 1 ? 'Check the line' : `Check the ${risk} lines`
+}
+
+/** "Step 4 of 5 · Check": where `key` sits among the steps, for the one-line fold of the step tiles. */
+export function stepPlace(steps: Step[], key: StepKey): string | null {
+  const at = steps.findIndex((s) => s.key === key)
+  return at === -1 ? null : `Step ${at + 1} of ${steps.length} · ${steps[at].title}`
 }
