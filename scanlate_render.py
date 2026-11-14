@@ -586,10 +586,14 @@ def sampled_ink_color(page_bgr, box: dict):
     # Ink is whatever differs strongly from the balloon's own colour, so a saturated red on a
     # dark balloon counts although its channel average is not bright.
     background = np.median(roi.reshape(-1, 3), axis=0)
-    ink = np.abs(roi.astype(int) - background.astype(int)).max(axis=2) > _INK_MIN_DISTANCE
+    distance = np.abs(roi.astype(int) - background.astype(int)).max(axis=2)
+    ink = distance > _INK_MIN_DISTANCE
     if int(ink.sum()) < _INK_MIN_PIXELS:
         return None
-    b, g, r = (int(v) for v in np.median(roi[ink], axis=0))
+    # Anti-aliased edges blend toward the paper, so the median of all ink pixels reads washed
+    # out (a deep orange comes back pale); the pixels farthest from the paper are the pen colour.
+    core = ink & (distance >= np.median(distance[ink]))
+    b, g, r = (int(v) for v in np.median(roi[core], axis=0))
     if max(r, g, b) - min(r, g, b) < _INK_MIN_CHROMA:
         return None
     return (r, g, b)

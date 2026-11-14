@@ -278,7 +278,7 @@ class SettingsPreferences(TimingPreferences):
     scanlate_chapter_brief: bool = True
     scanlate_page_image: bool = True
     scanlate_sfx_gloss: bool = False
-    scanlate_match_text_color: bool = False
+    scanlate_match_text_color: bool = True
     scanlate_rect_layout: bool = False
     episode_brief: bool = True
     stream_plain_prompt: bool = True
