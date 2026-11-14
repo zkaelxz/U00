@@ -20,7 +20,7 @@ import { ExportJellyfin } from './ExportJellyfin'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
 import { libassNeed, NO_LIBASS } from '../../readiness/needs'
-import { SIMPLE_EXPORT_BLOCKS, exportBlockOrder, exportBlockReason, type ExportBlockId } from '../exportBlocks'
+import { exportBlockReason, openingExportBlock, shownExportBlocks, type ExportBlockId } from '../exportBlocks'
 import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
 import { AudiobookBlock, BurnedVideoBlock, DubbedVideoBlock, ExportEpub, MarkExported, SoftsubVideoBlock, type StartError } from './ExportMedia'
@@ -49,7 +49,7 @@ export default function ExportStage() {
   const [optionsError, setOptionsError] = useState<unknown>(null)
   const [startError, setStartError] = useState<StartError | null>(null)
   const kind = titleKind(drama.media_type, drama.content_mode)
-  const inputs = useExportInputs(dramaId, drama.content_mode === 'novel_narration')
+  const inputs = useExportInputs(dramaId, kind, drama.content_mode === 'novel_narration')
   const { readiness: setup } = useReadiness()
   // A missing FFmpeg has its own card above; this is only the build that lacks libass.
   const libass = setup?.ffmpeg ? libassNeed(setup) : null
@@ -113,13 +113,13 @@ export default function ExportStage() {
   const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
     options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
-  const share = (id: ExportBlockId) => ({
-    startError, onStartError: setStartError,
-    reason: exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null),
-  })
+  const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)
+  const shown = shownExportBlocks(kind, simple)
+  const opening = openingExportBlock(shown, reasonOf)
+  const share = (id: ExportBlockId) => ({ startError, onStartError: setStartError, reason: reasonOf(id), opening: opening === id })
   const blocks: Record<ExportBlockId, ReactNode> = {
     subtitles: (
-      <ExportBlock key="subtitles" id="subtitles" hint="SRT, VTT, LRC or ASS">
+      <ExportBlock key="subtitles" id="subtitles" opening={opening === 'subtitles'} hint="SRT, VTT, LRC or ASS">
         <ExportSubtitles
           fmt={fmt}
           setFmt={setFmt}
@@ -144,7 +144,7 @@ export default function ExportStage() {
     ),
     dubbed_video: <DubbedVideoBlock key="dubbed_video" {...share('dubbed_video')} />,
     audiobook: <AudiobookBlock key="audiobook" {...share('audiobook')} />,
-    epub: <ExportEpub key="epub" reason={exportBlockReason('epub', inputs)} />,
+    epub: <ExportEpub key="epub" reason={reasonOf('epub')} opening={opening === 'epub'} />,
   }
   return (
     <div className="stage-export">
@@ -180,7 +180,7 @@ export default function ExportStage() {
         <SourceChangedWarning dramaId={dramaId} />
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
       </section>
-      {exportBlockOrder(kind).filter((id) => !simple || SIMPLE_EXPORT_BLOCKS.includes(id)).map((id) => blocks[id])}
+      {shown.map((id) => blocks[id])}
       {!simple && featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
       {/* After the exports, so the status isn't offered before there is anything to mark. */}
       <div className="panel">
