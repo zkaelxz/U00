@@ -404,6 +404,7 @@ def _contained_share(a: dict, b: dict) -> float:
 # whole balloon, which is the cleaner crop boundary to keep over a
 # "text_bubble"/"text_free" box describing the same physical object.
 _LABEL_MERGE_PRIORITY = {"bubble": 0, "text_bubble": 1, "text_free": 1}
+_TEXT_LABELS = ("text_bubble", "text_free")
 
 
 def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) -> list:
@@ -467,8 +468,17 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) ->
         current = winner_of.get(root)
         if current is None or rank(boxes[i]) < rank(boxes[current]):
             winner_of[root] = i
-    keep = set(winner_of.values())
-    return [b for i, b in enumerate(boxes) if i in keep]
+    lines_of = {}
+    for i in range(n):
+        if boxes[i].get("label") in _TEXT_LABELS:
+            lines_of.setdefault(find(i), []).append(
+                {k: boxes[i][k] for k in ("x", "y", "w", "h")})
+    kept = []
+    for root, i in sorted(winner_of.items(), key=lambda t: t[1]):
+        # The text boxes merged away are where the lettering lies, which
+        # split_separate_lettering() must not cut through.
+        kept.append(dict(boxes[i], text_boxes=lines_of[root]) if root in lines_of else boxes[i])
+    return kept
 
 
 _LOOSE_TEXT_LABEL = "text_free"
@@ -570,7 +580,11 @@ def merge_fragment_boxes(boxes: list, gray=None) -> list:
                                          -(b.get("confidence") or 0.0)))
         x1, y1 = min(b["x"] for b in group), min(b["y"] for b in group)
         x2, y2 = max(b["x"] + b["w"] for b in group), max(b["y"] + b["h"] for b in group)
-        merged.append((members[0], dict(best, x=x1, y=y1, w=x2 - x1, h=y2 - y1)))
+        joined = dict(best, x=x1, y=y1, w=x2 - x1, h=y2 - y1)
+        text_boxes = [t for b in group for t in b.get("text_boxes", ())]
+        if text_boxes:
+            joined["text_boxes"] = text_boxes
+        merged.append((members[0], joined))
     return [b for _, b in sorted(merged, key=lambda t: t[0])]
 
 
@@ -1014,16 +1028,10 @@ def bubble_shape_mask(image_path: str, box: dict, margin: int = 4, image=None):
     return mask
 
 
-def bubble_erase_mask(image_path: str, box: dict, image=None):
-    """Where cleanup may erase inside `box`: the balloon's interior plus any
-    lettering joined to its outline (a stroke touching the outline bends the
-    light region's edge around it, so the interior alone would keep that
-    stroke). Those strokes are the marks inside the interior's convex hull
-    that sit deeper than the outline is thick, measured from the paper
-    outside; art beyond the outline is nearer that paper than this, or
-    outside the hull. None as bubble_shape_mask() returns it."""
-    import cv2
-
+def balloon_outside_mask(image_path: str, box: dict, image=None):
+    """Boolean (h, w) array of `box`: True on the light paper that reaches the box's edge
+    outside the balloon under its centre (see _balloon_interior()). None when no balloon
+    is found there."""
     gray = page_gray(image_path, image)
     if gray is None:
         return None
@@ -1034,6 +1042,59 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
     found = _balloon_interior(gray[y0:y1, x0:x1])
     if found is None:
         return None
+    return _to_box_mask(box, area, found[1])
+
+
+def _tone_from_edge(roi, filled):
+    """uint8 mask of `roi`'s flat grey areas (lighter than an outline, darker than
+    paper, at least ERASE_FLAT_TONE_PX across) outside `filled` that connect to
+    the box edge."""
+    import cv2
+
+    t = scanlate_tuning
+    tone = ((roi >= t.CV_GREY_RIM_LEVEL) & (roi < t.CV_LIGHT_FLOOR) & (filled == 0)).astype(np.uint8)
+    tone = cv2.morphologyEx(tone, cv2.MORPH_OPEN, np.ones((t.ERASE_FLAT_TONE_PX,) * 2, np.uint8))
+    _, labels = cv2.connectedComponents(tone, connectivity=4)
+    on_edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    return np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
+
+
+def _art_from_edge(roi, filled, outside):
+    """bool mask of `roi`'s solid areas of ink or tone (at least ERASE_SOLID_ART_PX
+    across) outside `filled` that connect to the box edge, with their one-pixel
+    rim. The outline and lettering are thinner, so they stay out."""
+    import cv2
+
+    t = scanlate_tuning
+    ink = ((filled == 0) & (outside == 0) & (roi < t.CV_LIGHT_FLOOR)).astype(np.uint8)
+    solid = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((t.ERASE_SOLID_ART_PX,) * 2, np.uint8))
+    _, labels = cv2.connectedComponents(solid, connectivity=4)
+    on_edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    solid = np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
+    return (cv2.dilate(solid, np.ones((3, 3), np.uint8)) & ink) > 0
+
+
+def bubble_erase_mask(image_path: str, box: dict, image=None):
+    """Where cleanup may erase inside `box`: the balloon's interior plus any
+    lettering joined to its outline (a stroke touching the outline bends the
+    light region's edge around it, so the interior alone would keep that
+    stroke). Those strokes are the marks inside the interior's convex hull
+    that sit deeper than the outline is thick, measured from the paper or
+    tone outside; art beyond the outline is nearer that than this, or
+    outside the hull. None as bubble_shape_mask() returns it."""
+    import cv2
+
+    gray = page_gray(image_path, image)
+    if gray is None:
+        return None
+    area = _roi(gray, box)
+    if area is None:
+        return None
+    x0, y0, x1, y1 = area
+    roi = gray[y0:y1, x0:x1]
+    found = _balloon_interior(roi)
+    if found is None:
+        return None
     filled, outside = found
     if filled.sum() < 0.3 * box["w"] * box["h"]:
         return None
@@ -1041,10 +1102,22 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
         depth = cv2.distanceTransform((1 - outside).astype(np.uint8), cv2.DIST_L2, 3)
         edge = filled - cv2.erode(filled, np.ones((3, 3), np.uint8))
         thickness = float(np.median(depth[edge > 0])) if edge.any() else 0.0
+        # A mark must also be that deep from the non-ink tone outside: grey art
+        # beside the outline is as far from the paper as lettering, so where a
+        # tail makes the hull bridge a dent, that art and the outline along it
+        # were erased to a straight white edge. The thickness stays measured
+        # from the paper: measured from the tone it shrinks, and dark art
+        # against the outline (hair, burst spikes) would then pass as lettering.
+        clear = np.logical_or(np.asarray(outside) > 0, _tone_from_edge(roi, filled) > 0)
+        depth = cv2.distanceTransform((~clear).astype(np.uint8), cv2.DIST_L2, 3)
         contours, _ = cv2.findContours(filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         hull = np.zeros_like(filled)
         cv2.fillPoly(hull, [cv2.convexHull(np.vstack(contours))], 1)
-        filled = filled | ((hull > 0) & (depth > thickness + 1)).astype(np.uint8)
+        # Dark art in a dent the hull bridges (a jacket or brick wall between the
+        # bumps of a burst) is as far from the paper as lettering, and was erased
+        # to a straight white edge; lettering joined to the outline is thinner.
+        joined = (hull > 0) & (depth > thickness + 1) & ~_art_from_edge(roi, filled, outside)
+        filled = filled | joined.astype(np.uint8)
     elif filled.mean() >= scanlate_tuning.BALLOON_FILLS_BOX:
         # No paper outside the balloon in the box: the box lies within it.
         filled = np.ones_like(filled)

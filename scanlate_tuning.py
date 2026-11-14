@@ -76,6 +76,14 @@ BALLOON_COLUMN_INSIDE = 0.7
 # A balloon interior covering this share of its box means the box lies within
 # the balloon (there is no outline in it to spare).
 BALLOON_FILLS_BOX = 0.9
+# Grey art beside a balloon counts as outside it when it survives an opening of
+# this size: screentone's grey fringes round its dots do not, and lettering that
+# touches screentone would otherwise be left half-erased.
+ERASE_FLAT_TONE_PX = 7
+# Ink or tone at least this many px across, reaching the box edge, is art the
+# balloon is drawn over, not lettering joined to its outline: a burst outline
+# is thinner than this.
+ERASE_SOLID_ART_PX = 11
 
 # --- Region kinds (scanlate_detect.classify_text_regions) ---
 # A box at least this share light (gray above the level) is a balloon or a
@@ -165,6 +173,10 @@ TYPESET_SIBLING_MIN_RATIO = 0.7
 TYPESET_SIBLING_MAX_SHRINK = 0.75
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
+# In a balloon with a notch, lobe or tail, each line keeps this share of its lettering's height
+# clear of the outline on both sides; with the outline margin alone, one long line ran from edge to
+# edge of a round lobe. Ovals get none: there it only shrank text that already fitted.
+TYPESET_SIDE_PAD_EM = 0.25
 # Lettering is followed when the angle at which its ink lines up into the sharpest rows is
 # between MIN and MAX degrees and lines it up at least MIN_GAIN times better than level
 # does; a flatter slant is scan noise and a steeper one is a vertical column. A mark
