@@ -322,6 +322,29 @@ def _slow_engine(monkeypatch):
     return entered, release
 
 
+LIN_EXACT = {"term_original": "林晚", "term_translation": "Lin Wan", "notes": "Lynn",
+             "enforce_exact": True}
+
+
+def _flag_all_dense(lines, field="en", mode="normal", **_):
+    for ln in lines:
+        ln.flag, ln.flag_note = "dense", "too fast"
+    return len(lines)
+
+
+def _landed_run(texts):
+    """(drama id, rows, the run's lines) after a run's save_cb wrote `en` onto
+    untranslated lines: texts is [(zh, the run's English)]."""
+    did, _sid, rows = _seed([(zh, "") for zh, _en in texts], series=None)
+    lines = db.load_line_objects(did)
+    save_cb, _notes, skipped = translation_finish.own_lines_callbacks(did, lines, lambda ls: None)
+    for ln, (_zh, en) in zip(lines, texts):
+        ln.en = en
+    save_cb(lines)
+    assert not skipped
+    return did, rows, lines
+
+
 class TestOwnLinesOnly:
     """A line the user edits while the re-translate runs stays exactly as edited."""
 
@@ -530,6 +553,73 @@ class TestOwnLinesOnly:
         assert [(n["line_id"], n["note"]) for n in db.list_translation_notes(did)] == \
             [(rows[0]["id"], "critique 0")]
         assert [ln.id for ln in saved] == [rows[0]["id"]]
+
+    def test_english_for_a_source_changed_mid_run_never_lands(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(subtitle_formats, "flag_dense_lines", _flag_all_dense)
+        did, _sid, rows = _seed([("他走了", ""), ("她来了", "")], series=None)
+        lines = db.load_line_objects(did)
+        saved = []
+        save_cb, notes_cb, skipped = translation_finish.own_lines_callbacks(
+            did, lines, saved.extend)
+        notes_cb([{"line_idx": ln.idx, "term": "", "note_type": "reflection",
+                   "note": f"critique {ln.idx}"} for ln in lines])
+        # The user re-transcribes the second line while its batch is out.
+        assert db.update_line_fields_if(did, rows[1]["id"], {"zh": "她走了"},
+                                        {"zh": "她来了"})
+        lines[0].en, lines[1].en = "He left.", "She came."
+        save_cb(lines)
+        assert skipped == {rows[1]["id"]}
+        assert [ln.id for ln in saved] == [rows[0]["id"]]
+        assert [n["line_id"] for n in db.list_translation_notes(did)] == [rows[0]["id"]]
+        recheck = set()
+        translation_finish.finish_translation_run(
+            did, lines, None, "fake", "", [], [], enforce_ids={r["id"] for r in rows},
+            flags_needing_recheck=recheck)
+        first, second = db.load_lines(did)
+        assert (first["zh"], first["en"], first["flag"]) == ("他走了", "He left.", "dense")
+        assert (second["zh"], second["en"]) == ("她走了", "")
+        assert not second["flag"] and not second["flag_note"]
+
+    def test_source_changed_before_finish_gets_no_substitution_or_flag(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setattr(subtitle_formats, "flag_dense_lines", _flag_all_dense)
+        did, rows, lines = _landed_run([("林晚一", "Lynn one"), ("林晚二", "Lynn two")])
+        # Hand-editing the source of a translated line keeps its English and flags it.
+        assert db.update_line_fields_if(
+            did, rows[1]["id"], {"zh": "林晚三", "flag": "source_changed", "flag_note": ""},
+            {"zh": "林晚二"})
+        translation_finish.finish_translation_run(
+            did, lines, None, "fake", "", [LIN_EXACT], [], enforce_ids={r["id"] for r in rows},
+            flags_needing_recheck=set())
+        first, second = db.load_lines(did)
+        assert (first["en"], first["flag"]) == ("Lin Wan one", "dense")
+        assert (second["zh"], second["en"], second["flag"]) == ("林晚三", "Lynn two",
+                                                                  "source_changed")
+
+    def test_source_edit_right_after_the_final_read_gets_no_substitution_or_flag(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setattr(subtitle_formats, "flag_dense_lines", _flag_all_dense)
+        did, rows, lines = _landed_run([("林晚一", "Lynn one"), ("林晚二", "Lynn two")])
+        real_load, edited = db.load_line_objects, []
+
+        def load_then_edit(drama_id, *a, **kw):
+            out = real_load(drama_id, *a, **kw)
+            if not edited:
+                # A writer that changes only the source, just after finish reads the lines.
+                edited.append(db.update_line_fields_if(
+                    drama_id, rows[1]["id"], {"zh": "林晚三"}, {"zh": "林晚二"}))
+            return out
+        monkeypatch.setattr(db, "load_line_objects", load_then_edit)
+        recheck = set()
+        translation_finish.finish_translation_run(
+            did, lines, None, "fake", "", [LIN_EXACT], [], enforce_ids={r["id"] for r in rows},
+            flags_needing_recheck=recheck)
+        assert edited and edited[0]
+        first, second = real_load(did)
+        assert (first.en, first.flag) == ("Lin Wan one", "dense")
+        assert (second.zh, second.en) == ("林晚三", "Lynn two")
+        assert not second.flag and not second.flag_note
+        assert recheck == {rows[1]["id"]}
 
     def test_edit_between_selection_and_load_is_kept(self, isolated_db, monkeypatch):
         did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])

@@ -109,13 +109,13 @@ describe('the closed Options line', () => {
     expect(optionsSummary(null, '')).toBe('title from the file name, default English')
     expect(optionsSummary('Ep 1', 'US')).toBe('title Ep 1, US English')
   })
-  it('clips a long title without spaces to 24 Latin widths, counting CJK as two', () => {
+  it('clips a long title without spaces to 20 Latin widths, counting CJK as two', () => {
     const shown = (long: string) => {
       const line = optionsSummary(long, '')
       return line.slice('title '.length, line.indexOf(', default'))
     }
-    expect(shown('x'.repeat(130))).toBe(`${'x'.repeat(23)}…`)
-    expect(shown('魔'.repeat(130))).toBe(`${'魔'.repeat(11)}…`)
+    expect(shown('x'.repeat(130))).toBe(`${'x'.repeat(19)}…`)
+    expect(shown('魔'.repeat(130))).toBe(`${'魔'.repeat(9)}…`)
     expect(shown('시그널')).toBe('시그널')
   })
 })
