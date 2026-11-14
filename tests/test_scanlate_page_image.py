@@ -210,3 +210,105 @@ def test_both_prompts_ask_for_natural_dialogue_and_only_the_blind_one_forbids_gu
         assert "romanised" in sent[key]
     assert "never guess he or she" in sent["text_only"]
     assert "never guess he or she" not in sent["picture"]
+
+
+class _AnswersByCall:
+    """Stands in for translate_regions_by_id: answers[n] is the dict returned
+    on call n (None = unusable answer); records the ids each call asked for."""
+
+    def __init__(self, answers):
+        self.answers, self.asked = list(answers), []
+
+    def __call__(self, keyed, *a, **k):
+        self.asked.append(sorted(keyed))
+        answer = self.answers[len(self.asked) - 1] if len(self.asked) <= len(self.answers) else None
+        return (answer, "ctx") if answer is not None else (None, "old")
+
+
+def test_a_region_the_picture_answer_dropped_is_retried_alone(monkeypatch):
+    # A picture answer that misses an id is rejected whole; the text request that
+    # replaces it used to lose the page when it, too, dropped one id.
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image",
+                        lambda *a, **k: (None, ""))
+    asked = _AnswersByCall([{"0": "first"}, {"1": "second"}])
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", asked)
+    bubbles = [_region("a"), _region("b")]
+    notes = []
+    ok, _ = run_svc._translate(bubbles, _Engine(), "claude", {"source_language": "ko"}, None,
+                               "", 1, notes, page_image=(b"x", "image/png", 1.0))
+    assert ok and notes == []
+    assert [b["translated_text"] for b in bubbles] == ["first", "second"]
+    assert asked.asked == [["0", "1"], ["1"]]
+
+
+def test_a_page_whose_every_answer_was_unusable_gets_one_more_try(monkeypatch):
+    asked = _AnswersByCall([None, {"0": "worked"}])
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", asked)
+    bubbles = [_region("a")]
+    ok, _ = run_svc._translate(bubbles, _Engine(), "deepl", {"source_language": "ko"}, None,
+                               "", 1, [])
+    assert ok and bubbles[0]["translated_text"] == "worked"
+
+
+def test_a_region_that_stays_untranslated_is_still_reported(monkeypatch):
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id",
+                        _AnswersByCall([{"0": "one"}]))
+    bubbles = [_region("a"), _region("b")]
+    notes = []
+    ok, _ = run_svc._translate(bubbles, _Engine(), "deepl", {"source_language": "ko"}, None,
+                               "", 1, notes)
+    assert not ok and any("1 of 2 regions weren't translated" in n[1] for n in notes)
+
+
+def test_an_empty_answer_for_a_region_is_flagged_not_silent(monkeypatch):
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id",
+                        lambda keyed, *a, **k: ({"0": "Hello", "1": ""}, "ctx"))
+    bubbles = [_region("a"), _region("b")]
+    notes = []
+    ok, _ = run_svc._translate(bubbles, _Engine(), "deepl", {"source_language": "ko"}, None,
+                               "", 1, notes)
+    assert ok
+    assert any(n[0] == "warning" and "1 of 2 regions came back with an empty" in n[1] for n in notes)
+
+
+def test_ids_written_beside_the_translations_object_are_still_read(monkeypatch):
+    # The V100 blind run's raw answer: a stray } after the first id.
+    raw = ('{"translations": {"0": "...making me go crazy."}, "1": "What are you thinking, '
+           'Manager Myung?", "context_summary": "s"}')
+    monkeypatch.setattr(vision, "ask_about_image", lambda *a, **k: (raw, {}))
+    regions = [{"id": "0", "text": "a", "box": {"x": 0, "y": 0, "w": 1, "h": 1}},
+               {"id": "1", "text": "b", "box": {"x": 0, "y": 0, "w": 1, "h": 1}}]
+    got, _ = scanlate_translate.translate_regions_with_image(
+        regions, b"x", "image/png", _Engine(), {"source_language": "ko"})
+    assert got == {"0": "...making me go crazy.", "1": "What are you thinking, Manager Myung?"}
+
+
+@pytest.mark.parametrize("stop", ["cancel", "run_stopped", "timeout", "headroom"])
+def test_a_stop_signal_from_a_retry_sends_no_further_requests(monkeypatch, stop):
+    from engine_backends.run_limits import TranslateRunStopped
+    from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
+    from memory_headroom import HeadroomError
+    error = {"cancel": TranslationCancelled(), "run_stopped": TranslateRunStopped("limit"),
+             "timeout": LLMTaskTimeout("slow"), "headroom": HeadroomError("low")}[stop]
+    calls = []
+
+    def stops(keyed, *a, **k):
+        calls.append(sorted(keyed))
+        raise error
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", stops)
+    texts = {"0": "a", "1": "b", "2": "c"}
+    with pytest.raises(type(error)):
+        scanlate_translate.retry_missing_regions(texts, {}, _Engine(), {})
+    assert calls == [["0", "1", "2"]]
+
+
+def test_an_ordinary_error_in_one_retry_does_not_stop_the_others(monkeypatch):
+    def flaky(keyed, *a, **k):
+        if len(keyed) > 1 or "0" in keyed:
+            raise RuntimeError("provider hiccup")
+        return {k_: "ok" for k_ in keyed}, "ctx"
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", flaky)
+    got = scanlate_translate.retry_missing_regions({"0": "a", "1": "b"}, {}, _Engine(), {})
+    assert got == {"1": "ok"}

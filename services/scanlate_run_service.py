@@ -401,12 +401,31 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
                                  "text was saved; use Redo this page to try again."))
         return False, None
     if result is None:
+        result = scanlate_translate.retry_missing_regions(
+            keyed, {}, engine, drama, previous_context=context, usage_cb=usage_cb,
+            glossary_terms=glossary, character_notes=character_notes,
+            chapter_brief=chapter_brief) or None
+        new_context = context
+    if result is None:
         notes.append(("warning", "The translation answer could not be matched to this page's "
                                  "regions, so none of it was applied. The OCR text was saved; "
                                  "use Redo this page to try again."))
         return False, None
+    if len(result) < len(by_key):
+        result = scanlate_translate.retry_missing_regions(
+            keyed, result, engine, drama, previous_context=context, usage_cb=usage_cb,
+            glossary_terms=glossary, character_notes=character_notes,
+            chapter_brief=chapter_brief)
     for key, text in result.items():
         by_key[key]["translated_text"] = text
+    # The picture request is told to answer "" for a watermark; a model can also do
+    # that for a real balloon, and the page would then show the original with no
+    # sign that anything went wrong.
+    blank = sum(1 for key in result if not (result[key] or "").strip())
+    if blank:
+        notes.append(("warning", f"{blank} of {len(by_key)} regions came back with an empty "
+                                 "translation and were left as they are. If one is real "
+                                 "dialogue, type it in the Review screen or use Redo this page."))
     if len(result) < len(by_key):
         # A rejected chunk of a dense page is simply absent from the result.
         # What was translated is kept on the regions (a first run saves it); the

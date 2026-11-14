@@ -74,3 +74,18 @@ def test_anti_aliased_edges_do_not_wash_out_the_sampled_colour():
     ImageDraw.Draw(img).text((10, 20), "Yes Hello", font=font, fill=(214, 130, 40))
     page = np.asarray(img)[:, :, ::-1].copy()
     assert scanlate_render.sampled_ink_color(page, {"x": 0, "y": 0, "w": 200, "h": 80}) == (214, 130, 40)
+
+
+def test_a_dent_in_the_balloon_does_not_pull_the_text_off_centre():
+    mask = np.zeros((60, 100), bool)
+    mask[5:55, 5:95] = True
+    mask[15:45, 75:95] = False  # hatching bites the right edge
+    assert scanlate_render._without_small_dents(mask)[30, 90]
+
+
+def test_the_notch_between_two_lobes_is_kept():
+    mask = np.zeros((60, 100), bool)
+    mask[5:55, 5:40] = True
+    mask[5:55, 60:95] = True
+    assert not scanlate_render._without_small_dents(mask)[30, 50]
+    assert scanlate_render._without_small_dents(None) is None
