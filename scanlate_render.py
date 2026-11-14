@@ -845,6 +845,25 @@ def _tilts_and_lines(page, regions: list):
     return angles, lines
 
 
+def sign_fitted_size(page, box: dict, text: str, custom_fonts: dict | None = None) -> int | None:
+    """The font size `text` would be set at along the one-line band behind a sign, or None when
+    the sign has no such band (one below the smallest size when it fits at none). It lays the text out the way _letter_balloons does, so a text
+    too long for its band is seen before it is typeset."""
+    line = sign_text_line(page, box)
+    if line is None:
+        return None
+    corridor, angle, glyph = line
+    level = Image.fromarray(corridor.astype(np.uint8) * 255).rotate(angle, resample=Image.NEAREST, expand=True)
+    width, height = level.size
+    font = _find_font(None, category=box.get("font_category") or "regular", custom_fonts=custom_fonts)
+    laid_out = _layout_in_mask(ImageDraw.Draw(Image.new("RGB", (width, height))), text.translate(_CJK_PUNCTUATION),
+                               np.asarray(level) > 127, glyph,
+                               lambda size: ImageFont.truetype(font, size) if font else ImageFont.load_default(size))
+    # No layout in the band at any size: the typesetter then falls back to the whole box, so the
+    # text is as good as unreadable there.
+    return laid_out[0].size if laid_out else scanlate_tuning.TYPESET_SMALLEST_PX - 1
+
+
 def _text_fill(pil_img, box: dict, sampled=None):
     """The hand-set colour if any, then the colour sampled from the original lettering
     (when the person turned that on); else white lettering on a dark balloon,

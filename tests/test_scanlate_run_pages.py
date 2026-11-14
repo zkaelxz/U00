@@ -420,6 +420,20 @@ def test_a_redo_that_keeps_the_text_does_not_detect_or_read_again(harness, monke
     assert "reused" in json.dumps(json.loads(db.get_page(p1)["run_notes"]))
 
 
+def test_a_redo_does_not_shorten_a_sign_the_person_typed_by_hand(harness, monkeypatch):
+    import scanlate_render
+    did, p1, _, _ = _two_pages(monkeypatch)
+    typed = "Typed by hand: a long line that nobody asked the engine to shorten"
+    db.save_bubbles(p1, [_region("你好", kind="sign", translated_text="Old hello"),
+                         _region("", kind="sign", y=60, translated_text=typed)])
+    measured = []
+    monkeypatch.setattr(scanlate_render, "sign_fitted_size",
+                        lambda page, b, text, fonts: measured.append(text) or 9)
+    run_svc._run_job("j", did, "all", [p1], "mt", _MT(), "auto", keep_text=True)
+    assert measured == ["Hello"]
+    assert typed in [b["translated_text"] for b in db.load_bubbles(p1)]
+
+
 def test_a_redo_that_keeps_the_text_still_reads_a_page_with_no_text(harness, monkeypatch):
     did, p1, p2, detected = _two_pages(monkeypatch)
     run_svc._run_job("j", did, "all", [p1, p2], "mt", _MT(), "auto", keep_text=True)
