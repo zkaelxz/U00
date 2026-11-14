@@ -567,6 +567,35 @@ class TestFilterHallucinatedSegments:
         segments = [self._seg(i, i + 1, "有。") for i in range(10)]
         assert filter_hallucinated_segments(segments) == [segments[0]]
 
+    def test_the_same_reply_minutes_apart_is_kept_and_sent_to_review(self):
+        # Real replies, or a loop over music where each burst came out alone: kept, and checked.
+        from whisper_hallucination import REPEAT_GAP_NOTE
+        segments = [self._seg(i * 120, i * 120 + 0.8, "はい。") for i in range(4)]
+        out = filter_hallucinated_segments(segments)
+        assert [(s["start"], s["text"]) for s in out] == [(s["start"], s["text"]) for s in segments]
+        assert [s.get("flag_note") for s in out] == [None] + [REPEAT_GAP_NOTE] * 3
+        assert {s.get("flag") for s in out[1:]} == {"text_uncertain"}
+
+    def test_a_reply_heard_now_and_then_too_few_times_to_loop_is_not_flagged(self):
+        segments = [self._seg(i * 120, i * 120 + 0.8, "はい。") for i in range(3)]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_a_long_gap_ends_a_run_and_the_close_copies_still_collapse(self, monkeypatch):
+        import applog
+        messages = []
+
+        class _Log:
+            def info(self, message):
+                messages.append(message)
+        monkeypatch.setattr(applog, "get_logger", lambda *a, **k: _Log())
+        loop = [self._seg(i, i + 1, "请订阅") for i in range(5)]
+        later = self._seg(300, 301, "请订阅")
+        from whisper_hallucination import REPEAT_GAP_NOTE
+        out = filter_hallucinated_segments(loop + [later])
+        assert [s["start"] for s in out] == [0, 300]
+        assert out[0].get("flag") is None and out[1].get("flag_note") == REPEAT_GAP_NOTE
+        assert messages == ["repeat filter: 4 copies of one line removed after 0.0s (to 5.0s)"]
+
     def test_repeats_that_differ_only_in_punctuation_collapse(self):
         segments = [self._seg(i, i + 1, text) for i, text in
                     enumerate(["好的。", "好的", "好的！", "好的,"])] + [self._seg(4, 5, "再见")]
