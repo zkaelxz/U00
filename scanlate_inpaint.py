@@ -238,6 +238,62 @@ def _load_lama_generator(hf_token: str | None = None, allow_download: bool = Tru
     return generator
 
 
+# The generator's copy on the GPU under "cuda", made the first time a region fits there. The
+# CPU copy stays the master: a region that does not fit, or a GPU that fails, uses it instead.
+# whisper_models.release_gpu_models() empties this with the app's other GPU models.
+_lama_gpu: dict = {}
+# Why the GPU was given up on for this process (a driver or CUDA fault, not a full GPU).
+_lama_gpu_broken: list = []
+# On a 3080 Ti a page's balloons took about 1.2 s on the CPU. The GPU needs the weights
+# (about 200 MB) and CUDA's own share once, plus working memory for the full-resolution
+# 64-channel maps, which grows with the region; these are deliberately generous so a region
+# only goes to the GPU when it clearly fits beside whatever else is loaded there.
+_GPU_FIRST_LOAD_MB = 800
+_GPU_MB_PER_MEGAPIXEL = 3000
+_GPU_MAX_PIXELS = 1_000_000
+
+
+def _lama_on_gpu(generator, pixels: int, torch):
+    """The generator's GPU copy when a region of `pixels` fits on a free enough GPU and
+    Settings allows GPU use, else None (the region runs on the CPU)."""
+    if _lama_gpu_broken or pixels > _GPU_MAX_PIXELS or not torch.cuda.is_available():
+        return None
+    from services import settings_service, vram_service
+    if not settings_service.get("use_gpu"):
+        return None
+    need = (0 if "cuda" in _lama_gpu else _GPU_FIRST_LOAD_MB) + pixels / 1_000_000 * _GPU_MB_PER_MEGAPIXEL
+    try:
+        # Also honours Settings > Keep free memory for the GPU.
+        vram_service.check_fits("LaMa-manga", required_mb=need)
+    except Exception:
+        return None
+    if "cuda" not in _lama_gpu:
+        import copy
+        _lama_gpu["cuda"] = copy.deepcopy(generator).to("cuda")
+    return _lama_gpu["cuda"]
+
+
+def _generate(generator, tensor, torch):
+    """The generator's output for `tensor`, on the GPU when it fits there (see _lama_on_gpu),
+    as a CPU tensor either way."""
+    with torch.no_grad():
+        try:
+            gpu = _lama_on_gpu(generator, tensor.shape[-2] * tensor.shape[-1], torch)
+            if gpu is not None:
+                return gpu(tensor.to("cuda"))[0].cpu()
+        except Exception as exc:
+            # A GPU that filled up meanwhile costs only this region; any other fault (a
+            # broken driver, a failed copy) would repeat on every region, so the CPU is kept.
+            if not isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ())):
+                _lama_gpu_broken.append(type(exc).__name__)
+                _lama_gpu.clear()
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+        return generator(tensor)[0]
+
+
 def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str | None = None, allow_download: bool = True):
     """Runs LaMa-manga inpainting on one region-of-interest. roi_bgr: an
     OpenCV BGR array. mask_u8: a same-size uint8 array, nonzero = erase
@@ -267,8 +323,7 @@ def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str | None = None, allow_downloa
     if pad_h or pad_w:
         tensor = torch.nn.functional.pad(tensor, (0, pad_w, 0, pad_h), mode="reflect")
 
-    with torch.no_grad():
-        out = generator(tensor)[0]
+    out = _generate(generator, tensor, torch)
     out = out[:, :h, :w].clamp(0, 1).permute(1, 2, 0).numpy()
     out_bgr = cv2.cvtColor((out * 255).astype("uint8"), cv2.COLOR_RGB2BGR)
 

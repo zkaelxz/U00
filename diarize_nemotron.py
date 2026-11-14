@@ -1,6 +1,7 @@
 """NVIDIA Nemotron-3-Diarization inference: audio file -> speaker turns and voice prints (opt-in alternative to pyannote)."""
 from typing import Callable
 
+from diarize import CONFIDENCE_BIN_SECONDS
 from lib import model_offline
 
 MODEL_ID = "nvidia/Nemotron-3-Diarization"
@@ -16,15 +17,32 @@ MISSING_PACKAGES_NOTICE = ("Nemotron speaker detection needs the transformers an
                            "which aren't installed.")
 
 
-def turns_from_segments(segments) -> list[dict]:
+def turns_from_segments(segments, probs=None, frame_seconds: float = 0.01) -> list[dict]:
     """The model's {Start, End, Speaker} dicts as the app's turn dicts. Labels
-    match pyannote's SPEAKER_NN so saved turns and merge_speakers need no change."""
+    match pyannote's SPEAKER_NN so saved turns and merge_speakers need no change.
+    With probs (frames x speakers, the model's per-frame speaker probabilities)
+    each turn also gets "confidence" (confidence_bins), which merge_speakers uses
+    to leave unsure lines blank."""
     turns = []
     for seg in segments:
         start, end = float(seg["Start"]), float(seg["End"])
         if end > start:
-            turns.append({"start": start, "end": end, "speaker": f"SPEAKER_{int(seg['Speaker']):02d}"})
+            turn = {"start": start, "end": end, "speaker": f"SPEAKER_{int(seg['Speaker']):02d}"}
+            if probs is not None:
+                turn["confidence"] = confidence_bins(probs, start, end, int(seg["Speaker"]),
+                                                     frame_seconds)
+            turns.append(turn)
     return sorted(turns, key=lambda t: (t["start"], t["end"]))
+
+
+def confidence_bins(probs, start: float, end: float, speaker: int, frame_seconds: float) -> list:
+    """The turn's own speaker's mean probability per CONFIDENCE_BIN_SECONDS from the
+    turn's start (the last bin may be shorter), to two decimals. Binned rather than
+    kept per frame, which would make the saved turns file ten times bigger."""
+    first, last = round(start / frame_seconds), round(end / frame_seconds)
+    per_bin = max(1, round(CONFIDENCE_BIN_SECONDS / frame_seconds))
+    own = probs[first:last, speaker]
+    return [round(float(own[i:i + per_bin].mean()), 2) for i in range(0, len(own), per_bin)]
 
 
 def embeddings_from_turns(audio, sample_rate: int, turns, embed: Callable) -> dict:
@@ -106,9 +124,14 @@ def diarize(audio_path: str, use_gpu: bool = False, on_progress=None) -> tuple[l
     with torch.inference_mode():
         logits = model(**inputs).logits
     segments = processor.extract_speaker_dict(logits, inputs.attention_mask)[0]
-    turns = turns_from_segments(segments)
+    # The same sigmoid extract_speaker_dict thresholds at 0.5, so each turn is
+    # the run of frames where its speaker's probability is above that (a half-precision
+    # model can differ by a frame at a turn edge, which barely moves a mean).
+    probs = logits[0].float().sigmoid().cpu().numpy()
+    extractor = processor.feature_extractor
+    turns = turns_from_segments(segments, probs, extractor.hop_length / extractor.sampling_rate)
     # Freed before the embedding model loads so the two never share the GPU.
-    del model, inputs, logits
+    del model, inputs, logits, probs
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     say(0.8, "Making voice prints...")

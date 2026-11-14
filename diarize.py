@@ -42,6 +42,11 @@ SPEAKER_MODELS = ("pyannote", "nemotron")
 DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
                       "pyannote/speaker-diarization-3.1")
 TURNS_FILE = "diarization_turns.json"
+CONFIDENCE_BIN_SECONDS = 0.1
+# A line whose speaker the model was less sure of than this is left blank: a blank
+# label is quick to fill in, a wrong one is easy to miss. Tuned only on three
+# hand-labelled titles that share the same two voices.
+SPEAKER_CONFIDENCE_CUTOFF = 0.8
 
 
 class NoPipelineReturned(RuntimeError):
@@ -557,15 +562,52 @@ def assign_speaker_to_line(line_start: float, line_end: float, speaker_segments)
     return best_speaker
 
 
+def line_confidence(line_start: float, line_end: float, speaker, turns):
+    """How sure the model was that `speaker` speaks in this line: the speaker's
+    probability averaged over the part of the line its turns cover (each turn's
+    "confidence" holds one mean per CONFIDENCE_BIN_SECONDS). None when those turns
+    carry no confidence: pyannote's, and Nemotron turns saved before it was kept."""
+    weighted = covered = 0.0
+    for t in turns:
+        bins = t.get("confidence")
+        if t["speaker"] != speaker or not bins:
+            continue
+        lo, hi = max(line_start, t["start"]), min(line_end, t["end"])
+        if hi <= lo:
+            continue
+        first = max(0, int((lo - t["start"]) // CONFIDENCE_BIN_SECONDS) - 1)
+        for i in range(first, len(bins)):
+            bin_start = t["start"] + i * CONFIDENCE_BIN_SECONDS
+            if bin_start >= hi:
+                break
+            overlap = min(hi, bin_start + CONFIDENCE_BIN_SECONDS, t["end"]) - max(lo, bin_start)
+            if overlap > 0:
+                weighted += overlap * float(bins[i])
+                covered += overlap
+    # Rounded so a line whose bins all sit at the cutoff isn't blanked by float error.
+    return round(weighted / covered, 6) if covered > 0 else None
+
+
+def confident_speaker(line_start: float, line_end: float, turns):
+    """assign_speaker_to_line's pick, or None when its confidence is below
+    SPEAKER_CONFIDENCE_CUTOFF. Turns without confidence keep the plain pick."""
+    speaker = assign_speaker_to_line(line_start, line_end, turns)
+    if speaker is None:
+        return None
+    confidence = line_confidence(line_start, line_end, speaker, turns)
+    return None if confidence is not None and confidence < SPEAKER_CONFIDENCE_CUTOFF else speaker
+
+
 def merge_speakers(lines, turns, overwrite_manual: bool = False) -> dict:
     """Relabels existing lines from diarization turns, in place, without
     touching their text or timing (no ASR involved). A line whose speaker
     was corrected by hand is left alone unless overwrite_manual is True --
-    re-running detection must never silently undo a correction. Returns
+    re-running detection must never silently undo a correction. A line the
+    model was unsure of gets no speaker (confident_speaker). Returns
     {"changed": n, "kept_manual": n}."""
     changed = kept = 0
     for ln in lines:
-        new = assign_speaker_to_line(ln.start, ln.end, turns)
+        new = confident_speaker(ln.start, ln.end, turns)
         if getattr(ln, "speaker_manual", False) and not overwrite_manual:
             if new != ln.speaker:
                 kept += 1
@@ -653,7 +695,9 @@ def embedding_from_lines(drama_dir: str, label: str, lines, *, min_purity: float
     embeddings, turns = data.get("embeddings") or {}, data.get("turns") or []
     if not isinstance(embeddings, dict) or not isinstance(turns, list):
         return None
-    spans = sorted((ln.start, ln.end, ln.speaker == label) for ln in lines)
+    # A line with no speaker is not another voice: detection leaves the lines it was
+    # unsure of blank inside its own turns, and counting them would fail the purity test.
+    spans = sorted((ln.start, ln.end, ln.speaker == label) for ln in lines if ln.speaker)
     mine: dict = {}
     total: dict = {}
     for turn in turns:
