@@ -98,15 +98,35 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
   }, [dramaId, reloads])
 
   // The history may still be loading when the request comes (the panel mounts with it in Simple), so the
-  // scroll waits for it and spends each request once.
+  // scroll waits for the load and spends each request once, even when there turns out to be no history,
+  // so that a later load does not jump the page.
   const historyRef = useRef<HTMLHeadingElement>(null)
   const scrolledFor = useRef(0)
+  const loaded = records !== null || error !== null
   const hasHistory = !!records && records.history.length > 0
   useEffect(() => {
-    if (!historySignal || historySignal === scrolledFor.current || !hasHistory) return
+    if (!historySignal || historySignal === scrolledFor.current || !loaded) return
     scrolledFor.current = historySignal
-    historyRef.current?.scrollIntoView?.({ block: 'start' })
-  }, [historySignal, hasHistory])
+    const heading = historyRef.current
+    if (!hasHistory || !heading) return
+    if (typeof ResizeObserver === 'undefined') {
+      heading.scrollIntoView?.({ block: 'start' })
+      return
+    }
+    // Records stays mounted but hidden behind another tool group, and the parent shows it again only after
+    // this runs: scroll when the heading gets a size, and give up soon so a later visit does not jump.
+    const observer = new ResizeObserver(() => {
+      if (heading.getClientRects().length === 0) return
+      observer.disconnect()
+      heading.scrollIntoView?.({ block: 'start' })
+    })
+    observer.observe(heading)
+    const giveUp = window.setTimeout(() => observer.disconnect(), 2000)
+    return () => {
+      observer.disconnect()
+      window.clearTimeout(giveUp)
+    }
+  }, [historySignal, loaded, hasHistory])
 
   const act = (p: Promise<unknown>) =>
     p.then(() => {

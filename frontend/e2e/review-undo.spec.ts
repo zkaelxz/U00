@@ -146,6 +146,23 @@ for (const view of ['simple', 'full'] as const) {
     await expect(page.getByTestId('history-list')).toBeVisible()
   })
 
+  // Records stays mounted, hidden, once opened: the scroll must wait for the group switch to show it again.
+  test(`${view} view: "Line history" scrolls to it again after another group was opened`, async ({ page }) => {
+    await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
+    await page.goto('/#/drama/3/review?focus=all')
+    await expect(rows(page)).toHaveCount(3)
+    await splitSecondLine(page)
+    const button = page.getByTestId('undo-notice').getByRole('button', { name: 'Line history' })
+    const heading = page.getByRole('heading', { name: 'Line history' })
+    await button.click()
+    await expect(heading).toBeInViewport()
+    await page.getByRole('tab', { name: /^Look for problems/ }).click()
+    await expect(heading).toBeHidden()
+    await button.scrollIntoViewIfNeeded()
+    await button.click()
+    await expect(heading).toBeInViewport()
+  })
+
   test(`${view} view: a refused Undo's "Line history" opens the line history`, async ({ page }) => {
     await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
     await page.goto('/#/drama/3/review?focus=all')
