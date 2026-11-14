@@ -278,12 +278,18 @@ test.describe(() => {
     await expect(cards.locator('.review-select')).toBeHidden()
     const player = page.getByRole('group', { name: 'Player' })
     await expect(player).toBeHidden()
+    const barButtons = page.getByRole('toolbar', { name: 'Line actions' }).getByRole('button')
     for (const width of [390, 320] as const) {
       await page.setViewportSize({ width, height: 844 })
       await page.evaluate(() => window.scrollTo(0, 0))
       await expect(page.locator('.review-toolbar.is-collapsed')).toHaveCount(0)
       const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
       expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
+      // With Play in the bar, Looks right, next wraps onto two lines at 320px; the three stay one height.
+      await expect(barButtons).toHaveText(['▶ #24', 'Skip for now', 'Looks right, next'])
+      const heights = await barButtons.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().height)))
+      expect(new Set(heights).size, `the bar's buttons are one height at ${width}px: ${heights.join(', ')}`).toBe(1)
+      expect(heights[0], `the bar's buttons are tall enough to tap at ${width}px`).toBeGreaterThanOrEqual(44)
       await expectNoSidewaysScroll(page)
     }
     await page.setViewportSize({ width: 390, height: 844 })
