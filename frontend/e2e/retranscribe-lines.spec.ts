@@ -76,7 +76,7 @@ test('the action appears with the selection bar and goes with it', async ({ page
   await expect(page.getByTestId('selection-bar')).toHaveCount(0)
 })
 
-// Simple is what a new audio or video title opens in; its Review hides the History tab that holds the run.
+// Simple is what a new audio or video title opens in; its Review leaves out the Re-transcribe section that runs it.
 for (const view of ['full', 'simple'] as const) test(`"Transcribe this gap" adds the lines for the gap and re-transcribes them (${view} view)`, async ({ page }) => {
   await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
@@ -115,7 +115,7 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
   await expect.poll(() => adds).toEqual([{ expected_line_ids: lines.map((l) => l.id), start: 4, end: 13, after_line_id: lines[1].id }])
   const panel = page.getByTestId('retranscribe-lines')
   await expect(panel).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Change many lines' })).toHaveAttribute('aria-selected', 'true')
   await expect.poll(() => seen.starts).toEqual([{ line_ids: [901] }])
   const row = panel.getByTestId('retranscribe-lines-row')
   await expect(row).toContainText('缺失的话')
