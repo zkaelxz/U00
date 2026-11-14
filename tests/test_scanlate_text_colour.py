@@ -5,9 +5,10 @@ import pytest
 
 cv2 = pytest.importorskip("cv2")
 PIL = pytest.importorskip("PIL")
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_render
+import scanlate_tuning
 
 BOX = {"x": 20, "y": 20, "w": 120, "h": 50}
 
@@ -197,6 +198,118 @@ def test_the_notch_between_two_lobes_is_kept():
     mask[5:55, 60:95] = True
     assert not scanlate_render._without_small_dents(mask)[30, 50]
     assert scanlate_render._without_small_dents(None) is None
+
+
+def _dented_mask():
+    mask = np.zeros((60, 100), bool)
+    mask[5:55, 5:95] = True
+    mask[15:45, 75:95] = False
+    return mask
+
+
+def test_a_toned_dent_is_filled_when_the_page_is_known():
+    page = np.full((60, 100), 250, np.uint8)
+    page[15:45, 75:95] = 150  # grey tone on the balloon's paper
+    assert scanlate_render._without_small_dents(_dented_mask(), page, np.zeros((60, 100), bool))[30, 90]
+
+
+def test_a_dent_of_art_strokes_beside_a_jagged_balloon_is_kept():
+    page = np.full((60, 100), 250, np.uint8)
+    page[15:45:3, 75:95] = 40  # the spikes of a burst balloon, light between the strokes
+    assert not scanlate_render._without_small_dents(_dented_mask(), page, np.zeros((60, 100), bool))[30, 90]
+
+
+def test_a_dent_of_lettering_cut_by_the_page_edge_is_filled():
+    mask = np.zeros((60, 100), bool)
+    mask[0:55, 5:95] = True
+    mask[0:20, 35:65] = False  # the top line of lettering, cut in half by the top of the page
+    page = np.full((60, 100), 250, np.uint8)
+    page[0:20:3, 35:65] = 40
+    nowhere = np.zeros((60, 100), bool)
+    top = nowhere.copy()
+    top[0, :] = True
+    assert not scanlate_render._without_small_dents(mask, page, nowhere, nowhere)[10, 50]
+    assert scanlate_render._without_small_dents(mask, page, nowhere, top)[10, 50]
+
+
+def test_a_notch_over_dark_art_is_kept():
+    page = np.full((60, 100), 250, np.uint8)
+    page[15:45, 75:95] = 60  # the night sky beside a lobe
+    assert not scanlate_render._without_small_dents(_dented_mask(), page, None)[30, 90]
+
+
+def test_a_notch_over_the_page_beyond_the_outline_is_kept():
+    page = np.full((60, 100), 250, np.uint8)
+    outside = np.zeros((60, 100), bool)
+    outside[15:45, 77:100] = True  # white page past a pale outline, reaching the box edge
+    assert not scanlate_render._without_small_dents(_dented_mask(), page, outside)[30, 90]
+
+
+def test_balloon_text_stays_off_the_art_in_the_notch_beside_it(tmp_path):
+    src, out = tmp_path / "page.png", str(tmp_path / "out.png")
+    page = np.full((260, 420, 3), 40, np.uint8)
+    # Two lobes of a balloon meeting in a notch of dark art
+    balloon = np.array([[30, 30], [140, 30], [200, 110], [260, 30], [390, 30], [390, 230], [30, 230]])
+    cv2.fillPoly(page, [balloon], (255, 255, 255))
+    art = np.ones(page.shape[:2], np.uint8)
+    cv2.fillPoly(art, [balloon], 0)
+    cv2.putText(page, "TEXT HERE", (150, 140), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+    cv2.imwrite(str(src), page)
+    region = {"x": 20, "y": 20, "w": 380, "h": 220, "kind": "bubble", "skip": 0, "font_size": 40,
+              "translated_text": "The reason I was able to grow up without going astray"}
+    scanlate_render.process_page(str(src), [region], out)
+    rendered = np.asarray(Image.open(out).convert("L")).astype(int)
+    assert not (np.abs(rendered - 40) > 20)[art > 0].any()
+
+
+def _tailed_mask():
+    mask = np.zeros((120, 200), np.uint8)
+    mask[:80] = 1
+    cv2.fillPoly(mask, [np.array([[20, 79], [60, 79], [30, 119]])], 1)
+    return mask.astype(bool)
+
+
+def test_a_line_keeps_clear_of_the_edge_of_a_balloon_with_a_tail():
+    img = Image.new("RGB", (200, 120), "white")
+    box = {"x": 0, "y": 0, "w": 200, "h": 120}
+    report = {}
+    scanlate_render.render_text_in_box(img, box, "Unnie, how did you feel", font_size=24,
+                                       mask=_tailed_mask(), report=report)
+    ink = np.flatnonzero((np.asarray(img.convert("L")) < 128).any(axis=0))
+    pad = 0.2 * report["size"]
+    assert ink.min() >= pad and ink.max() <= 199 - pad
+
+
+def test_a_narrow_balloon_with_a_tail_keeps_its_text_at_the_comfortable_size():
+    word = "Honest!!"
+    comfort = scanlate_tuning.TYPESET_COMFORT_PX
+    path = scanlate_render._find_font(None)
+    font = ImageFont.truetype(path, comfort) if path else ImageFont.load_default(comfort)
+    left, _, right, _ = ImageDraw.Draw(Image.new("RGB", (1, 1))).textbbox((0, 0), word, font=font)
+    width = right - left + 4
+    mask = np.zeros((80, width), np.uint8)
+    mask[:40] = 1
+    cv2.fillPoly(mask, [np.array([[2, 39], [width // 2, 39], [4, 79]])], 1)
+    assert scanlate_render._has_notch(mask.astype(bool))
+    img = Image.new("RGB", (width, 80), "white")
+    report = {}
+    scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": width, "h": 80}, word,
+                                       font_size=comfort, mask=mask.astype(bool), report=report)
+    assert report["size"] == comfort
+
+
+def test_a_line_in_a_balloon_without_a_notch_may_reach_its_outline_rather_than_shrink():
+    text = "Unnie, how did you feel"
+    path = scanlate_render._find_font(None)
+    font = ImageFont.truetype(path, 24) if path else ImageFont.load_default(24)
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    left, _, right, _ = probe.textbbox((0, 0), text, font=font)
+    width = right - left + 4
+    img = Image.new("RGB", (width, 40), "white")
+    report = {}
+    scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": width, "h": 40}, text,
+                                       font_size=24, mask=np.ones((40, width), bool), report=report)
+    assert report["size"] == 24
 
 
 def _round_balloon(hatched_corner, cut=120):
