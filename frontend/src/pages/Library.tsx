@@ -48,7 +48,9 @@ import { skippedNote } from './workspace/translateForm'
 import { SERIES_HELP } from '../helpText'
 import { NewTitleLink } from './NewTitleLink'
 import { createdFromLinkNote } from './linkFill'
-import { LibraryStartBox } from './LibraryStartBox'
+import { ADD_LINK_ID, AddBox } from './makeSubtitles/AddBox'
+import { clearHandoff, peekHandoff, type NewTitleStart } from './makeSubtitles/addBoxModel'
+import { mediaTypeFor, titleFor } from './makeSubtitles/makeSubtitlesFlow'
 
 
 
@@ -128,9 +130,20 @@ const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: DEFAULT
 // successful create or Cancel clears it.
 type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
 
+// The Add box's "Only add it" keeps what was typed and adds the link, or the title and type a file gives.
+function draftFor(start: NonNullable<NewTitleStart>, draft: CreateDraft | null): CreateDraft {
+  const extras = draft?.extras ?? NO_EXTRAS
+  if ('link' in start) return { form: { ...(draft?.form ?? formForLink(start.link)), source_url: start.link }, extras }
+  const form = draft?.form ?? formForLink('')
+  const title = (form.title_en ?? '').trim() ? form.title_en : titleFor(start.fileName, '')
+  return { form: { ...form, title_en: title, media_type: mediaTypeFor(start.fileName) }, extras }
+}
+
 // The "New drama" Sheet body. Language and type remember the last choice.
-function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
+function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, fileName }: {
   draft: CreateDraft | null
+  /** A file chosen in the Add box: the new title can't take it without a second pick, so the sheet says so. */
+  fileName: string | null
   onDraft: (next: CreateDraft) => void
   onCreated: (id: number, autofill: boolean, note: string | null) => void
   onCancel: () => void
@@ -187,6 +200,11 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
 
   return (
     <form ref={formRef} onSubmit={submit} className="stack create-form" aria-label="New title">
+      {fileName && (
+        <p className="muted" role="note" data-testid="new-title-file-note">
+          “{fileName}” is not attached. Create the title, then choose the file again in its Transcribe step.
+        </p>
+      )}
       <ErrorBanner error={presets.error} />
       {!!presets.data?.items.length && (
         <Field label="Profile" help="Your saved translation and transcription settings. The new title starts with them already filled in, so you can go straight on. The language stays your choice below, and nothing starts by itself. Manage profiles in Library tools.">
@@ -276,8 +294,12 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
 
 export default function LibraryPage() {
   const [selected, setSelected] = useState<{ id: number; title: string } | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [draft, setDraft] = useState<CreateDraft | null>(null)
+  // Handed over by the Add page, whose box has no New title sheet of its own.
+  const [handoff] = useState(() => peekHandoff('new-title'))
+  useEffect(() => clearHandoff(handoff), [handoff])
+  const [creating, setCreating] = useState(handoff !== null)
+  const [draft, setDraft] = useState<CreateDraft | null>(() => (handoff?.start ? draftFor(handoff.start, null) : null))
+  const [draftFile, setDraftFile] = useState(() => (handoff?.start && 'fileName' in handoff.start ? handoff.start.fileName : null))
   // A title named after its link's website: stay here and say so, with the way to rename it.
   const [createdNote, setCreatedNote] = useState<{ id: number; text: string } | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
@@ -293,8 +315,6 @@ export default function LibraryPage() {
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
   const getStarted = showGetStarted(stats.data?.total_dramas, startedDismissed)
-  // Making subtitles is the one primary action until the first title exists.
-  const emptyLibrary = stats.data?.total_dramas === 0
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
   const continuingIds = useMemo(() => new Set((continuing.data?.items ?? []).map((x) => x.drama_id)), [continuing.data])
@@ -330,6 +350,19 @@ export default function LibraryPage() {
     setSelected({ id, title: d ? dramaName(d) : 'Title details' })
   }
   const mediaTypes = new Map(items.map((d) => [d.id, d.media_type]))
+
+  // "Add a title by hand" (null) opens the sheet as New title always did, draft and all.
+  const startNewTitle = (start: NewTitleStart) => {
+    if (start) setDraft(draftFor(start, draft))
+    setDraftFile(start && 'fileName' in start ? start.fileName : null)
+    setCreating(true)
+  }
+  const addHref = routeHref({ name: 'make-subtitles' })
+  // The empty list's Add: the box is just above it on a computer; a phone has no box on this page.
+  const addFromEmpty = () => {
+    if (phone) window.location.hash = addHref
+    else document.getElementById(ADD_LINK_ID)?.focus()
+  }
 
   const picked = selectedItems(items, checked)
   const clear = () => setChecked(new Set())
@@ -384,11 +417,11 @@ export default function LibraryPage() {
       )}
       actions={canCreate && (
         <>
-          {!getStarted && <ButtonLink variant={emptyLibrary ? 'primary' : 'ghost'} size="sm" className={emptyLibrary ? undefined : 'library-start-link'} href={routeHref({ name: 'make-subtitles' })}>Quick translate</ButtonLink>}
           {startedDismissed && stats.data?.total_dramas === 0 && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
           )}
-          <button type="button" className={buttonClass(emptyLibrary ? 'secondary' : 'primary')} onClick={() => setCreating(true)}>New title</button>
+          {/* A phone opens the box on its own page, so the first title card stays on the first screen. */}
+          {phone && <ButtonLink variant="primary" href={addHref}>Add</ButtonLink>}
         </>
       )}
     >
@@ -413,15 +446,8 @@ export default function LibraryPage() {
         </p>
       )}
 
-      {/* Not on a phone: the row would push the first title card off the first screen, and New title opens the same Link field. */}
-      {canCreate && !phone && (
-        <LibraryStartBox
-          onStart={(link) => {
-            setDraft({ form: { ...(draft?.form ?? formForLink(link)), source_url: link }, extras: draft?.extras ?? NO_EXTRAS })
-            setCreating(true)
-          }}
-        />
-      )}
+      {/* Not on a phone: the box would push the first title card off the first screen; the header's Add opens it there. */}
+      {canCreate && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
       <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
 
@@ -451,7 +477,7 @@ export default function LibraryPage() {
         onSelectModeChange={setSelectMode}
         onItems={onItems}
         // While the first-steps card shows, it is the page's one call to action.
-        onCreate={canCreate && !getStarted ? () => setCreating(true) : undefined}
+        onCreate={canCreate && !getStarted ? addFromEmpty : undefined}
         series={allSeries.data?.items ?? null}
         seriesError={!!allSeries.error}
         onRetrySeries={() => setSeriesRetries((n) => n + 1)}
@@ -466,10 +492,12 @@ export default function LibraryPage() {
           series={allSeries}
           presets={presets}
           draft={draft}
+          fileName={draftFile}
           onDraft={setDraft}
-          onCancel={() => { setDraft(null); setCreating(false) }}
+          onCancel={() => { setDraft(null); setDraftFile(null); setCreating(false) }}
           onCreated={(id, autofill, note) => {
             setDraft(null)
+            setDraftFile(null)
             setCreating(false)
             reload()
             if (note) {
