@@ -206,10 +206,16 @@ def _dented_mask():
     return mask
 
 
-def test_a_hatched_dent_is_filled_when_the_page_is_known():
+def test_a_toned_dent_is_filled_when_the_page_is_known():
     page = np.full((60, 100), 250, np.uint8)
-    page[15:45:4, 75:95] = 40  # hatching lines on the balloon's paper
+    page[15:45, 75:95] = 150  # grey tone on the balloon's paper
     assert scanlate_render._without_small_dents(_dented_mask(), page, np.zeros((60, 100), bool))[30, 90]
+
+
+def test_a_dent_of_art_strokes_beside_a_jagged_balloon_is_kept():
+    page = np.full((60, 100), 250, np.uint8)
+    page[15:45:3, 75:95] = 40  # the spikes of a burst balloon, light between the strokes
+    assert not scanlate_render._without_small_dents(_dented_mask(), page, np.zeros((60, 100), bool))[30, 90]
 
 
 def test_a_notch_over_dark_art_is_kept():

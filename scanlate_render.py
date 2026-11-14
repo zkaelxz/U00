@@ -853,16 +853,17 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
 # keeps each line centred on the balloon instead of on the part the hatching left. A bigger
 # notch (the waist of a two-lobe balloon) is real shape and stays.
 _MAX_DENT_FILL = 1.2
-# A dent is hatching or tone on the balloon's paper when at least this share of it is no darker
-# than CV_GREY_PAPER_FLOOR, and at most _DENT_MAX_OUTSIDE of it is the page's paper beyond the
-# outline.
-_DENT_MIN_PAPER = 0.5
+# A dent is tone on the balloon's paper when at least this share of it is no darker than
+# CV_GREY_PAPER_FLOOR, and at most _DENT_MAX_OUTSIDE of it is the page's paper beyond the outline.
+# The spikes and speed lines that a jagged burst balloon meets are 55-90% light between their
+# strokes, and lines set into them ran onto the art.
+_DENT_MIN_PAPER = 0.9
 _DENT_MAX_OUTSIDE = 0.25
 
 
 def _without_small_dents(mask, page=None, outside=None):
     """`mask` with the dents in it filled in, when its convex hull adds at most _MAX_DENT_FILL of
-    its area. With `page` (the box's gray crop) only the parts of the hull that are hatching or
+    its area. With `page` (the box's gray crop) only the parts of the hull that are
     tone on the balloon's paper are filled: the notch where a lobe or the balloon's tail meets it
     holds the dark art round the balloon, or the page's paper beyond its outline (`outside`, the
     light paper reaching the box edge), and text set across it ran out of the balloon."""
