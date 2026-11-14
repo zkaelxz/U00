@@ -181,17 +181,20 @@ export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefO
     const top = section.getBoundingClientRect().top + window.scrollY
     window.scrollTo({ top: top < window.innerHeight ? 0 : top })
   }, [open, sectionRef])
+  // The button says what is on screen: a player that came out by itself reads as open, and one press folds it again.
+  const shown = open || needed
   const toggle = audio ? (
     <QueueMediaToggle
-      open={open}
+      open={shown}
       controls={playerId}
       onToggle={() => {
-        reveal.current = isPhone && !open
-        setOpen(!open)
+        reveal.current = isPhone && !shown
+        setNeeded(false)
+        setOpen(!shown)
       }}
     />
   ) : null
-  return { toggle, folds: audio && !open && !needed, show }
+  return { toggle, folds: audio && !shown, show }
 }
 
 /**

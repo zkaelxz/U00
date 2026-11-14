@@ -996,6 +996,12 @@ test.describe('the check queue', () => {
     await page.goto('/#/drama/3')
     await expect(player.getByRole('alert')).toHaveText(/^Couldn’t play the audio\./)
     await expect(player).toBeVisible()
+    // The button reads as open, and one press folds the player again; the choice it remembers stays "folded".
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await toggle.click()
+    await expect(player).toBeHidden()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.queue.media'))).toBe('false')
   })
 
   test.describe('on title 1, with its long name', () => {
