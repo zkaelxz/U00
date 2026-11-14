@@ -1,6 +1,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
+import { seedCheckLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
+import { clearLines } from './resegmentLlmMocks'
 
 // The Simple title view at phone width. Title 1 is the seeded audio drama.
 
@@ -91,4 +93,77 @@ test('the step tabs and buttons on a stage page are tall enough to tap and do no
   await page.locator('summary', { hasText: 'More' }).tap()
   for (const name of more) await expectTall(page.getByRole('link', { name, exact: true }), name)
   await expectNoSidewaysScroll(page)
+})
+
+// Title 3's seeded lines would open later phone specs on its Review page.
+test.describe(() => {
+  test.afterAll(() => clearLines())
+
+  test('the check queue on a phone is one card at a time, with Skip for now, wrapped reasons and no sideways scroll', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    const cards = page.locator('.review-line')
+    const position = page.getByTestId('queue-position')
+    const bar = page.getByRole('toolbar', { name: 'Line actions' })
+    await expect(position).toHaveText('1 of 3 to look at')
+    await expect(cards).toHaveCount(1)
+    await expect(cards.locator('.review-idx')).toHaveText('#24')
+    await expect(page.getByText('Next: line 7, Whisper was unsure · line 12, reading speed')).toBeVisible()
+    await expect(cards.getByRole('link', { name: 'Open glossary' })).toBeVisible()
+
+    await bar.getByRole('button', { name: 'Skip for now' }).tap()
+    await expect(position).toHaveText('2 of 3 to look at')
+    await expect(cards.locator('.review-idx')).toHaveText('#7')
+    const reason = cards.getByTestId('queue-reason')
+    await expect(reason).toHaveText('Whisper was unsure of this line (50% sure)')
+
+    // The first card starts near the top: measured 211px at 390 and 239px at 320, with the steps folded into one line.
+    const cardTopAtMost = { 390: 225, 320: 255 }
+    for (const width of [390, 320] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await expect(page.locator('.review-toolbar.is-collapsed')).toHaveCount(0)
+      const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
+      expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
+      expect(await reason.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `the reason wraps at ${width}px`).toBe(true)
+      for (const name of ['Skip for now', 'Looks right, next']) await expectTall(bar.getByRole('button', { name }), `${name} at ${width}px`)
+      // The radios are visually hidden; the visible control is their label.
+      await expectTall(page.locator('label').filter({ hasText: /^Need a look 3$/ }), `Need a look at ${width}px`)
+      await expectNoSidewaysScroll(page)
+    }
+
+    // One line stands for the step tiles; it opens them as they are on the title page, with the title's controls, and closes again.
+    const fold = page.getByRole('button', { name: 'Step 4 of 5 · Check' })
+    await expectTall(fold, 'the steps line')
+    await expect(fold).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('list', { name: 'Steps' })).toBeHidden()
+    await fold.tap()
+    await expect(fold).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link')).toHaveCount(5)
+    await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
+    await expect(page.locator('summary', { hasText: 'More' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
+    await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
+    await expectNoSidewaysScroll(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expectNoSidewaysScroll(page)
+    await fold.tap()
+    await expect(page.getByRole('list', { name: 'Steps' })).toBeHidden()
+
+    // Looks right, next checks #7 and opens #12, which is now the last of two.
+    await bar.getByRole('button', { name: 'Looks right, next' }).tap()
+    await expect(position).toHaveText('2 of 2 to look at')
+    await expect(cards.locator('.review-idx')).toHaveText('#12')
+    await expect(page.getByTestId('checked-undo')).toContainText('Line #7 marked checked.')
+    await expectNoSidewaysScroll(page)
+
+    // Skip for now on the last card goes back to the start of the queue.
+    await bar.getByRole('button', { name: 'Skip for now' }).tap()
+    await expect(position).toHaveText('1 of 2 to look at')
+
+    await page.getByTestId('checked-undo').getByRole('button', { name: 'Undo' }).tap()
+    await expect(position).toHaveText('2 of 3 to look at')
+    await expect(cards.locator('.review-idx')).toHaveText('#7')
+  })
 })

@@ -22,7 +22,7 @@ import './titlePanel.css'
 // Audio and video titles in the Simple view: the actions people reach for first and the episodes, with no stepper.
 // The stage routes are unchanged and the Full view is one switch away.
 export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: number; drama: DramaDetail; comic?: boolean; onView: (v: TitleView) => void }) {
-  const { lineCount, translatedCount, exported, audioReady, flowOn, onFlowProgress } = useTitleProgress(id, comic)
+  const { lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress } = useTitleProgress(id, comic)
   const [siblings, setSiblings] = useState<EpisodeInput[] | null>(null)
   // A series page that has not answered yet must not show this title as the only episode.
   const [seriesDone, setSeriesDone] = useState(false)
@@ -105,6 +105,7 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
             lineCount={lineCount}
             translatedCount={translatedCount}
             exported={exported}
+            riskCount={riskCount}
             flowOn={flowOn}
             onFlowProgress={onFlowProgress}
           />

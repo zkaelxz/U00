@@ -51,7 +51,7 @@ export function TitleLines({ id, total }: { id: number; total: number }) {
         ))}
       </ol>
       <div className="actions">
-        <ButtonLink href={routeHref({ name: 'drama', id, stage: 'review' })}>{`Open all ${total} lines`}</ButtonLink>
+        <ButtonLink href={routeHref({ name: 'drama', id, stage: 'review', focus: 'all' })}>{`Open all ${total} lines`}</ButtonLink>
       </div>
     </section>
   )
