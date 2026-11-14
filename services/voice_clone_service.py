@@ -345,6 +345,31 @@ def _save_manifest(drama_id: int, manifest: dict):
                  prefix=".manifest_", suffix=".json")
 
 
+def _line_speakers(lines) -> dict:
+    return {ln.get("id"): ln.get("speaker") for ln in lines if ln.get("speaker")}
+
+
+def _clip_owner(cand: dict, found_for: str, line_speakers: dict) -> str:
+    """Whose voice a candidate is now: the speaker of the line it was matched
+    to, so a swap, rename, merge or Set speaker (which move lines, not the
+    manifest) carries the clip along with its line and an undo carries it
+    back. A clip that matched no line, or whose line is gone or has no
+    speaker, stays with the speaker it was found for."""
+    return line_speakers.get(cand.get("line_id")) or found_for
+
+
+def _candidates_by_owner(manifest: dict, line_speakers: dict) -> dict:
+    """{owner: [candidate, ...]} over every manifest entry, in manifest order."""
+    owned = {}
+    for label, entry in manifest.items():
+        if not isinstance(entry, dict):
+            continue
+        for c in entry.get("candidates") or []:
+            if isinstance(c, dict):
+                owned.setdefault(_clip_owner(c, label, line_speakers), []).append(c)
+    return owned
+
+
 def _speaker_segments(drama_id: int, speaker_label: str, lines: list) -> list:
     """[(start, end)] for this speaker: diarization turns if stored, else
     the speaker's own transcript lines."""
@@ -465,11 +490,17 @@ def _extract_job(job_id, drama_id, speaker_label, max_candidates):
                 os.remove(path)
         raise
     manifest = _load_manifest(drama_id)
-    previous = manifest.get(speaker_label)
-    for old in (previous.get("candidates") or []) if isinstance(previous, dict) else []:
-        path = _candidate_file(drama_id, old.get("id", "")) if isinstance(old, dict) else None
+    # Replaces the clips shown for this speaker now, wherever the manifest
+    # filed them (a swap leaves this speaker's clips under the other label),
+    # and re-files the rest under their owner so they survive the overwrite.
+    owned = _candidates_by_owner(manifest, _line_speakers(db.load_lines(drama_id)))
+    for old in owned.pop(speaker_label, []):
+        path = _candidate_file(drama_id, old.get("id", ""))
         if path:
             os.remove(path)
+    skips = {label: entry.get("skip") for label, entry in manifest.items() if isinstance(entry, dict)}
+    manifest = {label: {"candidates": owned.get(label, []), "skip": skips.get(label)}
+                for label in sorted(set(skips) | set(owned))}
     manifest[speaker_label] = {"candidates": made, "skip": skip}
     _save_manifest(drama_id, manifest)
     background_jobs.set_result(job_id, {"candidate_count": len(made)})
@@ -477,20 +508,25 @@ def _extract_job(job_id, drama_id, speaker_label, max_candidates):
 
 
 def list_candidates(drama_id: int) -> dict:
-    """Candidates per speaker from the last extraction of each speaker:
-    id, start/end, duration and the transcript line matched to it (line
-    text, hence lines.read). Candidates whose file is gone are dropped.
-    Speakers no longer in the drama are skipped."""
+    """Candidates per speaker (each under whose voice it is now, see
+    _clip_owner) from the extractions so far: id, start/end, duration and
+    the transcript line matched to it (line text, hence lines.read), with
+    each speaker's last skip reason. Candidates whose file is gone are
+    dropped. Speakers no longer in the drama are skipped."""
     _require_drama(drama_id)
     known = characters_service.known_speakers(drama_id)
-    texts = {ln["id"]: ln.get("zh") or "" for ln in db.load_lines(drama_id)}
+    lines = db.load_lines(drama_id)
+    texts = {ln["id"]: ln.get("zh") or "" for ln in lines}
+    manifest = _load_manifest(drama_id)
+    owned = _candidates_by_owner(manifest, _line_speakers(lines))
     speakers = []
-    for label, entry in sorted(_load_manifest(drama_id).items()):
-        if label not in known or not isinstance(entry, dict):
+    for label in sorted(set(owned) | {k for k, v in manifest.items() if isinstance(v, dict)}):
+        if label not in known:
             continue
+        entry = manifest.get(label) if isinstance(manifest.get(label), dict) else {}
         cands = []
-        for c in entry.get("candidates") or []:
-            if not isinstance(c, dict) or _candidate_file(drama_id, c.get("id", "")) is None:
+        for c in owned.get(label, []):
+            if _candidate_file(drama_id, c.get("id", "")) is None:
                 continue
             try:
                 start, end = float(c.get("start") or 0), float(c.get("end") or 0)
@@ -514,16 +550,16 @@ def list_candidates(drama_id: int) -> dict:
 
 
 def _find_candidate(drama_id: int, candidate_id: str):
+    """(owner label, candidate, wav path) for one candidate id."""
     if not isinstance(candidate_id, str) or not _TOKEN.match(candidate_id):
         raise NotFoundError("No such candidate clip.")
-    for label, entry in _load_manifest(drama_id).items():
-        if not isinstance(entry, dict):
-            continue
-        for c in entry.get("candidates") or []:
-            if isinstance(c, dict) and c.get("id") == candidate_id:
+    owned = _candidates_by_owner(_load_manifest(drama_id), _line_speakers(db.load_lines(drama_id)))
+    for label, cands in owned.items():
+        for c in cands:
+            if c.get("id") == candidate_id:
                 path = _candidate_file(drama_id, candidate_id)
                 if path is None:
-                    break
+                    raise NotFoundError("No such candidate clip.")
                 return label, c, path
     raise NotFoundError("No such candidate clip.")
 
