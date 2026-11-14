@@ -59,7 +59,14 @@ export function RetranscribeLines({
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [result, setResult] = useState<RetranscribeManyResult | null>(null)
   const [checked, setChecked] = useState<ReadonlySet<number>>(new Set())
+  // Whether the run now going was started to fill its lines; set only once the
+  // start is accepted, so a refused start can't mark the run already going.
   const fillRun = useRef(false)
+  // The run a late reply belongs to: a newer run's panel must not show it.
+  const currentRun = useRef(runKey)
+  useEffect(() => {
+    currentRun.current = runKey
+  }, [runKey])
   // Proposals not applied before the page was left are still on the server, and a run left going keeps going.
   useStoredRun({
     dramaId,
@@ -92,8 +99,10 @@ export function RetranscribeLines({
       }
       const fill = fillRun.current
       fillRun.current = false
+      const run = runKey
       getRetranscribeLinesResult(dramaId).then((r) => {
-        if (fill) fillLines(r)
+        if (currentRun.current !== run) return
+        if (fill) fillLines(r, run)
         else showProposals(r)
       }, setError)
     },
@@ -106,14 +115,16 @@ export function RetranscribeLines({
 
   // What could not be filled stays listed, unticked where the reviewer edited
   // the line meanwhile (applying it would be refused anyway).
-  const fillLines = (r: RetranscribeManyResult) => {
+  const fillLines = (r: RetranscribeManyResult, run: number) => {
     const numbers = new Map(r.proposals.map((p) => [p.line_id, p.number]))
     fillBlankLines(r.proposals, {
       beforeWrite: (ids) => beforeLinesWrite(dramaId, ids),
       apply: (items) => applyRetranscribeLines(dramaId, { job_id: r.job_id, items }),
-      afterWrite: (ids) => afterLinesWrite(dramaId, ids),
+      afterWrite: (ids) => afterLinesWrite(dramaId, ids, true),
     }).then(
       (o) => {
+        if (o.kind === 'applied' && o.result.applied.length > 0) onChanged()
+        if (currentRun.current !== run) return
         if (o.kind !== 'applied') {
           showProposals(r)
           if (o.kind === 'blocked') setNote(o.text)
@@ -122,9 +133,9 @@ export function RetranscribeLines({
         const done = new Set(o.result.applied)
         showProposals({ ...r, proposals: r.proposals.filter((p) => !done.has(p.line_id)) }, new Set(o.result.skipped))
         setNote(fillNote(o.result, numbers))
-        if (done.size > 0) onChanged()
       },
       (e: unknown) => {
+        if (currentRun.current !== run) return
         showProposals(r)
         setError(e)
       },
@@ -136,7 +147,6 @@ export function RetranscribeLines({
   const busy = starting || active || (!!jobId && !job && !pollError)
 
   const start = (ids: number[], fill = false) => {
-    fillRun.current = fill
     setError(null)
     setResult(null)
     setChecked(new Set())
@@ -144,7 +154,10 @@ export function RetranscribeLines({
     setNote(null)
     setStarting(true)
     startRetranscribeLines(dramaId, { line_ids: ids })
-      .then((r) => setJobId(r.job_id), setError)
+      .then((r) => {
+        fillRun.current = fill
+        setJobId(r.job_id)
+      }, setError)
       .finally(() => setStarting(false))
   }
 

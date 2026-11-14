@@ -67,7 +67,7 @@ export interface LinesCore {
   stillDirty: (lineId: number) => boolean
   leaveEdit: () => Promise<boolean>
   beforeWrite: (scope: LineScope) => Promise<string | null>
-  afterWrite: (scope: LineScope) => void
+  afterWrite: (scope: LineScope, keepTyping?: boolean) => void
   focusTo: (id: number) => void
   activate: (id: number, focus?: boolean) => Promise<void>
   openEdit: (id: number, details?: boolean) => Promise<boolean>
@@ -187,10 +187,12 @@ export function createLinesController(deps: LinesControllerDeps) {
     return `Save or discard your edit to #${lineNumber(cur.base.idx)} first.`
   }
   // An edit opened on those lines while the write ran started from the old
-  // text: close it when nothing was typed.
-  const afterWrite = (scope: LineScope) => {
+  // text: close it when nothing was typed. With keepTyping, typing there is
+  // moved onto the written line on the next load and kept over it.
+  const afterWrite = (scope: LineScope, keepTyping = false) => {
     const cur = editIn(scope)
     if (cur && !isDirty(cur.base, cur.draft)) setEditNow(null)
+    else if (cur && keepTyping) setEditNow({ ...cur, rebaseOnLoad: true, keepTyping: true })
   }
 
   // A draft kept from an earlier visit (useDraftGuard), rebased on the line as
@@ -226,11 +228,11 @@ export function createLinesController(deps: LinesControllerDeps) {
       setEditNow({ ...cur, rebaseOnLoad: false })
       return
     }
-    const reset = clashingFields(cur.base, fresh, cur.draft)
+    const reset = cur.keepTyping ? [] : clashingFields(cur.base, fresh, cur.draft)
     const draft = rebaseDraft(cur.base, fresh, cur.draft)
     const now = draftFromLine(fresh)
     for (const k of reset) (draft as unknown as Record<string, unknown>)[k] = now[k]
-    setEditNow({ ...cur, base: fresh, draft, rebaseOnLoad: false })
+    setEditNow({ ...cur, base: fresh, draft, rebaseOnLoad: false, keepTyping: false })
     if (reset.length) setStatus(resetFieldsText(reset, lineNumber(fresh.idx)))
   }
 
@@ -351,7 +353,8 @@ export function registerLinesWriter(ctl: LinesController): () => void {
 export const beforeLinesWrite = (dramaId: number, scope: LineScope): Promise<string | null> =>
   writers.get(dramaId)?.beforeWrite(scope) ?? Promise.resolve(null)
 
-export const afterLinesWrite = (dramaId: number, scope: LineScope): void => writers.get(dramaId)?.afterWrite(scope)
+export const afterLinesWrite = (dramaId: number, scope: LineScope, ...keepTyping: [] | [boolean]): void =>
+  writers.get(dramaId)?.afterWrite(scope, ...keepTyping)
 
 export const linesLoaded = (dramaId: number, lines: ReviewLine[]): void => void writers.get(dramaId)?.rebaseKept(lines)
 

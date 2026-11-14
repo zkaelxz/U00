@@ -122,7 +122,7 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
   await expect(panel.getByTestId('retranscribe-lines-row')).toHaveCount(0)
 })
 
-test('typing in the new gap line before its run ends is saved first, so the fill cannot replace it', async ({ page }) => {
+test('typing in the new gap line before its run ends is saved before the fill is sent (the server then refuses the fill)', async ({ page }) => {
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 import os, wave, struct, math
