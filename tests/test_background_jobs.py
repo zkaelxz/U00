@@ -2038,6 +2038,13 @@ class TestNotifyOnCompletion:
         assert len(message) <= job_settings.POPUP_MAX_CHARS == 255
         assert message.startswith("Waiting for you: Translation stopped - Moonlit Garden")
         assert message.endswith("…")
+        # The field counts UTF-16 units: each of these takes two.
+        did = db.create_drama(title_en="🌙" * 60)
+        job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
+                                          waiting={"reason": "r" * 200})
+        message = calls[-1]["message"]
+        assert len(message.encode("utf-16-le")) // 2 <= 255
+        assert message.startswith("Waiting for you: Translation stopped - 🌙") and message.endswith("…")
 
     def test_notify_job_finished_does_nothing_when_disabled(self, monkeypatch):
         import sys

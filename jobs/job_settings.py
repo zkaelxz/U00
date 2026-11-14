@@ -82,9 +82,22 @@ def set_notify_on_completion(enabled: bool):
     db.set_app_setting("notify_on_completion", bool(enabled))
 
 
-# The Windows balloon's text field holds 256 characters with its terminator; plyer fills it in
+# The Windows balloon's text field holds 256 UTF-16 units with its terminator; plyer fills it in
 # its own thread, so a longer text fails there and no pop-up shows.
 POPUP_MAX_CHARS = 255
+
+
+def _fit_popup(message: str) -> str:
+    """`message`, ending in "…" when it had to be cut. Counted as the field counts: a character
+    outside the basic plane (an emoji, a rare hanzi) takes two units."""
+    def units(text):
+        return len(text.encode("utf-16-le", "surrogatepass")) // 2
+    if units(message) <= POPUP_MAX_CHARS:
+        return message
+    cut = message
+    while cut and units(cut) > POPUP_MAX_CHARS - 1:
+        cut = cut[:-1]
+    return cut.rstrip() + "…"
 
 
 def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
@@ -127,8 +140,6 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
                    f"Finished: {description}" if status == "done" and description else
                    "Finished: background job" if status == "done" else
                    f"Failed: {description}" if description else "Failed: background job")
-        if len(message) > POPUP_MAX_CHARS:
-            message = message[:POPUP_MAX_CHARS - 1].rstrip() + "…"
-        notification.notify(title="Baihe Studio", message=message, timeout=10)
+        notification.notify(title="Baihe Studio", message=_fit_popup(message), timeout=10)
     except Exception:
         pass
