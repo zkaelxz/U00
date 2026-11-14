@@ -58,8 +58,14 @@ interface Props {
 // time it is shown and then stays, so open folds and drafts survive a switch.
 export function ReviewTools({ dramaId, status, panels, attention = {}, request = null }: Props) {
   // Simple shows the two tabs a reviewer uses every time; a link or remembered choice for another tab opens Check.
+  // A button that needs another tab's section (Transcribe this gap starts its run in History) adds that tab:
+  // the section must be mounted to start the run and to apply what it heard.
   const simple = useSimple()
-  const shown = useMemo(() => (simple ? REVIEW_TOOLS_TABS.filter((t) => t.id === 'check' || t.id === 'fix') : REVIEW_TOOLS_TABS), [simple])
+  const [requested, setRequested] = useState<ReadonlySet<ReviewToolsTab>>(() => new Set())
+  const shown = useMemo(
+    () => (simple ? REVIEW_TOOLS_TABS.filter((t) => t.id === 'check' || t.id === 'fix' || requested.has(t.id)) : REVIEW_TOOLS_TABS),
+    [simple, requested],
+  )
   const allowed = useCallback((t: ReviewToolsTab) => shown.some((x) => x.id === t), [shown])
   const route = useRoute()
   const linked = route.name === 'drama' && route.id === dramaId ? route.tools : undefined
@@ -71,26 +77,33 @@ export function ReviewTools({ dramaId, status, panels, attention = {}, request =
   })
   const [visited, setVisited] = useState<ReadonlySet<ReviewToolsTab>>(() => new Set([tab]))
 
-  const select = useCallback((t: ReviewToolsTab) => {
-    // A link or request for a tool Simple leaves out keeps the tab that is open.
-    if (!allowed(t)) return
+  const open = useCallback((t: ReviewToolsTab) => {
     seedFirstCard(browserStorage(), t)
     setTabState(t)
     setVisited((v) => (v.has(t) ? v : new Set(v).add(t)))
     writeLastTab(browserStorage(), dramaId, t)
-  }, [dramaId, allowed])
+  }, [dramaId])
+  const select = useCallback((t: ReviewToolsTab) => {
+    // A link for a tool Simple leaves out keeps the tab that is open.
+    if (allowed(t)) open(t)
+  }, [allowed, open])
 
   // A link's tab wins over the remembered one, also while the stage is already open.
+  // Only when the link changes: a request adding a tab to Simple must not send the open tab back to the link's.
+  const appliedLink = useRef<string | null>(null)
   useEffect(() => {
-    if (linked) select(linked)
-  }, [linked, select])
+    const key = linked ? `${dramaId}:${linked}` : null
+    if (linked && key !== appliedLink.current) select(linked)
+    appliedLink.current = key
+  }, [dramaId, linked, select])
   const seenSeq = useRef(request?.seq ?? 0)
   useEffect(() => {
     if (request && request.seq !== seenSeq.current) {
       seenSeq.current = request.seq
-      select(request.tab)
+      setRequested((r) => (r.has(request.tab) ? r : new Set(r).add(request.tab)))
+      open(request.tab)
     }
-  }, [request, select])
+  }, [request, open])
 
   const tabs: TabInfo<ReviewToolsTab>[] = shown.map((t) => ({ ...t, attention: attention[t.id] }))
   return (
