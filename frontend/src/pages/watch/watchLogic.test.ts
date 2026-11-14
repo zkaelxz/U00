@@ -149,12 +149,24 @@ describe('saveFix', () => {
     const reload = vi.fn(async () => fresh)
     const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: vi.fn(async () => { throw conflict() }), reload })
     expect(reload).toHaveBeenCalledOnce()
-    expect(r).toEqual({ kind: 'conflict', lines: fresh, fix: { lineId: 2, seen: 'Changed elsewhere', draft: 'Mine', conflict: true, error: null } })
+    expect(r).toEqual({ kind: 'conflict', lines: fresh, fix: { lineId: 2, seen: 'Changed elsewhere', draft: 'Mine', conflict: true, now: 'Changed elsewhere', error: null } })
+  })
+  it('on a 409 whose reload fails keeps the draft and the old text, and has no new text to show', async () => {
+    const reload = vi.fn(async () => { throw new ApiError(503, { code: 'unavailable', message: 'down' }, 'GET') })
+    const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: vi.fn(async () => { throw conflict() }), reload })
+    expect(r).toEqual({ kind: 'conflict', lines: null, fix: { lineId: 2, seen: 'en 2', draft: 'Mine', conflict: true, now: null, error: null } })
+  })
+  it('a second refusal after a failed reload shows the text the new reload found', async () => {
+    const first = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: vi.fn(async () => { throw conflict() }), reload: vi.fn(async () => { throw new Error('offline') }) })
+    if (first.kind !== 'conflict') throw new Error(first.kind)
+    const fresh = [lines[0], line(2, 3, 4.5, { en: '' }), lines[2]]
+    const r = await saveFix(first.fix, { patch: vi.fn(async () => { throw conflict() }), reload: vi.fn(async () => fresh) })
+    expect(r).toMatchObject({ kind: 'conflict', fix: { seen: '', draft: 'Mine', now: '' } })
   })
   it('keeps the draft and the error on any other failure', async () => {
     const boom = new ApiError(500, { code: 'internal_error', message: 'boom' }, 'POST')
     const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: vi.fn(async () => { throw boom }), reload: vi.fn() })
-    expect(r).toEqual({ kind: 'failed', fix: { lineId: 2, seen: 'en 2', draft: 'Mine', conflict: false, error: boom } })
+    expect(r).toEqual({ kind: 'failed', fix: { lineId: 2, seen: 'en 2', draft: 'Mine', conflict: false, now: null, error: boom } })
   })
 })
 

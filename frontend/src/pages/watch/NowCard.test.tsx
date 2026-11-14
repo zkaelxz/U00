@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { ReviewLine } from '../../types/review'
 import { NowCard, type NowCardProps } from './NowCard'
-import { CONFLICT_TEXT, currentLine, openFix, saveFix, watchKey, type LineFix } from './watchLogic'
+import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, currentLine, openFix, saveFix, watchKey, type LineFix } from './watchLogic'
 
 const line = (id: number, start: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start, end: start + 1.5, zh: `第${id}句`, en: `Line ${id}`, speaker: null, speaker_manual: false, sfx: false,
@@ -85,7 +85,7 @@ describe('NowCard', () => {
     t = 8.2 // the sound moved on after the card was drawn
     ;(byTestId(tree, 'watch-now-box')!.props.onClick as () => void)()
     expect(p.pause).toHaveBeenCalled()
-    expect(p.fix).toEqual({ lineId: 3, seen: 'Line 3', draft: 'Line 3', conflict: false, error: null })
+    expect(p.fix).toEqual({ lineId: 3, seen: 'Line 3', draft: 'Line 3', conflict: false, now: null, error: null })
     const onOpen = vi.fn()
     ;(byText(NowCard(props({ onOpen })), 'Fix this line')!.props.onClick as () => void)()
     expect(onOpen).toHaveBeenCalledOnce()
@@ -123,15 +123,34 @@ describe('NowCard', () => {
     expect(patch).not.toHaveBeenCalled()
   })
 
-  it('a 409 reloads the lines, keeps the draft in the field and says so as an alert', async () => {
+  const refused = () => vi.fn(async () => { throw new ApiError(409, { code: 'conflict', message: 'Changed.' }, 'POST') })
+
+  it('a 409 reloads the lines, keeps the draft in the field and shows under the alert what the line says now', async () => {
     const reload = vi.fn(async () => [lines[0], line(2, 4, { en: 'Theirs' }), lines[2]])
-    const patch = vi.fn(async () => { throw new ApiError(409, { code: 'conflict', message: 'Changed.' }, 'POST') })
-    const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch, reload })
+    const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: refused(), reload })
     expect(reload).toHaveBeenCalledOnce()
     if (r.kind !== 'conflict') throw new Error(r.kind)
     const out = html(props({ line: line(2, 4, { en: 'Theirs' }), fix: r.fix }))
     expect(out).toContain('>Mine</textarea>')
-    expect(out).toContain(`<p class="error" role="alert">${CONFLICT_TEXT}</p>`)
+    expect(CONFLICT_TEXT).toBe('This line was changed while you were fixing it. What it says now is shown below, and your text is still in the box. Save again if it still needs your fix.')
+    expect(out).toContain(`<p class="error" role="alert">${CONFLICT_TEXT}</p><div class="watch-now-theirs"><span class="watch-now-label">It now says</span><p class="watch-now-theirs-en" lang="en">Theirs</p></div>`)
+  })
+
+  it('a 409 whose new English is empty says No English yet under It now says', async () => {
+    const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: refused(), reload: vi.fn(async () => [line(2, 4, { en: '' })]) })
+    if (r.kind !== 'conflict') throw new Error(r.kind)
+    expect(html(props({ fix: r.fix }))).toContain('<span class="watch-now-label">It now says</span><p class="watch-now-theirs-en is-empty">No English yet</p>')
+  })
+
+  it('a 409 whose reload failed says the new text could not be loaded and shows nothing below', async () => {
+    const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: refused(), reload: vi.fn(async () => { throw new Error('offline') }) })
+    if (r.kind !== 'conflict') throw new Error(r.kind)
+    const out = html(props({ fix: r.fix }))
+    expect(out).toContain('>Mine</textarea>')
+    expect(CONFLICT_UNREAD_TEXT).toBe('This line was changed while you were fixing it, and its new text could not be loaded. Your text is still in the box. Try Save again in a moment.')
+    expect(out).toContain(`<p class="error" role="alert">${CONFLICT_UNREAD_TEXT}</p>`)
+    expect(out).not.toContain('It now says')
+    expect(out).not.toContain(CONFLICT_TEXT)
   })
 
   it('any other failure shows the usual error text and keeps the draft', () => {

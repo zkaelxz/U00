@@ -96,7 +96,8 @@ export function fieldKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; a
   return null
 }
 
-export const CONFLICT_TEXT = 'This line changed since the page loaded. Its new text is shown now; check it and save again if it still needs the fix.'
+export const CONFLICT_TEXT = 'This line was changed while you were fixing it. What it says now is shown below, and your text is still in the box. Save again if it still needs your fix.'
+export const CONFLICT_UNREAD_TEXT = 'This line was changed while you were fixing it, and its new text could not be loaded. Your text is still in the box. Try Save again in a moment.'
 
 /** An open fix: the line, the English the viewer saw when it opened, and what is typed. */
 export interface LineFix {
@@ -104,11 +105,13 @@ export interface LineFix {
   seen: string
   draft: string
   conflict: boolean
+  /** After a refused save, the line's English as read back then; null when it could not be read. */
+  now: string | null
   error: unknown
 }
 
 export const openFix = (line: Pick<ReviewLine, 'id' | 'en'>): LineFix =>
-  ({ lineId: line.id, seen: line.en, draft: line.en, conflict: false, error: null })
+  ({ lineId: line.id, seen: line.en, draft: line.en, conflict: false, now: null, error: null })
 
 export type FixResult =
   | { kind: 'unchanged' }
@@ -130,7 +133,7 @@ export async function saveFix(fix: LineFix, deps: {
   try {
     return { kind: 'saved', line: await deps.patch(fix.lineId, body) }
   } catch (e) {
-    if (!(e instanceof ApiError && e.status === 409)) return { kind: 'failed', fix: { ...fix, conflict: false, error: e } }
+    if (!(e instanceof ApiError && e.status === 409)) return { kind: 'failed', fix: { ...fix, conflict: false, now: null, error: e } }
     let lines: ReviewLine[] | null = null
     try {
       lines = await deps.reload()
@@ -138,7 +141,7 @@ export async function saveFix(fix: LineFix, deps: {
       // The alert still tells the viewer to check the line; the next save is refused again until a reload works.
     }
     const fresh = lines?.find((l) => l.id === fix.lineId)
-    return { kind: 'conflict', lines, fix: { ...fix, seen: fresh ? fresh.en : fix.seen, conflict: true, error: null } }
+    return { kind: 'conflict', lines, fix: { ...fix, seen: fresh ? fresh.en : fix.seen, conflict: true, now: fresh ? fresh.en : null, error: null } }
   }
 }
 

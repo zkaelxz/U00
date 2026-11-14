@@ -9,16 +9,42 @@ import { expect, test } from './fixtures'
 
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
+const python = (code: string) =>
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
 
 test.afterAll(() => {
   // Other specs expect drama 3 as the server seeds it, with no sound and no lines, unless they add them.
-  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\ndb.update_drama(3, audio_filename=None)\ndb.save_lines(3, [])`], { cwd: repoRoot })
+  python('db.update_drama(3, audio_filename=None)\ndb.save_lines(3, [])')
 })
+
+// Headless Chromium cannot open a Document Picture-in-Picture window, so Pop out gets an iframe that acts as one
+// (the same stub as review-popout.spec.ts).
+const PIP_STUB = () => {
+  Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: {
+    requestWindow: async () => {
+      const frame = document.createElement('iframe')
+      frame.id = 'pip-stub'
+      frame.style.cssText = 'position:fixed;right:0;bottom:0;width:420px;height:300px;z-index:99'
+      document.body.appendChild(frame)
+      const win = frame.contentWindow as Window
+      win.close = () => {
+        frame.remove()
+        win.dispatchEvent(new Event('pagehide'))
+      }
+      return win
+    },
+  } })
+}
 
 const list = (page: import('@playwright/test').Page) => page.getByRole('list', { name: 'Lines' })
 const row = (page: import('@playwright/test').Page, n: number) => list(page).getByRole('listitem').nth(n - 1)
 const now = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Line being spoken' })
 const time = (page: import('@playwright/test').Page) => page.getByTestId('player-time')
+// The keys answer once the title is known to play, which can be after the lines are listed.
+const ready = async (page: import('@playwright/test').Page) => {
+  await expect(list(page).getByRole('listitem')).toHaveCount(24)
+  await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
+}
 
 test.describe('with sound', () => {
   test.beforeEach(() => seedCheckLines({ warnings: false, audio: true }))
@@ -74,7 +100,7 @@ test.describe('with sound', () => {
 
   test('E opens the fix field on the current line; Save sends it with the English that was seen', async ({ page }) => {
     await page.goto('/#/watch/3')
-    await expect(list(page).getByRole('listitem')).toHaveCount(24)
+    await ready(page)
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowDown')
     await expect(row(page, 2)).toHaveAttribute('aria-current', 'true')
@@ -100,21 +126,114 @@ test.describe('with sound', () => {
     await expect(field).toHaveCount(0)
   })
 
-  test('a fix refused because the line changed keeps the draft and shows the new text', async ({ page }) => {
-    await page.route(/\/api\/lines\/dramas\/3\/lines\/\d+$/, (r) => r.request().method() === 'POST'
-      ? r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'The line changed.' } } })
-      : r.fallback())
+  test('a fix refused because the line changed shows what it says now, keeps the draft, and saves over the new text', async ({ page }) => {
     await page.goto('/#/watch/3')
-    await expect(list(page).getByRole('listitem')).toHaveCount(24)
+    await ready(page)
+    await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowDown')
     await now(page).getByRole('button', { name: 'Fix this line' }).click()
     const field = now(page).getByRole('textbox', { name: 'English' })
     await field.fill('Mine')
-    const reloaded = page.waitForRequest((r) => r.method() === 'GET' && r.url().includes('/api/review/dramas/3/lines?'))
+    // Someone else changes the line while the field is open, so the save is refused for real.
+    python(`[l] = [l for l in db.load_line_objects(3) if l.idx == 1]\nassert db.update_line_fields_if(3, l.id, {'en': 'Theirs'}, {'en': 'Line 2'})`)
+    const refused = page.waitForResponse((r) => r.request().method() === 'POST' && /\/api\/lines\/dramas\/3\/lines\/\d+$/.test(new URL(r.url()).pathname))
     await field.press('Control+Enter')
-    await reloaded
-    await expect(now(page).getByRole('alert')).toHaveText('This line changed since the page loaded. Its new text is shown now; check it and save again if it still needs the fix.')
+    expect((await refused).status()).toBe(409)
+    await expect(now(page).getByRole('alert')).toHaveText('This line was changed while you were fixing it. What it says now is shown below, and your text is still in the box. Save again if it still needs your fix.')
+    await expect(now(page).locator('.watch-now-theirs')).toHaveText('It now saysTheirs')
+    await expect(now(page).getByText('Theirs', { exact: true })).toHaveAttribute('lang', 'en')
     await expect(field).toHaveValue('Mine')
+    await expect(row(page, 2)).toContainText('Theirs')
+
+    const sent = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/lines\/dramas\/3\/lines\/\d+$/.test(new URL(r.url()).pathname))
+    await now(page).getByRole('button', { name: 'Save and play' }).click()
+    expect((await sent).postDataJSON()).toEqual({ en: 'Mine', expected: { en: 'Theirs' } })
+    await expect(now(page).getByRole('status')).toHaveText('Saved.')
+    await expect(row(page, 2)).toContainText('Mine')
+    await expect(now(page).getByText('It now says')).toHaveCount(0)
+  })
+
+  test('a refused fix whose new text cannot be read back says so and shows nothing below the alert', async ({ page }) => {
+    await page.goto('/#/watch/3')
+    await ready(page)
+    await page.keyboard.press('ArrowDown')
+    await now(page).getByRole('button', { name: 'Fix this line' }).click()
+    const field = now(page).getByRole('textbox', { name: 'English' })
+    await field.fill('Mine')
+    await page.route(/\/api\/lines\/dramas\/3\/lines\/\d+$/, (r) => r.request().method() === 'POST'
+      ? r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'The line changed.' } } })
+      : r.fallback())
+    await page.route(/\/api\/review\/dramas\/3\/lines\?/, (r) => r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Busy.' } } }))
+    await field.press('Control+Enter')
+    await expect(now(page).getByRole('alert')).toHaveText('This line was changed while you were fixing it, and its new text could not be loaded. Your text is still in the box. Try Save again in a moment.')
+    await expect(now(page).getByText('It now says')).toHaveCount(0)
+    await expect(field).toHaveValue('Mine')
+  })
+
+  test('a sound-only title shows its line in the card only: no caption strip, no Subtitles choice, no Go to line', async ({ page }) => {
+    await page.addInitScript(PIP_STUB)
+    await page.goto('/#/watch/3')
+    await expect(list(page).getByRole('listitem')).toHaveCount(24)
+    const player = page.getByRole('group', { name: 'Player' })
+    await expect(player.getByRole('slider', { name: 'Seek' })).toBeVisible()
+    await expect(player.getByLabel('Speed')).toBeVisible()
+    await row(page, 3).getByRole('button').click()
+    await page.getByRole('button', { name: 'Pause' }).click()
+    await expect(now(page).getByTestId('watch-now-box')).toHaveText('Line 3')
+    await expect(page.getByTestId('player-caption')).toHaveCount(0)
+    await expect(page.getByLabel('Subtitles')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Go to line/ })).toHaveCount(0)
+
+    // In the pop-out window the strip is the only text, so it is there, with its choice.
+    await player.getByRole('button', { name: 'Pop out' }).click()
+    const frame = page.frameLocator('#pip-stub')
+    await expect(frame.getByLabel('Subtitles')).toBeVisible()
+    await expect(frame.getByTestId('player-caption')).toBeVisible()
+    await frame.getByLabel('Jump to time').fill('0:04.5')
+    await frame.getByRole('button', { name: 'Jump' }).click()
+    await expect(frame.getByTestId('player-caption')).toHaveText('Line 3')
+    await page.evaluate(() => (document.getElementById('pip-stub') as HTMLIFrameElement).contentWindow?.close())
+    await expect(player.getByRole('slider', { name: 'Seek' })).toBeVisible()
+    await expect(page.getByTestId('player-caption')).toHaveCount(0)
+  })
+
+  test('without the pop-out window, the floating box keeps the caption strip and the Subtitles choice', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined })
+    })
+    await page.goto('/#/watch/3')
+    await expect(list(page).getByRole('listitem')).toHaveCount(24)
+    await page.getByRole('group', { name: 'Player' }).getByRole('button', { name: 'Pop out' }).click()
+    const floatBox = page.getByRole('group', { name: 'Floating player' })
+    await expect(floatBox.getByTestId('player-caption')).toBeVisible()
+    await expect(floatBox.getByLabel('Subtitles')).toBeVisible()
+    await floatBox.getByRole('button', { name: 'Return player' }).click()
+    await expect(page.getByTestId('player-caption')).toHaveCount(0)
+    await expect(page.getByLabel('Subtitles')).toHaveCount(0)
+  })
+
+  test('the seek bar takes the whole row, with the tools under it', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/#/watch/3')
+    const seek = (await page.getByRole('slider', { name: 'Seek' }).boundingBox())!
+    const controls = (await page.locator('.watch-player .review-player-controls').boundingBox())!
+    const speed = (await page.getByLabel('Speed').boundingBox())!
+    expect(seek.width).toBeGreaterThan(controls.width - 2)
+    expect(speed.y).toBeGreaterThan(seek.y + seek.height - 1)
+  })
+
+  test('a media question that fails offers Retry instead of saying there is nothing to play', async ({ page }) => {
+    await page.route(/\/api\/reader\/dramas\/3\/media$/, (r) => r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'boom' } } }))
+    await page.goto('/#/watch/3')
+    const banner = page.locator('.retry-banner')
+    await expect(banner).toBeVisible()
+    await expect(page.getByText(/no sound or video/)).toHaveCount(0)
+    await expect(page.getByRole('group', { name: 'Player' })).toHaveCount(0)
+    await page.unroute(/\/api\/reader\/dramas\/3\/media$/)
+    await banner.getByRole('button', { name: 'Retry' }).click()
+    await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
+    await expect(banner).toHaveCount(0)
+    await expect(page.getByText(/no sound or video/)).toHaveCount(0)
   })
 
   test('a saved position comes back paused, and Start from the beginning returns to 0:00', async ({ page }) => {

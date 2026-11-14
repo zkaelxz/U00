@@ -4,7 +4,7 @@ import type { Ref } from 'react'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import type { ReviewLine } from '../../types/review'
-import { CONFLICT_TEXT, fieldKey, lineHeading, type LineFix } from './watchLogic'
+import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, fieldKey, lineHeading, type LineFix } from './watchLogic'
 
 export const NOW_HINT = 'Press play. The line being spoken shows here.'
 export const NO_ENGLISH = 'No English yet'
@@ -106,7 +106,13 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
       ) : (
         <p className="muted watch-now-hint">{NOW_HINT}</p>
       )}
-      {fix?.conflict && <p className="error" role="alert">{CONFLICT_TEXT}</p>}
+      {fix?.conflict && <p className="error" role="alert">{fix.now === null ? CONFLICT_UNREAD_TEXT : CONFLICT_TEXT}</p>}
+      {fix?.conflict && fix.now !== null && (
+        <div className="watch-now-theirs">
+          <span className="watch-now-label">It now says</span>
+          <p className={fix.now ? 'watch-now-theirs-en' : 'watch-now-theirs-en is-empty'} lang={fix.now ? 'en' : undefined}>{fix.now || NO_ENGLISH}</p>
+        </div>
+      )}
       {fix?.error ? <ErrorBanner error={fix.error} /> : null}
       <p className="watch-now-status" role="status">{status}</p>
     </section>

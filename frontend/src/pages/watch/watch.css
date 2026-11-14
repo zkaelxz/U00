@@ -18,11 +18,14 @@
 }
 .watch-more-panel a:hover, .watch-more-panel a:focus-visible { background: var(--surface-2); }
 .watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); }
+.watch-back-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 
 /* Review's strip sits under its toolbar with a rule above it; here it is the top of its own card. */
 .watch-player .review-player { border-top: 0; padding-top: 0; }
 /* The picture is the page here, not a corner of Review's toolbar. */
 .watch-player .review-stage { max-height: min(48vh, 34rem); }
+/* Seeking is the main control here, so it gets the whole row and the tools go under it. Full screen lays out its own bar. */
+.watch-player .review-player-frame:not(.is-fullscreen) .review-seek { flex-basis: 100%; }
 .watch-resume { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .watch-resume p { margin: 0; }
 .watch-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
@@ -44,6 +47,9 @@ button.watch-now-box:hover:not(:disabled) { background: var(--field-bg); border-
 .watch-now-box.is-empty, .watch-now-en.is-empty { color: var(--muted); }
 textarea.watch-now-field { width: 100%; box-sizing: border-box; padding: var(--space-2) var(--space-3); }
 .watch-now-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.watch-now-theirs { display: grid; gap: 2px; }
+.watch-now-theirs-en { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.watch-now-theirs-en.is-empty { color: var(--muted); }
 /* Kept in the page while empty, so "Saved." is read out when it appears. */
 .watch-now-status { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 .watch-now-status:empty { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); }

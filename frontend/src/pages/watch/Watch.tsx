@@ -46,8 +46,10 @@ export default function WatchPage({ id }: { id: number }) {
   const canEdit = holds(session, 'lines.edit')
   const [drama, setDrama] = useState<DramaDetail | null>(null)
   const [dramaError, setDramaError] = useState<unknown>(null)
-  // undefined while the answer is out; null when the title has nothing to play (or the question failed).
+  // undefined while the answer is out (or the question failed); null when the title has nothing to play.
   const [media, setMedia] = useState<ReaderMediaAvailability | null | undefined>(undefined)
+  // Kept apart from "nothing to play": a question that failed says nothing about the title's files.
+  const [mediaError, setMediaError] = useState<unknown>(null)
   const [loadTick, setLoadTick] = useState(0)
   const [lines, setLines] = useState<ReviewLine[] | null>(null)
   const [linesFailed, setLinesFailed] = useState(false)
@@ -70,8 +72,12 @@ export default function WatchPage({ id }: { id: number }) {
       (e) => !cancelled && setDramaError(e),
     )
     readerApi.media(id).then(
-      (m) => !cancelled && setMedia(m),
-      () => !cancelled && setMedia(null),
+      (m) => {
+        if (cancelled) return
+        setMedia(m)
+        setMediaError(null)
+      },
+      (e) => !cancelled && setMediaError(e),
     )
     return () => {
       cancelled = true
@@ -286,16 +292,30 @@ export default function WatchPage({ id }: { id: number }) {
       width="wide"
       className="watch-page"
       title={title}
-      back={phone
-        ? <a className="watch-back" href={routeHref({ name: 'library' })}>‹ Library</a>
-        : <Breadcrumbs crumbs={routeCrumbs({ name: 'watch', id }, { title: drama ? titleOf(drama) : null, verb })} />}
+      back={phone ? (
+        // One row for the way back and the menu, so the header takes no extra row and the spoken line is on the first screen.
+        <div className="watch-back-row">
+          <a className="watch-back" href={routeHref({ name: 'library' })}>‹ Library</a>
+          {drama && !readOnly && <WatchMore id={id} withWork />}
+        </div>
+      ) : <Breadcrumbs crumbs={routeCrumbs({ name: 'watch', id }, { title: drama ? titleOf(drama) : null, verb })} />}
       meta={drama && <p className="page-meta"><Badge>{kindBadge(drama.media_type, drama.source_language)}</Badge></p>}
-      actions={drama && !readOnly && <WatchActions id={id} />}
+      actions={!phone && drama && !readOnly && (
+        <div className="watch-actions">
+          <ButtonLink href={routeHref({ name: 'drama', id, stage: null })}>Work on this title</ButtonLink>
+          <WatchMore id={id} />
+        </div>
+      )}
     >
-      <RetryBanner error={dramaError} what="this title" onRetry={() => {
-        setDramaError(null)
-        setLoadTick((n) => n + 1)
-      }} />
+      <RetryBanner
+        error={dramaError ?? mediaError}
+        what={dramaError ? 'this title' : "this title's sound or video"}
+        onRetry={() => {
+          setDramaError(null)
+          setMediaError(null)
+          setLoadTick((n) => n + 1)
+        }}
+      />
       {readOnly ? (
         <section className="card" aria-label="Not a watch title">
           <p>This title is read, not watched.</p>
@@ -304,18 +324,18 @@ export default function WatchPage({ id }: { id: number }) {
       ) : drama && (
         <div className="watch-layout">
           <div className="watch-main">
-            {media === undefined ? null : original ? (
+            {media === undefined || mediaError ? null : original ? (
               <div className="card watch-player" ref={playerBox}>
                 <Player
                   ref={player}
                   dramaId={id}
                   kind={original}
                   lines={ordered}
-                  selected={current}
                   captionVersion={captionVersion}
                   englishAbsent={ordered.length > 0 && ordered.every((l) => !l.en.trim())}
                   sourceStage={sourceStage}
                   alwaysOpen
+                  lineShownByPage
                 />
                 {resumedAt !== null && (
                   <div className="watch-resume">
@@ -406,23 +426,21 @@ export default function WatchPage({ id }: { id: number }) {
   )
 }
 
-function WatchActions({ id }: { id: number }) {
+function WatchMore({ id, withWork = false }: { id: number; withWork?: boolean }) {
   const more = useDetailsMenu()
   const close = (e: MouseEvent<HTMLAnchorElement>) => {
     const menu = e.currentTarget.closest('details')
     if (menu) menu.open = false
   }
   return (
-    <div className="watch-actions">
-      <ButtonLink href={routeHref({ name: 'drama', id, stage: null })}>Work on this title</ButtonLink>
-      <details className="watch-more" ref={more}>
-        <summary className={buttonClass()}>More</summary>
-        <div className="watch-more-panel">
-          <a href={routeHref({ name: 'follow', id })} onClick={close}>Follow along with sound from another app</a>
-          <a href={routeHref({ name: 'read', id, page: null })} onClick={close}>Read the lines</a>
-          <a href={routeHref({ name: 'drama', id, stage: 'export' })} onClick={close}>Save subtitles</a>
-        </div>
-      </details>
-    </div>
+    <details className="watch-more" ref={more}>
+      <summary className={buttonClass()}>More</summary>
+      <div className="watch-more-panel">
+        {withWork && <a href={routeHref({ name: 'drama', id, stage: null })} onClick={close}>Work on this title</a>}
+        <a href={routeHref({ name: 'follow', id })} onClick={close}>Follow along with sound from another app</a>
+        <a href={routeHref({ name: 'read', id, page: null })} onClick={close}>Read the lines</a>
+        <a href={routeHref({ name: 'drama', id, stage: 'export' })} onClick={close}>Save subtitles</a>
+      </div>
+    </details>
   )
 }

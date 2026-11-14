@@ -60,6 +60,9 @@ interface Props {
   sourceStage?: string
   // The Watch page is the player, so it is never folded away there.
   alwaysOpen?: boolean
+  // The page shows the spoken line itself, larger, so a sound-only title's caption strip (and the choice that only
+  // changes it) would repeat it; the pop-out window and the floating box keep both, as the only text there.
+  lineShownByPage?: boolean
 }
 
 // The Fullscreen API is still webkit-prefixed in older Safari.
@@ -82,7 +85,7 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
 // A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false }: Props) {
+export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false, lineShownByPage = false }: Props) {
   const stage = useContext(StageContext)
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
@@ -426,6 +429,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
 
   const overlay = kind === 'video' && !floating && subs !== 'off' ? overlayText(cue) : ''
   const canFullscreen = kind === 'video' && !floating && fullscreenAvailable()
+  const textSubs = !(lineShownByPage && kind !== 'video' && !floating && !boxed)
 
   // Kept mounted while folded away, so the sound and the strip above still work.
   const panel = (
@@ -469,7 +473,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         )}
         </div>
       ) : null}
-      {(kind !== 'video' || floating) && subs !== 'off' && (
+      {(kind !== 'video' || floating) && textSubs && subs !== 'off' && (
         <p className={cue ? 'review-caption' : 'review-caption is-empty'} data-testid="player-caption">
           {cue || '\u00a0'}
         </p>
@@ -526,7 +530,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
               ))}
             </select>
           </label>
-          <label className="review-subs">
+          {textSubs && <label className="review-subs">
             Subtitles
             <select value={subs} onChange={(e) => setSubs(e.target.value)}>
               {SUBTITLE_OPTIONS.map((o) => (
@@ -535,7 +539,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
                 </option>
               ))}
             </select>
-          </label>
+          </label>}
           {canFullscreen && (
             <button
               type="button"
@@ -568,7 +572,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
           {jumpError}
         </p>
       )}
-      {subsMissing && subs !== 'off' && <p className="muted">{NO_SUBS[subs]}</p>}
+      {subsMissing && textSubs && subs !== 'off' && <p className="muted">{NO_SUBS[subs]}</p>}
     </div>
   )
 
