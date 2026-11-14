@@ -6,7 +6,6 @@ import numpy as np
 from PIL import Image
 
 import scanlate_tuning
-from scanlate_inpaint import _lettering_mask
 
 log = logging.getLogger(__name__)
 
