@@ -8,8 +8,8 @@ last green run tested the same merge tree adds nothing that run did not test, so
 only the groups that run skipped. Every lookup failure prints the push run's outputs unchanged, so a
 broken lookup may cost minutes, never skip a job. A merge that changes CI or dependency files
 (ci_changes' "everything" files) always runs everything, since the PR run used its own copy of the
-workflow; so does a run from a fork, a run for another PR or base branch, and a merge onto a base
-other than the one the run tested (which also covers a rebase merge of several commits). A nightly
+workflow; so does a run from a fork, a newer run of the same tree that did not pass, and a merge onto
+a base other than the one the run tested (which also covers a rebase merge of several commits). A nightly
 scheduled run still runs everything.
 """
 import argparse
@@ -102,35 +102,42 @@ def _get(url, token, raw=False):
     return json.loads(body)
 
 
-def _runs_for_pr(run, number) -> bool:
-    """Whether `run` was for PR `number` into the base branch: another PR from the same head (one into a
-    branch whose own workflow copy records anything) must not vouch for this merge."""
-    return any(p.get("number") == number and (p.get("base") or {}).get("ref") == BASE_BRANCH
-               for p in run.get("pull_requests") or [])
+def _record(repo, run, token, get):
+    """The tested.json a run uploaded, or None when it has none (cancelled before `changes` uploaded)."""
+    arts = get(f"{_API}/repos/{repo}/actions/runs/{run['id']}/artifacts?name={ARTIFACT}", token)
+    for art in arts.get("artifacts", []):
+        if art.get("expired"):
+            continue
+        blob = get(art["archive_download_url"], token, raw=True)
+        with zipfile.ZipFile(io.BytesIO(blob)) as z:
+            return json.loads(z.read(_FILE))
+    return None
 
 
 def find_tested(repo, sha, tree, base_tree, token, get=_get):
     """The outputs of a green Tests run of the PR merged as `sha` that tested `tree` on top of
-    `base_tree` (the base the merge landed on), or None."""
+    `base_tree` (the base the merge landed on), or None.
+
+    The newest run at the PR's head that recorded those trees decides: unless it is a green run from
+    this repo (not a later flaky or failed run of the same code, nor a fork's), nothing is skipped.
+    Which PR or base branch a run was for is not checked, and need not be: GitHub empties a run's
+    `pull_requests` once its PR closes, and a run whose merge tree and base tree both match tested
+    exactly this code with this workflow."""
     pulls = get(f"{_API}/repos/{repo}/commits/{sha}/pulls", token)
     merged = [p for p in pulls if p.get("merge_commit_sha") == sha and p.get("merged_at")
               and (p.get("base") or {}).get("ref") == BASE_BRANCH]
     for pr in merged:
         runs = get(f"{_API}/repos/{repo}/actions/workflows/tests.yml/runs"
-                   f"?event=pull_request&status=success&head_sha={pr['head']['sha']}&per_page=20", token)
+                   f"?event=pull_request&head_sha={pr['head']['sha']}&per_page=20", token)
         for run in sorted(runs.get("workflow_runs", []), key=lambda r: r.get("run_number", 0), reverse=True):
-            if (run.get("conclusion") != "success" or (run.get("head_repository") or {}).get("full_name") != repo
-                    or not _runs_for_pr(run, pr["number"])):
+            record = _record(repo, run, token, get)
+            if record is None or record.get("tree") != tree or record.get("base_tree") != base_tree:
                 continue
-            arts = get(f"{_API}/repos/{repo}/actions/runs/{run['id']}/artifacts?name={ARTIFACT}", token)
-            for art in arts.get("artifacts", []):
-                if art.get("expired"):
-                    continue
-                blob = get(art["archive_download_url"], token, raw=True)
-                with zipfile.ZipFile(io.BytesIO(blob)) as z:
-                    record = json.loads(z.read(_FILE))
-                if record.get("tree") == tree and record.get("base_tree") == base_tree:
-                    return parse_outputs("\n".join(f"{k}={v}" for k, v in record["outputs"].items()))
+            # A fork's record is its own word, so it may stop a skip but never vouch for one.
+            if ((run.get("head_repository") or {}).get("full_name") != repo
+                    or run.get("status") != "completed" or run.get("conclusion") != "success"):
+                return None
+            return parse_outputs("\n".join(f"{k}={v}" for k, v in record["outputs"].items()))
     return None
 
 

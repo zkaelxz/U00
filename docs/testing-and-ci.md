@@ -67,9 +67,11 @@ A squash merge of a PR whose last green run tested the same tree adds nothing th
 `baihe-subtitler` runs only the groups that run skipped (`tools/ci_tested_tree.py`, tested by `tests/test_ci_tested_tree.py`).
 Each PR run's `changes` job records the tree it tests (the PR merged into the base), the base tree under it and its outputs as
 the `tested-tree` artifact (kept 14 days). The push run asks the API for the PR merged into `baihe-subtitler` as that commit, its
-newest green Tests run at the PR's head from this repo (not a fork) for that PR into `baihe-subtitler` (a run of the same head
-into another branch, which would use that branch's own workflow, does not count), and that run's record; when the recorded tree
-is the pushed tree and the recorded base tree is the pushed commit's parent's, a group the PR run ran is switched off. The lookup
+Tests runs at the PR's head, and their records. The newest run whose recorded tree is the pushed tree and whose recorded base
+tree is the pushed commit's parent's decides: if it is a green run from this repo (not a fork), a group it ran is switched off;
+if it failed, is still running or came from a fork, nothing is. Which PR a run names does not matter (GitHub empties that list
+once the PR closes): matching trees mean the same code and the same workflow, so a run of the same head into another branch
+can only count if that branch held exactly the base the merge landed on. The lookup
 has 90 seconds; a timeout runs everything. `guards` and `test` always run, and `test-shard` runs at least the tests that read frontend files. The full suite counts as run
 only when the PR ran it whole (not the sources subset). Anything else runs everything: no PR, a different tree (the base moved
 after the PR's last run), an expired or unreadable record, any API error, or a merge that changes an "everything" file (CI,
@@ -92,7 +94,7 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 
 | Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
 |---|---|---|---|
-| Push to `baihe-subtitler` (but see "After a merge" below), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | false | true | true |
+| Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | false | true | true |
 | PR labelled `full-ci` | false | true | true |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
 | Every changed file is under `docs/archive/research/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |

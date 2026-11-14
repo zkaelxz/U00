@@ -39,12 +39,19 @@ def trees(head=TREE, base=BASE):
 
 
 def green_run(**over):
-    return {"id": 7, "run_number": 3, "conclusion": "success", "head_repository": {"full_name": REPO},
-            "pull_requests": [{"number": 41, "base": {"ref": "baihe-subtitler"}}], **over}
+    # GitHub empties `pull_requests` once the PR closes, which it has by the time the push runs.
+    return {"id": 7, "run_number": 3, "status": "completed", "conclusion": "success",
+            "head_repository": {"full_name": REPO}, "pull_requests": [], **over}
 
 
-def fake_github(tested, tree=TREE, run=None, pulls=None, base_tree=BASE):
-    record = {"tree": tree, "base_tree": base_tree, "outputs": {k: str(v).lower() for k, v in tested.items()}}
+def record_of(tested, tree=TREE, base_tree=BASE):
+    return {"tree": tree, "base_tree": base_tree, "outputs": {k: str(v).lower() for k, v in tested.items()}}
+
+
+def fake_github(tested, tree=TREE, run=None, pulls=None, base_tree=BASE, runs=None):
+    """`runs` is [(run, record or None)], any order; by default one green run of `tested`."""
+    runs = runs if runs is not None else [(run or green_run(), record_of(tested, tree, base_tree))]
+    records = {r["id"]: rec for r, rec in runs}
     asked = []
 
     def get(url, token, raw=False):
@@ -56,12 +63,14 @@ def fake_github(tested, tree=TREE, run=None, pulls=None, base_tree=BASE):
                  "base": {"ref": "baihe-subtitler"}}]
         if "/actions/workflows/tests.yml/runs" in url:
             assert f"head_sha={HEAD}" in url and "event=pull_request" in url
-            return {"workflow_runs": [run or green_run()]}
-        if url.endswith("/actions/runs/7/artifacts?name=tested-tree"):
-            return {"artifacts": [{"expired": False, "archive_download_url": "https://dl/7"}]}
-        if url == "https://dl/7":
-            assert raw
-            return zipped(record)
+            return {"workflow_runs": [r for r, _ in runs]}
+        for run_id, rec in records.items():
+            if url.endswith(f"/actions/runs/{run_id}/artifacts?name=tested-tree"):
+                return {"artifacts": [] if rec is None else [
+                    {"expired": False, "archive_download_url": f"https://dl/{run_id}"}]}
+            if url == f"https://dl/{run_id}":
+                assert raw
+                return zipped(rec)
         raise AssertionError(url)
     return get, asked
 
@@ -109,14 +118,32 @@ class TestAfterMerge:
         get, _ = fake_github(ALL, run=green_run(head_repository={"full_name": "someone/r"}))
         assert after_merge(get) == ALL
 
-    @pytest.mark.parametrize("prs", [
-        [{"number": 99, "base": {"ref": "baihe-subtitler"}}],  # another PR from the same head
-        [{"number": 41, "base": {"ref": "evil-base"}}],  # the same head into a branch with its own workflow
-        [],
-    ])
-    def test_a_run_for_another_pr_or_base_branch_does_not_count(self, prs):
-        get, _ = fake_github(ALL, run=green_run(pull_requests=prs))
+    def test_a_run_recorded_on_another_base_runs_everything(self):
+        # A run of the same head into another branch, or before the base moved: its base tree differs.
+        get, _ = fake_github(ALL, base_tree="x" * 40)
         assert after_merge(get) == ALL
+
+    def test_which_pr_a_run_lists_does_not_matter_once_the_trees_match(self):
+        prs = [{"number": 99, "base": {"ref": "baihe-subtitler"}}]
+        get, _ = fake_github(pr_outputs(run_e2e=False), run=green_run(pull_requests=prs))
+        assert after_merge(get)["run_full_pytest"] is False
+
+    @pytest.mark.parametrize("newer", [
+        green_run(id=8, run_number=4, conclusion="failure"),  # a later flaky or failed run of the same code
+        green_run(id=8, run_number=4, status="in_progress", conclusion=None),  # a re-run still going
+        green_run(id=8, run_number=4, head_repository={"full_name": "someone/r"}),  # a fork's green word
+    ])
+    def test_the_newest_run_of_the_tree_decides(self, newer):
+        get, _ = fake_github(ALL, runs=[(green_run(), record_of(ALL)), (newer, record_of(ALL))])
+        assert after_merge(get) == ALL
+
+    def test_a_newer_run_of_another_tree_or_without_a_record_leaves_the_green_one(self):
+        runs = [(green_run(), record_of(pr_outputs(run_e2e=False))),
+                (green_run(id=8, run_number=4, conclusion="failure"), record_of(ALL, tree="x" * 40)),
+                (green_run(id=9, run_number=5, conclusion="cancelled"), None)]
+        get, _ = fake_github(ALL, runs=runs)
+        out = after_merge(get)
+        assert out["run_e2e"] is True and out["run_full_pytest"] is False
 
     def test_a_pr_merged_into_another_branch_does_not_count(self):
         get, _ = fake_github(ALL, pulls=[{"number": 41, "merge_commit_sha": SHA, "merged_at": "x",

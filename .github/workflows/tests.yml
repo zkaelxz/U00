@@ -112,8 +112,10 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
           overwrite: true
-        # Without the record the push after a merge just runs everything.
+        # Without the record the push after a merge just runs everything; a stalled upload must not
+        # use up the job's few minutes and turn the PR red.
         continue-on-error: true
+        timeout-minutes: 1
 
       # The frontend-only subset of `test` is a few files, so it gets one job
       # instead of four runners each paying for an install.
