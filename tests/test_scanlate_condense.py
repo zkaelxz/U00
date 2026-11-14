@@ -1,7 +1,6 @@
 """Condensing a sign's English when it is too long for the band it sits on."""
 import cv2
 import numpy as np
-import pytest
 
 import scanlate_condense
 import scanlate_render
