@@ -109,7 +109,14 @@ class TestMlBoxMerge:
         balloon = {"x": 280, "y": 1071, "w": 125, "h": 185, "confidence": 0.94, "label": "bubble"}
         text = {"x": 301, "y": 1097, "w": 82, "h": 136, "confidence": 0.95, "label": "text_bubble"}
         assert scanlate_detect._box_iou(balloon, text) < 0.5    # the case IoU alone missed
-        assert scanlate_detect.dedupe_overlapping_boxes([text, balloon]) == [balloon]
+        assert scanlate_detect.dedupe_overlapping_boxes([text, balloon]) == [
+            dict(balloon, text_boxes=[{"x": 301, "y": 1097, "w": 82, "h": 136}])]
+
+    def test_merged_fragments_keep_every_text_box(self):
+        a = {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble", "text_boxes": [{"x": 10, "y": 10, "w": 5, "h": 5}]}
+        b = {"x": 2, "y": 2, "w": 96, "h": 96, "label": "bubble", "text_boxes": [{"x": 60, "y": 60, "w": 5, "h": 5}]}
+        merged = scanlate_detect.merge_fragment_boxes([a, b])
+        assert len(merged) == 1 and len(merged[0]["text_boxes"]) == 2
 
     def test_a_small_balloon_inside_a_big_balloon_s_box_stays(self):
         big = {"x": 0, "y": 0, "w": 300, "h": 300, "label": "bubble"}
