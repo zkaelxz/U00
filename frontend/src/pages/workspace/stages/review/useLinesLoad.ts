@@ -96,6 +96,17 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dramaId, page, filter, term, reloads, retries])
 
+  // A filtered view's answer counts only its own lines, so the whole title's count is read beside it: the All
+  // switch, "N of M look fine" and the stage's has-lines check need it even when Review opens on a filter.
+  useEffect(() => {
+    if (filter === 'all') return
+    let cancelled = false
+    listLines(dramaId, 1, 1, 'all').then((r) => !cancelled && setAllTotal(r.total), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, filter, reloads])
+
   const retry = () => {
     setError(null)
     setRetries((n) => n + 1)

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { openDramaFolder } from '../../api/library'
@@ -40,9 +40,14 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   const { refresh } = steps
   // A finished job changes the counts the steps column shows, so it refreshes with the stage.
   const onJobDone = useCallback(() => { refetch(); refresh() }, [refetch, refresh])
+  // Review's writes change the check queue the step's note and button count, so they refresh it as well as the drama.
+  const refetchDrama = stage === 'review' ? onJobDone : refetch
+  // Pressed on the Review page, the Check button opens the queue there and moves to its first line.
+  const [checkSignal, setCheckSignal] = useState(0)
+  const openQueue = useCallback(() => setCheckSignal((n) => n + 1), [])
   const ctx = useMemo<StageContextValue>(
-    () => ({ dramaId: id, drama, refetchDrama: refetch, onJobDone, simple }),
-    [id, drama, refetch, onJobDone, simple],
+    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal }),
+    [id, drama, refetchDrama, onJobDone, simple, checkSignal],
   )
   // `simple` is true only for audio and video, the only kinds whose Simple pages link to Review.
   const Stage = stage ? STAGE_COMPONENTS[stage] : null
@@ -64,7 +69,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
       </header>
       {!simple && <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => s !== 'review')} active={stage} kind={titleKind(drama.media_type, drama.content_mode)} />}
       {/* `simple` is true only for audio and video, the kinds whose Simple pages have the step tabs. */}
-      {simple && <TitleSteps id={id} {...steps} openStep={openStep(stage)} />}
+      {simple && <TitleSteps id={id} {...steps} openStep={openStep(stage)} onCheck={stage === 'review' ? openQueue : undefined} />}
       <ErrorBanner error={error} />
       <StageContext.Provider value={ctx}>
         {Stage && <Stage />}

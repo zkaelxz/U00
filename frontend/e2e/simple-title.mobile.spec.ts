@@ -1,6 +1,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
+import { seedCheckLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
+import { clearLines } from './resegmentLlmMocks'
 
 // The Simple title view at phone width. Title 1 is the seeded audio drama.
 
@@ -91,4 +93,53 @@ test('the step tabs and buttons on a stage page are tall enough to tap and do no
   await page.locator('summary', { hasText: 'More' }).tap()
   for (const name of more) await expectTall(page.getByRole('link', { name, exact: true }), name)
   await expectNoSidewaysScroll(page)
+})
+
+// Title 3's seeded lines would open later phone specs on its Review page.
+test.describe(() => {
+  test.afterAll(() => clearLines())
+
+  test('the check queue on a phone is one card at a time, with Skip for now, wrapped reasons and no sideways scroll', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    const cards = page.locator('.review-line')
+    const position = page.getByTestId('queue-position')
+    const bar = page.getByRole('toolbar', { name: 'Line actions' })
+    await expect(position).toHaveText('1 of 3 to look at')
+    await expect(cards).toHaveCount(1)
+    await expect(cards.locator('.review-idx')).toHaveText('#24')
+    await expect(page.getByText('Next: line 7, Whisper was unsure · line 12, reading speed')).toBeVisible()
+    await expect(cards.getByRole('link', { name: 'Open glossary' })).toBeVisible()
+
+    await bar.getByRole('button', { name: 'Skip for now' }).tap()
+    await expect(position).toHaveText('2 of 3 to look at')
+    await expect(cards.locator('.review-idx')).toHaveText('#7')
+    const reason = cards.getByTestId('queue-reason')
+    await expect(reason).toHaveText('Whisper was unsure of this line (50% sure)')
+
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 })
+      expect(await reason.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `the reason wraps at ${width}px`).toBe(true)
+      for (const name of ['Skip for now', 'Looks right, next']) await expectTall(bar.getByRole('button', { name }), `${name} at ${width}px`)
+      // The radios are visually hidden; the visible control is their label.
+      await expectTall(page.locator('label').filter({ hasText: /^Need a look 3$/ }), `Need a look at ${width}px`)
+      await expectNoSidewaysScroll(page)
+    }
+
+    // Looks right, next checks #7 and opens #12, which is now the last of two.
+    await bar.getByRole('button', { name: 'Looks right, next' }).tap()
+    await expect(position).toHaveText('2 of 2 to look at')
+    await expect(cards.locator('.review-idx')).toHaveText('#12')
+    await expect(page.getByTestId('checked-undo')).toContainText('Line #7 marked checked.')
+    await expectNoSidewaysScroll(page)
+
+    // Skip for now on the last card goes back to the start of the queue.
+    await bar.getByRole('button', { name: 'Skip for now' }).tap()
+    await expect(position).toHaveText('1 of 2 to look at')
+
+    await page.getByTestId('checked-undo').getByRole('button', { name: 'Undo' }).tap()
+    await expect(position).toHaveText('2 of 3 to look at')
+    await expect(cards.locator('.review-idx')).toHaveText('#7')
+  })
 })
