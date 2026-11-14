@@ -125,3 +125,9 @@ def test_a_cut_that_leaves_the_mask_nearly_full_width_is_still_seen():
 def test_a_balloon_that_is_already_centred_is_laid_out_as_before():
     mask = _round_balloon(False)
     assert scanlate_render._symmetrised(mask) is None
+
+
+def test_a_narrow_balloon_a_pixel_or_two_off_centre_is_left_alone():
+    mask = np.zeros((124, 66), bool)
+    mask[5:119, 4:60] = True  # centre of mass 2 px off the box centre: 3% of 66 is 2 px
+    assert scanlate_render._symmetrised(mask) is None
