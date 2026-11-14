@@ -85,3 +85,25 @@ test('phone: the selection bar stays one row and lists its actions in a sheet', 
   const panel = page.getByTestId('set-speaker')
   for (const name of ['Set speaker', 'Close']) expect((await panel.getByRole('button', { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
 })
+
+test("phone, Simple view: the selection bar sits above the check queue's taller line bar", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+  await page.setViewportSize({ width: 360, height: 780 })
+  // With audio the player sits above the queue's card, so the card and its selection bar reach the bottom of the screen.
+  const code = `import db, os, wave
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+from core import Line
+with wave.open(os.path.join(db.drama_dir(3), 'e2e.wav'), 'wb') as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000); w.writeframes(b'\\0\\0' * 8000 * 6)
+db.update_drama(3, audio_filename='e2e.wav')
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}', flag='uncertain' if i % 3 == 0 else '') for i in range(40)])
+`
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
+  await page.goto('/#/drama/3/review')
+  await page.locator('.review-line input[type=checkbox]').first().tap()
+  const bar = page.getByTestId('selection-bar')
+  await expect(bar).toContainText('1 selected')
+  const sel = (await bar.boundingBox())!
+  const lineBar = (await page.getByRole('toolbar', { name: 'Line actions' }).boundingBox())!
+  expect(sel.y + sel.height).toBeLessThanOrEqual(lineBar.y + 0.5)
+})

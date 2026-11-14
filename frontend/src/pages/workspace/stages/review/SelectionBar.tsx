@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 
 import { Sheet } from '../../../../components/Sheet'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -12,6 +12,7 @@ export function SelectionBar({ ctx }: { ctx: SelectionActionContext }) {
   // one row and lists the actions in a sheet, as the line's own actions are.
   const phone = useMediaQuery('(max-width: 640px)')
   const [sheetOpen, setSheetOpen] = useState(false)
+  const bottom = useLineBarHeight(phone)
   const actions = SELECTION_ACTIONS.map((a) => ({ ...a, why: a.unavailable?.(ctx) ?? null }))
   const clear = (
     <button type="button" className={buttonClass('ghost', 'sm')} onClick={ctx.clear}>
@@ -21,7 +22,7 @@ export function SelectionBar({ ctx }: { ctx: SelectionActionContext }) {
 
   if (phone) {
     return (
-      <div className="review-selbar" role="toolbar" aria-label="Selected lines" data-testid="selection-bar">
+      <div className="review-selbar" role="toolbar" aria-label="Selected lines" data-testid="selection-bar" style={bottom ? { bottom } : undefined}>
         <span className="review-selbar-count">{count} selected</span>
         <span className="review-selbar-actions">
           <button type="button" className={buttonClass('secondary', 'sm')} aria-haspopup="dialog" onClick={() => setSheetOpen(true)}>
@@ -79,4 +80,20 @@ export function SelectionBar({ ctx }: { ctx: SelectionActionContext }) {
       )}
     </div>
   )
+}
+
+// The phone line bar is fixed along the bottom and the selection bar sticks just above it. Its height is measured, not
+// assumed, because the check queue's two-line buttons make it taller than the usual 56px.
+function useLineBarHeight(phone: boolean): number | null {
+  const [height, setHeight] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const bar = phone ? document.querySelector('.review-editbar') : null
+    if (!bar || typeof ResizeObserver === 'undefined') return
+    const measure = () => setHeight(bar.getBoundingClientRect().height || null)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(bar)
+    return () => observer.disconnect()
+  }, [phone])
+  return height
 }
