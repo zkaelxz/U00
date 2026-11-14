@@ -72,6 +72,23 @@ class TestImageOnlyPages:
             "</body>", "</div></body>")
         assert pf.looks_like_unrendered_shell(html, "Loading...")["is_shell"] is False
 
+    def test_a_shell_with_covers_ads_and_pixels_is_still_a_shell(self):
+        stray = ('<img src="https://cdn.example/covers/1.jpg"><img src="https://cdn.example/covers/2.jpg">'
+                 '<img src="https://cdn.example/covers/3.jpg"><img class="thumb" src="/t/4.jpg">'
+                 '<img src="https://ads.example/a.jpg"><img src="https://ads2.example/b.png">'
+                 '<img src="/static/blank.gif"><img :src="p.url"><img src="data:image/gif;base64,R0">'
+                 '<img src="https://t.example/p.gif" width="1" height="1">'
+                 '<noscript><img src="https://px.example/tr?id=1"><img src="https://px.example/tr?id=2">'
+                 '<img src="https://px.example/tr?id=3"></noscript>')
+        html = SPA_SHELL_HTML.replace('<div id="app"></div>', '<div id="app"></div>' + stray)
+        assert pf.looks_like_unrendered_shell(html, SPA_SHELL_TEXT)["is_shell"] is True
+
+    def test_page_images_outside_an_empty_app_root_do_not_hide_it(self):
+        pages = ''.join(f'<img src="https://img.example/ch1/{i}.jpg">' for i in range(5))
+        html = SPA_SHELL_HTML.replace('<div id="app"></div>', pages + '<div id="app"></div>')
+        assert "page uses a JavaScript app container" in pf.looks_like_unrendered_shell(
+            html, SPA_SHELL_TEXT)["reasons"]
+
     def test_a_shell_with_only_a_logo_and_icons_is_still_a_shell(self):
         html = SPA_SHELL_HTML.replace('<div id="app"></div>', '<div id="app"><img src="/logo.png">'
                                       '<img src="/icons/a.svg"><img src="/icons/b.svg"></div>')

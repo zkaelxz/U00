@@ -46,14 +46,35 @@ EMPTY_STATE_MARKERS = [
 # what a shell looks like; its page images are what tell it apart. No "<" inside the
 # tag, so an unclosed one can't make the match scan to the end of the page.
 _IMG_TAG_RE = re.compile(r"<img\b[^<>]*>", re.I)
-_IMG_SRC_RE = re.compile(r"""\b(?:data-)?src\s*=\s*["']?[^"'\s>]""", re.I)
-_FURNITURE_IMG_RE = re.compile(r"logo|icon|avatar|sprite|banner|emoji|qrcode|loading", re.I)
+# A template binding such as :src="p.url" is a shell's unfilled markup, not an image.
+_IMG_SRC_RE = re.compile(r"""(?<![\w:-])(?:data-)?src\s*=\s*["']?([^"'\s>]+)""", re.I)
+_FURNITURE_IMG_RE = re.compile(r"logo|icon|avatar|sprite|banner|emoji|qrcode|loading|blank|placeholder|"
+                               r"spacer|pixel|transparent|\bthumb|\bcover", re.I)
+_TINY_IMG_RE = re.compile(r"""\b(?:width|height)\s*=\s*["']?[01]\b""", re.I)
+# Tracking pixels sit in <noscript>, and commented-out markup is not on the page.
+_HIDDEN_HTML_RE = re.compile(r"<noscript\b.*?</noscript\s*>|<!--.*?-->", re.I | re.S)
 MIN_CONTENT_IMAGES = 3
 
 
-def _content_image_count(html: str) -> int:
-    return sum(1 for tag in _IMG_TAG_RE.findall(html or "")
-               if _IMG_SRC_RE.search(tag) and not _FURNITURE_IMG_RE.search(tag))
+def _content_image_folders(html: str) -> list:
+    """The host-and-folder of each image that could be a page of the chapter."""
+    folders = []
+    for tag in _IMG_TAG_RE.findall(_HIDDEN_HTML_RE.sub(" ", html or "")):
+        m = _IMG_SRC_RE.search(tag)
+        if not m or _FURNITURE_IMG_RE.search(tag) or _TINY_IMG_RE.search(tag):
+            continue
+        src = m.group(1)
+        if src.lower().startswith("data:"):
+            continue
+        folders.append(src.split("?", 1)[0].rsplit("/", 1)[0])
+    return folders
+
+
+def _is_image_page(html: str) -> bool:
+    """A chapter's pages share one host and folder; a shell's stray ads, pixels and
+    covers come from all over."""
+    folders = _content_image_folders(html)
+    return bool(folders) and max(folders.count(f) for f in set(folders)) >= MIN_CONTENT_IMAGES
 
 
 def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
@@ -69,15 +90,16 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
 
     text_len = len((extracted_text or "").strip())
     html_len = len(html or "")
-    images = _content_image_count(html)
-    image_page = images >= MIN_CONTENT_IMAGES
+    image_page = _is_image_page(html)
 
     # A content page has a decent text-to-markup ratio. A shell doesn't.
     if html_len > 2000 and text_len < 600 and not image_page:
         reasons.append("very little text relative to page size")
         score += 0.4
 
-    if any(m in (html or "") for m in SPA_ROOT_MARKERS) and not image_page:
+    # An app container still counts unless the page images come after it: a shell's root is empty.
+    roots = [html.find(m) for m in SPA_ROOT_MARKERS if m in (html or "")]
+    if roots and not (image_page and _is_image_page(html[min(roots):])):
         reasons.append("page uses a JavaScript app container")
         score += 0.3
 
