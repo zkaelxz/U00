@@ -46,7 +46,7 @@ Click the extension on a page you're reading:
   the same site and the same original or English name, so later chapters
   of a series land in the same title. A reused title only has its blank
   fields filled; nothing you typed is overwritten. Another user's private title, or one in their private series, is never matched, and neither is any title you can't change (a new one of your own is made instead), and a series someone else owns or one more or less private than the title is never joined. A new title also joins a
-  series of the same name (an existing one is joined, a series you chose is
+  series named like the title in English (the page's English name, or the one translated at creation; the raw name if there is none; an existing series under either name is joined, a series you chose is
   never replaced). An automatic title is not remembered for the site.
   **Automatic title options** (the popup's **Auto** tab, saved in the extension; the popup has Page, Chapter, Text and Auto tabs under the shared drama picker):
   *Create a new title when none matches* (off: Auto only reuses a match,

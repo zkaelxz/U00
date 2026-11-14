@@ -41,6 +41,9 @@ _BRIDGE_PRINCIPAL = extension_novel_service._BRIDGE_PRINCIPAL
 # otherwise both find nothing and each create it.
 _resolve_lock = threading.Lock()
 _title_spend_lock = threading.Lock()
+# Titles whose creator is still translating the name; guarded by _resolve_lock. The series is named
+# from that translation, so a second capture matching the title meanwhile must not join one first.
+_series_pending: set = set()
 
 _FAILED = "Could not set up a title for this page; pick one by hand."
 _NO_TITLE = ("No existing title matches this page. Pick a drama, or turn on creating new titles.")
@@ -206,6 +209,17 @@ def _find_match(clean_url: str, host: str, original: str, english: str, kind: st
     return None
 
 
+def _series_display_name(original: str, english: str, drama_id: int) -> str:
+    """The name a series is joined or made under: the English title (the page's own or the
+    translation stored on the title), else the raw name. A series already made under the raw name
+    is reused, so titles imported before series were named in English still land together."""
+    english = english or (db.get_drama(drama_id) or {}).get("title_en") or ""
+    if english and (db.get_series_id_by_name(english) is not None
+                    or not original or db.get_series_id_by_name(original) is None):
+        return english
+    return original or english
+
+
 def _join_series(drama_id: int, name: str):
     """The series the title joins, only while it is in none, by the rule the link
     details use for a name taken from a site: a series with the same owner and
@@ -262,8 +276,8 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL, translate_title: b
                 filled = db.dramas.fill_blank_fields(drama_id, {"title_zh": original, "title_en": english})
                 if clean_url and drama_service.set_source_url_once(drama_id, page["url"]):
                     filled.append("source_url")
-            if page["series"] and series_name:
-                _join_series(drama_id, series_name)
+            if page["series"] and series_name and drama_id not in _series_pending:
+                _join_series(drama_id, _series_display_name(original, english, drama_id))
             _remember_links(drama_id, page, host)
             return _answer(drama_id, False, filled)
         if not page["create"]:
@@ -277,15 +291,23 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL, translate_title: b
         # The link is kept even with Fill off, or the next send could never find this title again.
         if clean_url:
             drama_service.set_source_url_once(drama_id, page["url"])
-        if page["series"] and series_name:
-            _join_series(drama_id, series_name)
         _remember_links(drama_id, page, host)
         filled_names = ([f for f in ("title_zh", "title_en") if created.get(f)]
                         + (["source_url"] if clean_url else []))
-        translate = page["fill"] and original and not english
-    # Outside the lock: an AI call must not hold up the next title's lookup.
-    if translate and translate_title and _translate_title_once(drama_id, original, language):
-        filled_names.append("title_en")
+        translate = bool(page["fill"] and original and not english and translate_title)
+        wants_series = bool(page["series"] and series_name)
+        if translate and wants_series:
+            _series_pending.add(drama_id)
+    try:
+        # Outside the lock: an AI call must not hold up the next title's lookup.
+        if translate and _translate_title_once(drama_id, original, language):
+            filled_names.append("title_en")
+        # After the translation, so the series is named in English like the title.
+        if wants_series:
+            _join_series(drama_id, _series_display_name(original, english, drama_id))
+    finally:
+        with _resolve_lock:
+            _series_pending.discard(drama_id)
     return _answer(drama_id, True, filled_names)
 
 

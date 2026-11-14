@@ -122,3 +122,44 @@ def test_two_new_titles_at_once_cannot_both_pass_a_cap_with_room_for_one(token, 
     for t in threads:
         t.join(5)
     assert len(entered) == 1
+
+
+def test_the_series_is_named_with_the_english_title(token, ai):
+    h = _resolve(token)
+    assert db.get_series_id_by_name("My Husband Hid the Child") == h.payload["series_id"]
+    assert db.get_series_id_by_name("남편이 아이를 숨겼다") is None
+
+
+def test_the_series_keeps_the_raw_name_when_translation_fails(token, ai, monkeypatch):
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k: "sorry, no")
+    h = _resolve(token)
+    assert db.get_series_id_by_name("남편이 아이를 숨겼다") == h.payload["series_id"]
+
+
+def test_an_existing_raw_named_series_is_joined_not_duplicated(token, ai):
+    existing = db.create_series("남편이 아이를 숨겼다", is_private=True)
+    h = _resolve(token)
+    assert h.payload["series_id"] == existing
+    assert db.get_series_id_by_name("My Husband Hid the Child") is None
+
+
+def test_a_capture_arriving_during_the_translation_leaves_the_series_to_the_first(token, ai, monkeypatch):
+    import threading
+    started, release = threading.Event(), threading.Event()
+
+    def slow(engine, prompt, **kwargs):
+        started.set()
+        release.wait(5)
+        return '{"title": "My Husband Hid the Child"}'
+    monkeypatch.setattr(llm_tasks, "call_llm_json", slow)
+    first = []
+    t = threading.Thread(target=lambda: first.append(_resolve(token)))
+    t.start()
+    assert started.wait(5)
+    second = _resolve(token, url="https://comic.naver.com/webtoon/detail?titleId=1&no=2")
+    assert second.payload["series_id"] is None
+    release.set()
+    t.join(5)
+    assert db.get_series_id_by_name("남편이 아이를 숨겼다") is None
+    assert db.get_drama(first[0].payload["drama_id"])["series_id"] == first[0].payload["series_id"]
+    assert len(db.list_series()) == 1
