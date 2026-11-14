@@ -326,6 +326,45 @@ class TestHardTermSubstitution:
             assert substitute(text) == tg.apply_hard_term_substitutions(text, terms)
         assert substitute(lines[0]) == "Shen Qingyi met Lin Wan in Berlin."
 
+    def test_a_line_whose_source_lacks_the_term_keeps_its_variant(self):
+        terms = [{"term_original": "师姐", "term_translation": "Senior Sister", "notes": "Sister",
+                  "enforce_exact": True}]
+        substitute = tg.build_hard_term_substituter(terms)
+        assert substitute("My sister is home.", "我姐姐在家。") == "My sister is home."
+        assert substitute("My sister is home.", "师姐在家。") == "My Senior Sister is home."
+
+    def test_an_alias_in_the_source_brings_the_term_into_play(self):
+        terms = [{"term_original": "沈清仪", "aliases": "清仪", "term_translation": "Shen Qingyi",
+                  "notes": "Qingyi", "enforce_exact": True}]
+        assert tg.apply_hard_term_substitutions("Qingyi left.", terms, "清仪走了") == "Shen Qingyi left."
+
+    def test_only_the_terms_the_source_holds_are_replaced(self):
+        terms = [{"term_original": "沈清仪", "term_translation": "Shen Qingyi", "notes": "Qingyi",
+                  "enforce_exact": True},
+                 {"term_original": "林晚", "term_translation": "Lin Wan", "notes": "Lin",
+                  "enforce_exact": True}]
+        substitute = tg.build_hard_term_substituter(terms)
+        assert substitute("Qingyi met Lin.", "沈清仪来了") == "Shen Qingyi met Lin."
+        assert substitute("Qingyi met Lin.", "林晚来了") == "Qingyi met Lin Wan."
+        assert substitute("Qingyi met Lin.", "沈清仪见了林晚") == "Shen Qingyi met Lin Wan."
+
+    def test_a_name_holding_an_active_variant_is_never_rewritten(self):
+        terms = [{"term_original": "沈清仪", "term_translation": "Shen Qingyi", "enforce_exact": True},
+                 {"term_original": "清仪", "term_translation": "Qingyi Li", "notes": "Qingyi",
+                  "enforce_exact": True},
+                 {"term_original": "师姐", "term_translation": "Senior Sister", "enforce_exact": True},
+                 {"term_original": "姐姐", "term_translation": "Big Sister", "notes": "Sister",
+                  "enforce_exact": True}]
+        substitute = tg.build_hard_term_substituter(terms)
+        assert substitute("Shen Qingyi left.", "清仪走了") == "Shen Qingyi left."
+        assert substitute("Senior Sister left.", "姐姐走了") == "Senior Sister left."
+        assert substitute("Qingyi and Sister left.", "清仪和姐姐走了") == "Qingyi Li and Big Sister left."
+
+    def test_an_empty_source_brings_no_term_into_play(self):
+        terms = [{"term_original": "林晚", "term_translation": "Lin Wan", "notes": "Lin",
+                  "enforce_exact": True}]
+        assert tg.apply_hard_term_substitutions("Lin waved.", terms, "") == "Lin waved."
+
     def test_matches_whole_words_only(self):
         terms = [{"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
         result = tg.apply_hard_term_substitutions("In Berlin, Lin waved. LINE up.", terms)

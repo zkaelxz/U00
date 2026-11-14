@@ -284,6 +284,17 @@ class TestPipeline:
             lines, engine, {"title_en": "T", "translate_by_sentence": 1})
         assert "Sentence in" in engine.prompts[0]
 
+    def test_the_run_reports_which_lines_it_translated_as_one_sentence(self):
+        lines = fragments()
+        reported = []
+        run(ScriptedEngine(distribute_reply({100: "a", 101: "b", 102: "c", 103: "d"})), lines,
+            translate_by_sentence=True, sentence_groups_cb=reported.extend)
+        assert reported == [[100, 101, 102]]
+        reported.clear()
+        run(ScriptedEngine(distribute_reply({100: "a", 101: "b", 102: "c", 103: "d"})),
+            fragments(), translate_by_sentence=False, sentence_groups_cb=reported.extend)
+        assert reported == []
+
     def test_inert_for_reflect_and_for_engines_that_dont_follow_instructions(self):
         engine = ScriptedEngine(distribute_reply({}))
         engine.supports_reference = False

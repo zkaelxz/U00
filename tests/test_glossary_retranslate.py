@@ -117,6 +117,19 @@ class TestFindAffected:
         [line] = svc.find_glossary_affected_lines(did)["lines"]
         assert line["en"] == "Lin Wan 林晚" and line["hand_edited"] is False
 
+    def test_exact_term_substitution_skips_a_line_whose_source_lacks_the_term(self, isolated_db):
+        did, sid, _ = _seed([("林晚", ""), ("她走了", "")], machine=set())
+        db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="[TEST]|Lin", enforce_exact=True)
+        wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
+        assert [r["en"] for r in db.load_lines(did)] == ["Lin Wan 林晚", "[TEST] 她走了"]
+
+    def test_exact_term_substitution_covers_the_rest_of_a_translated_sentence(self, isolated_db):
+        did, sid, _ = _seed([("林晚", ""), ("她走了", "")], machine=set())
+        db.update_drama(did, translate_by_sentence=1)
+        db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="[TEST]|Lin", enforce_exact=True)
+        wait_for_job(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"], timeout=20.0)
+        assert [r["en"] for r in db.load_lines(did)] == ["Lin Wan 林晚", "Lin Wan 她走了"]
+
     def test_unknown_drama(self, isolated_db):
         with pytest.raises(NotFoundError):
             svc.find_glossary_affected_lines(999)
@@ -595,6 +608,16 @@ class TestOwnLinesOnly:
         assert (first["en"], first["flag"]) == ("Lin Wan one", "dense")
         assert (second["zh"], second["en"], second["flag"]) == ("林晚三", "Lynn two",
                                                                   "source_changed")
+
+    def test_a_term_counts_for_every_part_of_its_sentence(self, isolated_db):
+        # Translate by sentence put "Lynn" in part 2, whose own source lacks 林晚.
+        did, rows, lines = _landed_run([("林晚说", "Lynn said"), ("她累了。", "that Lynn is tired."),
+                                        ("他也累了。", "Lynn is tired too.")])
+        translation_finish.finish_translation_run(
+            did, lines, None, "fake", "", [LIN_EXACT], [], enforce_ids={r["id"] for r in rows},
+            flags_needing_recheck=set(), sentence_parts=[[rows[0]["id"], rows[1]["id"]]])
+        assert [r["en"] for r in db.load_lines(did)] == [
+            "Lin Wan said", "that Lin Wan is tired.", "Lynn is tired too."]
 
     def test_source_edit_right_after_the_final_read_gets_no_substitution_or_flag(
             self, isolated_db, monkeypatch):

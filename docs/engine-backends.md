@@ -241,6 +241,8 @@ makes one sentence as that whole sentence, and put its English back onto
 the fragments (sentence_groups). None means the title's saved choice
 (drama_meta["translate_by_sentence"]), so every translate path agrees.
 Inert for Reflect mode and for engines that don't follow instructions.
+sentence_groups_cb: optional callable given the line ids of each sentence
+of two or more parts, once, when the run groups them.
 
 check_replies: run the merged/shifted-reply guard. None = the engine
 and model's default (default_reply_guard); an explicit True/False wins.
