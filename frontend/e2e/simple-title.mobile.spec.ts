@@ -502,6 +502,38 @@ test.describe(() => {
     }
   })
 
+  test('the few words keep a glossary name in one piece when they wrap', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    await page.locator('label').filter({ hasText: /^All 24$/ }).tap()
+    const row = page.locator('.review-line').filter({ has: page.locator('.review-idx', { hasText: /^#24$/ }) })
+    await row.getByTestId('line-en').tap()
+    const chip = row.locator('.review-flag-toggle')
+    await expect(chip).toHaveText('Flagged: Glossary name not used: 夷陵老祖')
+    // Every width from a wide phone to a narrow one: wherever the first line ends, it must not end inside the name.
+    const split: number[] = []
+    const wrapped: number[] = []
+    for (let width = 390; width >= 320; width -= 2) {
+      await page.setViewportSize({ width, height: 844 })
+      const lines = await chip.evaluate((el, name) => {
+        const count = (range: Range) => new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size
+        const all = document.createRange()
+        all.selectNodeContents(el)
+        const text = [...el.childNodes].find((n): n is Text => n.nodeType === Node.TEXT_NODE && (n as Text).data.includes(name))!
+        const part = document.createRange()
+        part.setStart(text, text.data.indexOf(name))
+        part.setEnd(text, text.data.indexOf(name) + name.length)
+        return { all: count(all), name: count(part) }
+      }, '夷陵老祖')
+      if (lines.all > 1) wrapped.push(width)
+      if (lines.name > 1) split.push(width)
+    }
+    expect(wrapped, 'the few words wrap on a narrow phone').toContain(320)
+    expect(split, 'widths at which the glossary name is split across lines').toEqual([])
+    await expectNoSidewaysScroll(page)
+  })
+
   test('on the Check step with nothing to look at, Export stays under the header, with the steps closed', async ({ page }) => {
     seedCheckLines({ warnings: false })
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))

@@ -368,8 +368,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Keep the first text line clear of the ⋯ corner: a float carves out only the part the button covers. */
   .review-body { display: block; }
   .stage-review button.review-en { display: block; width: 100%; }
-  /* The margin keeps the flag button clear of the ⋯ button's padded hit area. */
-  .review-flag-line { white-space: normal; overflow-wrap: break-word; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
+  /* The margin keeps the flag button clear of the ⋯ button's padded hit area. keep-all: Chinese, Japanese and Korean text
+     may break between any two characters, which would split a glossary name; it moves to the next line whole instead. */
+  .review-flag-line { white-space: normal; overflow-wrap: break-word; word-break: keep-all; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
 }
 
 .review-hidden-edit { align-items: center; flex-wrap: wrap; border-color: var(--warn); }

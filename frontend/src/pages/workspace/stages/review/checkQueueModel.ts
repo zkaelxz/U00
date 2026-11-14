@@ -382,9 +382,9 @@ const FLAG_KINDS: Record<string, FlagKind> = {
 export const QUEUE_FLAG_KINDS = Object.keys(FLAG_KINDS)
 
 /**
- * Why a queue card is listed, in everyday words. A note the server writes in a known shape gives the specifics; any
- * other note is shown as it is after the plain sentence. An unknown flag keeps the line list's own text. Null for a
- * line with no flag that Whisper was sure of.
+ * Why a queue card is listed, in everyday words; a flagged line says the same wherever Review writes its flag out.
+ * A note the server writes in a known shape gives the specifics; any other note is shown as it is after the plain
+ * sentence. An unknown flag keeps the line list's own text. Null for a line with no flag that Whisper was sure of.
  */
 export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confidence'>): QueueReason | null {
   if (!line.flag) {
