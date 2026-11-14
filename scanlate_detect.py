@@ -1028,6 +1028,23 @@ def bubble_shape_mask(image_path: str, box: dict, margin: int = 4, image=None):
     return mask
 
 
+def balloon_outside_mask(image_path: str, box: dict, image=None):
+    """Boolean (h, w) array of `box`: True on the light paper that reaches the box's edge
+    outside the balloon under its centre (see _balloon_interior()). None when no balloon
+    is found there."""
+    gray = page_gray(image_path, image)
+    if gray is None:
+        return None
+    area = _roi(gray, box)
+    if area is None:
+        return None
+    x0, y0, x1, y1 = area
+    found = _balloon_interior(gray[y0:y1, x0:x1])
+    if found is None:
+        return None
+    return _to_box_mask(box, area, found[1])
+
+
 def _tone_from_edge(roi, filled):
     """uint8 mask of `roi`'s flat grey areas (lighter than an outline, darker than
     paper, at least ERASE_FLAT_TONE_PX across) outside `filled` that connect to
