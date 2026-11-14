@@ -113,7 +113,7 @@ test('top-level pages get a bottom bar whose More opens the drawer; title pages 
   const bar = page.getByRole('navigation', { name: 'Quick' })
   await expect(bar).toBeVisible()
   await expect(bar.getByRole('link', { name: 'Library', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(bar.getByRole('link', { name: 'Quick', exact: true })).toBeVisible()
+  await expect(bar.getByRole('link', { name: 'Add', exact: true })).toBeVisible()
   await expect(bar.getByRole('link', { name: 'Jobs', exact: true })).toBeVisible()
   // The header no longer carries a hamburger beside the bar.
   await expect(page.locator('.app-header .menu-btn')).toHaveCount(0)

@@ -131,7 +131,7 @@ describe('run scoping and the apply body', () => {
 
 describe('suggest terms sources', () => {
   const blockers = (_series: number | null, novel: boolean | null, lines: boolean | null) =>
-    suggestBlockers(3, novel, lines)
+    suggestBlockers(3, novel, lines, 'Transcribe')
 
   it('lines only: the transcript runs and the novel says what it needs', () => {
     const b = blockers(7, false, true)
@@ -144,7 +144,8 @@ describe('suggest terms sources', () => {
   it('novel only: defaults to the novel', () => {
     const b = blockers(7, true, false)
     expect(b.novel).toBeNull()
-    expect(b.lines).toEqual({ text: 'Still needed: transcript lines', link: 'transcribe it on Media', href: '#/drama/3/source?tab=transcribe' })
+    expect(b.lines).toEqual({ text: 'Still needed: transcript lines', link: 'add them on Transcribe', href: '#/drama/3/source?tab=transcribe' })
+    expect(suggestBlockers(3, true, false, 'Media').lines?.link).toBe('add them on Media')
     expect(defaultSuggestSource(b, false)).toBe('novel')
   })
 

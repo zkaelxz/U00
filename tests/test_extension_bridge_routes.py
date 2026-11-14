@@ -444,5 +444,16 @@ class TestCaptureSummary:
                            headers=_auth(token))
         assert r.status_code == 404 and lines == []
 
+    def test_without_lines_edit_no_note_is_kept(self, isolated_db):
+        u, token = _member("a@example.com")
+        did = _drama(u["id"])
+        body = {"drama_id": did, "summary": "Saved 2 of 2 pages"}
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        assert _client().post(f"{BASE}/capture-summary", json=body, headers=_auth(token)).status_code == 403
+        assert db.list_capture_notes(did) == []
+        auth_service.grant_permission(u["id"], "lines.edit")
+        assert _client().post(f"{BASE}/capture-summary", json=body, headers=_auth(token)).status_code == 200
+        assert [n["summary"] for n in db.list_capture_notes(did)] == ["Saved 2 of 2 pages"]
+
     def test_no_token_is_refused(self, isolated_db):
         assert _client().post(f"{BASE}/capture-summary", json={"summary": "x"}).status_code == 401

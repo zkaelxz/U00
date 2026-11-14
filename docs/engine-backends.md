@@ -432,8 +432,10 @@ default, `core.align_transcript_to_timing`) or `qwen3_forced_align`
 (`forced_align.align_with_qwen3`). The forced aligner reuses the coarse pass to
 bucket lines into chunks of at most `MAX_CHUNK_SECONDS` (60 s), refuses segments
 past `HARD_CAP_SECONDS` (300 s, the aligner's own limit), and falls back to the
-coarse timing with `TIMING_FALLBACK_NOTE` / `TIMING_REPAIRED_NOTE` when the
-aligner returns zero-length or out-of-order spans.
+coarse timing with `TIMING_FALLBACK_NOTE` only when a line's unit starts go
+backwards or none of its units got a width. A zero-length unit with room to
+spread into is repaired (`TIMING_REPAIRED_NOTE`); one between touching
+neighbours stays zero-length and the line keeps the aligner's other times.
 
 `vad_segments.py` (`speech_spans`, `merge_close`, `cap_spans`) builds Silero
 speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`

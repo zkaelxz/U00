@@ -51,6 +51,10 @@ CV_EMPTY_CONTRAST = 40
 
 # --- Bubble detection, ML model (scanlate_detect.detect_bubbles_ml) ---
 ML_CONFIDENCE = 0.25
+# A lettering box the model scores from this up to ML_CONFIDENCE is kept when it is a cell of a
+# form beside a kept one (scanlate_detect._form_cells): the four labels of one form on S library
+# p68 scored 0.15-0.31.
+ML_FORM_CELL_CONFIDENCE = 0.1
 # Two boxes are one balloon when they overlap this much (IoU), or when the
 # smaller lies this far inside the larger: the model reports a balloon and the
 # text inside it as separate classes.
@@ -67,6 +71,13 @@ FRAGMENT_OVERLAP = 0.4
 # extent. A real balloon's outline keeps two neighbouring balloons further apart.
 FRAGMENT_ALIGNED = 0.6
 FRAGMENT_GAP = 0.3
+# A ruled line between two cells of a form (scanlate_detect._ruled_line_between) is at least this much
+# darker than the paper, runs across at least RULE_SPAN of the area the two boxes cover, and is
+# broken by no gap over RULE_MAX_GAP_PX. The rules on S library p68 are about 25-60 levels darker
+# than their grey cells.
+RULE_CONTRAST = 15
+RULE_SPAN = 0.8
+RULE_MAX_GAP_PX = 3
 
 # Two boxes touching or this close (as a share of the narrower one's width, or
 # height when stacked) are the columns of one balloon when this share of each
@@ -76,6 +87,14 @@ BALLOON_COLUMN_INSIDE = 0.7
 # A balloon interior covering this share of its box means the box lies within
 # the balloon (there is no outline in it to spare).
 BALLOON_FILLS_BOX = 0.9
+# Grey art beside a balloon counts as outside it when it survives an opening of
+# this size: screentone's grey fringes round its dots do not, and lettering that
+# touches screentone would otherwise be left half-erased.
+ERASE_FLAT_TONE_PX = 7
+# Ink or tone at least this many px across, reaching the box edge, is art the
+# balloon is drawn over, not lettering joined to its outline: a burst outline
+# is thinner than this.
+ERASE_SOLID_ART_PX = 11
 
 # --- Region kinds (scanlate_detect.classify_text_regions) ---
 # A box at least this share light (gray above the level) is a balloon or a
@@ -89,6 +108,15 @@ CLASSIFY_BALLOON_FILL = 0.5
 # or more lines, is a caption or sign on the art and is translated like one.
 SFX_MAX_CHARS = 12
 SFX_MAX_LINES = 2
+# A guessed sign (kind confidence at or below the first value) whose lettering mask covers more
+# than the second share of its box is art the detector boxed (a boot, a face), not lettering:
+# real lettering leaves paper showing between the strokes. Measured on 615 real regions: the
+# four mistaken boxes cover 85.5-95.5%.
+ART_SIGN_MAX_CONFIDENCE = 0.5
+ART_SIGN_MIN_MASK_SHARE = 0.85
+# A box wider than this many times its height is a caption strip (real lettering over art, as
+# #108's was); the boxes taken for a boot or an effect were tall.
+ART_SIGN_MAX_ASPECT = 2.0
 
 # --- Narration box trim (scanlate_regions.trim_to_lettering) ---
 # A caption box the detector stretched over a watermark is cut back to the
@@ -156,6 +184,10 @@ TYPESET_SIBLING_MIN_RATIO = 0.7
 TYPESET_SIBLING_MAX_SHRINK = 0.75
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
+# In a balloon with a notch, lobe or tail, each line keeps this share of its lettering's height
+# clear of the outline on both sides; with the outline margin alone, one long line ran from edge to
+# edge of a round lobe. Ovals get none: there it only shrank text that already fitted.
+TYPESET_SIDE_PAD_EM = 0.25
 # Lettering is followed when the angle at which its ink lines up into the sharpest rows is
 # between MIN and MAX degrees and lines it up at least MIN_GAIN times better than level
 # does; a flatter slant is scan noise and a steeper one is a vertical column. A mark
@@ -213,3 +245,32 @@ def apply_overrides(values: dict) -> None:
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{name}: {raw!r} is not a {type(current).__name__}") from exc
         module[name] = value
+
+# --- Lettering on a pale band over busy art (scanlate_inpaint._strokes_on_a_line) ---
+# When the lettering mask covers more than this share of a sign's box the paper-relative cut-off
+# is reading the art as lettering (a white caption band set over black-and-white art).
+LINE_ONLY_MASK_SHARE = 0.85
+# A glyph is a dark mark (below INK_LEVEL) of at least MIN_AREA pixels, MIN_SPAN to MAX_SPAN (a
+# share of the crop height) across, whose 9 px ring is at least RING_PALE_SHARE paper (at or
+# above PAPER_LEVEL).
+LINE_INK_LEVEL = 140
+LINE_PAPER_LEVEL = 200
+LINE_RING_PALE_SHARE = 0.6
+LINE_GLYPH_MIN_AREA = 6
+LINE_GLYPH_MIN_SPAN = 5
+LINE_GLYPH_MAX_SPAN = 0.4
+# The line is fitted through glyphs of at least ANCHOR_AREA; it needs MIN_GLYPHS of them
+# spread over MIN_LENGTH_IN_GLYPHS glyph heights, and a glyph joins it within REACH heights.
+LINE_ANCHOR_AREA = 25
+# and at least ANCHOR_THICKNESS thick both ways: thin stripes of hatching are not letters.
+LINE_ANCHOR_THICKNESS = 4
+LINE_MIN_GLYPHS = 4
+LINE_MIN_LENGTH_IN_GLYPHS = 3.0
+LINE_REACH = 0.5
+# The strip the English is set in is the lettering line closed over its gaps (CLOSE glyph heights)
+# and widened (MARGIN glyph heights) so the text has a little air round it.
+LINE_CORRIDOR_CLOSE = 2.5
+LINE_CORRIDOR_MARGIN = 0.7
+# The English is started at this share of the original glyph size: the strip is one glyph high,
+# and the typesetter's own start size (set for the whole box) does not shrink into it.
+LINE_TEXT_SIZE_OF_GLYPH = 1.0

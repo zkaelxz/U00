@@ -39,11 +39,13 @@ export function suggestBlockers(
   dramaId: number,
   hasNovel: boolean | null,
   hasLines: boolean | null,
+  sourceStage: string,
 ): Record<GlossarySource, Blocker | null> {
   const href = `#/drama/${dramaId}/source`
-  const novel = novelGlossaryBlocker(dramaId, hasNovel !== false)
+  const novel = novelGlossaryBlocker(dramaId, hasNovel !== false, sourceStage)
+  // "add them", not "transcribe it": the stage is itself called Transcribe on audio and video titles.
   const lines =
-    (hasLines === false ? { text: 'Still needed: transcript lines', link: 'transcribe it on Media', href: `${href}?tab=transcribe` } : null)
+    (hasLines === false ? { text: 'Still needed: transcript lines', link: `add them on ${sourceStage}`, href: `${href}?tab=transcribe` } : null)
   return { novel, lines }
 }
 

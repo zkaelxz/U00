@@ -21,7 +21,6 @@ interface Deps {
   reloads: number
   pending: MutableRefObject<Pending | null>
   focusActive: MutableRefObject<number | null>
-  scrollActive: MutableRefObject<boolean>
   setActiveId: Dispatch<SetStateAction<number | null>>
   setEdit: Dispatch<SetStateAction<EditState | null>>
   setPage: Dispatch<SetStateAction<number>>
@@ -35,7 +34,7 @@ export const openPendingEdit = (target: ReviewLine) => (cur: EditState | null): 
 
 // Loads the page (or the search result) on screen and settles which line is active afterwards:
 // the one a pending move asked for, else the one already active, else the starting line.
-export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit, setPage }: Deps) {
+export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, focusActive, setActiveId, setEdit, setPage }: Deps) {
   const [data, setData] = useState<ReviewLinesPage | null>(null)
   const [found, setFound] = useState<ReviewLine[] | null>(null)
   const [allTotal, setAllTotal] = useState<number | null>(null)
@@ -58,8 +57,6 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
         if (p?.edit) setEdit(openPendingEdit(target))
       } else {
         const first = !loadedOnce.current
-        // On load, bring the starting line into view (without taking focus).
-        if (first) scrollActive.current = true
         setActiveId((cur) =>
           cur !== null && lines.some((l) => l.id === cur)
             ? cur

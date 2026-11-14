@@ -49,8 +49,8 @@ def test_a_long_word_in_a_narrow_balloon_is_hyphenated_instead_of_shrunk_tiny(mo
     calls = []
     real = scanlate_render._layout_at_size
 
-    def spy(draw, words, mask_, mh, font, hyphenate):
-        out = real(draw, words, mask_, mh, font, hyphenate)
+    def spy(draw, words, mask_, mh, font, hyphenate, *rest):
+        out = real(draw, words, mask_, mh, font, hyphenate, *rest)
         if out is not None:
             calls.append((font.size, [ln for ln, *_ in out[1]]))
         return out
@@ -104,8 +104,8 @@ def test_a_narrow_balloon_never_shows_a_word_split_across_two_hyphens():
     seen = []
     real = scanlate_render._layout_at_size
 
-    def spy(draw, words, mask_, mh, font, hyphenate):
-        out = real(draw, words, mask_, mh, font, hyphenate)
+    def spy(draw, words, mask_, mh, font, hyphenate, *rest):
+        out = real(draw, words, mask_, mh, font, hyphenate, *rest)
         if out is not None:
             seen.append([ln for ln, *_ in out[1]])
         return out
@@ -161,8 +161,8 @@ def test_a_narrow_balloon_shrinks_a_six_letter_word_instead_of_cutting_it(monkey
     seen = []
     real = scanlate_render._layout_at_size
 
-    def spy(draw, words, mask_, mh, font, hyphenate):
-        out = real(draw, words, mask_, mh, font, hyphenate)
+    def spy(draw, words, mask_, mh, font, hyphenate, *rest):
+        out = real(draw, words, mask_, mh, font, hyphenate, *rest)
         if out is not None:
             seen.append([ln for ln, *_ in out[1]])
         return out

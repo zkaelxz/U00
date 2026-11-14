@@ -21,6 +21,10 @@ _NOT_COPIED = ("id", "created_at", "updated_at", "notion_page_id", "source_url",
 # Per-title tables copied row for row. Line ids are new, so tables that point
 # at a line id (notes, emotions, reading history) are left out.
 _CHILD_TABLES = ("lines", "characters", "pages")
+# Written only once the files and rows are in: a series title with media and
+# no lines is what series auto-run queues paid runs on. The series itself is
+# set at create, so a copy in a private series is never visible outside it.
+_SET_WHEN_COMPLETE = ("audio_filename", "source_video_filename")
 
 
 def _columns(conn, table: str) -> list:
@@ -110,6 +114,7 @@ def duplicate_title(source_id: int, principal=None) -> dict:
     series_id = _series_for_copy(principal, source, owned["owner_user_id"])
     if series_id is not None:
         fields["series_id"] = series_id
+    finish = {k: fields.pop(k, None) for k in _SET_WHEN_COMPLETE}
     try:
         new_id = db.create_drama(**fields)
     except db.DramaFolderConflict as exc:
@@ -119,6 +124,7 @@ def duplicate_title(source_id: int, principal=None) -> dict:
         with contextlib.closing(db.get_conn()) as conn:
             _copy_rows(conn, source_id, new_id)
             conn.commit()
+        db.update_drama(new_id, **finish)
     except Exception:
         db.delete_drama(new_id)
         raise

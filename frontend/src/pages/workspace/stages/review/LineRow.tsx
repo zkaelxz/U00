@@ -84,7 +84,7 @@ export interface RowActions {
   setReviewed: (id: number, reviewed: boolean) => void
   // Shortens a timing-flagged line to the speech the check found (compare-and-set on the server).
   snapToSpeech?: (id: number) => void
-  // Starts the title's timing check (the same one as Fix > Flag lines for review).
+  // Starts the title's timing check (the same one as Look for problems > Flag lines for review).
   checkTiming?: () => void
   applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void

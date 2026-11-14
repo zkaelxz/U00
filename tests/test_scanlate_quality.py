@@ -109,7 +109,14 @@ class TestMlBoxMerge:
         balloon = {"x": 280, "y": 1071, "w": 125, "h": 185, "confidence": 0.94, "label": "bubble"}
         text = {"x": 301, "y": 1097, "w": 82, "h": 136, "confidence": 0.95, "label": "text_bubble"}
         assert scanlate_detect._box_iou(balloon, text) < 0.5    # the case IoU alone missed
-        assert scanlate_detect.dedupe_overlapping_boxes([text, balloon]) == [balloon]
+        assert scanlate_detect.dedupe_overlapping_boxes([text, balloon]) == [
+            dict(balloon, text_boxes=[{"x": 301, "y": 1097, "w": 82, "h": 136}])]
+
+    def test_merged_fragments_keep_every_text_box(self):
+        a = {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble", "text_boxes": [{"x": 10, "y": 10, "w": 5, "h": 5}]}
+        b = {"x": 2, "y": 2, "w": 96, "h": 96, "label": "bubble", "text_boxes": [{"x": 60, "y": 60, "w": 5, "h": 5}]}
+        merged = scanlate_detect.merge_fragment_boxes([a, b])
+        assert len(merged) == 1 and len(merged[0]["text_boxes"]) == 2
 
     def test_a_small_balloon_inside_a_big_balloon_s_box_stays(self):
         big = {"x": 0, "y": 0, "w": 300, "h": 300, "label": "bubble"}
@@ -248,6 +255,24 @@ class TestCleanup:
             assert (after[140:185, 220:240] < 128).sum() == 0
             assert (after[ring > 0] < 128).all()
             assert np.array_equal(after[:, :61], gray[:, :61])
+
+    @pytest.mark.parametrize("art", [122, 60])                         # grey tone, dark jacket
+    def test_art_in_the_dent_above_a_tail_is_not_erased(self, art):
+        # The shape of a tall vertical balloon on a real page: its tail runs to the
+        # box edge, and art fills the dent between tail and outline above it.
+        img = np.full((1000, 450), 225, np.uint8)                          # light sky
+        cv2.rectangle(img, (0, 170), (120, 1000), art, -1)
+        cv2.ellipse(img, (250, 500), (190, 480), 0, 0, 360, 0, -1)
+        cv2.fillPoly(img, [np.array([[0, 340], [80, 300], [80, 380]], np.int32)], 0)
+        cv2.ellipse(img, (250, 500), (186, 476), 0, 0, 360, 255, -1)
+        cv2.fillPoly(img, [np.array([[5, 340], [84, 306], [84, 374]], np.int32)], 255)
+        for left in (200, 290):                                            # two columns
+            for k in range(7):
+                cv2.rectangle(img, (left, 150 + k * 100), (left + 50, 210 + k * 100), 0, -1)
+        box = {"x": 0, "y": 0, "w": 450, "h": 1000}
+        mask = scanlate_detect.bubble_erase_mask("unused", box, image=img)
+        assert mask[150:210, 200:250].all() and mask[750:810, 290:340].all()
+        assert not (mask & (img == art)).any()
 
     def test_a_generous_box_still_finds_the_oval(self):
         img = np.full((800, 800), 255, np.uint8)

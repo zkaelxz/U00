@@ -63,7 +63,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - A new module starts with a one-line docstring saying what it owns; `python tools/repo_map.py` prints the module map from those (`--find`, `--part N`).
 - Splitting a very large file: 64 KB is a soft limit that only warns (`SOFT_MODULE_BYTES` in `tests/test_static_analysis.py`), not a target; each new file must own a domain or workflow and cut what a typical task reads. Paste the definition of done from "Splitting files" in `AGENTS.md` into the brief.
 - Finish with a short summary: what changed and what the user will notice, the commands you ran with pass counts, what you're unsure about, and follow-ups.
-- Merging: push and open a draft PR into `baihe-subtitler`; the lead session merges once CI is green.
+- Merging: push and open a draft PR into `baihe-subtitler`; don't merge it yourself. A short dedicated merge thread, started only after Kae types "Merge NNNN", marks that PR ready and squash-merges it once the full Tests run has succeeded at the exact head, one PR at a time. A merge conflict means the owner merges main and sends a new head, which needs its own full green run.
 - Don't delegate by default. Use a subagent only for independent work that needs many files read, and brief it with the exact files and question.
 - Model: Sonnet 5.5 at medium effort by default (sessions and agents). Use Opus 5.5 for security reviews and audits, auth/remote-access changes, and concurrency or data-integrity bugs; `security-reviewer` and `security-auditor` are pinned to Opus. (User decision 2026-09-30, for cost.)
 - Commit trailers name the model actually used.

@@ -142,7 +142,6 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // The line a keyboard move asked to focus; only a render that has made it the
   // active line may spend the request (a late effect from an earlier render must not).
   const focusActive = useRef<number | null>(null)
-  const scrollActive = useRef(false)
   const sectionRef = useRef<HTMLElement>(null)
   // The line just opened from a search result, highlighted for a moment (R05).
   const [jumpedId, setJumpedId] = useState<number | null>(null)
@@ -153,7 +152,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
   const { data, setData, found, setFound, allTotal, error, setError, retry } = useLinesLoad({
-    dramaId, page, filter, term, reloads, pending, focusActive, scrollActive, setActiveId, setEdit, setPage,
+    dramaId, page, filter, term, reloads, pending, focusActive, setActiveId, setEdit, setPage,
   })
 
   const shown = useMemo(() => found ?? data?.lines ?? [], [found, data])
@@ -181,17 +180,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
 
   useClearAfter(status, () => setStatus(null), STATUS_MS)
 
-  // Keyboard moves bring the active row into view and give it focus; the
-  // first load only scrolls. Rows keep clear of the sticky toolbar through
-  // scroll-margin-top, which follows the toolbar's measured height.
+  // Keyboard moves bring the active row into view and give it focus. The
+  // first load leaves the page where it is, so Review opens at its top even
+  // when the starting line is further down. Rows keep clear of the sticky
+  // toolbar through scroll-margin-top, which follows the toolbar's measured height.
   useEffect(() => {
-    if ((focusActive.current === null && !scrollActive.current) || activeId === null) return
-    if (focusActive.current !== null && focusActive.current !== activeId) return
+    if (focusActive.current === null || focusActive.current !== activeId) return
     const el = listRef.current?.querySelector<HTMLElement>(`[data-line-id="${activeId}"]`)
     if (!el) return
-    if (focusActive.current !== null) el.focus({ preventScroll: true })
+    el.focus({ preventScroll: true })
     focusActive.current = null
-    scrollActive.current = false
     el.scrollIntoView?.({ block: 'nearest' })
   })
   useToolbarHeight(sectionRef)
