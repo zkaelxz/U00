@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_art_text
 import scanlate_sfx
+import scanlate_tilt
 import scanlate_tuning
 from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import (
@@ -687,6 +688,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                           for b, s in zip(captions, caption_styles)]
         # The ink is read before the erase below removes it.
         inks = [sampled_ink_color(page, b) if match_color else None for b in to_render]
+        angles = [scanlate_tilt.estimate_text_angle(page, b) for b in to_render]
         _erase_site_stamps(page, bubbles)
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
@@ -704,7 +706,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
-                         rect_layout, look)
+                         rect_layout, look, angles)
         for b in bubbles:
             if scanlate_sfx.is_glossed(b):
                 scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
@@ -718,9 +720,11 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
 
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                      font_path: str | None, custom_fonts: dict | None, inks: list,
-                     rect_layout: bool = False, style: TypesetStyle = _PLAIN) -> None:
+                     rect_layout: bool = False, style: TypesetStyle = _PLAIN,
+                     angles: list | None = None) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
-    then the real pass draws with sibling balloons held to a shared ratio."""
+    then the real pass draws with sibling balloons held to a shared ratio. A balloon
+    whose original lettering was tilted (`angles`, degrees) is set at that angle."""
     masks = [(bubble_shape_mask(image_path, b, image=gray,
                                 margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX)
               if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
@@ -745,7 +749,16 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
             if m is not None:
                 _fill_balloon(pil_img, b, m, style.bubble_fill / 100)
     sizes = sibling_size_caps(list(zip(starts, fitted)))
-    for b, m, size, ink in zip(to_render, masks, sizes, inks):
+    for b, m, size, ink, angle in zip(to_render, masks, sizes, inks, angles or [0.0] * len(to_render)):
+        if angle:
+            fill = _text_fill(pil_img, b, ink)
+            if scanlate_tilt.draw_tilted(
+                    pil_img, b, m, angle, size,
+                    lambda target, shifted, sz: render_text_in_box(
+                        target, shifted, b["translated_text"], font_size=sz, font_path=font_path,
+                        font_category=b.get("font_category") or "regular", custom_fonts=custom_fonts,
+                        mask=m, rect_layout=rect_layout, style=style, fill=fill)):
+                continue
         draw(pil_img, b, m, size, ink)
 
 
