@@ -444,7 +444,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (max-width: 640px) {
   .review-check-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
   .review-job-row { justify-content: space-between; }
-  /* Six tabs wrap to two rows; growing them fills both rows instead of leaving one tab alone on the second. */
+  /* The group tabs wrap to two rows; growing them fills both rows instead of leaving one tab alone on the second. */
   .review-toolbox .ui-tabs .ui-tab { flex: 1 1 auto; }
 }
 

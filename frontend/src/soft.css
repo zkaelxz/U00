@@ -3,6 +3,7 @@
 html[data-style='soft'] {
   --radius: 14px; --radius-sm: 12px; --radius-md: 14px; --radius-lg: 20px; --radius-panel: 22px;
   --font-sans: 'Nunito', 'Quicksand', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-heading: var(--font-sans);
   --wash-1: transparent; --wash-2: transparent;
   --bg: #f4f0ff; --surface: #ffffff; --surface-2: #ece6ff; --border: #e3dcf7; --text: #231942; --muted: #5d5380;
   --accent: #5a37e6; --accent-text: #5a37e6; --highlight: #e7e0ff; --field-bg: #ffffff; --field-edge: #7d71a8;

@@ -88,7 +88,9 @@
   --dur-3: 240ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  --font-sans: 'Atkinson Hyperlegible', system-ui, 'Segoe UI Variable', 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  --font-sans: 'Figtree', 'Atkinson Hyperlegible', system-ui, 'Segoe UI Variable', 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  /* Page headings and the names of titles and series only; section and card headings stay in --font-sans. */
+  --font-heading: 'Fraunces', var(--font-sans);
   --font-zh: 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC';
   --font-ja: 'Yu Gothic UI', 'Hiragino Sans', 'Noto Sans CJK JP';
   --font-ko: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans CJK KR';
@@ -206,6 +208,40 @@
 input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']):not(:focus),
 select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 
+/* latin-ext is bundled too: romanised names with tone marks (pinyin ǎ, ū) fall in it. */
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-latin-ext-wght-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-latin-wght-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/fraunces-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/fraunces-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Atkinson Hyperlegible is now only the fallback after Figtree in --font-sans. */
 @font-face {
   font-family: 'Atkinson Hyperlegible';
   font-style: normal;
@@ -877,7 +913,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .page-shell-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--page-gap); align-content: start; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .page-head-text { display: grid; gap: var(--space-1); min-width: 0; }
-.page-title { overflow-wrap: break-word; margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
+.page-title { overflow-wrap: break-word; margin: 0; font-family: var(--font-heading); font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
 .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .stats-usage > summary { color: var(--muted); font-size: var(--text-sm); cursor: pointer; width: fit-content; }
 .stats-usage > p { margin-top: var(--space-1); }
@@ -885,10 +921,9 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
   /* min-content counts whole words here (the title uses break-word, not the page-wide anywhere), so the actions wrap under the title before it breaks inside a word. */
   .page-head-text { flex: 1 1 0; min-width: min-content; }
   .page-head > .actions { flex: none; }
-  /* The phone bar already links this page; beside the Library title the longer name pushed New title onto its own row at 360px. */
-  .library-start-link { display: none; }
 }
-.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Tabular figures in the body face: every digit is one width, so columns line up without the mono face. */
+.num { font-variant-numeric: tabular-nums; }
 .status-line { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .status-line > span { flex: 1 1 12rem; min-width: 0; }
 
@@ -900,7 +935,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
 .continue-text { display: grid; min-width: 0; }
-.continue-title { font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.continue-title { font-family: var(--font-heading); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
 @media (max-width: 640px) {
   .continue-card { padding: var(--space-3); }
@@ -937,7 +972,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .drama-tile[class*='tile-h'], .continue-tile[class*='tile-h'] { background: var(--tile); color: var(--on-tile); }
 .drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2) var(--space-3); }
 @media (min-width: 1024px) { .drama-tile { flex-basis: 64px; width: 64px; height: 86px; } }
-.drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-weight: var(--weight-bold); line-height: 1.35; text-decoration: none; }
+.drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-family: var(--font-heading); font-weight: var(--weight-bold); line-height: 1.35; text-decoration: none; }
 /* Stretched link: the title link's ::after covers the whole card (.drama-card is position: relative), so the card is
    one hit area; the foot controls sit above it at z-index 1. The link's own focus outline is hidden and the card
    draws the focus ring instead (:has below). */
@@ -980,7 +1015,7 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .drama-table .title-col, .drama-table .tags-col { white-space: normal; overflow-wrap: break-word; }
 .drama-table .title-col { min-width: 12rem; }
 .drama-table .tags-col { min-width: 8rem; }
-.table-title { color: var(--text); font-weight: var(--weight-bold); text-decoration: none; }
+.table-title { color: var(--text); font-family: var(--font-heading); font-weight: var(--weight-bold); text-decoration: none; }
 .table-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .row-actions { white-space: nowrap; text-align: right; }
 
@@ -1084,7 +1119,3 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   /* The sheet scrolls, so Create and Cancel stay in reach however long the form is. */
   .create-form .sheet-actions { position: sticky; bottom: 0; z-index: 1; padding-block: var(--space-2); background: var(--bg); border-top: 1px solid var(--border); }
 }
-
-.library-start { display: grid; gap: var(--space-2); }
-.library-start-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.library-start-row input { flex: 1 1 14rem; min-width: 0; }

@@ -95,7 +95,7 @@ class TestHttpCallsHaveTimeouts:
             "diagnostics_report.py", "memory_headroom.py", "video_download.py",
             "sources/pipeline.py", "sources/front_door.py", "sources/generic_import.py",
             "sources/store.py", "sources/adaptive.py", "sources/novel_follow.py",
-            "sources/domains.py")]
+            "sources/domains.py", "tools/ci_tested_tree.py")]
         problems = {os.path.relpath(f, PROJECT_ROOT): _find_requests_calls_missing_timeout(f)
                     for f in files}
         problems = {f: lines for f, lines in problems.items() if lines}
