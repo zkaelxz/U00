@@ -9,19 +9,27 @@ from scanlate_inpaint import _lettering_mask
 
 
 def estimate_text_angle(page_bgr, box: dict) -> float:
-    """Slant of the region's original lettering in degrees, positive when the line runs
-    down to the right on screen; 0.0 unless it is a single line that is clearly tilted.
-    Read from the page before the lettering is erased. Vertical columns and multi-line
-    blocks have no reliable baseline, so they stay at 0 and are lettered as before."""
+    """Slant of the region's original lettering in degrees, positive when it runs down to the
+    right on screen; 0.0 unless the lettering is clearly tilted. Read from the page before the
+    lettering is erased. Found as the angle at which the ink lines up into the sharpest rows
+    (skew detection), so one tilted line, several parallel tilted lines and a lone strip all
+    give their slant, while level text of any number of lines scores best at 0 and vertical
+    columns are left to their own layout."""
     import cv2
     h, w = page_bgr.shape[:2]
     x, y = max(0, box["x"]), max(0, box["y"])
     roi = page_bgr[y:min(h, y + box["h"]), x:min(w, x + box["w"])]
     if roi.shape[0] < 8 or roi.shape[1] < 8:
         return 0.0
-    ink = _lettering_mask(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)) > 0
-    # A mark that touches the crop's edge and is long is the balloon outline or the art; one
-    # glyph-sized is lettering that the box was cut tight around, which is common on narrow strips.
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    paper = float(np.median(gray))
+    if paper < 100:
+        ink = gray > 150
+    else:
+        ink = gray < min(max(150, paper * 0.8), 240)
+    # Undilated, so glyphs stay apart from each other and from the balloon's outline. A long
+    # mark touching the crop's edge is that outline or the art; a glyph-sized one is lettering
+    # the box was cut tight around, which is common on narrow strips.
     count, labels, stats, _ = cv2.connectedComponentsWithStats(ink.astype(np.uint8), connectivity=8)
     longest = max(roi.shape[:2]) * scanlate_tuning.TILT_GLYPH_MAX_OF_BOX
     for i in range(1, count):
@@ -32,33 +40,28 @@ def estimate_text_angle(page_bgr, box: dict) -> float:
     ys, xs = np.nonzero(ink)
     if len(xs) < scanlate_tuning.TILT_MIN_INK_PX:
         return 0.0
-    eigenvalues, vectors = np.linalg.eigh(np.cov(np.vstack([xs, ys])))
-    if eigenvalues[0] <= 0 or math.sqrt(eigenvalues[1] / eigenvalues[0]) < scanlate_tuning.TILT_MIN_ELONGATION:
+    points = np.vstack([xs, ys]).astype(np.float32)
+    points -= points.mean(axis=1, keepdims=True)
+    angles = np.arange(-scanlate_tuning.TILT_MAX_DEG, scanlate_tuning.TILT_MAX_DEG + 1.0)
+    scores = np.array([_row_sharpness(points, a) for a in angles])
+    best = int(scores.argmax())
+    level = _row_sharpness(points, 0.0)
+    # Columns of vertical lettering line up best across, not along, the page.
+    if _row_sharpness(points, 90.0) >= scores[best]:
         return 0.0
-    angle = math.degrees(math.atan2(vectors[1, 1], vectors[0, 1]))
-    angle = (angle + 90) % 180 - 90
-    if not scanlate_tuning.TILT_MIN_DEG <= abs(angle) <= scanlate_tuning.TILT_MAX_DEG:
-        return 0.0
-    # Two or three level lines, staggered, also read as a slanted blob. A single tilted line
-    # smears across the rows in one band; separate bands mean it is a block of level lines.
-    if _row_bands(ys) > 1:
+    angle = float(angles[best])
+    if abs(angle) < scanlate_tuning.TILT_MIN_DEG or scores[best] < scanlate_tuning.TILT_MIN_GAIN * level:
         return 0.0
     return angle
 
 
-def _row_bands(ys) -> int:
-    """How many separate bands of rows the ink occupies: a row counts when it holds at least
-    TILT_BAND_ROW_SHARE of the busiest row's ink, and a band thinner than 3 rows is noise."""
-    rows = np.bincount(ys - ys.min())
-    busy = rows >= scanlate_tuning.TILT_BAND_ROW_SHARE * rows.max()
-    bands, run = 0, 0
-    for row in list(busy) + [False]:
-        if row:
-            run += 1
-        else:
-            bands += run >= 3
-            run = 0
-    return bands
+def _row_sharpness(points, angle: float) -> float:
+    """How sharply the ink piles into rows when the page is read at `angle` degrees: the sum of
+    squared row counts, largest when text lines run exactly along the angle."""
+    radians = math.radians(angle)
+    across = -points[0] * math.sin(radians) + points[1] * math.cos(radians)
+    rows = np.bincount(np.round(across - across.min()).astype(np.int64))
+    return float((rows.astype(np.float64) ** 2).sum())
 
 
 def draw_tilted(pil_img, box: dict, mask, angle: float, size: int, draw_text) -> bool:

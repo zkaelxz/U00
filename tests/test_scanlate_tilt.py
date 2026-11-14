@@ -62,6 +62,17 @@ def test_long_mark_along_the_box_edge_is_not_lettering():
     assert scanlate_tilt.estimate_text_angle(page, BOX) == pytest.approx(25, abs=4)
 
 
+def test_two_parallel_tilted_lines_are_measured():
+    page = np.full((200, 240, 3), 255, np.uint8)
+    for shift in (-35, 35):
+        for i in range(4):
+            d = (i - 1.5) * 30
+            x = int(120 + d * math.cos(math.radians(22)) - shift * math.sin(math.radians(22)))
+            y = int(100 + d * math.sin(math.radians(22)) + shift * math.cos(math.radians(22)))
+            page[y - 9:y + 9, x - 9:x + 9] = 20
+    assert scanlate_tilt.estimate_text_angle(page, BOX) == pytest.approx(22, abs=4)
+
+
 def test_block_of_several_lines_has_no_angle():
     page = np.full((200, 240, 3), 255, np.uint8)
     for row in (60, 100, 140):
