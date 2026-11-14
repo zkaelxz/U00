@@ -642,17 +642,19 @@ def _waiting_text(text) -> str:
     return WAITING_PREFIX + _tidy(text, _WAITING_MAX)
 
 
-def _record(kind, text, job_id, owner_user_id, extra=None):
+def _record(kind, text, job_id, owner_user_id, extra=None, names_drama_id=None):
     """The id is the time in milliseconds (bumped to stay increasing), not a
     counter: a gap between two ids a viewer sees says nothing about how
-    many events they were not shown."""
+    many events they were not shown. `names_drama_id` is kept for
+    _sees_target only: it is not one of _EXTRA_KEYS, so no viewer gets it."""
     global _last_id
     now = time.time()
     with _recent_lock:
         _last_id = max(_last_id + 1, int(now * 1000))
         _recent.append({"id": _last_id, "at": now, "kind": kind, "text": text,
                         "job_id": job_id, "owner_user_id": owner_user_id,
-                        **{k: v for k, v in (extra or {}).items() if k in _EXTRA_KEYS}})
+                        **{k: v for k, v in (extra or {}).items() if k in _EXTRA_KEYS},
+                        **({"names_drama_id": names_drama_id} if names_drama_id else {})})
     for fn in list(_listeners):
         try:
             fn()
@@ -671,12 +673,17 @@ def record_event(kind, text) -> None:
 
 def _sees_target(principal, event) -> bool:
     """A waiting entry names the title or series its target points at, and
-    a hold's entry is kept for its owner alone (no job id): once that title
-    or series is no longer visible to them, neither is the entry."""
+    a hold's entry may also name a title in that series (`names_drama_id`).
+    A hold's entry is kept for its owner alone (no job id): once any of
+    these is no longer visible to them (a deleted title counts), neither is
+    the entry."""
     from services import ownership_service
     target = event.get("target") or {}
     if event["kind"] != "waiting" or ownership_service.sees_every_job(principal):
         return True
+    named = event.get("names_drama_id")
+    if named is not None and not ownership_service.can_see(principal, "drama", named):
+        return False
     if "drama_id" in target:
         return ownership_service.can_see(principal, "drama", target["drama_id"])
     if "series_id" in target:
@@ -719,7 +726,10 @@ def _chapter_count(job_id):
 def _waiting_job_text(description, note, shared_only) -> str:
     """"12 glossary names to review - <title>", "Translation stopped at the
     spending cap - <title>" or "Translation stopped - <title>. <reason>",
-    without the title when there is none to name."""
+    without the title when there is none to name. `shared_only` (the push):
+    the title only when the household may see it, and the reason only when
+    the note marks it as one of Baihe's own sentences (`own_reason`), since
+    any other stop sentence may quote a provider's error."""
     what = note.get("text") if isinstance(note.get("text"), str) else ""
     if not what.strip():
         kind = _job_kind(description)
@@ -730,15 +740,23 @@ def _waiting_job_text(description, note, shared_only) -> str:
     if title:
         text += f" - {title}"
     reason = note.get("reason")
-    if isinstance(reason, str) and reason.strip():
+    if isinstance(reason, str) and reason.strip() \
+            and (not shared_only or note.get("own_reason") is True):
         text += f". {_tidy(reason, 160)}"
     return text
 
 
 def waiting_job_message(description, note) -> str:
     """The bell's sentence for a done job's waiting note, for the desktop
-    pop-up on the PC itself (job_settings._notify_job_finished)."""
-    return _waiting_text(_waiting_job_text(description, note, False))
+    pop-up on the PC itself (job_settings._notify_job_finished); on the
+    Guest profile, the push's sentence instead."""
+    from services import pc_profile_service
+    try:
+        guest = pc_profile_service.guest_active()
+    except Exception:
+        guest = True
+    # Guest hides private titles from the screen, and the pop-up is on that screen.
+    return _waiting_text(_waiting_job_text(description, note, guest))
 
 
 def notify_job_finished(description, status, job_id=None, owner_user_id=None,
@@ -809,7 +827,8 @@ def notify_remote_access(text) -> None:
             pass
 
 
-def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=None) -> None:
+def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=None,
+                   names_drama_id=None) -> None:
     """A run stopped and waits for the person: "Waiting for you: <text>" in
     the in-app list, seen like a job event (`job_id`, `owner_user_id`;
     neither: the PC owner and admins only), and Discord/ntfy when the
@@ -817,12 +836,17 @@ def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=N
     filtered per viewer: a caller whose text names a title or series a
     household member couldn't see (household_sees) passes a sentence
     without that name. `target`: where the bell's Open goes (clean_target;
-    anything else is dropped). Never raises, never blocks on the network."""
+    anything else is dropped). `names_drama_id`: the title `text` names,
+    which matters where the target points at its series instead: the entry
+    then also needs that title visible (_sees_target). Only a positive int
+    is kept.
+    Never raises, never blocks on the network."""
     global _timer
     try:
         clean = clean_target(target)
+        named = names_drama_id if type(names_drama_id) is int and names_drama_id > 0 else None
         _record("waiting", _waiting_text(text), job_id, owner_user_id,
-                {"target": clean} if clean else None)
+                {"target": clean} if clean else None, names_drama_id=named)
         if os.environ.get(DISABLED_ENV) == "1" or not get_categories()["jobs"]:
             return
         if not configured_channels():

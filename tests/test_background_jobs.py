@@ -2008,6 +2008,13 @@ class TestNotifyOnCompletion:
                                           waiting={"reason": "3 requests failed in a row"})
         assert calls[-1]["message"] == \
             "Waiting for you: Translation stopped - Moonlit Garden. 3 requests failed in a row"
+        # On the Guest profile the screen hides private titles, so the pop-up leaves the name out.
+        from services import pc_profile_service
+        monkeypatch.setattr(pc_profile_service, "guest_active", lambda: True)
+        job_settings._notify_job_finished(desc, "done", waiting={
+            "text": "12 glossary names to review", "target": {"page": "glossary", "drama_id": did}})
+        assert calls[-1]["message"] == "Waiting for you: 12 glossary names to review"
+        monkeypatch.setattr(pc_profile_service, "guest_active", lambda: False)
         # A failed job keeps "Failed"; a broken note falls back to "Finished", never raising.
         job_settings._notify_job_finished(desc, "error", waiting={"cap": True})
         assert calls[-1]["message"] == f"Failed: {desc}"
@@ -2035,7 +2042,7 @@ class TestNotifyOnCompletion:
         job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
                                           waiting={"reason": "r" * 200})
         message = calls[-1]["message"]
-        assert len(message) <= job_settings.POPUP_MAX_CHARS == 255
+        assert len(message) <= job_settings.POPUP_MAX_UNITS == 255
         assert message.startswith("Waiting for you: Translation stopped - Moonlit Garden")
         assert message.endswith("…")
         # The field counts UTF-16 units: each of these takes two.

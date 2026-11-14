@@ -203,7 +203,8 @@ def _announce(series_id: int, state: dict, kind: str, text: str, named) -> None:
     built from fixed parts only, never from the hold text: a stopped item's reason is job error
     text that can quote a file name holding a private title, or an address. `named`: (drama id,
     name, the push's words after the name); the name is "An episode" there unless every household
-    member could see that title."""
+    member could see that title. The bell entry follows that title's visibility too, even where
+    it points at the series."""
     from services import notification_service as ns
     if named is not None:
         drama_id, name, push_tail = named
@@ -219,7 +220,8 @@ def _announce(series_id: int, state: dict, kind: str, text: str, named) -> None:
                 push = f"{push} - {series}"
     target = ({"page": "review", "drama_id": named[0]} if kind == REVIEW and named is not None
               else {"page": "series", "series_id": series_id})
-    ns.notify_waiting(text, push_text=push, owner_user_id=state["by"].get("user_id"), target=target)
+    ns.notify_waiting(text, push_text=push, owner_user_id=state["by"].get("user_id"), target=target,
+                      names_drama_id=named[0] if named is not None else None)
 
 
 def _hold(series_id: int, state: dict, kind: str, text: str, named=None) -> None:

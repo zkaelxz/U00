@@ -277,7 +277,7 @@ def test_the_review_hold_is_announced_once_to_whoever_switched_it_on(jobs, told)
     auto.scan()
     text = "Ep 1 is done. Check its subtitles; press Continue to run the rest."
     assert told == [{"text": text, "push_text": text, "owner_user_id": 7,
-                     "target": {"page": "review", "drama_id": e1}}]
+                     "target": {"page": "review", "drama_id": e1}, "names_drama_id": e1}]
 
 
 def test_a_private_title_is_not_named_in_the_push(jobs, told):
@@ -345,6 +345,7 @@ def test_an_episode_that_cannot_be_queued_is_announced_once(jobs, told, monkeypa
     assert call["text"] == "Ep 1 could not be queued: No key for this engine."
     assert call["push_text"] == "An episode could not be queued. Open the series page to see why."
     assert call["target"] == {"page": "series", "series_id": sid}
+    assert call["names_drama_id"] == e1
 
 
 def test_a_hold_after_continue_is_announced_again(jobs, told, monkeypatch):
@@ -444,6 +445,7 @@ def test_removed_queue_items_hold_push_sentence(jobs, told, private):
     assert call["text"] == "Ep 1's queue items were removed before they finished."
     shown = "An episode" if private else "Ep 1"
     assert call["push_text"] == f"{shown}'s queue items were removed before they finished."
+    assert call["names_drama_id"] == e1
 
 
 def test_an_episode_that_cannot_be_queued_names_a_shared_title_but_not_the_error(jobs, told,
@@ -498,6 +500,31 @@ def test_a_hold_entry_follows_what_its_owner_can_still_see(jobs):
         assert texts(kid) == everything[:1]
         assert texts(admin) == everything
         assert texts(None) == everything
+    finally:
+        ns.reset_for_tests()
+
+
+def test_a_stopped_hold_entry_is_hidden_once_its_episode_goes_private(jobs):
+    """The stopped hold's entry points at the series but names the episode and quotes its error."""
+    from services import notification_service as ns
+    ns.reset_for_tests()
+    member = auth_service.add_user("kid@example.com")
+    kid = {"user_id": member["id"], "is_admin": False, "is_local_owner": False}
+    admin = {"user_id": 999, "is_admin": True, "is_local_owner": False}
+    sid, (e1, *_rest) = _series()
+    try:
+        _on(sid)
+        _fail_first_episode(jobs, sid, e1)
+        _by(sid, member["id"])
+        auto.scan()
+
+        def texts(p):
+            return [e["text"] for e in ns.list_recent(p) if e["kind"] == "waiting"]
+        (entry,) = texts(kid)
+        assert entry.startswith("Waiting for you: Ep 1 stopped at transcribe: ")
+        db.update_drama(e1, is_private=1, owner_user_id=5)
+        assert texts(kid) == []
+        assert texts(admin) == [entry] and texts(None) == [entry]
     finally:
         ns.reset_for_tests()
 

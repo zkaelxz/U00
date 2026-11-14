@@ -18,7 +18,8 @@ from jobs import job_launch, job_runner, job_settings, job_table
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, notification_service as ns, settings_service
+from services import auth_service, jobs_service, notification_service as ns, settings_service
+from engine_backends import paid_calls, run_limits
 from engine_backends.shared import redact_secrets
 from tests.api_helpers import session_headers
 from tests.job_helpers import wait_for_job
@@ -1213,3 +1214,121 @@ def test_waiting_text_redacts_a_key_that_straddles_the_length_cut(env, no_timer,
 def test_waiting_job_message_is_the_bell_sentence():
     assert ns.waiting_job_message("Translation", {"cap": True}) == \
         "Waiting for you: Translation stopped at the spending cap"
+
+
+@pytest.mark.parametrize("guest", [True, False, "raises"])
+def test_the_desktop_pop_up_names_a_private_title_only_off_the_guest_profile(env, monkeypatch, guest):
+    from services import pc_profile_service
+
+    def active():
+        if guest == "raises":
+            raise RuntimeError("settings unreadable")
+        return guest
+    monkeypatch.setattr(pc_profile_service, "guest_active", active)
+    shared = db.create_drama(title_en="Open Garden")
+    private = db.create_drama(title_en="Secret Garden", owner_user_id=5, is_private=1)
+    note = {"text": "2 glossary names to review"}
+    assert ns.waiting_job_message(f"Glossary from lines (title #{shared})", note) == \
+        "Waiting for you: 2 glossary names to review - Open Garden"
+    named = "" if guest is not False else " - Secret Garden"
+    assert ns.waiting_job_message(f"Glossary from lines (title #{private})", note) == \
+        f"Waiting for you: 2 glossary names to review{named}"
+
+
+def test_a_hold_entry_that_names_a_title_follows_that_title_as_well_as_its_target(env, no_timer):
+    from services import ownership_service
+    member = auth_service.add_user("reader@example.com")
+    kid = {"user_id": member["id"], "is_admin": False, "is_local_owner": False}
+    admin = {"user_id": 999, "is_admin": True, "is_local_owner": False}
+    owner = {"user_id": None, "is_admin": False, "is_local_owner": True}
+    sid = db.get_or_create_series("Willow Lane")
+    ep = db.create_drama(title_en="Willow Lane 1", series_id=sid)
+    ns.notify_waiting("Willow Lane 1 stopped at translate: engine said no", push_text="x",
+                      owner_user_id=member["id"], target={"page": "series", "series_id": sid},
+                      names_drama_id=ep)
+    (entry,) = _waiting(kid)
+    assert set(entry) == {"id", "at", "kind", "text", "target"}
+    assert entry["target"] == {"page": "series", "series_id": sid}
+    (item,) = _client().get("/api/notifications").json()["items"]
+    assert set(item) == {"id", "at", "kind", "text", "target"}
+    db.update_drama(ep, is_private=1, owner_user_id=5)
+    assert ownership_service.can_see(kid, "series", sid)
+    assert _waiting(kid) == []
+    for viewer in (admin, owner, None):
+        assert [e["text"] for e in _waiting(viewer)] == [entry["text"]]
+
+
+def test_a_hold_entry_naming_a_deleted_title_is_hidden_and_a_bad_id_is_dropped(env, no_timer):
+    member = auth_service.add_user("reader@example.com")
+    kid = {"user_id": member["id"], "is_admin": False, "is_local_owner": False}
+    sid = db.get_or_create_series("Willow Lane")
+    gone = db.create_drama(title_en="Willow Lane 2", series_id=sid)
+    db.delete_drama(gone)
+    ns.notify_waiting("Gone", push_text="x", owner_user_id=member["id"],
+                      target={"page": "series", "series_id": sid}, names_drama_id=gone)
+    assert _waiting(kid) == []
+    for bad in ("3", True, 0, -1, 2.0, None):
+        ns.reset_for_tests()
+        ns.notify_waiting("Kept", push_text="x", owner_user_id=member["id"],
+                          target={"page": "series", "series_id": sid}, names_drama_id=bad)
+        assert [e["text"] for e in _waiting(kid)] == ["Waiting for you: Kept"], bad
+        assert "names_drama_id" not in ns._recent[-1], bad
+
+
+@pytest.mark.parametrize("stopped, push_tail", [
+    (paid_calls.failure_stop_reason(3), ". 3 requests failed in a row"),
+    (run_limits.RATE_LIMIT_STOP_REASON,
+     ". The provider keeps rate-limiting you; try later or switch engine"),
+    ("Stopped: 3 batches in a row failed (connection to 192.168.1.20:11434 refused)", ""),
+    ("Stopped: HTTPConnectionPool(host='nas.local', port=11434): Max retries exceeded", ""),
+])
+def test_a_stopped_jobs_push_gives_only_baihes_own_stop_reasons(env, no_timer, stopped, push_tail):
+    _write(env, discord=DISCORD)
+    did = db.create_drama(title_en="Open Garden")
+    note = jobs_service.waiting_note({"stopped": stopped})
+    assert note is not None
+    ns.notify_job_finished(f"Translation (drama #{did})", "done", job_id=f"translate_{did}",
+                           waiting=note)
+    ((_s, pushed, _c),) = ns._pending
+    assert pushed == "Waiting for you: Translation stopped - Open Garden" + push_tail
+    (entry,) = _waiting()
+    assert entry["text"] == f"Waiting for you: Translation stopped - Open Garden. {note['reason']}"
+    if not push_tail:
+        assert "11434" in entry["text"]
+
+
+def test_waiting_note_marks_only_baihes_own_stop_sentences():
+    for own in (paid_calls.failure_stop_reason(3), paid_calls.failure_stop_reason(12),
+                run_limits.RATE_LIMIT_STOP_REASON):
+        note = jobs_service.waiting_note({"stopped": own})
+        assert note is not None and note["own_reason"] is True, own
+    for other in ("Stopped: 3 titles in a row failed",
+                  "Stopped: 3 batches in a row failed (timed out)",
+                  "Stopped checking: 3 status checks in a row failed. Press Check now to try again.",
+                  "Stopped: engine said no",
+                  paid_calls.failure_stop_reason(3) + " (at 192.168.1.20)",
+                  "Stopped: 03 requests failed in a row",
+                  "Stopped: " + run_limits.RATE_LIMIT_STOP_REASON):
+        note = jobs_service.waiting_note({"stopped": other})
+        assert note is not None and not note.get("own_reason"), other
+    # A result's own note is rebuilt from its text and target, so it cannot set the mark.
+    assert jobs_service.waiting_note({"waiting": {"text": "1 glossary name to review",
+                                                  "own_reason": True, "reason": "x"}}) == \
+        {"text": "1 glossary name to review", "target": None}
+    note = jobs_service.waiting_note(
+        {"stopped": "Stopped: Stopped: 3 batches in a row failed (timed out)"})
+    assert note is not None and note["reason"] == "3 batches in a row failed (timed out)"
+
+
+def test_a_done_job_with_errors_and_a_waiting_note_says_waiting(env, no_timer):
+    _write(env, discord=DISCORD)
+    ns.notify_job_finished("Translation", "done", with_errors=True, waiting={"cap": True})
+    assert _texts() == ["Waiting for you: Translation stopped at the spending cap"]
+    assert [m for _s, m, _c in ns._pending] == \
+        ["Waiting for you: Translation stopped at the spending cap"]
+
+
+def test_a_names_result_that_also_stopped_early_says_the_names_sentence():
+    note = jobs_service.waiting_note({"waiting": {"text": "4 glossary names to review"},
+                                      "stopped": paid_calls.CAP_STOP_REASON})
+    assert note == {"text": "4 glossary names to review", "target": None}

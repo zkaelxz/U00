@@ -84,7 +84,7 @@ def set_notify_on_completion(enabled: bool):
 
 # The Windows balloon's text field holds 256 UTF-16 units with its terminator; plyer fills it in
 # its own thread, so a longer text fails there and no pop-up shows.
-POPUP_MAX_CHARS = 255
+POPUP_MAX_UNITS = 255
 
 
 def _fit_popup(message: str) -> str:
@@ -92,10 +92,10 @@ def _fit_popup(message: str) -> str:
     outside the basic plane (an emoji, a rare hanzi) takes two units."""
     def units(text):
         return len(text.encode("utf-16-le", "surrogatepass")) // 2
-    if units(message) <= POPUP_MAX_CHARS:
+    if units(message) <= POPUP_MAX_UNITS:
         return message
     cut = message
-    while cut and units(cut) > POPUP_MAX_CHARS - 1:
+    while cut and units(cut) > POPUP_MAX_UNITS - 1:
         cut = cut[:-1]
     return cut.rstrip() + "…"
 
