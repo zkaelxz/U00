@@ -69,12 +69,14 @@ import './source.css'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // The value stays the model name; the option leads with what the choice means and the name sits in muted text beside the picker.
+// A closed select cuts its text at the box edge, so labels stay short enough for the 18rem picker on a phone too; the opt-in, size and
+// language details live in the field's help (whisperModelHelp).
 const WHISPER_LABELS: Record<string, string> = {
   'large-v3': 'Most accurate (recommended)',
   'large-v3-turbo': 'Faster',
-  'ja-1.5b': 'Japanese only: whisper-ja 1.5B, anime and games, opt-in, about 3 GB, needs a GPU',
-  'kotoba-v2': 'Japanese only: kotoba-whisper v2.0, opt-in, about 1.5 GB, fast; line timing only',
-  'breeze-asr-25': 'Chinese only: Breeze-ASR-25 (Taiwanese Mandarin), opt-in, about 3 GB',
+  'ja-1.5b': 'Japanese only: whisper-ja 1.5B',
+  'kotoba-v2': 'Japanese only: kotoba-whisper v2',
+  'breeze-asr-25': 'Chinese only: Breeze-ASR-25',
 }
 // Download sizes, mirrored from services/transcribe_pipeline._MODEL_DOWNLOAD_SIZES for the two models the picker offers.
 const WHISPER_DOWNLOAD: Record<string, string> = { 'large-v3': 'about 3 GB', 'large-v3-turbo': 'about 1.6 GB' }
@@ -82,8 +84,9 @@ function whisperModelHelp(size: string, notDownloaded: boolean, notUsed: string 
   if (notUsed) return `${notUsed}. This run will use ${replacement}.`
   const parts = [
     notDownloaded ? `This model will be downloaded on first use${WHISPER_DOWNLOAD[size] ? ` (${WHISPER_DOWNLOAD[size]})` : ''}.` : '',
-    size === 'ja-1.5b' ? 'Its licence is not declared; use it for personal work.' : '',
-    size === 'kotoba-v2' ? 'It gives line timing only. The Qwen3 forced aligner refines it when installed; otherwise the Whisper line times are kept and the job says so.' : '',
+    size === 'ja-1.5b' ? 'For anime and games. Opt-in, about 3 GB, needs a GPU. Its licence is not declared; use it for personal work.' : '',
+    size === 'breeze-asr-25' ? 'A Taiwanese Mandarin model. Opt-in, about 3 GB.' : '',
+    size === 'kotoba-v2' ? 'Opt-in, about 1.5 GB, fast. It gives line timing only. The Qwen3 forced aligner refines it when installed; otherwise the Whisper line times are kept and the job says so.' : '',
   ].filter(Boolean)
   return parts.length ? parts.join(' ') : undefined
 }
@@ -582,7 +585,7 @@ export default function TranscribeStage({
           </div>
         )}
         {cf && (
-          <details className="muted" data-testid="before-you-run">
+          <details className="muted before-you-run" data-testid="before-you-run">
             <summary>Before you run</summary>
             {hiddenChoice && !backendNotUsed && (
               <p role="note" data-testid="whisper-hidden-size">

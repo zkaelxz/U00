@@ -90,3 +90,7 @@
   .source-switches > .field-item:nth-child(n + 3) { border-top: 1px solid var(--border); }
   .source-switches > .field-item:nth-child(even) { border-left: 1px solid var(--border); }
 }
+
+/* The fold sits between the setting row above and the run summary below; without room it read as part of the summary line. */
+.before-you-run { margin: var(--space-2) 0; }
+.before-you-run > summary { cursor: pointer; padding-block: var(--space-1); }
