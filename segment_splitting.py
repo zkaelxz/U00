@@ -636,6 +636,29 @@ def extend_ends_to_speech(segments: list, spans, max_extend: float = SPEECH_END_
     return segments
 
 
+# Whisper's first word often starts in the silence before the voice: a stream VOD title
+# had a quarter of its lines starting 0.2 s or more early.
+SPEECH_START_MAX_TRIM = 0.5
+
+
+def trim_starts_to_speech(segments: list, spans, max_trim: float = SPEECH_START_MAX_TRIM) -> list:
+    """Moves a segment's start that sits in silence later, to WORD_EDGE_PAD_START before the
+    first speech span that begins inside the segment, by at most max_trim. `spans` are sorted
+    (start, end) speech spans in seconds; a segment that starts in speech, or has no speech
+    span starting inside it, keeps its start."""
+    for seg in segments:
+        start, end = seg["start"], seg["end"]
+        if any(sp[0] <= start < sp[1] for sp in spans):
+            continue
+        span = next((sp for sp in spans if start < sp[0] < end), None)
+        if span is None:
+            continue
+        new_start = min(span[0] - WORD_EDGE_PAD_START, start + max_trim)
+        if new_start > start:
+            seg["start"] = new_start
+    return segments
+
+
 MIN_SEGMENT_SECONDS = 0.5
 
 
