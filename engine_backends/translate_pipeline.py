@@ -245,7 +245,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
                                  stop_before_batch=None, temperature: float | None = None,
-                                 reasoning: str | None = None):
+                                 reasoning: str | None = None, sentence_groups_cb=None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -337,6 +337,8 @@ class _TranslateRun:
         if (by_sentence and not a.reflect
                 and getattr(self.engine, "supports_reference", False)):
             self.groups = sentence_groups.group_fragments(target_lines, self.lines, a.sentence_limits)
+            if a.sentence_groups_cb:
+                a.sentence_groups_cb([[ln.id for ln in g] for g in self.groups if len(g) > 1])
         if self.groups:
             batches = sentence_groups.align_batches_to_groups(batches, self.groups)
         return batches

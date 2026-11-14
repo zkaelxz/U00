@@ -8,6 +8,7 @@ import json
 import logging
 
 import db
+import sentence_groups
 import source_change
 from engine_backends import engine_registry, pricing, llm_tasks, paid_calls
 import translation_guide as tguide
@@ -112,12 +113,38 @@ def _still_the_runs(fresh, lines, enforce_ids) -> list:
             and run_text.get(ln.id) == (ln.zh or "", ln.en or "")]
 
 
+def _substitute(own_fresh, substitute_terms, sentence_source) -> dict:
+    """Applies the exact terms to each line's English in place; line id ->
+    (English before, after) for the lines it changed."""
+    substituted = {}
+    for ln in own_fresh:
+        if ln.en:
+            before = ln.en
+            ln.en = substitute_terms(ln.en, sentence_source.get(ln.id, ln.zh))
+            if ln.en != before:
+                substituted[ln.id] = (before, ln.en)
+    return substituted
+
+
+def _sentence_sources(fresh, groups) -> dict:
+    """Line id -> the source of the whole sentence the run translated the line
+    in. Translate by sentence splits one sentence's English across its parts,
+    so a term in part 1's source can land in part 2's English."""
+    zh = {ln.id: ln.zh or "" for ln in fresh}
+    out = {}
+    for ids in groups:
+        joined = sentence_groups.join_fragments([zh.get(i, "") for i in ids])
+        out.update((i, joined) for i in ids)
+    return out
+
+
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
                            glossary_terms, errors, cancelled: bool = False,
                            summary_engine=None, summary_engine_choice: str | None = None,
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float | None = None,
-                           flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None) -> bool:
+                           flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None,
+                           sentence_parts=()) -> bool:
     """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
@@ -160,7 +187,9 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     saved only while the line's source, English, timing and flag in the
     database are still what it was computed from (the flag can be a
     reading-speed or a content-blocked one); the ids of lines that changed
-    during the run are added to flags_needing_recheck (a set, if given)."""
+    during the run are added to flags_needing_recheck (a set, if given).
+
+    sentence_parts: the line ids of each sentence the run translated as one."""
     # First: the exact-term substitution below changes `en` in the database,
     # which the compare-and-set on this run's English would then refuse.
     source_change.save_cleared_flags(drama_id, lines)
@@ -179,13 +208,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     for ln in lines:
         ln.en = kept.get(ln.id, ln.en)
     if fixes_text:
-        substituted = {}
-        for ln in own_fresh:
-            if ln.en:
-                before = ln.en
-                ln.en = substitute_terms(ln.en, ln.zh)
-                if ln.en != before:
-                    substituted[ln.id] = (before, ln.en)
+        substituted = _substitute(own_fresh, substitute_terms, _sentence_sources(fresh, sentence_parts))
         # Compare-and-set: an edit saved since the load above is kept too.
         for lid in db.save_lines(drama_id, own_fresh, fields=("en",), only_if_unchanged=True,
                                  guard_fields=("zh",)):

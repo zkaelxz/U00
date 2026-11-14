@@ -234,7 +234,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         **_saved_translate_options(engine_choice),
         thinking=thinking, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
-        notes_cb=_notes,
+        notes_cb=_notes, sentence_groups_cb=(sentence_parts := []).extend,
         detail_cb=lambda frac, message: background_jobs.update_progress(
             job_id, frac, engine_gemini.progress_message_with_rate_status(
                 engine, frac, base=message)),
@@ -257,7 +257,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
-            flags_needing_recheck=recheck, embed_texts=settings_service.alignment_embedder()):
+            flags_needing_recheck=recheck, embed_texts=settings_service.alignment_embedder(), sentence_parts=sentence_parts):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
