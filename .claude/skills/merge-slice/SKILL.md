@@ -8,7 +8,7 @@ description: Merge a finished migration branch into baihe-subtitler using the re
 Lands one finished branch on `baihe-subtitler`. Work on one branch at a time: each merge changes the base for the next one.
 
 ## 0. Preconditions
-- Merging is allowed: the lead session merges once CI is green (root `CLAUDE.md`, "How to work"). Without that authority, stop and ask.
+- Merging is allowed only in a dedicated merge thread, and only after Kae has typed "Merge NNNN" for this PR (root `CLAUDE.md`, "How to work"). Without that, stop and ask.
 - The branch's own report (from an agent or a person) lists its tests. Read it, and flag any doubts it raised before merging.
 
 ## 1. Merge the base into the branch (never rebase, never force-push)
