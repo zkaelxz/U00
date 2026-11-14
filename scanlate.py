@@ -47,6 +47,26 @@ from scanlate_translate import translate_page_bubbles
 from scanlate_watermark import flag_site_marks
 
 
+def warm_models(detect_backend: str = "auto") -> list:
+    """Loads the balloon detector and the text eraser now, from weights already on disk, so the
+    first page after the app starts does not wait for them (about 6 s of a first page on a 3080 Ti
+    PC). Downloads nothing; a model that is not on disk, or is not the chosen detector, is left
+    alone. Returns the names of the models it loaded. The caller holds the pipeline lock."""
+    import scanlate_detect
+    import scanlate_inpaint
+    blank = np.full((64, 64, 3), 255, dtype=np.uint8)
+    warmed = []
+    if detect_backend in ("auto", "ml") and scanlate_detect.bubble_ml_weights_cached():
+        detect_bubbles("", backend="ml", image=blank)
+        warmed.append("balloon detector")
+    if scanlate_inpaint.lama_ml_weights_cached():
+        mask = np.zeros((64, 64), dtype=np.uint8)
+        mask[24:40, 24:40] = 255
+        scanlate_inpaint._run_ml_inpaint(blank, mask, allow_download=False)
+        warmed.append("text eraser")
+    return warmed
+
+
 def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1600,
                            overlap: int = 100) -> list:
     """Writes each split_webtoon_strip() slice as its own PNG in
