@@ -41,7 +41,9 @@ test('tick lines low on the page, Set speaker opens in view and changes them all
   const panel = page.getByTestId('set-speaker')
   await expect(panel).toBeVisible()
   await expect(panel).toBeInViewport()
-  await panel.getByLabel('Speaker for 5 lines').selectOption('Anok')
+  // The field is a text box until the title's speakers load, then a list.
+  await expect(panel.getByRole('combobox', { name: 'Speaker for 5 lines' })).toBeVisible()
+  await panel.getByRole('combobox', { name: 'Speaker for 5 lines' }).selectOption('Anok')
   await panel.getByRole('button', { name: 'Set speaker', exact: true }).click()
   await expect(panel.getByRole('status')).toContainText('Set the speaker of 5 lines to Anok.')
   for (const n of [35, 36, 37, 38, 39]) {
@@ -56,4 +58,12 @@ test('tick lines low on the page, Set speaker opens in view and changes them all
   await expect(panel).not.toBeInViewport()
   await bar.getByRole('button', { name: 'Set speaker…' }).click()
   await expect(panel).toBeInViewport()
+
+  // After Clear, ticking a line low on the page brings the panel back without jumping up to it.
+  await bar.getByRole('button', { name: 'Clear' }).click()
+  await expect(panel).toHaveCount(0)
+  await tickBox(page, 39).scrollIntoViewIfNeeded()
+  await tickBox(page, 39).check()
+  await expect(panel).toBeAttached()
+  await expect(tickBox(page, 39)).toBeInViewport()
 })
