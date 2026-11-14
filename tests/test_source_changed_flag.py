@@ -264,7 +264,8 @@ class _HearEngine:
             self.during(), setattr(self, "during", None)
         if zh_lines[0] in self.fail:
             raise RuntimeError("engine down")
-        return [f"EN {z}" for z in zh_lines]
+        # English only: a reply still holding the source script is not used.
+        return [{"新": "New", "对": "Right again", "旧": "Old again"}[z] for z in zh_lines]
 
 
 class TestFixFlagged:
@@ -294,13 +295,13 @@ class TestFixFlagged:
         self._run(did, _HearEngine(fail={"新"}), monkeypatch, {"旧": "新", "对": "对"})
         rows = _by_id(did)
         assert (rows[ids[0]]["zh"], rows[ids[0]]["en"], rows[ids[0]]["flag"]) == ("新", "Old", FLAG)
-        assert (rows[ids[1]]["en"], rows[ids[1]]["flag"]) == ("EN 对", None)
+        assert (rows[ids[1]]["en"], rows[ids[1]]["flag"]) == ("Right again", None)
 
     def test_new_source_with_new_english_is_not_flagged(self, isolated_db, monkeypatch):
         did, ids = _seed([("旧", "Old", "uncertain_translation")])
         self._run(did, _HearEngine(), monkeypatch, {"旧": "新"})
         row = _by_id(did)[ids[0]]
-        assert (row["zh"], row["en"], row["flag"]) == ("新", "EN 新", None)
+        assert (row["zh"], row["en"], row["flag"]) == ("新", "New", None)
 
     def test_an_edit_made_while_it_runs_survives(self, isolated_db, monkeypatch):
         did, ids = _seed([("旧", "Old", "uncertain_translation")])
