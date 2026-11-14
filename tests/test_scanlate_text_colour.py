@@ -111,6 +111,13 @@ def test_two_unrelated_colours_with_nothing_between_are_not_a_fade():
     assert scanlate_render.sampled_ink_fade(page, BOX) is None
 
 
+def test_a_two_line_balloon_with_a_step_between_the_lines_is_still_a_fade():
+    page = np.full((100, 160, 3), 255, np.uint8)
+    page[20:40, 40:120] = (160, 100, 50)
+    page[60:80, 40:120] = (110, 70, 40)
+    assert scanlate_render.sampled_ink_fade(page, BOX) is not None
+
+
 def test_the_fade_recolours_the_drawn_lettering_from_top_to_bottom():
     from PIL import ImageDraw
     before = Image.new("RGB", (120, 60), "white")
