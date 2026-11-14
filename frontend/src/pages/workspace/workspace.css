@@ -25,7 +25,7 @@
 .workspace-header .ws-badges { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .workspace-header .ws-lines { font-size: var(--text-sm); }
 /* The title's main way in (read or open the comic) plus its source page, pushed to the header's right edge. */
-.ws-actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+.ws-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-2); margin-left: auto; }
 .ws-actions a { white-space: nowrap; }
 .ws-actions .ws-source-add { font-size: var(--text-sm); display: inline-flex; align-items: center; }
 
@@ -91,8 +91,10 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 .stage-tabs a[data-state='done'] .stage-mark { color: var(--ok); font-size: var(--text-sm); }
 .stage-tabs a[data-state='current'] .stage-mark { color: var(--accent-text); }
 .stage-tabs .stage-count { color: var(--muted); font-weight: normal; font-size: var(--text-sm); }
-/* Reserved room for "· 32 left" / "· 12 flagged" and for the state mark, so tabs keep their size while progress loads. */
-.stage-tabs .stage-count { display: inline-block; min-width: 12ch; }
+/* Reserved room for "· 32 left" / "· 12 flagged" and for the state mark, so tabs keep their size while progress loads.
+   When the strip is narrow (a docked side menu beside a small window) the count drops under its label instead of pushing Export off the edge. */
+.stage-tabs a { flex-wrap: wrap; }
+.stage-tabs .stage-count { flex: 0 1 12ch; }
 .stage-tabs .stage-mark-slot { visibility: hidden; font-size: var(--text-xs); }
 .stage-tabs .stage-mark, .stage-tabs .stage-mark-slot { display: inline-block; min-width: 1rem; text-align: center; }
 /* The label is laid out at its bold width, so the open or "next" tab turning bold doesn't resize the tabs. */
