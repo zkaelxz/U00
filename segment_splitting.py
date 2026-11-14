@@ -619,11 +619,11 @@ def settle_overlaps(segments: list) -> list:
 SPEECH_END_MAX_EXTEND = 0.5
 # In busy group talk the detector's span runs straight on into the next voice, so the
 # span end says nothing about where this line's voice stopped. A drop in loudness
-# does: on a hand-timed group stream, stopping where the audio stays this far below
-# the line's last loud moment for this long removed most ends left running past the
-# voice and moved no hand-set end further from where it was set.
-SPEECH_END_DROP_DB = 20.0
-SPEECH_END_QUIET_S = 0.1
+# does. On hand-timed titles, stopping where the audio stays this far below the line's
+# last loud moment for this long halved the ends left running past the voice; a
+# shorter quiet also stopped lines at pauses inside a sentence.
+SPEECH_END_DROP_DB = 15.0
+SPEECH_END_QUIET_S = 0.2
 _SPEECH_END_REF_S = 0.2
 
 
