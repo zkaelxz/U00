@@ -929,8 +929,6 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 
 /* Continue shelf */
 .stats-placeholder { min-height: 1.5em; }
-/* The height of a loaded one-row shelf (buttons under the titles), so the list below does not move when it lands. */
-.continue-skeleton { min-height: 179px; }
 .continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
 .continue-item { container-type: inline-size; display: flex; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
 /* Lines apart (space-between) so the buttons of tiles side by side line up at the bottom. */
@@ -950,10 +948,15 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .continue-text { display: grid; min-width: 0; }
 .continue-title { font-family: var(--font-heading); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
+/* The placeholder's tile, text and button as bars: --border, because the tile's own fill is the skeleton colour.
+   A text bar is drawn a little shorter than its line (clipped, so the tile keeps its height) and two lines read as
+   two bars. */
+.continue-placeholder :is(.continue-tile, .skeleton-text, .continue-next) { background: var(--border); border-color: transparent; }
+.continue-placeholder .skeleton-text { width: 80%; clip-path: inset(3px 0 round var(--radius-sm)); }
+.continue-placeholder .skeleton-text.short { width: 50%; }
 @media (max-width: 640px) {
   .continue-card { padding: var(--space-3); }
   .continue-item { padding: var(--space-2); }
-  .continue-skeleton { min-height: 144px; }
   /* A phone shows one tile at a time: its button always takes the row under the text, a full thumb target, so a
      short label and a long one sit the same. */
   .continue-row > .continue-next { flex-basis: 100%; min-height: 44px; }

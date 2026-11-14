@@ -94,6 +94,11 @@ export function continueItems(reading: ReadingRow[], recent: RecentRow[]): Conti
   return all.filter((x) => (seen.has(x.dramaId) ? false : (seen.add(x.dramaId), true)))
 }
 
+/** How long the Library list waits before it asks: 200 ms after a search or filter change, so typing does not send a
+ *  request per key; at once for the first request and for a reload, which the Continue shelf is waiting on.
+ *  `lastReload` is the reload the previous request went out under (null before the first). */
+export const listDelay = (lastReload: number | null, reload: number): number => (lastReload === reload ? 200 : 0)
+
 /** "1 title" / "3 titles". */
 export const countDramas = (n: number) => `${n} ${n === 1 ? 'title' : 'titles'}`
 
@@ -138,8 +143,8 @@ export type ShelfRow = Progress & Kinded
 // the same next step for the same title.
 function workStep(row: ShelfRow | undefined, mediaType: string | null): 'open' | 'translate' | 'check' | 'done' {
   const total = row?.line_count ?? 0
-  // A comic's work is pages, which these line counts don't describe; a title the list hasn't loaded (a search or
-  // filter is on) has no counts at all.
+  // A comic's work is pages, which these line counts don't describe; a title with no row (the list could not be
+  // loaded, or a search or filter hid it when the page last reloaded its data) has no counts at all.
   if (!row || total <= 0 || isComicType(row.media_type) || isComicType(mediaType)) return 'open'
   if ((row.translated_count ?? 0) < total) return 'translate'
   return row.status === 'exported' ? 'done' : 'check'

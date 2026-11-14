@@ -55,17 +55,20 @@ import { mediaTypeFor, titleFor } from './makeSubtitles/makeSubtitlesFlow'
 
 
 
-const CONTINUE_SEEN_PREF = 'library.continue.hadItems'
+// How many things the shelf last had to continue (0: nothing), so its placeholder has the shelf's shape.
+const CONTINUE_COUNT_PREF = 'library.continue.count'
 
-type CheckCounts = { reload: number; byId: ReadonlyMap<number, number | null> }
-const NO_COUNTS: ReadonlyMap<number, number | null> = new Map()
 const NO_ROWS: ReadonlyMap<number, DramaSummary> = new Map()
 
-// Lines needing a look (the check queue the title page counts), for the tiles whose label names them: asked once
-// per title until the page reloads its data (Retry, Baihe back, a bulk action), which asks again so a count that
-// failed or went stale is not kept. An answer from before a reload is ignored.
-function useCheckCounts(ids: number[], reloadKey: number): ReadonlyMap<number, number | null> {
-  const [counts, setCounts] = useState<CheckCounts>(() => ({ reload: reloadKey, byId: NO_COUNTS }))
+// The reload an answer was asked in travels with it, so an answer that is older than the one shown never replaces it.
+type CheckCount = { reload: number; n: number | null }
+
+// Lines needing a look (the check queue the title page counts), for the tiles whose label names them. Asked once per
+// title until the page reloads its data (Retry, Baihe back, a bulk action), which asks again so a stale count is
+// replaced; until the new answer lands the old one stays, so a label and its link do not flicker to another step.
+// A re-ask that fails leaves the count unknown rather than keep a number that could not be confirmed.
+function useCheckCounts(ids: number[], reloadKey: number): ReadonlyMap<number, CheckCount> {
+  const [counts, setCounts] = useState<ReadonlyMap<number, CheckCount>>(() => new Map())
   const asked = useRef({ reload: reloadKey, ids: new Set<number>() })
   const mounted = useRef(true)
   const key = ids.join(',')
@@ -76,11 +79,7 @@ function useCheckCounts(ids: number[], reloadKey: number): ReadonlyMap<number, n
       asked.current.ids.add(id)
       const keep = (n: number | null) => {
         if (!mounted.current) return
-        setCounts((c) => {
-          if (c.reload > reloadKey) return c
-          const byId = new Map(c.reload === reloadKey ? c.byId : NO_COUNTS)
-          return { reload: reloadKey, byId: byId.set(id, n) }
-        })
+        setCounts((c) => ((c.get(id)?.reload ?? -1) > reloadKey ? c : new Map(c).set(id, { reload: reloadKey, n })))
       }
       listLines(id, 1, 1, 'risk').then((r) => keep(typeof r.risk_count === 'number' ? r.risk_count : null), () => keep(null))
     }
@@ -91,42 +90,80 @@ function useCheckCounts(ids: number[], reloadKey: number): ReadonlyMap<number, n
       mounted.current = false
     }
   }, [])
-  return counts.reload === reloadKey ? counts.byId : NO_COUNTS
+  return counts
+}
+
+// The shelf's card as Card draws it (Card cannot be hidden from a screen reader, so its markup is repeated here), with
+// nothing in it and as many tiles as it last showed: it takes the loaded shelf's height under every width, density
+// and text size, and the list below does not move when the shelf arrives.
+function ShelfPlaceholder({ count, limit, phone }: { count: number; limit: number; phone: boolean }) {
+  return (
+    <section className="card continue-card continue-placeholder" aria-hidden="true">
+      {!phone && (
+        <header className="card-head">
+          <div className="card-heading"><h2 className="card-title">Continue</h2></div>
+        </header>
+      )}
+      <div className="card-body">
+        <ul className="continue-list">
+          {Array.from({ length: Math.min(count, limit) }, (_, i) => (
+            <li key={i} className="continue-item">
+              <div className="continue-row">
+                <span className="continue-tile skeleton-block" />
+                <div className="continue-text">
+                  <span className="continue-title skeleton-text">{'\u00a0'}</span>
+                  <span className="continue-meta skeleton-text short">{'\u00a0'}</span>
+                </div>
+                <span className={buttonClass('secondary', 'sm', 'continue-next skeleton-block')}>{'\u00a0'}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {count > limit && <div className="actions"><span className={buttonClass('ghost', 'sm')}>{'\u00a0'}</span></div>}
+      </div>
+    </section>
+  )
 }
 
 // "Continue": reading and workspace activity, one tap each on a button that names what comes next. Rendered
 // only when there is something to continue.
-function ContinueShelf({ continuing, recent, rows, phone, reloadKey }: {
+function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey }: {
   continuing: Loaded<{ items: Parameters<typeof continueItems>[0] }>
   recent: Loaded<{ items: Parameters<typeof continueItems>[1] }>
-  /** The titles the Library list has shown this visit, or null until it has answered or failed: without a title's
-   *  row a work tile can only say Open, so the shelf waits rather than show Open and then change. */
+  /** The titles the Library list has shown since the page last loaded its data, or null until it has answered or
+   *  failed: without a title's row a work tile can only say Open, so the shelf waits rather than show Open and then
+   *  change. */
   rows: ReadonlyMap<number, DramaSummary> | null
+  /** False while a reload waits for its first list answer: counts are asked only for titles that answer still puts
+   *  in the check state, not on the rows it is about to replace. */
+  rowsCurrent: boolean
   phone: boolean
   reloadKey: number
 }) {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
-  // The shelf is the tallest thing above the list; holding its place until the
-  // two requests settle keeps the list from jumping down when they land.
+  // The shelf is the tallest thing above the list; it holds its place until its own two requests and the title list
+  // have answered, so the list does not jump down when they land.
   const loading = (!continuing.error && !recent.error && (continuing.data === null || recent.data === null)) || rows === null
-  // Only reserve the space for a viewer who had something to continue last
-  // time; otherwise an empty shelf would leave a 140 px gap that then collapses.
-  const [hadItems, setHadItems] = usePersistedState(CONTINUE_SEEN_PREF, false)
+  // The placeholder only shows for a viewer who had something to continue last time; for anyone else an empty shelf
+  // would leave a gap that then collapses.
+  const [storedCount, setStoredCount] = usePersistedState<number>(CONTINUE_COUNT_PREF, 0)
+  const lastCount = typeof storedCount === 'number' && storedCount > 0 ? Math.floor(storedCount) : 0
   useEffect(() => {
-    if (!loading) setHadItems(items.length > 0)
-  }, [loading, items.length, setHadItems])
+    if (!loading) setStoredCount(items.length)
+  }, [loading, items.length, setStoredCount])
   const limit = phone ? 1 : 4
   const shown = loading ? [] : all ? items : items.slice(0, limit)
   const row = (id: number) => rows?.get(id)
-  const risk = useCheckCounts(shown.filter((x) => needsCheckCount(x, row(x.dramaId))).map((x) => x.dramaId), reloadKey)
-  if (loading) return hadItems ? <div className="continue-skeleton skeleton-block" aria-hidden="true" /> : null
+  const checking = rowsCurrent ? shown.filter((x) => needsCheckCount(x, row(x.dramaId))).map((x) => x.dramaId) : []
+  const risk = useCheckCounts(checking, reloadKey)
+  if (loading) return lastCount > 0 ? <ShelfPlaceholder count={lastCount} limit={limit} phone={phone} /> : null
   if (!items.length) return null
   return (
     <Card title={phone ? undefined : 'Continue'} className="continue-card" aria-label="Continue">
       <ul className="continue-list">
         {shown.map((x) => {
-          const next = continueAction(x, row(x.dramaId), risk.get(x.dramaId) ?? null)
+          const next = continueAction(x, row(x.dramaId), risk.get(x.dramaId)?.n ?? null)
           return (
             <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
               <div className="continue-row">
@@ -377,15 +414,21 @@ export default function LibraryPage() {
     return () => window.clearInterval(timer)
   }, [loadError])
 
-  // With nothing listed there is nothing to select.
-  // Every title the list has shown this visit, newest answer winning: a search or filter that hides a title then
-  // does not turn its Continue tile back into Open.
-  const [seenRows, setSeenRows] = useState<ReadonlyMap<number, DramaSummary> | null>(null)
+  // The titles the list has shown since the page last loaded its data. Answers of one load merge, so typing a search
+  // that hides a title does not turn its Continue tile back into Open; the first answer after a reload replaces them,
+  // so a row never outlives the data it came with. Until then the old rows stay, so the shelf does not flicker.
+  // LibraryList drops an answer whose request a reload overtook, so every answer here belongs to `reloadKey`.
+  const [seenRows, setSeenRows] = useState<{ reload: number; rows: ReadonlyMap<number, DramaSummary> } | null>(null)
   const onItems = useCallback((next: DramaSummary[]) => {
     setItems(next)
-    setSeenRows((seen) => new Map([...(seen ?? []), ...next.map((d) => [d.id, d] as const)]))
+    setSeenRows((seen) => {
+      if (seen && seen.reload > reloadKey) return seen
+      const kept = seen && seen.reload === reloadKey ? seen.rows : NO_ROWS
+      return { reload: reloadKey, rows: new Map([...kept, ...next.map((d) => [d.id, d] as const)]) }
+    })
+    // With nothing listed there is nothing to select.
     if (next.length === 0) setSelectMode(false)
-  }, [])
+  }, [reloadKey])
   // The selection holds only titles the viewer can see: a collapsed group, a filter or a reload drops the rest.
   const onVisible = useCallback((visible: DramaSummary[]) => setChecked((c) => pruneSelection(c, visible)), [])
 
@@ -393,8 +436,8 @@ export default function LibraryPage() {
     const d = items.find((x) => x.id === id)
     setSelected({ id, title: d ? dramaName(d) : 'Title details' })
   }
-  // A list that failed before answering leaves the shelf as it was before rows existed: tiles without one say Open.
-  const shelfRows = seenRows ?? (listError ? NO_ROWS : null)
+  // A list that failed before it ever answered still lets the shelf show: its work tiles say Open.
+  const shelfRows = seenRows?.rows ?? (listError ? NO_ROWS : null)
 
   // "Add a title by hand" (null) opens the sheet as New title always did, draft and all.
   const startNewTitle = (start: NewTitleStart) => {
@@ -494,7 +537,10 @@ export default function LibraryPage() {
       {/* Not on a phone: the box would push the first title card off the first screen; the header's Add opens it there. */}
       {canCreate && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
-      <ContinueShelf continuing={continuing} recent={recent} rows={shelfRows} phone={phone} reloadKey={reloadKey} />
+      <ContinueShelf
+        continuing={continuing} recent={recent} rows={shelfRows} rowsCurrent={seenRows?.reload === reloadKey || !!listError}
+        phone={phone} reloadKey={reloadKey}
+      />
 
       {!!allSeries.data?.items.length && (
         <details className="library-series-links" data-testid="library-series-links">

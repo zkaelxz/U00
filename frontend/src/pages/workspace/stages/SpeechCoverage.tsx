@@ -115,7 +115,7 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
 
   const rawNote = (g: SpeechCoverageGap) => (
     <>
-      <span data-testid="gap-raw" data-raw-status={g.raw_status}>{rawStatusText(g.raw_status)}</span>
+      <span data-testid="gap-raw" data-raw-status={g.raw_status}>{rawStatusText(g.raw_status, g.filter_reasons)}</span>
       {g.raw_text && <span className="muted"> · “{g.raw_text}”</span>}
     </>
   )
