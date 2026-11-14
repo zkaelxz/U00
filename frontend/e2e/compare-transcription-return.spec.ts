@@ -60,7 +60,9 @@ test('the "Which lines" choice is remembered', async ({ page }) => {
   await expect(page.getByTestId('compare-transcription').getByLabel('Which lines')).toHaveValue('range')
 })
 
-test('the link a finished comparison gets opens Look for problems with the section open', async ({ page }) => {
+// Simple leaves Compare transcription out of the tools, so there the link must bring it in (the Jobs page links here).
+for (const view of ['full', 'simple'] as const) test(`the link a finished comparison gets opens Look for problems with the section open (${view} view)`, async ({ page }) => {
+  await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
   await mockCompare(page, { initial: 'done' })
   await page.goto('/#/drama/3/review?tools=problems&focus=compare')
   await expect(page.getByRole('tab', { name: 'Look for problems' })).toHaveAttribute('aria-selected', 'true')
