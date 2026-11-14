@@ -255,7 +255,7 @@ describe('taking a suggested speaker', () => {
   it('posts once when tapped twice before the save comes back', async () => {
     const { ctl, setSpeakerUndo } = setup([line(1)])
     const entries = [{ id: 1, speaker: '' }]
-    let finish = (_: unknown) => {}
+    let finish: (v: unknown) => void = () => {}
     api.setLineSpeaker.mockReturnValue(new Promise((r) => { finish = r }))
     const first = ctl.actions.acceptSpeaker(1, 'Anok')
     expect(await ctl.actions.acceptSpeaker(1, 'Cray')).toBe(false)
