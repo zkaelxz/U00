@@ -651,12 +651,16 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-editbar.is-queue .review-queue-done { flex: 1 1 0; }
 }
 
-/* The check queue on an audio title folds the player strip, its panel and the waveform away, so the first card sits under
-   the switch row; the Player button brings them back. Hidden, not unmounted: the card's Play and the player's keys use them. */
+/* Simple folds an audio title's player strip, its panel and the waveform away, in Need a look and under All, so the first
+   line sits under the switch row; the Player button brings them back. Hidden, not unmounted: the card's Play and the
+   player's keys use them. */
 .review-editor.is-media-folded :is(.review-player, .review-player-dock, .review-wave-section) { display: none; }
 .review-queue-row .check-queue-media { margin-left: auto; }
 @media (max-width: 640px) {
   .stage-review .btn.check-queue-media { width: 100%; min-height: var(--touch); justify-content: center; }
+  /* Full width only in its own row under the card: in the filter row's More it sits beside Replace…, a control of the same
+     kind, so both take the same height and their own width. */
+  .stage-review .review-extras:has(> .check-queue-media) > .btn { width: auto; min-height: var(--touch); }
 }
 
 /* The queue is one line at a time: no tick box on its cards (a line ticked under All is cleared from the selection bar). */

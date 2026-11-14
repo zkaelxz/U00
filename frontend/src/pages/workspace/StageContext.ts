@@ -15,7 +15,8 @@ export interface StageContextValue {
   simple: boolean
   // Simple's Check button, pressed on the Review page: each new value opens the check queue at its first line.
   checkSignal?: number
-  // Simple's main button on desktop Review, for the Need a look row to show first; onShown tells the page whether that row drew it.
+  // Simple's main button on a desktop wherever the lines are (Review and the title page), for the Need a look row to show first;
+  // onShown tells the page whether that row drew it.
   checkLead?: CheckLead
   // Simple's title page of a title with lines still without English: Review's lines open on All, where those lines are.
   linesOnAll?: boolean
@@ -44,8 +45,6 @@ export const useCheckSignal = (): number => useContext(StageContext)?.checkSigna
 export const useCheckLead = (): CheckLead | undefined => useContext(StageContext)?.checkLead
 
 export const useLinesOnAll = (): boolean => useContext(StageContext)?.linesOnAll ?? false
-
-export const useStageEpisodes = (): ReactNode => useContext(StageContext)?.episodes ?? null
 
 /**
  * For a panel a deep link ("?focus=glossary") points at: a Section openSignal that

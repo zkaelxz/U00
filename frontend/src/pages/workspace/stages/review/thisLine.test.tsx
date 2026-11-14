@@ -67,7 +67,7 @@ describe('the Episodes tab', () => {
     expect(tabs(render())).not.toContain('Episodes')
   })
 
-  it('is not opened by a ?tools= link or a remembered tab, and This line opens over it', () => {
+  it('is not opened by a remembered Episodes tab or a ?tools=episodes link (the address keeps only groups), and stays last beside This line', () => {
     browser('#/drama/3?tools=episodes', { 'baihe.pref.review.tools.tab.3': '"episodes"' })
     expect(tabs(render({ episodes }))).toEqual(['Look for problems*', 'Change many lines', 'Records', 'Finish', 'Episodes'])
     browser('#/drama/3')

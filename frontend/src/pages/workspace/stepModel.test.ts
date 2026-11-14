@@ -148,14 +148,21 @@ describe('stepLinks', () => {
 describe('mainInStepsPanel', () => {
   const keys: StepKey[] = ['add', 'transcribe', 'translate', 'check', 'export']
   it('on the title page, puts the main button in the steps panel only while Check is the current step', () => {
-    expect(keys.filter((k) => mainInStepsPanel(null, k, true))).toEqual(['check'])
-    expect(mainInStepsPanel(null, null, true)).toBe(false)
+    expect(keys.filter((k) => mainInStepsPanel(null, k, true, 3))).toEqual(['check'])
+    expect(mainInStepsPanel(null, null, true, 3)).toBe(false)
   })
   it('on Review, always in the steps panel; on the other stage pages, never', () => {
-    for (const k of keys) expect(mainInStepsPanel('check', k, false)).toBe(true)
+    for (const k of keys) expect(mainInStepsPanel('check', k, false, 3)).toBe(true)
     for (const open of ['translate', 'export', 'add', 'transcribe', null] as const) {
-      expect(keys.filter((k) => mainInStepsPanel(open, k, false))).toEqual([])
+      expect(keys.filter((k) => mainInStepsPanel(open, k, false, 3))).toEqual([])
     }
+  })
+  it('keeps it under the header when nothing needs a look, and treats an unknown count as something may', () => {
+    expect(mainInStepsPanel(null, 'check', true, 0)).toBe(false)
+    for (const k of keys) expect(mainInStepsPanel('check', k, false, 0)).toBe(false)
+    expect(mainInStepsPanel(null, 'check', true, null)).toBe(true)
+    expect(mainInStepsPanel('check', 'check', false, null)).toBe(true)
+    expect(mainInStepsPanel('check', 'export', false, 1)).toBe(true)
   })
 })
 

@@ -23,7 +23,7 @@ export function CheckLeadAction({ lead }: { lead: CheckLead }) {
   return <>{lead.action}</>
 }
 
-// The queue folds an audio title's player away so the first card sits under the switch; this brings it back.
+// Simple folds an audio title's player away, in Need a look and under All, so the first line sits under the switch; this brings it back.
 export function QueueMediaToggle({ open, controls, onToggle }: { open: boolean; controls: string; onToggle: () => void }) {
   return (
     <button type="button" className={buttonClass('ghost', 'sm', 'check-queue-media')} aria-expanded={open} aria-controls={controls}

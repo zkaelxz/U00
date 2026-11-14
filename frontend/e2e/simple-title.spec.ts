@@ -1,6 +1,7 @@
 import { clearCheckLines, GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines, seedLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
+import { serveJobs } from './workspaceJobPillMocks'
 import type { Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
@@ -658,6 +659,7 @@ test.describe('the check queue', () => {
     expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.tools.tab.3'))).toBeNull()
     await panel.getByRole('button', { name: '▶ Play' }).click()
     await expect.poll(() => page.locator('audio').evaluate((a: HTMLAudioElement) => !a.paused)).toBe(true)
+    await expect(panel.locator('.this-line-playhead'), 'the playhead shows on the line\'s sound while it plays').toBeVisible()
     await page.keyboard.press('Alt+Space')
 
     // Another tab is remembered as before; All takes This line away (the player stays folded there too), and Need a
@@ -794,6 +796,60 @@ test.describe('the check queue', () => {
     await allRadio(page).check({ force: true })
     await expect(page.locator('.review-line')).toHaveCount(24)
     await expect(page).toHaveURL(address('#/drama/3/review'))
+  })
+
+  test('a job that finishes while the title page shows its panel brings the lines in, with no reload', async ({ page }) => {
+    seedCheckLines()
+    let lines = 0
+    await page.route('**/api/workflow/dramas/3/progress', (route) => route.fulfill({ json: progress(3, lines, 0) }))
+    await page.route('**/api/transcribe/dramas/3/config', async (route) => {
+      const resp = await route.fetch()
+      await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: true } })
+    })
+    const now = () => Math.floor(Date.now() / 1000)
+    const job = (over: Record<string, unknown> = {}) => ({
+      job_id: 'transcribe_3', status: 'running', progress: 0.5, message: 'Transcribing', error: null, description: 'Transcribe Signal',
+      gpu_touching: true, started_at: now() - 30, finished_at: null, updated_at: now(), owned_by_me: true, drama_id: 3, kind: 'transcribe', ...over,
+    })
+    // Started on the Transcribe step's page; the person came back to the title page while it runs.
+    const jobs = { current: [job()] }
+    await serveJobs(page, jobs)
+    await simple(page)
+    const steps = page.getByRole('list', { name: 'Steps' })
+    await expect(page.getByRole('complementary', { name: 'Title panel' })).toBeVisible()
+    await expect(steps.locator('[aria-current="step"]')).toHaveText('Now · Transcribe')
+    await expect(page.getByTestId('job-pill')).toHaveText(/^● Transcribing/)
+    await page.evaluate(() => { (window as { stayed?: boolean }).stayed = true })
+
+    lines = 24
+    jobs.current = [job({ status: 'done', progress: 1, outcome: 'ok', finished_at: now() })]
+    // The jobs list is read again when the window regains focus, so the finish is seen without waiting for a poll.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByTestId('job-pill')).toHaveText('✓ Done')
+    await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
+    await expect(page.getByRole('complementary', { name: 'Title panel' })).toHaveCount(0)
+    await expect(steps.locator('[aria-current="step"]')).toHaveText(/^Now · Check/)
+    expect(await page.evaluate(() => (window as { stayed?: boolean }).stayed), 'the page was not reloaded').toBe(true)
+  })
+
+  test('a count refresh that fails keeps the step row\'s words and the main button the page had', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    const steps = page.getByRole('list', { name: 'Steps' })
+    await expect(steps.locator('[aria-current="step"]')).toHaveText('Now · Check, 3 lines need a look')
+    await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
+
+    await page.route('**/api/workflow/dramas/3/progress', (route) => route.fulfill({ status: 500, json: { detail: 'Database is locked' } }))
+    const failed = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/workflow/dramas/3/progress' && r.status() === 500)
+    const risk = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/review/dramas/3/lines' && new URL(r.url()).searchParams.get('page_size') === '1')
+    await card(page, 24).getByRole('button', { name: 'Looks right, next' }).click()
+    await Promise.all([failed, risk])
+    // Both answers have been handled by the next frame.
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0))))
+    await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
+    await expect(steps.getByRole('link')).toHaveText(['Done · Add', 'Done · Transcribe, 24 lines', 'Done · Translate', 'Now · Check, 2 lines need a look', 'Next · Export'])
+    await expect(page.getByRole('button', { name: 'Check the 2 lines', exact: true })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   })
 
   test('with no lines the title page keeps the title panel and has no lines area', async ({ page }) => {
@@ -951,12 +1007,20 @@ test.describe('the check queue', () => {
     const open = card(page, 24)
     await open.locator('.review-line-meta').click()
     await open.focus()
-    await page.keyboard.press(' ')
-    await page.keyboard.press('Shift+ ')
-    await expect(page.getByTestId('selection-bar')).toHaveCount(0)
-    await expect(page.getByTestId('selection-count')).toHaveCount(0)
-    // Space on a card with no tick box is the page's own: it scrolled.
-    await page.evaluate(() => window.scrollTo(0, 0))
+    // A key the browser keeps scrolls the page smoothly, so a scroll is caught by its event rather than read straight after.
+    const scrollsAfter = async (key: string) => {
+      const scrolled = page.evaluate(() => new Promise<boolean>((done) => {
+        window.addEventListener('scroll', () => done(true), { once: true })
+        setTimeout(() => done(false), 500)
+      }))
+      await page.keyboard.press(key)
+      return scrolled
+    }
+    for (const key of [' ', 'Shift+ ']) {
+      expect(await scrollsAfter(key), `the page stays put after ${key}`).toBe(false)
+      await expect(page.getByTestId('selection-bar'), `no tick after ${key}`).toHaveCount(0)
+      await expect(page.getByTestId('selection-count'), `no tick after ${key}`).toHaveCount(0)
+    }
     await allRadio(page).check({ force: true })
     await card(page, 5).locator('.review-line-meta').click()
     await card(page, 5).focus()
@@ -972,7 +1036,8 @@ test.describe('the check queue', () => {
     await expect(allRadio(page)).toBeChecked()
     const player = page.getByRole('group', { name: 'Player' })
     await expect(player).toBeHidden()
-    const first = (await page.locator('.review-line').first().boundingBox())!
+    await expect(card(page, 1)).toBeVisible()
+    const first = (await card(page, 1).boundingBox())!
     expect(first.y + (await page.evaluate(() => window.scrollY)), 'the first line\'s top').toBeLessThan(420)
     const toggle = page.locator('.review-queue-row').getByRole('button', { name: 'Player', exact: true })
     // It names the strip it shows; the strip is hidden, so it is found by its class, not its role.
@@ -1002,6 +1067,12 @@ test.describe('the check queue', () => {
     await expect(player).toBeHidden()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.queue.media'))).toBe('false')
+    // Play on a line still fails, and brings the folded player out again with its error.
+    await card(page, 5).locator('.review-line-meta').click()
+    await card(page, 5).getByRole('button', { name: '▶ Play' }).click()
+    await expect(player).toBeVisible()
+    await expect(player.getByRole('alert')).toHaveText(/^Couldn’t play the audio\./)
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   })
 
   test.describe('on title 1, with its long name', () => {

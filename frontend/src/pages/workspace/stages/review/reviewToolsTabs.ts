@@ -19,7 +19,7 @@ export const TOOLS_BESIDE_LINES = '(min-width: 1400px)'
 // remembered tab and no link names it, so it lives beside the groups rather than among them.
 export const LINE_TAB = 'line'
 export const LINE_TAB_LABEL = 'This line'
-// The same for the last tab of Simple's title page in a series: the series' episodes.
+// The same for the last tab of Simple's lines in a series (the title page and the Check step's page): the series' episodes.
 export const EPISODES_TAB = 'episodes'
 export const EPISODES_TAB_LABEL = 'Episodes'
 export type ToolsTab = ReviewToolsGroup | typeof LINE_TAB | typeof EPISODES_TAB

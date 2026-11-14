@@ -75,10 +75,12 @@ export function focusStep(steps: Step[], open: StepKey | null): StepKey | null {
 
 /**
  * On a phone, whether the main button sits in the panel the steps button opens rather than under the header: on the
- * Check step the check card comes first, so on Review, and on the title page while Check is the current step.
+ * Check step the check card comes first, so on Review, and on the title page while Check is the current step. Only
+ * while there may be a card (`riskCount` not 0, unknown included): with none the button is Export, and hidden it would
+ * leave a person who has finished checking with nothing on screen saying what comes next.
  */
-export function mainInStepsPanel(openStep: StepKey | null, current: StepKey | null, titlePage: boolean): boolean {
-  return openStep === 'check' || (titlePage && current === 'check')
+export function mainInStepsPanel(openStep: StepKey | null, current: StepKey | null, titlePage: boolean, riskCount: number | null): boolean {
+  return riskCount !== 0 && (openStep === 'check' || (titlePage && current === 'check'))
 }
 
 /** Whether the title page opens the lines on All: on the Translate step some lines have no English, and the check queue never lists those. */

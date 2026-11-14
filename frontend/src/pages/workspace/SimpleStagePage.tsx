@@ -98,7 +98,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           back={back}
           badge={home || stage === 'review'}
           home={home}
-          onJobFinished={refetch}
+          onJobFinished={onJobDone}
           onView={onView}
           progress={steps}
           openStep={open}

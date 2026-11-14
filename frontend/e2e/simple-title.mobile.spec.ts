@@ -393,13 +393,16 @@ test.describe(() => {
     const tools = page.getByRole('region', { name: 'Checks and tools' })
     const tabs = tools.getByRole('tablist', { name: 'Review tools' })
     await expect(tabs.getByRole('tab')).toHaveText(['Look for problems', 'Change many lines', 'Finish', 'Episodes'])
+    // Line #1, not the first row: while the lines load, the list holds placeholder rows that are then replaced.
+    const firstLine = page.locator('.review-line').filter({ has: page.locator('.review-idx', { hasText: /^#1$/ }) })
+    await expect(firstLine).toBeVisible()
     for (const width of [390, 320] as const) {
       await page.setViewportSize({ width, height: 844 })
       await page.evaluate(() => window.scrollTo(0, 0))
       await expectTall(main, `${width}px: the main button`)
       await expectOrder([
         ['the header', page.locator('.workspace-header')], ['the main button', main], ['the switch', page.getByRole('group', { name: 'Lines to show' })],
-        ['the first line', page.locator('.review-line').first()], ['the tools', tabs],
+        ['the first line', firstLine], ['the tools', tabs],
       ], width)
       // The tools' row keeps its tabs (no picker), each whole.
       const cut = await tabs.evaluate((row) => {
@@ -415,8 +418,7 @@ test.describe(() => {
       // The first screen shows a whole line, its source and its English, above the bottom bar: the player is folded away.
       await page.evaluate(() => window.scrollTo(0, 0))
       await expect(page.getByRole('group', { name: 'Player' })).toBeHidden()
-      const first = page.locator('.review-line').first()
-      const lineBottom = Math.max(...await Promise.all([first.locator('.review-zh'), first.getByTestId('line-en')].map(async (l) => {
+      const lineBottom = Math.max(...await Promise.all([firstLine.locator('.review-zh'), firstLine.getByTestId('line-en')].map(async (l) => {
         const b = (await l.boundingBox())!
         return b.y + b.height
       })))
@@ -435,5 +437,46 @@ test.describe(() => {
     await tabs.getByRole('tab', { name: 'Episodes' }).tap()
     await expect(page.getByRole('list', { name: 'Episodes' }).getByRole('link', { name: /Signal/ })).toHaveAttribute('aria-current', 'page')
     await expectNoSidewaysScroll(page)
+  })
+
+  test('under All, Replace… and Player in More are the same height, side by side, each its own width', async ({ page }) => {
+    seedCheckLines({ untranslated: true, audio: true })
+    await mockPeaks(page)
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/#/drama/3')
+    await expect(page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })).toBeChecked()
+    await page.locator('.review-more-toggle').tap()
+    const row = page.locator('.review-extras')
+    const [replace, player] = [row.getByRole('button', { name: 'Replace…', exact: true }), row.getByRole('button', { name: 'Player', exact: true })]
+    await expect(player).toBeVisible()
+    const [r, p] = [(await replace.boundingBox())!, (await player.boundingBox())!]
+    expect(r.height, 'Replace… is tall enough to tap').toBeGreaterThanOrEqual(44)
+    expect(p.height, 'Player is the height of Replace…').toBeCloseTo(r.height, 0)
+    expect(Math.abs(p.y - r.y), 'Player and Replace… share a row at 390px').toBeLessThan(1)
+    expect(p.width, 'Player keeps its own width').toBeLessThan(200)
+    await expectNoSidewaysScroll(page)
+    await page.setViewportSize({ width: 320, height: 844 })
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('on the Check step with nothing to look at, Export stays under the header, with the steps closed', async ({ page }) => {
+    seedCheckLines({ warnings: false })
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    for (const address of ['/#/drama/3', '/#/drama/3/review']) {
+      await page.goto('about:blank')
+      await page.goto(address)
+      await expect(stepsButton(page)).toHaveText('Step 4 of 5 · Check')
+      await expect(stepsButton(page)).toHaveAttribute('aria-expanded', 'false')
+      const exportButton = page.getByRole('link', { name: 'Export', exact: true })
+      for (const width of [390, 320] as const) {
+        await page.setViewportSize({ width, height: 844 })
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await expectTall(exportButton, `${address}: Export at ${width}px`)
+        const h = (await page.locator('.workspace-header').boundingBox())!
+        expect((await exportButton.boundingBox())!.y, `${address}: Export is under the header at ${width}px`).toBeGreaterThanOrEqual(h.y + h.height)
+        await expectNoSidewaysScroll(page)
+      }
+    }
   })
 })

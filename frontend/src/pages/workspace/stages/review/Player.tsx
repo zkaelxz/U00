@@ -83,8 +83,9 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   Bilingual: 'Both-language subtitles need an original and a translation.',
 }
 
-// Whether the media plays or has failed, and what the page around the player hears of it: each start and stop, and a
-// failure, so a player folded out of sight comes out with its error.
+// Whether the media plays or has failed, and what the page around the player hears of it: each start and stop, and
+// every failed attempt, so a player folded out of sight comes out with its error. Every attempt, not only the first: a
+// player folded again after failing stays failed, and the next Play from outside it must bring it back.
 function usePlayState(onFailed?: () => void) {
   const [playing, setPlaying] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -94,9 +95,10 @@ function usePlayState(onFailed?: () => void) {
     playingNow.current = playing
     listeners.current.forEach((listener) => listener())
   }, [playing])
-  useEffect(() => {
-    if (failed) onFailed?.()
-  }, [failed, onFailed])
+  const fail = useCallback(() => {
+    setFailed(true)
+    onFailed?.()
+  }, [onFailed])
   const outside = useMemo<Pick<PlayerHandle, 'isPlaying' | 'onPlayChange'>>(() => ({
     isPlaying: () => playingNow.current,
     onPlayChange: (listener) => {
@@ -106,7 +108,7 @@ function usePlayState(onFailed?: () => void) {
       }
     },
   }), [])
-  return { playing, setPlaying, failed, setFailed, outside }
+  return { playing, setPlaying, failed, setFailed, fail, outside }
 }
 
 // A player over the Range endpoint, with a seek bar, jump to time and
@@ -116,7 +118,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
   const { drama } = useStage()
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
-  const { playing, setPlaying, failed, setFailed, outside } = usePlayState(onFailed)
+  const { playing, setPlaying, failed, setFailed, fail, outside } = usePlayState(onFailed)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(NaN)
   const [segment, setSegment] = useState<Segment | null>(null)
@@ -251,9 +253,9 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
     if (!el) return
     el.play().catch((e: unknown) => {
       // A pause or a new seek interrupts play(); that is not a failure.
-      if ((e as { name?: string } | null)?.name !== 'AbortError') setFailed(true)
+      if ((e as { name?: string } | null)?.name !== 'AbortError') fail()
     })
-  }, [setFailed])
+  }, [fail])
 
   const playLine = useCallback(
     (line: Segment) => {
@@ -447,7 +449,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
       setDuration(e.currentTarget.duration)
       applyRate(e.currentTarget)
     },
-    onError: () => setFailed(true),
+    onError: fail,
   }
   // The played line only names the position while the playhead is still inside it: a seek made
   // outside the app's own controls (keys on the video, a scrub) must not leave its number on screen.
