@@ -117,6 +117,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "scanlate_regions.py",
     "scanlate_render.py",
     "scanlate_sfx.py",
+    "scanlate_tilt.py",
     "scanlate_translate.py",
     "scanlate_tuning.py",
     "scanlate_watermark.py",
