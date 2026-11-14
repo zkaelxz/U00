@@ -20,7 +20,7 @@ import { ExportJellyfin } from './ExportJellyfin'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
 import { libassNeed, NO_LIBASS } from '../../readiness/needs'
-import { SIMPLE_EXPORT_BLOCKS, exportBlockOrder, exportBlockReason, type ExportBlockId } from '../exportBlocks'
+import { exportBlockReason, openingExportBlock, shownExportBlocks, type ExportBlockId } from '../exportBlocks'
 import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
 import { AudiobookBlock, BurnedVideoBlock, DubbedVideoBlock, ExportEpub, MarkExported, SoftsubVideoBlock, type StartError } from './ExportMedia'
@@ -37,6 +37,8 @@ const allowed = <T extends string>(options: readonly T[], v: unknown, fallback: 
 // A title with no draft yet starts from the viewer's last format and language (rule 12).
 const LAST_CHOICE_PREF = 'export.last'
 const EXPORT_DRAFT_SHAPE = { fmt: 'srt' }
+// A read that hangs must not keep the exports off the page; past this the pick uses what is known.
+const PICK_WAIT_MS = 2000
 
 export default function ExportStage() {
   const features = useFeatures()
@@ -49,7 +51,7 @@ export default function ExportStage() {
   const [optionsError, setOptionsError] = useState<unknown>(null)
   const [startError, setStartError] = useState<StartError | null>(null)
   const kind = titleKind(drama.media_type, drama.content_mode)
-  const inputs = useExportInputs(dramaId, drama.content_mode === 'novel_narration')
+  const { inputs, settled } = useExportInputs(dramaId, kind, drama.content_mode === 'novel_narration')
   const { readiness: setup } = useReadiness()
   // A missing FFmpeg has its own card above; this is only the build that lacks libass.
   const libass = setup?.ffmpeg ? libassNeed(setup) : null
@@ -113,13 +115,24 @@ export default function ExportStage() {
   const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
     options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
-  const share = (id: ExportBlockId) => ({
-    startError, onStartError: setStartError,
-    reason: exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null),
-  })
+  const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)
+  const shown = shownExportBlocks(kind, simple)
+  // Picked once, after the reads that decide the reasons have answered, and the blocks mount only then: a block that
+  // opened later could fold under a click aimed at it, and remounting one would drop a started export. From then on
+  // only the viewer opens and folds blocks. The libass check is not awaited: Burned-in video always comes after Video
+  // with a subtitle track, which can run whenever Burned-in video could.
+  const [picked, setPicked] = useState<{ dramaId: number; id: ExportBlockId } | null>(null)
+  const [waitedFor, setWaitedFor] = useState<number | null>(null)
+  useEffect(() => {
+    const t = setTimeout(() => setWaitedFor(dramaId), PICK_WAIT_MS)
+    return () => clearTimeout(t)
+  }, [dramaId])
+  if ((settled || waitedFor === dramaId) && picked?.dramaId !== dramaId) setPicked({ dramaId, id: openingExportBlock(shown, reasonOf) })
+  const opening = picked?.dramaId === dramaId ? picked.id : null
+  const share = (id: ExportBlockId) => ({ startError, onStartError: setStartError, reason: reasonOf(id), opening: opening === id })
   const blocks: Record<ExportBlockId, ReactNode> = {
     subtitles: (
-      <ExportBlock key="subtitles" id="subtitles" hint="SRT, VTT, LRC or ASS">
+      <ExportBlock key="subtitles" id="subtitles" opening={opening === 'subtitles'} hint="SRT, VTT, LRC or ASS">
         <ExportSubtitles
           fmt={fmt}
           setFmt={setFmt}
@@ -144,7 +157,7 @@ export default function ExportStage() {
     ),
     dubbed_video: <DubbedVideoBlock key="dubbed_video" {...share('dubbed_video')} />,
     audiobook: <AudiobookBlock key="audiobook" {...share('audiobook')} />,
-    epub: <ExportEpub key="epub" reason={exportBlockReason('epub', inputs)} />,
+    epub: <ExportEpub key="epub" reason={reasonOf('epub')} opening={opening === 'epub'} />,
   }
   return (
     <div className="stage-export">
@@ -180,7 +193,7 @@ export default function ExportStage() {
         <SourceChangedWarning dramaId={dramaId} />
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
       </section>
-      {exportBlockOrder(kind).filter((id) => !simple || SIMPLE_EXPORT_BLOCKS.includes(id)).map((id) => blocks[id])}
+      {opening === null ? <div className="skeleton-block export-blocks-skeleton" aria-hidden="true" /> : shown.map((id) => blocks[id])}
       {!simple && featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
       {/* After the exports, so the status isn't offered before there is anything to mark. */}
       <div className="panel">
