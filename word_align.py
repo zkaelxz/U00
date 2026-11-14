@@ -30,7 +30,8 @@ CJK has no space token to anchor word boundaries the way English does,
 so CTC alignment on its own only ever gives per-CHARACTER timing for
 Chinese/Japanese/Korean, never words directly -- that's why this always
 aligns against ALREADY-SEGMENTED words (from segment.py's own jieba/
-sudachipy/kiwipiepy, already built for Reader ruby-text) rather than
+sudachipy, already built for Reader ruby-text; Korean by its own
+spaces) rather than
 raw text, matching torchaudio's own documented MMS_FA usage pattern of
 aligning a pre-split word list, not inferring boundaries itself.
 
@@ -162,7 +163,21 @@ REALIGN_MIN_SECONDS = 12.0
 REALIGN_PAUSE_SECONDS = 0.6
 
 
-def _group_aligned_words_into_lines(aligned_words, offset: float, min_pause_seconds: float = 0.6):
+def _word_spans(text: str, words):
+    """Each word's (start, end) in `text`, found in order, or None when one is
+    not there as written."""
+    spans, pos = [], 0
+    for word in words:
+        at = text.find(word, pos)
+        if at < 0:
+            return None
+        spans.append((at, at + len(word)))
+        pos = at + len(word)
+    return spans
+
+
+def _group_aligned_words_into_lines(aligned_words, offset: float, min_pause_seconds: float = 0.6,
+                                    source_text: str | None = None):
     """
     aligned_words: [(word, start, end), ...] with start/end relative to
     the audio SLICE they were aligned against (i.e. relative to the
@@ -173,27 +188,33 @@ def _group_aligned_words_into_lines(aligned_words, offset: float, min_pause_seco
     min_pause_seconds or more separates two words, the same "a gap ends
     a line" idea min_silence_duration_ms already applies to whole
     segments, just applied at word granularity within one oversized
-    segment here. Words already include their own surrounding whitespace
-    as separate entries where segment.py's segmenters produce it (see
-    segment_ko), so joining with no separator is correct across zh/ja/ko.
+    segment here. With `source_text` (the segment's text, which holds every
+    word in order) a line's text is that text from its first word to its
+    last, so spaces between words (Korean, Latin words in CJK) are kept;
+    otherwise, or when a word is not found as written, the words are
+    joined with no separator.
     """
     if not aligned_words:
         return []
+    text = source_text or ""
+    spans = _word_spans(text, [w for w, _, _ in aligned_words]) if text else None
+
+    def text_of(first, last):
+        if spans:
+            return text[spans[first][0]:spans[last][1]]
+        return "".join(w for w, _, _ in aligned_words[first:last + 1])
+
     lines = []
-    cur_words = [aligned_words[0][0]]
-    cur_start = aligned_words[0][1]
-    cur_end = aligned_words[0][2]
-    for word, start, end in aligned_words[1:]:
+    first = 0
+    cur_start, cur_end = aligned_words[0][1], aligned_words[0][2]
+    for k, (_word, start, end) in enumerate(aligned_words[1:], 1):
         if start - cur_end >= min_pause_seconds:
             lines.append({"start": offset + cur_start, "end": offset + cur_end,
-                          "text": "".join(cur_words)})
-            cur_words = [word]
-            cur_start = start
-        else:
-            cur_words.append(word)
+                          "text": text_of(first, k - 1)})
+            first, cur_start = k, start
         cur_end = end
     lines.append({"start": offset + cur_start, "end": offset + cur_end,
-                  "text": "".join(cur_words)})
+                  "text": text_of(first, len(aligned_words) - 1)})
     return lines
 
 
@@ -226,8 +247,14 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     language = segment.get("lang") or language
     if language not in SOURCE_LANGUAGES:
         return [segment]
-    words = [w for w, _ in segment_module.segment_and_annotate(
-        segment["text"], language, chinese_script=chinese_script) if w.strip()]
+    if language == "ko":
+        # Korean is aligned by its space-separated words as written: the Korean
+        # segmenter returns morpheme base forms (했 comes back as 하 + 었), which are
+        # neither what was said nor the line's text.
+        words = segment["text"].split()
+    else:
+        words = [w for w, _ in segment_module.segment_and_annotate(
+            segment["text"], language, chinese_script=chinese_script) if w.strip()]
     if len(words) < 2:
         return [segment]
 
@@ -254,7 +281,8 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
         if os.path.exists(slice_path):
             os.remove(slice_path)
 
-    lines = _group_aligned_words_into_lines(aligned, segment["start"], min_pause_seconds)
+    lines = _group_aligned_words_into_lines(aligned, segment["start"], min_pause_seconds,
+                                            source_text=segment["text"])
     if segment.get("lang"):
         for line in lines:
             line["lang"] = segment["lang"]

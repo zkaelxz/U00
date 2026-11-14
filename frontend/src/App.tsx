@@ -67,11 +67,26 @@ const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
 
 // Shown only when the server can't be reached; the version lives in
 // Diagnostics and in problem reports, where it is useful.
+const API_STATUS_RECHECK_MS = 30_000
+
 function ApiStatus() {
   const [down, setDown] = useState(false)
 
+  // Checked again on a timer and when the window comes back to the front: a single check
+  // at load never showed a server that stopped later, nor cleared once it came back.
   useEffect(() => {
-    api.meta().catch(() => setDown(true))
+    let stopped = false
+    const check = () => {
+      api.meta().then(() => !stopped && setDown(false), () => !stopped && setDown(true))
+    }
+    check()
+    const timer = window.setInterval(check, API_STATUS_RECHECK_MS)
+    window.addEventListener('focus', check)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      window.removeEventListener('focus', check)
+    }
   }, [])
 
   if (!down) return null

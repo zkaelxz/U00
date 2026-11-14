@@ -21,12 +21,14 @@ import background_jobs
 from jobs import process_worker
 import core as core_module
 import whisper_models
+from whisper_hallucination import filter_hallucinated_segments
 import long_line_split
 import memory_headroom
 import ollama_unload
 import segment_splitting
 import sensitivity_preset as presets
 import storage
+import whisper_hallucination
 from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from diarize import select_device
@@ -191,6 +193,7 @@ class _PipelineRun:
         self.sep_ticker = None
         self.sep_device = ""
         self.segments = None
+        self.dropped = []
         self.lines = None
         self.raw_backend = self.raw_model = self.raw_mode = None
         self.transcribe_started = 0.0
@@ -203,10 +206,11 @@ class _PipelineRun:
         self.step_label = " (step 1 of 2)" if qwen_run else ""
 
     def run(self) -> dict:
-        if self.o.transcript_mode == "hardsub_ocr":
-            failed = self._read_hardsub_captions()
-        else:
-            failed = self._transcribe_audio()
+        with whisper_hallucination.recording_drops() as self.dropped:
+            if self.o.transcript_mode == "hardsub_ocr":
+                failed = self._read_hardsub_captions()
+            else:
+                failed = self._transcribe_audio()
         if failed:
             return failed
         if self.qwen_device and not self.device_msg:
@@ -611,6 +615,13 @@ class _PipelineRun:
             return {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))}
         finally:
             qwen_ticker.stop()
+        # Whisper's text was screened inside transcribe_for_timing; Qwen's replaces it
+        # afterwards, so it gets the same loop, stock-phrase and implausible-text checks.
+        # A dense list is only flagged here: Qwen writes 、 between short replies
+        # ("はい、はい、はい…") at ordinary kana and Hangul speed.
+        tuning = self.tuning
+        self.segments = filter_hallucinated_segments(
+            self.segments, tuning.repeat_min_repeats, tuning.stock_isolation_sec, drop_lists=False)
         return None
 
     def _split_into_lines(self):
@@ -677,7 +688,8 @@ class _PipelineRun:
 
     def _outcome(self) -> dict:
         o = self.o
-        return {"lines": self.lines, "segments": self.segments, "raw_backend": self.raw_backend,
+        return {"lines": self.lines, "segments": self.segments, "dropped_segments": self.dropped,
+                "raw_backend": self.raw_backend,
                 "raw_model": self.raw_model, "raw_mode": self.raw_mode,
                 "audio_path": self.audio_path,
                 "gpu_fallback_msgs": self.gpu_fallback_msg, "device_msg": self.device_msg,
