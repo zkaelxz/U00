@@ -242,12 +242,44 @@ def split_separate_lettering(gray, box: dict) -> list:
         return [box]
     found = [_with_dashes(f, stats, limit, typical) for f in found]
     pad = int(_SPLIT_PAD_SPAN * side)
-    out = []
+    pieces = []
     for fx0, fy0, fx1, fy1 in found:
         nx0, ny0 = max(0, fx0 - pad), max(0, fy0 - pad)
         nx1, ny1 = min(roi.shape[1], fx1 + pad), min(roi.shape[0], fy1 + pad)
-        out.append(dict(box, x=x0 + nx0, y=y0 + ny0, w=nx1 - nx0, h=ny1 - ny0))
-    return out
+        pieces.append((x0 + nx0, y0 + ny0, x0 + nx1, y0 + ny1))
+    bounds = (x0, y0, x0 + roi.shape[1], y0 + roi.shape[0])
+    pieces = _around_text_boxes(pieces, box.get("text_boxes") or (), pad, bounds)
+    if len(pieces) < 2:
+        return [box]
+    return [dict(box, x=a, y=b, w=c - a, h=d - b) for a, b, c, d in pieces]
+
+
+def _overlap(a: tuple, b: tuple) -> bool:
+    return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
+
+
+def _around_text_boxes(pieces: list, text_boxes, pad: int, bounds: tuple) -> list:
+    """`pieces` (x0, y0, x1, y1), each grown over a text box of the detector's that
+    it alone cuts into. On a noisy background most letters of a line can fail the
+    glyph test, so the one piece on the line covered only a few of them and the
+    rest was neither erased nor translated. A text box that two pieces share is
+    left split: that is two frames the detector boxed as one."""
+    def clip(a):
+        return (max(bounds[0], a[0]), max(bounds[1], a[1]), min(bounds[2], a[2]), min(bounds[3], a[3]))
+
+    def union(a, b):
+        return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+
+    lines = []
+    for t in text_boxes:
+        line = clip((t["x"], t["y"], t["x"] + t["w"], t["y"] + t["h"]))
+        if line[2] > line[0] and line[3] > line[1]:
+            lines.append((line, clip((line[0] - pad, line[1] - pad, line[2] + pad, line[3] + pad))))
+    for line, padded in lines:
+        cut = [k for k, p in enumerate(pieces) if _overlap(p, line)]
+        if len(cut) == 1:
+            pieces[cut[0]] = union(pieces[cut[0]], padded)
+    return pieces
 
 
 def _with_dashes(block: tuple, stats, limit: float, reach: float) -> tuple:

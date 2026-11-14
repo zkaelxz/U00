@@ -851,6 +851,41 @@ def test_tall_balloon_of_vertical_lettering_stays_one_region():
     assert scanlate_regions.split_separate_lettering(page, box) == [box]
 
 
+def _line_over_specks():
+    """One line whose left letters are thin strokes (they fail the glyph test, as
+    letters on a noisy cloud do), compact letters on its right, and compact specks
+    well below it: the split cuts the line where its compact letters start."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((400, 520), 245, np.uint8)
+    for k in range(4):
+        x = 60 + k * 40
+        cv2.line(page, (x, 150), (x + 25, 150), 30, 2)
+        cv2.line(page, (x + 25, 150), (x + 25, 185), 30, 2)
+    for k in range(4):
+        cv2.rectangle(page, (240 + k * 30, 160), (256 + k * 30, 176), 30, -1)
+        cv2.rectangle(page, (300 + k * 26, 300), (316 + k * 26, 316), 30, -1)
+    return page, {"x": 0, "y": 0, "w": 520, "h": 400, "kind": "bubble"}
+
+
+def test_a_split_piece_takes_in_the_whole_text_box_it_cuts():
+    page, box = _line_over_specks()
+    assert min(p["x"] for p in scanlate_regions.split_separate_lettering(page, box)) > 200
+    line = {"x": 55, "y": 145, "w": 320, "h": 45}
+    parts = scanlate_regions.split_separate_lettering(page, dict(box, text_boxes=[line]))
+    assert len(parts) == 2
+    upper = min(parts, key=lambda p: p["y"])
+    assert upper["x"] <= 55 and upper["x"] + upper["w"] >= 375
+    assert upper["y"] <= 145 and upper["y"] + upper["h"] >= 190
+
+
+def test_a_text_box_shared_by_two_pieces_is_left_split():
+    page, box = _line_over_specks()
+    both = {"x": 230, "y": 150, "w": 180, "h": 180}
+    parts = scanlate_regions.split_separate_lettering(page, dict(box, text_boxes=[both]))
+    assert sorted((p["x"], p["y"]) for p in parts) == sorted(
+        (p["x"], p["y"]) for p in scanlate_regions.split_separate_lettering(page, box))
+
+
 def _caption_page(stamp: bool):
     """Pale frame with a dark lettering block left of centre and, optionally,
     a faint watermark stamp near the right end of the box."""
