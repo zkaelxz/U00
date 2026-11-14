@@ -878,6 +878,15 @@ def test_a_split_piece_takes_in_the_whole_text_box_it_cuts():
     assert upper["y"] <= 145 and upper["y"] + upper["h"] >= 190
 
 
+def test_a_split_piece_grows_only_as_far_as_the_text_box():
+    # Grown further, the erase reached the specks round the line on a noisy
+    # cloud and left a grey patch beside the English.
+    page, box = _line_over_specks()
+    line = {"x": 55, "y": 145, "w": 320, "h": 45}
+    parts = scanlate_regions.split_separate_lettering(page, dict(box, text_boxes=[line]))
+    assert min(p["x"] for p in parts) == 55
+
+
 def test_a_text_box_shared_by_two_pieces_is_left_split():
     page, box = _line_over_specks()
     both = {"x": 230, "y": 150, "w": 180, "h": 180}
