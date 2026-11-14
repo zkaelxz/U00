@@ -42,7 +42,7 @@ import {
   writeTranslateTab,
   type TranslateTab,
 } from '../translateTabs'
-import { useSimple, useStage } from '../StageContext'
+import { useSimple, useStage, useStageFocus } from '../StageContext'
 import { foldsTranslateOptions, titleKind } from '../titleKind'
 import { stageLabel } from '../stages'
 import { useTranslateRunForm } from './useTranslateRunForm'
@@ -107,6 +107,8 @@ const LOCAL_ENGINE_HINT = 'Ollama is not answering on this PC. See Diagnostics >
 
 const REVIEW_GLOSSARY_NOTE = 'Translate will first scan the transcript for glossary terms and show them for your approval, then translate.'
 const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_GLOSSARY_NOTE} The scan uses the engine saved for this title.`
+
+const ESTIMATE_BUTTON_ID = 'translate-estimate'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
   const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown'
@@ -281,7 +283,12 @@ function RunPanel({
   } = form
   // reviewing counts presses (0 = closed) so each press extracts afresh.
   // Simple keeps the engine, model, style and variant out of sight behind one summary line.
-  const [changing, setChanging] = useState(false)
+  // The Simple title page's Estimate cost links here; the button it promises is behind Change, so the link opens it.
+  const [changing, setChanging] = useState(() => {
+    const r = parseRoute(window.location.hash)
+    return r.name === 'drama' && r.id === dramaId && r.focus === 'estimate'
+  })
+  useStageFocus('estimate', ESTIMATE_BUTTON_ID)
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
@@ -422,7 +429,7 @@ function RunPanel({
   // Same controls as the video page, kept out of sight so a novel's Translate is one button.
   const estimateControls = (
     <>
-      <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
+      <button type="button" id={ESTIMATE_BUTTON_ID} className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
       <GlossaryRetranslateAction inline f={f} busy={busy} onStarted={onStarted} />
       {/* aria-live rather than role=status: the stage already has one status line, and this region must stay mounted to be announced. */}
       <span aria-live="polite">{estimate && estimate.key === estimateKeyFor(f) && <EstimateView e={estimate.value} />}</span>
@@ -726,7 +733,12 @@ export default function TranslateStage() {
     store: (next) => writeTranslateTab(browserStorage(), dramaId, next),
   })
   const simple = useSimple()
-  const visibleTabs = simple ? TRANSLATE_TABS.filter((t) => SIMPLE_TRANSLATE_TABS.includes(t.id)) : TRANSLATE_TABS
+  // A link that names a tab Simple leaves out (the Reader's Edit in Translate opens Characters) shows that tab
+  // for the rest of the visit; otherwise the link would land on Translate and seem to do nothing.
+  const [linkedTabs, setLinkedTabs] = useState<readonly TranslateTab[]>([])
+  const named = linkedTab()
+  if (simple && named && !SIMPLE_TRANSLATE_TABS.includes(named) && !linkedTabs.includes(named)) setLinkedTabs([...linkedTabs, named])
+  const visibleTabs = simple ? TRANSLATE_TABS.filter((t) => SIMPLE_TRANSLATE_TABS.includes(t.id) || linkedTabs.includes(t.id)) : TRANSLATE_TABS
   const resolvedTab = resolveTranslateTab(wantedTab)
   const tab = visibleTabs.some((t) => t.id === resolvedTab) ? resolvedTab : 'translate'
 

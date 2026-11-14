@@ -22,6 +22,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/settings?section=developer-mode')).toEqual({ name: 'settings', section: 'developer-mode' })
     expect(parseRoute('#/drama/3/translate?focus=glossary')).toEqual({ name: 'drama', id: 3, stage: 'translate', focus: 'glossary' })
     expect(parseRoute('#/drama/3/translate?focus=nope')).toEqual({ name: 'drama', id: 3, stage: 'translate' })
+    expect(parseRoute('#/drama/3/translate?focus=estimate')).toEqual({ name: 'drama', id: 3, stage: 'translate', focus: 'estimate' })
     expect(parseRoute('#/drama/3/review?focus=flagged')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'flagged' })
     expect(routeHref({ name: 'drama', id: 3, stage: 'review', focus: 'flagged' })).toBe('#/drama/3/review?focus=flagged')
     expect(parseRoute('#/drama/3/review?focus=all')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'all' })
