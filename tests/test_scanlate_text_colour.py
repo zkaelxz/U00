@@ -164,7 +164,9 @@ def test_a_hand_set_colour_beats_a_sampled_fade(tmp_path):
     assert green.any()
 
 
-def test_a_faded_original_is_lettered_as_a_fade(tmp_path):
+@pytest.mark.parametrize("angle", [0.0, 6.0])
+def test_a_faded_original_is_lettered_as_a_fade(tmp_path, monkeypatch, angle):
+    monkeypatch.setattr(scanlate_render.scanlate_tilt, "estimate_text_angle", lambda page, box: angle)
     src, out = tmp_path / "page.png", str(tmp_path / "out.png")
     page = np.full((200, 320, 3), 255, np.uint8)
     for row in range(50, 110):
