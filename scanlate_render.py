@@ -957,9 +957,9 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
     def draw(target, b, shape_mask, size, ink, report=None):
         # Only a mask that centring would rebuild needs the dark pixels, so other balloons are
         # drawn exactly as before.
-        extra = ({"dark": _dark_under(gray, b, shape_mask.shape)}
-                 if shape_mask is not None and gray is not None and _symmetrised(shape_mask) is not None
-                 else {})
+        extra: dict[str, Any] = ({"dark": _dark_under(gray, b, shape_mask.shape)}
+                                 if shape_mask is not None and gray is not None and _symmetrised(shape_mask) is not None
+                                 else {})
         render_text_in_box(target, b, b["translated_text"], font_size=size,
                            font_path=font_path,
                            font_category=b.get("font_category") or "regular",
