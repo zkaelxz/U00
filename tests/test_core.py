@@ -559,6 +559,23 @@ class TestFilterHallucinatedSegments:
         segments = [self._seg(i, i + 1, "有。") for i in range(10)]
         assert filter_hallucinated_segments(segments) == [segments[0]]
 
+    def test_the_same_reply_minutes_apart_is_real_speech_and_kept(self):
+        segments = [self._seg(i * 120, i * 120 + 0.8, "はい。") for i in range(4)]
+        assert filter_hallucinated_segments(segments) == segments
+
+    def test_a_long_gap_ends_a_run_and_the_close_copies_still_collapse(self, monkeypatch):
+        import applog
+        messages = []
+
+        class _Log:
+            def info(self, message):
+                messages.append(message)
+        monkeypatch.setattr(applog, "get_logger", lambda *a, **k: _Log())
+        loop = [self._seg(i, i + 1, "请订阅") for i in range(5)]
+        later = self._seg(300, 301, "请订阅")
+        assert filter_hallucinated_segments(loop + [later]) == [loop[0], later]
+        assert messages == ["repeat filter: 4 copies of one line removed after 0.0s (to 5.0s)"]
+
     def test_repeats_that_differ_only_in_punctuation_collapse(self):
         segments = [self._seg(i, i + 1, text) for i, text in
                     enumerate(["好的。", "好的", "好的！", "好的,"])] + [self._seg(4, 5, "再见")]
