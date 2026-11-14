@@ -402,6 +402,7 @@ def _restore_glyphs(mask, ink) -> None:
 
 
 _ART_FILL_CONTEXT_PX = 60
+_ART_FILL_FEATHER_PX = 8
 # Outlined lettering is white or pale; bright pixels that are strongly coloured
 # are artwork (flames, glare) and stay out of the lettering mask, so painting the
 # lettering out cannot blank the art round it.
@@ -452,6 +453,48 @@ def _dark_art_lettering_mask(crop):
     return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (33, 33)))
 
 
+def _tone_from_clear_pixels(area, clear):
+    """The art's tone at every pixel, averaged from the `clear` (1.0) pixels.
+    Widens the blur where a lettered block is too large for the narrow one to
+    reach clear pixels: dividing by a clamped, vanishing weight faded the fill to
+    black in the middle of a big sign."""
+    import cv2
+    def scale(sigma):
+        weight = cv2.GaussianBlur(clear, (0, 0), sigma)
+        tone = cv2.GaussianBlur(area * clear[..., None], (0, 0), sigma) \
+            / np.maximum(weight[..., None], 1e-6)
+        return tone, np.minimum(weight * 20, 1.0)
+
+    tone, reach = scale(15)
+    for sigma in (45, 135):
+        wider, wider_reach = scale(sigma)
+        # Pixels with little narrow-scale support take the wider estimate.
+        tone = tone * reach[..., None] + wider * (1 - reach[..., None])
+        reach = np.maximum(reach, wider_reach)
+    return tone
+
+
+def _box_edge_ramp(shape, ox: int, oy: int, bw: int, bh: int, ih: int, iw: int, x: int, y: int):
+    """Weight 0 on the box's own edge rising to 1 a few pixels in, so the fill
+    meets the untouched art outside the box without a straight seam. Sides on
+    the page border have nothing outside to meet and are left alone."""
+    ramp = np.ones(shape, np.float32)
+    steps = (np.arange(_ART_FILL_FEATHER_PX, dtype=np.float32) / _ART_FILL_FEATHER_PX)
+    for side, on_page_edge in (("l", x == 0), ("r", x + bw >= iw), ("t", y == 0), ("b", y + bh >= ih)):
+        if on_page_edge:
+            continue
+        for i, v in enumerate(steps):
+            if side == "l":
+                ramp[:, ox + i] = np.minimum(ramp[:, ox + i], v)
+            elif side == "r":
+                ramp[:, ox + bw - 1 - i] = np.minimum(ramp[:, ox + bw - 1 - i], v)
+            elif side == "t":
+                ramp[oy + i, :] = np.minimum(ramp[oy + i, :], v)
+            else:
+                ramp[oy + bh - 1 - i, :] = np.minimum(ramp[oy + bh - 1 - i, :], v)
+    return ramp
+
+
 def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     """The box's crop with its lettering replaced by the colours of the art
     round it, or None when it holds no pale lettering.
@@ -472,12 +515,51 @@ def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     mask = _fill_enclosed_holes(mask)
     clear = (cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (41, 41))) == 0)
     clear = clear.astype(np.float32)
-    sigma = 15
-    tone = cv2.GaussianBlur(area * clear[..., None], (0, 0), sigma) \
-        / np.maximum(cv2.GaussianBlur(clear, (0, 0), sigma)[..., None], 1e-3)
-    weight = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 4)[..., None]
+    tone = _tone_from_clear_pixels(area, clear)
+    weight = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 4)
+    weight = (weight * _box_edge_ramp(area.shape[:2], x - x0, y - y0, bw, bh, ih, iw, x, y))[..., None]
     blended = (tone * weight + area * (1 - weight)).clip(0, 255).astype(np.uint8)
     return blended[y - y0:y - y0 + bh, x - x0:x - x0 + bw]
+
+
+# Lettering is near-white and barely coloured; pale art such as a tan coat is
+# brighter than the dark ground but fails one of these, so it stays unmasked.
+_STROKE_MIN_GRAY = 200
+_STROKE_MAX_SATURATION = 60
+
+
+def _dark_art_stroke_mask(crop):
+    """uint8 mask (255 = erase) of just the white letter strokes and their fill
+    plus a thin margin for the glow, so LaMa repaints the lettering and leaves
+    the art between and around the letters alone."""
+    import cv2
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    saturation = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1]
+    core = ((gray >= _STROKE_MIN_GRAY) & (saturation <= _STROKE_MAX_SATURATION)).astype(np.uint8) * 255
+    core = cv2.dilate(core, np.ones((3, 3), np.uint8), iterations=2)
+    core = _fill_enclosed_holes(core)
+    return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13)))
+
+
+def _dark_art_inpaint(img, x: int, y: int, bw: int, bh: int, backend: str, hf_token):
+    """The crop for lettering on dark art. LaMa keeps the art's edges and
+    texture where the flat tone fill smears them, so it goes first when the
+    model is usable; the tone fill is the fallback and the answer without it."""
+    import cv2
+    crop = img[y:y + bh, x:x + bw]
+    if _resolve_inpaint_backend(backend) != "ml" or not _pale_pixels(crop).any():
+        return _dark_art_fill(img, x, y, bw, bh)
+    mask = _dark_art_stroke_mask(crop)
+    if not mask.any():
+        return _dark_art_fill(img, x, y, bw, bh)
+    lama, _ = _try_ml_inpaint(crop, mask, hf_token, backend)
+    if lama is None:
+        return _dark_art_fill(img, x, y, bw, bh)
+    ih, iw = img.shape[:2]
+    weight = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 4)
+    weight *= _box_edge_ramp(weight.shape, 0, 0, bw, bh, ih, iw, x, y)
+    blended = lama * weight[..., None] + crop * (1 - weight[..., None])
+    return blended.clip(0, 255).astype(np.uint8)
 
 
 def _resolve_inpaint_backend(backend: str) -> str:
@@ -729,10 +811,10 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         # An outline-only mask left the letters' fill and glow behind as ghosts.
         mask = _dark_art_lettering_mask(roi)
     elif inside is None and (spare_art or on_art) and background_is_dark(gray_roi):
-        inpainted_roi = _dark_art_fill(img, x, y, bw, bh)
-    resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
+        inpainted_roi = _dark_art_inpaint(img, x, y, bw, bh, backend, hf_token)
     fallback_error = None
-    if resolved == "ml":
+    resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
+    if resolved == "ml" and inpainted_roi is None:
         inpainted_roi, fallback_error = _try_ml_inpaint(roi, mask, hf_token, backend)
 
     if inpainted_roi is None:
