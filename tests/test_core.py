@@ -534,6 +534,14 @@ class TestFilterHallucinatedSegments:
     def _seg(self, start, end, text):
         return {"start": start, "end": end, "text": text}
 
+    def test_a_dense_list_is_dropped_unless_lists_are_only_flagged(self):
+        from whisper_hallucination import IMPLAUSIBLE_LIST_NOTE
+        seg = self._seg(10.0, 11.5, "はい、はい、はい、はい、はい、はい")
+        assert filter_hallucinated_segments([seg]) == []
+        out = filter_hallucinated_segments([seg], drop_lists=False)
+        assert [(s["text"], s["flag"], s["flag_note"]) for s in out] == [
+            (seg["text"], "text_uncertain", IMPLAUSIBLE_LIST_NOTE)]
+
     def test_a_short_run_is_left_untouched(self):
         segments = [self._seg(0, 1, "hello"), self._seg(1, 2, "hello"),
                     self._seg(2, 3, "world")]
@@ -559,8 +567,17 @@ class TestFilterHallucinatedSegments:
         segments = [self._seg(i, i + 1, "有。") for i in range(10)]
         assert filter_hallucinated_segments(segments) == [segments[0]]
 
-    def test_the_same_reply_minutes_apart_is_real_speech_and_kept(self):
+    def test_the_same_reply_minutes_apart_is_kept_and_sent_to_review(self):
+        # Real replies, or a loop over music where each burst came out alone: kept, and checked.
+        from whisper_hallucination import REPEAT_GAP_NOTE
         segments = [self._seg(i * 120, i * 120 + 0.8, "はい。") for i in range(4)]
+        out = filter_hallucinated_segments(segments)
+        assert [(s["start"], s["text"]) for s in out] == [(s["start"], s["text"]) for s in segments]
+        assert [s.get("flag_note") for s in out] == [None] + [REPEAT_GAP_NOTE] * 3
+        assert {s.get("flag") for s in out[1:]} == {"text_uncertain"}
+
+    def test_a_reply_heard_now_and_then_too_few_times_to_loop_is_not_flagged(self):
+        segments = [self._seg(i * 120, i * 120 + 0.8, "はい。") for i in range(3)]
         assert filter_hallucinated_segments(segments) == segments
 
     def test_a_long_gap_ends_a_run_and_the_close_copies_still_collapse(self, monkeypatch):
@@ -573,7 +590,10 @@ class TestFilterHallucinatedSegments:
         monkeypatch.setattr(applog, "get_logger", lambda *a, **k: _Log())
         loop = [self._seg(i, i + 1, "请订阅") for i in range(5)]
         later = self._seg(300, 301, "请订阅")
-        assert filter_hallucinated_segments(loop + [later]) == [loop[0], later]
+        from whisper_hallucination import REPEAT_GAP_NOTE
+        out = filter_hallucinated_segments(loop + [later])
+        assert [s["start"] for s in out] == [0, 300]
+        assert out[0].get("flag") is None and out[1].get("flag_note") == REPEAT_GAP_NOTE
         assert messages == ["repeat filter: 4 copies of one line removed after 0.0s (to 5.0s)"]
 
     def test_repeats_that_differ_only_in_punctuation_collapse(self):
@@ -2453,6 +2473,17 @@ def test_unmatched_transcript_lines_share_the_gap_and_do_not_push_matched_lines(
     assert lines[3].start == 20.0
     assert lines[3].end == 22.0
     assert 2.0 <= lines[1].start < lines[1].end <= lines[2].start < lines[2].end <= 20.0
+
+
+def test_lines_whose_time_was_guessed_are_flagged_and_matched_lines_are_not():
+    from line_alignment import GUESSED_TIMING_NOTE, align_transcript_to_timing
+
+    segments = [{"start": 0.0, "end": 2.0, "text": "你好吗"},
+                {"start": 20.0, "end": 22.0, "text": "再见了"}]
+    lines = align_transcript_to_timing(["你好吗", "旁白一", "旁白二", "再见了"], segments)
+    assert [ln.flag for ln in lines] == [None, "timing_uncertain", "timing_uncertain", None]
+    assert lines[1].flag_note == GUESSED_TIMING_NOTE
+    assert lines[0].flag_note == lines[3].flag_note == ""
 
 
 def test_sentence_splits_keep_closing_quotes_and_decimals_whole():

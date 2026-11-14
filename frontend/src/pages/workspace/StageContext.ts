@@ -13,6 +13,8 @@ export interface StageContextValue {
   onJobDone: () => void
   // The Simple title view: stages leave out their advanced controls. Hidden, never disabled, so nothing a run needs is lost.
   simple: boolean
+  // Simple's Check button, pressed on the Review page: each new value opens the check queue at its first line.
+  checkSignal?: number
 }
 
 export const StageContext = createContext<StageContextValue | null>(null)
@@ -25,6 +27,8 @@ export function useStage(): StageContextValue {
 
 /** True when the viewer chose Simple for this title kind; a stage hides its advanced controls then. */
 export const useSimple = (): boolean => useContext(StageContext)?.simple ?? false
+
+export const useCheckSignal = (): number => useContext(StageContext)?.checkSignal ?? 0
 
 /**
  * For a panel a deep link ("?focus=glossary") points at: a Section openSignal that
