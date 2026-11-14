@@ -716,7 +716,7 @@ def _sampled_inks(page, regions: list, match_color: bool):
 
 def _tilts_and_lines(page, regions: list):
     """Per region its text angle, and for a sign whose lettering is one line on a pale band the
-    (strip, angle) of that line, which also gives the angle: the skew detector is thrown off by
+    (strip, angle, size) of that line, which also gives the angle: the skew detector is thrown off by
     the busy art round such a band."""
     lines = [sign_text_line(page, b) if b.get("kind") == "sign" else None for b in regions]
     angles = [line[1] if line else scanlate_tilt.estimate_text_angle(page, b)
@@ -901,7 +901,7 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
         if angle or line:
             fill = _text_fill(pil_img, b, ink)
             tilted = scanlate_tilt.draw_tilted(
-                pil_img, b, line[0] if line else m, angle, size,
+                pil_img, b, line[0] if line else m, angle, min(size, line[2]) if line else size,
                 lambda target, shifted, sz, shifted_mask: render_text_in_box(
                     target, shifted, b["translated_text"], font_size=sz, font_path=font_path,
                     font_category=b.get("font_category") or "regular", custom_fonts=custom_fonts,

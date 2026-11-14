@@ -796,10 +796,11 @@ def _strokes_on_a_line(gray_roi):
 
 
 def sign_text_line(page_bgr, box: dict):
-    """(corridor, angle) of the single line of lettering on a pale band over busy art, or None.
-    `corridor` is a bool array the size of `box`, True along the line's own strip, and `angle`
-    its slant in degrees (positive when it runs down to the right), so the English can be set
-    along the band instead of in the level box that spills over the art. Read from the page
+    """(corridor, angle, size) of the single line of lettering on a pale band over busy art, or
+    None. `corridor` is a bool array the size of `box`, True along the line's own strip, `angle`
+    its slant in degrees (positive when it runs down to the right) and `size` the font size that
+    fits the strip's height, so the English can be set along the band instead of in the level
+    box that spills over the art. Read from the page
     before the erase, and only where the erase itself takes the line-only path."""
     import cv2
     h, w = page_bgr.shape[:2]
@@ -815,7 +816,7 @@ def sign_text_line(page_bgr, box: dict):
     corridor = cv2.morphologyEx(strokes, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (reach, reach)))
     margin = max(3, round(scanlate_tuning.LINE_CORRIDOR_MARGIN * typical)) | 1
     corridor = cv2.dilate(corridor, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin, margin)))
-    return corridor > 0, angle
+    return corridor > 0, angle, round(scanlate_tuning.LINE_TEXT_SIZE_OF_GLYPH * typical)
 
 
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,

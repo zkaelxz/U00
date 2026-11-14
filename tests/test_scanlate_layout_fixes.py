@@ -151,14 +151,14 @@ def _band_over_art_page():
     page = np.where((np.arange(400)[None, :] // 3 + np.arange(200)[:, None] // 40) % 2 == 0, 0, 255)
     page = page.astype(np.uint8)
     band = np.zeros_like(page)
-    cv2.fillConvexPoly(band, np.array([[10, 70], [390, 100], [390, 150], [10, 120]]), 255)
+    cv2.fillConvexPoly(band, np.array([[10, 75], [390, 105], [390, 135], [10, 105]]), 255)
     page[band > 0] = 255
     glyphs = np.zeros_like(page)
     for i in range(10):
         x = 30 + i * 34
         y = 85 + int(i * 34 * 0.0787)
-        cv2.rectangle(glyphs, (x, y), (x + 14, y + 16), 255, 3)
-        cv2.line(glyphs, (x + 2, y + 8), (x + 12, y + 8), 255, 2)
+        cv2.rectangle(glyphs, (x, y), (x + 10, y + 12), 255, 3)
+        cv2.line(glyphs, (x + 2, y + 6), (x + 8, y + 6), 255, 2)
     page[glyphs > 0] = 0
     return page, band > 0, glyphs > 0
 
@@ -188,7 +188,7 @@ def test_a_sign_that_is_one_line_on_a_tilted_band_is_set_along_the_band(tmp_path
     src = tmp_path / "band.png"
     Image.fromarray(page).convert("RGB").save(src)
     sign = {"x": 0, "y": 40, "w": 400, "h": 140, "kind": "sign", "kind_confidence": 0.5,
-            "translated_text": "Traffic congestion on both lines", "font_size": 16}
+            "translated_text": "Traffic congestion on both lines, service suspended until further notice", "font_size": 40}
     out = scanlate_render.process_page(str(src), [sign], str(tmp_path / "out.png"))[0]
     result = np.asarray(Image.open(out).convert("L"))
     drawn = (result < 100) & (page > 200) & band          # dark text over the white band
