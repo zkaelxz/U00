@@ -1028,6 +1028,21 @@ def _tone_from_edge(roi, filled):
     return np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
 
 
+def _art_from_edge(roi, filled, outside):
+    """bool mask of `roi`'s solid areas of ink or tone (at least ERASE_SOLID_ART_PX
+    across) outside `filled` that connect to the box edge, with their one-pixel
+    rim. The outline and lettering are thinner, so they stay out."""
+    import cv2
+
+    t = scanlate_tuning
+    ink = ((filled == 0) & (outside == 0) & (roi < t.CV_LIGHT_FLOOR)).astype(np.uint8)
+    solid = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((t.ERASE_SOLID_ART_PX,) * 2, np.uint8))
+    _, labels = cv2.connectedComponents(solid, connectivity=4)
+    on_edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    solid = np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
+    return (cv2.dilate(solid, np.ones((3, 3), np.uint8)) & ink) > 0
+
+
 def bubble_erase_mask(image_path: str, box: dict, image=None):
     """Where cleanup may erase inside `box`: the balloon's interior plus any
     lettering joined to its outline (a stroke touching the outline bends the
@@ -1067,7 +1082,11 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
         contours, _ = cv2.findContours(filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         hull = np.zeros_like(filled)
         cv2.fillPoly(hull, [cv2.convexHull(np.vstack(contours))], 1)
-        filled = filled | ((hull > 0) & (depth > thickness + 1)).astype(np.uint8)
+        # Dark art in a dent the hull bridges (a jacket or brick wall between the
+        # bumps of a burst) is as far from the paper as lettering, and was erased
+        # to a straight white edge; lettering joined to the outline is thinner.
+        joined = (hull > 0) & (depth > thickness + 1) & ~_art_from_edge(roi, filled, outside)
+        filled = filled | joined.astype(np.uint8)
     elif filled.mean() >= scanlate_tuning.BALLOON_FILLS_BOX:
         # No paper outside the balloon in the box: the box lies within it.
         filled = np.ones_like(filled)
