@@ -549,11 +549,11 @@ def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str
 
 _DROP_TAGS = ["script", "style", "noscript", "nav", "header", "footer", "aside", "form",
               "iframe", "button", "select"]
-# A hint must start a word of the id or class ("site-nav", "navbar", "comments"):
-# Chinese novel sites hold the chapter in class="txtnav", and a bare substring match
-# deleted it.
-_DROP_HINT = re.compile(r"(?<![a-z0-9])(?:comment|sidebar|footer|header|nav|menu|breadcrumb|"
-                        r"share|related|advert|ads?\b|recommend|login|copyright)", re.I)
+_DROP_HINT = re.compile(r"comment|sidebar|footer|header|nav|menu|breadcrumb|share|related|"
+                        r"advert|\bads?\b|recommend|login|copyright", re.I)
+# Ids and classes that hold the chapter although a hint is inside them: Chinese novel
+# sites put it in class="txtnav". Matched whole, so "bottomnav" or "mainNav" still go.
+_CONTENT_IDENTS = frozenset({"txtnav"})
 
 
 # A container is a candidate only within this depth; its text still counts
@@ -630,7 +630,10 @@ def extract_main_text_heuristic(html: str) -> str:
         t.decompose()
     doomed = []
     for t in soup.find_all(True):
-        ident = " ".join([attr_str(t, "id")] + list(t.get("class") or []))
+        names = [attr_str(t, "id")] + list(t.get("class") or [])
+        ident = " ".join(names)
+        if any(n.lower() in _CONTENT_IDENTS for n in names):
+            continue
         if ident.strip() and _DROP_HINT.search(ident) and t.name not in ("body", "html"):
             doomed.append(t)
     for t in doomed:
