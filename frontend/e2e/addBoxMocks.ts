@@ -12,19 +12,25 @@ export const probeOf = (o: Partial<MediaLinkProbe>): MediaLinkProbe => ({
   series_suggestion: '', note: '', display_url: '', ...o,
 })
 
-export interface QuickVideoMock { started: unknown[] }
+export interface QuickVideoMock { started: unknown[]; probed: string[]; settingsReads: number }
 
 export async function mockAddLink(page: Page, probe: MediaLinkProbe): Promise<QuickVideoMock> {
-  const m: QuickVideoMock = { started: [] }
-  await page.route('**/api/media-link/probe', (r) => json(r, probe))
-  await page.route('**/api/quick-video/settings', (r) => json(r, {
+  const m: QuickVideoMock = { started: [], probed: [], settingsReads: 0 }
+  await page.route('**/api/media-link/probe', (r) => {
+    m.probed.push((r.request().postDataJSON() as { url: string }).url)
+    return json(r, probe)
+  })
+  await page.route('**/api/quick-video/settings', (r) => {
+    m.settingsReads += 1
+    return json(r, {
     profile_id: 3,
     profiles: [{ id: 3, name: 'Fast', ready: true }],
     summary: [
       { label: 'Engine and model', value: 'deepseek-chat', engine: 'deepseek' },
       { label: 'Batch size', value: '30', engine: null },
     ],
-  }))
+    })
+  })
   await page.route('**/api/quick-video/start', (r) => {
     m.started.push(r.request().postDataJSON())
     return json(r, { drama_id: 77, watch_once: true })

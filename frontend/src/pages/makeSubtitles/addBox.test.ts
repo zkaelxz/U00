@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { MediaLinkProbe } from '../../api/linkDetails'
 import {
-  clearHandoff, fileKind, foundForFile, foundForLink, handOff, linkCanRun, linkFrom, peekHandoff, planForFile, planForLink,
-  type FileRunRequest,
+  SETTLE_MS, clearHandoff, fileKind, foundForFile, foundForLink, handOff, linkCanRun, linkFrom, linkTaker, peekHandoff, planForFile,
+  planForLink, type FileRunRequest,
 } from './addBox'
 
 const probe = (o: Partial<MediaLinkProbe>): MediaLinkProbe => ({
@@ -92,5 +92,67 @@ describe('Add box hand-off', () => {
     clearHandoff(old)
     expect(peekHandoff('new-title')?.start).toBeNull()
     clearHandoff(peekHandoff('new-title'))
+  })
+})
+
+describe('Add box: when a link counts as given (each take probes it on the PC)', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  const taker = () => {
+    const taken: string[] = []
+    return { taken, t: linkTaker((link) => { if (link) taken.push(link) }) }
+  }
+  const typeIn = (t: ReturnType<typeof linkTaker>, text: string) => {
+    for (let i = 1; i <= text.length; i += 1) {
+      t.typed(text.slice(0, i))
+      vi.advanceTimersByTime(80)
+    }
+  }
+
+  it('takes typed text one character at a time only after the pause, and then exactly once', () => {
+    const { taken, t } = taker()
+    typeIn(t, LINK)
+    expect(taken).toEqual([])
+    vi.advanceTimersByTime(SETTLE_MS - 81)
+    expect(taken).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(taken).toEqual([LINK])
+    vi.advanceTimersByTime(10 * SETTLE_MS)
+    expect(taken).toEqual([LINK])
+  })
+
+  it('takes a paste or Enter at once, exactly once', () => {
+    const { taken, t } = taker()
+    t.now(LINK)
+    expect(taken).toEqual([LINK])
+    vi.advanceTimersByTime(10 * SETTLE_MS)
+    expect(taken).toEqual([LINK])
+  })
+
+  it('a change, Clear or Enter cancels the pending take', () => {
+    const { taken, t } = taker()
+    t.typed(LINK)
+    t.clear()
+    vi.advanceTimersByTime(10 * SETTLE_MS)
+    expect(taken).toEqual([])
+    t.typed('https://a.example/1')
+    vi.advanceTimersByTime(SETTLE_MS - 1)
+    t.typed('https://a.example/12')
+    vi.advanceTimersByTime(SETTLE_MS)
+    expect(taken).toEqual(['https://a.example/12'])
+    t.typed('https://b.example/x')
+    t.now('https://b.example/x')
+    vi.advanceTimersByTime(10 * SETTLE_MS)
+    expect(taken).toEqual(['https://a.example/12', 'https://b.example/x'])
+  })
+
+  it('says nothing is given while typing and after Clear', () => {
+    const seen: (string | null)[] = []
+    const t = linkTaker((link) => seen.push(link))
+    t.now(LINK)
+    t.typed(`${LINK}x`)
+    t.clear()
+    expect(seen).toEqual([LINK, null, null])
   })
 })

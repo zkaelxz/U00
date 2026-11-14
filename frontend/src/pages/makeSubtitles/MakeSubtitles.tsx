@@ -110,10 +110,11 @@ export function FileRunStatus({ run }: { run: FileRun }) {
  * A chosen file in the Add box: what was found, what the main button will do, the run's choices under
  * Change options, and Only add it. `onMake` (the Library) hands the run on instead of running it.
  */
-export function FilePlan({ run, onChooseFile, onOnlyAdd, onMake }: {
+export function FilePlan({ run, onChooseFile, onOnlyAdd, onClear, onMake }: {
   run: FileRun
   onChooseFile: () => void
   onOnlyAdd: () => void
+  onClear: () => void
   onMake?: (r: FileRunRequest) => void
 }) {
   const pc = usePcOnly()
@@ -175,6 +176,7 @@ export function FilePlan({ run, onChooseFile, onOnlyAdd, onMake }: {
       {file && (
         <div className="actions">
           <button type="button" className={buttonClass('ghost')} onClick={onOnlyAdd}>Only add it, don&apos;t start</button>
+          <button type="button" className={buttonClass('ghost')} onClick={onClear}>Clear</button>
         </div>
       )}
     </form>

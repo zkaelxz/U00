@@ -31,6 +31,40 @@ export function linkFrom(text: string): string | null {
   }
 }
 
+/** How long typed text must stay still before it counts as a given link. */
+export const SETTLE_MS = 700
+
+/**
+ * Takes a link only once the person has finished giving it: at once for a paste or Enter, and for typed
+ * text after the field has been still for `delay`. Each take of a link mounts the plan that probes it on
+ * the PC's connection, so half-typed addresses ("https://w", "https://ww", ...) must never be taken.
+ * `onTake(null)` means nothing is given (while typing, or after a clear).
+ */
+export function linkTaker(onTake: (link: string | null) => void, delay = SETTLE_MS) {
+  let pending: ReturnType<typeof setTimeout> | null = null
+  const cancel = () => {
+    if (pending !== null) clearTimeout(pending)
+    pending = null
+  }
+  return {
+    typed(text: string) {
+      cancel()
+      onTake(null)
+      const link = linkFrom(text)
+      if (link) pending = setTimeout(() => { pending = null; onTake(link) }, delay)
+    },
+    now(text: string) {
+      cancel()
+      onTake(linkFrom(text))
+    },
+    clear() {
+      cancel()
+      onTake(null)
+    },
+    cancel,
+  }
+}
+
 const hostOf = (link: string): string => {
   try {
     return new URL(link).hostname.replace(/^www\./, '')

@@ -46,7 +46,12 @@ export const canDeleteWatched = (run: QuickVideoRun): boolean => run.watch_once 
  * A pasted link in the Add box: what the free link probe found, what One-Click Translate will do,
  * and its choices under Change options. Starting it creates the title; `onStarted` then shows its run.
  */
-export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd }: { url: string; onStarted: () => void; onOnlyAdd: () => void }) {
+export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
+  url: string
+  onStarted: () => void
+  onOnlyAdd: () => void
+  onClear: () => void
+}) {
   const pc = usePcOnly()
   const [watchOnce, setWatchOnce] = useState(false)
   const [settings, setSettings] = useState<QuickVideoSettings | null>(null)
@@ -130,6 +135,7 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd }: { url: string;
       )}
       <div className="actions">
         <button type="button" className={buttonClass(canRun ? 'ghost' : 'primary')} onClick={onOnlyAdd}>Only add it, don&apos;t start</button>
+        <button type="button" className={buttonClass('ghost')} onClick={onClear}>Clear</button>
       </div>
     </div>
   )

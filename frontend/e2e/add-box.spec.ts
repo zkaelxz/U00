@@ -29,6 +29,27 @@ test('a video link says what the probe found and starts One-Click Translate, who
   await expect(page.getByRole('region', { name: 'From a link' })).toContainText('Episode 1 · Downloading')
 })
 
+test('a typed address is read once, after the typing stops; Clear empties the box', async ({ page }) => {
+  const m = await mockAddLink(page, probeOf({ title: 'Ep', platform: 'YouTube' }))
+  await page.goto('/')
+  const b = box(page)
+  const field = b.getByRole('textbox', { name: 'Paste a link' })
+  await field.pressSequentially(VIDEO_LINK, { delay: 30 })
+  await expect(b.getByTestId('add-found')).toHaveText('Found: a video on YouTube: “Ep”.')
+  // Half-typed addresses ("https://w", "https://ww", ...) are never sent to the PC to fetch.
+  expect(m.probed).toEqual([VIDEO_LINK])
+  expect(m.settingsReads).toBe(1)
+  await b.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect(field).toHaveValue('')
+  await expect(b.getByTestId('add-found')).toHaveCount(0)
+  await expect(b.getByRole('button', { name: 'Add a title by hand' })).toBeVisible()
+  // Enter takes the address at once.
+  await field.pressSequentially('https://www.youtube.com/watch?v=xyz', { delay: 30 })
+  await field.press('Enter')
+  await expect(b.getByTestId('add-found')).toBeVisible()
+  expect(m.probed).toEqual([VIDEO_LINK, 'https://www.youtube.com/watch?v=xyz'])
+})
+
 test('a Sources page link only adds a title', async ({ page }) => {
   await mockAddLink(page, probeOf({ kind: 'source', title: 'Book' }))
   await page.goto('/')
@@ -56,6 +77,22 @@ test('a file hands its choices to the Add page, which runs it there', async ({ p
   expect(m.created).toEqual([{ source_language: 'zh', media_type: 'video_drama', title_en: 'Episode One' }])
   expect(m.translateRuns[0]).toMatchObject({ locale: 'en-GB' })
   await expect(box(page).getByRole('link', { name: 'Review lines' })).toHaveAttribute('href', `#/drama/${DRAMA_ID}/review`)
+})
+
+test('Clear puts a chosen file back, keeps the chosen language, and the same file can be chosen again', async ({ page }) => {
+  await mockMakeSubtitles(page)
+  await page.goto('/')
+  const b = box(page)
+  await b.getByLabel('Audio or video file').setInputFiles(VIDEO)
+  await b.getByText('Change options', { exact: true }).click()
+  await b.getByLabel('Source language').selectOption('ja')
+  await b.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect(b.getByTestId('add-found')).toHaveCount(0)
+  await expect(b.getByRole('button', { name: 'Add a title by hand' })).toBeVisible()
+  await expect(b.getByLabel('Audio or video file')).toHaveValue('')
+  await b.getByLabel('Audio or video file').setInputFiles(VIDEO)
+  await expect(b.getByTestId('add-found')).toHaveText('Found: a video file, “ep1.mp4”, 3 B.')
+  await expect(b.getByTestId('add-plan')).toHaveText(/^Transcribe it as Japanese speech/)
 })
 
 test('a wrong file type is refused on the Library before anything is made or handed on', async ({ page }) => {

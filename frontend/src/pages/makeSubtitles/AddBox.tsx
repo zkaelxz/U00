@@ -1,11 +1,11 @@
 /** The Add box: the one place to start a title, from a pasted link, a chosen or dropped file, or by hand. */
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
 import { MAX_URL_LEN } from '../libraryForm'
 import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
-import { handOff, linkFrom, type FileRunRequest, type NewTitleStart } from './addBox'
+import { handOff, linkTaker, type FileRunRequest, type NewTitleStart } from './addBox'
 import { FilePlan, FileRunNotice, FileRunStatus } from './MakeSubtitles'
 import { useFileRun } from './useFileRun'
 import { QuickVideoLinkPlan, QuickVideoRuns } from './QuickVideoLink'
@@ -31,12 +31,26 @@ export function AddBox({ place, onNewTitle, request = null }: {
   const [dragging, setDragging] = useState(false)
   const [runsKey, setRunsKey] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
-  const link = linkFrom(text)
+  // The link the person has finished giving; text still being typed is not one yet.
+  const [link, setLink] = useState<string | null>(null)
+  const taker = useMemo(() => linkTaker(setLink), [])
+  useEffect(() => taker.cancel, [taker])
+  const pasted = useRef(false)
 
+  const clearLink = () => {
+    setText('')
+    taker.clear()
+  }
   const pickFile = (f: File | null | undefined) => {
     if (!f) return
-    setText('')
+    clearLink()
     run.setFile(f)
+  }
+  // Back to the empty box. The remembered language, translator and English variant stay as they were.
+  const clearFile = () => {
+    run.reset()
+    // Lets the same file be chosen again: the input fires no change for the file it already holds.
+    if (fileInput.current) fileInput.current.value = ''
   }
   const newTitle = (start: NewTitleStart) => {
     if (onNewTitle) { onNewTitle(start); return }
@@ -49,7 +63,7 @@ export function AddBox({ place, onNewTitle, request = null }: {
   }
   const linkStarted = () => {
     if (!onPage) { go({ name: 'make-subtitles' }); return }
-    setText('')
+    clearLink()
     setRunsKey((k) => k + 1)
   }
   const chooseFile = () => fileInput.current?.click()
@@ -77,7 +91,14 @@ export function AddBox({ place, onNewTitle, request = null }: {
                 value={text}
                 maxLength={MAX_URL_LEN}
                 placeholder="Paste a link"
-                onChange={(e) => setText(e.target.value)}
+                onPaste={() => { pasted.current = true }}
+                onChange={(e) => {
+                  setText(e.target.value)
+                  if (pasted.current) taker.now(e.target.value)
+                  else taker.typed(e.target.value)
+                  pasted.current = false
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); taker.now(text) } }}
               />
               <button type="button" className={buttonClass('secondary')} title="Or drop an audio or video file on this box" onClick={chooseFile}>
                 Choose a file
@@ -86,9 +107,9 @@ export function AddBox({ place, onNewTitle, request = null }: {
                 accept={UPLOAD_EXTENSIONS.join(',')} onChange={(e) => pickFile(e.target.files?.[0])} />
             </div>
             {link ? (
-              <QuickVideoLinkPlan key={link} url={link} onStarted={linkStarted} onOnlyAdd={() => newTitle({ link })} />
+              <QuickVideoLinkPlan key={link} url={link} onStarted={linkStarted} onOnlyAdd={() => newTitle({ link })} onClear={clearLink} />
             ) : run.file || run.flow.phase === 'error' ? (
-              <FilePlan run={run} onChooseFile={chooseFile} onMake={makeElsewhere}
+              <FilePlan run={run} onChooseFile={chooseFile} onMake={makeElsewhere} onClear={clearFile}
                 onOnlyAdd={() => run.file && newTitle({ fileName: run.file.name })} />
             ) : (
               <div className="add-box-quiet">
