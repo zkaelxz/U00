@@ -853,7 +853,7 @@ def sign_fitted_size(page, box: dict, text: str, custom_fonts: dict | None = Non
     if line is None:
         return None
     corridor, angle, glyph = line
-    level = Image.fromarray(corridor.astype(np.uint8) * 255).rotate(angle, resample=Image.NEAREST, expand=True)
+    level = Image.fromarray(corridor.astype(np.uint8) * 255).rotate(angle, resample=Image.Resampling.NEAREST, expand=True)
     width, height = level.size
     font = _find_font(None, category=box.get("font_category") or "regular", custom_fonts=custom_fonts)
     laid_out = _layout_in_mask(ImageDraw.Draw(Image.new("RGB", (width, height))), text.translate(_CJK_PUNCTUATION),
