@@ -224,6 +224,25 @@ def _split_twice(lines) -> bool:
     return any(a.endswith("-") and b.endswith("-") for a, b in zip(lines, lines[1:]))
 
 
+def _mirrored_about_centre(mask):
+    """`mask` where it is also inside when mirrored about the balloon's centre column (that of
+    its hull, so a dent does not move it); None when that leaves nothing or changes nothing.
+    A dent bigger than _MAX_DENT_FILL allows on one side leaves the widest run of free
+    columns off-centre, and text laid out in it sits off-centre too."""
+    if mask is None or not mask.any():
+        return None
+    import cv2
+    hull = np.zeros(mask.shape, np.uint8)
+    cv2.fillPoly(hull, [cv2.convexHull(cv2.findNonZero(mask.astype(np.uint8)))], 1)
+    moments = cv2.moments(hull, binaryImage=True)
+    centre = int(round(moments["m10"] / moments["m00"]))
+    half = min(centre, mask.shape[1] - 1 - centre)
+    window = np.zeros(mask.shape, bool)
+    inner = mask[:, centre - half:centre + half + 1]
+    window[:, centre - half:centre + half + 1] = inner & inner[:, ::-1]
+    return window if window.any() and not np.array_equal(window, mask) else None
+
+
 def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLAIN):
     """Shape-aware counterpart to render_text_in_box()'s rectangle layout
     tries the largest font first, and for each size the
@@ -418,9 +437,16 @@ def _note_missing_cjk_font(notes, regions) -> None:
 def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_layout: bool,
                          style=_PLAIN):
     """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline."""
-    laid_out = (_layout_in_rectangle(draw, text, mask, font_size, load_font, style)
-                if rect_layout else None)
-    return laid_out or _layout_in_mask(draw, text, mask, font_size, load_font, style)
+    def lay_out(m):
+        laid_out = (_layout_in_rectangle(draw, text, m, font_size, load_font, style)
+                    if rect_layout else None)
+        return laid_out or _layout_in_mask(draw, text, m, font_size, load_font, style)
+
+    free = lay_out(mask)
+    symmetric = _mirrored_about_centre(mask)
+    centred = lay_out(symmetric) if symmetric is not None else None
+    # Centring narrows each line, so it must not cost the balloon a smaller size.
+    return centred if centred is not None and (free is None or centred[0].size >= free[0].size) else free
 
 
 def _draw_laid_out(draw, box: dict, laid_out, align: str, fill, style=_PLAIN) -> None:

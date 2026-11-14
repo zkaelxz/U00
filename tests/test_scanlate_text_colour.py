@@ -89,3 +89,21 @@ def test_the_notch_between_two_lobes_is_kept():
     mask[5:55, 60:95] = True
     assert not scanlate_render._without_small_dents(mask)[30, 50]
     assert scanlate_render._without_small_dents(None) is None
+
+
+def _centre_of_lines(rect_layout):
+    from PIL import Image, ImageDraw, ImageFont
+    mask = np.zeros((120, 200), bool)
+    yy, xx = np.mgrid[:120, :200]
+    mask[((xx - 100) / 95.0) ** 2 + ((yy - 60) / 55.0) ** 2 <= 1] = True
+    mask[:, 150:160] = False  # a bite too big for _without_small_dents to fill
+    draw = ImageDraw.Draw(Image.new("RGB", (200, 120)))
+    laid = scanlate_render._layout_balloon_text(
+        draw, "Why, me?", mask, 18, lambda sz: ImageFont.load_default(sz), rect_layout)
+    return [(l + r) / 2 for _, l, r, _ in laid[1]]
+
+
+def test_a_large_dent_does_not_pull_the_lines_off_the_balloon_centre():
+    for rect_layout in (False, True):
+        centres = _centre_of_lines(rect_layout)
+        assert all(abs(c - 100) < 3 for c in centres), (rect_layout, centres)
