@@ -81,7 +81,8 @@ export function FileRunStatus({ run }: { run: FileRun }) {
         {/* Inside the status, so a screen reader meets it with the run without focus moving to it. */}
         {run.waiting && (
           <p className="muted">
-            “{run.waiting.file.name}” has not been started, because this run was already under way. It will be here to start when this one is finished.
+            “{run.waiting.file.name}” has not been started, because this run was already under way.{' '}
+            {busy ? 'It will be here to start when this one is finished.' : 'Make another puts it in the box to start.'}
           </p>
         )}
       </div>
