@@ -384,7 +384,7 @@ export const isShaky = (line: Pick<ReviewLine, 'confidence' | 'reviewed'>) =>
   line.confidence != null && line.confidence < SHAKY_BELOW && !line.reviewed
 
 /** Mirrors review_lines_service._risk_score > 0: any flag, or confidence under 0.8, on a translated unchecked line. */
-const RISK_CONFIDENCE_BELOW = 0.8
+export const RISK_CONFIDENCE_BELOW = 0.8
 const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence'>) =>
   isUnreviewed(line) && (!!line.flag || (line.confidence != null && line.confidence < RISK_CONFIDENCE_BELOW))
 

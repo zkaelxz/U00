@@ -584,3 +584,27 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-float-body .review-stage { max-height: none; }
 .review-float-resize { position: absolute; top: 0; left: 0; width: 20px; height: 20px; cursor: nwse-resize; touch-action: none; border-top-left-radius: var(--radius-sm); border-top: 3px solid var(--accent); border-left: 3px solid var(--accent); box-sizing: border-box; }
 .review-float-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Simple's check queue (CheckQueue.tsx): every text wraps rather than being cut off. */
+.review-queue-row { row-gap: var(--space-1); }
+.check-queue-fine, .check-queue-next { font-size: var(--text-sm); overflow-wrap: anywhere; }
+.check-queue-position, .check-queue-next { margin: 0; }
+.check-queue-position { font-weight: var(--weight-medium); }
+.check-queue-footer {
+  display: grid; gap: var(--space-2); margin-top: var(--space-3); padding: var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius, 8px); background: var(--surface); overflow-wrap: anywhere;
+}
+.check-queue-footer p { margin: 0; }
+.check-queue-actions, .check-queue-mark, .review-queue-actions, .check-queue-undo { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.review-queue-actions { margin-top: var(--space-2); }
+.check-queue-undo { font-size: var(--text-sm); overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  /* The open card's place shares the switch's line when it fits; the rest wraps under them, and the Undo strip takes a line of its own. */
+  .review-queue-row .check-queue-position { order: 1; }
+  .review-queue-row > :not(.check-queue-switch, .check-queue-position) { order: 2; }
+  .review-queue-row .check-queue-undo { order: 3; flex: 1 1 100%; }
+  .review-editbar.is-queue button { white-space: normal; line-height: 1.2; }
+  .review-queue-actions .btn, .check-queue-footer .btn, .check-queue-undo .btn { min-height: var(--touch); }
+  /* Its (i) stays beside it: a phone's confirm button otherwise takes the whole row, pushed right. */
+  .check-queue-mark .confirm-button { flex: 0 1 auto; justify-content: flex-start; }
+}

@@ -134,7 +134,8 @@ for (const view of ['full', 'simple'] as const) test(`the proposals are still th
     { line_id: ids[1], number: 2, base_zh: '第1句', proposed_zh: '第一句话', had_english: true },
     { line_id: ids[2], number: 3, base_zh: '第2句', proposed_zh: '第二句话', had_english: true },
   ])
-  await page.goto('/#/drama/3/review')
+  // Simple opens Review on the lines that need a look, and none of these do: the lines to tick are under All.
+  await page.goto(view === 'simple' ? '/#/drama/3/review?focus=all' : '/#/drama/3/review')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(6)
   for (const n of [2, 3]) await tickBox(page, n).check()
   await action(page).click()

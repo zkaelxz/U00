@@ -8,7 +8,6 @@ import { readSectionOpen, writeSectionOpen } from '../../../../components/sectio
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
-import { useRoute } from '../../../../router'
 import type { LineFilter } from '../../../../types/review'
 import { FindReplacePanel } from './FindReplacePanel'
 import { HiddenEditBanner } from './HiddenEditBanner'
@@ -17,6 +16,7 @@ import { useLineSelectionContext } from './LineSelectionContext'
 import { SelectionBar } from './SelectionBar'
 import { selectionContext } from './selectionActions'
 import { useSimple } from '../../StageContext'
+import { useCheckQueue, useInitialLinesFilter } from './useCheckQueue'
 import { LineRow, type EditState, type RowIssue } from './LineRow'
 import { LinesEmpty } from './LinesEmpty'
 import { buildLinesNavigation } from './linesNavigation'
@@ -102,10 +102,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const suspects = useSourceSuspects(dramaId, reloads)
   const [suspectOpen, setSuspectOpen] = useState(false)
   const selection = useLineSelectionContext()
-  const route = useRoute()
-  // A warning elsewhere links here with ?focus=flagged to show those lines first.
-  const [filter, setFilter] = useState<LineFilter>(() =>
-    route.name === 'drama' && route.focus === 'flagged' ? 'flagged' : 'all')
+  const [filter, setFilter] = useState<LineFilter>(useInitialLinesFilter(simple))
   const [page, setPage] = useState(1)
   const { input, setInput, term, setTerm } = useLinkedFind(dramaId)
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -152,7 +149,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
-  const { data, setData, found, setFound, allTotal, error, setError, retry } = useLinesLoad({
+  const { data, setData, found, setFound, allTotal, error, setError, retry, dataFilter, settled } = useLinesLoad({
     dramaId, page, filter, term, reloads, pending, focusActive, setActiveId, setEdit, setPage,
   })
 
@@ -276,6 +273,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
+  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError })
   const toggleReplace = () => {
     const next = !replaceOpen
     setReplaceOpen(next)
@@ -294,7 +292,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useReviewShortcuts({
     ctl, actions, selection, player, listRef, searchRef, mediaKind, isPhone,
     sheetOpen: sheet !== null, keysOpen, page, pages, searching, limited, active, edit, ai,
-    setAi, setKeysOpen, setStatus, noSpeakerCount,
+    setAi, setKeysOpen, setStatus, queue: queue.on, noSpeakerCount,
     activeGuesses: active && needsSpeaker(active) ? guessesByLine.get(active.id) ?? [] : [],
   })
 
@@ -389,6 +387,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onKeys={() => setKeysOpen(true)}
           compact={compact}
           onCompact={setCompact}
+          {...queue.toolbar}
           player={
             mediaKind ? (
               <>
@@ -421,7 +420,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
-        {!searching && <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} noSpeakerCount={prose ? 0 : noSpeakerCount} onMove={(d, k) => void ctl.moveFlagged(d, k)} />}
+        {!searching && !queue.on && <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} noSpeakerCount={prose ? 0 : noSpeakerCount} onMove={(d, k) => void ctl.moveFlagged(d, k)} />}
         <p className="review-status" role="status">
           {status}
         </p>
@@ -460,7 +459,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             onAllLines={() => void changeFilter('all')}
           />
         )}
-        {shown.length > 0 && (
+        {shown.length > 0 && !queue.on && (
           <div className="review-selectall" role="group" aria-label="Select lines">
             <button type="button" className={buttonClass('ghost', 'sm')} disabled={allShownSelected} onClick={() => selection.selectMany(shown.map((l) => l.id))}>
               Select all shown
@@ -474,7 +473,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           </div>
         )}
         <ul className={['review-lines', compact && 'is-compact', selection.count > 0 && 'has-selection'].filter(Boolean).join(' ')} ref={listRef}>
-          {shown.map((l) => (
+          {queue.rows.map((l) => (
             <LineRow
               key={l.id}
               dramaId={dramaId}
@@ -495,6 +494,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               issue={issue?.lineId === l.id ? issue : null}
               actions={actions}
               simple={simple}
+              queue={queue.on}
               searchHit={searching}
               jumped={jumpedId === l.id}
               focusRetranscribe={retranscribeFocusId === l.id}
@@ -509,6 +509,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} />
           </div>
         )}
+        {queue.after}
 
         {isPhone && active && (
           <PhoneEditBar
@@ -528,6 +529,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               showActive()
               void ctl.openEdit(active.id)
             }}
+            queue={queue.bar(active)}
           />
         )}
 

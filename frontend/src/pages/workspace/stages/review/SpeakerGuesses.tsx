@@ -1,6 +1,9 @@
 // One-tap speakers for a line that has none; nothing is set until one is pressed.
 import { buttonClass } from '../../../../components/uiClasses'
-import type { SpeakerGuess } from '../../../../types/review'
+import { lineNumber } from '../../../../lineNumber'
+import type { ReviewLine, SpeakerGuess } from '../../../../types/review'
+import type { RowActions } from './LineRow'
+import { needsSpeaker } from './reviewLogic'
 
 type Reason = SpeakerGuess['reasons'][number]
 
@@ -48,5 +51,20 @@ export function SpeakerGuesses({ guesses, lineNumber, showKeys, tabbable, onAcce
         </button>
       ))}
     </div>
+  )
+}
+
+// A line row's guesses: shown only while the line still needs a speaker, so a taken one disappears at once.
+export function RowSpeakerGuesses({ line, guesses, active, isPhone, actions }: {
+  line: ReviewLine
+  guesses?: SpeakerGuess[] | null
+  active: boolean
+  isPhone: boolean
+  actions: RowActions
+}) {
+  if (!guesses?.length || !needsSpeaker(line)) return null
+  return (
+    <SpeakerGuesses guesses={guesses} lineNumber={lineNumber(line.idx)} showKeys={active && !isPhone} tabbable={active}
+      onAccept={(speaker) => void actions.acceptSpeaker(line.id, speaker)} />
   )
 }
