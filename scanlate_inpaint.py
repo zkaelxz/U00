@@ -302,6 +302,21 @@ def _lettering_mask(gray_roi):
     return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2)
 
 
+def is_art_mistaken_for_sign(gray_page, box: dict) -> bool:
+    """True when `box`, a guessed sign, is artwork rather than lettering: the
+    lettering mask would cover nearly all of it, so erasing would paint the art
+    out (a leg became a smear). Only a low-confidence sign is judged; a box the
+    person or the detector was sure of keeps the normal path."""
+    if box.get("kind") != "sign" or float(box.get("kind_confidence") or 0.0) > scanlate_tuning.ART_SIGN_MAX_CONFIDENCE:
+        return False
+    h, w = gray_page.shape[:2]
+    x, y = max(0, box["x"]), max(0, box["y"])
+    roi = gray_page[y:min(h, y + box["h"]), x:min(w, x + box["w"])]
+    if roi.size == 0:
+        return False
+    return float((_lettering_mask(roi) > 0).mean()) > scanlate_tuning.ART_SIGN_MIN_MASK_SHARE
+
+
 def _with_halo(gray_roi, paper: float, core_mask):
     """`core_mask` plus the connected pixels a little darker than the paper that
     touch it, grown a little; `core_mask` itself when that would more than

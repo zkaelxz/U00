@@ -89,6 +89,12 @@ CLASSIFY_BALLOON_FILL = 0.5
 # or more lines, is a caption or sign on the art and is translated like one.
 SFX_MAX_CHARS = 12
 SFX_MAX_LINES = 2
+# A guessed sign (kind confidence at or below the first value) whose lettering mask covers more
+# than the second share of its box is art the detector boxed (a boot, a face), not lettering:
+# real lettering leaves paper showing between the strokes. Measured on 615 real regions: the
+# four mistaken boxes cover 85.5-95.5%.
+ART_SIGN_MAX_CONFIDENCE = 0.5
+ART_SIGN_MIN_MASK_SHARE = 0.85
 
 # --- Narration box trim (scanlate_regions.trim_to_lettering) ---
 # A caption box the detector stretched over a watermark is cut back to the
