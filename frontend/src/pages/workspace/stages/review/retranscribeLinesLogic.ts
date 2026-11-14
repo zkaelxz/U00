@@ -57,6 +57,40 @@ export function applyItems(rows: RetranscribeManyProposal[], checked: ReadonlySe
     .map((p) => ({ line_id: p.line_id, expected_zh: p.base_zh, expected_proposed: p.proposed_zh }))
 }
 
+// "Transcribe this gap" and "Add and transcribe" fill their new blank lines
+// with what the run heard, so the text lands on the line without a trip to
+// Apply selected. An open edit of those lines is saved first: typed or retimed
+// text then no longer matches the run, and the server leaves that line alone.
+export interface FillDeps {
+  beforeWrite: (lineIds: number[]) => Promise<string | null>
+  apply: (items: RetranscribeManyApplyItem[]) => Promise<RetranscribeManyApplyResult>
+  afterWrite: (lineIds: number[]) => void
+}
+
+export type FillOutcome =
+  | { kind: 'nothing' }
+  | { kind: 'blocked'; text: string }
+  | { kind: 'applied'; result: RetranscribeManyApplyResult }
+
+export async function fillBlankLines(proposals: RetranscribeManyProposal[], deps: FillDeps): Promise<FillOutcome> {
+  const blank = proposals.filter((p) => p.base_zh.trim() === '')
+  if (blank.length === 0) return { kind: 'nothing' }
+  const ids = blank.map((p) => p.line_id)
+  const blocked = await deps.beforeWrite(ids)
+  if (blocked) return { kind: 'blocked', text: blocked }
+  const result = await deps.apply(applyItems(blank, new Set(ids)))
+  deps.afterWrite(ids)
+  return { kind: 'applied', result }
+}
+
+export function fillNote(r: RetranscribeManyApplyResult, numbers: ReadonlyMap<number, number>): string {
+  const names = (ids: number[]) => ids.map((id) => `#${numbers.get(id) ?? '?'}`).join(', ')
+  const parts: string[] = []
+  if (r.applied.length > 0) parts.push(`Filled ${names(r.applied)} with what it heard.`)
+  if (r.skipped.length > 0) parts.push(`Left ${names(r.skipped)} as you edited ${r.skipped.length === 1 ? 'it' : 'them'}.`)
+  return parts.join(' ')
+}
+
 export function applyNote(r: RetranscribeManyApplyResult, sourceChanged: number): string {
   const n = r.applied.length
   const parts = [`Replaced the source text of ${n} line${n === 1 ? '' : 's'}.`]

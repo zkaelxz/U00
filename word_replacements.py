@@ -22,8 +22,9 @@ def build_replacer(pairs):
 
 
 def with_replacements(substitute_terms, drama_id: int, has_enforced: bool):
-    """(text -> text, active): the exact-term substituter followed by the series' word
-    replacements, and whether either has anything to do. A drama with no series has none."""
+    """((text, source) -> text, active): the exact-term substituter followed by the series'
+    word replacements, and whether either has anything to do. A drama with no series has
+    none. `source` is the line's source text, which decides the terms in play."""
     drama = db.get_drama(drama_id) or {}
     series_id = drama.get("series_id")
     pairs = ([(r["find_text"], r["replace_text"]) for r in db.list_word_replacements(series_id)]
@@ -31,4 +32,4 @@ def with_replacements(substitute_terms, drama_id: int, has_enforced: bool):
     if not pairs:
         return substitute_terms, has_enforced
     replace = build_replacer(pairs)
-    return (lambda text: replace(substitute_terms(text))), True
+    return (lambda text, source: replace(substitute_terms(text, source))), True

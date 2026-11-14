@@ -93,6 +93,18 @@ export function stepForJob(jobId: string): FlowStep | null {
 export const reattachIds = (dramaId: number): string[] =>
   [`extract_audio_${dramaId}`, `transcribe_${dramaId}`, `translate_${dramaId}`]
 
+/** The finished job of the step a reloaded run was on, when none of its jobs is still going: that step
+ *  ended while the page was closed, so the run carries on from its result. The transcribe job is taken
+ *  over the extraction job that followed it, because only the transcribe record carries why it found no lines. */
+export function finishedStepJob<J>(step: FlowStep, dramaId: number, finished: ReadonlyMap<string, J>): J | null {
+  const ids = reattachIds(dramaId).filter((id) => stepForJob(id) === step).reverse()
+  for (const id of ids) {
+    const job = finished.get(id)
+    if (job) return job
+  }
+  return null
+}
+
 export const mediaTypeFor = (filename: string): 'video_drama' | 'audio_drama' =>
   isVideoFile(filename) ? 'video_drama' : 'audio_drama'
 
