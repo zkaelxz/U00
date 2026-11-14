@@ -292,17 +292,18 @@ export default function Waveform({ dramaId, lines, active, player, hasVideo = fa
         <button type="button" className={buttonClass('ghost', 'sm')} aria-label="Later" onClick={() => pan(1)}>›</button>
         <button type="button" className={buttonClass('ghost', 'sm')} aria-label="Zoom out" disabled={view.span >= clampSpan(Infinity)} onClick={() => zoom(2)}>−</button>
         <button type="button" className={buttonClass('ghost', 'sm')} aria-label="Zoom in" disabled={view.span <= clampSpan(0)} onClick={() => zoom(0.5)}>+</button>
-        {active && (
-          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setView(viewForLine(active, view.span, dur))}>
-            Centre on line #{lineNumber(active.idx)}
-          </button>
-        )}
+        {/* These stay in the row, disabled between lines, so the wrapped row keeps its height while playing and the waveform below doesn't jump. */}
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={!active} onClick={() => active && setView(viewForLine(active, view.span, dur))}>
+          Centre on line{active ? ` #${lineNumber(active.idx)}` : ''}
+        </button>
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={shots.busy} onClick={() => void shots.find(view)} data-testid="wave-find-shots">
           Find shot changes
         </button>
-        {active && bounds && hasVideo && (
+        {hasVideo && (active && bounds ? (
           <FrameTimingButton dramaId={dramaId} active={active} bounds={bounds} cuts={shots.cuts} onCommit={(edge, v) => void commit(edge, v)} error={message} />
-        )}
+        ) : (
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled>Frame timing</button>
+        ))}
         <span className="muted review-wave-range" data-testid="wave-range">
           {formatTime(view.start)} – {formatTime(view.start + view.span)}
         </span>

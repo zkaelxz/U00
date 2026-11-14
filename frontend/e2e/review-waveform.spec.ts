@@ -217,3 +217,22 @@ db.update_drama(3, source_video_filename='e2e.mp4')
   await page.keyboard.press('Shift+ArrowRight')
   await expect(sheet.getByTestId('frame-clock-start')).toContainText('frame 82')
 })
+
+test('beside a video, every waveform button fits inside the card at a laptop width', async ({ page }) => {
+  python(`
+import os
+p = os.path.join(db.drama_dir(3), 'e2e.mp4')
+open(p, 'wb').write(b'not a real video')
+db.update_drama(3, source_video_filename='e2e.mp4')
+`)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await open(page)
+  const tools = page.getByRole('group', { name: 'Waveform' }).locator('.review-wave-tools')
+  await expect(tools.getByRole('button', { name: 'Frame timing' })).toBeVisible()
+  const edge = (await tools.boundingBox())!
+  for (const b of await tools.getByRole('button').all()) {
+    const box = (await b.boundingBox())!
+    expect(box.x + box.width, await b.textContent() ?? '').toBeLessThanOrEqual(edge.x + edge.width + 0.5)
+  }
+  expect(await tools.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+})
