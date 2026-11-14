@@ -26,8 +26,9 @@ test('the first title card is above the fold and the filters open in a sheet', a
   await expect(page.getByRole('button', { name: 'Filters (1)' })).toBeVisible()
 })
 
-test('New title keeps Create title and Discard draft on screen', async ({ page }) => {
-  await page.getByRole('button', { name: 'New title' }).first().tap()
+test('New title, opened from the Add page, keeps Create title and Discard draft on screen', async ({ page }) => {
+  await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).tap()
+  await page.getByRole('button', { name: 'Add a title by hand' }).tap()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   const viewport = page.viewportSize()!
   for (const name of ['Create title', 'Discard draft']) {
@@ -37,7 +38,8 @@ test('New title keeps Create title and Discard draft on screen', async ({ page }
 })
 
 test('help and small buttons keep a 44px hit area', async ({ page }) => {
-  await page.getByRole('button', { name: 'New title' }).first().tap()
+  await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).tap()
+  await page.getByRole('button', { name: 'Add a title by hand' }).tap()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   expect(await hitHeight(sheet.locator('.field-help-btn').first())).toBeGreaterThanOrEqual(44)
   await sheet.getByRole('button', { name: 'Close' }).tap()

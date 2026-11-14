@@ -3,7 +3,7 @@ import type { Page, Request } from '@playwright/test'
 import { ME } from './authMocks'
 import { json } from './mockHelpers'
 
-// The Quick translate flow with nothing real behind it: create, upload, the two
+// The Add page's file run with nothing real behind it: create, upload, the two
 // jobs, translate config/run and the SRT export are fulfilled here. Jobs read as
 // running until `release()`, then done (or error for `failJob`). Preflight is all OK.
 
