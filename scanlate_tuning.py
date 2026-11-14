@@ -238,11 +238,7 @@ LINE_REACH = 0.5
 # The strip the English is set in is the lettering line closed over its gaps (CLOSE glyph heights)
 # and widened (MARGIN glyph heights) so the text has a little air round it.
 LINE_CORRIDOR_CLOSE = 2.5
-LINE_CORRIDOR_MARGIN = 0.4
+LINE_CORRIDOR_MARGIN = 0.7
 # The English is started at this share of the original glyph size: the strip is one glyph high,
 # and the typesetter's own start size (set for the whole box) does not shrink into it.
 LINE_TEXT_SIZE_OF_GLYPH = 1.0
-# The band the line sits on: pale pixels opened with a BAND_OPEN_PX ellipse to cut thin bridges to
-# white art, within BAND_REACH glyph heights of the line.
-LINE_BAND_OPEN_PX = 7
-LINE_BAND_REACH = 2.2
