@@ -12,6 +12,9 @@ import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
 import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
+import { useStage } from '../../StageContext'
+import { stageLabel } from '../../stages'
+import { titleKind } from '../../titleKind'
 import { FloatingFrame } from './FloatingFrame'
 import { PopOutButton } from './PopOutButton'
 import { useFloatBox } from './useFloatBox'
@@ -65,7 +68,7 @@ const fullscreenAvailable = () => document.fullscreenEnabled || !!(document as F
 
 const fullscreenElementOf = (doc: Document) => doc.fullscreenElement ?? (doc as FsDoc).webkitFullscreenElement ?? null
 
-const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Media.'
+const playError = (sourceStage: string) => `Couldn’t play the audio. Check the file on ${sourceStage}.`
 const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   English: 'No English subtitles yet: nothing is translated.',
   Source: 'No original subtitles yet: nothing is transcribed.',
@@ -76,6 +79,7 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
 export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost }: Props) {
+  const { drama } = useStage()
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -594,11 +598,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         <PopOutButton supported={pop.supported} floating={floating} boxed={boxed} onPop={() => void pop.open()} onReturn={pop.close} onToggleBox={() => setBoxed(!boxed)} />
         {trailing}
       </div>
-      {failed && (
-        <p className="error" role="alert">
-          {PLAY_ERROR}
-        </p>
-      )}
+      {failed && <p className="error" role="alert">{playError(stageLabel('source', titleKind(drama.media_type, drama.content_mode)))}</p>}
       <div className="review-player-slot" ref={slotRef} />
       {createPortal(panel, panelBox)}
       {boxed && <FloatingFrame width={boxWidth} onWidth={setBoxWidth} onReturn={() => setBoxed(false)} hostRef={setBoxHost} />}
