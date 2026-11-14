@@ -837,6 +837,20 @@ def test_a_two_lobe_balloon_becomes_one_region_per_lobe():
     assert all(p["kind"] == "bubble" for p in parts)
 
 
+def test_tall_balloon_of_vertical_lettering_stays_one_region():
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((1000, 450), 70, np.uint8)
+    cv2.ellipse(page, (225, 500), (215, 480), 0, 0, 360, 0, -1)
+    cv2.ellipse(page, (225, 500), (211, 476), 0, 0, 360, 250, -1)
+    # Two columns of characters with a long gap inside each.
+    for left in (170, 250):
+        for top, count in ((120, 5), (560, 7)):
+            for k in range(count):
+                cv2.rectangle(page, (left, top + k * 45), (left + 24, top + k * 45 + 30), 40, -1)
+    box = {"x": 0, "y": 0, "w": 450, "h": 1000}
+    assert scanlate_regions.split_separate_lettering(page, box) == [box]
+
+
 def _caption_page(stamp: bool):
     """Pale frame with a dark lettering block left of centre and, optionally,
     a faint watermark stamp near the right end of the box."""
