@@ -95,7 +95,8 @@ function useCheckCounts(ids: number[], reloadKey: number): ReadonlyMap<number, C
 
 // The shelf's card as Card draws it (Card cannot be hidden from a screen reader, so its markup is repeated here), with
 // nothing in it and as many tiles as it last showed: it takes the loaded shelf's height under every width, density
-// and text size, and the list below does not move when the shelf arrives.
+// and text size as long as each title and button label fits on one line (a title that wraps makes its tile taller),
+// and then the list below does not move when the shelf arrives.
 function ShelfPlaceholder({ count, limit, phone }: { count: number; limit: number; phone: boolean }) {
   return (
     <section className="card continue-card continue-placeholder" aria-hidden="true">
@@ -148,10 +149,12 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
   // The placeholder only shows for a viewer who had something to continue last time; for anyone else an empty shelf
   // would leave a gap that then collapses.
   const [storedCount, setStoredCount] = usePersistedState<number>(CONTINUE_COUNT_PREF, 0)
-  const lastCount = typeof storedCount === 'number' && storedCount > 0 ? Math.floor(storedCount) : 0
+  const lastCount = storedCount > 0 ? Math.floor(storedCount) : 0
+  // A failed request leaves `items` empty or partial, which says nothing about how many tiles the shelf has.
+  const answered = !loading && !continuing.error && !recent.error
   useEffect(() => {
-    if (!loading) setStoredCount(items.length)
-  }, [loading, items.length, setStoredCount])
+    if (answered) setStoredCount(items.length)
+  }, [answered, items.length, setStoredCount])
   const limit = phone ? 1 : 4
   const shown = loading ? [] : all ? items : items.slice(0, limit)
   const row = (id: number) => rows?.get(id)
@@ -403,8 +406,15 @@ export default function LibraryPage() {
   // The last bulk result stays after the bar closes (like `notice`).
   const [bulkResult, setBulkResult] = useState<string | null>(null)
   const reload = () => setReloadKey((k) => k + 1)
-  // Four panels fail together when Baihe is down: say it once, and retry them all.
-  const [listError, setListError] = useState<unknown>(null)
+  // Four panels fail together when Baihe is down: say it once, and retry them all. A list failure remembers its
+  // reload: the banner stays through the next reload until that reload's list answers, and the shelf must not take
+  // the old failure for the new reload's answer. LibraryList drops an answer whose request a reload overtook, so a
+  // failure it reports belongs to `reloadKey`.
+  const [listFailure, setListFailure] = useState<{ reload: number; error: unknown } | null>(null)
+  const listError = listFailure?.error ?? null
+  const onLoadError = useCallback((error: unknown) => {
+    setListFailure(error ? { reload: reloadKey, error } : null)
+  }, [reloadKey])
   const loadError = stats.error ?? continuing.error ?? recent.error ?? listError
   useEffect(() => {
     if (!loadError) return
@@ -415,14 +425,13 @@ export default function LibraryPage() {
   }, [loadError])
 
   // The titles the list has shown since the page last loaded its data. Answers of one load merge, so typing a search
-  // that hides a title does not turn its Continue tile back into Open; the first answer after a reload replaces them,
-  // so a row never outlives the data it came with. Until then the old rows stay, so the shelf does not flicker.
+  // that hides a title does not turn its Continue tile back into Open. The first answer after a reload replaces them;
+  // until it arrives, and when that reload's list fails, the old rows stay, so the shelf does not flicker.
   // LibraryList drops an answer whose request a reload overtook, so every answer here belongs to `reloadKey`.
   const [seenRows, setSeenRows] = useState<{ reload: number; rows: ReadonlyMap<number, DramaSummary> } | null>(null)
   const onItems = useCallback((next: DramaSummary[]) => {
     setItems(next)
     setSeenRows((seen) => {
-      if (seen && seen.reload > reloadKey) return seen
       const kept = seen && seen.reload === reloadKey ? seen.rows : NO_ROWS
       return { reload: reloadKey, rows: new Map([...kept, ...next.map((d) => [d.id, d] as const)]) }
     })
@@ -538,7 +547,7 @@ export default function LibraryPage() {
       {canCreate && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
       <ContinueShelf
-        continuing={continuing} recent={recent} rows={shelfRows} rowsCurrent={seenRows?.reload === reloadKey || !!listError}
+        continuing={continuing} recent={recent} rows={shelfRows} rowsCurrent={seenRows?.reload === reloadKey || listFailure?.reload === reloadKey}
         phone={phone} reloadKey={reloadKey}
       />
 
@@ -574,7 +583,7 @@ export default function LibraryPage() {
         onRetrySeries={() => setSeriesRetries((n) => n + 1)}
         continuing={continuingIds}
         onVisible={onVisible}
-        onLoadError={setListError}
+        onLoadError={onLoadError}
       />
       {phone && bar}
 

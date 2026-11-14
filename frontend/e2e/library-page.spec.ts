@@ -298,7 +298,15 @@ test('a reload keeps each count and its link until the new answer replaces it', 
   const held = gate()
   mock.holdCount = held.shut
   mock.risk = (id) => (id === 3 ? 5 : 2)
+  const list = gate()
+  mock.holdList = list.shut
+  const listAsked = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/library/dramas')
   await page.getByRole('button', { name: 'Retry' }).click()
+  await listAsked
+  await settle(page)
+  await expect(signal).toHaveAttribute('href', '#/drama/3/review')
+  await expect(harbor).toHaveAttribute('href', '#/drama/61/export')
+  list.open()
   await expect.poll(() => mock.asked.length).toBe(4)
   await settle(page)
   await expect(signal).toHaveAttribute('href', '#/drama/3/review')
@@ -333,6 +341,54 @@ test('after a reload a title the filter hides says Open, with no count asked, un
 
   await page.getByLabel('Status', { exact: true }).selectOption('')
   await expect(shelf.getByRole('link', { name: 'Watch: Signal', exact: true })).toHaveAttribute('href', '#/watch/3')
+})
+
+test('after a reload whose list failed, the next reload asks no count until its own list answers', async ({ page }) => {
+  const mock = await mockShelf(page, (id) => (id === 3 ? 3 : 0))
+  await statsFailOnce(page)
+  await keepBaiheUnreachable(page)
+  await page.goto('/')
+  const shelf = page.getByRole('region', { name: 'Continue' })
+  await expect(shelf.getByRole('link', { name: 'Check the 3 lines: Signal', exact: true })).toBeVisible()
+  const isList = (u: string) => new URL(u).pathname === '/api/library/dramas'
+
+  mock.failList = true
+  const failed = page.waitForResponse((r) => isList(r.url()) && r.status() === 500)
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await failed
+  // That reload's list failed, so its old rows are what it has: their count is asked again.
+  await expect.poll(() => mock.asked).toEqual([3, 3])
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
+
+  // Signal is exported elsewhere; the next reload's list says so once it answers.
+  mock.rows = mock.rows.map((d) => (d.id === 3 ? { ...d, status: 'exported' } : d))
+  mock.failList = false
+  const list = gate()
+  mock.holdList = list.shut
+  const before = mock.asked.length
+  const listAsked = page.waitForRequest((r) => isList(r.url()))
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await listAsked
+  await settle(page)
+  expect(mock.asked.slice(before)).toEqual([])
+  list.open()
+  await expect(shelf.getByRole('link', { name: 'Watch: Signal', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
+  await settle(page)
+  expect(mock.asked.slice(before)).not.toContain(3)
+})
+
+test('a load whose shelf requests failed keeps the remembered tile count', async ({ page }) => {
+  await rememberShelfCount(page, 3)
+  const fail = { status: 500, json: { error: { code: 'internal', message: 'Something went wrong.' } } }
+  await page.route('**/api/library/continue', (r) => r.fulfill(fail))
+  await page.route('**/api/library/recent', (r) => r.fulfill(fail))
+  await keepBaiheUnreachable(page)
+  const listed = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/library/dramas' && r.ok())
+  await page.goto('/')
+  await listed
+  await expect(page.getByRole('alert')).toContainText('Retry')
+  await settle(page)
+  expect(await page.evaluate(() => localStorage.getItem('baihe.pref.library.continue.count'))).toBe('3')
 })
 
 test('the shelf waits for the Library list instead of showing Open, and a search does not turn a tile back into Open', async ({ page }) => {
@@ -436,6 +492,6 @@ for (const [width, count, compact] of [[1280, 5, false], [1440, 1, false], [1280
     await page.goto('/')
     if (compact) await expect(page.locator('html')).toHaveAttribute('data-density', 'compact')
     const h = await placeholderAndShelf(page, release)
-    expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(8)
+    expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(2)
   })
 }

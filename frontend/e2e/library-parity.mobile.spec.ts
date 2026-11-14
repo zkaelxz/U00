@@ -135,5 +135,5 @@ test('at 390px the placeholder for three (one tile and More) has the loaded shel
   const release = await holdShelfOf(page, 3)
   await page.goto('/')
   const h = await placeholderAndShelf(page, release)
-  expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(8)
+  expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(2)
 })

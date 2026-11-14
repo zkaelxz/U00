@@ -1,16 +1,16 @@
 // The Library's Continue shelf and the title list it reads its labels from, mocked so its tiles stand in known states.
 import type { Page } from '@playwright/test'
 
-export const shelfRow = (id: number, title_en: string, media_type: string, over: Record<string, unknown> = {}) => ({
+const shelfRow = (id: number, title_en: string, media_type: string, over: Record<string, unknown> = {}) => ({
   id, title_en, title_zh: null, author: null, studio: null, director: null, voice_actors: null, status: 'aligned',
   source_language: 'zh', media_type, content_mode: null, series_id: null, translation_engine: null, custom_tags: [],
   created_at: null, updated_at: '2026-11-10T12:00:00', ...over,
 })
-export type ShelfRow = ReturnType<typeof shelfRow>
+type ShelfRow = ReturnType<typeof shelfRow>
 
 // Newest first: Blessing read to page 12; Grandmaster with lines left; Signal translated (the check state); Harbor
 // Lights exported; Quiet Stream also in the check state, past the four a computer shows until More.
-export const shelfRows = (): ShelfRow[] => [
+const shelfRows = (): ShelfRow[] => [
   shelfRow(1, 'Grandmaster of Demonic Cultivation', 'audio_drama', { line_count: 2000, translated_count: 766 }),
   shelfRow(2, "Heaven Official's Blessing", 'novel', { line_count: 90, translated_count: 90 }),
   shelfRow(3, 'Signal', 'video_drama', { line_count: 40, translated_count: 40, status: 'translated' }),
