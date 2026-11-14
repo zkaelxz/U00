@@ -128,24 +128,6 @@ def test_a_cancel_during_the_run_leaves_the_later_pages_alone(pipeline):
     assert answer["failed"] == []
 
 
-def test_a_cancel_while_a_page_translates_skips_the_next_pages_paid_call(pipeline, monkeypatch):
-    import scanlate_translate
-    run_id = "6f1c8f0e-2b1a-4c55-9a3e-0d4f2d6a7b11"
-    real = scanlate_translate.translate_page_bubbles
-
-    def cancel_during_first(bubbles, *args, **kwargs):
-        if bubbles[0]["source_text"] == "p0":
-            assert pipeline["second_read"].wait(5)
-            bridge.cancel_run({"run_id": run_id})
-        return real(bubbles, *args, **kwargs)
-    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", cancel_during_first)
-    payload = {"images": _images(3), "store": False, "filter_pages": False, "run_id": run_id}
-    answer = bridge.run_images(payload, payload["images"])
-    assert [t for step, t in pipeline["log"] if step == "translate"] == ["p0"]
-    assert [p["key"] for p in answer["pages"]] == ["k0"]
-    assert answer["stopped"] == "cancelled by the extension"
-
-
 def test_each_page_is_heard_as_it_finishes_and_a_listener_that_fails_stops_nothing(pipeline):
     heard = []
 

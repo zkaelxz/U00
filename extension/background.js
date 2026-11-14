@@ -463,8 +463,11 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
       // The pages that arrived are kept (and already drawn); the rest of the batch is named.
       const arrived = new Set((data.pages || []).map((p) => p.key));
       const missing = batch.filter((image) => !arrived.has(image.key));
-      for (const image of missing) merged.failed.push({ key: image.key, url: image.url || "", error: data.cutOff });
-      firstError = firstError || { ok: false, error: data.cutOff };
+      // Cancelled pages are not done, not failed, as when no page had arrived yet.
+      if (!answer.cancelled) {
+        for (const image of missing) merged.failed.push({ key: image.key, url: image.url || "", error: data.cutOff });
+        firstError = firstError || { ok: false, error: data.cutOff };
+      }
       data.received = batch.length - missing.length;
       data.stored = (data.pages || []).filter((p) => p.stored).length;
     }

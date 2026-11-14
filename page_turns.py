@@ -179,7 +179,7 @@ def discard_on_failure(drama_id):
 
 class Stopped(Exception):
     """The request stopped (cancelled, or a page failed in a way every later one would)
-    before this page's turn to read, or to translate, came."""
+    before this page's turn to read came."""
 
 
 class _Unordered:
@@ -197,8 +197,7 @@ UNORDERED = _Unordered()
 
 class PageOrder:
     """Turns for the pages of one request, by their index in it. `should_stop` is asked when
-    a page's turn to read comes (True raises `Stopped` there, before anything is stored) and
-    again when its turn to translate comes, before the paid call.
+    a page's turn to read comes; True raises `Stopped` there, before anything is stored.
     `finish(index)` must run for every page, however it ended, or the next page waits for ever."""
 
     def __init__(self, count: int, should_stop=lambda: False):
@@ -234,12 +233,7 @@ class _PageTurn:
     def translating(self):
         if self._index:
             self._order._translated[self._index - 1].wait()
-        # A Cancel, or a failure every page would repeat, that came while the page before was
-        # translating stops this one before its paid call; it is already read and stored, so a
-        # re-capture fills in the translation.
-        if self._order._should_stop():
-            raise Stopped()
-        yield
-        # Not on failure, as with reading: the failure that stops the request is recorded
-        # before `finish` lets the next page check `should_stop`.
-        self._order._translated[self._index].set()
+        try:
+            yield
+        finally:
+            self._order._translated[self._index].set()
