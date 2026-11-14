@@ -53,13 +53,13 @@ describe('NavDrawer', () => {
 describe('PhoneBar', () => {
   const bar = (running: number, route: Route = library, moreOpen = false, context: NavContext = owner) =>
     renderToStaticMarkup(withJobs(running, createElement(PhoneBar, { route, context, moreOpen, onMore: () => {} })))
-  // Make subtitles needs library.create; the bar leaves out what the person may not use.
+  // Quick translate needs library.create; the bar leaves out what the person may not use.
   const owner: NavContext = { ...ctx, session: { ...session, me: { ...session.me, permissions: [...session.me.permissions, 'library.create'] } } as SessionState }
 
   it('has Library, Make, Jobs in that order and a More button that controls the drawer', () => {
     const html = bar(0)
     const labels = [...html.matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
-    expect(labels).toEqual(['Library', 'Make', 'Jobs', 'More'])
+    expect(labels).toEqual(['Library', 'Quick', 'Jobs', 'More'])
     expect(html).toContain('aria-label="More"')
     expect(html).toContain('aria-controls="nav-drawer"')
     expect(bar(0, library, true)).toContain('aria-expanded="true"')

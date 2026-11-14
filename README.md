@@ -26,7 +26,7 @@ Every feature below is in the code today. The [User guide](docs/user-guide.md) h
 - **Merge titles and move chapters**: between comic or novel titles.
 
 ### Subtitles from audio and video
-- **Make subtitles**: drop in an audio or video file and get an SRT in one screen.
+- **Quick translate**: drop in an audio or video file and get an SRT in one screen.
 - **Quick video translate**: paste a video link and one button downloads, transcribes, translates and exports it, with a "Watch once" option that deletes it afterwards.
 - **Video links**: download with yt-dlp (queued, a part of a video only, long videos on request) or upload `.mp4`, `.mov`, `.mkv` or `.webm`.
 - **Transcription**: Whisper (with optional Qwen3-ASR and Breeze-ASR-25 for Chinese), name priming, vocal separation, difficult-audio settings and coverage checks.
@@ -157,7 +157,7 @@ Add `requirements-media.txt` for audio and video, and lines from `requirements-o
 
 1. Open **Settings** and add a key for your translation engine, or point it at a local Ollama.
 2. Open **Diagnostics** and install transcription if you want to transcribe audio. Models download the first time they are used.
-3. Click **Make subtitles** and choose a file.
+3. Click **Quick translate** and choose a file.
 
 If something does not work, Diagnostics checks your setup and says what is missing.
 

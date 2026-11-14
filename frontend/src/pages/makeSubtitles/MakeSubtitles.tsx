@@ -224,7 +224,7 @@ export function MakeSubtitles() {
   const pct = percentText(job?.progress)
 
   return (
-    <Card className="make-subtitles" aria-label="Make subtitles">
+    <Card className="make-subtitles" aria-label="Quick translate">
       {flow.phase === 'idle' || flow.phase === 'error' ? (
         <form className="stack" onSubmit={(e) => { e.preventDefault(); if (!blocker) void start() }}>
           {/* What went wrong comes before the form it asks the viewer to fix. */}

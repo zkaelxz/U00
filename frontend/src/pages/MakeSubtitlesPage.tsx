@@ -8,7 +8,7 @@ import { QuickVideoLink } from './makeSubtitles/QuickVideoLink'
 
 export default function MakeSubtitlesPage() {
   return (
-    <PageShell width="narrow" title="Make subtitles" meta="File to English SRT in one go.">
+    <PageShell width="narrow" title="Quick translate" meta="File to English SRT in one go.">
       <QuickVideoLink />
       <MakeSubtitles />
     </PageShell>

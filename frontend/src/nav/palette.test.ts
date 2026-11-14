@@ -49,7 +49,7 @@ describe('paletteEntries', () => {
 })
 
 describe('filterEntries', () => {
-  const all = [entry('Library', 'titles'), entry('Quick translate', 'text'), entry('Saved manga'), entry('Settings', 'disk')]
+  const all = [entry('Library', 'titles'), entry('Translate text', 'text'), entry('Saved manga'), entry('Settings', 'disk')]
 
   it('returns everything for an empty or blank query', () => {
     expect(filterEntries(all, '')).toBe(all)
@@ -57,12 +57,12 @@ describe('filterEntries', () => {
   })
 
   it('is case-insensitive and matches anywhere in a word', () => {
-    expect(labels(filterEntries(all, 'TRANS'))).toEqual(['Quick translate'])
+    expect(labels(filterEntries(all, 'TRANS'))).toEqual(['Translate text'])
     expect(labels(filterEntries(all, 'brar'))).toEqual(['Library'])
   })
 
   it('needs every word, in any order', () => {
-    expect(labels(filterEntries(all, 'text translate'))).toEqual(['Quick translate'])
+    expect(labels(filterEntries(all, 'text translate'))).toEqual(['Translate text'])
     expect(filterEntries(all, 'text library')).toEqual([])
   })
 
@@ -115,10 +115,10 @@ describe('page keywords', () => {
     expect(labels(filterEntries(entries, 'discover'))).toContain('Find')
   })
 
-  it('finds Make subtitles by what people type', () => {
+  it('finds Quick translate by what people type', () => {
     const entries = paletteEntries(owner_, { name: 'library' })
-    expect(labels(filterEntries(entries, 'srt'))).toContain('Make subtitles')
-    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Make subtitles')
+    expect(labels(filterEntries(entries, 'srt'))).toContain('Quick translate')
+    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Quick translate')
   })
 
   it('finds Benchmark Lab by its keywords only where the page is listed', () => {
