@@ -47,6 +47,19 @@ def test_voice_pick_is_named_after_the_speaker_on_that_voices_lines(isolated_db)
         ("Cray", ["below", "voice"]), ("Anok", ["above"])]
 
 
+def test_a_turn_spanning_several_lines_still_gives_the_later_line_its_voice(isolated_db):
+    # The long turn starts two lines before #2, so a lookup by start time alone would miss it.
+    turns = [{"start": 0.0, "end": 5.5, "speaker": "SPEAKER_00"}, _turn(3, "SPEAKER_01")]
+    did, ids = _seed(isolated_db, [_line(0, "Anok"), _line(1), _line(2), _line(3, "Cray")], turns)
+    assert _guesses(svc.suggest_speakers(did, [ids[2]]))[ids[2]] == [
+        ("Anok", ["above", "voice"]), ("Cray", ["below"])]
+
+
+def test_a_sound_cue_is_not_the_line_above(isolated_db):
+    did, ids = _seed(isolated_db, [_line(0, "Anok"), _line(1, "Cray", sfx=True), _line(2)])
+    assert _guesses(svc.suggest_speakers(did, [ids[2]]))[ids[2]] == [("Anok", ["above"])]
+
+
 def test_voice_with_no_named_lines_offers_nothing_for_it(isolated_db):
     turns = [_turn(0, "SPEAKER_00"), _turn(1, "SPEAKER_05")]
     did, ids = _seed(isolated_db, [_line(0, "Anok"), _line(1)], turns)

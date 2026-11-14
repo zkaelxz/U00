@@ -158,7 +158,7 @@ class ReviewSpeakerGuess(BaseModel):
     speaker: str
     reasons: List[Literal["above", "below", "voice"]] = Field(description=(
         "Why it is offered: the nearest line above or below with a speaker has it, or the "
-        "speaker detection's own (unsure) pick for this line maps to it."))
+        "voice the saved speaker detection heard most in this line is now named it."))
 
 
 class ReviewLineSpeakerGuesses(BaseModel):

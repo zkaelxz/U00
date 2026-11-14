@@ -26174,7 +26174,7 @@ export interface components {
         ReviewSpeakerGuess: {
             /**
              * Reasons
-             * @description Why it is offered: the nearest line above or below with a speaker has it, or the speaker detection's own (unsure) pick for this line maps to it.
+             * @description Why it is offered: the nearest line above or below with a speaker has it, or the voice the saved speaker detection heard most in this line is now named it.
              */
             reasons: ("above" | "below" | "voice")[];
             /** Speaker */

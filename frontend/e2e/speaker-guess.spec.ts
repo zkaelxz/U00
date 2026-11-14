@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { clearDrama3Lines } from './reviewResultsSeed'
 import { clearTurns, guesses, row, seedBlankSpeakers, speakers } from './speakerGuessHelpers'
 
 // Review: a line with no speaker offers the speakers around it and the voice detection's
@@ -8,6 +9,7 @@ import { clearTurns, guesses, row, seedBlankSpeakers, speakers } from './speaker
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
   clearTurns()
+  clearDrama3Lines()
 })
 
 for (const view of ['full', 'simple'] as const) test(`fill blank speakers from the suggestions (${view} view)`, async ({ page }) => {
@@ -20,7 +22,7 @@ for (const view of ['full', 'simple'] as const) test(`fill blank speakers from t
 
   // The best-supported speaker comes first; named lines get no buttons.
   await expect(guesses(page, 2).getByRole('button')).toHaveText([/Cray/, /Anok/])
-  await expect(guesses(page, 2).getByRole('button', { name: 'Cray: Same as the line below and the voice detection’s unsure guess' })).toBeVisible()
+  await expect(guesses(page, 2).getByRole('button', { name: 'Cray: Same as the line below and what speaker detection heard' })).toBeVisible()
   await expect(guesses(page, 1)).toHaveCount(0)
   await expect(guesses(page, 6).getByRole('button')).toHaveText([/Anok/, /Cray/])
 

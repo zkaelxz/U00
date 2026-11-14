@@ -9,7 +9,9 @@ import { draftFromLine } from './reviewDraft'
 const api = vi.hoisted(() => ({
   patchLine: vi.fn(),
   acceptTm: vi.fn(),
+  setLineSpeaker: vi.fn(),
 }))
+vi.mock('../../../../api/characters', () => ({ setLineSpeaker: api.setLineSpeaker }))
 vi.mock('../../../../api/review', () => ({
   patchLine: api.patchLine,
   acceptTm: api.acceptTm,
@@ -37,14 +39,15 @@ function setup(lines: ReviewLine[], edit: EditState | null = null) {
   const setIssue = vi.fn()
   const pending = { current: null as Pending | null }
   const setPage = vi.fn()
+  const setSpeakerUndo = vi.fn()
   const ctl = createLinesController({
     dramaId: 7, st, pending, focusActive: { current: null }, player: { current: null },
     selectRef: { current: vi.fn() }, showOnPageRef: { current: vi.fn() },
     setData: vi.fn(), setFound: vi.fn(), setIssue, setEdit: vi.fn(), setStatus: status,
     setActiveId: vi.fn(), setPage, setFilter: vi.fn(), setError: vi.fn(), setSheet: vi.fn(),
-    setStructError: vi.fn(), setAi: vi.fn(), setRetranscribeFocusId: vi.fn(),
+    setStructError: vi.fn(), setAi: vi.fn(), setRetranscribeFocusId: vi.fn(), setSpeakerUndo,
   })
-  return { ctl, st, status, setIssue, pending, setPage }
+  return { ctl, st, status, setIssue, pending, setPage, setSpeakerUndo }
 }
 
 const editing = (base: ReviewLine, en: string): EditState =>
@@ -53,6 +56,7 @@ const editing = (base: ReviewLine, en: string): EditState =>
 beforeEach(() => {
   api.patchLine.mockReset()
   api.acceptTm.mockReset()
+  api.setLineSpeaker.mockReset()
 })
 
 describe('writes that replace lines under an open edit', () => {
@@ -244,5 +248,27 @@ describe('Save & next at the end of a filtered page', () => {
     ctl.actions.saveAndNext()
     await vi.waitFor(() => expect(setPage).toHaveBeenCalledWith(2))
     expect(pending.current).toEqual({ target: 'first', edit: true })
+  })
+})
+
+describe('taking a suggested speaker', () => {
+  it('posts once when tapped twice before the save comes back', async () => {
+    const { ctl, setSpeakerUndo } = setup([line(1)])
+    const entries = [{ id: 1, speaker: '' }]
+    let finish = (_: unknown) => {}
+    api.setLineSpeaker.mockReturnValue(new Promise((r) => { finish = r }))
+    const first = ctl.actions.acceptSpeaker(1, 'Anok')
+    expect(await ctl.actions.acceptSpeaker(1, 'Cray')).toBe(false)
+    finish({ updated: 1, undo: entries })
+    expect(await first).toBe(true)
+    expect(api.setLineSpeaker).toHaveBeenCalledTimes(1)
+    expect(setSpeakerUndo).toHaveBeenCalledWith({ lineNumber: 1, speaker: 'Anok', entries })
+  })
+
+  it('keeps the last Undo when a save changed nothing', async () => {
+    const { ctl, setSpeakerUndo } = setup([line(1)])
+    api.setLineSpeaker.mockResolvedValue({ updated: 0, undo: [] })
+    expect(await ctl.actions.acceptSpeaker(1, 'Anok')).toBe(true)
+    expect(setSpeakerUndo).not.toHaveBeenCalled()
   })
 })

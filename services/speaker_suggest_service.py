@@ -68,8 +68,8 @@ def _check_ids(line_ids) -> list:
 def suggest_speakers(drama_id: int, line_ids) -> dict:
     """Up to three speakers for each named line that still needs one (needs_speaker),
     most-supported first: the nearest line above with a speaker, the nearest below, and
-    the saved detection's pick for the line (the one it was too unsure of to keep),
-    renamed to the speaker now on that voice's lines. Ids that aren't this title's
+    the voice the saved detection heard most in the line (whether or not it was sure),
+    named after the speaker now on that voice's lines. Ids that aren't this title's
     lines, or lines with no guess, are left out. Raises NotFoundError (unknown drama)
     or InvalidInputError. Returns {"lines": [{line_id, speakers: [{speaker, reasons}]}]}."""
     wanted = set(_check_ids(line_ids))
@@ -77,7 +77,8 @@ def suggest_speakers(drama_id: int, line_ids) -> dict:
     lines = db.load_line_objects(drama_id)
     index = _TurnIndex(_valid_turns(diarize.load_turns(os.path.join(db.DRAMAS_DIR, str(drama_id)))))
     names = _detector_names(lines, index) if index.turns else {}
-    labelled = [pos for pos, ln in enumerate(lines) if ln.speaker]
+    # A sound cue's speaker says who made the sound, not who talks next.
+    labelled = [pos for pos, ln in enumerate(lines) if ln.speaker and not ln.sfx]
     out = []
     for pos, ln in enumerate(lines):
         if ln.id not in wanted or not needs_speaker(ln):

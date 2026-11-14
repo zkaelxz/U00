@@ -56,7 +56,7 @@ export interface LinesControllerDeps {
   setAi: Dispatch<SetStateAction<{ lineId: number; mode: PanelMode } | null>>
   setRetranscribeFocusId: Dispatch<SetStateAction<number | null>>
   // The last suggested speaker taken, while it can be undone.
-  setSpeakerUndo?: Dispatch<SetStateAction<SpeakerUndo | null>>
+  setSpeakerUndo?: (undo: SpeakerUndo | null) => void
 }
 
 export interface SpeakerUndo {

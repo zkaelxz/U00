@@ -10,7 +10,7 @@ type Reason = SpeakerGuess['reasons'][number]
 const WHY: Record<Reason, string> = {
   above: 'the line above',
   below: 'the line below',
-  voice: 'the voice detection’s unsure guess',
+  voice: 'what speaker detection heard',
 }
 // Short enough for a phone's chip; the full reason is in the button's name.
 const MARK: Record<Reason, string> = { above: '↑', below: '↓', voice: 'voice' }

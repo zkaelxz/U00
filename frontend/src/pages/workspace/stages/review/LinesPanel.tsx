@@ -293,7 +293,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useReviewShortcuts({
     ctl, actions, selection, player, listRef, searchRef, mediaKind, isPhone,
     sheetOpen: sheet !== null, keysOpen, page, pages, searching, limited, active, edit, ai,
-    setAi, setKeysOpen, setStatus, queue: queue.on, noSpeakerCount,
+    setAi, setKeysOpen, setStatus, queue: queue.on, noSpeakerCount: prose || queue.on ? 0 : noSpeakerCount,
     activeGuesses: active && needsSpeaker(active) ? guessesByLine.get(active.id) ?? [] : [],
   })
 

@@ -18,7 +18,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
 from services import (auth_service, line_tools_service, review_lines_service,
-                      translate_service)
+                      speaker_suggest_service, translate_service)
 from lib.errors import InvalidInputError
 from tests.api_helpers import session_headers
 
@@ -462,8 +462,14 @@ class TestSpeakerSuggestions:
         did, ids = _seed()
         url = f"/api/review/dramas/{did}/speaker-suggestions"
         assert client.get(url).status_code == 422
-        assert client.get(url, params={"line_id": list(range(1, 202))}).status_code == 422
         assert client.get("/api/review/dramas/999/speaker-suggestions", params={"line_id": 1}).status_code == 404
+
+    def test_the_route_itself_caps_the_ids(self, client, monkeypatch):
+        # The service refuses too many ids as well, so stub it to see the route's own limit.
+        did, _ = _seed()
+        monkeypatch.setattr(speaker_suggest_service, "suggest_speakers", lambda *a: pytest.fail("reached the service"))
+        r = client.get(f"/api/review/dramas/{did}/speaker-suggestions", params={"line_id": list(range(1, 202))})
+        assert r.status_code == 422
 
 
 # ---------------------------------------------------------------------------

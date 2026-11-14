@@ -1,5 +1,5 @@
 // Filling in lines with no speaker: the guesses to offer, and the Undo for the last one taken.
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 
 import { undoSpeakerChange } from '../../../../api/characters'
 import { listSpeakerSuggestions } from '../../../../api/review'
@@ -38,18 +38,24 @@ export function useSpeakerUndo(
   setStatus: Dispatch<SetStateAction<string | null>>,
   setError: Dispatch<SetStateAction<unknown>>,
 ) {
-  const [undo, setUndo] = useState<SpeakerUndo | null>(null)
+  // Kept with its title, so an offer never outlives a switch to another title.
+  const [held, setHeld] = useState<{ dramaId: number; undo: SpeakerUndo } | null>(null)
+  const undo = held?.dramaId === dramaId ? held.undo : null
+  const setUndo = (u: SpeakerUndo | null) => setHeld(u && { dramaId, undo: u })
   const [busy, setBusy] = useState(false)
+  // busy reaches this closure only after a render, so a fast second click would post the undo again.
+  const running = useRef(false)
   const run = async () => {
-    if (!undo || busy) return
-    const ids = undo.entries.map((e) => e.id)
-    const blocked = await beforeLinesWrite(dramaId, ids)
-    if (blocked) {
-      setStatus(blocked)
-      return
-    }
+    if (!undo || running.current) return
+    running.current = true
     setBusy(true)
+    const ids = undo.entries.map((e) => e.id)
     try {
+      const blocked = await beforeLinesWrite(dramaId, ids)
+      if (blocked) {
+        setStatus(blocked)
+        return
+      }
       await undoSpeakerChange(dramaId, undo.entries)
       afterLinesWrite(dramaId, ids)
       setStatus(`Line #${undo.lineNumber} has no speaker again.`)
@@ -58,6 +64,7 @@ export function useSpeakerUndo(
     } catch (e) {
       setError(e)
     } finally {
+      running.current = false
       setBusy(false)
     }
   }

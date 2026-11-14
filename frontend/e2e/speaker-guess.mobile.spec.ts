@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { clearDrama3Lines } from './reviewResultsSeed'
 import { clearTurns, guesses, row, seedBlankSpeakers, speakers } from './speakerGuessHelpers'
 
 // Phone: the suggested speakers fit the row and take a tap, and the Undo sits above the phone's action bar.
@@ -7,6 +8,7 @@ import { clearTurns, guesses, row, seedBlankSpeakers, speakers } from './speaker
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
   clearTurns()
+  clearDrama3Lines()
 })
 
 test('tap a suggested speaker on a phone', async ({ page }) => {

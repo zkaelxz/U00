@@ -34,14 +34,14 @@ describe('SpeakerGuesses', () => {
 
   it('says why each speaker is offered', () => {
     expect(guessReason(['above', 'below'])).toBe('Same as the line above and the line below')
-    expect(guessReason(['below', 'voice'])).toBe('Same as the line below and the voice detection’s unsure guess')
-    expect(guessReason(['voice'])).toBe('From the voice detection’s unsure guess')
+    expect(guessReason(['below', 'voice'])).toBe('Same as the line below and what speaker detection heard')
+    expect(guessReason(['voice'])).toBe('From what speaker detection heard')
   })
   it('is one button per speaker, with the keys only when asked', () => {
     const html = renderToStaticMarkup(<SpeakerGuesses guesses={guesses} lineNumber={12} showKeys tabbable onAccept={() => {}} />)
     expect(html).toContain('aria-label="Suggested speaker for line 12"')
     expect(html).toContain('aria-label="Chion: Same as the line above and the line below"')
-    expect(html).toContain('aria-label="Oumua: From the voice detection’s unsure guess"')
+    expect(html).toContain('aria-label="Oumua: From what speaker detection heard"')
     expect(html).toContain('<kbd aria-hidden="true">2</kbd>')
     const plain = renderToStaticMarkup(<SpeakerGuesses guesses={guesses} lineNumber={12} showKeys={false} tabbable={false} onAccept={() => {}} />)
     expect(plain).not.toContain('<kbd')
