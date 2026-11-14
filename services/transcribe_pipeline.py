@@ -614,9 +614,11 @@ class _PipelineRun:
             qwen_ticker.stop()
         # Whisper's text was screened inside transcribe_for_timing; Qwen's replaces it
         # afterwards, so it gets the same loop, stock-phrase and implausible-text checks.
+        # A dense list is only flagged here: Qwen writes 、 between short replies
+        # ("はい、はい、はい…") at ordinary kana and Hangul speed.
         tuning = self.tuning
         self.segments = filter_hallucinated_segments(
-            self.segments, tuning.repeat_min_repeats, tuning.stock_isolation_sec)
+            self.segments, tuning.repeat_min_repeats, tuning.stock_isolation_sec, drop_lists=False)
         return None
 
     def _split_into_lines(self):

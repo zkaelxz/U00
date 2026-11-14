@@ -534,6 +534,14 @@ class TestFilterHallucinatedSegments:
     def _seg(self, start, end, text):
         return {"start": start, "end": end, "text": text}
 
+    def test_a_dense_list_is_dropped_unless_lists_are_only_flagged(self):
+        from whisper_hallucination import IMPLAUSIBLE_LIST_NOTE
+        seg = self._seg(10.0, 11.5, "はい、はい、はい、はい、はい、はい")
+        assert filter_hallucinated_segments([seg]) == []
+        out = filter_hallucinated_segments([seg], drop_lists=False)
+        assert [(s["text"], s["flag"], s["flag_note"]) for s in out] == [
+            (seg["text"], "text_uncertain", IMPLAUSIBLE_LIST_NOTE)]
+
     def test_a_short_run_is_left_untouched(self):
         segments = [self._seg(0, 1, "hello"), self._seg(1, 2, "hello"),
                     self._seg(2, 3, "world")]
