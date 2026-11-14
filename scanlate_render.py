@@ -224,8 +224,9 @@ def _split_twice(lines) -> bool:
     return any(a.endswith("-") and b.endswith("-") for a, b in zip(lines, lines[1:]))
 
 
-# Smallest share of the box width that the balloon's centre may sit off the box's centre before
-# the layout mask is rebuilt symmetric; below it the mask is taken as it is.
+# Smallest share of the box width that the mask's centre of mass may sit off the box's centre
+# before the layout mask is rebuilt symmetric; below it the mask is taken as it is. The mass, not
+# the bounding box: a diagonal cut through one corner leaves the box nearly full width.
 _MIN_OFF_CENTRE = 0.03
 # The balloon has to fill the box this much for the box to stand for its outline, and the
 # mirrored half may add at most this share of the mask: more means the mask is not a balloon
@@ -247,7 +248,7 @@ def _symmetrised(mask):
     if (cols[-1] - cols[0] + 1 < _MIN_BALLOON_SHARE_OF_BOX * w
             or rows[-1] - rows[0] + 1 < _MIN_BALLOON_SHARE_OF_BOX * h):
         return None
-    if abs((cols[0] + cols[-1]) / 2 - (w - 1) / 2) < _MIN_OFF_CENTRE * w:
+    if abs(np.nonzero(mask)[1].mean() - (w - 1) / 2) < _MIN_OFF_CENTRE * w:
         return None
     joined = mask | mask[:, ::-1]
     return joined if joined.sum() <= (1 + _MAX_MIRROR_GROWTH) * mask.sum() else None

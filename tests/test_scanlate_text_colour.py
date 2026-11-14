@@ -113,6 +113,15 @@ def test_hatching_cut_off_one_side_does_not_pull_the_text_off_the_balloon_centre
         assert all(abs(c - 155) < 4 for c in centres), (rect_layout, centres)
 
 
+def test_a_cut_that_leaves_the_mask_nearly_full_width_is_still_seen():
+    mask = _round_balloon(False)
+    yy, xx = np.mgrid[:325, :311]
+    mask &= (xx - 155) + (155 - yy) < 120  # shallower cut: the bounding box stays full width
+    cols = np.nonzero(mask.any(axis=0))[0]
+    assert cols[-1] - cols[0] > 0.9 * 311
+    assert scanlate_render._symmetrised(mask) is not None
+
+
 def test_a_balloon_that_is_already_centred_is_laid_out_as_before():
     mask = _round_balloon(False)
     assert scanlate_render._symmetrised(mask) is None
