@@ -51,6 +51,10 @@ CV_EMPTY_CONTRAST = 40
 
 # --- Bubble detection, ML model (scanlate_detect.detect_bubbles_ml) ---
 ML_CONFIDENCE = 0.25
+# A lettering box the model scores from this up to ML_CONFIDENCE is kept when it is a cell of a
+# form beside a kept one (scanlate_detect._form_cells): the four labels of one form on S library
+# p68 scored 0.15-0.31.
+ML_FORM_CELL_CONFIDENCE = 0.1
 # Two boxes are one balloon when they overlap this much (IoU), or when the
 # smaller lies this far inside the larger: the model reports a balloon and the
 # text inside it as separate classes.
@@ -67,6 +71,13 @@ FRAGMENT_OVERLAP = 0.4
 # extent. A real balloon's outline keeps two neighbouring balloons further apart.
 FRAGMENT_ALIGNED = 0.6
 FRAGMENT_GAP = 0.3
+# A ruled line between two cells of a form (scanlate_detect._ruled_line_between) is at least this much
+# darker than the paper, runs across at least RULE_SPAN of the area the two boxes cover, and is
+# broken by no gap over RULE_MAX_GAP_PX. The rules on S library p68 are about 25-60 levels darker
+# than their grey cells.
+RULE_CONTRAST = 15
+RULE_SPAN = 0.8
+RULE_MAX_GAP_PX = 3
 
 # Two boxes touching or this close (as a share of the narrower one's width, or
 # height when stacked) are the columns of one balloon when this share of each
