@@ -56,3 +56,22 @@ test('more than 200 ticked: the action is off and says why', async ({ page }) =>
   await expect(compareAction(page)).toBeDisabled()
   await expect(bar).toContainText('240 lines ticked; Compare transcription takes up to 200 at a time')
 })
+
+// Simple leaves Compare transcription and Re-time out of the Review tools; the selection bar's buttons for them
+// must still open them, ticked far down the lines, where the person is looking.
+for (const [label, testId] of [['Compare transcription…', 'compare-transcription'], ['Re-time with Qwen3 aligner…', 'retime-lines']] as const) {
+  test(`Simple view: "${label}" opens its section in view`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    seedLines(50)
+    await mockCompare(page)
+    // Simple opens on the lines that need a look; focus=all shows every line, as the All switch does.
+    await page.goto('/#/drama/3/review?focus=all')
+    await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+    for (const n of [30, 31]) {
+      await tickBox(page, n).scrollIntoViewIfNeeded()
+      await tickBox(page, n).check()
+    }
+    await page.getByTestId('selection-bar').getByRole('button', { name: label }).click()
+    await expect(page.getByTestId(testId)).toBeInViewport()
+  })
+}

@@ -84,6 +84,13 @@ export default function ReviewStage() {
     },
     [showTool],
   )
+  // A finished comparison's link (the Jobs page's Review) names Compare transcription, which Simple leaves out of
+  // the tools; asking for it like the selection bar does brings it in, so the link does not land without it.
+  const route = useRoute()
+  const linkedCompare = route.name === 'drama' && route.id === dramaId && route.focus === 'compare'
+  useEffect(() => {
+    if (linkedCompare) showTool('compareTranscription')
+  }, [linkedCompare, showTool])
   const [lineCount, setLineCount] = useState<number | null>(null)
   // A finding's line link: the editor opens that line (by id where known).
   const [goTo, setGoTo] = useState<{ target: LineTarget; seq: number; resolve: (m: string | null) => void } | null>(null)
@@ -93,7 +100,6 @@ export default function ReviewStage() {
     [],
   )
   const [flaggedCount, setFlaggedCount] = useState<number | null>(null)
-  const route = useRoute()
   // Not loaded yet counts as no lines: showing the panel first would flash it on a title that has none.
   // A ?tools= link or a running job still opens the panel with no lines.
   const hideTools = !lineCount && !jobRunning && !(route.name === 'drama' && route.id === dramaId && route.tools)
