@@ -130,6 +130,9 @@ def _series_turns(drama_id: int, turns: list, embeddings: dict):
     if not series_id or db.get_series_speaker_mode(series_id) != "solo":
         return turns, None
     import voice_id
+    # One creator talks in a solo series, so a line the model was unsure between two of
+    # its clusters still belongs to that person: the confidence cutoff would only blank it.
+    turns = [{k: v for k, v in t.items() if k != "confidence"} for t in turns]
     return voice_id.solo_turns(turns, embeddings, db.list_series_characters(series_id))
 
 
