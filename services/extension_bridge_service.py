@@ -11,6 +11,7 @@ title list to what they can see and sends only into a title they can edit.
 import contextlib
 import json
 import os
+import queue
 import re
 import threading
 import time
@@ -395,10 +396,32 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
     if len(decoded) == 1:
         work(0)
         return outcomes
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=PAGES_AT_ONCE, thread_name_prefix="bridge-page") as pool:
-        for future in [pool.submit(work, i) for i in range(len(decoded))]:
-            future.result()
+    waiting = queue.SimpleQueue()
+    for index in range(len(decoded)):
+        waiting.put(index)
+    errors = []
+
+    def worker():
+        while True:
+            try:
+                index = waiting.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                work(index)
+            except BaseException as e:   # re-raised below, on the request's own thread
+                errors.append(e)
+
+    # Daemon threads, like the bridge's own handler threads: the app's shutdown never waits
+    # for a page still being worked on.
+    workers = [threading.Thread(target=worker, daemon=True, name="bridge-page")
+               for _ in range(min(PAGES_AT_ONCE, len(decoded)))]
+    for thread in workers:
+        thread.start()
+    for thread in workers:
+        thread.join()
+    if errors:
+        raise errors[0]
     return outcomes
 
 
