@@ -125,6 +125,17 @@ def _without_untouched_defaults(remembered: dict, is_novel: bool, engine, model)
     return {k: v for k, v in remembered.items() if old_defaults.get(k, object()) != v}
 
 
+def remembered_and_defaults(drama, remembered: dict, is_novel: bool, engine_name, model):
+    """(remembered, defaults) for a run of this title on this engine and model. When the
+    plain stream prompt applies, the defaults are its sizes and `remembered` loses the
+    values that only echo the old defaults. Every run that starts from the title's last
+    values goes through this, so its prompt and its batch and context sizes agree."""
+    plain = _plain_stream(drama, engine_name, model)
+    if plain:
+        remembered = _without_untouched_defaults(remembered, is_novel, engine_name, model)
+    return remembered, get_translate_config_defaults(is_novel, engine_name, model, plain)
+
+
 def get_translate_config(drama_id: int) -> dict:
     drama = ownership_service.require_drama(drama_id)
     is_novel = drama.get("content_mode") == "novel_narration"
@@ -560,10 +571,7 @@ def _resolve_run_options(drama, engine_name, model, style_preset, style_note, lo
             model = last["model"]
         except InvalidInputError:
             pass    # no longer offered: the engine's default
-    plain = _plain_stream(drama, engine_name, model)
-    if plain:
-        last = _without_untouched_defaults(last, is_novel, engine_name, model)
-    defaults = get_translate_config_defaults(is_novel, engine_name, model, plain)
+    last, defaults = remembered_and_defaults(drama, last, is_novel, engine_name, model)
     chosen_batch_size = batch_size if batch_size is not None else last.get("batch_size")
     context_window = last.get("context_window", defaults["context_window"]) if context_window is None else context_window
     context_window_ahead = (last.get("context_window_ahead", defaults["context_window_ahead"])

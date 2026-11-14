@@ -67,8 +67,8 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     start (ownership_service.acting_principal).
     memory_examples: add the series' approved translation-memory pairs closest
     to these lines to the prompt (off unless the Translate form asks).
-    engine_name/model: the run's engine; only a Translate run passes them, and the
-    plain stream prompt applies only to a Gemma 4 run (see plain_stream_prompt)."""
+    engine_name/model: the run's engine; only a Translate run and the Library batch pass
+    them, and the plain stream prompt applies only to a Gemma 4 run (see plain_stream_prompt)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
@@ -548,19 +548,23 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
     Returns whether it started."""
     from services import settings_service, translate_run_service
     engine_choice, engine = plan["engine_choice"], plan["engine"]
-    last = plan["last"]
+    model = getattr(engine, "model", None)
+    is_novel = drama.get("content_mode") == "novel_narration"
+    # The same engine and model decide the prompt and the sizes, so a plain stream
+    # prompt never runs with the full prompt's context and batch size.
+    last, defs = translate_run_service.remembered_and_defaults(
+        drama, plan["last"], is_novel, engine_choice, model)
     lines = core_module.lines_from_rows(rows)
     # Must not always be "audio_drama" (wrong for a novel-narration
     # drama): same per-content-mode default the shared
     # translate-finishing helper uses.
-    is_novel = drama.get("content_mode") == "novel_narration"
     style_preset = last.get("style_preset") or ("novel" if is_novel else "audio_drama")
     style_note = last.get("style_note", default_style_note)
     locale = default_locale if locale_is_explicit else last.get("locale", default_locale)
     glossary_terms, style_guidelines, _ = build_run_style_context(
         did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns, principal=principal)
-    defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
+        default_female_pronouns=default_female_pronouns, principal=principal,
+        engine_name=engine_choice, model=model)
     defs = {k: last.get(k, v) for k, v in defs.items()}
     novel_reference = novel_files_service.read_reference_text(did, drama)
 
@@ -581,13 +585,12 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
             # Only a local Ollama model loads onto this PC's GPU; an Ollama
             # cloud tag is remote and must not queue behind GPU jobs. The
             # guard stops a local one running alongside another GPU job.
-            gpu_touching=engine_local.ollama_touches_local_gpu(
-                engine_choice, getattr(engine, "model", None)),
+            gpu_touching=engine_local.ollama_touches_local_gpu(engine_choice, model),
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
             run_settings=run_settings_service.for_translate(
                 drama, include_genre_notes, default_female_pronouns, glossary_terms,
                 style_guidelines, style_note, engine=engine_choice,
-                model=getattr(engine, "model", None), locale=locale,
+                model=model, locale=locale,
                 style_preset=style_preset, force_retranslate=False, **defs),
                 line_fields=("en", "flag", "flag_note"))
     except ConflictError:
