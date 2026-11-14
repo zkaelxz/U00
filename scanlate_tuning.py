@@ -90,6 +90,15 @@ CLASSIFY_BALLOON_FILL = 0.5
 SFX_MAX_CHARS = 12
 SFX_MAX_LINES = 2
 
+# --- Narration box trim (scanlate_regions.trim_to_lettering) ---
+# A caption box the detector stretched over a watermark is cut back to the
+# lettering when the lettering sits off-centre by this share of the box width.
+TRIM_OFF_CENTRE = 0.1
+# Ink is darker than the darkest shade plus this share of the way to the median.
+TRIM_INK_LEVEL = 0.25
+# Lettering columns closer than this share of the box height are one block.
+TRIM_BRIDGE = 0.25
+
 # --- Text direction (scanlate_regions.estimate_text_orientation) ---
 # Lettering this many times wider than tall is horizontal, as tall as wide
 # vertical; anything squarer goes by its widest gap.
