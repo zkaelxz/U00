@@ -64,6 +64,65 @@ def test_novel_files_keep_a_name_the_temp_cleanup_does_not_match(isolated_db, mo
     assert seen and not seen[0].endswith((".tmp", ".tmp.png"))
 
 
+def _held(winerror=5):
+    e = PermissionError(13, "Access is denied")
+    e.winerror = winerror
+    return e
+
+
+def _replace_failing(times, error):
+    """os.replace that raises `error` on its first `times` calls, then replaces."""
+    calls = []
+    real = os.replace
+
+    def fake(src, dst):
+        calls.append(src)
+        if len(calls) <= times:
+            raise error()
+        real(src, dst)
+    return fake, calls
+
+
+@pytest.fixture
+def on_windows(monkeypatch):
+    monkeypatch.setattr(aw, "_ON_WINDOWS", True)
+    monkeypatch.setattr(aw, "_REPLACE_DELAY", 0)
+
+
+@pytest.mark.parametrize("winerror", [5, 32])
+def test_replace_file_waits_while_windows_holds_the_target(tmp_path, monkeypatch, on_windows, winerror):
+    src, dst = tmp_path / "new", tmp_path / "out"
+    src.write_text("new")
+    dst.write_text("old")
+    fake, calls = _replace_failing(2, lambda: _held(winerror))
+    monkeypatch.setattr(aw.os, "replace", fake)
+    aw.replace_file(str(src), str(dst))
+    assert len(calls) == 3
+    assert dst.read_text() == "new" and not src.exists()
+
+
+def test_replace_file_gives_up_when_the_target_stays_held(tmp_path, monkeypatch, on_windows):
+    fake, calls = _replace_failing(10**6, _held)
+    monkeypatch.setattr(aw.os, "replace", fake)
+    with pytest.raises(PermissionError):
+        aw.replace_file(str(tmp_path / "a"), str(tmp_path / "b"))
+    assert len(calls) == aw._REPLACE_ATTEMPTS
+
+
+@pytest.mark.parametrize("windows, error", [
+    (False, _held),                                  # POSIX: a refusal is a real permission problem
+    (True, lambda: _held(winerror=1314)),            # Windows, but not a held file
+    (True, lambda: FileNotFoundError(2, "gone")),
+])
+def test_replace_file_raises_other_errors_at_once(tmp_path, monkeypatch, windows, error):
+    monkeypatch.setattr(aw, "_ON_WINDOWS", windows)
+    fake, calls = _replace_failing(10**6, error)
+    monkeypatch.setattr(aw.os, "replace", fake)
+    with pytest.raises(OSError):
+        aw.replace_file(str(tmp_path / "a"), str(tmp_path / "b"))
+    assert len(calls) == 1
+
+
 def test_a_bare_filename_writes_into_the_current_folder(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     aw.atomic_write("bare.txt", "x")

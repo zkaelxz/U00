@@ -229,3 +229,30 @@ describe('typing in Search with an unsaved draft', () => {
     expect(patchLine).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('a gap line filled under an open draft', () => {
+  it('keeps what was typed over the filled text once the line reloads', async () => {
+    const blank = line(1, { zh: '' })
+    const { ctl, st, setStatus } = controller({ ...editing(blank, 'en 1'), draft: { ...draftFromLine(blank), zh: '我打的' } })
+    ctl.afterWrite([1], true)
+    expect(st.current.edit?.rebaseOnLoad).toBe(true)
+    const filled = line(1, { zh: '听到的' })
+    await ctl.rebaseKept([filled])
+    const after = st.current.edit
+    expect(after?.base).toBe(filled)
+    expect(after?.draft.zh).toBe('我打的')
+    expect(after?.keepTyping).toBe(false)
+    expect(setStatus).not.toHaveBeenCalled()
+  })
+
+  it('still closes a clean edit, and a plain write still lets a clash show the other change', async () => {
+    const blank = line(1, { zh: '' })
+    const clean = controller(editing(blank, 'en 1'))
+    clean.ctl.afterWrite([1], true)
+    expect(clean.st.current.edit).toBeNull()
+
+    const plain = controller({ ...editing(blank, 'en 1'), draft: { ...draftFromLine(blank), zh: '我打的' }, rebaseOnLoad: true })
+    await plain.ctl.rebaseKept([line(1, { zh: '听到的' })])
+    expect(plain.st.current.edit?.draft.zh).toBe('听到的')
+  })
+})
