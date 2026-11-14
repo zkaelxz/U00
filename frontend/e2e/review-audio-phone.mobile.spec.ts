@@ -31,16 +31,27 @@ test('phone: no blank caption card and the filter chips are not clipped', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('phone: the floating player opens above the line bar, so Prev and Next stay tappable', async ({ page }) => {
-  // Phones have no always-on-top window, so Pop out floats the player in the page.
-  await page.addInitScript(() => Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined }))
-  await page.goto('/#/drama/3/review')
-  await page.getByRole('button', { name: 'Pop out' }).tap()
-  const box = (await page.getByRole('group', { name: 'Floating player' }).boundingBox())!
-  const bar = (await page.getByRole('toolbar', { name: 'Line actions' }).boundingBox())!
-  expect(box.y + box.height).toBeLessThanOrEqual(bar.y)
-  await page.getByRole('toolbar', { name: 'Line actions' }).getByRole('button', { name: /Next/ }).tap()
-})
+for (const view of ['full', 'simple'] as const) {
+  test(`phone, ${view} view: the floating player opens above the line bar, so its buttons stay tappable`, async ({ page }) => {
+    // Phones have no always-on-top window, so Pop out floats the player in the page.
+    await page.addInitScript((view) => {
+      Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined })
+      localStorage.setItem('baihe.pref.title.view', JSON.stringify(view))
+    }, view)
+    // A flagged line puts Simple view's check queue on screen, whose bar has taller two-line buttons.
+    execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
+from core import Line
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+db.save_lines(3, [Line(idx=i, start=i + 1, end=i + 2, zh='一', en='Line %d' % i, flag='uncertain' if i == 2 else '') for i in range(6)])
+`], { cwd: repoRoot })
+    await page.goto('/#/drama/3/review')
+    await page.getByRole('button', { name: 'Pop out' }).tap()
+    const bar = page.getByRole('toolbar', { name: 'Line actions' })
+    const box = (await page.getByRole('group', { name: 'Floating player' }).boundingBox())!
+    expect(box.y + box.height).toBeLessThanOrEqual((await bar.boundingBox())!.y)
+    await bar.getByRole('button').last().tap({ trial: true })
+  })
+}
 
 test('phone: when the filter chips scroll, the row fades at the edge they continue past', async ({ page }) => {
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
