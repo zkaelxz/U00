@@ -19,7 +19,8 @@ import scanlate_tilt
 import scanlate_tuning
 from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import (
-    erase_box, InpaintModelUnavailable, background_is_dark, inpaint_region, lama_ml_weights_cached,
+    erase_box, InpaintModelUnavailable, background_is_dark, inpaint_region, is_art_mistaken_for_sign,
+    lama_ml_weights_cached,
 )
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 from scanlate_watermark import is_site_mark_region, logo_box
@@ -890,6 +891,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         # style (scanlate_art_text); bubbles keep the balloon path below.
         captions = [b for b in to_render if b.get("kind") == "caption"]
         to_render = [b for b in to_render if b.get("kind") != "caption"]
+        to_render, art_signs = _split_art_signs(page, to_render)
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
         caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
                           for b, s in zip(captions, caption_styles)]
@@ -914,9 +916,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
                          rect_layout, look, angles, fades)
-        for b in bubbles:
-            if scanlate_sfx.is_glossed(b):
-                scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
+        _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
         pil_img.save(result_path, "PNG")
         os.replace(result_path, out_path)
     finally:
@@ -1008,6 +1008,38 @@ def _dark_under(gray, box: dict, shape) -> "np.ndarray":
     if x1 > x0 and y1 > y0:
         dark[y0 - box["y"]:y1 - box["y"], x0 - box["x"]:x1 - box["x"]] = gray[y0:y1, x0:x1] < _DARK_GRAY
     return dark
+
+
+def _split_art_signs(page, regions: list):
+    """(regions to erase and letter, regions that are art mistaken for signs). The art is
+    not erased: its translation is set beside it, as a sound effect's is."""
+    if not any(b.get("kind") == "sign" for b in regions):
+        return regions, []
+    import cv2
+    gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
+    art = [b for b in regions if is_art_mistaken_for_sign(gray, b)]
+    return [b for b in regions if not any(b is a for a in art)], art
+
+
+def _draw_glosses(pil_img, page, bubbles: list, art_signs: list, font_path) -> None:
+    """Sets beside each left-as-is sound effect its translation, and the same for each art
+    sign, inside its panel and clear of every other region, whose lettering is still there."""
+    for b in bubbles:
+        if scanlate_sfx.is_glossed(b):
+            scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
+    if not art_signs:
+        return
+    from scanlate_detect import detect_panels
+    from scanlate_regions import _panel_for_box
+    try:
+        panels = detect_panels("", image=page)
+    except ValueError:
+        panels = []
+    for a in art_signs:
+        index = _panel_for_box(a, panels)
+        scanlate_sfx.draw_gloss(pil_img, a, font_path=font_path,
+                                avoid=tuple(b for b in bubbles if b is not a),
+                                bounds=panels[index] if index is not None else None)
 
 
 def _fill_balloon(pil_img, box: dict, mask, share: float) -> None:
