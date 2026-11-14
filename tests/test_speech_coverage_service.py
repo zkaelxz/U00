@@ -61,6 +61,14 @@ class TestFindGaps:
         assert gaps[10.0]["raw_text"] == "谢谢观看 谢谢观看"
         assert gaps[0.0]["raw_status"] == "none" and gaps[0.0]["filter_reasons"] == []
 
+    def test_a_reason_is_listed_once_and_a_malformed_one_drops_the_record(self):
+        dropped = [{"start": 10.0, "end": 12.0, "text": "a", "reason": None},
+                   {"start": 12.0, "end": 14.0, "text": "b", "reason": ""},
+                   {"start": 12.0, "end": 14.0, "text": "c", "reason": ["repeat"]}]
+        kept = [d for d in dropped if svc._is_drop(d)]
+        gap = svc.find_gaps([(10.0, 15.0)], [], [], 2.0, kept)["gaps"][0]
+        assert gap["filter_reasons"] == [""] and gap["raw_text"] == "a b"
+
     def test_text_still_in_the_transcript_wins_over_a_drop_record(self):
         gap = svc.find_gaps([(10.0, 15.0)], [], [{"start": 10.0, "end": 14.0, "text": "你好"}], 2.0,
                             [{"start": 10.0, "end": 14.0, "text": "x", "reason": "repeat"}])["gaps"][0]
@@ -159,6 +167,16 @@ class TestJob:
         gap = status["result"]["gaps"][0]
         assert gap["raw_status"] == "filtered"
         assert gap["filter_reasons"] == ["stock_phrase"] and gap["raw_text"] == "Thanks for watching"
+
+    @pytest.mark.parametrize("listed", [5, {"start": 1.0}, "repeat"])
+    def test_a_dropped_entry_that_is_not_a_list_is_ignored(self, isolated_db, drama, fake_audio,
+                                                           monkeypatch, listed):
+        monkeypatch.setattr(svc.raw_transcript, "load_latest",
+                            lambda folder: {"segments": [], "dropped": listed})
+        svc.start_speech_coverage(drama, min_gap_seconds=2.0)
+        status = _wait(drama)
+        assert status["status"] == "done", status["message"]
+        assert all(g["filter_reasons"] == [] for g in status["result"]["gaps"])
 
     def test_unreadable_audio_fails_softly(self, isolated_db, drama, monkeypatch):
         monkeypatch.setattr(svc, "_audio_seconds", lambda path: None)

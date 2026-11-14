@@ -105,7 +105,8 @@ def _raw_text_in(segments, start: float, end: float) -> str:
 
 
 def _is_drop(d) -> bool:
-    return (isinstance(d, dict) and isinstance(d.get("text"), str) and all(
+    return (isinstance(d, dict) and isinstance(d.get("text"), str)
+            and isinstance(d.get("reason", ""), (str, type(None))) and all(
         isinstance(d.get(k), (int, float)) and not isinstance(d.get(k), bool) for k in ("start", "end")))
 
 
@@ -113,8 +114,9 @@ def _drop_reasons_in(dropped, start: float, end: float) -> list:
     reasons = []
     for d in dropped:
         overlap = min(end, float(d["end"])) - max(start, float(d["start"]))
-        if overlap > RAW_OVERLAP_SECONDS and d.get("reason") not in reasons:
-            reasons.append(d.get("reason") or "")
+        reason = d.get("reason") or ""
+        if overlap > RAW_OVERLAP_SECONDS and reason not in reasons:
+            reasons.append(reason)
     return reasons
 
 
@@ -245,7 +247,8 @@ def _run_job(job_id: str, drama_id: int, audio_path: str, min_gap_seconds: float
     spans, total = scanned
     raw = raw_transcript.load_latest(db.drama_dir(drama_id))
     segments = raw.get("segments") or [] if raw else None
-    dropped = [d for d in (raw.get("dropped") or []) if _is_drop(d)] if raw else []
+    listed = raw.get("dropped") if raw else None
+    dropped = [d for d in listed if _is_drop(d)] if isinstance(listed, list) else []
     report = find_gaps(spans, db.load_line_objects(drama_id), segments, min_gap_seconds, dropped)
     report.update({"audio_seconds": round(total, 1), "vad_threshold": _vad_threshold(),
                    "min_gap_seconds": min_gap_seconds})
