@@ -7,7 +7,7 @@ import pytest
 import db
 from core import Line
 from lib.errors import ConflictError, NotFoundError
-from services import drama_service, title_copy_service as tcs
+from services import drama_service, ownership_service, title_copy_service as tcs
 
 
 def _source(isolated_db):
@@ -43,14 +43,8 @@ def test_copy_has_own_rows_and_files(isolated_db):
     assert not os.path.samefile(new_file, os.path.join(db.DRAMAS_DIR, str(did), "a.mp3"))
 
 
-def test_copy_is_outside_the_series_and_without_media_until_complete(isolated_db, monkeypatch):
-    did, _ = _source(isolated_db)
-    seen = []
+def _snapshot_during_copy(monkeypatch, snapshot):
     real_folder, real_rows = tcs._copy_folder, tcs._copy_rows
-
-    def snapshot(new_id):
-        row = db.get_drama(new_id)
-        seen.append((row["series_id"], row["audio_filename"], row["source_video_filename"]))
 
     def folder(source_id, new_id):
         snapshot(new_id)
@@ -61,8 +55,38 @@ def test_copy_is_outside_the_series_and_without_media_until_complete(isolated_db
         real_rows(conn, source_id, new_id)
     monkeypatch.setattr(tcs, "_copy_folder", folder)
     monkeypatch.setattr(tcs, "_copy_rows", rows)
+
+
+def test_copy_is_in_the_series_without_media_until_complete(isolated_db, monkeypatch):
+    did, series = _source(isolated_db)
+    seen = []
+
+    def snapshot(new_id):
+        row = db.get_drama(new_id)
+        seen.append((row["series_id"], row["audio_filename"], row["source_video_filename"]))
+    _snapshot_during_copy(monkeypatch, snapshot)
     tcs.duplicate_title(did)
-    assert seen == [(None, None, None), (None, None, None)]
+    assert seen == [(series, None, None), (series, None, None)]
+
+
+def test_copy_in_a_private_series_is_hidden_from_other_members_during_the_copy(
+        isolated_db, monkeypatch):
+    a_id = db.auth_create_user("a@example.com")
+    b_id = db.auth_create_user("b@example.com")
+    a = {"user_id": a_id, "is_admin": False, "is_local_owner": False, "admin_override": False}
+    b = {"user_id": b_id, "is_admin": False, "is_local_owner": False, "admin_override": False}
+    ownership_service.set_share_by_default(a, True)
+    series = db.create_series("Mine", owner_user_id=a_id, is_private=True)
+    did = db.create_drama(title_en="Show", audio_filename="a.mp3", series_id=series,
+                          owner_user_id=a_id)
+    with open(os.path.join(db.drama_dir(did), "a.mp3"), "wb") as f:
+        f.write(b"audio-bytes")
+    seen = []
+    _snapshot_during_copy(monkeypatch, lambda new_id: seen.append(
+        (ownership_service.can_see_drama(a, new_id), ownership_service.can_see_drama(b, new_id))))
+    new_id = tcs.duplicate_title(did, principal=a)["id"]
+    assert seen == [(True, False), (True, False)]
+    assert not ownership_service.can_see_drama(b, new_id)
 
 
 def test_finished_copy_keeps_series_and_media_names(isolated_db):

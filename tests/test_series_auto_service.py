@@ -225,6 +225,14 @@ def test_a_test_copy_is_never_queued(jobs):
     assert {d for d, *_ in _auto_steps()} == {e3}
 
 
+def test_a_tag_that_only_contains_the_copy_tag_is_still_queued(jobs):
+    sid, (e1, _e2, _e3) = _series()
+    db.update_drama(e1, custom_tags="Test copy 2, Hot")
+    _on(sid)
+    auto.scan()
+    assert {d for d, *_ in _auto_steps()} == {e1}
+
+
 def test_inputs_and_state_rules():
     for bad in (0, -1, True, "5", 5000):
         with pytest.raises(InvalidInputError):

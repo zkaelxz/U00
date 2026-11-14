@@ -22,7 +22,8 @@ _NOT_COPIED = ("id", "created_at", "updated_at", "notion_page_id", "source_url",
 # at a line id (notes, emotions, reading history) are left out.
 _CHILD_TABLES = ("lines", "characters", "pages")
 # Written only once the files and rows are in: a series title with media and
-# no lines is what series auto-run queues paid runs on.
+# no lines is what series auto-run queues paid runs on. The series itself is
+# set at create, so a copy in a private series is never visible outside it.
 _SET_WHEN_COMPLETE = ("audio_filename", "source_video_filename")
 
 
@@ -110,8 +111,10 @@ def duplicate_title(source_id: int, principal=None) -> dict:
     source = dict(row)
     fields = {k: v for k, v in source.items() if k not in _NOT_COPIED}
     fields.update(owned, title_en=_copy_name(source), custom_tags=_tags(source))
+    series_id = _series_for_copy(principal, source, owned["owner_user_id"])
+    if series_id is not None:
+        fields["series_id"] = series_id
     finish = {k: fields.pop(k, None) for k in _SET_WHEN_COMPLETE}
-    finish["series_id"] = _series_for_copy(principal, source, owned["owner_user_id"])
     try:
         new_id = db.create_drama(**fields)
     except db.DramaFolderConflict as exc:
