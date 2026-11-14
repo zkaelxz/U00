@@ -374,7 +374,7 @@ test('after a reload whose list failed, the next reload asks no count until its 
   await settle(page)
   expect(mock.asked.slice(before)).toEqual([])
   list.open()
-  await expect(shelf.getByRole('link', { name: 'Watch: Signal', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
+  await expect(shelf.getByRole('link', { name: 'Watch: Signal', exact: true })).toHaveAttribute('href', '#/watch/3')
   await settle(page)
   expect(mock.asked.slice(before)).not.toContain(3)
 })

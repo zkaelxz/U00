@@ -172,6 +172,18 @@ test('the library detail panel links to the reader', async ({ page }) => {
   await expect(label(page)).toHaveText('Page 1 of 3')
 })
 
+test('a title with a video to play has the Watch / listen fold, closed until it is opened', async ({ page }) => {
+  await page.route('**/api/reader/dramas/2/media', (r) => r.fulfill({ json: { original: 'video', narration: false, caption_tracks: [] } }))
+  const player = page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Watch / listen' }) })
+  await page.goto('/#/read/2')
+  await expect(label(page)).toHaveText('Page 1 of 3')
+  await expect(player).toHaveCount(1)
+  await expect(player).not.toHaveAttribute('open')
+  await player.locator('summary').click()
+  await expect(player).toHaveAttribute('open', '')
+  await expect(player.locator('video')).toBeVisible()
+})
+
 test('a Reading history name resumes reading', async ({ page }) => {
   python('db.save_progress(2, last_line_idx=45, last_page=2, percent_complete=51.1)')
   await page.goto('/#/library-tools?tab=activity')

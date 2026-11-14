@@ -6,8 +6,8 @@ import { buttonClass } from '../../components/uiClasses'
 import type { ReviewLine } from '../../types/review'
 import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, fieldKey, lineHeading, type LineFix } from './watchLogic'
 
-export const NOW_HINT = 'Press play. The line being spoken shows here.'
-export const NO_ENGLISH = 'No English yet'
+const NOW_HINT = 'Press play. The line being spoken shows here.'
+const NO_ENGLISH = 'No English yet'
 
 export interface NowCardProps {
   /** The open fix's line while one is open, else the line being spoken (null before the first). */
@@ -25,16 +25,19 @@ export interface NowCardProps {
   onCancel: () => void
   onAgain: () => void
   fixButtonRef?: Ref<HTMLButtonElement>
+  fieldRef?: Ref<HTMLTextAreaElement>
+  /** The card itself takes focus after Save and play, so Space goes to the player rather than to a button. */
+  cardRef?: Ref<HTMLElement>
 }
 
 // No hooks here, so a test can call it and press what it returns without a browser.
-export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, fixButtonRef }: NowCardProps) {
+export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
   const again = (
     <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy}>Hear it again</button>
   )
   const english = line?.en ?? ''
   return (
-    <section className="card watch-now" aria-label="Line being spoken">
+    <section className="card watch-now" aria-label="Line being spoken" tabIndex={-1} ref={cardRef}>
       {line ? (
         <>
           <p className="watch-now-meta" data-testid="watch-now-meta">{lineHeading(line)}</p>
@@ -46,6 +49,14 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                 e.preventDefault()
                 if (!busy) onSave()
               }}
+              // On the form, so Esc cancels from Save and play, Cancel and Hear it again too, not only from the box.
+              onKeyDown={(e) => {
+                const k = fieldKey(e)
+                if (!k || busy) return
+                e.preventDefault()
+                if (k === 'save') onSave()
+                else onCancel()
+              }}
             >
               <label className="watch-now-label" htmlFor="watch-now-field">English</label>
               <textarea
@@ -55,15 +66,12 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                 lang="en"
                 rows={3}
                 autoFocus
+                ref={fieldRef}
+                // Read-only rather than disabled while saving: it keeps focus, and nothing typed then is lost when the
+                // save comes back and puts back the draft it sent.
+                readOnly={busy}
                 value={fix.draft}
                 onChange={(e) => onDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  const k = fieldKey(e)
-                  if (!k || busy) return
-                  e.preventDefault()
-                  if (k === 'save') onSave()
-                  else onCancel()
-                }}
               />
               <div className="watch-now-actions">
                 <button type="submit" className={buttonClass('primary')} disabled={busy} aria-keyshortcuts="Control+Enter" title="Save and play (Ctrl+Enter)">

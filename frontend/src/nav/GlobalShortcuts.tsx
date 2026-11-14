@@ -26,10 +26,11 @@ const COMIC_KEYS: [string, string][] = [
 ]
 
 const WATCH_KEYS: [string, string][] = [
-  ['Space', 'Play / pause'],
+  ['Space or Alt+Space', 'Play or pause'],
   ['← / →', 'Back / forward 5 seconds (Shift: 1 second)'],
   ['F', 'Full screen (video, with the picture focused)'],
   ['↑ / ↓', 'Previous / next line'],
+  ['L', 'Loop line on or off'],
   ['E', 'Fix the line being spoken'],
   ['Ctrl/⌘+Enter', 'Save and play'],
   ['Esc', 'Cancel the fix'],

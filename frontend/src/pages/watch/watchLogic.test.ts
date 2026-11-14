@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { ReviewLine } from '../../types/review'
+import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
-  clockTenths, currentLine, fieldKey, kindBadge, lineHeading, nearestScroll, openFix, positionKey, resumePoint, rowMeta,
-  saveFix, spokenOrder, stepIndex, watchKey, watchVerb,
+  clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
+  lineHeading, lineToFix, openFix, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, spokenOrder,
+  stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 
 const line = (id: number, start: number, end: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -64,18 +66,60 @@ describe('resumePoint', () => {
 })
 
 describe('stepIndex', () => {
+  const at = (...starts: number[]) => starts.map((s, i) => line(i + 1, s, s + 1))
+  // Up or Down as the page does it: seek to the line's start, and the current line is whatever is under the playhead.
+  const press = (ordered: ReviewLine[], from: number, step: 1 | -1) => {
+    const to = stepIndex(ordered, from, step)
+    return to === null ? null : ordered.indexOf(currentLine(ordered, ordered[to].start)!)
+  }
   it('moves to the previous and next line', () => {
-    expect(stepIndex(1, 1, 3)).toBe(2)
-    expect(stepIndex(1, -1, 3)).toBe(0)
+    expect(stepIndex(lines, 1, 1)).toBe(2)
+    expect(stepIndex(lines, 1, -1)).toBe(0)
   })
   it('stays on the first and the last line', () => {
-    expect(stepIndex(0, -1, 3)).toBe(0)
-    expect(stepIndex(2, 1, 3)).toBe(2)
+    expect(stepIndex(lines, 0, -1)).toBe(0)
+    expect(stepIndex(lines, 2, 1)).toBe(2)
   })
   it('goes to the first line from before it, and nowhere without lines', () => {
-    expect(stepIndex(null, 1, 3)).toBe(0)
-    expect(stepIndex(null, -1, 3)).toBe(0)
-    expect(stepIndex(null, 1, 0)).toBeNull()
+    expect(stepIndex(lines, null, 1)).toBe(0)
+    expect(stepIndex(lines, null, -1)).toBe(0)
+    expect(stepIndex([], null, 1)).toBeNull()
+  })
+  it('steps back past a pair that starts together in the middle, instead of landing on the later one again', () => {
+    const pair = at(0, 2, 4, 4 + START_SLACK_S / 2, 6)
+    // The later of the two is the current line from the pair's start.
+    expect(currentLine(pair, 4)?.id).toBe(4)
+    expect(press(pair, 4, -1)).toBe(3)
+    expect(press(pair, 3, -1)).toBe(1)
+    expect(press(pair, 1, -1)).toBe(0)
+    expect(press(pair, 1, 1)).toBe(3)
+  })
+  it('stays put on a pair that starts together at the very start', () => {
+    const pair = at(0, 0, 2)
+    expect(currentLine(pair, 0)?.id).toBe(2)
+    expect(press(pair, 2, -1)).toBe(1)
+    expect(stepIndex(pair, 1, -1)).toBe(1)
+  })
+  it('steps back past three lines that start together', () => {
+    const three = at(0, 5, 5.01, 5.02, 8)
+    expect(press(three, 4, -1)).toBe(3)
+    expect(press(three, 3, -1)).toBe(0)
+    expect(press(three, 0, 1)).toBe(3)
+  })
+  it('tells lines apart that start just more than the slack apart', () => {
+    const near = at(0, 4, 4 + START_SLACK_S * 2)
+    expect(press(near, 2, -1)).toBe(1)
+  })
+})
+
+describe('lineToFix', () => {
+  it('takes the line under the playhead at the moment of the press, not the one last drawn', () => {
+    expect(lineToFix(lines, 6.2, lines[1])?.id).toBe(3)
+    expect(lineToFix(lines, 0.5, lines[1])).toBeNull()
+  })
+  it('takes the drawn line when there is no playhead', () => {
+    expect(lineToFix(lines, null, lines[1])?.id).toBe(2)
+    expect(lineToFix(lines, null, null)).toBeNull()
   })
 })
 
@@ -88,14 +132,16 @@ describe('labels', () => {
   })
   it('names the line by its 1-based number', () => {
     const l = line(24, 62.5, 64)
-    expect(lineHeading(l)).toBe('Line 24 · 1:02.5')
-    expect(rowMeta(l)).toBe('24 · 1:02.5')
+    expect(lineHeading(l)).toBe('Line #24 · 1:02.5')
+    expect(rowMeta(l)).toBe('#24 · 1:02.5')
   })
-  it('says the kind and the languages from the shared labels', () => {
-    expect(kindBadge('audio_drama', 'zh')).toBe('Audio drama · Chinese to English')
-    expect(kindBadge('video_drama', 'ko')).toBe('Video drama · Korean to English')
-    expect(kindBadge(null, 'ja')).toBe('Japanese to English')
-    expect(kindBadge('anime', null)).toBe('Anime')
+  it('says the kind and the languages from the shared labels, and nothing when it knows neither', () => {
+    expect(titleKindAndLanguages('audio_drama', 'zh')).toBe('Audio drama · Chinese to English')
+    expect(titleKindAndLanguages('video_drama', 'ko')).toBe('Video drama · Korean to English')
+    expect(titleKindAndLanguages(null, 'ja')).toBe('Japanese to English')
+    expect(titleKindAndLanguages('anime', null)).toBe('Anime')
+    expect(titleKindAndLanguages(null, null)).toBe('')
+    expect(titleKindAndLanguages('', '')).toBe('')
   })
   it('calls the page Watch for video and Listen for audio', () => {
     expect(watchVerb('video', 'audio')).toBe('Watch')
@@ -108,15 +154,25 @@ describe('labels', () => {
 describe('keys', () => {
   const body = { closest: () => null }
   const slider = { closest: (s: string) => (s.includes('[role="slider"]') ? {} : null) }
-  it('E fixes the line, Up and Down move between lines', () => {
+  const field = { closest: (s: string) => (s.includes('textarea') ? {} : null) }
+  it('E fixes the line, Up and Down move between lines, L turns Loop line on or off', () => {
     expect(watchKey('e', body)).toBe('fix')
     expect(watchKey('arrowup', body)).toBe('prev')
     expect(watchKey('arrowdown', body)).toBe('next')
+    expect(watchKey('l', body)).toBe('loop')
     expect(watchKey('j', body)).toBeNull()
     expect(watchKey(' ', body)).toBeNull()
   })
   it('leaves controls that use those keys themselves alone', () => {
     expect(watchKey('arrowdown', slider)).toBeNull()
+    expect(watchKey('l', field)).toBeNull()
+    expect(watchKey('e', field)).toBeNull()
+  })
+  it('Alt+Space plays or pauses from anywhere, the fix field and a slider included', () => {
+    expect(watchKey('alt+ ', body)).toBe('play')
+    expect(watchKey('alt+ ', field)).toBe('play')
+    expect(watchKey('alt+ ', slider)).toBe('play')
+    expect(watchKey('alt+l', body)).toBeNull()
   })
   it('saves on Ctrl+Enter or Cmd+Enter and cancels on Esc inside the field', () => {
     const k = { ctrlKey: false, metaKey: false, altKey: false }
@@ -170,16 +226,80 @@ describe('saveFix', () => {
   })
 })
 
-describe('nearestScroll', () => {
-  const box = { top: 100, bottom: 300 }
-  it('does not move a row that is in view', () => {
-    expect(nearestScroll({ top: 120, bottom: 160 }, box)).toBe(0)
+describe('the fix kept from being lost', () => {
+  const store = () => {
+    const m = new Map<string, string>()
+    return { m, getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }
+  }
+  it('is dirty only when Save would send something', () => {
+    expect(fixIsDirty(null)).toBe(false)
+    expect(fixIsDirty(openFix(lines[1]))).toBe(false)
+    expect(fixIsDirty({ ...openFix(lines[1]), draft: 'Mine' })).toBe(true)
+    expect(fixIsDirty({ ...openFix(lines[1]), draft: '' })).toBe(true)
   })
-  it('moves the list as little as it takes', () => {
-    expect(nearestScroll({ top: 80, bottom: 120 }, box)).toBe(-20)
-    expect(nearestScroll({ top: 290, bottom: 330 }, box)).toBe(30)
+  it('parks the line, the English seen and the draft per title, and reads them back', () => {
+    const s = store()
+    // A whole open fix is passed; only what is needed to open it again is kept.
+    const fix: LineFix = { ...openFix(lines[1]), draft: 'Mine', conflict: true, now: 'x', error: new Error('e') }
+    parkFix(3, fix, s)
+    expect([...s.m.keys()]).toEqual(['baihe.watch.draft.3'])
+    expect(readParkedFix(3, s)).toEqual({ lineId: 2, seen: 'en 2', draft: 'Mine' })
+    expect(readParkedFix(4, s)).toBeNull()
+    unparkFix(3, s)
+    expect(readParkedFix(3, s)).toBeNull()
   })
-  it('lines up a row taller than the list with its top', () => {
-    expect(nearestScroll({ top: 150, bottom: 400 }, box)).toBe(50)
+  it('drops anything under its key that is not a parked fix', () => {
+    for (const junk of ['not json', 'null', '{"lineId":"2","seen":"a","draft":"b"}', '{"lineId":2,"seen":"a"}']) {
+      const s = store()
+      s.setItem('baihe.watch.draft.3', junk)
+      expect(readParkedFix(3, s)).toBeNull()
+      expect(s.m.size).toBe(0)
+    }
+  })
+  it('does nothing without a store, or with one that throws', () => {
+    const throwing = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('full') }, removeItem: () => { throw new Error('blocked') } }
+    expect(() => parkFix(3, openFix(lines[1]), null)).not.toThrow()
+    expect(() => parkFix(3, openFix(lines[1]), throwing)).not.toThrow()
+    expect(readParkedFix(3, null)).toBeNull()
+    expect(readParkedFix(3, throwing)).toBeNull()
+  })
+  it('opens again measured against the English seen first, so a line changed since is refused on Save', () => {
+    expect(unparkedFix({ lineId: 2, seen: 'en 2', draft: 'Mine' })).toEqual({ lineId: 2, seen: 'en 2', draft: 'Mine', conflict: false, now: null, error: null })
+  })
+})
+
+describe('focusAfterFix', () => {
+  it('goes to the card after Save and play, so Space pauses instead of opening the fix again', () => {
+    expect(focusAfterFix('saved')).toBe('card')
+    expect(focusAfterFix('unchanged')).toBe('card')
+  })
+  it('goes back into the box after a refused save, and to Fix this line after Cancel', () => {
+    expect(focusAfterFix('conflict')).toBe('field')
+    expect(focusAfterFix('failed')).toBe('field')
+    expect(focusAfterFix('cancel')).toBe('fix-button')
+  })
+})
+
+describe('following the sound', () => {
+  const view = { height: 500, scrollTop: 1000, maxScroll: 3000 }
+  it('puts the spoken row\'s top part way down the list, so the coming lines show under it', () => {
+    expect(FOLLOW_AT).toBe(0.3)
+    // A row at the list's bottom edge comes up to 150px down.
+    expect(followScroll(480, view)).toBe(330)
+    expect(followScroll(-200, view)).toBe(-350)
+    expect(followScroll(150, view)).toBe(0)
+  })
+  it('stops at the list\'s ends', () => {
+    expect(followScroll(100, { ...view, scrollTop: 0 })).toBe(0)
+    expect(followScroll(-900, view)).toBe(-1000)
+    expect(followScroll(2000, { ...view, scrollTop: 2900 })).toBe(100)
+    expect(followScroll(300, { height: 500, scrollTop: 0, maxScroll: 0 })).toBe(0)
+  })
+  it('waits five seconds after the person last scrolled the list, and not without that', () => {
+    expect(FOLLOW_PAUSE_MS).toBe(5000)
+    expect(followPaused(null, 10_000)).toBe(false)
+    expect(followPaused(10_000, 10_000)).toBe(true)
+    expect(followPaused(10_000, 14_999)).toBe(true)
+    expect(followPaused(10_000, 15_000)).toBe(false)
   })
 })

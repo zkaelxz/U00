@@ -1,17 +1,17 @@
-// Pure helpers for the Watch page: which line is being spoken, where to pick up again, the page's keys and the
-// fix-this-line save.
+// Pure helpers for the Watch page: which line is being spoken, where to pick up again, the page's keys, following
+// the sound in the list, and the fix-this-line save with its parked copy.
 import { ApiError } from '../../api/client'
 import { languageLabel, mediaTypeLabel } from '../../labels'
 import { lineNumber } from '../../lineNumber'
 import type { LinePatch, ReviewLine } from '../../types/review'
 import type { TitleKind } from '../workspace/titleKind'
-import { activeIndex } from '../reader/readAlongLogic'
+import { activeIndex, START_SLACK_S } from '../reader/readAlongLogic'
 import { lineEditPatch } from '../reader/readerLineEdit'
 
 /** A position this close to the start is not worth offering to go back to. */
-export const RESUME_MIN_S = 5
+const RESUME_MIN_S = 5
 /** Nor one this close to the end: the viewer finished it. */
-export const RESUME_END_GAP_S = 10
+const RESUME_END_GAP_S = 10
 export const SAVE_EVERY_MS = 5000
 
 export const positionKey = (dramaId: number) => `watch.at.${dramaId}`
@@ -37,11 +37,22 @@ export function resumePoint(saved: number, duration: number): number | null {
   return saved <= duration - RESUME_END_GAP_S ? saved : null
 }
 
-/** The previous or next line's index; it stays on the first and the last, and before the first line both go to it. */
-export function stepIndex(current: number | null, step: 1 | -1, count: number): number | null {
-  if (count === 0) return null
+/** The previous or next line's index; it stays on the first and the last, and before the first line both go to it.
+ *  Back skips lines that start together with the current one: the current line is the last of such a group, so a seek
+ *  to an earlier one's start would land on the current line again. */
+export function stepIndex(ordered: readonly Pick<ReviewLine, 'start'>[], current: number | null, step: 1 | -1): number | null {
+  if (ordered.length === 0) return null
   if (current === null) return 0
-  return Math.min(count - 1, Math.max(0, current + step))
+  if (step === 1) return Math.min(ordered.length - 1, current + 1)
+  const from = ordered[current].start - START_SLACK_S
+  for (let i = current - 1; i >= 0; i--) if (ordered[i].start < from) return i
+  return current
+}
+
+/** The line a fix opens on: the one under the playhead at the moment of the press, not the one last drawn, which can
+ *  be a frame behind the sound; the drawn one only when there is no playhead. */
+export function lineToFix<T extends Timed>(ordered: readonly T[], playhead: number | null, drawn: T | null): T | null {
+  return playhead === null ? drawn : currentLine(ordered, playhead)
 }
 
 /** "1:02.5": a line start to the tenth of a second, which is as close as people place a line by ear. */
@@ -54,11 +65,12 @@ export function clockTenths(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
 }
 
-export const lineHeading = (l: Timed) => `Line ${lineNumber(l.idx)} · ${clockTenths(l.start)}`
-export const rowMeta = (l: Timed) => `${lineNumber(l.idx)} · ${clockTenths(l.start)}`
+export const lineHeading = (l: Timed) => `Line #${lineNumber(l.idx)} · ${clockTenths(l.start)}`
+export const rowMeta = (l: Timed) => `#${lineNumber(l.idx)} · ${clockTenths(l.start)}`
 
-/** "Audio drama · Chinese to English": the kind of title and its languages, from the shared labels. */
-export function kindBadge(mediaType: string | null | undefined, sourceLanguage: string | null | undefined): string {
+/** "Audio drama · Chinese to English": the kind of title and its languages, from the shared labels; empty when the
+ *  title has neither. */
+export function titleKindAndLanguages(mediaType: string | null | undefined, sourceLanguage: string | null | undefined): string {
   const languages = sourceLanguage ? `${languageLabel(sourceLanguage)} to ${languageLabel('en')}` : ''
   return [mediaTypeLabel(mediaType), languages].filter(Boolean).join(' · ')
 }
@@ -77,18 +89,21 @@ export function watchVerb(kind: TitleKind, original: 'video' | 'audio' | null | 
 // Controls that use the arrow keys or typed letters themselves.
 const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="listbox"], [role="combobox"]'
 
-export type WatchKey = 'fix' | 'prev' | 'next'
+export type WatchKey = 'fix' | 'prev' | 'next' | 'play' | 'loop'
 
-/** The page's own keys, from a useShortcut combo: E fixes the line, Up and Down move between lines. */
+/** The page's own keys, from a useShortcut combo: E fixes the line, Up and Down move between lines, L turns Loop line
+ *  on or off, and Alt+Space plays or pauses from anywhere, a button or the fix field included, as in Review. */
 export function watchKey(combo: string, target: { closest?: (selector: string) => unknown } | null): WatchKey | null {
+  if (combo === 'alt+ ') return 'play'
   if (target?.closest?.(OWN_KEYS)) return null
   if (combo === 'e') return 'fix'
+  if (combo === 'l') return 'loop'
   if (combo === 'arrowup') return 'prev'
   if (combo === 'arrowdown') return 'next'
   return null
 }
 
-/** Keys inside the fix field: Ctrl+Enter (Cmd+Enter on a Mac) saves, Esc cancels. */
+/** Keys inside the fix form: Ctrl+Enter (Cmd+Enter on a Mac) saves, Esc cancels. */
 export function fieldKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; isComposing?: boolean }): 'save' | 'cancel' | null {
   if (e.isComposing) return null
   if (e.key === 'Escape') return 'cancel'
@@ -112,6 +127,64 @@ export interface LineFix {
 
 export const openFix = (line: Pick<ReviewLine, 'id' | 'en'>): LineFix =>
   ({ lineId: line.id, seen: line.en, draft: line.en, conflict: false, now: null, error: null })
+
+/** Save would send something. */
+export const fixIsDirty = (fix: Pick<LineFix, 'seen' | 'draft'> | null): boolean => fix !== null && lineEditPatch(fix.seen, fix.draft) !== null
+
+/** Where focus goes when the fix box closes or a save comes back. After Save and play it goes to the card, so the
+ *  next Space pauses rather than pressing Fix this line again; after a refused save it goes back into the box, since
+ *  the button pressed was disabled while saving. */
+export function focusAfterFix(outcome: FixResult['kind'] | 'cancel'): 'card' | 'field' | 'fix-button' {
+  if (outcome === 'cancel') return 'fix-button'
+  return outcome === 'conflict' || outcome === 'failed' ? 'field' : 'card'
+}
+
+/** A dirty fix kept in this tab while the page is left, until its save is known to have gone through. */
+interface ParkedFix {
+  lineId: number
+  seen: string
+  draft: string
+}
+
+type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+const parkKey = (dramaId: number) => `baihe.watch.draft.${dramaId}`
+
+export function parkFix(dramaId: number, fix: ParkedFix, store: Store | null): void {
+  try {
+    store?.setItem(parkKey(dramaId), JSON.stringify({ lineId: fix.lineId, seen: fix.seen, draft: fix.draft }))
+  } catch {
+    // Storage full or blocked: the save sent on leaving is the only copy.
+  }
+}
+
+export function unparkFix(dramaId: number, store: Store | null): void {
+  try {
+    store?.removeItem(parkKey(dramaId))
+  } catch {
+    // Nothing to clear.
+  }
+}
+
+/** The parked fix for this title, or null; anything else under its key is dropped. */
+export function readParkedFix(dramaId: number, store: Store | null): ParkedFix | null {
+  try {
+    const raw = store?.getItem(parkKey(dramaId))
+    if (raw == null) return null
+    const p = JSON.parse(raw) as Partial<ParkedFix> | null
+    if (p && typeof p.lineId === 'number' && typeof p.seen === 'string' && typeof p.draft === 'string') {
+      return { lineId: p.lineId, seen: p.seen, draft: p.draft }
+    }
+  } catch {
+    // Unreadable: dropped below.
+  }
+  unparkFix(dramaId, store)
+  return null
+}
+
+/** A parked fix opened again: measured against the English that was seen when it was first opened, so a line
+ *  changed since is refused on Save and shown under It now says. */
+export const unparkedFix = (p: ParkedFix): LineFix => ({ ...openFix({ id: p.lineId, en: p.seen }), draft: p.draft })
 
 export type FixResult =
   | { kind: 'unchanged' }
@@ -145,10 +218,19 @@ export async function saveFix(fix: LineFix, deps: {
   }
 }
 
-/** How far to scroll a list so a row is fully inside it, moving as little as possible (0 when it already is). Done by
- *  hand rather than with scrollIntoView, which also scrolls the page when the list itself is partly off screen. */
-export function nearestScroll(row: { top: number; bottom: number }, box: { top: number; bottom: number }): number {
-  if (row.top < box.top) return row.top - box.top
-  if (row.bottom > box.bottom) return Math.min(row.bottom - box.bottom, row.top - box.top)
-  return 0
+/** How far down the list the spoken row's top is put, so several of the coming lines show under it. */
+export const FOLLOW_AT = 0.3
+/** Following waits this long after the person last scrolled the list themselves. */
+export const FOLLOW_PAUSE_MS = 5000
+
+/** How far to scroll the list so the row's top sits FOLLOW_AT down it, kept inside what the list can scroll (0 when
+ *  there is nothing to move). `rowOffset` is the row's top less the list's visible top. Done by hand rather than with
+ *  scrollIntoView, which also scrolls the page when the list itself is partly off screen. */
+export function followScroll(rowOffset: number, view: { height: number; scrollTop: number; maxScroll: number }): number {
+  const target = Math.min(Math.max(0, view.scrollTop + rowOffset - view.height * FOLLOW_AT), Math.max(0, view.maxScroll))
+  const delta = Math.round(target - view.scrollTop)
+  return Math.abs(delta) < 1 ? 0 : delta
 }
+
+/** Following is paused while the person's own scrolling of the list is recent. */
+export const followPaused = (scrolledAt: number | null, now: number): boolean => scrolledAt !== null && now - scrolledAt < FOLLOW_PAUSE_MS

@@ -31,6 +31,8 @@
 .watch-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 .watch-now { gap: var(--space-2); }
+/* Focused only by the page, after Save and play, so Space reaches the player; it is not a control to show a ring on. */
+.watch-now:focus { outline: none; }
 .watch-now > p, .watch-now-form { margin: 0; }
 .watch-now-meta { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
 .watch-now-zh { font-size: var(--text-lg); overflow-wrap: anywhere; }
@@ -58,8 +60,9 @@ textarea.watch-now-field { width: 100%; box-sizing: border-box; padding: var(--s
 .watch-lines-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
 .watch-lines-note { display: grid; gap: var(--space-2); }
 .watch-lines-note p { margin: 0; }
-/* Its own scroll area, so following the sound never scrolls the page. */
-.watch-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 2px; align-content: start; }
+/* Its own scroll area, so following the sound never scrolls the page. Under the player, a swipe that reaches the list's
+   end goes on to move the page as usual. */
+.watch-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; display: grid; gap: 2px; align-content: start; }
 .watch-row {
   display: grid; gap: 2px; width: 100%; min-height: 44px; box-sizing: border-box; padding: var(--space-2) var(--space-3);
   text-align: left; font: inherit; color: var(--text); background: transparent; border: 0; border-radius: var(--radius-sm);
@@ -78,7 +81,8 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
   .watch-layout { grid-template-columns: minmax(0, 1fr) 26rem; align-items: stretch; }
   .watch-side { position: relative; min-height: max(24rem, 62vh); }
   .watch-side > .watch-lines { position: absolute; inset: 0; display: flex; flex-direction: column; }
-  .watch-side .watch-list { flex: 1 1 auto; min-height: 0; max-height: none; }
+  /* Beside the player the list fills the column, so scrolling past its end must not move the page under it. */
+  .watch-side .watch-list { flex: 1 1 auto; min-height: 0; max-height: none; overscroll-behavior: contain; }
 }
 
 @media (pointer: coarse), (max-width: 640px) {

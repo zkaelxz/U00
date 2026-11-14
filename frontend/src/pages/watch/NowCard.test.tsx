@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { ReviewLine } from '../../types/review'
 import { NowCard, type NowCardProps } from './NowCard'
-import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, currentLine, openFix, saveFix, watchKey, type LineFix } from './watchLogic'
+import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, openFix, type LineFix } from './watchLogic'
 
 const line = (id: number, start: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start, end: start + 1.5, zh: `第${id}句`, en: `Line ${id}`, speaker: null, speaker_manual: false, sfx: false,
@@ -35,22 +35,10 @@ function find(node: ReactNode, match: (p: Props, type: unknown) => boolean): Rea
 }
 const byTestId = (tree: ReactNode, id: string) => find(tree, (p) => p['data-testid'] === id)
 const byText = (tree: ReactNode, text: string) => find(tree, (p, type) => type === 'button' && p.children === text)
+const byType = (tree: ReactNode, tag: string) => find(tree, (_p, type) => type === tag)
 
-// The page's own wiring, reduced to what the card asks of it: opening takes the line under the playhead at that
-// moment, and saving goes through saveFix.
-function page(time: () => number) {
-  let fix: LineFix | null = null
-  const pause = vi.fn()
-  return {
-    pause,
-    get fix() { return fix },
-    open: () => {
-      pause()
-      const l = currentLine(lines, time())
-      if (l) fix = openFix(l)
-    },
-  }
-}
+// A fix refused because the line changed, as saveFix leaves it (its own tests are in watchLogic.test.ts).
+const refusedFix = (now: string | null): LineFix => ({ ...openFix(lines[1]), seen: now ?? 'Line 2', draft: 'Mine', conflict: true, now })
 
 describe('NowCard', () => {
   it('asks for play before the first line, with no box', () => {
@@ -62,7 +50,7 @@ describe('NowCard', () => {
 
   it('shows the line number and start, the original in its language and the English in a field-like box', () => {
     const out = html(props())
-    expect(out).toContain('Line 2 · 0:04.0')
+    expect(out).toContain('Line #2 · 0:04.0')
     expect(out).toContain('<p class="watch-now-zh" lang="zh">第2句</p>')
     expect(out).toContain('>English<')
     expect(out).toMatch(/<button[^>]*class="watch-now-box"[^>]*>Line 2<\/button>/)
@@ -77,18 +65,16 @@ describe('NowCard', () => {
     expect(out).toContain('Fix this line')
   })
 
-  it('E, a click on the box and Fix this line open the field on the line current at that moment', () => {
-    expect(watchKey('e', { closest: () => null })).toBe('fix')
-    let t = 4.5
-    const p = page(() => t)
-    const tree = NowCard(props({ onOpen: p.open }))
-    t = 8.2 // the sound moved on after the card was drawn
-    ;(byTestId(tree, 'watch-now-box')!.props.onClick as () => void)()
-    expect(p.pause).toHaveBeenCalled()
-    expect(p.fix).toEqual({ lineId: 3, seen: 'Line 3', draft: 'Line 3', conflict: false, now: null, error: null })
+  it('a click on the box and Fix this line both ask the page to open the fix', () => {
     const onOpen = vi.fn()
-    ;(byText(NowCard(props({ onOpen })), 'Fix this line')!.props.onClick as () => void)()
-    expect(onOpen).toHaveBeenCalledOnce()
+    const tree = NowCard(props({ onOpen }))
+    ;(byTestId(tree, 'watch-now-box')!.props.onClick as () => void)()
+    ;(byText(tree, 'Fix this line')!.props.onClick as () => void)()
+    expect(onOpen).toHaveBeenCalledTimes(2)
+  })
+
+  it('can take focus as a whole, so Space after Save and play goes to the player', () => {
+    expect(html(props())).toMatch(/^<section class="card watch-now" aria-label="Line being spoken" tabindex="-1">/)
   })
 
   it('turns the box into a text field holding the draft, with Save and play and Cancel', () => {
@@ -100,52 +86,53 @@ describe('NowCard', () => {
     expect(out).not.toContain('watch-now-box')
   })
 
-  it('Ctrl+Enter saves and Esc cancels from the field', () => {
+  // Pressed on the form, so they work from Save and play, Cancel and Hear it again as well as from the box.
+  it('Ctrl+Enter saves and Esc cancels anywhere in the fix, not only in the box', () => {
     const onSave = vi.fn()
     const onCancel = vi.fn()
     const tree = NowCard(props({ fix: openFix(lines[1]), onSave, onCancel }))
-    const keyDown = byTestId(tree, 'watch-now-field')!.props.onKeyDown as (e: object) => void
-    const press = (e: object) => keyDown({ key: '', ctrlKey: false, metaKey: false, altKey: false, preventDefault: vi.fn(), ...e })
+    expect(byTestId(tree, 'watch-now-field')!.props.onKeyDown).toBeUndefined()
+    const keyDown = byType(tree, 'form')!.props.onKeyDown as (e: object) => void
+    const preventDefault = vi.fn()
+    const press = (e: object) => keyDown({ key: '', ctrlKey: false, metaKey: false, altKey: false, preventDefault, ...e })
     press({ key: 'Enter' })
     expect(onSave).not.toHaveBeenCalled()
+    expect(preventDefault).not.toHaveBeenCalled()
     press({ key: 'Enter', ctrlKey: true })
     expect(onSave).toHaveBeenCalledOnce()
     press({ key: 'Escape' })
     expect(onCancel).toHaveBeenCalledOnce()
+    expect(preventDefault).toHaveBeenCalledTimes(2)
   })
 
-  it('Save sends { en, expected: { en } }, and an unchanged text sends nothing', async () => {
-    const patch = vi.fn(async (_id: number, body: { en?: string }) => ({ ...lines[1], en: body.en ?? '' }))
-    await saveFix({ ...openFix(lines[1]), draft: 'Fixed' }, { patch, reload: vi.fn() })
-    expect(patch).toHaveBeenCalledWith(2, { en: 'Fixed', expected: { en: 'Line 2' } })
-    patch.mockClear()
-    expect(await saveFix(openFix(lines[1]), { patch, reload: vi.fn() })).toEqual({ kind: 'unchanged' })
-    expect(patch).not.toHaveBeenCalled()
+  it('while saving, the keys do nothing and the box is read-only, not disabled, so it keeps focus and nothing typed is lost', () => {
+    const onSave = vi.fn()
+    const onCancel = vi.fn()
+    const p = props({ fix: openFix(lines[1]), busy: true, onSave, onCancel })
+    const keyDown = byType(NowCard(p), 'form')!.props.onKeyDown as (e: object) => void
+    keyDown({ key: 'Escape', ctrlKey: false, metaKey: false, altKey: false, preventDefault: vi.fn() })
+    keyDown({ key: 'Enter', ctrlKey: true, metaKey: false, altKey: false, preventDefault: vi.fn() })
+    expect(onSave).not.toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
+    const field = html(p).match(/<textarea[^>]*>/)![0]
+    expect(field).toContain('readOnly=""')
+    expect(field).not.toContain('disabled')
+    expect(html(props({ fix: openFix(lines[1]) })).match(/<textarea[^>]*>/)![0]).not.toContain('readOnly')
   })
 
-  const refused = () => vi.fn(async () => { throw new ApiError(409, { code: 'conflict', message: 'Changed.' }, 'POST') })
-
-  it('a 409 reloads the lines, keeps the draft in the field and shows under the alert what the line says now', async () => {
-    const reload = vi.fn(async () => [lines[0], line(2, 4, { en: 'Theirs' }), lines[2]])
-    const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: refused(), reload })
-    expect(reload).toHaveBeenCalledOnce()
-    if (r.kind !== 'conflict') throw new Error(r.kind)
-    const out = html(props({ line: line(2, 4, { en: 'Theirs' }), fix: r.fix }))
+  it('a refused save keeps the draft in the field and shows under the alert what the line says now', () => {
+    const out = html(props({ line: line(2, 4, { en: 'Theirs' }), fix: refusedFix('Theirs') }))
     expect(out).toContain('>Mine</textarea>')
     expect(CONFLICT_TEXT).toBe('This line was changed while you were fixing it. What it says now is shown below, and your text is still in the box. Save again if it still needs your fix.')
     expect(out).toContain(`<p class="error" role="alert">${CONFLICT_TEXT}</p><div class="watch-now-theirs"><span class="watch-now-label">It now says</span><p class="watch-now-theirs-en" lang="en">Theirs</p></div>`)
   })
 
-  it('a 409 whose new English is empty says No English yet under It now says', async () => {
-    const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: refused(), reload: vi.fn(async () => [line(2, 4, { en: '' })]) })
-    if (r.kind !== 'conflict') throw new Error(r.kind)
-    expect(html(props({ fix: r.fix }))).toContain('<span class="watch-now-label">It now says</span><p class="watch-now-theirs-en is-empty">No English yet</p>')
+  it('a refused save whose line now has no English says No English yet under It now says', () => {
+    expect(html(props({ fix: refusedFix('') }))).toContain('<span class="watch-now-label">It now says</span><p class="watch-now-theirs-en is-empty">No English yet</p>')
   })
 
-  it('a 409 whose reload failed says the new text could not be loaded and shows nothing below', async () => {
-    const r = await saveFix({ ...openFix(lines[1]), draft: 'Mine' }, { patch: refused(), reload: vi.fn(async () => { throw new Error('offline') }) })
-    if (r.kind !== 'conflict') throw new Error(r.kind)
-    const out = html(props({ fix: r.fix }))
+  it('a refused save whose new text could not be read says so and shows nothing below', () => {
+    const out = html(props({ fix: refusedFix(null) }))
     expect(out).toContain('>Mine</textarea>')
     expect(CONFLICT_UNREAD_TEXT).toBe('This line was changed while you were fixing it, and its new text could not be loaded. Your text is still in the box. Try Save again in a moment.')
     expect(out).toContain(`<p class="error" role="alert">${CONFLICT_UNREAD_TEXT}</p>`)
@@ -156,7 +143,7 @@ describe('NowCard', () => {
   it('any other failure shows the usual error text and keeps the draft', () => {
     const error = new ApiError(500, { code: 'internal_error', message: 'Something went wrong.' }, 'POST')
     const out = html(props({ fix: { ...openFix(lines[1]), draft: 'Mine', error } }))
-    expect(out).toContain('role="alert"')
+    expect(out).toContain('<div class="banner error-banner" role="alert"><div><strong>Something went wrong inside Baihe. Details are in the app log.</strong></div></div>')
     expect(out).toContain('>Mine</textarea>')
   })
 
