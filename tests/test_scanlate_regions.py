@@ -797,3 +797,27 @@ def test_a_two_lobe_balloon_becomes_one_region_per_lobe():
     assert holds(upper, 103, 458, 340, 584) and holds(lower, 325, 640, 551, 769)
     assert not holds(upper, 325, 640, 551, 769) and not holds(lower, 103, 458, 340, 584)
     assert all(p["kind"] == "bubble" for p in parts)
+
+
+def _caption_page(stamp: bool):
+    """Pale frame with a dark lettering block left of centre and, optionally,
+    a faint watermark stamp near the right end of the box."""
+    page = np.full((200, 700), 235, np.uint8)
+    for row in range(40, 160, 30):
+        page[row:row + 18, 40:420] = 40
+    if stamp:
+        page[80:100, 500:640] = 120
+    return page
+
+
+def test_caption_box_over_a_watermark_is_cut_to_the_lettering():
+    box = {"x": 0, "y": 20, "w": 700, "h": 160}
+    out = scanlate_regions.trim_to_lettering(_caption_page(stamp=True), box)
+    assert out["x"] == 0 and 455 <= out["w"] <= 465
+    assert (out["y"], out["h"]) == (20, 160)
+
+
+def test_centred_caption_box_is_left_alone():
+    page = _caption_page(stamp=False)
+    box = {"x": 0, "y": 20, "w": 460, "h": 160}
+    assert scanlate_regions.trim_to_lettering(page, box) == box
