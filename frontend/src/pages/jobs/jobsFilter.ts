@@ -169,11 +169,11 @@ const PAGE_LINKS: Partial<Record<JobPage, { label: string; route: Route }>> = {
 /** Where a job's title and stage live. A job with no title links to the page the server says it belongs to, if any. */
 export function jobLinks(j: JobLike<'drama_id' | 'kind' | 'page'> & { job_id?: string }): JobLinks {
   if (j.drama_id == null) return { title: null, stage: j.page ? PAGE_LINKS[j.page] ?? null : null }
-  // A transcription comparison's results are in Review's History tab, not the Media stage.
+  // A transcription comparison's results are in Review's tools (Look for problems), not the Media stage.
   if (j.job_id?.startsWith('comparetx_')) {
     return {
       title: { name: 'drama', id: j.drama_id, stage: null },
-      stage: { label: STAGE_LABELS.review, route: { name: 'drama', id: j.drama_id, stage: 'review', tools: 'history', focus: 'compare' } },
+      stage: { label: STAGE_LABELS.review, route: { name: 'drama', id: j.drama_id, stage: 'review', tools: 'problems', focus: 'compare' } },
     }
   }
   const stage = j.kind ? STAGE_BY_KIND[j.kind] : undefined

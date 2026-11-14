@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { isSharedLink } from './shareTarget'
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
-import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
+import { reviewToolsGroupForLink, type ReviewToolsGroup } from './pages/workspace/stages/review/reviewToolsTabs'
 import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, type SourcesTab } from './pages/sources/manageTabs'
 import { asMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isTranslateTab, type TranslateTab } from './pages/workspace/translateTabs'
@@ -19,10 +19,10 @@ export type Route =
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
   // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
   // find: "#/drama/3/review?find=Li%20Wei" opens Review with that text already searched.
-  // tools: "#/drama/3/review?tools=coverage" opens that tab of the Review tools panel.
+  // tools: "#/drama/3/review?tools=problems" opens that group of the Review tools panel.
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
   // "#/drama/3/translate?tab=glossary" that of the Translate stage.
-  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; find?: string; tools?: ReviewToolsTab; tab?: MediaTab | TranslateTab }
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; find?: string; tools?: ReviewToolsGroup; tab?: MediaTab | TranslateTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   // card: "#/settings?card=display" does the same for any card id in the settings index; an unknown id is dropped.
@@ -167,7 +167,7 @@ export function parseRoute(hash: string): Route {
     }
     const q = new URLSearchParams(qs)
     const focus = q.get('focus')
-    const tools = q.get('tools')
+    const tools = reviewToolsGroupForLink(q.get('tools'), focus)
     const tab = q.get('tab')
     const find = (q.get('find') ?? '').trim().slice(0, MAX_FIND_LENGTH)
     return {
@@ -176,7 +176,7 @@ export function parseRoute(hash: string): Route {
       stage,
       ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
       ...(find && stage === 'review' ? { find } : {}),
-      ...(isReviewToolsTab(tools) ? { tools } : {}),
+      ...(tools ? { tools } : {}),
       ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
     }
   }
