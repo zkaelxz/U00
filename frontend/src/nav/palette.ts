@@ -32,7 +32,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   admin: 'admin users accounts sign in activity audit',
   diagnostics: 'health logs disk',
   jobs: 'queue progress running',
-  translate: 'text',
+  translate: 'translate text',
   'make-subtitles': 'transcribe srt whisper audio video file',
   discover: 'find titles online discover sources download novel chapters comics sites',
   live: 'stream youtube captions',

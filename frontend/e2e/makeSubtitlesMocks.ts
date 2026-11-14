@@ -3,7 +3,7 @@ import type { Page, Request } from '@playwright/test'
 import { ME } from './authMocks'
 import { json } from './mockHelpers'
 
-// The Make subtitles flow with nothing real behind it: create, upload, the two
+// The Quick translate flow with nothing real behind it: create, upload, the two
 // jobs, translate config/run and the SRT export are fulfilled here. Jobs read as
 // running until `release()`, then done (or error for `failJob`). Preflight is all OK.
 
