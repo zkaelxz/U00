@@ -14,9 +14,9 @@ interface Props {
 }
 
 // On a phone Review's line bar (Play, Prev, Next, Edit; Skip and Looks right in the check queue) is fixed along the
-// bottom: the box stays above it, or it would cover those buttons until dragged away. Measured, because the queue's
-// two-line labels make the bar taller, and it is not shown at all on wider screens.
-const barInset = () => document.querySelector('.review-editbar')?.getBoundingClientRect().height ?? 0
+// bottom: the box stays above it, or it would cover those buttons until dragged away. PhoneEditBar publishes its live
+// height as --editbar-h (unset while it is not shown, as on wider screens).
+const barInset = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--editbar-h')) || 0
 
 // An in-page floating box for browsers without Document Picture-in-Picture (Firefox, Safari, phones,
 // pages not served over HTTPS or localhost). Dragging and resizing have button and key equivalents.
@@ -24,7 +24,6 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
   const box = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<FloatPos>({ right: FLOAT_MARGIN, bottom: FLOAT_MARGIN })
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
-  const [inset, setInset] = useState(barInset)
   const w = clampFloatWidth(width, viewportWidth)
 
   const keepOnScreen = (p: FloatPos): FloatPos => {
@@ -36,7 +35,6 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
   useEffect(() => {
     const onResize = () => {
       setViewportWidth(window.innerWidth)
-      setInset(barInset())
       setPos((p) => keepOnScreen(p))
     }
     window.addEventListener('resize', onResize)
@@ -73,7 +71,7 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
   }
 
   return createPortal(
-    <div ref={box} className="review-float" role="group" aria-label="Floating player" style={{ width: w, right: `min(${pos.right}px, calc(100vw - ${w}px))`, bottom: pos.bottom + inset }}>
+    <div ref={box} className="review-float" role="group" aria-label="Floating player" style={{ width: w, right: `min(${pos.right}px, calc(100vw - ${w}px))`, bottom: `calc(${pos.bottom}px + var(--editbar-h, 0px))` }}>
       <div className="review-float-bar" onPointerDown={onMoveDrag} title="Drag to move">
         <span className="review-float-grip" aria-hidden="true">⠿</span>
         <span className="review-float-title">Player</span>

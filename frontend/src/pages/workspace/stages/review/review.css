@@ -521,13 +521,15 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 }
 @media (max-width: 640px) {
   /* Clear of the fixed phone action bar. */
-  .review-selbar { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  .review-selbar { bottom: var(--editbar-h, calc(56px + env(safe-area-inset-bottom, 0px))); }
 }
 
 /* ---- waveform timeline ---- */
 .review-wave-section { display: grid; gap: var(--space-1); }
 .review-wave { display: grid; gap: var(--space-1); min-width: 0; }
 .review-wave-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; font-size: var(--text-sm); }
+/* Room for "#123" whether or not a line is under the playhead, so the wrapped row doesn't change while playing. */
+.review-wave-centre { min-width: 17ch; }
 .review-wave-range { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .review-wave-box { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); cursor: crosshair; touch-action: pan-y; user-select: none; }
 .review-wave-canvas { position: absolute; inset: 0; display: block; }

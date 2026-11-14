@@ -293,7 +293,7 @@ export default function Waveform({ dramaId, lines, active, player, hasVideo = fa
         <button type="button" className={buttonClass('ghost', 'sm')} aria-label="Zoom out" disabled={view.span >= clampSpan(Infinity)} onClick={() => zoom(2)}>−</button>
         <button type="button" className={buttonClass('ghost', 'sm')} aria-label="Zoom in" disabled={view.span <= clampSpan(0)} onClick={() => zoom(0.5)}>+</button>
         {/* These stay in the row, disabled between lines, so the wrapped row keeps its height while playing and the waveform below doesn't jump. */}
-        <button type="button" className={buttonClass('ghost', 'sm')} disabled={!active} onClick={() => active && setView(viewForLine(active, view.span, dur))}>
+        <button type="button" className={buttonClass('ghost', 'sm', 'review-wave-centre')} disabled={!active} onClick={() => active && setView(viewForLine(active, view.span, dur))}>
           Centre on line{active ? ` #${lineNumber(active.idx)}` : ''}
         </button>
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={shots.busy} onClick={() => void shots.find(view)} data-testid="wave-find-shots">

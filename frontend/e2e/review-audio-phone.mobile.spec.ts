@@ -45,10 +45,17 @@ db.configure_library_dir(${JSON.stringify(libraryDir)})
 db.save_lines(3, [Line(idx=i, start=i + 1, end=i + 2, zh='一', en='Line %d' % i, flag='uncertain' if i == 2 else '') for i in range(6)])
 `], { cwd: repoRoot })
     await page.goto('/#/drama/3/review')
-    await page.getByRole('button', { name: 'Pop out' }).tap()
     const bar = page.getByRole('toolbar', { name: 'Line actions' })
-    const box = (await page.getByRole('group', { name: 'Floating player' }).boundingBox())!
-    expect(box.y + box.height).toBeLessThanOrEqual((await bar.boundingBox())!.y)
+    await expect(bar).toBeVisible()
+    await page.getByRole('button', { name: 'Pop out' }).tap()
+    const float = page.getByRole('group', { name: 'Floating player' })
+    await expect(float).toBeVisible()
+    await expect
+      .poll(async () => {
+        const box = (await float.boundingBox())!
+        return box.y + box.height - (await bar.boundingBox())!.y
+      })
+      .toBeLessThanOrEqual(0)
     await bar.getByRole('button').last().tap({ trial: true })
   })
 }

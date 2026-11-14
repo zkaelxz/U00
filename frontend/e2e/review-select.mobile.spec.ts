@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import { expect, test } from '@playwright/test'
 
+import { phoneBarAction } from './compareSelectedHelpers'
+
 // Phone: the tick box is a 44px target, sits in the row's own gutter and does
 // not take over taps on the row.
 
@@ -84,6 +86,21 @@ test('phone: the selection bar stays one row and lists its actions in a sheet', 
   await expect(page.getByLabel('Speaker for 3 lines')).toBeInViewport()
   const panel = page.getByTestId('set-speaker')
   for (const name of ['Set speaker', 'Close']) expect((await panel.getByRole('button', { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+})
+
+test("phone: Copy line numbers from the sheet copies, also through the page's fallback copy", async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  // Some phone browsers refuse the clipboard API, and the fallback selects text in the page behind the sheet.
+  await page.addInitScript(() => {
+    navigator.clipboard.writeText = () => Promise.reject(new Error('refused'))
+  })
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  for (const n of [1, 2, 3]) await box(page, n).tap()
+  await (await phoneBarAction(page, 'Copy line numbers')).tap()
+  await expect(page.getByText('Copied 3 line numbers.')).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('#1-#3')
 })
 
 test("phone, Simple view: the selection bar sits above the check queue's taller line bar", async ({ page }) => {
