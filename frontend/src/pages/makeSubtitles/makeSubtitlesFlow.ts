@@ -116,8 +116,10 @@ function titleStem(filename: string): string {
 
 export const titleFor = (filename: string, typed: string): string => typed.trim() || titleStem(filename)
 
-// In Latin-letter widths; a CJK or Hangul character takes two.
-const SUMMARY_TITLE_WIDTH = 24
+// In Latin-letter widths; a CJK or Hangul character takes two. 20 keeps the summary on one line under
+// "Change options" on a 360px phone with room to spare: at 24 it fitted by 2px, and wrapped where
+// the fonts render a little wider.
+const SUMMARY_TITLE_WIDTH = 20
 const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u
 
 /** The closed Options line. A file name can be hundreds of characters with no spaces, which would
