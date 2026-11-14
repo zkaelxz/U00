@@ -453,3 +453,16 @@ def test_outlined_caption_on_dark_art_is_painted_out_with_the_art_tone_without_t
     erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
     assert int(erased.max()) < 90
     assert abs(float(erased.mean()) - 30) < 15
+
+
+def test_a_large_sign_on_mid_tone_art_is_not_filled_with_black():
+    # The lettered block is wider than the fill's blur reaches, which used to fade
+    # the fill to black in its middle.
+    page = np.full((420, 700, 3), (70, 80, 90), np.uint8)
+    for row, y in enumerate((130, 210, 290)):
+        cv2.putText(page, "WWWWWWWWWWWW", (60, y), cv2.FONT_HERSHEY_SIMPLEX, 2.4, (255, 255, 255), 14)
+    box = {"x": 40, "y": 60, "w": 620, "h": 270}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="cv", on_art=True)
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert float(erased.mean()) > 60
+    assert int(erased.min()) > 45

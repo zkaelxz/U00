@@ -434,6 +434,27 @@ def _dark_art_lettering_mask(crop):
     return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (33, 33)))
 
 
+def _tone_from_clear_pixels(area, clear):
+    """The art's tone at every pixel, averaged from the `clear` (1.0) pixels.
+    Widens the blur where a lettered block is too large for the narrow one to
+    reach clear pixels: dividing by a clamped, vanishing weight faded the fill to
+    black in the middle of a big sign."""
+    import cv2
+    tone = None
+    reach = None
+    for sigma in (15, 45, 135):
+        weight = cv2.GaussianBlur(clear, (0, 0), sigma)
+        scale_tone = cv2.GaussianBlur(area * clear[..., None], (0, 0), sigma) \
+            / np.maximum(weight[..., None], 1e-6)
+        if tone is None:
+            tone, reach = scale_tone, np.minimum(weight * 20, 1.0)
+            continue
+        # Pixels with little narrow-scale support take the wider estimate.
+        tone = tone * reach[..., None] + scale_tone * (1 - reach[..., None])
+        reach = np.maximum(reach, np.minimum(weight * 20, 1.0))
+    return tone
+
+
 def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     """The box's crop with its lettering replaced by the colours of the art
     round it, or None when it holds no pale lettering.
@@ -454,9 +475,7 @@ def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     mask = _fill_enclosed_holes(mask)
     clear = (cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (41, 41))) == 0)
     clear = clear.astype(np.float32)
-    sigma = 15
-    tone = cv2.GaussianBlur(area * clear[..., None], (0, 0), sigma) \
-        / np.maximum(cv2.GaussianBlur(clear, (0, 0), sigma)[..., None], 1e-3)
+    tone = _tone_from_clear_pixels(area, clear)
     weight = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 4)[..., None]
     blended = (tone * weight + area * (1 - weight)).clip(0, 255).astype(np.uint8)
     return blended[y - y0:y - y0 + bh, x - x0:x - x0 + bw]
