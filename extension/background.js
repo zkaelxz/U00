@@ -90,8 +90,9 @@ function abortSends() {
 // A streamed answer (one JSON line per finished page, then {done} or {error}) as the
 // ordinary {ok, data} shape, with data.pages built from the page lines. `onPage` hears each
 // page as its line arrives. An answer cut off after some pages keeps those pages and says why
-// the rest are missing in data.cutOff, since they are already drawn on the reader's page.
-async function readPageLines(response, onPage) {
+// the rest are missing in data.cutOff, since they are already drawn on the reader's page;
+// `brokenReason(error)` says why when the read itself failed ({error, timedOut?, cancelled?}).
+async function readPageLines(response, onPage, brokenReason) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const pages = [];
@@ -107,17 +108,27 @@ async function readPageLines(response, onPage) {
       last = line;
     }
   };
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (value) buffer += decoder.decode(value, { stream: true });
-    let cut;
-    while ((cut = buffer.indexOf("\n")) >= 0) {
-      take(buffer.slice(0, cut));
-      buffer = buffer.slice(cut + 1);
+  let broken = null;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buffer.indexOf("\n")) >= 0) {
+        take(buffer.slice(0, cut));
+        buffer = buffer.slice(cut + 1);
+      }
+      if (done) break;
     }
-    if (done) break;
+  } catch (e) {
+    // The pages already heard are stored and drawn, so they are kept; with none, the caller
+    // answers as for any failed call.
+    if (!pages.length) throw e;
+    broken = brokenReason(e);
   }
-  take(buffer + decoder.decode());
+  // A last line cut short by a dropped connection is not an answer.
+  try { take(buffer + decoder.decode()); } catch (e) { /* the page or answer it held never arrived */ }
+  if (broken) return { ok: true, timedOut: broken.timedOut, cancelled: broken.cancelled, data: { pages, cutOff: broken.error } };
   if (last && last.done) return { ok: true, data: { ...last.done, pages } };
   const reason = (last && last.error) || "The app stopped answering partway through.";
   if (!pages.length) return { ok: false, error: reason, status: (last && last.status) || 500 };
@@ -172,7 +183,11 @@ async function call(path, { method = "GET", body = null, onPage = null } = {}) {
   const type = (response.headers && response.headers.get && response.headers.get("content-type")) || "";
   if (response.ok && onPage && type.includes("ndjson")) {
     try {
-      return await readPageLines(response, onPage);
+      return await readPageLines(response, onPage, (e) => {
+        if (controller.userAbort) return { cancelled: true, error: "Cancelled." };
+        if (e && e.name === "AbortError") return { timedOut: true, error: TIMED_OUT };
+        return { error: "The app stopped answering partway through." };
+      });
     } catch (e) {
       if (controller.userAbort) return { ok: false, cancelled: true, error: "Cancelled." };
       return e && e.name === "AbortError"
@@ -374,6 +389,19 @@ async function sendImages(message, sender) {
   }
 }
 
+// The app keeps working on a batch the extension gave up on. Sending the next one now would run
+// two at once and interleave the stored pages, so the later batches are named, not sent.
+function stopAfterTimeout(merged, later) {
+  let notSent = 0;
+  for (const batch of later) {
+    for (const image of batch) {
+      merged.failed.push({ key: image.key, url: image.url || "", error: STILL_WORKING });
+      notSent += 1;
+    }
+  }
+  merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
+}
+
 async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages }, runId, onPage = () => {}) {
   if (!images || !images.length) {
     return { ok: false, error: "No page images were found on this page." };
@@ -425,16 +453,7 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
         merged.failed.push({ key: image.key, url: image.url || "", error: answer.error });
       }
       if (answer.timedOut) {
-        // The app keeps working on this batch. Sending the next one now would
-        // run two at once and interleave the stored pages.
-        let notSent = 0;
-        for (const later of batches.slice(index + 1)) {
-          for (const image of later) {
-            merged.failed.push({ key: image.key, url: image.url || "", error: STILL_WORKING });
-            notSent += 1;
-          }
-        }
-        merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
+        stopAfterTimeout(merged, batches.slice(index + 1));
         break;
       }
       continue;
@@ -457,6 +476,16 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
     merged.alreadyStored += Number.isFinite(data.already_stored) ? data.already_stored : 0;
     if (data.stopped) {
       merged.stopped = data.stopped;
+      break;
+    }
+    // A stream broken by Cancel or the time limit after some pages: those pages are kept, and
+    // the run ends as the same answer without them would.
+    if (answer.cancelled) {
+      merged.cancelled = true;
+      break;
+    }
+    if (answer.timedOut) {
+      stopAfterTimeout(merged, batches.slice(index + 1));
       break;
     }
   }

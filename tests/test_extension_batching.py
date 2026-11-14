@@ -139,6 +139,29 @@ def test_a_stream_cut_off_keeps_the_pages_that_arrived_and_names_the_rest():
     assert (data["received"], data["stored"]) == (1, 1)
 
 
+@pytest.mark.parametrize("ending", ["tail: '{\"page\": {\"key\"'", "fail: true"])
+def test_a_stream_broken_mid_line_or_by_the_network_still_keeps_the_pages_that_arrived(ending):
+    reply = f"""(n, body) => ({{ lines: [{{ page: {{ key: body.images[0].key, regions: [], stored: true }} }}],
+                                  {ending} }})"""
+    data = run(3, reply, from_tab=True)["result"]["data"]
+    assert [p["key"] for p in data["pages"]] == ["k0"]
+    assert [f["key"] for f in data["failed"]] == ["k1", "k2"]
+    assert "stopped answering" in data["failed"][0]["error"]
+    assert (data["received"], data["stored"]) == (1, 1)
+
+
+def test_a_stream_the_time_limit_cuts_keeps_its_pages_and_sends_no_later_batch():
+    reply = """(n, body) => ({ lines: [{ page: { key: body.images[0].key, regions: [], stored: true } }],
+                               fail: "timeout" })"""
+    got = run(12, reply, cap=10, from_tab=True)
+    assert len(got["requests"]) == 1
+    data = got["result"]["data"]
+    assert [p["key"] for p in data["pages"]] == ["k0"]
+    assert [f["key"] for f in data["failed"]] == [f"k{i}" for i in range(1, 12)]
+    assert "still working" in data["failed"][-1]["error"]
+    assert "still working" in data["stopped"]["message"]
+
+
 def test_a_page_heard_early_is_drawn_before_its_batch_answers():
     out = subprocess.run(["node", str(HARNESS), "content", "page_drawn_before_its_batch_answers"],
                          capture_output=True, text=True, timeout=60)

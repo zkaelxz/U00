@@ -891,14 +891,26 @@ async function contentExpression(expression) {
 }
 
 // A streamed bridge answer: each line is its own chunk, split mid-line once to check the reassembly.
-function streamedReply(lines) {
-  const text = lines.map((line) => JSON.stringify(line) + "\n").join("");
+// `tail` is sent after the lines (a line cut short); `fail` makes the read after them throw
+// (true: the connection reset; "timeout": the extension's time limit aborted it).
+function streamedReply(lines, { tail = "", fail = false } = {}) {
+  const text = lines.map((line) => JSON.stringify(line) + "\n").join("") + tail;
   const cut = Math.floor(text.length / 3);
   const chunks = [text.slice(0, cut), text.slice(cut)].map((part) => new TextEncoder().encode(part));
+  const read = async () => {
+    if (chunks.length) return { value: chunks.shift(), done: false };
+    if (fail === "timeout") {
+      const aborted = new Error("aborted");
+      aborted.name = "AbortError";
+      throw aborted;
+    }
+    if (fail) throw new TypeError("network error");
+    return { done: true };
+  };
   return {
     ok: true, status: 200,
     headers: { get: (name) => (name.toLowerCase() === "content-type" ? "application/x-ndjson" : null) },
-    body: { getReader: () => ({ read: async () => (chunks.length ? { value: chunks.shift(), done: false } : { done: true }) }) },
+    body: { getReader: () => ({ read }) },
   };
 }
 
@@ -922,7 +934,7 @@ async function batching(scenarioJson) {
       const body = JSON.parse(init.body);
       requests.push({ path: pathname, keys: body.images.map((i) => i.key), stream: body.stream === true });
       const reply = scenario.reply(requests.length, body);
-      if (reply.lines) return streamedReply(reply.lines);
+      if (reply.lines) return streamedReply(reply.lines, reply);
       if (reply.abort) {
         const aborted = new Error("aborted");
         aborted.name = "AbortError";

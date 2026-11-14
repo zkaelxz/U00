@@ -128,6 +128,24 @@ def test_a_cancel_during_the_run_leaves_the_later_pages_alone(pipeline):
     assert answer["failed"] == []
 
 
+def test_a_cancel_while_a_page_translates_skips_the_next_pages_paid_call(pipeline, monkeypatch):
+    import scanlate_translate
+    run_id = "6f1c8f0e-2b1a-4c55-9a3e-0d4f2d6a7b11"
+    real = scanlate_translate.translate_page_bubbles
+
+    def cancel_during_first(bubbles, *args, **kwargs):
+        if bubbles[0]["source_text"] == "p0":
+            assert pipeline["second_read"].wait(5)
+            bridge.cancel_run({"run_id": run_id})
+        return real(bubbles, *args, **kwargs)
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", cancel_during_first)
+    payload = {"images": _images(3), "store": False, "filter_pages": False, "run_id": run_id}
+    answer = bridge.run_images(payload, payload["images"])
+    assert [t for step, t in pipeline["log"] if step == "translate"] == ["p0"]
+    assert [p["key"] for p in answer["pages"]] == ["k0"]
+    assert answer["stopped"] == "cancelled by the extension"
+
+
 def test_each_page_is_heard_as_it_finishes_and_a_listener_that_fails_stops_nothing(pipeline):
     heard = []
 
@@ -138,6 +156,28 @@ def test_each_page_is_heard_as_it_finishes_and_a_listener_that_fails_stops_nothi
     answer = bridge.run_images(payload, payload["images"], on_page=listener)
     assert sorted(heard) == ["k0", "k1", "k2"]
     assert len(answer["pages"]) == 3
+
+
+@pytest.mark.parametrize("count", [1, 3])
+def test_every_page_runs_for_the_member_who_sent_the_batch(pipeline, monkeypatch, count):
+    """The member's identity picks their key and books the spend to them, so a page worked on a
+    thread of its own must still see it."""
+    from services import ownership_service
+    seen = []
+    real = page_server.translate_image
+
+    def spy(*args, **kwargs):
+        seen.append(ownership_service.acting_principal())
+        return real(*args, **kwargs)
+    monkeypatch.setattr(page_server, "translate_image", spy)
+    member = {"id": 7, "email": "m@example.com"}
+    bound = ownership_service.bind_request()
+    try:
+        ownership_service.note_acting_principal(member)
+        _send(count)
+    finally:
+        ownership_service.unbind_request(bound)
+    assert seen == [member] * count
 
 
 def _lines(handler):

@@ -769,18 +769,19 @@ class _Handler(BaseHTTPRequestHandler):
         state = {"started": False, "gone": False}
 
         def write(line: dict):
-            if not state["started"]:
-                # No length is known up front, so the end of the body is the end of the connection.
-                self.close_connection = True
-                self.send_response(200)
-                self.send_header("Content-Type", extension_bridge_service.STREAM_CONTENT_TYPE)
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Connection", "close")
-                self.end_headers()
-                state["started"] = True
             if state["gone"]:
                 return
             try:
+                if not state["started"]:
+                    # Started even if these writes fail, so no error answer is sent after them.
+                    state["started"] = True
+                    # No length is known up front, so the end of the body is the end of the connection.
+                    self.close_connection = True
+                    self.send_response(200)
+                    self.send_header("Content-Type", extension_bridge_service.STREAM_CONTENT_TYPE)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
                 self.wfile.write(json.dumps(line).encode("utf-8") + b"\n")
                 self.wfile.flush()
             except OSError:

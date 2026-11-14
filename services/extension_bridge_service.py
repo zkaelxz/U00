@@ -9,6 +9,7 @@ title list to what they can see and sends only into a title they can edit.
 """
 
 import contextlib
+import contextvars
 import json
 import os
 import queue
@@ -413,8 +414,11 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
                 errors.append(e)
 
     # Daemon threads, like the bridge's own handler threads: the app's shutdown never waits
-    # for a page still being worked on.
-    workers = [threading.Thread(target=worker, daemon=True, name="bridge-page")
+    # for a page still being worked on. Each runs in a copy of the request's context, which
+    # carries the household member the pages are for (their key, spend and monthly limit); a
+    # new thread would otherwise start with an empty one and bill the owner.
+    workers = [threading.Thread(target=contextvars.copy_context().run, args=(worker,), daemon=True,
+                                name="bridge-page")
                for _ in range(min(PAGES_AT_ONCE, len(decoded)))]
     for thread in workers:
         thread.start()
