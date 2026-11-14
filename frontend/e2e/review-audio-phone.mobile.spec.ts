@@ -30,3 +30,14 @@ test('phone: no blank caption card and the filter chips are not clipped', async 
   expect(await chips.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
+
+test('phone: the floating player opens above the line bar, so Prev and Next stay tappable', async ({ page }) => {
+  // Phones have no always-on-top window, so Pop out floats the player in the page.
+  await page.addInitScript(() => Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined }))
+  await page.goto('/#/drama/3/review')
+  await page.getByRole('button', { name: 'Pop out' }).tap()
+  const box = (await page.getByRole('group', { name: 'Floating player' }).boundingBox())!
+  const bar = (await page.getByRole('toolbar', { name: 'Line actions' }).boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(bar.y)
+  await page.getByRole('toolbar', { name: 'Line actions' }).getByRole('button', { name: /Next/ }).tap()
+})

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { createPortal } from 'react-dom'
 
 import { buttonClass } from '../../../../components/uiClasses'
+import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { clampFloatPos, clampFloatWidth, FLOAT_MARGIN, FLOAT_MIN_WIDTH, FLOAT_STEP, type FloatPos } from './floatLogic'
 
 interface Props {
@@ -15,15 +16,22 @@ interface Props {
 
 // An in-page floating box for browsers without Document Picture-in-Picture (Firefox, Safari, phones,
 // pages not served over HTTPS or localhost). Dragging and resizing have button and key equivalents.
+
+// On a phone Review's line bar (Play, Prev, Next, Edit) is fixed along the bottom (review.css, .review-editbar): the box
+// stays above it, or it would cover those buttons until dragged away.
+const PHONE_QUERY = '(max-width: 640px)'
+const PHONE_BAR = 56
+const barInset = () => (window.matchMedia?.(PHONE_QUERY).matches ? PHONE_BAR : 0)
 export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
   const box = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<FloatPos>({ right: FLOAT_MARGIN, bottom: FLOAT_MARGIN })
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  const phone = useMediaQuery(PHONE_QUERY)
   const w = clampFloatWidth(width, viewportWidth)
 
   const keepOnScreen = (p: FloatPos): FloatPos => {
     const el = box.current
-    return el ? clampFloatPos(p, { width: el.offsetWidth, height: el.offsetHeight }, { width: window.innerWidth, height: window.innerHeight }) : p
+    return el ? clampFloatPos(p, { width: el.offsetWidth, height: el.offsetHeight }, { width: window.innerWidth, height: window.innerHeight - barInset() }) : p
   }
 
   // The window can shrink (or a phone turn) under a box placed for the old size.
@@ -66,7 +74,7 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
   }
 
   return createPortal(
-    <div ref={box} className="review-float" role="group" aria-label="Floating player" style={{ width: w, right: `min(${pos.right}px, calc(100vw - ${w}px))`, bottom: pos.bottom }}>
+    <div ref={box} className="review-float" role="group" aria-label="Floating player" style={{ width: w, right: `min(${pos.right}px, calc(100vw - ${w}px))`, bottom: phone ? `calc(${pos.bottom + PHONE_BAR}px + env(safe-area-inset-bottom, 0px))` : pos.bottom }}>
       <div className="review-float-bar" onPointerDown={onMoveDrag} title="Drag to move">
         <span className="review-float-grip" aria-hidden="true">⠿</span>
         <span className="review-float-title">Player</span>
