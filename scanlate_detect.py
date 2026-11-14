@@ -1064,6 +1064,44 @@ def _interior_above(roi, level):
     return filled, outside
 
 
+def _with_page_cut_lettering(filled, outside, area, page_shape):
+    """(filled, outside) of _balloon_interior() for a balloon the page's edge cuts. The balloon
+    runs on past that edge, so paper meeting the box's edge only there, between the places
+    where the balloon itself meets it, is its own, not outside it: the gaps in a line of
+    lettering the page cuts off, which as outside paper kept that line from being erased.
+    Paper reaching the page's edge beside the balloon stays out."""
+    import cv2
+
+    x0, y0, x1, y1 = area
+    ph, pw = page_shape[:2]
+    on_page_edge = (y0 == 0, y1 == ph, x0 == 0, x1 == pw)
+    if not any(on_page_edge):
+        return filled, outside
+
+    def sides(a):
+        return a[0], a[-1], a[:, 0], a[:, -1]
+
+    spans = []
+    for line in sides(filled):
+        cut = np.flatnonzero(line)
+        spans.append((cut[0], cut[-1]) if cut.size else (1, 0))
+
+    def held(labels: np.ndarray) -> np.ndarray:
+        out = np.zeros(labels.max() + 1, bool)
+        for side, page_edge, (lo, hi) in zip(sides(labels), on_page_edge, spans):
+            if page_edge:
+                beside = np.ones(side.size, bool)
+                beside[lo + 1:hi] = False
+                out[np.unique(side[beside])] = True
+            else:
+                out[np.unique(side)] = True
+        return out
+
+    paper = np.asarray(cv2.connectedComponents(np.asarray(outside, np.uint8), connectivity=8)[1], np.int32)
+    page_cut = (paper > 0) & ~held(paper)[paper]
+    return ((filled > 0) | page_cut).astype(np.uint8), ((np.asarray(outside) > 0) & ~page_cut).astype(np.uint8)
+
+
 def _roi(gray, box):
     ph, pw = gray.shape[:2]
     x0, y0 = max(0, box["x"]), max(0, box["y"])
@@ -1179,6 +1217,7 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
     filled, outside = found
     if filled.sum() < 0.3 * box["w"] * box["h"]:
         return None
+    filled, outside = _with_page_cut_lettering(filled, outside, area, gray.shape)
     if outside.any():
         depth = cv2.distanceTransform((1 - outside).astype(np.uint8), cv2.DIST_L2, 3)
         edge = filled - cv2.erode(filled, np.ones((3, 3), np.uint8))

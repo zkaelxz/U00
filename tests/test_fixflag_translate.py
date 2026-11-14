@@ -18,7 +18,8 @@ def _run(lines, engine, **kw):
     errors = kw.pop("errors", [])
     heard = kw.pop("heard_by_idx", {})
     out = fixflag_translate.fix_lines(
-        lines, engine=engine, engine_choice="claude", drama_id=1, base_context={},
+        lines, engine=engine, engine_choice=kw.pop("engine_choice", "claude"), drama_id=1,
+        base_context=kw.pop("base_context", {}),
         character_names={}, source_language="zh", heard_by_idx=heard, translate=True,
         cost_cap_usd=kw.pop("cost_cap_usd", None), check_cancel=lambda: None,
         on_progress=lambda done, total: None, errors=errors,
@@ -73,6 +74,66 @@ def test_identical_reply_keeps_the_flag_and_is_counted(llm_replies):
     assert out["fixed"] == 0 and out["unchanged"] == 1
 
 
+def test_an_unusable_reply_is_not_saved_and_the_line_stays_flagged(llm_replies):
+    llm_replies["replies"] = {"一": "她 left.", "二": '{"1": "two"}', "三": "three"}
+    lines = [_line(0, "一", "x"), _line(1, "二", "y"), _line(2, "三", "z")]
+    out, errors = _run(lines, _LLM(), engine_choice="ollama")
+    assert [(ln.en, ln.flag) for ln in lines] == [
+        ("x", "uncertain_translation"), ("y", "uncertain_translation"), ("three", None)]
+    assert out["fixed"] == 1
+    assert errors == ["line 1: the reply was not used (source text left in it)",
+                      "line 2: the reply was not used (JSON instead of a line)"]
+
+
+def test_a_glossary_term_kept_in_the_english_is_not_leftover_source(llm_replies):
+    terms = [{"term_original": "林晚", "term_translation": "林晚"}]
+    llm_replies["replies"] = {"林晚来了": "林晚 came."}
+    lines = [_line(0, "林晚来了", "x")]
+    _run(lines, _LLM(), base_context={"glossary_terms": terms}, engine_choice="ollama")
+    assert (lines[0].en, lines[0].flag) == ("林晚 came.", None)
+
+
+def test_the_reply_check_follows_the_translate_runs_switch(llm_replies, monkeypatch):
+    llm_replies["replies"] = {"一": "她 left."}
+    # Claude's replies are not checked by default, as in a translate run.
+    lines = [_line(0, "一", "x")]
+    _run(lines, _LLM())
+    assert (lines[0].en, lines[0].flag) == ("她 left.", None)
+    monkeypatch.setattr(fixflag_translate.settings_service, "reply_guard_override", lambda: True)
+    lines = [_line(0, "一", "x")]
+    _run(lines, _LLM())
+    assert (lines[0].en, lines[0].flag) == ("x", "uncertain_translation")
+
+
+def test_new_english_still_missing_a_glossary_name_stays_flagged_for_it(llm_replies):
+    terms = [{"term_original": "林晚", "term_translation": "Lin Wan"}]
+    llm_replies["replies"] = {"林晚来了": "Lynn came.", "林晚走了": "Lin Wan left."}
+    lines = [_line(0, "林晚来了", "x", flag="reading_speed"),
+             _line(1, "林晚走了", "y", flag="glossary_missing", note="Glossary: 林晚 -> Lin Wan missing")]
+    out, _ = _run(lines, _LLM(), base_context={"glossary_terms": terms})
+    assert (lines[0].en, lines[0].flag) == ("Lynn came.", "glossary_missing")
+    assert "Lin Wan" in lines[0].flag_note
+    assert (lines[1].en, lines[1].flag, lines[1].flag_note) == ("Lin Wan left.", None, "")
+    assert out["fixed"] == 1
+
+
+def test_a_plain_stream_fix_checks_only_the_terms_its_prompt_lists(llm_replies):
+    from engine_backends import stream_recipe
+    terms = [{"term_original": "牛肉", "term_translation": "beef", "category": "culture_item"},
+             {"term_original": "林晚", "term_translation": "Lin Wan"}]
+    llm_replies["replies"] = {"林晚吃牛肉": "Lynn ate steak."}
+    lines = [_line(0, "林晚吃牛肉", "x", flag="reading_speed")]
+    _run(lines, _LLM(), base_context={"glossary_terms": terms,
+                                      "style_guidelines": stream_recipe.build_guidelines(terms)})
+    assert (lines[0].en, lines[0].flag) == ("Lynn ate steak.", "glossary_missing")
+    assert "Lin Wan" in lines[0].flag_note and "beef" not in lines[0].flag_note
+    llm_replies["replies"] = {"林晚吃牛肉": "Lin Wan ate steak."}
+    lines = [_line(0, "林晚吃牛肉", "x", flag="reading_speed")]
+    _run(lines, _LLM(), base_context={"glossary_terms": terms,
+                                      "style_guidelines": stream_recipe.build_guidelines(terms)})
+    assert (lines[0].en, lines[0].flag) == ("Lin Wan ate steak.", None)
+
+
 def test_prompt_carries_the_flag_note_and_current_english(llm_replies):
     llm_replies["replies"] = {"一": "one"}
     _run([_line(0, "一", "she left", "ambiguous_reference", "who is she?")], _LLM())
@@ -93,6 +154,26 @@ def test_new_heard_text_keeps_the_users_reason_in_the_prompt_and_on_the_line(llm
     # No new English landed: the line is flagged source_changed and keeps the reason.
     assert lines[0].flag == "source_changed"
     assert "who is she?" in lines[0].flag_note
+
+
+def test_new_heard_text_with_a_refused_reply_stays_source_changed_with_the_reason(llm_replies):
+    llm_replies["replies"] = {"一。": "她 left."}
+    lines = [_line(0, "一", "she left", "ambiguous_reference", "who is she?")]
+    _, errors = _run(lines, _LLM(), heard_by_idx={0: {"text": "一。"}}, engine_choice="ollama")
+    assert (lines[0].zh, lines[0].en, lines[0].flag) == ("一。", "she left", "source_changed")
+    assert "who is she?" in lines[0].flag_note
+    assert errors == ["line 1: the reply was not used (source text left in it)"]
+
+
+def test_new_heard_text_whose_english_misses_a_glossary_name_is_flagged_for_it(llm_replies):
+    terms = [{"term_original": "林晚", "term_translation": "Lin Wan"}]
+    llm_replies["replies"] = {"林晚来了。": "Lynn came."}
+    lines = [_line(0, "林晚来了", "x", "ambiguous_reference", "who?")]
+    out, _ = _run(lines, _LLM(), heard_by_idx={0: {"text": "林晚来了。"}},
+                  base_context={"glossary_terms": terms})
+    assert (lines[0].zh, lines[0].en, lines[0].flag) == ("林晚来了。", "Lynn came.", "glossary_missing")
+    assert "Lin Wan" in lines[0].flag_note
+    assert out["fixed"] == 0
 
 
 def test_batches_split_at_batch_size(llm_replies, monkeypatch):
