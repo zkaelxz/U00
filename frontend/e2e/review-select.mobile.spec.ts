@@ -82,4 +82,6 @@ test('phone: the selection bar stays one row and lists its actions in a sheet', 
   await sheet.getByRole('button', { name: 'Set speaker…' }).tap()
   await expect(sheet).toBeHidden()
   await expect(page.getByLabel('Speaker for 3 lines')).toBeInViewport()
+  const panel = page.getByTestId('set-speaker')
+  for (const name of ['Set speaker', 'Close']) expect((await panel.getByRole('button', { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
 })

@@ -504,6 +504,11 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (pointer: coarse), (max-width: 640px) {
   .review-line { --select-size: var(--touch); }
   .review-selbar .btn { min-height: var(--touch); }
+  /* The waveform's one-symbol buttons and the Set speaker buttons sit in tight rows, where a .btn-sm's reach past its box is cut by its neighbours. */
+  .review-wave-tools .btn, .review-set-speaker .btn { min-height: var(--touch); }
+  .review-wave-tools .btn { min-width: var(--touch); }
+  /* Already 44px, so the .btn-sm reach would only spill onto the button in the next row. */
+  .review-wave-tools .btn::after, .review-set-speaker .btn::after { content: none; }
 }
 @media (max-width: 640px) {
   /* Clear of the fixed phone action bar. */
