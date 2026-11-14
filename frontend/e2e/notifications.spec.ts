@@ -3,6 +3,7 @@ import { type Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import { openSettingsGroups } from './settingsNav'
 import { guardWrites } from './mockHelpers'
+import { translateTab } from './translateTabs'
 
 // Settings > Notifications and the header bell. Every notification
 // call is mocked and fulfilled; a catch-all aborts (and records) any other
@@ -166,7 +167,7 @@ test('What to send: each switch saves at once, sending only what changed', async
   const bodies = await mockNotifications(page, { ...OFF, discord_configured: true, send_chapters: false }, { categoriesGate: gate })
   const section = await open(page)
   const group = section.getByRole('group', { name: 'What to send' })
-  const jobs = group.getByRole('switch', { name: 'Jobs finished or failed' })
+  const jobs = group.getByRole('switch', { name: 'Jobs finished, failed or waiting for you' })
   const chapters = group.getByRole('switch', { name: 'New chapters found' })
   await expect(jobs).toBeChecked()
   await expect(chapters).not.toBeChecked()
@@ -200,7 +201,7 @@ test('What to send: a failed save puts the switch back and says so', async ({ pa
   const unmocked = await guard(page)
   await mockNotifications(page, OFF, { categoriesStatus: 500 })
   const section = await open(page)
-  const jobs = section.getByRole('switch', { name: 'Jobs finished or failed' })
+  const jobs = section.getByRole('switch', { name: 'Jobs finished, failed or waiting for you' })
   await expect(jobs).toBeChecked()
   await jobs.click()
   await expect(section.getByRole('alert')).toBeVisible()
@@ -213,7 +214,9 @@ test('What to send: a failed save puts the switch back and says so', async ({ pa
 
 const NOW = () => Math.floor(Date.now() / 1000)
 
-async function mockBell(page: Page, items: { id: number; at: number; kind: string; text: string }[]) {
+type BellItem = { id: number; at: number; kind: string; text: string; target?: Record<string, unknown> }
+
+async function mockBell(page: Page, items: BellItem[]) {
   const state = { items, calls: 0 }
   await page.route((u) => u.pathname === '/api/notifications', (route) => {
     state.calls += 1
@@ -280,6 +283,28 @@ test('header bell: unread count, the list, and opening marks them seen', async (
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(page.getByRole('button', { name: 'Notifications (1 new)' })).toBeVisible()
   expect(bell.calls).toBeGreaterThan(before)
+  expect(unmocked).toEqual([])
+})
+
+test('header bell: a waiting row opens the place it names, and a row without a target has no link', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockBell(page, [
+    { id: 2, at: NOW() - 60, kind: 'waiting', text: 'Waiting for you: 12 glossary names to review - Signal', target: { page: 'glossary', drama_id: 1 } },
+    { id: 1, at: NOW() - 120, kind: 'waiting', text: 'Waiting for you: An episode is done.', target: { page: 'somewhere', drama_id: 1 } },
+  ])
+  await page.goto('/#/library')
+  await page.getByRole('button', { name: /^Notifications/ }).click()
+  const rows = page.getByRole('region', { name: 'Recent notifications' }).getByRole('listitem')
+  await expect(rows.nth(0)).toContainText('Waiting')
+  await expect(rows.nth(0)).toContainText('12 glossary names to review - Signal')
+  await expect(rows.nth(1).getByRole('link')).toHaveCount(0) // a target the page does not know
+  const open = rows.nth(0).getByRole('link', { name: 'Open' })
+  await expect(open).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
+  await expect(open).toHaveAttribute('title', 'Open the Glossary tab of this title')
+  await open.click()
+  await expect(page).toHaveURL(/#\/drama\/1\/translate\?tab=glossary$/)
+  await expect(translateTab(page, 'glossary')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('region', { name: 'Recent notifications' })).toHaveCount(0)
   expect(unmocked).toEqual([])
 })
 

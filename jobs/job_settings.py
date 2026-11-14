@@ -83,7 +83,7 @@ def set_notify_on_completion(enabled: bool):
 
 
 def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
-                         with_errors=False, reason=None):
+                         with_errors=False, reason=None, waiting=None):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
@@ -94,12 +94,14 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
     channel, independent of the desktop toggle). That call only queues --
     the send happens on a timer thread -- and never raises. It also keeps
     the event for the in-app list, shown by `job_id`/`owner_user_id`
-    visibility."""
+    visibility. `waiting`: the result's waiting note (jobs_service.waiting_note),
+    which turns the bell entry and the push into "Waiting for you"."""
     try:
         from services import notification_service
         notification_service.notify_job_finished(description, status, job_id=job_id,
                                                  owner_user_id=owner_user_id,
-                                                 with_errors=with_errors, reason=reason)
+                                                 with_errors=with_errors, reason=reason,
+                                                 waiting=waiting)
     except Exception:
         pass
     if not get_notify_on_completion() or not desktop_session.has_desktop():

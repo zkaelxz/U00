@@ -246,3 +246,127 @@ def test_cannot_switch_on_twice_or_continue_when_not_waiting(jobs):
         _on(sid)
     with pytest.raises(ConflictError):
         auto.resume(None, sid)
+
+
+# --- "Waiting for you" when a hold starts -----------------------------------------
+
+@pytest.fixture
+def told(monkeypatch):
+    from services import notification_service
+    calls = []
+    monkeypatch.setattr(notification_service, "notify_waiting",
+                        lambda text, **kw: calls.append({"text": text, **kw}))
+    return calls
+
+
+def _by(sid, user_id):
+    state = auto._read(sid)
+    state["by"]["user_id"] = user_id
+    auto._write(sid, state)
+
+
+def test_the_review_hold_is_announced_once_to_whoever_switched_it_on(jobs, told):
+    sid, (e1, *_rest) = _series()
+    _on(sid)
+    auto.scan()
+    _run_episode(jobs, e1)
+    assert told == []
+    _by(sid, 7)     # set after the episode was queued, which needs a real account
+    auto.scan()
+    auto.scan()
+    auto.scan()
+    text = "Ep 1 is done. Check its subtitles; press Continue to run the rest."
+    assert told == [{"text": text, "push_text": text, "owner_user_id": 7,
+                     "target": {"page": "review", "drama_id": e1}}]
+
+
+def test_a_private_title_is_not_named_in_the_push(jobs, told):
+    sid, (e1, *_rest) = _series()
+    db.update_drama(e1, is_private=1, owner_user_id=5)
+    _on(sid)
+    auto.scan()
+    _run_episode(jobs, e1)
+    auto.scan()
+    (call,) = told
+    assert call["text"].startswith("Ep 1 is done.")
+    assert call["push_text"] == "An episode is done. Check its subtitles; press Continue to run the rest."
+
+
+def test_a_stopped_episode_is_announced_once(jobs, told):
+    sid, (e1, *_rest) = _series()
+    _on(sid)
+    auto.scan()
+    jobs.fail.add(f"transcribe_{e1}")
+    q.start(None)
+    q.tick()
+    jobs.finish(f"transcribe_{e1}")
+    q.tick()
+    while any(st == "waiting" for *_, st in _auto_steps()):
+        q.tick()
+    auto.scan()
+    auto.scan()
+    (call,) = told
+    assert call["text"].startswith("Ep 1 stopped at transcribe:") and "engine said no" in call["text"]
+    assert call["push_text"] == call["text"]
+    assert call["target"] == {"page": "series", "series_id": sid}
+    assert call["text"] == auto.get_state(None, sid)["hold"]
+
+
+def test_the_ceiling_hold_names_the_series_in_the_push_only_when_it_is_shared(jobs, told, monkeypatch):
+    monkeypatch.setattr(db, "get_spend_for_dramas", lambda ids: 1.0)
+    sid, _ids = _series(1)
+    _on(sid, ceiling=1.0)
+    auto.scan()
+    auto.scan()
+    hidden = db.get_or_create_series("Hidden", owner_user_id=5, is_private=True)
+    db.create_drama(title_en="H1", series_id=hidden, translation_engine="ollama", episode_number=1,
+                    audio_filename="h.mp3", transcript_mode="whisper")
+    _on(hidden, ceiling=1.0)
+    auto.scan()
+    held = "Spending ceiling reached ($1.00 of $1.00)."
+    assert [(c["text"], c["push_text"], c["target"]) for c in told] == [
+        (f"{held} - Show", f"{held} - Show", {"page": "series", "series_id": sid}),
+        (f"{held} - Hidden", held, {"page": "series", "series_id": hidden})]
+
+
+def test_an_episode_that_cannot_be_queued_is_announced_once(jobs, told, monkeypatch):
+    sid, (e1, *_rest) = _series()
+    db.update_drama(e1, is_private=1, owner_user_id=5)
+
+    def refuse(*a, **k):
+        raise UnsupportedOperationError("No key for this engine.")
+    monkeypatch.setattr(q, "add_auto_episode", refuse)
+    _on(sid)
+    auto.scan()
+    auto.scan()
+    (call,) = told
+    assert call["text"] == "Ep 1 could not be queued: No key for this engine."
+    assert call["push_text"] == "An episode could not be queued: No key for this engine."
+    assert call["target"] == {"page": "series", "series_id": sid}
+
+
+def test_a_hold_after_continue_is_announced_again(jobs, told, monkeypatch):
+    sid, (e1, *_rest) = _series()
+    _on(sid)
+    auto.scan()
+    _run_episode(jobs, e1)
+    auto.scan()
+    auto.resume(None, sid)
+    monkeypatch.setattr(db, "get_spend_for_dramas", lambda ids: 5.0)
+    auto.scan()
+    auto.scan()
+    assert [c["text"][:20] for c in told] == ["Ep 1 is done. Check ", "Spending ceiling rea"]
+
+
+def test_a_failing_announcement_never_breaks_the_hold(jobs, monkeypatch):
+    from services import notification_service
+
+    def boom(*a, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr(notification_service, "household_sees", boom)
+    sid, (e1, *_rest) = _series()
+    _on(sid)
+    auto.scan()
+    _run_episode(jobs, e1)
+    auto.scan()
+    assert auto.get_state(None, sid)["hold_kind"] == "review"

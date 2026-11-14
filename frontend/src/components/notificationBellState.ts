@@ -1,9 +1,10 @@
 // Pure helpers for the header bell (components/NotificationBell.tsx):
 // what counts as unread, the "last seen" mark in localStorage, labels and
 // short times. Unit-tested in notificationBell.test.ts.
-import type { NotificationItem, NotificationKind } from '../types/notifications'
+import type { NotificationItem, NotificationKind, NotificationTarget } from '../types/notifications'
 import type { BadgeTone } from './labels'
 import { browserStorage } from '../hooks/usePersistedState'
+import { routeHref } from '../router'
 
 export const LAST_SEEN_KEY = 'baihe.notifications.lastSeen'
 export const POLL_MS = 60_000
@@ -63,6 +64,22 @@ const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> =
   chapters: { tone: 'info', label: 'New chapters' },
   remote: { tone: 'warn', label: 'Remote access' },
   live: { tone: 'accent', label: 'Live' },
+  waiting: { tone: 'warn', label: 'Waiting' },
+}
+
+const isId = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0
+
+/** A waiting entry's Open link and its tooltip, or null for no target or one this page does not know. */
+export function targetLink(target: NotificationTarget | null | undefined): { href: string; title: string } | null {
+  if (!target) return null
+  if (target.page === 'glossary' && isId(target.drama_id))
+    return { href: routeHref({ name: 'drama', id: target.drama_id, stage: 'translate', tab: 'glossary' }), title: 'Open the Glossary tab of this title' }
+  if (target.page === 'review' && isId(target.drama_id))
+    return { href: routeHref({ name: 'drama', id: target.drama_id, stage: 'review' }), title: 'Open the Review step of this title' }
+  if (target.page === 'series' && isId(target.series_id))
+    return { href: routeHref({ name: 'series', id: target.series_id }), title: 'Open the series page' }
+  if (target.page === 'jobs') return { href: routeHref({ name: 'jobs' }), title: 'Open the Jobs page' }
+  return null
 }
 
 /** "Starts at 14:05" in this browser's time, or null without a start time. */

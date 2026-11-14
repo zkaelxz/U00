@@ -2894,6 +2894,43 @@ def test_a_process_job_with_an_unlisted_failure_reason_notifies_as_failed(monkey
     bg.clear_job(job_id)
 
 
+def test_a_process_job_stopped_at_its_cap_passes_a_waiting_note(monkeypatch):
+    _install_fake_process(monkeypatch, run_target_on_start=True)
+    calls = []
+    monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
+
+    def fake_worker(result_queue):
+        result_queue.put(("ok", {"cap_reached": 0.5, "translated_count": 2}))
+
+    job_id = "test_process_cap_waiting"
+    bg.clear_job(job_id)
+    job_launch.start_process_job(job_id, fake_worker, args=())
+    assert _wait_for_status(job_id, "running")["status"] == "done"
+    _wait_for(lambda: calls)
+    (args, kwargs), = calls
+    assert args[1] == "done" and kwargs["waiting"] == {"cap": True, "target": {"page": "jobs"}}
+    bg.clear_job(job_id)
+
+
+def test_a_thread_job_passes_its_own_waiting_note_but_a_failed_one_does_not(monkeypatch):
+    calls = []
+    monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
+    note = {"text": "2 glossary names to review", "target": {"page": "glossary", "drama_id": 3}}
+    for job_id, result in (("test_thread_waiting_ok", {"waiting": note}),
+                           ("test_thread_waiting_failed", {"waiting": note, "failed_reason": "timeout"})):
+        bg.clear_job(job_id)
+        assert job_launch.start_job(job_id, lambda j=job_id, r=result: bg.set_result(j, r)) is True
+        _wait(job_id)
+    _wait_for(lambda: len(calls) == 2)
+    by_id = {k["job_id"]: (a, k) for a, k in calls}
+    assert by_id["test_thread_waiting_ok"][1]["waiting"] == note
+    assert by_id["test_thread_waiting_ok"][0][1] == "done"
+    assert by_id["test_thread_waiting_failed"][0][1] == "error"
+    assert by_id["test_thread_waiting_failed"][1]["waiting"] is None
+    for job_id in by_id:
+        bg.clear_job(job_id)
+
+
 @pytest.mark.parametrize("reason", ["no_lines", "no_text", "empty_kept_existing"])
 def test_a_partial_worker_outcome_still_ends_done(reason):
     """Zero lines is "Finished but found no lines" (a partial), not a failure."""

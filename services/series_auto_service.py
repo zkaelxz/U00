@@ -193,9 +193,39 @@ def _title(drama: dict) -> str:
     return drama.get("title_en") or drama.get("title_zh") or f"Title {drama['id']}"
 
 
-def _hold(series_id: int, state: dict, kind: str, text: str) -> None:
+def _series_name(series_id: int) -> Optional[str]:
+    return next((s["name"] for s in db.list_series() if s["id"] == series_id), None)
+
+
+def _announce(series_id: int, state: dict, kind: str, text: str, named) -> None:
+    """One "Waiting for you" entry for a new hold, for whoever switched auto-run on. `named`:
+    (drama id, name) of the title the text starts with. The push is read by the whole household,
+    so a title or series a household member couldn't see is not named there."""
+    from services import notification_service as ns
+    push = text
+    if named is not None and not ns.household_sees("drama", named[0]):
+        push = "An episode" + text[len(named[1]):]
+    if kind == CEILING:
+        # The ceiling text names nothing, so on a phone it would not say which series.
+        name = _series_name(series_id)
+        if name:
+            text = f"{text} - {name}"
+            if ns.household_sees("series", series_id):
+                push = f"{push} - {name}"
+    target = ({"page": "review", "drama_id": named[0]} if kind == REVIEW and named is not None
+              else {"page": "series", "series_id": series_id})
+    ns.notify_waiting(text, push_text=push, owner_user_id=state["by"].get("user_id"), target=target)
+
+
+def _hold(series_id: int, state: dict, kind: str, text: str, named=None) -> None:
+    """_scan_series returns early while a hold stands, so each hold is announced once."""
     state["hold"], state["hold_kind"] = text[:300], kind
     _write(series_id, state)
+    try:
+        _announce(series_id, state, kind, state["hold"], named)
+    except Exception as exc:
+        # The hold is written; a lost message must not read as a failed scan.
+        _log.warning("Series auto-run %s: hold not announced: %s", series_id, type(exc).__name__)
 
 
 def _next_episode(series_id: int, state: dict) -> Optional[dict]:
@@ -236,16 +266,17 @@ def _scan_series(series_id: int) -> None:
             why = bad.get("reason") or bad["status"]
             return _hold(series_id, state, STOPPED,
                          f"{name} stopped at {bad['step']}: {why} Retry it on the Jobs page, "
-                         "or press Continue to skip it.")
+                         "or press Continue to skip it.", (cur, name))
         if not mine:
             # Clearing finished items removes the evidence; trust only a title that has English.
             if not any((ln.get("en") or "").strip() for ln in db.load_lines(cur)):
                 return _hold(series_id, state, STOPPED,
-                             f"{name}'s queue items were removed before they finished.")
+                             f"{name}'s queue items were removed before they finished.", (cur, name))
         state["current"] = None
         if not state["reviewed"]:
             return _hold(series_id, state, REVIEW,
-                         f"{name} is done. Check its subtitles; press Continue to run the rest.")
+                         f"{name} is done. Check its subtitles; press Continue to run the rest.",
+                         (cur, name))
         _write(series_id, state)
     spent = _spent(state)
     if spent >= state["ceiling_usd"] - 0.005:
@@ -257,7 +288,8 @@ def _scan_series(series_id: int) -> None:
     try:
         q.add_auto_episode(series_id, nxt["id"], state["by"])
     except ServiceError as exc:
-        return _hold(series_id, state, QUEUE, f"{_title(nxt)} could not be queued: {exc.message}")
+        return _hold(series_id, state, QUEUE, f"{_title(nxt)} could not be queued: {exc.message}",
+                     (nxt["id"], _title(nxt)))
     state["queued"].append(nxt["id"])
     state["current"] = nxt["id"]
     _write(series_id, state)

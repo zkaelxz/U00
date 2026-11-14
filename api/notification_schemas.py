@@ -9,7 +9,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, StrictBool
 
-from api.schemas import NotificationStatus
+from api.schemas import NotificationStatus, NotificationTarget
 
 
 class NotificationSettingsStatus(NotificationStatus):
@@ -30,7 +30,7 @@ class NotificationCategoriesRequest(BaseModel):
 class NotificationEvent(BaseModel):
     id: int
     at: float
-    kind: Literal["job_done", "job_failed", "chapters", "remote", "live"]
+    kind: Literal["job_done", "job_failed", "chapters", "remote", "live", "waiting"]
     text: str
     # A followed Live channel's entry: which follow, a "Start Live" action
     # (POST /api/live/follows/{follow_id}/start) and a scheduled start (Unix
@@ -38,6 +38,8 @@ class NotificationEvent(BaseModel):
     follow_id: Optional[int] = None
     action: Optional[Literal["start_live"]] = None
     starts_at: Optional[float] = None
+    # A "waiting" entry: the page its Open link goes to.
+    target: Optional[NotificationTarget] = None
 
 
 class NotificationList(BaseModel):

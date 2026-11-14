@@ -41,8 +41,8 @@ export const CATEGORIES: { field: CategoryField; body: keyof NotificationCategor
   {
     field: 'send_jobs',
     body: 'jobs',
-    label: 'Jobs finished or failed',
-    help: 'A message when a job (transcribe, translate, dub, export and so on) finishes or fails.',
+    label: 'Jobs finished, failed or waiting for you',
+    help: 'A message when a job (transcribe, translate, dub, export and so on) finishes or fails, and when a run stops and waits for you.',
   },
   {
     field: 'send_chapters',
