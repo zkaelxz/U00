@@ -368,7 +368,7 @@ def _overlap_owner(start: float, end: float, spans) -> Optional[str]:
         overlap = min(end, e) - max(start, s)
         if overlap > 0:
             totals[sp] = totals.get(sp, 0.0) + overlap
-    return max(totals, key=totals.get) if totals else None
+    return max(totals, key=lambda sp: totals[sp]) if totals else None
 
 
 def _clip_owner(cand: dict, found_for: str, line_speakers: tuple) -> str:
@@ -388,7 +388,7 @@ def _clip_owner(cand: dict, found_for: str, line_speakers: tuple) -> str:
     return owner or found_for
 
 
-def _candidates_by_owner(manifest: dict, line_speakers: dict) -> dict:
+def _candidates_by_owner(manifest: dict, line_speakers: tuple) -> dict:
     """{owner: [candidate, ...]} over every manifest entry, in manifest order."""
     owned = {}
     for label, entry in manifest.items():
@@ -559,7 +559,9 @@ def list_candidates(drama_id: int) -> dict:
     for label in sorted(set(owned) | {k for k, v in manifest.items() if isinstance(v, dict)}):
         if label not in known:
             continue
-        entry = manifest.get(label) if isinstance(manifest.get(label), dict) else {}
+        entry = manifest.get(label)
+        if not isinstance(entry, dict):
+            entry = {}
         cands = []
         for c in owned.get(label, []):
             if _candidate_file(drama_id, c.get("id", "")) is None:
