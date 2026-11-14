@@ -601,6 +601,7 @@ def sampled_ink_color(page_bgr, box: dict):
 
 # A fade needs the lettering's top and bottom halves to differ clearly and both to be a real colour.
 _FADE_MIN_DISTANCE = 60
+_FADE_MAX_OFF_LINE = 50
 
 
 def sampled_ink_fade(page_bgr, box: dict):
@@ -614,24 +615,45 @@ def sampled_ink_fade(page_bgr, box: dict):
         return None
     background = np.median(roi.reshape(-1, 3), axis=0)
     distance = np.abs(roi.astype(int) - background.astype(int)).max(axis=2)
-    ink = distance > _INK_MIN_DISTANCE
+    # Art, a leaf or an outline around the lettering reaches the box edge; lettering strokes
+    # sit inside it, so any stroke component touching the edge is not counted.
+    ink = _without_border_components(distance > _INK_MIN_DISTANCE)
     if int(ink.sum()) < 2 * _INK_MIN_PIXELS:
         return None
     rows = np.where(ink.any(axis=1))[0]
     # The outer thirds, not the halves: each half of a fade already averages over half the change.
     third = max(1, (rows.max() - rows.min() + 1) // 3)
-    halves = []
-    for part in (slice(0, rows.min() + third), slice(rows.max() + 1 - third, roi.shape[0])):
+    top_end, bottom_end = rows.min() + third, rows.max() + 1 - third
+    bands = [slice(0, top_end), slice(top_end, bottom_end), slice(bottom_end, roi.shape[0])]
+    colours = []
+    for part in bands:
         d, px, m = distance[part], roi[part], ink[part]
         if int(m.sum()) < _INK_MIN_PIXELS:
             return None
         core = m & (d >= np.median(d[m]))
         b, g, r = (int(v) for v in np.median(px[core], axis=0))
-        if max(r, g, b) - min(r, g, b) < _INK_MIN_CHROMA:
-            return None
-        halves.append((r, g, b))
-    top, bottom = halves
-    return (top, bottom) if max(abs(a - c) for a, c in zip(top, bottom)) >= _FADE_MIN_DISTANCE else None
+        colours.append((r, g, b))
+    top, middle, bottom = colours
+    if min(max(c) - min(c) for c in (top, bottom)) < _INK_MIN_CHROMA:
+        return None
+    span = np.array(bottom, float) - np.array(top, float)
+    if np.abs(span).max() < _FADE_MIN_DISTANCE:
+        return None
+    # A real fade passes smoothly through the middle; two unrelated colours (a red rose over a
+    # green leaf) do not land between each other.
+    along = float(np.dot(np.array(middle, float) - top, span) / np.dot(span, span))
+    off = np.abs(np.array(middle, float) - (np.array(top, float) + along * span)).max()
+    if not 0.1 <= along <= 0.9 or off > _FADE_MAX_OFF_LINE:
+        return None
+    return top, bottom
+
+
+def _without_border_components(ink):
+    """`ink` (bool array) minus every connected component that touches the array's edge."""
+    import cv2
+    _, labels = cv2.connectedComponents(ink.astype(np.uint8), connectivity=8)
+    edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    return ink & ~np.isin(labels, edge[edge > 0])
 
 
 def _fade_lettering(before, after, top, bottom) -> None:

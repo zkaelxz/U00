@@ -96,6 +96,21 @@ def test_single_colour_lettering_is_not_a_fade(ink):
     assert scanlate_render.sampled_ink_fade(_faded_page(ink, ink), BOX) is None
 
 
+def test_art_touching_the_box_edge_is_not_read_as_a_fade():
+    page = _faded_page((30, 60, 200), (30, 60, 200))
+    page[:, :10] = (40, 160, 40)  # a leaf running down the box edge
+    page[:15, :] = (60, 40, 220)  # a rose along the top
+    assert scanlate_render.sampled_ink_fade(page, BOX) is None
+
+
+def test_two_unrelated_colours_with_nothing_between_are_not_a_fade():
+    page = np.full((100, 160, 3), 255, np.uint8)
+    page[30:38, 40:120] = (30, 60, 200)
+    page[38:47, 40:120] = (200, 200, 60)
+    page[47:55, 40:120] = (40, 170, 40)
+    assert scanlate_render.sampled_ink_fade(page, BOX) is None
+
+
 def test_the_fade_recolours_the_drawn_lettering_from_top_to_bottom():
     from PIL import ImageDraw
     before = Image.new("RGB", (120, 60), "white")
