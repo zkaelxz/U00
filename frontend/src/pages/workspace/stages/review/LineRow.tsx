@@ -10,17 +10,18 @@ import { humanize, humanizeValue } from '../../../../components/labels'
 import { capFirst, languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
-import type { ReviewLine, TmSuggestion } from '../../../../types/review'
+import type { ReviewLine, SpeakerGuess, TmSuggestion } from '../../../../types/review'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
+import { SpeakerGuesses } from './SpeakerGuesses'
 import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
-import { CONFLICT_MESSAGE, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTime, isShaky, isToolMode, lineCps, needsSpeaker, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -89,6 +90,8 @@ export interface RowActions {
   applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void
   acceptTm: (id: number, entryId: number, expectedEn: string) => void
+  // Gives a line with no speaker one of its suggested speakers; true once saved.
+  acceptSpeaker: (id: number, speaker: string) => Promise<boolean>
   dismissTm: (s: TmSuggestion) => void
   clearIssue: () => void
   reload: () => void
@@ -117,6 +120,8 @@ interface Props {
   tm: TmSuggestion | null
   // The stronger engine offered for this hard line, if any.
   stronger?: StrongerOffer | null
+  // Speakers to offer while the line has none.
+  guesses?: SpeakerGuess[] | null
   // The corrected times saved for this timing-flagged line, if any.
   timingSnap?: TimingSuggestion | null
   issue: RowIssue | null
@@ -300,7 +305,7 @@ function WhySplitMerge({ line, ai, jobRunning, limited, reasonId, actions }: {
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, simple = false, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, timingSnap, issue, actions, simple = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -429,6 +434,15 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       )}
       {line.flag === TIMING_UNCERTAIN_FLAG && (active || !isPhone) && (
         <TimingUncertainActions dramaId={dramaId} lineId={line.id} snap={timingSnap ?? null} actions={actions} jobRunning={jobRunning} />
+      )}
+      {!prose && !draft && guesses && guesses.length > 0 && needsSpeaker(line) && (
+        <SpeakerGuesses
+          guesses={guesses}
+          lineNumber={lineNumber(line.idx)}
+          showKeys={active && !isPhone}
+          tabbable={active}
+          onAccept={(speaker) => void actions.acceptSpeaker(line.id, speaker)}
+        />
       )}
       <div className="review-body">
         <div lang={textLang} className="review-zh">{line.zh}</div>

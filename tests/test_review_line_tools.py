@@ -441,6 +441,30 @@ class TestNavigation:
         with pytest.raises(InvalidInputError):
             review_lines_service.adjacent_flagged(did, True, page_size=0)
 
+    def test_next_line_with_no_speaker(self, client):
+        did, ids = _seed([Line(idx=i, start=i, end=i + 1, zh=f"z{i}", speaker="A" if i in (0, 3) else None)
+                          for i in range(5)])
+        base = f"/api/review/dramas/{did}/flagged-adjacent"
+        r = client.get(base, params={"direction": "next", "from_line_id": ids[1], "kind": "no_speaker"})
+        assert r.json()["line_id"] == ids[2]
+        assert client.get(f"/api/review/dramas/{did}/lines").json()["no_speaker_count"] == 3
+
+
+class TestSpeakerSuggestions:
+    def test_guesses_for_the_asked_lines(self, client):
+        did, ids = _seed([Line(idx=i, start=i, end=i + 1, zh=f"z{i}", speaker="A" if i == 0 else None)
+                          for i in range(2)])
+        r = client.get(f"/api/review/dramas/{did}/speaker-suggestions", params={"line_id": [ids[0], ids[1]]})
+        assert r.status_code == 200
+        assert r.json() == {"lines": [{"line_id": ids[1], "speakers": [{"speaker": "A", "reasons": ["above"]}]}]}
+
+    def test_bad_inputs(self, client):
+        did, ids = _seed()
+        url = f"/api/review/dramas/{did}/speaker-suggestions"
+        assert client.get(url).status_code == 422
+        assert client.get(url, params={"line_id": list(range(1, 202))}).status_code == 422
+        assert client.get("/api/review/dramas/999/speaker-suggestions", params={"line_id": 1}).status_code == 404
+
 
 # ---------------------------------------------------------------------------
 # Permissions (BAIHE_API_AUTH=on)
@@ -546,6 +570,12 @@ class TestPermissions:
             assert remote.post(url, json=body, headers=session_headers(household)).status_code == status
         # the call runs on the engine the gate checked
         assert built == ["ollama"]
+
+    def test_speaker_suggestions_need_lines_read(self, remote):
+        did, ids = _seed()
+        url = f"/api/review/dramas/{did}/speaker-suggestions?line_id={ids[0]}"
+        assert remote.get(url, headers=session_headers(_user("n@example.com"))).status_code == 403
+        assert remote.get(url, headers=session_headers(_user("r@example.com", "lines.read"))).status_code == 200
 
     def test_navigation_needs_lines_read(self, remote):
         did, ids = _seed()

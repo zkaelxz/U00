@@ -400,6 +400,34 @@ class TestAdjacentUnreviewed:
             svc.adjacent_flagged(did, True, None, 40, "all", "bogus")
 
 
+class TestNoSpeaker:
+    def _seeded(self, db):
+        lines = [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f"中{i}", en=f"Hi {i}") for i in range(7)]
+        lines[0].speaker = "A"
+        lines[2].speaker_manual = True  # cleared on purpose: needs nothing
+        lines[3].sfx = True
+        lines[4].zh = lines[4].en = ""
+        lines[6].speaker = "B"
+        return _seed(db, lines)
+
+    def test_counts_only_lines_waiting_for_a_speaker(self, isolated_db):
+        did = self._seeded(isolated_db)
+        assert svc.list_review_lines(did)["no_speaker_count"] == 2  # idx 1 and 5
+
+    def test_title_with_no_speakers_counts_none(self, isolated_db):
+        did = _seed(isolated_db, _flag_lines(4))
+        assert svc.list_review_lines(did)["no_speaker_count"] == 0
+        assert svc.adjacent_flagged(did, True, None, 40, "all", "no_speaker")["line_id"] is None
+
+    def test_steps_between_lines_that_need_a_speaker(self, isolated_db):
+        did = self._seeded(isolated_db)
+        ids = {ln.idx: ln.id for ln in isolated_db.load_line_texts(did)}
+        assert svc.adjacent_flagged(did, True, ids[0], 40, "all", "no_speaker")["idx"] == 1
+        assert svc.adjacent_flagged(did, True, ids[1], 40, "all", "no_speaker")["idx"] == 5
+        assert svc.adjacent_flagged(did, False, ids[5], 40, "all", "no_speaker")["idx"] == 1
+        assert svc.adjacent_flagged(did, True, ids[5], 40, "all", "no_speaker")["line_id"] is None
+
+
 SFX_LINES = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A"),
              Line(idx=1, start=1.0, end=2.0, zh="砰", en="door slams", sfx=True, speaker="A")]
 

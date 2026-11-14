@@ -100,6 +100,9 @@ button.review-clear { position: absolute; right: 2px; top: 50%; transform: trans
 .review-undo-text { flex: 1 1 14rem; min-width: 0; }
 .review-undo-actions { display: inline-flex; gap: var(--space-2); }
 .review-undo-actions button { min-height: var(--touch, 44px); min-width: var(--touch, 44px); }
+.review-undo-speaker { margin-top: var(--space-2); }
+/* One row on a phone: it sits over the list while the next blank lines are filled. */
+.review-undo-speaker .review-undo-text { flex-basis: 8rem; }
 
 /* ---- player strip ---- */
 .review-player { display: grid; gap: var(--space-1); border-top: 1px solid var(--border); padding-top: var(--space-2); }
@@ -421,6 +424,10 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-flagnav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .review-tm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-2); margin-top: var(--space-1); padding: var(--space-1) var(--space-2); border-left: 3px solid var(--accent); font-size: var(--text-sm); overflow-wrap: anywhere; min-width: 0; }
 .review-tm > span:first-child { min-width: 0; }
+.review-speaker-guess { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin-top: var(--space-1); font-size: var(--text-sm); min-width: 0; }
+.review-speaker-guess .btn { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; }
+.review-speaker-guess .btn > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-speaker-guess-why { color: var(--muted); font-size: var(--text-xs, 0.75rem); }
 .review-tm .review-actions { margin-top: 0; }
 .review-alts, .review-grammar { margin: 0; padding-left: 1.4em; display: grid; gap: var(--space-2); overflow-wrap: anywhere; min-width: 0; }
 .review-alts > li { display: grid; gap: 2px; justify-items: start; }
@@ -456,7 +463,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 /* Phone: rows of dense buttons keep >= 12px between them so the 44px hit areas never overlap. */
 @media (max-width: 640px) {
-  .review-ai-panel, .review-actions, .review-tools, .review-tm, .review-flagnav { gap: var(--space-3); }
+  .review-ai-panel, .review-actions, .review-tools, .review-tm, .review-flagnav, .review-speaker-guess { gap: var(--space-3); }
 }
 
 /* Compare transcription */
@@ -503,11 +510,11 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-selbar-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 @media (pointer: coarse), (max-width: 640px) {
   .review-line { --select-size: var(--touch); }
-  .review-selbar .btn { min-height: var(--touch); }
+  .review-selbar .btn, .review-speaker-guess .btn { min-height: var(--touch); }
 }
 @media (max-width: 640px) {
   /* Clear of the fixed phone action bar. */
-  .review-selbar { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  .review-selbar, .review-undo-speaker { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* ---- waveform timeline ---- */
