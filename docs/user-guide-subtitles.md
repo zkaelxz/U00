@@ -114,7 +114,7 @@ An uploaded or pasted `.txt` or `.epub` with chapter headings (第1章, 第1話,
 
 ### Transcription accuracy
 
-The first audio or video you add to an empty title makes the Run tab transcribe it with Whisper; pick "I have a transcript" on the Transcribe stage to paste text instead.
+The first audio or video you add to an empty title makes the Run tab transcribe it with Whisper; pick "I have a transcript" on the Transcribe stage to paste text instead. A pasted line that matches nothing Whisper heard gets a time guessed from the lines around it and is flagged "Timing uncertain", so Review shows which times to check.
 
 Whisper often mishears proper nouns in Chinese without it showing. In order of value:
 1. **A real transcript.**
