@@ -15,14 +15,14 @@ import { useJob, useJobRun } from '../../hooks/useJob'
 import { useLoad } from '../../hooks/useLoad'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { useReattachJob } from '../../hooks/useReattachJob'
-import { type JobRecord } from '../../types/jobs'
+import { isTerminalStatus, type JobRecord } from '../../types/jobs'
 import type { PreflightRow } from '../preflight/preflightModel'
 import { checkUploadFile } from '../workspace/sourceForm'
 import { buildRunBody, initialForm } from '../workspace/translateForm'
 import { exportFilename, srtFileText } from '../workspace/exportForm'
 import type { FileRunRequest } from './addBoxModel'
 import {
-  IDLE, blockerText, flowReducer, mediaTypeFor, parseSaved, reattachIds, savedFor, stepForJob, titleFor,
+  IDLE, blockerText, finishedStepJob, flowReducer, mediaTypeFor, parseSaved, reattachIds, savedFor, stepForJob, titleFor, type FlowStep,
 } from './makeSubtitlesFlow'
 
 export const LANGUAGES = ['zh', 'ja', 'ko']
@@ -49,7 +49,11 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const [flow, dispatch] = useReducer(flowReducer, IDLE)
   const [saved, setSaved] = usePersistedState<unknown>('makeSubtitles.run', null)
   const [language, setLanguage] = usePersistedState('makeSubtitles.language', 'zh')
-  const [pickedEngine, setPickedEngine] = useState<string | null>(null)
+  // The box remembers the translator for the next file, like the language.
+  const [pickedEngine, setPickedEngine] = usePersistedState('makeSubtitles.engine', '')
+  // The translator a run was started with, kept beside the saved run: a run resumed after the page was
+  // closed translates with it, whatever the box (here or in the Library) has picked since.
+  const [runEngine, setRunEngine] = usePersistedState('makeSubtitles.runEngine', '')
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [variant, setVariant] = useState('')
@@ -75,12 +79,13 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const defaultLocale = settings.data?.preferences.default_locale
   const list = engines.data?.items ?? []
   const defaultEngine = list.find((e) => e.name === engines.data?.default_engine)?.name ?? list[0]?.name ?? ''
-  const engine = pickedEngine ?? defaultEngine
+  // A remembered translator the list no longer offers falls back to the default; before the list loads it stands.
+  const engine = pickedEngine && (!list.length || list.some((e) => e.name === pickedEngine)) ? pickedEngine : defaultEngine
 
   // Read inside job callbacks, which outlive the render that created them.
-  const run = useRef<{ title: string; engine: string; variant: string; dramaId: number | null }>({ title: '', engine: '', variant: '', dramaId: null })
+  const run = useRef<{ title: string; runEngine: string; defaultEngine: string; variant: string; dramaId: number | null }>({ title: '', runEngine: '', defaultEngine: '', variant: '', dramaId: null })
   const dramaId = flow.phase === 'idle' ? null : flow.dramaId
-  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, engine, variant, dramaId } })
+  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, runEngine, defaultEngine, variant, dramaId } })
   const stepNow = flow.phase === 'running' ? flow.step : null
 
   useEffect(() => { if (runs) setSaved(savedFor(flow)) }, [flow]) // setSaved is a fresh function each render
@@ -99,7 +104,8 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const translateStep = useCallback(async (id: number) => {
     try {
       const config = await getTranslateConfig(id)
-      const form = { ...initialForm(config), engine: run.current.engine }
+      // A run saved before its translator was kept takes the default, not a pick made since for another file.
+      const form = { ...initialForm(config), engine: run.current.runEngine || run.current.defaultEngine }
       if (run.current.variant) form.locale = run.current.variant
       const started = await startTranslateRun(id, buildRunBody(form))
       setJobId(started.job_id)
@@ -121,7 +127,9 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
 
   // A reload mid-run: find the job still running and carry on from its step.
   const ids = flow.phase === 'running' && flow.dramaId !== null && resuming && !jobId ? reattachIds(flow.dramaId) : []
-  const seen = useRef({ settled: 0, live: false })
+  const seen = useRef({ settled: 0, live: false, finished: new Map<string, JobRecord>() })
+  // The saved run this page picked up, so a step that ended while the page was closed can carry on.
+  const resumedFrom = useRef<{ dramaId: number; step: FlowStep } | null>(null)
   const attach = useCallback((id: string) => {
     seen.current.live = true
     setResuming(false)
@@ -131,13 +139,22 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   }, [adopt])
   const lookup = useCallback((id: string) => {
     const p = probeJob(id)
-    void p.then((j) => { if (j && !['done', 'error', 'cancelled'].includes(j.status) && !j.stale) seen.current.live = true }, () => undefined)
+    void p.then((j) => {
+      if (!j || j.stale) return
+      if (isTerminalStatus(j.status)) seen.current.finished.set(id, j)
+      else seen.current.live = true
+    }, () => undefined)
       .finally(() => {
         seen.current.settled += 1
-        if (seen.current.settled === reattachIds(0).length && !seen.current.live) fail(lostRun())
+        if (seen.current.settled !== reattachIds(0).length || seen.current.live) return
+        // Nothing still running: the step may have ended while the page was closed.
+        const from = resumedFrom.current
+        if (from?.step === 'export') { setResuming(false); void exportStep(from.dramaId); return }
+        const ended = from && finishedStepJob(from.step, from.dramaId, seen.current.finished)
+        if (ended) { setResuming(false); onJobDone(ended) } else fail(lostRun())
       })
     return p
-  }, [fail])
+  }, [fail, onJobDone, exportStep])
   useReattachJob(ids, attach, lookup)
 
   // Checked before the title exists, so a wrong or empty file leaves nothing behind.
@@ -158,7 +175,9 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
     const abort = new AbortController()
     uploadAbort.current = abort
     let created: number | null = null
-    seen.current = { settled: 0, live: false }
+    seen.current = { settled: 0, live: false, finished: new Map() }
+    resumedFrom.current = null
+    setRunEngine(r.engine || engine)
     setResuming(false)
     dispatch({ type: 'start' })
     try {
@@ -182,11 +201,11 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
 
   const fillBox = useCallback((r: FileRunRequest) => {
     setFile(r.file)
-    setPickedEngine(r.engine || null)
+    setPickedEngine(r.engine)
     setLanguage(r.language)
     setTitle(r.title)
     setVariant(r.variant)
-  }, [setLanguage])
+  }, [setLanguage, setPickedEngine])
 
   // Once, after the first render: a run saved in storage wins over a hand-off. The hand-off then waits
   // untouched, so the saved run never translates with a translator or variant picked for another file.
@@ -196,7 +215,7 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
     resumed.current = true
     const s = parseSaved(saved)
     // A run that died before the upload finished has nothing to follow.
-    if (s && s.step !== 'upload') { setResuming(true); dispatch({ type: 'resume', saved: s }); setWaiting(request); return }
+    if (s && s.step !== 'upload') { resumedFrom.current = s; setResuming(true); dispatch({ type: 'resume', saved: s }); setWaiting(request); return }
     if (s) setNote({ kind: 'upload-lost', dramaId: s.dramaId })
     if (request) { fillBox(request); void start(request) }
   }, [saved, runs, request, fillBox, start])

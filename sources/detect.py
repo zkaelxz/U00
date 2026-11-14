@@ -44,6 +44,10 @@ _AUTH_MARKERS = ('type="password"', "type='password'", "please log in", "please 
                  "login required", "请登录", "請登入", "로그인이 필요", "ログインしてください")
 _PURCHASE_MARKERS = ("purchase this chapter", "buy this chapter", "unlock this chapter",
                      "购买本章", "購買本章", "付费章节", "이용권", "구매하기", "購入する")
+# Names a section of the site rather than asking to buy this page: a free chapter's menu can
+# link to it. Every other marker counts anywhere in the page, link text, button values and
+# scripts included, since a paywall's own button is often exactly such a link.
+_PURCHASE_SECTION_MARKERS = ("付费章节",)
 _COOKIE_MARKERS = ("enable cookies", "cookies are disabled", "请启用cookie", "쿠키를 허용")
 _JS_REQUIRED_MARKERS = ("enable javascript", "javascript is required", "requires javascript",
                         "you need to enable javascript", "请开启javascript", "请启用javascript",
@@ -57,6 +61,12 @@ _EMBEDDED_STATE_START = "window.__NUXT__"
 _EMBEDDED_STATE_MIN_CHARS = 20_000
 _DRM_MARKERS = ("requestmediakeysystemaccess", "com.widevine.alpha", "com.microsoft.playready",
                 "com.apple.fps", "encrypted-media")
+# Every YouTube and Bilibili embed grants allow="... encrypted-media ..." to its iframe;
+# that permission says nothing about the page itself. No "<" or ">" in the value, so an
+# unclosed quote can't make the match run past its own tag.
+_ALLOW_ATTR_RE = re.compile(r"""\ballow\s*=\s*(?:"[^"<>]*"|'[^'<>]*')""")
+# A link's own text, for menu entries such as 付费章节 ("paid chapters") on a free page.
+_LINK_TEXT_RE = re.compile(r"<a\b[^<>]*>[^<]*</a\s*>", re.I)
 
 # A page the *person's own browser* has already machine-translated. This
 # is not a failure -- the page loaded fine -- but it quietly ruins an
@@ -231,11 +241,11 @@ def classify(status: Optional[int], headers=None, body: str = "", url: str = "",
         reasons.append(FailureReason.AUTHENTICATION_REQUIRED)
     elif any(m in lower for m in _AUTH_MARKERS) and len(text) < 1500:
         reasons.append(FailureReason.AUTHENTICATION_REQUIRED)
-    if any(m in lower for m in _PURCHASE_MARKERS):
+    if _asks_for_purchase(body, lower, text):
         reasons.append(FailureReason.PURCHASE_REQUIRED)
     if any(m in lower for m in _COOKIE_MARKERS) and len(text) < 1500:
         reasons.append(FailureReason.COOKIE_REQUIRED)
-    if any(m in lower for m in _DRM_MARKERS):
+    if any(m in _ALLOW_ATTR_RE.sub(" ", lower) for m in _DRM_MARKERS):
         reasons.append(FailureReason.DRM_DETECTED)
 
     if any(m in lower for m in _CRYPTO_MARKERS) and any(m in lower for m in _VUE_MARKERS):
@@ -251,6 +261,20 @@ def classify(status: Optional[int], headers=None, body: str = "", url: str = "",
             reasons.append(FailureReason.EMPTY_SPA_SHELL)
             reasons.append(FailureReason.JAVASCRIPT_REQUIRED)
     return reasons
+
+
+def _asks_for_purchase(body: str, lower: str, text: str) -> bool:
+    """A purchase marker anywhere in the page. The one exception is a section name such as
+    付费章节 on a longer page, which counts only in visible text outside link text: a free
+    chapter's menu can link to the site's paid chapters, which says nothing about this one."""
+    if any(m in lower for m in _PURCHASE_MARKERS if m not in _PURCHASE_SECTION_MARKERS):
+        return True
+    if not any(m in lower for m in _PURCHASE_SECTION_MARKERS):
+        return False
+    if len(text) < 1500:
+        return True
+    outside_links = visible_text(_LINK_TEXT_RE.sub(" ", body)).lower()
+    return any(m in outside_links for m in _PURCHASE_SECTION_MARKERS)
 
 
 def has_embedded_state(body: str) -> bool:

@@ -261,6 +261,27 @@ class TestPipeline:
         assert errors == []
         assert all(ln.en for ln in lines)
         assert " ".join(ln.en for ln in lines) == "I went to the store to shop"
+        # Baihe chose the breaks, not the model, so each part goes to review.
+        assert [(ln.flag, ln.flag_note) for ln in lines] == \
+            [("uncertain_translation", sg.SPLIT_BY_LENGTH_NOTE)] * 3
+
+    def test_a_split_that_never_lands_flags_nothing(self):
+        # One group comes back whole and is split; the other needs the redo call, which fails,
+        # so the batch saves no new English and nothing may say it was split.
+        lines = [L(0, "我今天去了", 0.0, 1.0), L(1, "商店", 1.2, 1.8), L(2, "买东西。", 2.0, 3.0),
+                 L(3, "她说她", 3.2, 4.0), L(4, "不来了。", 4.2, 5.0)]
+        calls = []
+
+        def reply(prompt):
+            calls.append(prompt)
+            if len(calls) == 1:
+                return json.dumps({"100": "I went to the store to shop", "101": "", "102": "",
+                                   "103": "Hmm", "104": ""})
+            raise RuntimeError("HTTP 500")
+        _, errors = run(ScriptedEngine(reply), lines, translate_by_sentence=True)
+        assert errors
+        assert not any(ln.en for ln in lines)
+        assert [ln.flag_note for ln in lines if ln.flag_note == sg.SPLIT_BY_LENGTH_NOTE] == []
 
     def test_already_translated_neighbour_is_not_touched_or_grouped(self):
         lines = fragments()
