@@ -117,6 +117,23 @@ def test_new_english_still_missing_a_glossary_name_stays_flagged_for_it(llm_repl
     assert out["fixed"] == 1
 
 
+def test_a_plain_stream_fix_checks_only_the_terms_its_prompt_lists(llm_replies):
+    from engine_backends import stream_recipe
+    terms = [{"term_original": "牛肉", "term_translation": "beef", "category": "culture_item"},
+             {"term_original": "林晚", "term_translation": "Lin Wan"}]
+    llm_replies["replies"] = {"林晚吃牛肉": "Lynn ate steak."}
+    lines = [_line(0, "林晚吃牛肉", "x", flag="reading_speed")]
+    _run(lines, _LLM(), base_context={"glossary_terms": terms,
+                                      "style_guidelines": stream_recipe.build_guidelines(terms)})
+    assert (lines[0].en, lines[0].flag) == ("Lynn ate steak.", "glossary_missing")
+    assert "Lin Wan" in lines[0].flag_note and "beef" not in lines[0].flag_note
+    llm_replies["replies"] = {"林晚吃牛肉": "Lin Wan ate steak."}
+    lines = [_line(0, "林晚吃牛肉", "x", flag="reading_speed")]
+    _run(lines, _LLM(), base_context={"glossary_terms": terms,
+                                      "style_guidelines": stream_recipe.build_guidelines(terms)})
+    assert (lines[0].en, lines[0].flag) == ("Lin Wan ate steak.", None)
+
+
 def test_prompt_carries_the_flag_note_and_current_english(llm_replies):
     llm_replies["replies"] = {"一": "one"}
     _run([_line(0, "一", "she left", "ambiguous_reference", "who is she?")], _LLM())

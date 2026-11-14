@@ -17,7 +17,7 @@ Timing flags never reach the engine: rewording the English can't move a
 subtitle onto its audio, so split_timing_flags drops them before any call.
 """
 import db
-from engine_backends import engine_registry, flag_reasons, glossary_check, shared, pricing
+from engine_backends import engine_registry, flag_reasons, glossary_check, shared, pricing, stream_recipe
 from engine_backends import prompts as engine_prompts
 from engine_backends import llm_tasks as engine_llm_tasks
 from engine_backends import llm_tasks
@@ -186,6 +186,7 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
 
     glossary_terms = base_context.get("glossary_terms") or []
     allowed_runs = allowed_source_runs(glossary_terms, base_context.get("style_guidelines", ""))
+    required = stream_recipe.required_terms(glossary_terms, base_context.get("style_guidelines"))
     check_replies = reply_check_on(engine_choice, getattr(engine, "model", None))
     llm = getattr(engine, "supports_reference", False)
     batches = [to_translate[i:i + BATCH_SIZE] for i in range(0, len(to_translate), BATCH_SIZE)]
@@ -219,7 +220,7 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
                 errors.append(f"line {ln.idx + 1}: the reply was not used ({reason})")
                 continue
             ln.en = new
-            missing = glossary_check.missing_terms(ln.zh, new, glossary_terms)
+            missing = glossary_check.missing_terms(ln.zh, new, required)
             if missing:
                 # The new English still lacks a glossary name: the line stays in review, with
                 # the note saying which name, whatever it was flagged for before.
