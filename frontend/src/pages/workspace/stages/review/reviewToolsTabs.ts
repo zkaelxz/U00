@@ -44,10 +44,12 @@ export const REVIEW_TOOLS: { id: ReviewTool; group: ReviewToolsGroup; simple?: t
   { id: 'markReviewed', group: 'finish', simple: true },
 ]
 
-export const shownTools = (simple: boolean) => REVIEW_TOOLS.filter((t) => !simple || t.simple)
+// `added`: tools a button on the page asked for (Transcribe this gap needs Re-transcribe), shown in Simple too.
+export const shownTools = (simple: boolean, added: ReadonlySet<ReviewTool> = new Set()) =>
+  REVIEW_TOOLS.filter((t) => !simple || t.simple || added.has(t.id))
 
-export const shownGroups = (simple: boolean) => {
-  const tools = shownTools(simple)
+export const shownGroups = (simple: boolean, added: ReadonlySet<ReviewTool> = new Set()) => {
+  const tools = shownTools(simple, added)
   return REVIEW_TOOLS_GROUPS.filter((g) => tools.some((t) => t.group === g.id))
 }
 
@@ -92,6 +94,17 @@ export const FIRST_CARD: Record<ReviewToolsGroup, string | null> = {
 }
 
 const tabPrefKey = (dramaId: number) => `review.tools.tab.${dramaId}`
+const addedPrefKey = (dramaId: number) => `review.tools.added.${dramaId}`
+
+// Kept per title so a run left before Apply can still be reached in Simple on the next visit.
+export function readAddedTools(storage: StorageLike | null, dramaId: number): ReadonlySet<ReviewTool> {
+  const saved = readPref<unknown>(storage, addedPrefKey(dramaId), [])
+  return new Set(Array.isArray(saved) ? REVIEW_TOOLS.filter((t) => saved.includes(t.id)).map((t) => t.id) : [])
+}
+
+export function writeAddedTools(storage: StorageLike | null, dramaId: number, tools: ReadonlySet<ReviewTool>): void {
+  writePref(storage, addedPrefKey(dramaId), [...tools])
+}
 const seededPrefKey = (group: ReviewToolsGroup) => `review.tools.seeded.${group}`
 
 export function readLastTab(storage: StorageLike | null, dramaId: number): ReviewToolsGroup {
