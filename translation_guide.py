@@ -634,8 +634,12 @@ def build_hard_term_substituter(glossary_terms):
     matchers = {}
 
     def matcher(active):
+        # Every term's canonical form stays in the pattern, active or not: it is what keeps
+        # an active term's variant from matching inside another name ("Qingyi" inside
+        # "Shen Qingyi" when only 清仪 is in the source).
         if active not in matchers:
-            matchers[active] = _variant_matcher([v for i in active for v in variants_of[i]])
+            matchers[active] = _variant_matcher(
+                [p for i, vs in enumerate(variants_of) for p in (vs if i in active else vs[:1])])
         return matchers[active]
 
     def substitute(text: str, source: str | None = None) -> str:
@@ -643,7 +647,7 @@ def build_hard_term_substituter(glossary_terms):
             return text
         active = tuple(i for i, t in enumerate(enforced)
                        if source is None or any(f and f in source for f in glossary_term_forms(t)))
-        return matcher(active)(text) if active else text
+        return matcher(frozenset(active))(text) if active else text
 
     return substitute
 
@@ -666,7 +670,7 @@ def _term_variants(term: dict) -> list:
 def _variant_matcher(pairs):
     """`text -> text` replacing each variant in `pairs` with its canonical form. The first
     pair for a casefolded variant wins, so with pairs in longest-canonical-first order a
-    variant two terms share goes to the longer name, as before."""
+    variant two terms share goes to the longer name."""
     canonical_of = {}
     for v, canonical in pairs:
         canonical_of.setdefault(v.casefold(), (v, canonical))
