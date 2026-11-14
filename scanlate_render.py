@@ -13,6 +13,8 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from lib.atomic_write import replace_file
+
 import scanlate_art_text
 import scanlate_sfx
 import scanlate_tilt
@@ -955,7 +957,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                          rect_layout, look, angles, fades, lines)
         _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
         pil_img.save(result_path, "PNG")
-        os.replace(result_path, out_path)
+        replace_file(result_path, out_path)
     finally:
         if os.path.exists(result_path):
             os.remove(result_path)
