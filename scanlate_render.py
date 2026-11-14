@@ -836,7 +836,7 @@ def _without_small_dents(mask):
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                      font_path: str | None, custom_fonts: dict | None, inks: list,
                      rect_layout: bool = False, style: TypesetStyle = _PLAIN,
-                     fades: list | None = None) -> None:
+                     fades: "list[tuple | None] | None" = None) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
     then the real pass draws with sibling balloons held to a shared ratio."""
     masks = [(_without_small_dents(bubble_shape_mask(image_path, b, image=gray,
