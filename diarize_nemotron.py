@@ -124,8 +124,9 @@ def diarize(audio_path: str, use_gpu: bool = False, on_progress=None) -> tuple[l
     with torch.inference_mode():
         logits = model(**inputs).logits
     segments = processor.extract_speaker_dict(logits, inputs.attention_mask)[0]
-    # The same sigmoid extract_speaker_dict thresholds at 0.5, so each turn is exactly
-    # the run of frames where its speaker's probability is above that.
+    # The same sigmoid extract_speaker_dict thresholds at 0.5, so each turn is
+    # the run of frames where its speaker's probability is above that (a half-precision
+    # model can differ by a frame at a turn edge, which barely moves a mean).
     probs = logits[0].float().sigmoid().cpu().numpy()
     extractor = processor.feature_extractor
     turns = turns_from_segments(segments, probs, extractor.hop_length / extractor.sampling_rate)

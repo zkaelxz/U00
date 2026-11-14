@@ -584,7 +584,8 @@ def line_confidence(line_start: float, line_end: float, speaker, turns):
             if overlap > 0:
                 weighted += overlap * float(bins[i])
                 covered += overlap
-    return weighted / covered if covered > 0 else None
+    # Rounded so a line whose bins all sit at the cutoff isn't blanked by float error.
+    return round(weighted / covered, 6) if covered > 0 else None
 
 
 def confident_speaker(line_start: float, line_end: float, turns):
@@ -694,7 +695,9 @@ def embedding_from_lines(drama_dir: str, label: str, lines, *, min_purity: float
     embeddings, turns = data.get("embeddings") or {}, data.get("turns") or []
     if not isinstance(embeddings, dict) or not isinstance(turns, list):
         return None
-    spans = sorted((ln.start, ln.end, ln.speaker == label) for ln in lines)
+    # A line with no speaker is not another voice: detection leaves the lines it was
+    # unsure of blank inside its own turns, and counting them would fail the purity test.
+    spans = sorted((ln.start, ln.end, ln.speaker == label) for ln in lines if ln.speaker)
     mine: dict = {}
     total: dict = {}
     for turn in turns:
