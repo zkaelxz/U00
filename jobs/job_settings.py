@@ -82,6 +82,11 @@ def set_notify_on_completion(enabled: bool):
     db.set_app_setting("notify_on_completion", bool(enabled))
 
 
+# The Windows balloon's text field holds 256 characters with its terminator; plyer fills it in
+# its own thread, so a longer text fails there and no pop-up shows.
+POPUP_MAX_CHARS = 255
+
+
 def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
                          with_errors=False, reason=None, waiting=None):
     """Best-effort only -- never raises. A missing `plyer` install, or no
@@ -116,14 +121,14 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
                 waiting_message = notification_service.waiting_job_message(description, waiting)
             except Exception:
                 waiting_message = None   # the plain "Finished" pop-up still shows
-        notification.notify(
-            title="Baihe Studio",
-            message=(waiting_message if waiting_message else
-                     f"Finished with errors: {description}" if status == "done" and with_errors
-                     and description else
-                     f"Finished: {description}" if status == "done" and description else
-                     "Finished: background job" if status == "done" else
-                     f"Failed: {description}" if description else "Failed: background job"),
-            timeout=10)
+        message = (waiting_message if waiting_message else
+                   f"Finished with errors: {description}" if status == "done" and with_errors
+                   and description else
+                   f"Finished: {description}" if status == "done" and description else
+                   "Finished: background job" if status == "done" else
+                   f"Failed: {description}" if description else "Failed: background job")
+        if len(message) > POPUP_MAX_CHARS:
+            message = message[:POPUP_MAX_CHARS - 1].rstrip() + "…"
+        notification.notify(title="Baihe Studio", message=message, timeout=10)
     except Exception:
         pass

@@ -2019,6 +2019,26 @@ class TestNotifyOnCompletion:
         job_settings._notify_job_finished(desc, "done", waiting={"cap": True})
         assert calls[-1]["message"] == f"Finished: {desc}"
 
+    def test_a_long_pop_up_is_cut_to_fit_the_windows_balloon(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
+        job_settings.set_notify_on_completion(True)
+        did = db.create_drama(title_en="Moonlit Garden " + "x" * 75)   # 90 characters
+        job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
+                                          waiting={"reason": "r" * 200})
+        message = calls[-1]["message"]
+        assert len(message) <= job_settings.POPUP_MAX_CHARS == 255
+        assert message.startswith("Waiting for you: Translation stopped - Moonlit Garden")
+        assert message.endswith("…")
+
     def test_notify_job_finished_does_nothing_when_disabled(self, monkeypatch):
         import sys
         import types
