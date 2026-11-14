@@ -27337,7 +27337,7 @@ export interface components {
             scanlate_chapter_brief: boolean;
             /**
              * Scanlate Match Text Color
-             * @default false
+             * @default true
              */
             scanlate_match_text_color: boolean;
             /**
