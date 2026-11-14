@@ -69,7 +69,8 @@ for (const view of ['simple', 'full'] as const) test(`${view} view: pressed far 
   await page.route('**/api/source-suspect/dramas/3', (route) => route.fulfill({ json: {
     count: 1, items: [{ line_id: 35, idx: 34, zh: '第35句', note: 'ends mid-phrase', next_line_id: 36, next_zh: '第36句' }],
   } }))
-  await page.goto('/#/drama/3/review')
+  // Simple opens on the lines that need a look; focus=all shows every line, as the All switch does.
+  await page.goto('/#/drama/3/review?focus=all')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
   await page.locator('[data-line-id="35"]').scrollIntoViewIfNeeded()
   await page.locator('.review-suspect-chip').click()
