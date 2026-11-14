@@ -51,6 +51,9 @@ export interface EditState {
   discardWarning?: boolean
   // Reload after a conflict: the next load moves the draft onto the line as it is then.
   rebaseOnLoad?: boolean
+  // A fill of a blank line landed under this draft: on that rebase the typing
+  // wins over the filled text instead of giving way to it.
+  keepTyping?: boolean
 }
 
 // Safari ends an IME composition with a keydown whose isComposing is false but

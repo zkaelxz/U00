@@ -73,13 +73,14 @@ export default function ReviewStage() {
     showTool('retime')
   }, [showTool])
   // Same for "Re-transcribe selected", the waveform's "Transcribe this gap" and
-  // "Add and transcribe": ids start a run on exactly those lines.
+  // "Add and transcribe": ids start a run on exactly those lines; the last two
+  // fill their new blank lines with what was heard.
   const [retranscribeRequest, setRetranscribeRequest] = useState<RetranscribeRequest | null>(null)
   const [handledRetranscribeSeq, setHandledRetranscribeSeq] = useState(0)
   const pendingRetranscribe = retranscribeRequest && retranscribeRequest.seq !== handledRetranscribeSeq ? retranscribeRequest : null
   const openRetranscribe = useCallback(
-    (lineIds: number[] | null) => {
-      setRetranscribeRequest((r) => ({ seq: (r?.seq ?? 0) + 1, lineIds }))
+    (lineIds: number[] | null, fill = false) => {
+      setRetranscribeRequest((r) => ({ seq: (r?.seq ?? 0) + 1, lineIds, fill }))
       showTool('retranscribe')
     },
     [showTool],
