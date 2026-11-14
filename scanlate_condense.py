@@ -61,7 +61,7 @@ def ask_for_shorter(engine, source_name: str, wanted: dict, usage_cb=None) -> di
               + f"\n\nSigns (JSON):\n{payload}\n\n"
               'Return ONLY a JSON object: {"shortened": {"<key>": "<shorter English>", ...}}. '
               "Use each key as given. No preamble, no markdown fences.")
-    text = call_llm_json(engine, prompt, max_tokens=min(1500, 100 * len(wanted) + 300),
+    text = call_llm_json(engine, prompt, max_tokens=min(max(1500, 200 * len(wanted)), 8192),
                          fallback=None, usage_cb=usage_cb)
     if not text:
         return {}

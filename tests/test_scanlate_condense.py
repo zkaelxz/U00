@@ -116,3 +116,15 @@ def test_a_page_that_cannot_be_read_keeps_the_full_translation(monkeypatch):
     notes = []
     run._condense_signs(1, 2, bubbles, object(), "claude", {}, notes)
     assert bubbles[0]["translated_text"] == "Traffic is jammed." and notes == []
+
+
+def test_the_reply_is_allowed_room_for_the_whole_json_even_for_one_sign(monkeypatch):
+    seen = {}
+
+    def fake(engine, prompt, max_tokens, **kwargs):
+        seen["max_tokens"] = max_tokens
+        return '{"shortened": {"0": "Closed"}}'
+
+    monkeypatch.setattr("engine_backends.llm_tasks.call_llm_json", fake)
+    scanlate_condense.ask_for_shorter(object(), "Chinese", {"0": ("Closed today", 8)})
+    assert seen["max_tokens"] >= 1500        # a 400-token cap cut one sign's answer off on a real engine
