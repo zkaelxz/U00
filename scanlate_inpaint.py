@@ -384,6 +384,7 @@ def _restore_glyphs(mask, ink) -> None:
 
 
 _ART_FILL_CONTEXT_PX = 60
+_ART_FILL_FEATHER_PX = 8
 # Outlined lettering is white or pale; bright pixels that are strongly coloured
 # are artwork (flames, glare) and stay out of the lettering mask, so painting the
 # lettering out cannot blank the art round it.
@@ -455,6 +456,27 @@ def _tone_from_clear_pixels(area, clear):
     return tone
 
 
+def _box_edge_ramp(shape, ox: int, oy: int, bw: int, bh: int, ih: int, iw: int, x: int, y: int):
+    """Weight 0 on the box's own edge rising to 1 a few pixels in, so the fill
+    meets the untouched art outside the box without a straight seam. Sides on
+    the page border have nothing outside to meet and are left alone."""
+    ramp = np.ones(shape, np.float32)
+    steps = (np.arange(_ART_FILL_FEATHER_PX, dtype=np.float32) / _ART_FILL_FEATHER_PX)
+    for side, on_page_edge in (("l", x == 0), ("r", x + bw >= iw), ("t", y == 0), ("b", y + bh >= ih)):
+        if on_page_edge:
+            continue
+        for i, v in enumerate(steps):
+            if side == "l":
+                ramp[:, ox + i] = np.minimum(ramp[:, ox + i], v)
+            elif side == "r":
+                ramp[:, ox + bw - 1 - i] = np.minimum(ramp[:, ox + bw - 1 - i], v)
+            elif side == "t":
+                ramp[oy + i, :] = np.minimum(ramp[oy + i, :], v)
+            else:
+                ramp[oy + bh - 1 - i, :] = np.minimum(ramp[oy + bh - 1 - i, :], v)
+    return ramp
+
+
 def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     """The box's crop with its lettering replaced by the colours of the art
     round it, or None when it holds no pale lettering.
@@ -476,7 +498,8 @@ def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     clear = (cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (41, 41))) == 0)
     clear = clear.astype(np.float32)
     tone = _tone_from_clear_pixels(area, clear)
-    weight = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 4)[..., None]
+    weight = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 4)
+    weight = (weight * _box_edge_ramp(area.shape[:2], x - x0, y - y0, bw, bh, ih, iw, x, y))[..., None]
     blended = (tone * weight + area * (1 - weight)).clip(0, 255).astype(np.uint8)
     return blended[y - y0:y - y0 + bh, x - x0:x - x0 + bw]
 
