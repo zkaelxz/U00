@@ -136,7 +136,6 @@ def trim_to_lettering(gray, box: dict) -> dict:
     is read as part of the caption. The side with more room is cut back to
     the smaller half-width; the box is returned unchanged when the lettering
     is already centred or no single block of it is found."""
-    import cv2
     h, w = gray.shape[:2]
     x0, y0 = max(0, box["x"]), max(0, box["y"])
     roi = gray[y0:min(h, box["y"] + box["h"]), x0:min(w, box["x"] + box["w"])]
