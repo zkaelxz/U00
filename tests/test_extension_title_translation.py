@@ -163,3 +163,43 @@ def test_a_capture_arriving_during_the_translation_leaves_the_series_to_the_firs
     assert db.get_series_id_by_name("남편이 아이를 숨겼다") is None
     assert db.get_drama(first[0].payload["drama_id"])["series_id"] == first[0].payload["series_id"]
     assert len(db.list_series()) == 1
+
+
+def _other_site(token, **body):
+    return _post(token, {"url": "https://page.kakao.com/content/1/viewer/2", "titles": KOREAN_ONLY, **body},
+                 path="/title")
+
+
+def test_the_same_work_from_two_sites_with_different_translations_is_one_series(token, ai, monkeypatch):
+    replies = iter(['{"title": "The Outcast"}', '{"title": "Under One Person"}'])
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k: next(replies))
+    first, second = _resolve(token), _other_site(token)
+    assert first.payload["drama_id"] != second.payload["drama_id"]
+    assert first.payload["series_id"] is not None and second.payload["series_id"] == first.payload["series_id"]
+    assert len(db.list_series()) == 1
+
+
+def test_a_translation_differing_only_in_case_joins_the_existing_series(token, ai, monkeypatch):
+    existing = db.create_series("My Husband Hid the Child", is_private=True)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k: '{"title": "MY HUSBAND HID THE CHILD"}')
+    assert _resolve(token).payload["series_id"] == existing
+    assert len(db.list_series()) == 1
+
+
+def test_a_failed_series_join_does_not_leave_the_title_marked_in_progress(token, ai, monkeypatch):
+    from services import extension_title_service as svc
+
+    def boom(*a, **k):
+        raise RuntimeError("join failed")
+    monkeypatch.setattr(svc, "_join_series", boom)
+    with pytest.raises(RuntimeError):
+        svc.resolve_title({"url": URL, "titles": KOREAN_ONLY})
+    assert svc._series_pending == set()
+
+
+def test_invisible_characters_in_the_translation_are_removed_from_title_and_series(token, ai, monkeypatch):
+    monkeypatch.setattr(llm_tasks, "call_llm_json",
+                        lambda *a, **k: '{"title": "My\\u202e Hus\\u200bband  Hid"}')
+    h = _resolve(token)
+    assert db.get_drama(h.payload["drama_id"])["title_en"] == "My Husband Hid"
+    assert db.get_series_id_by_name("My Husband Hid") == h.payload["series_id"]

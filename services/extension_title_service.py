@@ -210,14 +210,31 @@ def _find_match(clean_url: str, host: str, original: str, english: str, kind: st
 
 
 def _series_display_name(original: str, english: str, drama_id: int) -> str:
-    """The name a series is joined or made under: the English title (the page's own or the
-    translation stored on the title), else the raw name. A series already made under the raw name
-    is reused, so titles imported before series were named in English still land together."""
-    english = english or (db.get_drama(drama_id) or {}).get("title_en") or ""
-    if english and (db.get_series_id_by_name(english) is not None
-                    or not original or db.get_series_id_by_name(original) is None):
-        return english
-    return original or english
+    """The name a series is joined or made under. First the series of another title with the same
+    original name whose series has this title's owner and privacy (what naming the series after the original
+    always did, and what keeps one work from different sites in one series even when each
+    translation reads differently), then a series of the same owner and privacy whose name matches
+    the English or original name ignoring case and width (the check a new series gets), else the
+    English name, else the original."""
+    row = db.get_item_ownership("drama", drama_id) or {}
+
+    def same_scope(item: dict) -> bool:
+        return (item.get("owner_user_id") == row.get("owner_user_id")
+                and bool(item.get("is_private")) == bool(row.get("is_private")))
+
+    english = english or _line((db.get_drama(drama_id) or {}).get("title_en"))
+    series = {s["id"]: s for s in db.list_series() if same_scope(s)}
+    if original:
+        key = term_key(original)
+        for drama in db.list_dramas():
+            if (drama["id"] != drama_id and drama.get("series_id") in series
+                    and term_key(drama.get("title_zh")) == key):
+                return series[drama["series_id"]]["name"]
+    for name in (english, original):
+        for item in series.values():
+            if name and term_key(item["name"]) == term_key(name):
+                return item["name"]
+    return english or original
 
 
 def _join_series(drama_id: int, name: str):
@@ -350,7 +367,8 @@ def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
                 usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extension_title_translate"))
         data = extract_first_json_value(re.sub(r"^```json|^```|```$", "", (reply or "").strip(),
                                                flags=re.MULTILINE).strip())
-        english = " ".join(str(data.get("title") or "").split()) if isinstance(data, dict) else ""
+        # The reply becomes a series name too, so it gets the same character cleaning as page names.
+        english = _line(data.get("title")) if isinstance(data, dict) else ""
         english = redact_secrets(english)[:drama_service.MAX_NAME_LEN]
         return bool(english) and bool(db.dramas.fill_blank_fields(drama_id, {"title_en": english}))
     except Exception as exc:

@@ -139,6 +139,7 @@ def test_a_matched_title_already_in_a_series_stays_there(token):
     h = _resolve(token, url="https://www.twmanga.com/comic/abc").payload
     assert h["series_id"] == series_id
     assert db.get_drama(drama_id)["series_id"] == series_id
+    assert len(db.list_series()) == 1
     assert db.get_series_id_by_name("One Punch Man") is None
 
 
