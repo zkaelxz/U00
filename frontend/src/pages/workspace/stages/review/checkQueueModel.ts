@@ -79,7 +79,7 @@ export const untranslatedText = (n: number): string | null =>
 export const JOB_RUNNING_TEXT = 'Another job is running on this title. Try again when it finishes.'
 export const UNSURE_FIRST = 'Look at the lines Whisper was unsure of first: this would mark them checked too.'
 export const WHOLE_LIST_FIRST =
-  'Work through the list until it fits on one page: until then it can’t tell whether this would mark lines that still need a look.'
+  'Work through the list until it fits on one page. Until then the app can’t tell whether this would also mark lines that still need a look.'
 
 /**
  * Why Mark the rest can't run now, or null when it can. Mark episode reviewed skips flagged lines only, so an
