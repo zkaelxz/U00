@@ -375,7 +375,7 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
     page finishes, from a worker thread, one call at a time."""
     halted = threading.Event()
     order = page_turns.PageOrder(len(decoded), lambda: halted.is_set() or _run_cancelled(job["run_id"]))
-    outcomes = [("stopped", None)] * len(decoded)
+    outcomes: list[tuple[str, dict | None]] = [("stopped", None)] * len(decoded)
     report_lock = threading.Lock()
 
     def work(index):
