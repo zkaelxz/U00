@@ -2470,6 +2470,10 @@ class TestTrimStartsToSpeech:
         out = segment_splitting.trim_starts_to_speech(segs, [(0.5, 1.5), (4.5, 5.0)])
         assert [s["start"] for s in out] == [1.0, 3.0]
 
+    def test_a_line_starting_in_speech_keeps_its_start_even_with_more_speech_after_a_pause(self):
+        segs = [{"start": 1.0, "end": 3.0, "text": "a"}]
+        assert segment_splitting.trim_starts_to_speech(segs, [(0.8, 1.2), (1.6, 3.0)])[0]["start"] == 1.0
+
     def test_speech_starting_within_the_pad_moves_nothing(self):
         segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
         assert segment_splitting.trim_starts_to_speech(segs, [(1.05, 2.0)])[0]["start"] == 1.0
@@ -2490,6 +2494,17 @@ def test_whisper_lines_are_fitted_to_the_detected_speech_at_both_edges(monkeypat
     segs = [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 4.0, "end": 4.6, "text": "b"}]
     out = whisper_transcribe._fit_to_speech(segs, "audio.wav")
     assert [(round(s["start"], 2), round(s["end"], 2)) for s in out] == [(1.3, 2.3), (4.0, 5.0)]
+
+
+def test_difficult_audio_extends_ends_but_keeps_starts(monkeypatch):
+    import types
+    import vad_segments
+    monkeypatch.setitem(sys.modules, "faster_whisper",
+                        types.SimpleNamespace(decode_audio=lambda path, sampling_rate: [0.0]))
+    monkeypatch.setattr(vad_segments, "speech_spans", lambda audio, sr, **kw: [vad_segments.Span(1.4, 2.3)])
+    segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
+    out = whisper_transcribe._fit_to_speech(segs, "audio.wav", trim_starts=False)
+    assert (out[0]["start"], round(out[0]["end"], 2)) == (1.0, 2.3)
 
 
 def test_whisper_lines_keep_their_times_without_the_detector(monkeypatch):

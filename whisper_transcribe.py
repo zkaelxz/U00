@@ -152,10 +152,11 @@ def _spoken_end(seg: dict) -> float:
     return words[-1]["end"] if words else seg["end"]
 
 
-def _fit_to_speech(result: list, audio_path: str) -> list:
+def _fit_to_speech(result: list, audio_path: str, trim_starts: bool = True) -> list:
     """Whisper's word times put line starts in the silence before the voice and line ends
-    before it stops; move both to the speech the detector hears. Without the audio or the
-    detector the lines keep their times."""
+    before it stops; move both to the speech the detector hears. trim_starts False only
+    extends ends: lengthening is harmless when the detector misses speech, a trim is not.
+    Without the audio or the detector the lines keep their times."""
     try:
         from faster_whisper import decode_audio
         import vad_segments
@@ -165,7 +166,9 @@ def _fit_to_speech(result: list, audio_path: str) -> list:
     except Exception:
         # Timing polish only: a missing decoder or detector must not fail the transcription.
         return result
-    return extend_ends_to_speech(trim_starts_to_speech(result, spans), spans)
+    if trim_starts:
+        trim_starts_to_speech(result, spans)
+    return extend_ends_to_speech(result, spans)
 
 
 def _progress_reporter(progress_cb, resume: "_Resume", duration: float):
@@ -554,7 +557,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             on_kept=resume.keep if resume.on_unit and not fast_mode else None)
         result = resume.merged(result)
         settle_overlaps(result)
-        _fit_to_speech(result, audio_path)
+        # Difficult audio is the shouted or whispered speech Silero scores as silence.
+        _fit_to_speech(result, audio_path, trim_starts=not difficult_audio)
         if not fast_mode:
             result = _rehear_sparse(m, audio_path, kwargs, result, prompt_keys)
         for seg in result:
