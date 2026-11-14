@@ -306,6 +306,8 @@ test('a reload keeps each count and its link until the new answer replaces it', 
   await settle(page)
   await expect(signal).toHaveAttribute('href', '#/drama/3/review')
   await expect(harbor).toHaveAttribute('href', '#/drama/61/export')
+  // The rows on screen are the ones this reload is about to replace, so no count is asked on them.
+  expect(mock.asked).toHaveLength(2)
   list.open()
   await expect.poll(() => mock.asked.length).toBe(4)
   await settle(page)
@@ -387,6 +389,8 @@ test('a load whose shelf requests failed keeps the remembered tile count', async
   await page.goto('/')
   await listed
   await expect(page.getByRole('alert')).toContainText('Retry')
+  // The shelf stops waiting, and would store a count, in the render that puts the title list on screen.
+  await expect(page.getByTestId('drama-count')).toBeVisible()
   await settle(page)
   expect(await page.evaluate(() => localStorage.getItem('baihe.pref.library.continue.count'))).toBe('3')
 })

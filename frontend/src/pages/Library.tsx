@@ -135,8 +135,9 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
    *  failed: without a title's row a work tile can only say Open, so the shelf waits rather than show Open and then
    *  change. */
   rows: ReadonlyMap<number, DramaSummary> | null
-  /** False while a reload waits for its first list answer: counts are asked only for titles that answer still puts
-   *  in the check state, not on the rows it is about to replace. */
+  /** False while a reload waits for its title list to answer or fail: counts are asked only for titles that answer
+   *  still puts in the check state, not on the rows it is about to replace. A list that fails leaves the old rows as
+   *  all there is, so their counts are asked again. */
   rowsCurrent: boolean
   phone: boolean
   reloadKey: number
