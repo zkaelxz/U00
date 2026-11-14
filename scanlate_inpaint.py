@@ -441,18 +441,18 @@ def _tone_from_clear_pixels(area, clear):
     reach clear pixels: dividing by a clamped, vanishing weight faded the fill to
     black in the middle of a big sign."""
     import cv2
-    tone = None
-    reach = None
-    for sigma in (15, 45, 135):
+    def scale(sigma):
         weight = cv2.GaussianBlur(clear, (0, 0), sigma)
-        scale_tone = cv2.GaussianBlur(area * clear[..., None], (0, 0), sigma) \
+        tone = cv2.GaussianBlur(area * clear[..., None], (0, 0), sigma) \
             / np.maximum(weight[..., None], 1e-6)
-        if tone is None:
-            tone, reach = scale_tone, np.minimum(weight * 20, 1.0)
-            continue
+        return tone, np.minimum(weight * 20, 1.0)
+
+    tone, reach = scale(15)
+    for sigma in (45, 135):
+        wider, wider_reach = scale(sigma)
         # Pixels with little narrow-scale support take the wider estimate.
-        tone = tone * reach[..., None] + scale_tone * (1 - reach[..., None])
-        reach = np.maximum(reach, np.minimum(weight * 20, 1.0))
+        tone = tone * reach[..., None] + wider * (1 - reach[..., None])
+        reach = np.maximum(reach, wider_reach)
     return tone
 
 
