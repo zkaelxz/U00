@@ -504,6 +504,25 @@ def _dark_art_fill(img, x: int, y: int, bw: int, bh: int):
     return blended[y - y0:y - y0 + bh, x - x0:x - x0 + bw]
 
 
+def _dark_art_inpaint(img, x: int, y: int, bw: int, bh: int, backend: str, hf_token):
+    """The crop for lettering on dark art. LaMa keeps the art's edges and
+    texture where the flat tone fill smears them, so it goes first when the
+    model is usable; the tone fill is the fallback and the answer without it."""
+    import cv2
+    crop = img[y:y + bh, x:x + bw]
+    if _resolve_inpaint_backend(backend) != "ml" or not _pale_pixels(crop).any():
+        return _dark_art_fill(img, x, y, bw, bh)
+    mask = _dark_art_lettering_mask(crop)
+    lama, _ = _try_ml_inpaint(crop, mask, hf_token, backend)
+    if lama is None:
+        return _dark_art_fill(img, x, y, bw, bh)
+    ih, iw = img.shape[:2]
+    weight = cv2.GaussianBlur(mask.astype(np.float32) / 255, (0, 0), 4)
+    weight *= _box_edge_ramp(weight.shape, 0, 0, bw, bh, ih, iw, x, y)
+    blended = lama * weight[..., None] + crop * (1 - weight[..., None])
+    return blended.clip(0, 255).astype(np.uint8)
+
+
 def _resolve_inpaint_backend(backend: str) -> str:
     if backend == "auto":
         return "ml" if lama_ml_weights_cached() else "cv"
@@ -708,10 +727,10 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
         # An outline-only mask left the letters' fill and glow behind as ghosts.
         mask = _dark_art_lettering_mask(roi)
     elif inside is None and (spare_art or on_art) and background_is_dark(gray_roi):
-        inpainted_roi = _dark_art_fill(img, x, y, bw, bh)
-    resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
+        inpainted_roi = _dark_art_inpaint(img, x, y, bw, bh, backend, hf_token)
     fallback_error = None
-    if resolved == "ml":
+    resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
+    if resolved == "ml" and inpainted_roi is None:
         inpainted_roi, fallback_error = _try_ml_inpaint(roi, mask, hf_token, backend)
 
     if inpainted_roi is None:

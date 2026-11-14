@@ -478,3 +478,30 @@ def test_the_art_fill_fades_in_from_the_box_edge_instead_of_leaving_a_seam():
     scanlate_inpaint.inpaint_region(None, box, image=page, backend="cv", on_art=True)
     edge = page[box["y"] - 4, 100:600].astype(int)
     assert np.abs(edge - before[box["y"] - 4, 100:600]).max() == 0
+
+
+def test_a_dark_art_sign_goes_through_lama_when_the_model_is_usable(monkeypatch):
+    page = _outlined_red_lettering_on_dark_art()
+    seen = {}
+
+    def fake_lama(roi, mask, hf_token=None, allow_download=True):
+        seen["mask_area"] = int((mask > 0).sum())
+        return np.full_like(roi, 25)
+
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", fake_lama)
+    box = {"x": 70, "y": 120, "w": 460, "h": 140}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="ml", on_art=True)
+    assert seen["mask_area"] > 0
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert int(erased.max()) < 90
+
+
+def test_a_dark_art_sign_falls_back_to_the_tone_fill_when_lama_fails(monkeypatch):
+    def broken(*a, **k):
+        raise RuntimeError("no weights")
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", broken)
+    page = _outlined_red_lettering_on_dark_art()
+    box = {"x": 70, "y": 120, "w": 460, "h": 140}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="ml", spare_art=True)
+    erased = page[box["y"]:box["y"] + box["h"], box["x"]:box["x"] + box["w"]]
+    assert int(erased.max()) < 90
