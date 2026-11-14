@@ -130,3 +130,16 @@ def test_gpu_queue_poller_only_with_background_services_and_stops(fakes, monkeyp
     n = len(calls)
     time.sleep(0.1)
     assert len(calls) == n
+
+
+def test_a_started_bridge_loads_its_models_ahead_of_the_first_page(fakes, monkeypatch):
+    import page_server
+    from sources import store as src_store
+    warmed = []
+    monkeypatch.setattr(page_server, "warm_models_soon", lambda: warmed.append(1))
+    background.start_background_services()
+    assert warmed == []
+    monkeypatch.setattr(background, "_started", None)
+    src_store.set_setting("page_server_enabled", True)
+    background.start_background_services()
+    assert warmed == [1]

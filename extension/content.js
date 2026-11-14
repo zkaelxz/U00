@@ -1108,14 +1108,16 @@
     });
   }
 
+  function regionsOf(page) {
+    const regions = page.regions || [];
+    // Rides on the array so every place that caches or redraws a page's regions carries it too.
+    regions.typesetImage = typeof page.typeset_image === "string" ? page.typeset_image : "";
+    return regions;
+  }
+
   function regionsByKey(data) {
     const byKey = new Map();
-    for (const page of data.pages || []) {
-      const regions = page.regions || [];
-      // Rides on the array so every place that caches or redraws a page's regions carries it too.
-      regions.typesetImage = typeof page.typeset_image === "string" ? page.typeset_image : "";
-      byKey.set(page.key, regions);
-    }
+    for (const page of data.pages || []) byKey.set(page.key, regionsOf(page));
     return byKey;
   }
 
@@ -1212,6 +1214,16 @@
     const positionByKey = new Map(images.map((i) => [i.extracted.hash, i.position]));
     let drawn = 0;
     let serverStop = "";
+    // A page the app finishes is drawn as soon as it arrives, not when its whole batch does.
+    const drawnEarly = new Set();
+    run.onPage = (page) => {
+      const entry = pending.get(page && page.key);
+      if (!entry || run.cancelled) return;
+      const regions = regionsOf(page);
+      state.cache.set(page.key, regions);
+      for (const el of entry.elements) drawOverlay(el, regions);
+      drawnEarly.add(page.key);
+    };
     const outcome = await sendInBatches(images, async (batch, range) => {
       run.text = `Translating ${range.from}-${range.to} of ${range.total}...`;
       reportProgress(run.text, (range.from - 1) / range.total);
@@ -1229,7 +1241,7 @@
         if (!regions) continue;
         state.cache.set(extracted.hash, regions);
         for (const el of elements) {
-          drawOverlay(el, regions);
+          if (!drawnEarly.has(extracted.hash)) drawOverlay(el, regions);
           drawn += 1;
         }
       }
@@ -1973,6 +1985,10 @@
         switch (message && message.type) {
           case "translateVisible":
             respond(await translateVisible(message));
+            break;
+          case "pageReady":
+            if (state.visible && state.visible.onPage) state.visible.onPage(message.page);
+            respond({ ok: true });
             break;
           case "translatePageText":
             respond(await translatePageText(message));
