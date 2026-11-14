@@ -157,3 +157,10 @@ def test_the_retired_gemma4_cloud_tag_stays_priced_for_the_caps():
     from engine_backends import pricing
     assert "gemma4:cloud" in pricing.PRICING_PER_MILLION_TOKENS
     assert "gemma4:cloud" not in local.OLLAMA_CLOUD_MODELS
+
+
+def test_an_unpriced_cloud_tag_is_costed_at_the_dearest_known_cloud_rate():
+    from engine_backends import pricing
+    cost = pricing.estimate_cost("qwen3-coder:cloud", 1_000_000, 1_000_000)
+    assert cost == pytest.approx(0.14 + 0.40)
+    assert pricing.estimate_cost("gemma4:12b", 1_000_000, 1_000_000) == 0.0

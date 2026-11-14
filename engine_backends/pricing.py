@@ -230,11 +230,21 @@ def _model_tier(prefix: str, model: str):
     return None
 
 
+def _is_ollama_cloud_tag(model: str) -> bool:
+    # Same test as engine_backends.local.is_ollama_cloud_model; not imported
+    # because local pulls in the engine stack this module sits below.
+    return model.lower().endswith(("-cloud", ":cloud"))
+
+
 def _highest_family_rates(model: str):
     if is_openai_extra_model(model):
         return dict(OPENAI_EXTRA_MODEL_CEILING)
     prefix = next((p for p in _PRICED_FAMILY_PREFIXES if model.startswith(p)), None)
     family = [(m, r) for m, r in PRICING_PER_MILLION_TOKENS.items() if prefix and m.startswith(prefix)]
+    if not prefix and _is_ollama_cloud_tag(model):
+        # A hosted Ollama tag has no family prefix, so without this it cost $0
+        # and ran past the spend caps.
+        family = [(m, r) for m, r in PRICING_PER_MILLION_TOKENS.items() if _is_ollama_cloud_tag(m)]
     # A new Sonnet must not be costed at Opus rates (~7x too high, which
     # inflates the spend caps), so prefer priced models of the same tier and
     # only widen to the whole family when the id names no known tier.
@@ -252,7 +262,7 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int,
     are the parts of it that were served from / written to a prompt cache."""
     rates = _current_rates(model, input_tokens)
     if not rates and isinstance(model, str):
-        # A Claude/Gemini/DeepSeek model the app has no price for (one offered
+        # A Claude/Gemini/DeepSeek/hosted Ollama model the app has no price for (one offered
         # from the provider's list): price it at that provider's highest known
         # rates so the cost cap still protects, rather than reporting $0.
         rates = _highest_family_rates(model)
