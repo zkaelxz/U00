@@ -256,7 +256,7 @@ test('Continue tiles name the next step and open it; only a tile waiting on a ch
     ['Read from page 12', "Heaven Official's Blessing", '#/read/2'],
     ['Translate 1,234 lines', 'Grandmaster of Demonic Cultivation', '#/drama/1/translate'],
     ['Check the 3 lines', 'Signal', '#/drama/3/review'],
-    ['Watch', 'Harbor Lights', '#/read/61?watch=1'],
+    ['Watch', 'Harbor Lights', '#/watch/61'],
   ]
   for (const [label, title, href] of tiles) {
     const link = shelf.getByRole('link', { name: `${label}: ${title}`, exact: true })
@@ -290,20 +290,20 @@ test('a failed count request leaves Check the lines, with no error on the page',
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
-test('cards say Watch for video and Listen for audio, opening the Reader with the player; Read stays for the rest', async ({ page }) => {
+test('cards say Watch for video and Listen for audio, opening the Watch page; Read stays for the rest', async ({ page }) => {
   await mockShelf(page, () => 1)
   await page.goto('/')
   // One line needing a look: the tile words it as the title page does.
   await expect(page.getByRole('region', { name: 'Continue' }).getByRole('link', { name: 'Check the line: Signal', exact: true }))
     .toHaveAttribute('href', '#/drama/3/review')
   const titles = page.getByRole('region', { name: 'Titles' })
-  await expect(titles.getByRole('link', { name: 'Watch Signal', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
-  await expect(titles.getByRole('link', { name: 'Listen Grandmaster of Demonic Cultivation', exact: true })).toHaveAttribute('href', '#/read/1?watch=1')
+  await expect(titles.getByRole('link', { name: 'Watch Signal', exact: true })).toHaveAttribute('href', '#/watch/3')
+  await expect(titles.getByRole('link', { name: 'Listen Grandmaster of Demonic Cultivation', exact: true })).toHaveAttribute('href', '#/watch/1')
   // Blessing has a saved reading place, so its card says Continue; the list view names it by kind.
   await expect(titles.getByRole('link', { name: "Continue Heaven Official's Blessing", exact: true })).toHaveAttribute('href', '#/read/2')
   await titles.getByRole('radio', { name: 'List' }).check()
-  await expect(titles.getByRole('link', { name: 'Watch Signal', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
+  await expect(titles.getByRole('link', { name: 'Watch Signal', exact: true })).toHaveAttribute('href', '#/watch/3')
   await expect(titles.getByRole('link', { name: "Read Heaven Official's Blessing", exact: true })).toHaveAttribute('href', '#/read/2')
   await titles.getByRole('button', { name: 'Details: Signal' }).click()
-  await expect(page.getByRole('dialog', { name: 'Signal' }).getByRole('link', { name: 'Watch', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
+  await expect(page.getByRole('dialog', { name: 'Signal' }).getByRole('link', { name: 'Watch', exact: true })).toHaveAttribute('href', '#/watch/3')
 })

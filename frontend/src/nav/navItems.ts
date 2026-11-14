@@ -65,7 +65,7 @@ function item(
 export const NAV_ITEMS: NavItem[] = [
   item('Library', { name: 'library' }, {
     requires: 'library.read',
-    rail: { group: 'library', active: ['library', 'drama', 'read', 'comic'] },
+    rail: { group: 'library', active: ['library', 'drama', 'read', 'watch', 'comic'] },
   }),
   item('Library tools', { name: 'library-tools' }, {
     requires: 'library.read',

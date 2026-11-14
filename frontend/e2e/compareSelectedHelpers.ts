@@ -21,15 +21,24 @@ print(','.join(str(l.id) for l in db.load_line_objects(3)))
   return execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot }).toString().trim().split(',').map(Number)
 }
 
+// A minute of quiet as drama 3's audio, for specs that play it; the lines below end at 47.5 s.
+const WITH_AUDIO = `import os, wave
+p = os.path.join(db.drama_dir(3), 'e2e.wav')
+with wave.open(p, 'wb') as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000); w.writeframes(b'\\0\\0' * 8000 * 60)
+db.update_drama(3, audio_filename='e2e.wav')
+`
+
 // 24 translated lines on drama 3, none checked. With `warnings`, three of them need a look: #24 misses a glossary
-// name, #12 is too fast to read (both flagged) and Whisper was unsure of #7 (unflagged); with `untranslated`, #3 has no English.
+// name, #12 is too fast to read (both flagged) and Whisper was unsure of #7 (unflagged); with `untranslated`, #3 has no
+// English; with `audio`, the title has a minute of sound to play.
 export const GLOSSARY_NOTE = 'Glossary: 夷陵老祖 -> Yiling Patriarch missing'
-export function seedCheckLines({ warnings = true, untranslated = false } = {}): void {
+export function seedCheckLines({ warnings = true, untranslated = false, audio = false } = {}): void {
   const code = `import db
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 from core import Line
 db.update_drama(3, audio_filename=None, source_video_filename=None)
-ls = [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i + 1}句', en=f'Line {i + 1}') for i in range(24)]
+${audio ? WITH_AUDIO : ''}ls = [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i + 1}句', en=f'Line {i + 1}') for i in range(24)]
 if ${warnings ? 'True' : 'False'}:
     ls[23].flag, ls[23].flag_note = 'glossary_missing', ${JSON.stringify(GLOSSARY_NOTE)}
     ls[11].flag, ls[11].flag_note = 'reading_speed', '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.'

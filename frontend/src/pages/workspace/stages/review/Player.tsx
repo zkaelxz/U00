@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
 
 import { createPortal } from 'react-dom'
 
@@ -12,7 +12,7 @@ import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
 import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
-import { useStage } from '../../StageContext'
+import { StageContext } from '../../StageContext'
 import { stageLabel } from '../../stages'
 import { titleKind } from '../../titleKind'
 import { FloatingFrame } from './FloatingFrame'
@@ -56,6 +56,10 @@ interface Props {
   // Phones: where the video, seek bar and tools go instead (outside the sticky
   // toolbar, so they scroll away); null while that spot isn't mounted yet.
   panelHost?: HTMLElement | null
+  // Outside a title's workspace (the Watch page) there is no stage context to name the Media step from.
+  sourceStage?: string
+  // The Watch page is the player, so it is never folded away there.
+  alwaysOpen?: boolean
 }
 
 // The Fullscreen API is still webkit-prefixed in older Safari.
@@ -78,8 +82,8 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
 // A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost }: Props) {
-  const { drama } = useStage()
+export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false }: Props) {
+  const stage = useContext(StageContext)
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -425,7 +429,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
 
   // Kept mounted while folded away, so the sound and the strip above still work.
   const panel = (
-    <div className="review-player-panel" hidden={!open && !floating && !boxed}>
+    <div className="review-player-panel" hidden={!open && !alwaysOpen && !floating && !boxed}>
       <div
         ref={frameRef}
         data-testid="player-frame"
@@ -592,13 +596,15 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
             Loop<span className="review-loop-word"> line</span>
           </label>
         </span>
-        <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? 'Hide player' : 'Show player'}
-        </button>
+        {!alwaysOpen && (
+          <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Hide player' : 'Show player'}
+          </button>
+        )}
         <PopOutButton supported={pop.supported} floating={floating} boxed={boxed} onPop={() => void pop.open()} onReturn={pop.close} onToggleBox={() => setBoxed(!boxed)} />
         {trailing}
       </div>
-      {failed && <p className="error" role="alert">{playError(stageLabel('source', titleKind(drama.media_type, drama.content_mode)))}</p>}
+      {failed && <p className="error" role="alert">{playError(sourceStage ?? stageLabel('source', titleKind(stage?.drama.media_type, stage?.drama.content_mode)))}</p>}
       <div className="review-player-slot" ref={slotRef} />
       {createPortal(panel, panelBox)}
       {boxed && <FloatingFrame width={boxWidth} onWidth={setBoxWidth} onReturn={() => setBoxed(false)} hostRef={setBoxHost} />}

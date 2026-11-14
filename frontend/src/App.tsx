@@ -56,6 +56,7 @@ const LibraryToolsPage = lazy(() => import('./pages/LibraryTools'))
 const LivePage = lazy(() => import('./pages/Live'))
 const ReaderPage = lazy(() => import('./pages/Reader'))
 const FollowAlongPage = lazy(() => import('./pages/follow/FollowAlong'))
+const WatchPage = lazy(() => import('./pages/watch/Watch'))
 const SavedMangaPage = lazy(() => import('./pages/SavedManga'))
 const SavedMangaReader = lazy(() => import('./pages/SavedMangaReader'))
 const SeriesPage = lazy(() => import('./pages/series/SeriesPage'))
@@ -319,8 +320,9 @@ export default function App() {
       {route.name === 'library' && <LibraryPage />}
       {route.name === 'library-tools' && <LibraryToolsPage />}
       {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
-      {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} watch={!!route.watch} />}
+      {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'follow' && <FollowAlongPage key={route.id} id={route.id} />}
+      {route.name === 'watch' && <WatchPage key={route.id} id={route.id} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'comic-edit' && <ComicEditor key={route.id} id={route.id} page={route.page} />}
       {route.name === 'series' && <SeriesPage key={route.id} id={route.id} tab={route.tab} />}

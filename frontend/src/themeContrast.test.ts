@@ -78,6 +78,10 @@ const PAIRS: [string, string][] = [
   ['--bad', '--bg'],
   ['--ok', '--bg'],
   ['--info', '--bg'],
+  // The Watch page: the marked line's row is --text and --muted on --highlight (above); the "now" card's English box
+  // is a field, with "No English yet" muted in it.
+  ['--text', '--field-bg'],
+  ['--muted', '--field-bg'],
   ['--speaker-1-fg', '--speaker-1-bg'],
   ['--speaker-2-fg', '--speaker-2-bg'],
   ['--speaker-3-fg', '--speaker-3-bg'],

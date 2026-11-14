@@ -27,12 +27,12 @@ export function readVerb(d: Omit<Kinded, 'id'>): 'Watch' | 'Listen' | 'Read' {
   return kind === 'video' ? 'Watch' : kind === 'audio' ? 'Listen' : 'Read'
 }
 
-/** A card's Reader link, named by `readVerb`, or Continue once the title has a saved reading place. Watch and Listen
- *  open the Reader with its player fold open, or the word would promise something the page does not show. */
+/** A card's link for taking the title in, named by `readVerb`, or Continue once the title has a saved reading place.
+ *  Watch and Listen open the Watch page; Read and Continue open the Reader, where the reading place is kept. */
 export function readAction(d: Kinded, continuing = false): { label: string; href: string } {
   const label = continuing ? 'Continue' : readVerb(d)
   const watch = label === 'Watch' || label === 'Listen'
-  return { label, href: watch ? routeHref({ name: 'read', id: d.id, page: null, watch: true }) : readHref(d) }
+  return { label, href: watch ? routeHref({ name: 'watch', id: d.id }) : readHref(d) }
 }
 
 /** Text for a card's title tile: the first CJK character of the original

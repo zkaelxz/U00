@@ -1,0 +1,80 @@
+/* The Watch page: the player and the "now" card, with the lines beside them from 1100px and under them below that. */
+.watch-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--page-gap); align-items: start; }
+.watch-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--page-gap); min-width: 0; align-content: start; }
+.watch-side { min-width: 0; }
+
+.watch-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.watch-more { position: relative; }
+.watch-more > summary { list-style: none; }
+.watch-more > summary::-webkit-details-marker { display: none; }
+.watch-more-panel {
+  position: absolute; top: calc(100% + var(--space-1)); right: 0; z-index: 10;
+  display: flex; flex-direction: column; width: max-content; max-width: min(20rem, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-1); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-pop);
+}
+.watch-more-panel a {
+  display: flex; align-items: center; min-height: 40px; padding: var(--space-2) var(--space-3);
+  color: inherit; text-decoration: none; border-radius: var(--radius-sm); overflow-wrap: anywhere;
+}
+.watch-more-panel a:hover, .watch-more-panel a:focus-visible { background: var(--surface-2); }
+.watch-back { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); }
+
+/* Review's strip sits under its toolbar with a rule above it; here it is the top of its own card. */
+.watch-player .review-player { border-top: 0; padding-top: 0; }
+/* The picture is the page here, not a corner of Review's toolbar. */
+.watch-player .review-stage { max-height: min(48vh, 34rem); }
+.watch-resume { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.watch-resume p { margin: 0; }
+.watch-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+.watch-now { gap: var(--space-2); }
+.watch-now > p, .watch-now-form { margin: 0; }
+.watch-now-meta { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
+.watch-now-zh { font-size: var(--text-lg); overflow-wrap: anywhere; }
+.watch-now-label { font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
+.watch-now-form { display: grid; gap: var(--space-2); }
+/* The English is what a listener reads, so it is the largest text on the page after the title. */
+.watch-now-box, .watch-now-en, .watch-now-field { font-size: var(--text-xl); line-height: 1.35; overflow-wrap: anywhere; }
+.watch-now-en { margin: 0; }
+button.watch-now-box {
+  display: block; width: 100%; min-height: 3.2em; padding: var(--space-2) var(--space-3); text-align: left; white-space: pre-wrap;
+  font-weight: normal; background: var(--field-bg); color: var(--text); border: 1px solid var(--field-edge); border-radius: var(--radius-sm); cursor: text;
+}
+button.watch-now-box:hover:not(:disabled) { background: var(--field-bg); border-color: var(--accent); }
+.watch-now-box.is-empty, .watch-now-en.is-empty { color: var(--muted); }
+textarea.watch-now-field { width: 100%; box-sizing: border-box; padding: var(--space-2) var(--space-3); }
+.watch-now-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* Kept in the page while empty, so "Saved." is read out when it appears. */
+.watch-now-status { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+.watch-now-status:empty { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.watch-lines { gap: var(--space-2); }
+.watch-lines-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
+.watch-lines-note { display: grid; gap: var(--space-2); }
+.watch-lines-note p { margin: 0; }
+/* Its own scroll area, so following the sound never scrolls the page. */
+.watch-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 2px; align-content: start; }
+.watch-row {
+  display: grid; gap: 2px; width: 100%; min-height: 44px; box-sizing: border-box; padding: var(--space-2) var(--space-3);
+  text-align: left; font: inherit; color: var(--text); background: transparent; border: 0; border-radius: var(--radius-sm);
+}
+button.watch-row { cursor: pointer; }
+button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0; }
+.watch-list li.is-current .watch-row { background: var(--highlight); box-shadow: inset 3px 0 0 var(--accent); }
+.watch-row-meta { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
+.watch-row-zh { color: var(--muted); overflow-wrap: anywhere; }
+.watch-row-en { overflow-wrap: anywhere; }
+.watch-row-en.is-empty { color: var(--muted); font-style: italic; }
+
+/* Two columns: the list as tall as the player and the card beside it, so it scrolls itself; an audio title's short
+   column still leaves the list most of the screen. */
+@media (min-width: 1100px) {
+  .watch-layout { grid-template-columns: minmax(0, 1fr) 26rem; align-items: stretch; }
+  .watch-side { position: relative; min-height: max(24rem, 62vh); }
+  .watch-side > .watch-lines { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .watch-side .watch-list { flex: 1 1 auto; min-height: 0; max-height: none; }
+}
+
+@media (pointer: coarse), (max-width: 640px) {
+  .watch-more-panel a { min-height: 44px; }
+}
