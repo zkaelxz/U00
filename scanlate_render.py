@@ -861,12 +861,13 @@ _DENT_MIN_PAPER = 0.9
 _DENT_MAX_OUTSIDE = 0.25
 
 
-def _without_small_dents(mask, page=None, outside=None):
+def _without_small_dents(mask, page=None, outside=None, page_edge=None):
     """`mask` with the dents in it filled in, when its convex hull adds at most _MAX_DENT_FILL of
     its area. With `page` (the box's gray crop) only the parts of the hull that are
     tone on the balloon's paper are filled: the notch where a lobe or the balloon's tail meets it
     holds the dark art round the balloon, or the page's paper beyond its outline (`outside`, the
-    light paper reaching the box edge), and text set across it ran out of the balloon."""
+    light paper reaching the box edge), and text set across it ran out of the balloon. A dent
+    touching `page_edge` (see _page_edge()) is filled whatever its tone."""
     if mask is None or not mask.any():
         return mask
     import cv2
@@ -882,9 +883,24 @@ def _without_small_dents(mask, page=None, outside=None):
     filled = mask.copy()
     for i in range(1, count):
         part = parts == i
-        if paper[part].mean() >= _DENT_MIN_PAPER and outside[part].mean() <= _DENT_MAX_OUTSIDE:
+        # A balloon cut off by the page's edge runs on past it, so a dent reaching that edge is
+        # its own lettering cut in half, not art beside it, however dark its strokes.
+        cut_by_page = page_edge is not None and page_edge[part].any()
+        if ((cut_by_page or paper[part].mean() >= _DENT_MIN_PAPER)
+                and outside[part].mean() <= _DENT_MAX_OUTSIDE):
             filled |= part
     return filled
+
+
+def _page_edge(page_shape, box: dict, shape):
+    """Boolean `shape` array of `box`: True on the page's outermost rows and columns and off the page."""
+    edge = np.zeros(shape, bool)
+    ph, pw = page_shape[:2]
+    if box["y"] <= 0: edge[: 1 - box["y"], :] = True
+    if box["x"] <= 0: edge[:, : 1 - box["x"]] = True
+    if box["y"] + shape[0] >= ph: edge[ph - 1 - box["y"]:, :] = True
+    if box["x"] + shape[1] >= pw: edge[:, pw - 1 - box["x"]:] = True
+    return edge
 
 
 def _box_gray(gray, box: dict, shape):
@@ -903,7 +919,8 @@ def _layout_mask(image_path: str, b: dict, gray):
     if mask is None:
         return None
     return _without_small_dents(mask, _box_gray(gray, b, mask.shape),
-                                balloon_outside_mask(image_path, b, image=gray))
+                                balloon_outside_mask(image_path, b, image=gray),
+                                _page_edge(gray.shape, b, mask.shape))
 
 
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,

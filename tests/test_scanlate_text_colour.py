@@ -218,6 +218,19 @@ def test_a_dent_of_art_strokes_beside_a_jagged_balloon_is_kept():
     assert not scanlate_render._without_small_dents(_dented_mask(), page, np.zeros((60, 100), bool))[30, 90]
 
 
+def test_a_dent_of_lettering_cut_by_the_page_edge_is_filled():
+    mask = np.zeros((60, 100), bool)
+    mask[0:55, 5:95] = True
+    mask[0:20, 35:65] = False  # the top line of lettering, cut in half by the top of the page
+    page = np.full((60, 100), 250, np.uint8)
+    page[0:20:3, 35:65] = 40
+    nowhere = np.zeros((60, 100), bool)
+    top = nowhere.copy()
+    top[0, :] = True
+    assert not scanlate_render._without_small_dents(mask, page, nowhere, nowhere)[10, 50]
+    assert scanlate_render._without_small_dents(mask, page, nowhere, top)[10, 50]
+
+
 def test_a_notch_over_dark_art_is_kept():
     page = np.full((60, 100), 250, np.uint8)
     page[15:45, 75:95] = 60  # the night sky beside a lobe
