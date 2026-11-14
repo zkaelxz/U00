@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_art_text
 import scanlate_sfx
+import scanlate_tilt
 import scanlate_tuning
 from scanlate_detect import bubble_erase_mask, bubble_shape_mask, decode_page, page_gray
 from scanlate_inpaint import (
@@ -682,6 +683,119 @@ def sampled_ink_color(page_bgr, box: dict):
     return (r, g, b)
 
 
+# A fade needs the lettering's top and bottom halves to differ clearly and both to be a real colour.
+_FADE_MIN_DISTANCE = 55
+_FADE_MAX_OFF_LINE = 50
+_RING_MIN_SPAN = 0.85
+_FADE_MIN_END_CHROMA = 30
+
+
+def sampled_ink_fade(page_bgr, box: dict):
+    """(top, bottom) RGB colours of the region's original lettering when it fades from one real
+    colour to another down its height, else None. Read from the page before the erase, like
+    sampled_ink_color; a single colour, black or white lettering, or too little ink gives None."""
+    h, w = page_bgr.shape[:2]
+    x, y = max(0, box["x"]), max(0, box["y"])
+    roi = page_bgr[y:min(h, y + box["h"]), x:min(w, x + box["w"])]
+    if roi.size == 0:
+        return None
+    import cv2
+    background = np.median(roi.reshape(-1, 3), axis=0)
+    distance = np.abs(roi.astype(int) - background.astype(int)).max(axis=2)
+    # Art, a leaf or an outline around the lettering reaches the box edge; lettering strokes
+    # sit inside it, so any stroke component touching the edge is not counted.
+    ink = _without_border_components(distance > _INK_MIN_DISTANCE)
+    if int(ink.sum()) < 2 * _INK_MIN_PIXELS:
+        return None
+    rows = np.where(ink.any(axis=1))[0]
+    # The outer thirds, not the halves: each half of a fade already averages over half the change.
+    third = max(1, (rows.max() - rows.min() + 1) // 3)
+    top_end, bottom_end = rows.min() + third, rows.max() + 1 - third
+    bands = [slice(0, top_end), slice(top_end, bottom_end), slice(bottom_end, roi.shape[0])]
+    colours = []
+    for part in bands:
+        d, px = distance[part], roi[part]
+        # Stroke interiors only: thin marks (a balloon outline, a glow) have none, and an
+        # outline of another colour hugs the stroke's edge.
+        m = cv2.erode(ink[part].astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+        if int(m.sum()) < _INK_MIN_PIXELS:
+            # A two-line balloon has no ink in the middle third; that is a step, not a gap to reject.
+            colours.append(None)
+            continue
+        core = m & (d >= np.median(d[m]))
+        b, g, r = (int(v) for v in np.median(px[core], axis=0))
+        colours.append((r, g, b))
+    top, middle, bottom = colours
+    if top is None or bottom is None:
+        return None
+    chromas = [max(c) - min(c) for c in (top, bottom)]
+    # A dark end of a real fade is duller than the light end (dark purple to lavender), but a
+    # grey end is plain black or white lettering.
+    if max(chromas) < _INK_MIN_CHROMA or min(chromas) < _FADE_MIN_END_CHROMA:
+        return None
+    span = np.array(bottom, float) - np.array(top, float)
+    if np.abs(span).max() < _FADE_MIN_DISTANCE:
+        return None
+    # A real fade passes smoothly through the middle; two unrelated colours (a red rose over a
+    # green leaf) do not land between each other.
+    if middle is not None:
+        along = float(np.dot(np.array(middle, float) - top, span) / np.dot(span, span))
+        off = np.abs(np.array(middle, float) - (np.array(top, float) + along * span)).max()
+        if not 0.1 <= along <= 0.9 or off > _FADE_MAX_OFF_LINE:
+            return None
+    return top, bottom
+
+
+def _without_border_components(ink):
+    """`ink` (bool array) minus every connected component that touches the array's edge, and
+    minus specks (stray ornament fragments) far smaller than the largest stroke component."""
+    import cv2
+    _, labels = cv2.connectedComponents(ink.astype(np.uint8), connectivity=8)
+    edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    inside = ink & ~np.isin(labels, edge[edge > 0])
+    # A balloon outline is one component reaching nearly all the way round the box; lettering
+    # is many small ones, so such a ring is not lettering however far it sits from the edge.
+    for label in np.unique(labels[inside]):
+        ys, xs = np.where(labels == label)
+        if (ys.max() - ys.min() + 1) >= _RING_MIN_SPAN * ink.shape[0] and \
+                (xs.max() - xs.min() + 1) >= _RING_MIN_SPAN * ink.shape[1]:
+            inside &= labels != label
+    sizes = np.bincount(labels[inside])
+    if sizes.size > 1:
+        sizes[0] = 0
+        specks = np.where(sizes < 0.08 * sizes.max())[0]
+        inside &= ~np.isin(labels, specks)
+    return inside
+
+
+def _fade_lettering(before, after, top, bottom) -> None:
+    """Recolours, in place, the lettering drawn between `before` and `after` (the same region
+    of the page, PIL images) from the solid `top` colour it was drawn in to a vertical fade
+    from `top` to `bottom`. The lettering's own coverage is kept, so its anti-aliased edges
+    stay soft."""
+    b = np.asarray(before.convert("RGB")).astype(float)
+    a = np.asarray(after.convert("RGB")).astype(float)
+    away = np.array(top, float) - b
+    weight = (a - b) * away
+    share = np.clip(weight.sum(axis=2) / np.maximum((away * away).sum(axis=2), 1.0), 0.0, 1.0)
+    rows = np.where((share > 0.1).any(axis=1))[0]
+    if rows.size < 2:
+        return
+    t = np.clip((np.arange(b.shape[0]) - rows.min()) / max(rows.max() - rows.min(), 1), 0.0, 1.0)
+    colour = np.array(top, float)[None, :] * (1 - t[:, None]) + np.array(bottom, float)[None, :] * t[:, None]
+    out = b + share[:, :, None] * (colour[:, None, :] - b)
+    after.paste(Image.fromarray(np.clip(out + 0.5, 0, 255).astype(np.uint8)))
+
+
+def _sampled_inks(page, regions: list, match_color: bool):
+    """Per region, the colour its original lettering was drawn in and the (top, bottom) pair
+    when it faded; both None unless `match_color`. A fade starts from its top colour."""
+    inks = [sampled_ink_color(page, b) if match_color else None for b in regions]
+    fades = [sampled_ink_fade(page, b) if match_color and chosen_color(b) is None else None
+             for b in regions]
+    return [fade[0] if fade else ink for ink, fade in zip(inks, fades)], fades
+
+
 def _text_fill(pil_img, box: dict, sampled=None):
     """The hand-set colour if any, then the colour sampled from the original lettering
     (when the person turned that on); else white lettering on a dark balloon,
@@ -769,7 +883,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
                           for b, s in zip(captions, caption_styles)]
         # The ink is read before the erase below removes it.
-        inks = [sampled_ink_color(page, b) if match_color else None for b in to_render]
+        inks, fades = _sampled_inks(page, to_render, match_color)
+        angles = [scanlate_tilt.estimate_text_angle(page, b) for b in to_render]
         _erase_site_stamps(page, bubbles)
         if notes is not None and to_render and not lama_ml_weights_cached():
             notes.append(("error", "inpaint_unavailable", LAMA_MISSING_NOTE))
@@ -787,7 +902,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
-                         rect_layout, look)
+                         rect_layout, look, angles, fades)
         for b in bubbles:
             if scanlate_sfx.is_glossed(b):
                 scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
@@ -817,9 +932,12 @@ def _without_small_dents(mask):
 
 def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                      font_path: str | None, custom_fonts: dict | None, inks: list,
-                     rect_layout: bool = False, style: TypesetStyle = _PLAIN) -> None:
+                     rect_layout: bool = False, style: TypesetStyle = _PLAIN,
+                     angles: list | None = None,
+                     fades: "list[tuple | None] | None" = None) -> None:
     """Draws each balloon's text: a scratch pass finds the size each one fits at,
-    then the real pass draws with sibling balloons held to a shared ratio."""
+    then the real pass draws with sibling balloons held to a shared ratio. A balloon
+    whose original lettering was tilted (`angles`, degrees) is set at that angle."""
     masks = [(_without_small_dents(bubble_shape_mask(image_path, b, image=gray,
                                                     margin=scanlate_tuning.TYPESET_OUTLINE_MARGIN_PX))
               if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
@@ -849,8 +967,26 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
             if m is not None:
                 _fill_balloon(pil_img, b, m, style.bubble_fill / 100)
     sizes = sibling_size_caps(list(zip(starts, fitted)))
-    for b, m, size, ink in zip(to_render, masks, sizes, inks):
-        draw(pil_img, b, m, size, ink)
+    for b, m, size, ink, angle, fade in zip(to_render, masks, sizes, inks,
+                                            angles or [0.0] * len(to_render),
+                                            fades or [None] * len(to_render)):
+        region = (max(0, b["x"]), max(0, b["y"]), b["x"] + b["w"], b["y"] + b["h"])
+        before = pil_img.crop(region) if fade else None
+        tilted = False
+        if angle:
+            fill = _text_fill(pil_img, b, ink)
+            tilted = scanlate_tilt.draw_tilted(
+                pil_img, b, m, angle, size,
+                lambda target, shifted, sz, shifted_mask: render_text_in_box(
+                    target, shifted, b["translated_text"], font_size=sz, font_path=font_path,
+                    font_category=b.get("font_category") or "regular", custom_fonts=custom_fonts,
+                    mask=shifted_mask, rect_layout=rect_layout, style=style, fill=fill))
+        if not tilted:
+            draw(pil_img, b, m, size, ink)
+        if fade:
+            lettered = pil_img.crop(region)
+            _fade_lettering(before, lettered, *fade)
+            pil_img.paste(lettered, region[:2])
 
 
 def _dark_under(gray, box: dict, shape) -> "np.ndarray":
