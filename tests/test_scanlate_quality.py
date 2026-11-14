@@ -339,3 +339,53 @@ class TestOcrCrop:
     def test_a_noisy_crop_is_smoothed_and_stretched(self):
         out = np.asarray(scanlate.clean_ocr_crop(self._crop(8)))
         assert out[:20].std() < 4 and out[:20].mean() > 245 and out[35:45, 30:130].max() < 15
+
+
+def _hatched_balloon(letter_bgr, hatch_bgr=(200, 160, 150)):
+    """A balloon drawn on 360x300 with hatching over its lower right and lettering on the left."""
+    page = np.full((300, 360, 3), 255, np.uint8)
+    cv2.ellipse(page, (180, 150), (160, 130), 0, 0, 360, (20, 20, 20), 4)
+    yy, xx = np.mgrid[:300, :360]
+    hatched = (((xx - 180) / 155.0) ** 2 + ((yy - 150) / 125.0) ** 2 < 1) & (xx + yy > 330)
+    lines = ((xx + yy) % 8 == 0) | ((xx - yy) % 8 == 0)
+    page[hatched & lines] = hatch_bgr
+    for x0 in range(90, 150, 14):
+        cv2.rectangle(page, (x0, 120), (x0 + 6, 150), letter_bgr, -1)
+    return page
+
+
+def _erase_mask(tmp_path, page, monkeypatch):
+    """The mask inpaint_region would erase, captured instead of inpainted."""
+    seen = {}
+
+    def fake_inpaint(roi, mask, *args, **kwargs):
+        seen["mask"] = mask.copy()
+        return roi
+
+    monkeypatch.setattr(cv2, "inpaint", fake_inpaint)
+    path = _save(tmp_path, page)
+    gray = scanlate_detect.page_gray(path, None)
+    box = {"x": 0, "y": 0, "w": 360, "h": 300}
+    inside = scanlate_detect.bubble_erase_mask(path, box, image=gray)
+    inpaint_region(path, box, image=page.copy(), inside=inside, backend="cv")
+    return seen["mask"] > 0
+
+
+def test_hatching_inside_a_balloon_is_not_erased_with_dark_lettering(tmp_path, monkeypatch):
+    erased = _erase_mask(tmp_path, _hatched_balloon((15, 15, 15)), monkeypatch)
+    assert erased[120:150, 90:150].any()
+    assert not erased[200:240, 215:255].any()
+
+
+def test_hatching_as_dark_as_the_lettering_is_erased_as_before(tmp_path, monkeypatch):
+    erased = _erase_mask(tmp_path, _hatched_balloon((60, 100, 180), (60, 100, 180)), monkeypatch)
+    assert erased[120:150, 90:150].any()
+    assert erased[200:240, 215:255].any()
+
+
+def test_a_balloon_without_hatching_is_erased_as_before(tmp_path, monkeypatch):
+    plain = _hatched_balloon((15, 15, 15), (255, 255, 255))
+    import scanlate_inpaint
+    gray = cv2.cvtColor(plain, cv2.COLOR_BGR2GRAY)
+    keep = np.ones(gray.shape, bool)
+    assert (scanlate_inpaint._without_hatching(gray, keep) == gray).all()
