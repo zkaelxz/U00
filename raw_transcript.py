@@ -177,13 +177,17 @@ def build_run_settings(*, asr_backend="", whisper_size="", local_model_path=None
 
 
 def write_raw_transcript(drama_dir: str, segments, lines, backend: str, model: str = "",
-                         language: str = "", mode: str = "", settings: dict | None = None) -> str:
+                         language: str = "", mode: str = "", settings: dict | None = None,
+                         dropped=None) -> str:
     """segments: the transcription backend's own output (start/end/text per
     segment). lines: the lines as first created from it (after alignment,
     before any edit) -- saved already, so each has its permanent id.
     Returns the path written. Opens with mode "x", so an existing file is
     never overwritten even if two runs race on the same timestamp.
-    settings: build_run_settings()'s result; omitted from the file when None."""
+    settings: build_run_settings()'s result; omitted from the file when None.
+    dropped: the segments the hallucination filters removed before `segments`
+    (whisper_hallucination.recording_drops), so a stretch with no text here can
+    still say what was heard and why it went; omitted when None."""
     os.makedirs(drama_dir, exist_ok=True)
     payload = {
         "created_at": clock.utcnow().isoformat(),
@@ -199,6 +203,8 @@ def write_raw_transcript(drama_dir: str, segments, lines, backend: str, model: s
     }
     if settings is not None:
         payload["settings"] = settings
+    if dropped is not None:
+        payload["dropped"] = list(dropped)
     with title_lock(drama_dir):
         path = _write_new(drama_dir, payload)
         try:

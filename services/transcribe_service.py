@@ -598,6 +598,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     raw_transcript.write_raw_transcript(
         db.drama_dir(drama_id), segments, lines, backend=outcome["raw_backend"],
         model=outcome["raw_model"], language=source_language, mode=outcome["raw_mode"],
+        dropped=outcome.get("dropped_segments"),
         settings=raw_transcript.build_run_settings(
             **outcome["run_config"], expected_speakers=expected_speakers,
             min_speakers=min_speakers, max_speakers=max_speakers,

@@ -994,6 +994,27 @@ class TestRunTranscribeAndApplyJob:
         assert len(isolated_db.list_line_history(did)) == 1
         _clear(job_id)
 
+    def test_raw_transcript_keeps_what_the_hallucination_filters_dropped(self, isolated_db, monkeypatch):
+        import raw_transcript
+        from whisper_hallucination import filter_hallucinated_segments
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        loop = [{"start": 10.0 + i, "end": 10.8 + i, "text": "谢谢"} for i in range(5)]
+        # The real decode filters its own output, inside the run.
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: filter_hallucinated_segments(
+            [{"start": 0.0, "end": 1.0, "text": "new"}, *loop]))
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
+
+        raw = raw_transcript.load_latest(ddir)
+        assert [s["text"] for s in raw["segments"]] == ["new", "谢谢"]
+        assert [(d["start"], d["text"], d["reason"]) for d in raw["dropped"]] == [
+            (11.0, "谢谢", "repeat"), (12.0, "谢谢", "repeat"), (13.0, "谢谢", "repeat"), (14.0, "谢谢", "repeat")]
+        _clear(job_id)
+
     def test_raw_transcript_saves_the_settings_the_run_started_with(self, isolated_db, monkeypatch):
         import raw_transcript
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")

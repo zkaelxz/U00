@@ -3,6 +3,8 @@ whisper_hallucination.py -- drops the segments Whisper invents on silence or
 background noise: stock credit/outro phrases and repeated-phrase loops.
 """
 
+import contextlib
+import contextvars
 import re
 
 
@@ -73,6 +75,10 @@ LOOP_MIN_PHRASE_RUN_CHARS = 12
 # A limit lowered below the default is the user asking for shorter runs to collapse, so it
 # applies to single characters too.
 DEFAULT_REPEAT_COUNT = 4
+# A loop on silence or music comes out as copies right after one another; the same
+# short reply heard minutes apart ("はい" four times in a scene) is real speech, so a
+# gap longer than this between two copies ends the run.
+REPEAT_MAX_GAP_SEC = 10.0
 REPEAT_MIN_RUN_SINGLE_CHAR = LOOP_MIN_REPEATS_SINGLE_CHAR
 _LOOP_RES = (
     re.compile(r"(.)\1{%d,}" % (LOOP_MIN_REPEATS_SINGLE_CHAR - 1), re.S),
@@ -180,6 +186,7 @@ def screen_implausible_text(segments):
         rate = _chars_per_sec(seg)
         is_list = _is_item_list(seg["text"])
         if is_list and rate >= LIST_DROP_MIN_CHARS_PER_SEC:
+            _record_drop(seg, DROP_INVENTED_LIST)
             import applog
             applog.get_logger().info(
                 f"invented list dropped: segment {seg['start']:.1f}-{seg['end']:.1f}s "
@@ -286,6 +293,49 @@ def _without_phrase_loop(seg):
     return {k: v for k, v in seg.items() if k != "words"} | {"text": text}
 
 
+# Why each dropped segment went, as saved in the raw transcript's "dropped" list.
+DROP_REPEAT = "repeat"
+DROP_STOCK_PHRASE = "stock_phrase"
+DROP_INVENTED_LIST = "invented_list"
+# A loop over an hour of music can drop thousands of copies; the record only has to place them.
+MAX_DROP_RECORDS = 2000
+_drops = contextvars.ContextVar("whisper_drops", default=None)
+
+
+@contextlib.contextmanager
+def recording_drops():
+    """Collects, for one transcription run, every segment the filters here remove as
+    {start, end, text, reason}, so the raw transcript can say what was heard and why it
+    went (the speech coverage check reads it). A context variable, so two thread jobs
+    never share a list and a filter called outside a run records nothing."""
+    box = []
+    token = _drops.set(box)
+    try:
+        yield box
+    finally:
+        _drops.reset(token)
+
+
+def _record_drop(seg, reason):
+    box = _drops.get()
+    if box is None or len(box) >= MAX_DROP_RECORDS:
+        return
+    try:
+        start, end = round(float(seg["start"]), 2), round(float(seg["end"]), 2)
+    except (KeyError, TypeError, ValueError):
+        return  # bare text pieces have no place in the audio to report
+    box.append({"start": start, "end": end, "text": (seg.get("text") or "").strip(), "reason": reason})
+
+
+def _close_in_time(prev, seg) -> bool:
+    """Whether `seg` follows `prev` within REPEAT_MAX_GAP_SEC; True when either has no
+    times (a caller passing bare text pieces keeps the old back-to-back rule)."""
+    try:
+        return seg["start"] - prev["end"] <= REPEAT_MAX_GAP_SEC
+    except (KeyError, TypeError):
+        return True
+
+
 def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEAT_COUNT,
                                  stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC):
     """
@@ -304,8 +354,9 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEA
     parameter.
 
     Collapses a run of `min_repeat_count` or more CONSECUTIVE segments
-    with identical (whitespace-normalized) text down to just the first
-    occurrence, on the assumption real speech repeated verbatim that many
+    with identical (whitespace-normalized) text, each within
+    REPEAT_MAX_GAP_SEC of the one before, down to just the first
+    occurrence (and logs how many copies went), on the assumption real speech repeated verbatim that many
     times back-to-back AS SEPARATE SEGMENTS (not within one segment's own
     text -- quick real repetition like "no no no no" almost always comes
     back as one segment) is far less likely than a hallucination loop.
@@ -338,7 +389,8 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEA
     while i < n:
         norm = _norm(segments[i]["text"])
         j = i + 1
-        while j < n and norm != "" and _norm(segments[j]["text"]) == norm:
+        while (j < n and norm != "" and _norm(segments[j]["text"]) == norm
+               and _close_in_time(segments[j - 1], segments[j])):
             j += 1
         # A count under 2 would collapse every ordinary line; it means "off".
         needed = min_repeat_count
@@ -346,8 +398,20 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = DEFAULT_REPEA
             needed = max(needed, REPEAT_MIN_RUN_SINGLE_CHAR)
         if min_repeat_count >= 2 and (j - i) >= needed:
             out.append(segments[i])
+            for seg in segments[i + 1:j]:
+                _record_drop(seg, DROP_REPEAT)
+            # Nothing else says speech was removed, so leave a trace (never the text).
+            import applog
+            applog.get_logger().info(
+                f"repeat filter: {j - i - 1} copies of one line removed after "
+                f"{segments[i].get('start', 0):.1f}s (to {segments[j - 1].get('end', 0):.1f}s)")
         else:
             out.extend(segments[i:j])
         i = j
-    kept = [seg for k, seg in enumerate(out) if not _is_isolated_stock_phrase(out, k, stock_isolation_sec)]
+    kept = []
+    for k, seg in enumerate(out):
+        if _is_isolated_stock_phrase(out, k, stock_isolation_sec):
+            _record_drop(seg, DROP_STOCK_PHRASE)
+        else:
+            kept.append(seg)
     return screen_implausible_text(_flag_invented_text(kept))

@@ -6,8 +6,11 @@ The speech regions come from the same Silero detector faster-whisper runs
 before decoding, at a low threshold so quiet speech counts. They are
 compared with the saved lines, and each gap is checked against the newest
 raw transcript (written before splitting): text there means Whisper heard it
-and it was lost afterwards (splitting, alignment, the repeat filter); no text
-means Whisper never produced anything for that stretch.
+and it was lost afterwards (splitting, alignment); text in its "dropped" list
+means a hallucination filter (repeat, credit phrase, invented list) removed
+what Whisper wrote before the transcript was saved; neither means Whisper
+never produced anything for that stretch. A raw transcript from before the
+dropped list existed has none, so a filtered stretch there reads as nothing.
 
 Runs as a thread job without the GPU slot: Silero here is a CPU model, so it
 may run while a GPU transcription of another title holds the GPU. It
@@ -101,11 +104,25 @@ def _raw_text_in(segments, start: float, end: float) -> str:
     return " ".join(texts)
 
 
-def find_gaps(speech_spans, lines, raw_segments, min_gap_seconds: float) -> dict:
+def _is_drop(d) -> bool:
+    return (isinstance(d, dict) and isinstance(d.get("text"), str) and all(
+        isinstance(d.get(k), (int, float)) and not isinstance(d.get(k), bool) for k in ("start", "end")))
+
+
+def _drop_reasons_in(dropped, start: float, end: float) -> list:
+    reasons = []
+    for d in dropped:
+        overlap = min(end, float(d["end"])) - max(start, float(d["start"]))
+        if overlap > RAW_OVERLAP_SECONDS and d.get("reason") not in reasons:
+            reasons.append(d.get("reason") or "")
+    return reasons
+
+
+def find_gaps(speech_spans, lines, raw_segments, min_gap_seconds: float, dropped=()) -> dict:
     """Speech with no line over it. `lines`: Line objects (only the ones with
     text count as covering). `raw_segments`: the newest raw transcript's
-    segments, or None when there is none. Returns the report dict the job
-    stores (everything but audio_seconds)."""
+    segments, or None when there is none; `dropped`: its "dropped" list.
+    Returns the report dict the job stores (everything but audio_seconds)."""
     speech = _merge(speech_spans)
     covering = _merge(((max(0.0, ln.start - LINE_TOLERANCE_SECONDS), ln.end + LINE_TOLERANCE_SECONDS)
                        for ln in lines if (ln.zh or "").strip()))
@@ -130,15 +147,21 @@ def find_gaps(speech_spans, lines, raw_segments, min_gap_seconds: float) -> dict
     for start, end, speech_seconds in gaps:
         before = [ln for ln in ordered if ln.end <= start + LINE_TOLERANCE_SECONDS]
         after = [ln for ln in ordered if ln.start >= end - LINE_TOLERANCE_SECONDS]
+        filter_reasons = []
         if raw_segments is None:
             raw_status, raw_text = "unknown", ""
         else:
             raw_text = _raw_text_in(raw_segments, start, end)
             raw_status = "lost_after" if raw_text else "none"
+            if not raw_text:
+                filter_reasons = _drop_reasons_in(dropped, start, end)
+                if filter_reasons:
+                    raw_status, raw_text = "filtered", _raw_text_in(dropped, start, end)
         rows.append({
             "start": round(start, 2), "end": round(end, 2), "seconds": round(end - start, 2),
             "speech_seconds": round(speech_seconds, 2),
             "raw_status": raw_status, "raw_text": raw_text[:RAW_TEXT_PREVIEW_CHARS],
+            "filter_reasons": filter_reasons,
             "after_line_id": before[-1].id if before else None,
             "before_line_id": after[0].id if after else None,
         })
@@ -222,7 +245,8 @@ def _run_job(job_id: str, drama_id: int, audio_path: str, min_gap_seconds: float
     spans, total = scanned
     raw = raw_transcript.load_latest(db.drama_dir(drama_id))
     segments = raw.get("segments") or [] if raw else None
-    report = find_gaps(spans, db.load_line_objects(drama_id), segments, min_gap_seconds)
+    dropped = [d for d in (raw.get("dropped") or []) if _is_drop(d)] if raw else []
+    report = find_gaps(spans, db.load_line_objects(drama_id), segments, min_gap_seconds, dropped)
     report.update({"audio_seconds": round(total, 1), "vad_threshold": _vad_threshold(),
                    "min_gap_seconds": min_gap_seconds})
     background_jobs.set_result(job_id, report)

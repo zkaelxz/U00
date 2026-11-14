@@ -27,6 +27,7 @@ import ollama_unload
 import segment_splitting
 import sensitivity_preset as presets
 import storage
+import whisper_hallucination
 from asr_backend import coverage_warning
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from diarize import select_device
@@ -191,6 +192,7 @@ class _PipelineRun:
         self.sep_ticker = None
         self.sep_device = ""
         self.segments = None
+        self.dropped = []
         self.lines = None
         self.raw_backend = self.raw_model = self.raw_mode = None
         self.transcribe_started = 0.0
@@ -203,10 +205,11 @@ class _PipelineRun:
         self.step_label = " (step 1 of 2)" if qwen_run else ""
 
     def run(self) -> dict:
-        if self.o.transcript_mode == "hardsub_ocr":
-            failed = self._read_hardsub_captions()
-        else:
-            failed = self._transcribe_audio()
+        with whisper_hallucination.recording_drops() as self.dropped:
+            if self.o.transcript_mode == "hardsub_ocr":
+                failed = self._read_hardsub_captions()
+            else:
+                failed = self._transcribe_audio()
         if failed:
             return failed
         if self.qwen_device and not self.device_msg:
@@ -677,7 +680,8 @@ class _PipelineRun:
 
     def _outcome(self) -> dict:
         o = self.o
-        return {"lines": self.lines, "segments": self.segments, "raw_backend": self.raw_backend,
+        return {"lines": self.lines, "segments": self.segments, "dropped_segments": self.dropped,
+                "raw_backend": self.raw_backend,
                 "raw_model": self.raw_model, "raw_mode": self.raw_mode,
                 "audio_path": self.audio_path,
                 "gpu_fallback_msgs": self.gpu_fallback_msg, "device_msg": self.device_msg,

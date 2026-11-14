@@ -827,7 +827,9 @@ class SpeechCoverageRunResult(BaseModel):
 
 class SpeechCoverageGap(BaseModel):
     """A stretch with speech and no subtitle line. raw_status: "lost_after"
-    (the raw transcript has text here), "none" (it has none), "unknown" (no
+    (the raw transcript has text here), "filtered" (a hallucination filter
+    removed what was written here; filter_reasons says which: "repeat",
+    "stock_phrase", "invented_list"), "none" (it has nothing), "unknown" (no
     raw transcript for the title)."""
     start: float
     end: float
@@ -835,6 +837,7 @@ class SpeechCoverageGap(BaseModel):
     speech_seconds: float
     raw_status: str
     raw_text: str = ""
+    filter_reasons: List[str] = []
     after_line_id: Optional[int] = None
     before_line_id: Optional[int] = None
 
