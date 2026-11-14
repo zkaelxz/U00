@@ -35,6 +35,18 @@ with contextlib.closing(db.get_conn()) as c:
 const frameRows = (page: Page) => page.frameLocator('iframe.reader-frame').locator('.line-row')
 const label = (page: Page) => page.getByTestId('reader-page-label').first()
 
+// Turning Edit on reloads the page frame. That frame is sandboxed, so Chromium
+// gives it its own process, and a click sent before the new document has
+// painted goes to the app page instead of the pencil. Two animation frames
+// inside the frame mean it has painted, as it has before a person can tap it.
+async function turnOnEdit(page: Page) {
+  await page.getByTestId('reader-edit-toggle').click()
+  const frame = page.frameLocator('iframe.reader-frame')
+  await expect(frame.locator('.edit-btn')).toHaveCount(40)
+  await frame.locator('body').evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
+  return frame
+}
+
 const engines = (items: { name: string; free: boolean }[]) => (route: import('@playwright/test').Route) =>
   route.fulfill({
     json: { items: items.map((e) => ({ ...e, label: e.name, models: null, key_configured: true })) },
@@ -499,9 +511,7 @@ test('the pencil edits one line and the page shows the new text', async ({ page 
   await expect(frameRows(page)).toHaveCount(40)
   await expect(page.frameLocator('iframe.reader-frame').locator('.edit-btn')).toHaveCount(0)
 
-  await page.getByTestId('reader-edit-toggle').click()
-  const frame = page.frameLocator('iframe.reader-frame')
-  await expect(frame.locator('.edit-btn')).toHaveCount(40)
+  const frame = await turnOnEdit(page)
   await frame.locator('#ln2 .edit-btn').click()
 
   const box = page.getByTestId('reader-edit-box')
@@ -520,8 +530,7 @@ test('saving unchanged text sends nothing, and Escape closes the box', async ({ 
   })
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
-  await page.getByTestId('reader-edit-toggle').click()
-  const frame = page.frameLocator('iframe.reader-frame')
+  const frame = await turnOnEdit(page)
   await frame.locator('#ln1 .edit-btn').click()
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByTestId('reader-edit-box')).toHaveCount(0)
@@ -535,8 +544,7 @@ test('saving unchanged text sends nothing, and Escape closes the box', async ({ 
 test('an open draft is kept when another pencil is clicked', async ({ page }) => {
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
-  await page.getByTestId('reader-edit-toggle').click()
-  const frame = page.frameLocator('iframe.reader-frame')
+  const frame = await turnOnEdit(page)
   await frame.locator('#ln1 .edit-btn').click()
   await page.getByTestId('reader-edit-box').fill('My draft')
   await frame.locator('#ln3 .edit-btn').click()
@@ -554,8 +562,8 @@ test('a save over text that changed meanwhile is refused and the page reloads', 
   })
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
-  await page.getByTestId('reader-edit-toggle').click()
-  await page.frameLocator('iframe.reader-frame').locator('#ln2 .edit-btn').click()
+  const frame = await turnOnEdit(page)
+  await frame.locator('#ln2 .edit-btn').click()
   await page.getByTestId('reader-edit-box').fill('Mine')
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'Lines changed since this page loaded' })).toBeVisible()
