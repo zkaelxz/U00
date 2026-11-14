@@ -600,7 +600,7 @@ def sampled_ink_color(page_bgr, box: dict):
 
 
 # A fade needs the lettering's top and bottom halves to differ clearly and both to be a real colour.
-_FADE_MIN_DISTANCE = 40
+_FADE_MIN_DISTANCE = 60
 _FADE_MAX_OFF_LINE = 50
 
 
@@ -613,6 +613,7 @@ def sampled_ink_fade(page_bgr, box: dict):
     roi = page_bgr[y:min(h, y + box["h"]), x:min(w, x + box["w"])]
     if roi.size == 0:
         return None
+    import cv2
     background = np.median(roi.reshape(-1, 3), axis=0)
     distance = np.abs(roi.astype(int) - background.astype(int)).max(axis=2)
     # Art, a leaf or an outline around the lettering reaches the box edge; lettering strokes
@@ -632,6 +633,9 @@ def sampled_ink_fade(page_bgr, box: dict):
             # A two-line balloon has no ink in the middle third; that is a step, not a gap to reject.
             colours.append(None)
             continue
+        # Stroke interiors only: an outline or glow of another colour hugs the stroke's edge.
+        interior = cv2.erode(m.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+        m = interior if int(interior.sum()) >= _INK_MIN_PIXELS else m
         core = m & (d >= np.median(d[m]))
         b, g, r = (int(v) for v in np.median(px[core], axis=0))
         colours.append((r, g, b))
