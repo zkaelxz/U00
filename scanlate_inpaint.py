@@ -812,11 +812,32 @@ def sign_text_line(page_bgr, box: dict):
     if found is None:
         return None
     strokes, angle, typical = found
-    reach = max(3, round(scanlate_tuning.LINE_CORRIDOR_CLOSE * typical)) | 1
-    corridor = cv2.morphologyEx(strokes, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (reach, reach)))
-    margin = max(3, round(scanlate_tuning.LINE_CORRIDOR_MARGIN * typical)) | 1
-    corridor = cv2.dilate(corridor, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin, margin)))
+    corridor = _band_round(gray, strokes, typical)
     return corridor > 0, angle, round(scanlate_tuning.LINE_TEXT_SIZE_OF_GLYPH * typical)
+
+
+def _band_round(gray, strokes, typical: float):
+    """uint8 mask (255) of the pale band the lettering `strokes` sit on, as a clean shape: the
+    pale pixels and the lettering, opened so thin bridges to white art fall away, kept within
+    reach of the line, the parts holding lettering, their convex hull (the band is a straight
+    strip, and a ragged edge makes the typesetter refuse the turned text). Falls back to the
+    line's own strip when that is larger, i.e. when no band shows round the line."""
+    import cv2
+    ellipse = lambda size: cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(size) | 1, int(size) | 1))
+    pale = ((gray >= scanlate_tuning.LINE_PAPER_LEVEL) | (strokes > 0)).astype(np.uint8) * 255
+    pale = cv2.morphologyEx(pale, cv2.MORPH_OPEN, ellipse(scanlate_tuning.LINE_BAND_OPEN_PX))
+    within = cv2.dilate(strokes, ellipse(scanlate_tuning.LINE_BAND_REACH * typical))
+    _, labels, _, _ = cv2.connectedComponentsWithStats(cv2.bitwise_and(pale, within))
+    holding = np.unique(labels[strokes > 0])
+    band = np.isin(labels, holding[holding > 0]).astype(np.uint8)
+    points = cv2.findNonZero(band)
+    if points is not None:
+        band = np.zeros_like(strokes)
+        cv2.fillConvexPoly(band, cv2.convexHull(points), 255)
+        band = cv2.erode(band, ellipse(3))
+    strip = cv2.morphologyEx(strokes, cv2.MORPH_CLOSE, ellipse(max(3, round(scanlate_tuning.LINE_CORRIDOR_CLOSE * typical))))
+    strip = cv2.dilate(strip, ellipse(max(3, round(scanlate_tuning.LINE_CORRIDOR_MARGIN * typical))))
+    return band if (band > 0).sum() >= (strip > 0).sum() else strip
 
 
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
