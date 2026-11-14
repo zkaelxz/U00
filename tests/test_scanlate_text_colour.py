@@ -5,7 +5,7 @@ import pytest
 
 cv2 = pytest.importorskip("cv2")
 PIL = pytest.importorskip("PIL")
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 import scanlate_render
 
@@ -242,12 +242,33 @@ def test_balloon_text_stays_off_the_art_in_the_notch_beside_it(tmp_path):
     assert not (np.abs(rendered - 40) > 20)[art > 0].any()
 
 
-def test_a_line_keeps_clear_of_the_balloon_edge():
-    img = Image.new("RGB", (200, 80), "white")
-    box = {"x": 0, "y": 0, "w": 200, "h": 80}
+def _tailed_mask():
+    mask = np.zeros((120, 200), np.uint8)
+    mask[:80] = 1
+    cv2.fillPoly(mask, [np.array([[20, 79], [60, 79], [30, 119]])], 1)
+    return mask.astype(bool)
+
+
+def test_a_line_keeps_clear_of_the_edge_of_a_balloon_with_a_tail():
+    img = Image.new("RGB", (200, 120), "white")
+    box = {"x": 0, "y": 0, "w": 200, "h": 120}
     report = {}
     scanlate_render.render_text_in_box(img, box, "Unnie, how did you feel", font_size=24,
-                                       mask=np.ones((80, 200), bool), report=report)
+                                       mask=_tailed_mask(), report=report)
     ink = np.flatnonzero((np.asarray(img.convert("L")) < 128).any(axis=0))
     pad = 0.2 * report["size"]
     assert ink.min() >= pad and ink.max() <= 199 - pad
+
+
+def test_a_line_in_a_balloon_without_a_notch_may_reach_its_outline_rather_than_shrink():
+    text = "Unnie, how did you feel"
+    path = scanlate_render._find_font(None)
+    font = ImageFont.truetype(path, 24) if path else ImageFont.load_default(24)
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    left, _, right, _ = probe.textbbox((0, 0), text, font=font)
+    width = right - left + 4
+    img = Image.new("RGB", (width, 40), "white")
+    report = {}
+    scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": width, "h": 40}, text,
+                                       font_size=24, mask=np.ones((40, width), bool), report=report)
+    assert report["size"] == 24

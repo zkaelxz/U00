@@ -248,13 +248,28 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLA
     # that is allowed only as a last resort.
     passes = ((False, comfort, True), (True, comfort, False), (True, smallest, False),
               (True, smallest, True))
+    pad_em = scanlate_tuning.TYPESET_SIDE_PAD_EM if _has_notch(mask) else 0.0
     for hyphenate, floor, split_twice_ok in passes:
         for size in range(font_size, style.floor(floor, font_size) - 1, -1):
-            laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate)
+            laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate, pad_em)
             if laid_out is not None and (split_twice_ok
                                          or not _split_twice([ln[0] for ln in laid_out[1]])):
                 return laid_out
     return None
+
+
+# A balloon whose convex hull is this much bigger than it has a notch, lobe or tail; an oval's
+# hull adds well under 1%, the two-lobe and tailed balloons whose lines ran onto the outline 12-50%.
+_NOTCH_HULL_EXCESS = 0.05
+
+
+def _has_notch(mask) -> bool:
+    if not mask.any():
+        return False
+    import cv2
+    hull = np.zeros(mask.shape, np.uint8)
+    cv2.fillPoly(hull, [cv2.convexHull(cv2.findNonZero(mask.astype(np.uint8)))], 1)
+    return hull.sum() > (1 + _NOTCH_HULL_EXCESS) * mask.sum()
 
 
 # A rectangle smaller than this share of the balloon would set the text far smaller than the
@@ -301,7 +316,7 @@ def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font, style
     return font, [(line, l + left, r + left, t + top) for line, l, r, t in placed]
 
 
-def _layout_at_size(draw, words, mask, mh, font, hyphenate):
+def _layout_at_size(draw, words, mask, mh, font, hyphenate, pad_em=0.0):
     line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
     widths = {}
 
@@ -311,7 +326,7 @@ def _layout_at_size(draw, words, mask, mh, font, hyphenate):
             widths[t] = bb[2] - bb[0]
         return widths[t]
 
-    pad = int(scanlate_tuning.TYPESET_SIDE_PAD_EM * (line_height - scanlate_tuning.TYPESET_LINE_GAP_PX))
+    pad = int(pad_em * (line_height - scanlate_tuning.TYPESET_LINE_GAP_PX))
     for n_lines in range(1, max(mh // line_height, 0) + 1):
         top0 = (mh - line_height * n_lines) // 2
         found = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)

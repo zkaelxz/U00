@@ -156,8 +156,9 @@ TYPESET_SIBLING_MIN_RATIO = 0.7
 TYPESET_SIBLING_MAX_SHRINK = 0.75
 TYPESET_LINE_GAP_PX = 4
 TYPESET_OUTLINE_MARGIN_PX = 2
-# Each line of balloon text keeps this share of its lettering's height clear of the outline on
-# both sides; with the outline margin alone, one long line ran from edge to edge of a round lobe.
+# In a balloon with a notch, lobe or tail, each line keeps this share of its lettering's height
+# clear of the outline on both sides; with the outline margin alone, one long line ran from edge to
+# edge of a round lobe. Ovals get none: there it only shrank text that already fitted.
 TYPESET_SIDE_PAD_EM = 0.25
 # Lettering is followed when the angle at which its ink lines up into the sharpest rows is
 # between MIN and MAX degrees and lines it up at least MIN_GAIN times better than level
