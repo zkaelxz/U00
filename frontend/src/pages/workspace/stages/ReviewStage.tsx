@@ -23,7 +23,7 @@ import { ReviewFlags } from './review/ReviewFlags'
 import { ReviewJobsPanel } from './review/ReviewJobsPanel'
 import { ReviewTools } from './review/ReviewTools'
 import { VoiceClonePanel } from './VoiceClonePanel'
-import type { ReviewToolsTab } from './review/reviewToolsTabs'
+import type { ReviewTool } from './review/reviewToolsTabs'
 import { ResplitLines } from './review/ResplitLines'
 import { StructureSection } from './review/StructureSection'
 import type { LineTarget } from './review/reviewResults'
@@ -56,22 +56,22 @@ export default function ReviewStage() {
     if (wasRunning.current && !jobRunning) changed()
     wasRunning.current = jobRunning
   }, [jobRunning, changed])
-  // Those three buttons live in the History tab, so each also switches to it.
-  const [toolsRequest, setToolsRequest] = useState<{ tab: ReviewToolsTab; seq: number } | null>(null)
-  const showHistory = useCallback(() => setToolsRequest((r) => ({ tab: 'history', seq: (r?.seq ?? 0) + 1 })), [])
+  // Those three buttons open tools in the panel below, so each also switches to the tool's group.
+  const [toolsRequest, setToolsRequest] = useState<{ tool: ReviewTool; seq: number } | null>(null)
+  const showTool = useCallback((tool: ReviewTool) => setToolsRequest((r) => ({ tool, seq: (r?.seq ?? 0) + 1 })), [])
   // Bumped by the selection bar's "Compare transcription…": opens the fold and
   // the section and shows the ticked lines there.
   const [compareSignal, setCompareSignal] = useState(0)
   const openCompare = useCallback(() => {
     setCompareSignal((n) => n + 1)
-    showHistory()
-  }, [showHistory])
+    showTool('compareTranscription')
+  }, [showTool])
   // Same for "Re-time with Qwen3 aligner…".
   const [retimeSignal, setRetimeSignal] = useState(0)
   const openRetime = useCallback(() => {
     setRetimeSignal((n) => n + 1)
-    showHistory()
-  }, [showHistory])
+    showTool('retime')
+  }, [showTool])
   // Same for "Re-transcribe selected", the waveform's "Transcribe this gap" and
   // "Add and transcribe": ids start a run on exactly those lines.
   const [retranscribeRequest, setRetranscribeRequest] = useState<RetranscribeRequest | null>(null)
@@ -80,9 +80,9 @@ export default function ReviewStage() {
   const openRetranscribe = useCallback(
     (lineIds: number[] | null) => {
       setRetranscribeRequest((r) => ({ seq: (r?.seq ?? 0) + 1, lineIds }))
-      showHistory()
+      showTool('retranscribe')
     },
-    [showHistory],
+    [showTool],
   )
   const [lineCount, setLineCount] = useState<number | null>(null)
   // A finding's line link: the editor opens that line (by id where known).
@@ -142,44 +142,28 @@ export default function ReviewStage() {
                 status={jobs.status}
                 request={toolsRequest}
                 attention={{ coverage: parts.coverageCount }}
-                panels={{
-                  check: jobs.check,
-                  fix: (
-                    <>
-                      {jobs.fix}
-                      {!!lineCount && <ReviewFlags onDone={changed} />}
-                      {!!lineCount && <MarkEpisodeReviewed dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
-                    </>
-                  ),
+                tools={{
+                  checks: jobs.check,
+                  flags: !!lineCount && <ReviewFlags onDone={changed} />,
                   coverage: parts.coverage,
+                  compareTranscription: !!lineCount && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />,
+                  audioTags: !!lineCount && <AiExtrasSenseVoice dramaId={dramaId} reloads={reloads} />,
+                  fixFlagged: jobs.fix,
+                  retranslate: !!lineCount && <RetranslateSelected dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />,
+                  threeRun: !!lineCount && <ThreeRunReview dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />,
+                  structure: !!lineCount && <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />,
+                  resplit: !!lineCount && <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />,
+                  merge: !!lineCount && <AiExtrasMerge dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />,
+                  shorten: !!lineCount && parts.shorten,
+                  cleanup: !!lineCount && <AiExtrasCleanup dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />,
+                  retime: !!lineCount && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />,
+                  retranscribe: !!lineCount && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={pendingRetranscribe} onRequestHandled={setHandledRetranscribeSeq} />,
                   voices: <VoiceClonePanel />,
-                  restructure: !!lineCount && (
-                    <>
-                      <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />
-                      <ResplitLines dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />
-                      <AiExtrasMerge dramaId={dramaId} jobRunning={jobRunning} onChanged={reshaped} />
-                      <AiExtrasCleanup dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />
-                      {parts.shorten}
-                    </>
-                  ),
-                  history: (
-                    <>
-                      <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onReshaped={reshaped} jobRunning={jobRunning} onGoTo={goToLine} />
-                      {parts.history}
-                      {!!lineCount && <CompareTranscription dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={compareSignal || undefined} />}
-                      {!!lineCount && <RetimeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} openSignal={retimeSignal || undefined} />}
-                      {!!lineCount && <RetranscribeLines dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} request={pendingRetranscribe} onRequestHandled={setHandledRetranscribeSeq} />}
-                      {!!lineCount && <RetranslateSelected dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
-                      {!!lineCount && <ThreeRunReview dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
-                      {!!lineCount && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />}
-                    </>
-                  ),
-                  extras: !!lineCount && (
-                    <>
-                      <AiExtrasSenseVoice dramaId={dramaId} reloads={reloads} />
-                      <AiExtrasBurnPreview dramaId={dramaId} />
-                    </>
-                  ),
+                  records: <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onReshaped={reshaped} jobRunning={jobRunning} onGoTo={goToLine} />,
+                  versionsAndNotes: parts.history,
+                  style: !!lineCount && <AiExtrasStyle dramaId={dramaId} reloads={reloads} />,
+                  burnPreview: !!lineCount && <AiExtrasBurnPreview dramaId={dramaId} />,
+                  markReviewed: !!lineCount && <MarkEpisodeReviewed dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />,
                 }}
               />
             )}
