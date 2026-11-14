@@ -10,7 +10,7 @@ from engine_backends import local
 from jobs import job_launch, job_runner
 from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
 from services import (export_service, queue_service as q, series_auto_service as auto,
-                      transcribe_service, translate_run_service)
+                      title_copy_service, transcribe_service, translate_run_service)
 
 WAIT = 10
 
@@ -210,6 +210,16 @@ def test_a_title_without_media_or_with_lines_is_not_queued(jobs):
     sid, (e1, e2, e3) = _series()
     db.update_drama(e1, audio_filename=None)
     db.save_lines(e2, [Line(idx=0, start=0, end=1, zh="x", en="y")])
+    _on(sid)
+    auto.scan()
+    assert {d for d, *_ in _auto_steps()} == {e3}
+
+
+def test_a_test_copy_is_never_queued(jobs):
+    sid, (e1, e2, e3) = _series()
+    db.update_drama(e1, custom_tags="Hot, test COPY")
+    db.update_drama(e2, custom_tags=title_copy_service.COPY_TAG)
+    assert auto._next_episode(sid, auto._read(sid))["id"] == e3
     _on(sid)
     auto.scan()
     assert {d for d, *_ in _auto_steps()} == {e3}

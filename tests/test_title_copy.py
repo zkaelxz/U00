@@ -43,6 +43,39 @@ def test_copy_has_own_rows_and_files(isolated_db):
     assert not os.path.samefile(new_file, os.path.join(db.DRAMAS_DIR, str(did), "a.mp3"))
 
 
+def test_copy_is_outside_the_series_and_without_media_until_complete(isolated_db, monkeypatch):
+    did, _ = _source(isolated_db)
+    seen = []
+    real_folder, real_rows = tcs._copy_folder, tcs._copy_rows
+
+    def snapshot(new_id):
+        row = db.get_drama(new_id)
+        seen.append((row["series_id"], row["audio_filename"], row["source_video_filename"]))
+
+    def folder(source_id, new_id):
+        snapshot(new_id)
+        real_folder(source_id, new_id)
+
+    def rows(conn, source_id, new_id):
+        snapshot(new_id)
+        real_rows(conn, source_id, new_id)
+    monkeypatch.setattr(tcs, "_copy_folder", folder)
+    monkeypatch.setattr(tcs, "_copy_rows", rows)
+    tcs.duplicate_title(did)
+    assert seen == [(None, None, None), (None, None, None)]
+
+
+def test_finished_copy_keeps_series_and_media_names(isolated_db):
+    did, series = _source(isolated_db)
+    db.update_drama(did, source_video_filename="v.mp4")
+    new_id = tcs.duplicate_title(did)["id"]
+    row, original = db.get_drama(new_id), db.get_drama(did)
+    assert (row["series_id"], row["audio_filename"], row["source_video_filename"]) == \
+        (series, "a.mp3", "v.mp4")
+    assert row["is_private"] == original["is_private"] == 0
+    assert new_id in [d["id"] for d in db.list_dramas_by_series(series)]
+
+
 def test_copy_carries_comic_text_boxes(isolated_db):
     did, _ = _source(isolated_db)
     with contextlib.closing(db.get_conn()) as conn:
@@ -92,6 +125,17 @@ def test_failed_copy_leaves_no_title(isolated_db, monkeypatch):
         raise OSError("disk")
     monkeypatch.setattr(tcs.shutil, "copytree", boom)
     with pytest.raises(OSError):
+        tcs.duplicate_title(did)
+    assert [d["id"] for d in db.list_dramas()] == [did]
+
+
+def test_copy_failing_at_the_last_write_leaves_no_title(isolated_db, monkeypatch):
+    did, _ = _source(isolated_db)
+
+    def boom(*a, **k):
+        raise RuntimeError("db")
+    monkeypatch.setattr(tcs.db, "update_drama", boom)
+    with pytest.raises(RuntimeError):
         tcs.duplicate_title(did)
     assert [d["id"] for d in db.list_dramas()] == [did]
 
