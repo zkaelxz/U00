@@ -44,6 +44,10 @@ _AUTH_MARKERS = ('type="password"', "type='password'", "please log in", "please 
                  "login required", "请登录", "請登入", "로그인이 필요", "ログインしてください")
 _PURCHASE_MARKERS = ("purchase this chapter", "buy this chapter", "unlock this chapter",
                      "购买本章", "購買本章", "付费章节", "이용권", "구매하기", "購入する")
+# Names a section of the site rather than asking to buy this page: a free chapter's menu can
+# link to it. Every other marker counts anywhere in the page, link text, button values and
+# scripts included, since a paywall's own button is often exactly such a link.
+_PURCHASE_SECTION_MARKERS = ("付费章节",)
 _COOKIE_MARKERS = ("enable cookies", "cookies are disabled", "请启用cookie", "쿠키를 허용")
 _JS_REQUIRED_MARKERS = ("enable javascript", "javascript is required", "requires javascript",
                         "you need to enable javascript", "请开启javascript", "请启用javascript",
@@ -260,15 +264,17 @@ def classify(status: Optional[int], headers=None, body: str = "", url: str = "",
 
 
 def _asks_for_purchase(body: str, lower: str, text: str) -> bool:
-    """A purchase marker on a short page (a paywall with a preview), or in the visible
-    text of a longer one outside link text: a free chapter's menu can link to the
-    site's paid chapters, which says nothing about this one."""
-    if not any(m in lower for m in _PURCHASE_MARKERS):
+    """A purchase marker anywhere in the page. The one exception is a section name such as
+    付费章节 on a longer page, which counts only in visible text outside link text: a free
+    chapter's menu can link to the site's paid chapters, which says nothing about this one."""
+    if any(m in lower for m in _PURCHASE_MARKERS if m not in _PURCHASE_SECTION_MARKERS):
+        return True
+    if not any(m in lower for m in _PURCHASE_SECTION_MARKERS):
         return False
     if len(text) < 1500:
         return True
     outside_links = visible_text(_LINK_TEXT_RE.sub(" ", body)).lower()
-    return any(m in outside_links for m in _PURCHASE_MARKERS)
+    return any(m in outside_links for m in _PURCHASE_SECTION_MARKERS)
 
 
 def has_embedded_state(body: str) -> bool:

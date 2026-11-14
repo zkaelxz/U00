@@ -601,6 +601,15 @@ class TestFailureKinds:
         short_page = '<html><body><p>试读</p><a href="/buy">购买本章</a></body></html>'
         assert FailureReason.PURCHASE_REQUIRED in detect.classify(
             200, {}, short_page, "https://a.invalid/c/9", "")
+        # A long preview whose call to action is a link, a button's value or written by a script.
+        for prompt in ('<a class="btn" href="/buy?c=9">购买本章</a>', '<input type="button" value="购买本章">',
+                       '<script>btn.textContent = "Unlock this chapter"</script>'):
+            page = '<html><body>' + self._CHAPTER + prompt + '</body></html>'
+            assert FailureReason.PURCHASE_REQUIRED in detect.classify(
+                200, {}, page, "https://a.invalid/c/9", ""), prompt
+        # A paid-chapters section named in the page's own text, not a menu link, still counts.
+        paid = '<html><body>' + self._CHAPTER + '<p>本章为付费章节</p></body></html>'
+        assert FailureReason.PURCHASE_REQUIRED in detect.classify(200, {}, paid, "https://a.invalid/c/9", "")
 
     def test_challenge_on_a_503_is_still_a_challenge_not_a_server_error(self):
         from sources import detect
