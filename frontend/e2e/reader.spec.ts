@@ -191,7 +191,9 @@ test('a Watch card opens the Reader with Watch / listen open; a plain link leave
   await expect(page).toHaveURL(/#\/read\/2\?page=1$/)
   await expect(player).toHaveAttribute('open', '')
 
+  // Both are hash changes in one document: wait for the Library so the Reader really closes before it opens again.
   await page.goto('/#/library')
+  await expect(page.getByRole('region', { name: 'Titles' })).toBeVisible()
   await page.goto('/#/read/2')
   await expect(label(page)).toHaveText('Page 1 of 3')
   await expect(player).toHaveCount(1)

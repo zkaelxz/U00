@@ -145,10 +145,10 @@ describe('continueAction', () => {
     expect(continueAction(work(), row({ status: 'exported' }), null).label).toBe('Translate 5 lines')
   })
 
-  it('Check N lines on the Review step once every line has English', () => {
-    expect(continueAction(work(), done(), 3)).toEqual({ label: 'Check 3 lines', href: '#/drama/5/review' })
-    expect(continueAction(work(), done(), 1)).toEqual({ label: 'Check 1 line', href: '#/drama/5/review' })
-    expect(continueAction(work(), done(), 1500).label).toBe('Check 1,500 lines')
+  it('Check the N lines on the Review step once every line has English, worded as the title page words it', () => {
+    expect(continueAction(work(), done(), 3)).toEqual({ label: 'Check the 3 lines', href: '#/drama/5/review' })
+    expect(continueAction(work(), done(), 1)).toEqual({ label: 'Check the line', href: '#/drama/5/review' })
+    expect(continueAction(work(), done(), 1500).label).toBe('Check the 1500 lines')
   })
 
   it('Check the lines while the count is unknown (loading or failed), Export when nothing needs a look', () => {

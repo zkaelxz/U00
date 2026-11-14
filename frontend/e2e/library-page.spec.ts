@@ -255,7 +255,7 @@ test('Continue tiles name the next step and open it; only a tile waiting on a ch
   const tiles: [string, string, string][] = [
     ['Read from page 12', "Heaven Official's Blessing", '#/read/2'],
     ['Translate 1,234 lines', 'Grandmaster of Demonic Cultivation', '#/drama/1/translate'],
-    ['Check 3 lines', 'Signal', '#/drama/3/review'],
+    ['Check the 3 lines', 'Signal', '#/drama/3/review'],
     ['Watch', 'Harbor Lights', '#/read/61?watch=1'],
   ]
   for (const [label, title, href] of tiles) {
@@ -276,7 +276,7 @@ test('Continue tiles name the next step and open it; only a tile waiting on a ch
   await expect(shelf.getByRole('link', { name: 'Export: Quiet Stream', exact: true })).toBeVisible()
   expect(asked).toEqual([3, 62])
 
-  await shelf.getByRole('link', { name: 'Check 3 lines: Signal' }).click()
+  await shelf.getByRole('link', { name: 'Check the 3 lines: Signal' }).click()
   await expect(page).toHaveURL(/#\/drama\/3\/review$/)
 })
 
@@ -291,8 +291,11 @@ test('a failed count request leaves Check the lines, with no error on the page',
 })
 
 test('cards say Watch for video and Listen for audio, opening the Reader with the player; Read stays for the rest', async ({ page }) => {
-  await mockShelf(page, () => 0)
+  await mockShelf(page, () => 1)
   await page.goto('/')
+  // One line needing a look: the tile words it as the title page does.
+  await expect(page.getByRole('region', { name: 'Continue' }).getByRole('link', { name: 'Check the line: Signal', exact: true }))
+    .toHaveAttribute('href', '#/drama/3/review')
   const titles = page.getByRole('region', { name: 'Titles' })
   await expect(titles.getByRole('link', { name: 'Watch Signal', exact: true })).toHaveAttribute('href', '#/read/3?watch=1')
   await expect(titles.getByRole('link', { name: 'Listen Grandmaster of Demonic Cultivation', exact: true })).toHaveAttribute('href', '#/read/1?watch=1')

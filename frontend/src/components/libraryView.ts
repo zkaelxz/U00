@@ -1,7 +1,9 @@
 // Pure helpers for the Library page's cards and Continue shelf (kept out of
 // the component files so React fast refresh stays happy).
 
+import { pluralLocale } from '../labels'
 import { isComicType } from '../pages/comic/comicLogic'
+import { checkActionLabel } from '../pages/workspace/stepModel'
 import { titleKind } from '../pages/workspace/titleKind'
 import { routeHref } from '../router'
 
@@ -132,8 +134,6 @@ export function cardNext(d: Progress & { id: number }): { label: string; href: s
 /** The Library's loaded row for a title, as far as a Continue tile needs it. */
 export type ShelfRow = Progress & Kinded
 
-const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`
-
 // What a work tile leads to, by the same order as the title page's steps.
 function workStep(row: ShelfRow | undefined, mediaType: string | null): 'open' | 'translate' | 'check' | 'done' {
   const total = row?.line_count ?? 0
@@ -164,11 +164,13 @@ export function continueAction(x: ContinueItem, row: ShelfRow | undefined, riskC
       return { label: 'Open', href: workspaceHref(id) }
     case 'translate': {
       const left = (row?.line_count ?? 0) - (row?.translated_count ?? 0)
-      return { label: `Translate ${plural(left, 'line', 'lines')}`, href: workspaceHref(id, 'translate') }
+      return { label: `Translate ${pluralLocale(left, 'line')}`, href: workspaceHref(id, 'translate') }
     }
-    case 'check':
-      if (riskCount === 0) return { label: 'Export', href: workspaceHref(id, 'export') }
-      return { label: riskCount === null ? 'Check the lines' : `Check ${plural(riskCount, 'line', 'lines')}`, href: workspaceHref(id, 'review') }
+    case 'check': {
+      // The title page's own Check button, so both name the step the same way.
+      const check = checkActionLabel(riskCount)
+      return check === null ? { label: 'Export', href: workspaceHref(id, 'export') } : { label: check, href: workspaceHref(id, 'review') }
+    }
     case 'done':
       return readAction({ id, media_type: row?.media_type ?? null, content_mode: row?.content_mode })
   }
