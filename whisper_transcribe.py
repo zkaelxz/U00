@@ -11,7 +11,7 @@ import re
 import whisper_models
 from segment_splitting import (_word_dicts, extend_ends_to_speech, settle_overlaps, tighten_to_words,
                                trim_starts_to_speech)
-from whisper_hallucination import (STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments,
+from whisper_hallucination import (IMPLAUSIBLE_FLAG, STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments,
                                    is_stock_phrase)
 
 
@@ -259,6 +259,11 @@ def _cut_tail(audio_path: str, resume):
     return None
 
 
+# Re-hearing is what makes a run's text differ from the first decode, and a person cannot otherwise
+# tell which lines came from it, so each one it writes carries this note in Review.
+REHEARD_NOTE = "Heard again without the speech detector, which replaced the first hearing; check against the audio"
+
+
 def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys: set) -> list:
     """`segments` with each sparse one (_is_sparse) replaced by what Whisper hears in that
     stretch alone, when that holds more text. The stretch is decoded without the speech
@@ -289,7 +294,8 @@ def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys:
             inside = owned[id(seg)]
             heard_letters = _letters("".join(h["text"] for h in inside))
             if is_stock_phrase(seg["text"]) or heard_letters > _letters(seg["text"]):
-                result.extend(inside)
+                result.extend(h if h.get("flag") else {**h, "flag": IMPLAUSIBLE_FLAG, "flag_note": REHEARD_NOTE}
+                              for h in inside)
                 continue
         result.append(seg)
     return settle_overlaps(result)
