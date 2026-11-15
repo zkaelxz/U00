@@ -346,11 +346,13 @@ export default function LibraryToolsPage() {
         <ToolSection card="saved-manga" ready={organizeReady} first={firstOf(organizeShown) === 3} count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
           {saved.data && <SavedSeriesRows items={saved.data} />}
         </ToolSection>
-        {pc !== 'remote' && organizeReady && (
-          <CardFoldContext.Provider value={SAVE_FOLDER_FOLD}><SaveFolderCard /></CardFoldContext.Provider>
-        )}
         {!organizeReady && <p className="muted">Loading…</p>}
         {organizeReady && !organizeShown.some(Boolean) && <EmptyTab>{ORGANIZE_EMPTY}</EmptyTab>}
+        {pc !== 'remote' && organizeReady && (
+          <div className="tools-export">
+            <CardFoldContext.Provider value={SAVE_FOLDER_FOLD}><SaveFolderCard /></CardFoldContext.Provider>
+          </div>
+        )}
         {pc !== 'remote' && (
           <div className="tools-export">
             <h2 className="tools-group-title">Export</h2>
