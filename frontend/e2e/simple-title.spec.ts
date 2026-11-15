@@ -420,7 +420,7 @@ test.describe('the check queue', () => {
     expect(await box.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
     // Edit details and Dismiss flag are in the card's More sheet (and on D and F), not its row.
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Open glossary', 'Improve translation', 'See the lines around it', 'Looks right, next'])
+      .toHaveText(['Open glossary', 'Improve translation', 'See the lines around it', '✗ Wrong', '〰 Mixed', 'Looks right, next'])
     await card(page, 24).getByRole('button', { name: 'More actions for line 24' }).click()
     for (const name of ['Edit details', 'Dismiss flag']) await expect(page.getByRole('dialog').getByRole('button', { name, exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
@@ -736,7 +736,7 @@ test.describe('the check queue', () => {
     await expect(card(page, 24).locator('.review-select')).toBeHidden()
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Play line', 'Open glossary', 'Improve translation', 'Looks right, next'])
+      .toHaveText(['Play line', 'Open glossary', 'Improve translation', '✗ Wrong', '〰 Mixed', 'Looks right, next'])
 
     // This line is the open tab, with the sound, the reason and the lines around it.
     const lineTab = page.getByRole('tab', { name: 'This line' })
@@ -1489,6 +1489,35 @@ test.describe('the check queue', () => {
       await expect(page.locator('.review-line').nth(5)).toBeVisible()
       await expectNoSidewaysScroll(page)
     }
+  })
+
+  test('a Marked pill joins Need a look and All once a line is marked, shows the marked lines, and goes when the mark is cleared', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1100, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const pills = page.getByRole('group', { name: 'Lines to show' })
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await expect(pills.getByRole('radio')).toHaveCount(2)
+    await card(page, 24).getByRole('button', { name: /Wrong/ }).click()
+    await expect(pills.locator('label')).toHaveText(['Need a look 3', 'Marked 1', 'All 24'])
+    for (const pill of await pills.locator('label span').all()) {
+      expect(await pill.evaluate((el) => el.scrollWidth <= el.clientWidth), 'no pill\'s words are cut').toBe(true)
+    }
+    await expectNoSidewaysScroll(page)
+
+    await pills.getByRole('radio', { name: 'Marked 1' }).check({ force: true })
+    await expect(page.locator('.review-line')).toHaveCount(1)
+    await expect(pills.getByRole('radio', { name: 'Marked 1' })).toBeChecked()
+    await expect(queueRadio(page)).not.toBeChecked()
+    await expect(allRadio(page)).not.toBeChecked()
+
+    await page.locator('.review-line .review-idx').click()
+    await page.locator('.review-line').getByRole('button', { name: /Wrong/ }).click()
+    await expect(page.getByText('No lines marked wrong or mixed.')).toBeVisible()
+    await queueRadio(page).check({ force: true })
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await expect(pills.getByRole('radio')).toHaveCount(2)
   })
 
   test('Read them all brings the first line of All into view when the page was scrolled past the start of the list', async ({ page }) => {

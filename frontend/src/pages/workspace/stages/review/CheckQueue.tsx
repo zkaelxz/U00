@@ -37,10 +37,13 @@ export function QueueMediaToggle({ open, controls, onToggle }: { open: boolean; 
   )
 }
 
-export function CheckQueueSwitch({ queue, counts, onPick }: {
+export function CheckQueueSwitch({ queue, marked, counts, onPick, onMarked }: {
   queue: boolean
+  // The Marked view is showing; its radio is there only while a line is marked (or while it is the view).
+  marked: boolean
   counts: QueueCounts | null
   onPick: (queue: boolean) => void
+  onMarked: () => void
 }) {
   return (
     <fieldset className="segmented check-queue-switch">
@@ -49,8 +52,14 @@ export function CheckQueueSwitch({ queue, counts, onPick }: {
         <input type="radio" name="check-queue" checked={queue} onChange={() => onPick(true)} />
         <span>{counts ? `Need a look ${counts.risk}` : 'Need a look'}</span>
       </label>
+      {(marked || (counts?.marked ?? 0) > 0) && (
+        <label>
+          <input type="radio" name="check-queue" checked={marked} onChange={onMarked} />
+          <span>{counts ? `Marked ${counts.marked}` : 'Marked'}</span>
+        </label>
+      )}
       <label>
-        <input type="radio" name="check-queue" checked={!queue} onChange={() => onPick(false)} />
+        <input type="radio" name="check-queue" checked={!queue && !marked} onChange={() => onPick(false)} />
         <span>{counts?.all != null ? `All ${counts.all}` : 'All'}</span>
       </label>
     </fieldset>

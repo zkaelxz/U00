@@ -490,10 +490,12 @@ export interface QueueCounts {
   risk: number
   untranslated: number
   unreviewed: number
+  marked: number
 }
 
 export const queueCounts = (page: ReviewLinesPage, all: number | null): QueueCounts => ({
   all, risk: page.risk_count ?? 0, untranslated: page.untranslated_count, unreviewed: page.unreviewed_count ?? 0,
+  marked: page.marked_count,
 })
 
 /** Lines with English and no warning: not in the queue and not waiting for a translation. */

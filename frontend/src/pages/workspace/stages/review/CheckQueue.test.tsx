@@ -12,7 +12,7 @@ const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
 const page = (lines: ReviewLine[]): ReviewLinesPage => ({
   lines, page: 1, page_size: 40, total: lines.length, flagged_count: 0, untranslated_count: 0, unreviewed_count: 0, shaky_count: 0, risk_count: lines.length, marked_count: 0, no_speaker_count: 0,
 })
-const counts: QueueCounts = { all: 24, risk: 3, untranslated: 0, unreviewed: 24 }
+const counts: QueueCounts = { all: 24, risk: 3, untranslated: 0, unreviewed: 24, marked: 0 }
 
 function footer(queuePage: ReviewLinesPage, { settled = true, jobRunning = false, c = counts, why = false } = {}) {
   return renderToStaticMarkup(
@@ -59,12 +59,23 @@ describe('the check queue footer', () => {
 
 describe('the first row', () => {
   it('is two radios named with their counts in one group named Lines to show', () => {
-    const html = renderToStaticMarkup(<CheckQueueSwitch queue counts={counts} onPick={() => {}} />)
+    const html = renderToStaticMarkup(<CheckQueueSwitch queue marked={false} counts={counts} onPick={() => {}} onMarked={() => {}} />)
     expect(html).toContain('<legend class="visually-hidden">Lines to show</legend>')
     expect(html).toContain('<span>Need a look 3</span>')
     expect(html).toContain('<span>All 24</span>')
     expect(html.match(/type="radio" name="check-queue"/g)).toHaveLength(2)
     expect(html).toMatch(/name="check-queue" checked=""[^>]*\/><span>Need a look 3/)
+  })
+
+  it('has a Marked radio between the two once a line is marked, and while Marked is the view', () => {
+    const draw = (marked: boolean, n: number) =>
+      renderToStaticMarkup(<CheckQueueSwitch queue={false} marked={marked} counts={{ ...counts, marked: n }} onPick={() => {}} onMarked={() => {}} />)
+    const some = draw(false, 2)
+    expect(some.match(/<span>[^<]*<\/span>/g)).toEqual(['<span>Need a look 3</span>', '<span>Marked 2</span>', '<span>All 24</span>'])
+    expect(some).toMatch(/name="check-queue" checked=""[^>]*\/><span>All 24/)
+    const showing = draw(true, 0)
+    expect(showing).toMatch(/name="check-queue" checked=""[^>]*\/><span>Marked 0/)
+    expect(showing.match(/checked=""/g)).toHaveLength(1)
   })
 
   it('puts "look fine" and its (i) together at the far end', () => {

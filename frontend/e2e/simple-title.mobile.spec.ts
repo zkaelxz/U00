@@ -234,6 +234,37 @@ test.describe(() => {
     leaveSeries()
   })
 
+  test('Wrong and Mixed sit in the open card, are tall enough to tap at 320px, mark the line and clear it', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    const card = page.locator('.review-line')
+    await expect(card.locator('.review-idx')).toHaveText('Line 24')
+    for (const width of [390, 320] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      for (const name of [/Wrong/, /Mixed/]) await expectTall(card.getByRole('button', { name }), `${name} at ${width}px`)
+      // The two are one choice: they wrap together, and the card's menu ends their row.
+      const [wrong, mixed, more] = await Promise.all([/Wrong/, /Mixed/, 'More actions for line 24'].map(async (name) => (await card.getByRole('button', { name }).boundingBox())!))
+      expect(mixed.y, `Wrong and Mixed share a row at ${width}px`).toBe(wrong.y)
+      expect(mixed.x, `Mixed follows Wrong at ${width}px`).toBeGreaterThan(wrong.x + wrong.width)
+      expect(more.y, `the menu is in their row at ${width}px`).toBe(wrong.y)
+      expect(more.x, `the menu ends their row at ${width}px`).toBeGreaterThan(mixed.x + mixed.width)
+      await expectNoSidewaysScroll(page)
+    }
+    await card.getByRole('button', { name: /Wrong/ }).tap()
+    await expect(card.getByTestId('line-mark')).toContainText('Wrong')
+    await expect(card.getByRole('button', { name: /Wrong/ })).toHaveAttribute('aria-pressed', 'true')
+    // A phone has no Need a look | All row: the Marked view is one of All's filters.
+    await page.getByRole('button', { name: 'Read them all' }).tap()
+    await page.getByRole('radio', { name: 'Marked 1' }).check({ force: true })
+    await expect(page.locator('.review-line')).toHaveCount(1)
+    await expect(page.locator('.review-line').getByTestId('line-mark')).toContainText('Wrong')
+    await page.getByRole('button', { name: 'Check the 3 lines' }).tap()
+    await expect(card.locator('.review-idx')).toHaveText('Line 24')
+    await card.getByRole('button', { name: /Wrong/ }).tap()
+    await expect(card.getByTestId('line-mark')).toHaveCount(0)
+  })
+
   test('the check queue on a phone is one card at a time, with Skip for now, wrapped reasons and no sideways scroll', async ({ page }) => {
     seedCheckLines()
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))

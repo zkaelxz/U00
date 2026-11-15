@@ -63,6 +63,7 @@ export function useCheckQueue(d: Deps) {
   const { dramaId, ctl, pending, st } = d
   // A search shows its own results, so the queue is off while one is typed.
   const on = d.simple && d.filter === QUEUE_FILTER && !d.searching
+  const markedOn = d.simple && d.filter === 'marked' && !d.searching
   const [checked, setChecked] = useUndoOffer<ReviewLine>('checked', dramaId)
   const [undoing, setUndoing] = useState(false)
 
@@ -187,7 +188,7 @@ export function useCheckQueue(d: Deps) {
       {checkLead && <CheckLeadAction lead={{ ...checkLead, ready: drawn }} />}
       {drawn && (
         <>
-          <CheckQueueSwitch queue={on} counts={counts} onPick={(q) => void toView(q ? QUEUE_FILTER : 'all')} />
+          <CheckQueueSwitch queue={on} marked={markedOn} counts={counts} onPick={(q) => void toView(q ? QUEUE_FILTER : 'all')} onMarked={() => void toView('marked')} />
           {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
           <QueueFine counts={counts} />
         </>

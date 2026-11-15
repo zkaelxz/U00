@@ -14,4 +14,10 @@ describe('resultText', () => {
       'Marked 3 lines reviewed; 2 added to translation memory; 1 already in memory kept; 2 flagged lines left alone.',
     )
   })
+
+  it('says how many marked lines it left alone', () => {
+    expect(resultText({ ...result, reviewed: 19, remembered: 19, skipped_marked: 2 })).toBe(
+      'Marked 19 lines reviewed; 19 added to translation memory; 2 marked lines left alone.',
+    )
+  })
 })
