@@ -12,7 +12,7 @@ import { ErrorBanner } from './ErrorBanner'
 import { DramaCaptureNote } from './DramaCaptureNote'
 import { DramaSeriesRow } from './DramaSeriesRow'
 import { OpenFolderButton } from './OpenFolderButton'
-import { readHref, workspaceHref } from './libraryView'
+import { readAction, workspaceHref } from './libraryView'
 import { buttonClass } from './uiClasses'
 import { useCancellableEffect } from '../hooks/useCancellableEffect'
 import { useHolds } from '../hooks/useHolds'
@@ -82,6 +82,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
 
   if (error) return <p className="error" role="alert">{error}</p>
   if (!drama) return <p className="muted">Loading…</p>
+  const read = readAction(drama)
 
   const rows: [string, string | number | null][] = [
     ['Author', credit(drama.author, drama.author_romanized)],
@@ -128,7 +129,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
       <DramaCaptureNote dramaId={dramaId} />
       <div className="actions drama-detail-actions">
         <ButtonLink variant="primary" href={workspaceHref(dramaId)}>Open workspace</ButtonLink>
-        <ButtonLink href={readHref(drama)}>Read</ButtonLink>
+        <ButtonLink href={read.href}>{read.label}</ButtonLink>
         <OpenFolderButton open={() => openDramaFolder(dramaId)} title="Show this title's files on the PC" />
         {canCopy && (
           <button type="button" className={buttonClass()} disabled={copying} onClick={copy}
