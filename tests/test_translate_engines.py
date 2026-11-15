@@ -2153,6 +2153,21 @@ class TestGenerateEpisodeSummary:
         llm_tasks.generate_episode_summary(lines, engine)
         assert engine.call_count == 1
 
+    def test_a_short_episode_is_sent_whole_and_a_long_one_keeps_its_opening_and_ending(self):
+        from engine_backends import llm_feature_prompts as prompts
+        short = [Line(idx=i, start=i, end=i + 1, zh="x", en=f"Short line {i}.") for i in range(100)]
+        whole = prompts.build_episode_summary_prompt(short)
+        assert "Short line 0." in whole and "Short line 99." in whole
+        assert "left out" not in whole
+
+        long = [Line(idx=i, start=i, end=i + 1, zh="x", en=f"Long line number {i}. " + "w" * 40)
+                for i in range(2000)]
+        cut = prompts.build_episode_summary_prompt(long)
+        assert "Long line number 0." in cut and "Long line number 1999." in cut
+        assert "Long line number 1000." not in cut
+        assert "the middle of the episode is left out" in cut
+        assert len(cut) < prompts.EPISODE_SUMMARY_SOURCE_CHARS + 2000
+
     def test_non_dict_response_returns_empty_string(self):
         class FakeEngine:
             supports_reference = True
