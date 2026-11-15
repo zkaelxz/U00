@@ -2,7 +2,8 @@
 // React fast refresh stays happy). See Button.tsx and Badge.tsx.
 import type { BadgeTone } from './labels'
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+// ok is the green finishing step of the check queue (Looks right, next), and nothing else.
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ok'
 export type ButtonSize = 'md' | 'sm'
 
 // buttonClass('primary') -> "btn btn-primary"; buttonClass('ghost', 'sm') -> "btn btn-ghost btn-sm"

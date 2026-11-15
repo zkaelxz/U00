@@ -1,5 +1,5 @@
 /*
- * The side panel of a Simple audio or video title page: Video, Translate, Glossary, Episodes and Export in one tabbed box beside the lines.
+ * The panel of a Simple audio or video title page while it has no lines: Video, Translate, Glossary, Episodes and Export in one tabbed box.
  */
 import { useEffect, useState, type ReactNode } from 'react'
 

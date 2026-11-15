@@ -1,4 +1,5 @@
 import { buttonClass } from '../../../../components/uiClasses'
+import { mentionsLineHistory } from './reviewLogic'
 
 interface Props {
   message: string
@@ -16,6 +17,16 @@ export function LineHistoryButton({ onOpen }: { onOpen: () => void }) {
     <button type="button" className={buttonClass('ghost', 'sm')} onClick={onOpen}>
       Line history
     </button>
+  )
+}
+
+// The lines' status message; one that names Line history carries the button that opens it.
+export function ReviewStatus({ text, onOpenHistory }: { text: string | null; onOpenHistory?: () => void }) {
+  return (
+    <p className="review-status" role="status">
+      {text}
+      {onOpenHistory && mentionsLineHistory(text) && <> <LineHistoryButton onOpen={onOpenHistory} /></>}
+    </p>
   )
 }
 

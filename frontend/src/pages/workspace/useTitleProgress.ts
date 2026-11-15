@@ -1,5 +1,5 @@
 // Owns the counts the Simple view's steps column is drawn from, shared by the title page and the stage pages beside it.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { listLines } from '../../api/review'
 import { getTranscribeConfig, getWorkflowProgress } from '../../api/workspace'
@@ -7,6 +7,8 @@ import { getTranscribeConfig, getWorkflowProgress } from '../../api/workspace'
 export function useTitleProgress(id: number, comic: boolean) {
   // Unknown until answered; with no lines yet, the main button starts at Transcribe.
   const [lineCount, setLineCount] = useState<number | null>(null)
+  // The progress request failed, so a null count means "can't say" rather than "not answered yet".
+  const [countFailed, setCountFailed] = useState(false)
   const [translatedCount, setTranslatedCount] = useState(0)
   const [exported, setExported] = useState(false)
   // Audio or video already attached: only then can one button transcribe.
@@ -16,17 +18,24 @@ export function useTitleProgress(id: number, comic: boolean) {
   const [tick, setTick] = useState(0)
   // Once started the flow keeps its button even after lines exist, or the progress text would vanish mid-run.
   const [flowOn, setFlowOn] = useState(false)
+  // A refresh that fails keeps the counts already on screen: dropping them would swap the title panel for the lines and
+  // take the steps' words and the main button away until the next good answer. Only a first read that fails "can't say".
+  const answered = useRef(false)
 
   useEffect(() => {
     let cancelled = false
     getWorkflowProgress(id).then(
       (p) => {
         if (cancelled) return
+        answered.current = true
         setLineCount(p.line_count)
+        setCountFailed(false)
         setTranslatedCount(p.line_count - p.untranslated_count)
         setExported(p.exported)
       },
-      () => !cancelled && setLineCount(null),
+      () => {
+        if (!cancelled && !answered.current) setCountFailed(true)
+      },
     )
     return () => {
       cancelled = true
@@ -38,7 +47,8 @@ export function useTitleProgress(id: number, comic: boolean) {
     let cancelled = false
     listLines(id, 1, 1, 'risk').then(
       (r) => !cancelled && setRiskCount(typeof r.risk_count === 'number' ? r.risk_count : null),
-      () => !cancelled && setRiskCount(null),
+      // Kept as it was, for the same reason as the line count; before any answer it is still null, "can't say".
+      () => undefined,
     )
     return () => {
       cancelled = true
@@ -54,11 +64,11 @@ export function useTitleProgress(id: number, comic: boolean) {
     }
   }, [id, comic])
 
-  const onFlowProgress = () => {
+  const onFlowProgress = useCallback(() => {
     setFlowOn(true)
     setTick((t) => t + 1)
-  }
+  }, [])
   // Stable, so a stage page can refresh the counts after every write without remaking its context.
   const refresh = useCallback(() => setTick((t) => t + 1), [])
-  return { lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, refresh }
+  return { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, refresh }
 }

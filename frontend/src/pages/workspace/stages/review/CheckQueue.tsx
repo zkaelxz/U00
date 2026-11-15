@@ -1,5 +1,5 @@
 /** The Simple view's check queue around the line list: the Need a look | All switch, the footer under the cards and the Undo of the last line checked. */
-import { useId, useState } from 'react'
+import { useId, useLayoutEffect, useState } from 'react'
 
 import { markEpisodeReviewed } from '../../../../api/review'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
@@ -7,10 +7,31 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { HelpTip } from '../../../../components/HelpTip'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
+import type { CheckLead } from '../../StageContext'
 import {
   checkedText, fineText, markRestBlocker, otherFineText, restUnchecked, untranslatedText, type QueueCounts,
 } from './checkQueueModel'
 import { MARK_REVIEWED_HELP, markEpisodeReviewedText } from './markEpisodeReviewedText'
+
+// The title's main button, first in the switch row. A layout effect, so the page drops its own copy before the browser paints both.
+export function CheckLeadAction({ lead }: { lead: CheckLead }) {
+  const { onShown } = lead
+  useLayoutEffect(() => {
+    onShown(true)
+    return () => onShown(false)
+  }, [onShown])
+  return <>{lead.action}</>
+}
+
+// Simple folds an audio title's player away, in Need a look and under All, so the first line sits under the switch; this brings it back.
+export function QueueMediaToggle({ open, controls, onToggle }: { open: boolean; controls: string; onToggle: () => void }) {
+  return (
+    <button type="button" className={buttonClass('ghost', 'sm', 'check-queue-media')} aria-expanded={open} aria-controls={controls}
+            title="Seek bar, speed, subtitles and the waveform" onClick={onToggle}>
+      Player <span aria-hidden="true">{open ? '▴' : '▾'}</span>
+    </button>
+  )
+}
 
 export function CheckQueueSwitch({ queue, counts, onPick, showFine = true }: {
   queue: boolean
