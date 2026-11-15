@@ -311,6 +311,15 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-chips { flex: 1 1 0; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .review-chip span { min-height: var(--touch); padding-inline: 10px; }
   .review-chips { gap: 2px; }
+  /* The scrollbar is hidden, so while more chips sit past the right edge the row fades out there: a cut chip reads as "scroll", not as broken.
+     With no room to scroll the timeline is inactive and the fade stays 0. */
+  @supports (animation-timeline: scroll()) {
+    .review-chips {
+      mask-image: linear-gradient(to right, #000 calc(100% - var(--chips-fade)), transparent);
+      animation: review-chips-fade linear both;
+      animation-timeline: scroll(self inline);
+    }
+  }
   /* Between lines the caption is a blank bar: on a phone it reads as an empty card. */
   .review-caption.is-empty { display: none; }
   .review-pager { margin-left: auto; }
@@ -443,7 +452,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-toolbox-panel > .review-tab-body { gap: var(--space-2); }
 .review-tab-empty { margin: var(--space-3) 0; }
 /* The four AI checks as a 2x2 grid: each Start button keeps its own width with its small Bulk switch beside it. */
-.review-check-grid { display: grid; grid-template-columns: repeat(2, max-content); justify-content: start; gap: var(--space-2) var(--space-6); }
+.review-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); justify-content: start; gap: var(--space-2) var(--space-6); }
 .review-job-row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .review-job-row > button { min-width: 0; white-space: normal; }
 .review-bulk { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
@@ -511,20 +520,24 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (pointer: coarse), (max-width: 640px) {
   .review-line { --select-size: var(--touch); }
   .review-selbar .btn { min-height: var(--touch); }
+  /* The waveform's one-symbol buttons and the Set speaker buttons sit in tight rows, where a .btn-sm's reach past its box is cut by its neighbours. */
+  .review-wave-tools .btn, .review-set-speaker .btn { min-height: var(--touch); }
+  .review-wave-tools .btn { min-width: var(--touch); }
+  /* Already 44px, so the .btn-sm reach would only spill onto the button in the next row. */
+  .review-wave-tools .btn::after, .review-set-speaker .btn::after { content: none; }
 }
 @media (max-width: 640px) {
   /* Clear of the fixed phone action bar. */
-  .review-selbar { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  .review-selbar { bottom: var(--editbar-h, calc(56px + env(safe-area-inset-bottom, 0px))); }
 }
 
 /* ---- waveform timeline ---- */
 .review-wave-section { display: grid; gap: var(--space-1); }
 .review-wave { display: grid; gap: var(--space-1); min-width: 0; }
 .review-wave-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; font-size: var(--text-sm); }
+/* Room for "#123" whether or not a line is under the playhead, so the wrapped row doesn't change while playing. */
+.review-wave-centre { min-width: 17ch; }
 .review-wave-range { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-/* In the pinned card the buttons would wrap to a different row count as the line under the playhead changes ("Centre on line" comes and goes), jolting the video above; one scrolling row keeps the card's height fixed. */
-.review-watch .review-wave-tools { flex-wrap: nowrap; overflow-x: auto; }
-.review-watch .review-wave-tools > * { flex: none; white-space: nowrap; }
 .review-wave-box { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); cursor: crosshair; touch-action: pan-y; user-select: none; }
 .review-wave-canvas { position: absolute; inset: 0; display: block; }
 .review-wave-cue { position: absolute; top: 0; bottom: 0; z-index: 0; background: color-mix(in srgb, var(--info) 14%, transparent); border-left: 1px solid var(--info); border-right: 1px solid var(--info); overflow: hidden; }
@@ -578,8 +591,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 /* In-page floating player (browsers without Document Picture-in-Picture). */
 .review-float { position: fixed; z-index: 60; display: grid; gap: var(--space-1); padding: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); max-width: calc(100vw - 16px); box-sizing: border-box; }
-.review-float-bar { display: flex; align-items: center; gap: var(--space-1); cursor: grab; touch-action: none; font-size: var(--text-sm); }
-.review-float-title { flex: 1 1 auto; min-width: 0; }
+/* At the narrowest box Return player drops to its own line rather than squeezing "Player" into "Play / er". */
+.review-float-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); cursor: grab; touch-action: none; font-size: var(--text-sm); }
+.review-float-title { flex: 1 0 auto; }
 .review-float-body { min-width: 0; }
 .review-float-body .review-stage { max-height: none; }
 .review-float-resize { position: absolute; top: 0; left: 0; width: 20px; height: 20px; cursor: nwse-resize; touch-action: none; border-top-left-radius: var(--radius-sm); border-top: 3px solid var(--accent); border-left: 3px solid var(--accent); box-sizing: border-box; }
@@ -717,3 +731,6 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .this-line-near.is-open { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 .this-line-near-idx { font-weight: var(--weight-bold); }
 .this-line-near-en { font-size: var(--text-sm); }
+
+@property --chips-fade { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@keyframes review-chips-fade { from { --chips-fade: 32px; } 99% { --chips-fade: 32px; } to { --chips-fade: 0px; } }

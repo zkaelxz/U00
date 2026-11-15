@@ -130,8 +130,8 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
       {popupNeed && <NeedsInstall need={popupNeed} />}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
-        Sends a short message (job type, title name) when a job finishes or fails, or when tracked
-        sources have new chapters.
+        Sends a short message (job type, title name) when a job finishes or fails, when a run stops
+        and waits for you, or when tracked sources have new chapters.
       </p>
       {!status ? (
         !error && <p className="muted">Loading…</p>

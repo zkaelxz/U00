@@ -52,7 +52,7 @@ describe('notification text helpers', () => {
     expect(categoryChange('send_jobs', false)).toEqual({ jobs: false })
     expect(categoryChange('send_chapters', true)).toEqual({ chapters: true })
     expect(categoryChange('send_remote', false)).toEqual({ remote: false })
-    expect(CATEGORIES.map((c) => c.label)).toEqual(['Jobs finished or failed', 'New chapters found', 'Remote access problems'])
+    expect(CATEGORIES.map((c) => c.label)).toEqual(['Jobs finished, failed or waiting for you', 'New chapters found', 'Remote access problems'])
   })
 
   it('describes test results, skipping channels that are not set up', () => {
