@@ -17,7 +17,6 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 - **`background-jobs.md`**: the `jobs/` modules, thread and process jobs, the GPU guard, cancel, holds, the Jobs API, an add-a-job checklist.
 - **`engine-backends.md`**: translation engines, transcription and dubbing engines, rules learned from bugs, an adding-an-engine checklist.
 - **`asr-experiments.md`**: transcription options and a dated benchmark snapshot.
-- **`technical-notes.md`**: an engineering changelog of real bugs and their fixes.
 - **`windows-installer-design.md`** and **`RELEASE.md`**: the installer and boot service, and building the installer.
 
 ## Frontend
@@ -41,10 +40,9 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 ## Working with a small or local model
 
-- **`small-model-checklist.md`**, **`local-model-card.md`**, **`local-coder-recipes.md`**, **`local-agent-backlog.md`** (open follow-ups sorted by who can do them), **`lead-troubleshooting.md`** (checks for lead and fix sessions).
+- **`small-model-checklist.md`**, **`local-model-card.md`**, **`local-coder-recipes.md`**, **`lead-troubleshooting.md`** (checks for lead and fix sessions).
 
 ## Plans, research and history
 
-- **`specs/`**: `gpu-worker-plan.md` (deferred), `step-141-pc-shell-and-connect.md` (spec only).
+- **`specs/`**: `gpu-worker-plan.md` (deferred), `accuracy-tuning-plan.md`.
 - **`research/`**: dated surveys (`oss-gap-report.md`, `timing-constants-inventory.md`, `twmanga-vetting.md`, `vtuber-terminology-zh-ja.md`). Each states the commit it was checked against; the code wins over them.
-- **`archive/`**: historical records, not sources of truth: `research/` (the syntheses in `reports/` and the raw `research_notes/` behind them), the migration review, handoff and phase log, the roadmap master tracker, the superseded remote-access design, installer research and cut design history, the Step 19 click-through audit (`ux-click-through-audit.md`, of the removed Streamlit app), the unbuilt Jellyfin/Plex metadata design, the full ASR experiment write-up, the built Scanlate, Discover/Sources/Live and workspace-shell specs, and `file-organization-full.md` (the old long per-file descriptions).
