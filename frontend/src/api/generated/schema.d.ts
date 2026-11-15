@@ -25902,7 +25902,7 @@ export interface components {
             page_size: number;
             /**
              * Risk Count
-             * @description Unchecked translated lines with a mark, a flag or low confidence (the `risk` filter), in the whole drama.
+             * @description Unchecked translated lines with a mark, a flag, low confidence or no speaker (the `risk` filter), in the whole drama.
              * @default 0
              */
             risk_count: number;
