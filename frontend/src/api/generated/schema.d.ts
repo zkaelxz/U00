@@ -21793,6 +21793,13 @@ export interface components {
             /** Default Model */
             default_model: string | null;
             defaults: components["schemas"]["LiveFormDefaults"];
+            /**
+             * Language Whisper Defaults
+             * @default {}
+             */
+            language_whisper_defaults?: {
+                [key: string]: string;
+            };
             /** Languages */
             languages: components["schemas"]["LiveLanguage"][];
             /** Max Minutes Range */
