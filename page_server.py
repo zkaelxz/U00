@@ -344,8 +344,70 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     return page
 
 
+def _page_extras(drama, config: dict, engine, image: bytes) -> dict:
+    """Character notes and the page picture, as a Scanlate run sends them. A
+    failure here only costs that quality, never the translation."""
+    from services import extension_service
+    try:
+        return extension_service.page_extras(drama, config, engine, image)
+    except Exception:
+        return {}
+
+
+def _lines_without_english(bubbles) -> list:
+    """The lines translation should have covered but left empty: text read, not skipped, not a
+    sound effect left to the art. A partly answered reply (a short line, a name the model dropped)
+    ends up here."""
+    import scanlate_regions
+    return [b for b in bubbles
+            if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
+            and (b.get("source_text") or "").strip() and not (b.get("translated_text") or "").strip()]
+
+
+def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
+                         image: bytes = b"") -> float:
+    """Translates a freshly read page, asks once more for any lines left empty, and returns the
+    seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
+    retry, so they are counted rather than silently shown as the source text."""
+    import db
+    import scanlate_translate
+
+    engine = _build_engine(config)
+    if not bubbles:
+        return 0.0
+    if engine is None:
+        notes.append(_no_engine_note(config, "read"))
+        return 0.0
+    started = time.monotonic()
+    glossary = (db.list_effective_glossary_terms(drama["series_id"])
+                if drama and drama.get("series_id") else None)
+    usage = _usage_cb(drama, config, engine)
+    extras = _page_extras(drama, config, engine, image)
+    try:
+        page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage,
+                                      **extras)
+    except Exception as e:
+        # The OCR text is still real and still useful, so it is returned rather than thrown
+        # away -- the same choice the Scanlate pipeline makes on this failure.
+        notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
+                                 "the source text below was still read"])
+    missing = _lines_without_english(bubbles)
+    if missing:
+        try:
+            scanlate_translate.translate_page_bubbles(
+                missing, engine, drama or {}, previous_context="", glossary_terms=glossary,
+                usage_cb=usage, character_notes=extras.get("character_notes", ""))
+        except Exception:
+            pass  # the first call's own note already says why; this is a second chance only
+        left = len(_lines_without_english(bubbles))
+        if left:
+            notes.append(["warning", f"{left} line{'s' if left != 1 else ''} still had no "
+                                     "translation after a retry"])
+    return time.monotonic() - started
+
+
 def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, source_url: str,
-                       config: dict, member: bool = False) -> list:
+                       config: dict, member: bool = False, image: bytes = b"") -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
 
@@ -360,7 +422,8 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
     originals = page_capture_checks.snapshot_texts(missing)
     try:
         page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,
-                                      _usage_cb(drama, config, engine))
+                                      _usage_cb(drama, config, engine),
+                                      **_page_extras(drama, config, engine, image))
     except Exception as e:
         return [["warning", f"translation failed ({failure_detail(e, member)})"]]
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
@@ -390,15 +453,53 @@ def _drama_or_404(drama_id):
     return drama
 
 
+def _remove_quietly(path) -> None:
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
+                     style=None) -> str:
+    """The cleaned, typeset page as a data: URL for an overlay-only page (nothing is
+    stored, so there is no library page to render from), or "" when it cannot be sent.
+    The page keeps its plain boxes then, so a failure here only costs the nicer picture."""
+    import scanlate_render
+    from services import settings_service
+    if not any((b.get("translated_text") or "").strip() and not b.get("skip") for b in bubbles):
+        return ""
+    import tempfile
+    fd, out_path = tempfile.mkstemp(suffix=".png", prefix="baihe_typeset_")
+    os.close(fd)
+    try:
+        with PIPELINE_LOCK:
+            scanlate_render.process_page(image_path, bubbles, out_path,
+                                         match_color=bool(settings_service.get("scanlate_match_text_color")),
+                                         **({"look": style} if style else {}))
+        return page_capture_checks.jpeg_data_url(out_path)
+    except Exception as e:
+        page_capture_checks.log_page_failure(e)
+        notes.append(["warning", "typeset failed: " + ("the page was kept" if member else
+                     f"{type(e).__name__}; the page was kept")])
+        return ""
+    finally:
+        _remove_quietly(out_path)
+
+
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
-                    store: bool = True, member: bool = False) -> dict:
+                    store: bool = True, member: bool = False, typeset: bool = False,
+                    typeset_style=None, turn=page_turns.UNORDERED) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
 
     Detection and OCR run under `_PIPELINE_LOCK` -- see this module's
     docstring on `scanlate`'s unlocked model caches. Translation does not.
+    `turn` (a `page_turns.PageOrder` turn) orders reading and translating
+    against the other pages of the same request.
     """
     import db
     import scanlate
@@ -419,14 +520,16 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     newly_stored = False
     reused_rev = 0
     temp_path = None
+    typeset_image = ""
 
     reuse_saved = None
     busy = None
     claim = None
+    read_seconds = 0.0
     try:
         # The discard runs before the lock is released, while no other
         # request can have seen the page.
-        with PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
+        with turn.reading(), PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
             if store and drama is not None and drama_id is not None:
                 page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
                 if page is None:
@@ -459,23 +562,17 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     notes.append(["warning", "no drama chosen, so this page was not saved"])
 
             if reuse_saved is None and busy is None:
-                try:
-                    lang = _page_source_language(drama, source_language)
-                    bubbles, detect_notes = scanlate.detect_and_ocr_page(
-                        image_path, lang,
-                        detect_backend=config.get("detect_backend") or "auto",
-                        hf_token=config.get("hf_token") or None,
-                        ocr_backend=config.get("ocr_backend") or None,
-                        tesseract_cmd=config.get("tesseract_cmd") or None,
-                        prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
-                        page_id=(page or {}).get("id"))
-                finally:
-                    if temp_path:
-                        try:
-                            os.remove(temp_path)
-                        except OSError:
-                            pass
-
+                lang = _page_source_language(drama, source_language)
+                read_started = time.monotonic()
+                bubbles, detect_notes = scanlate.detect_and_ocr_page(
+                    image_path, lang,
+                    detect_backend=config.get("detect_backend") or "auto",
+                    hf_token=config.get("hf_token") or None,
+                    ocr_backend=config.get("ocr_backend") or None,
+                    tesseract_cmd=config.get("tesseract_cmd") or None,
+                    prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
+                    page_id=(page or {}).get("id"))
+                read_seconds = time.monotonic() - read_started
                 # Saved before release so a re-capture or Redo finds the read.
                 if page is not None:
                     read_notes = page_capture_checks.save_read_bubbles(
@@ -497,44 +594,40 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
-            reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url, config, member)
+            with turn.translating():
+                reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
+                                                 config, member, image=data)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
         notes.extend(_detect_notes(detect_notes, member))
-        engine = _build_engine(config)
-        if bubbles and engine is not None:
-            glossary = (db.list_effective_glossary_terms(drama["series_id"])
-                        if drama and drama.get("series_id") else None)
-            try:
-                page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama,
-                                              glossary, _usage_cb(drama, config, engine))
-            except Exception as e:
-                # The OCR text is still real and still useful, so it
-                # is returned rather than thrown away -- the same
-                # choice the Scanlate pipeline makes on this failure.
-                notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
-                                         "the source text below was still read"])
-        elif bubbles and engine is None:
-            notes.append(_no_engine_note(config, "read"))
+        with turn.translating():
+            translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
+                                                     notes, member, data)
+        if typeset and temp_path and page is None:
+            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style)
         if page is not None:
             notes.extend(read_notes)
             notes.extend(page_capture_checks.save_translations_of_read(
                 page["id"], stored_bubbles, bubbles))
     finally:
+        _remove_quietly(temp_path)
         if claim is not None:
             page_turns.release_page(*claim)
 
     width, height = page_capture_checks.image_size(data)
     return {
+        **({"typeset": True, "typeset_image": typeset_image} if typeset_image else {}),
         "width": width, "height": height,
         "regions": page_capture_checks.regions_for_response(bubbles),
         "notes": notes,
         "drama_id": int(drama_id) if drama_id else None,
         "page_id": (page or {}).get("id"),
         "stored": page is not None,
+        "untranslated_lines": len(_lines_without_english(bubbles)),
+        "seconds": {"read": round(read_seconds, 2), "translate": round(translate_seconds, 2)},
     }
 
 
@@ -667,6 +760,44 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _stream_pages(self, payload, images):
+        """/pages as one JSON line per page as it finishes, then a last line with the rest of the
+        answer (extension_bridge_service.streamed_lines), so the extension draws each page without
+        waiting for the batch. Nothing is sent until the first line, so a refusal before any page
+        is still an ordinary error answer; after that only a last {"error"} line can say so."""
+        from services import extension_bridge_service
+        state = {"started": False, "gone": False}
+
+        def write(line: dict):
+            if state["gone"]:
+                return
+            try:
+                if not state["started"]:
+                    # Started even if these writes fail, so no error answer is sent after them.
+                    state["started"] = True
+                    # No length is known up front, so the end of the body is the end of the connection.
+                    self.close_connection = True
+                    self.send_response(200)
+                    self.send_header("Content-Type", extension_bridge_service.STREAM_CONTENT_TYPE)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                self.wfile.write(json.dumps(line).encode("utf-8") + b"\n")
+                self.wfile.flush()
+            except OSError:
+                state["gone"] = True   # the extension stopped listening; the run goes on
+
+        try:
+            extension_bridge_service.streamed_lines(payload, images, write)
+        except EndpointError as e:
+            if not state["started"]:
+                raise
+            write({"error": e.message, "status": e.status})
+        except Exception:
+            if not state["started"]:
+                raise
+            write({"error": "the app failed to answer this request", "status": 500})
+
     def _fail(self, error):
         # Keep-alive is on (HTTP/1.1), and a refusal usually happens
         # *before* the request body has been read -- an unauthenticated
@@ -697,9 +828,15 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages", "/text", "/novel", "/title"):
+            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary"):
                 raise EndpointError(404, "unknown endpoint")
             payload = extension_bridge_service.parse_json(self._read_body())
+            if route == "/capture-summary":
+                self._send_json(200, extension_bridge_service.record_capture_summary(payload))
+                return
+            if route == "/cancel":
+                self._send_json(200, extension_bridge_service.cancel_run(payload))
+                return
             if route == "/title":
                 from services import extension_title_service as titles
                 self._send_json(200, titles.resolve_from_bridge(payload))
@@ -711,6 +848,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             images = payload.get("images")
             extension_bridge_service.validate_image_batch(route == "/page", images)
+            if route == "/pages" and payload.get("stream") is True:
+                self._stream_pages(payload, images)
+                return
             self._send_json(200, extension_bridge_service.run_images(payload, images))
         except EndpointError as e:
             self._fail(e)
@@ -794,6 +934,36 @@ def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
     # A moment to let a port conflict surface, so Settings can report it
     # rather than claiming a server that immediately died is running.
     time.sleep(0.05)
+    return True
+
+
+_warm_started = False
+
+
+def warm_models_soon() -> bool:
+    """Loads the page-reading models on a background thread, once per process, so the first
+    page the extension sends does not wait for them. It holds the pipeline lock while loading,
+    so a page that arrives meanwhile waits for the load it would otherwise have done itself.
+    True if this call started it."""
+    global _warm_started
+    with _server_lock:
+        if _warm_started:
+            return False
+        _warm_started = True
+
+    def run():
+        from applog import get_logger
+        try:
+            import scanlate
+            with PIPELINE_LOCK:
+                warmed = scanlate.warm_models(get_translation_config().get("detect_backend") or "auto")
+            if warmed:
+                get_logger().info("Extension bridge: loaded the %s ahead of the first page", " and ".join(warmed))
+        except Exception as e:
+            # The first page loads what is missing itself, as it always did.
+            get_logger().warning("Extension bridge: models were not loaded ahead (%s)", type(e).__name__)
+
+    threading.Thread(target=run, daemon=True, name="page-server-warmup").start()
     return True
 
 

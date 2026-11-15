@@ -13,6 +13,15 @@ export function formatTime(seconds: number): string {
   return `${m}:${(seconds - m * 60).toFixed(2).padStart(5, '0')}`
 }
 
+/** "1:02.5": the check queue's times, to the tenth. Cut, not rounded, so a line never reads as starting after it does. */
+export function formatTenths(seconds: number): string {
+  // Whole milliseconds first, so 62.57 (62.569999… as a float) still reads 1:02.5 and 0.3 reads 0:00.3.
+  const tenths = Math.floor(Math.round(Math.max(0, seconds) * 1000) / 100)
+  const m = Math.floor(tenths / 600)
+  const s = tenths - m * 600
+  return `${m}:${String(Math.floor(s / 10)).padStart(2, '0')}.${s % 10}`
+}
+
 // Characters per second of the translation, counted as subtitle_formats.reading_speed does
 // (stripped length in code points over the duration). null when there is no text to read.
 export function lineCps(line: { start: number; end: number; en: string }): number | null {
@@ -74,6 +83,17 @@ export function initialActiveId(lines: ReviewLine[]): number | null {
   const pick =
     lines.find((l) => l.flag) ?? lines.find((l) => l.zh.trim() && !l.en.trim()) ?? lines[0]
   return pick ? pick.id : null
+}
+
+/**
+ * The line a load makes active when no move asked for one: the active line while it is still listed; on the list's
+ * first load its starting line (`queue`: the check queue lists the riskiest line first, flagged or not, so its first
+ * card); else the first line.
+ */
+export function ownActiveId(lines: ReviewLine[], cur: number | null, { first, queue }: { first: boolean; queue: boolean }): number | null {
+  if (cur !== null && lines.some((l) => l.id === cur)) return cur
+  if (first && !queue) return initialActiveId(lines)
+  return lines[0]?.id ?? null
 }
 
 type Step = { id: number } | { page: 'next' | 'prev' } | null
@@ -282,6 +302,10 @@ export function undoHandleOf(r: { history_id?: number | null; lines_fingerprint?
   return r.history_id && r.lines_fingerprint ? { historyId: r.history_id, fingerprint: r.lines_fingerprint } : null
 }
 
+// The words every Review message uses for the saved versions; a message with them gets a button that opens them.
+export const LINE_HISTORY_WORDS = 'Records → Line history'
+export const mentionsLineHistory = (text: string | null): boolean => !!text && text.includes(LINE_HISTORY_WORDS)
+
 export const UNDO_CHANGED_MESSAGE = 'The lines changed since. Restore from Records → Line history instead.'
 export const UNDO_GONE_MESSAGE = 'This change can no longer be undone here. Records → Line history has the saved versions.'
 // Not "use Records instead": a Records restore would delete that note or tag without asking.
@@ -361,7 +385,19 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
   if (filter === 'shaky') return short ? `Shaky${n}` : `Least confident${n}`
   if (filter === 'risk') return short ? `Risk${n}` : `Riskiest${n}`
+  if (filter === 'marked') return `Marked${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
+}
+
+/** Has words but no speaker, and nobody cleared it on purpose or marked it a sound cue (review_lines_service.needs_speaker). */
+export const needsSpeaker = (line: Pick<ReviewLine, 'speaker' | 'speaker_manual' | 'sfx' | 'zh' | 'en'>) =>
+  !line.speaker && !line.speaker_manual && !line.sfx && !!(line.zh.trim() || line.en.trim())
+
+/** Next/previous line still needing a speaker in search results after `fromIndex` (-1 = from the edge). */
+export function nextNeedingSpeakerId(lines: ReviewLine[], fromIndex: number, delta: 1 | -1): number | null {
+  const start = fromIndex === -1 ? (delta > 0 ? 0 : lines.length - 1) : fromIndex + delta
+  for (let j = start; j >= 0 && j < lines.length; j += delta) if (needsSpeaker(lines[j])) return lines[j].id
+  return null
 }
 
 /** A translated line nobody has marked checked (review_lines_service._is_unreviewed). */
@@ -372,10 +408,10 @@ const SHAKY_BELOW = 0.6
 export const isShaky = (line: Pick<ReviewLine, 'confidence' | 'reviewed'>) =>
   line.confidence != null && line.confidence < SHAKY_BELOW && !line.reviewed
 
-/** Mirrors review_lines_service._risk_score > 0: any flag, or confidence under 0.8, on a translated unchecked line. */
-const RISK_CONFIDENCE_BELOW = 0.8
-const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence'>) =>
-  isUnreviewed(line) && (!!line.flag || (line.confidence != null && line.confidence < RISK_CONFIDENCE_BELOW))
+/** Mirrors review_lines_service._risk_score > 0: any flag, a mark, or confidence under 0.8, on a translated unchecked line. */
+export const RISK_CONFIDENCE_BELOW = 0.8
+const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence' | 'mark'>) =>
+  isUnreviewed(line) && (!!line.flag || !!line.mark || (line.confidence != null && line.confidence < RISK_CONFIDENCE_BELOW))
 
 /** Whether the server's filter (review_lines_service._visible) still lists this line. */
 export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
@@ -384,17 +420,20 @@ export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
   if (filter === 'unreviewed') return isUnreviewed(line)
   if (filter === 'shaky') return isShaky(line)
   if (filter === 'risk') return isRisky(line)
+  if (filter === 'marked') return !!line.mark
   return true
 }
 
-export function emptyMessage(filter: LineFilter, term: string): string {
+// sourceStage: the first stage's name as the title's kind shows it (stageLabel).
+export function emptyMessage(filter: LineFilter, term: string, sourceStage: string): string {
   if (term) return `No lines match “${term}”.`
   if (filter === 'flagged') return 'No flagged lines. Nice.'
   if (filter === 'untranslated') return 'Every line has English.'
   if (filter === 'unreviewed') return 'Every translated line is checked.'
   if (filter === 'shaky') return 'No unchecked lines Whisper was unsure of.'
   if (filter === 'risk') return 'No unchecked line has a flag or low confidence.'
-  return 'No lines yet. Transcribe on Media first.'
+  if (filter === 'marked') return 'No lines marked wrong or mixed.'
+  return `No lines yet. Add them on ${sourceStage} first.`
 }
 
 /** One line per speaker, e.g. "Anna  3:40 · 62% · 41 turns", biggest first. */

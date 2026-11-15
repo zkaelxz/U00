@@ -16,10 +16,10 @@ def main() -> int:
     next_code = (offered.latest_version_code() or 0) + 1
     android = os.path.join(ROOT, "android")
     gradlew = "gradlew.bat" if os.name == "nt" else "./gradlew"
-    built = subprocess.run([gradlew, "assembleDebug", f"-PbaiheVersionCode={next_code}"], cwd=android)
+    built = subprocess.run([gradlew, "assembleRelease", f"-PbaiheVersionCode={next_code}"], cwd=android)
     if built.returncode != 0:
         return built.returncode
-    apk = os.path.join(android, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+    apk = os.path.join(android, "app", "build", "outputs", "apk", "release", "app-release.apk")
     folder = os.path.join(portable.data_dir(), "android")
     os.makedirs(folder, exist_ok=True)
     # Replace the APK atomically and write the version file last: the server offers a build only

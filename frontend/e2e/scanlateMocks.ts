@@ -37,7 +37,7 @@ export async function mockScanlate(page: Page, over: Partial<ComicMockOptions> =
         { name: 'ollama', label: 'Ollama (free, local)', free: true, key_configured: true },
       ],
       default_engine: 'claude', detect_backends: ['auto', 'cv', 'ml'],
-      ml_weights_cached: false, lama_weights_cached: false, ocr_backend: 'paddle', ocr_backend_installed: true,
+      ml_weights_cached: false, lama_weights_cached: false, ocr_backend: 'paddle', ocr_backend_installed: true, art_captions_available: false,
       page_count: s.opts.pageCount, pages_with_regions: 0, pages_rendered: s.opts.rendered.length,
       job_id: jobId, job_running: false,
       upload_limits: {

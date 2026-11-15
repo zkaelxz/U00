@@ -26,6 +26,7 @@ import os
 import re
 import threading
 import time
+import uuid
 
 import core
 import db
@@ -183,6 +184,22 @@ def record_pages(drama_id: int, ref: dict, filenames) -> None:
         if ref.get("url") and not entry.get("url"):
             entry["url"] = ref["url"]
         entry["files"].extend(f for f in filenames if f not in entry["files"])
+        _save(drama_id, manifest)
+
+
+def start_chapter(drama_id: int, filenames, title: str) -> None:
+    """Files `filenames` under a new chapter. They leave any chapter they were in, so
+    cutting a long run in two never leaves a page in both."""
+    moved = set(filenames)
+    if not moved:
+        return
+    with _lock(drama_id):
+        manifest = _load_for_write(drama_id)
+        for c in manifest["chapters"]:
+            c["files"] = [f for f in c["files"] if f not in moved]
+        manifest["chapters"] = [c for c in manifest["chapters"] if c["files"]]
+        manifest["chapters"].append({"key": f"split:{uuid.uuid4().hex[:8]}", "id": "",
+                                     "title": _title(title), "url": "", "files": list(filenames)})
         _save(drama_id, manifest)
 
 

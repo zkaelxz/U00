@@ -145,6 +145,7 @@ def _seed_series(c, name="Saga"):
     _insert(c, "translation_memory", series_id=sid, source_text="你好", translation="Hello",
             use_count=3, updated_at="2026-01-03")
     _insert(c, "glossary_dismissals", series_id=sid, term_original="路人", created_at="2026-01-04")
+    _insert(c, "word_replacements", series_id=sid, find_text="thee", replace_text="you")
     return sid, sc
 
 
@@ -195,6 +196,8 @@ def _seed_drama(c, title, series_id=None, sc=None, profiles=(), tag="A"):
             created_at="x")
     _insert(c, "metadata_field_provenance", drama_id=did, field="author", value=f"Au {tag}",
             source="grounded", status="applied")
+    _insert(c, "capture_notes", drama_id=did, summary=f"Saved 3 of 3 pages. {tag}",
+            created_at="2026-11-12T00:00:00Z")
     if sc.get("Mei"):
         _insert(c, "voice_suggestion_dismissals", drama_id=did, speaker_label="S1",
                 series_character_id=sc["Mei"], created_at="x")
@@ -229,7 +232,7 @@ def _seed_world():
 
 
 SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
-                   "glossary_dismissals")
+                   "word_replacements", "glossary_dismissals")
 
 
 def _delete_drama(did):

@@ -140,6 +140,49 @@ def test_a_failed_item_continues_or_stops_by_the_policy(jobs, stop):
         assert jobs.started == [f"transcribe_{a}", f"transcribe_{b}"]
 
 
+@pytest.mark.parametrize("adder", [None, 7])
+def test_a_stop_on_failure_is_announced_once_to_the_items_adder(jobs, monkeypatch, adder):
+    from services import notification_service
+    told = []
+    monkeypatch.setattr(notification_service, "notify_waiting",
+                        lambda text, **kw: told.append({"text": text, **kw}))
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.set_policy(None, True)
+    q.start(None)
+    jobs.fail.add(f"transcribe_{a}")
+    q.tick()
+    # Set once it runs: starting as a member needs a real account.
+    with q._lock:
+        doc = q._load()
+        doc["items"][0]["user_id"] = adder
+        q._save(doc)
+    jobs.finish(f"transcribe_{a}")
+    q.tick()
+    q.tick()
+    q.tick()
+    text = "The queue stopped because an item failed. Start the queue to go on."
+    assert told == [{"text": text, "push_text": text, "owner_user_id": adder,
+                     "target": {"page": "jobs"}}]
+    # The Jobs page keeps its own wording.
+    assert q.get_queue(None)["notice"] == "Stopped because an item failed. Start the queue to go on."
+
+
+def test_a_failed_item_without_the_stop_policy_announces_nothing(jobs, monkeypatch):
+    from services import notification_service
+    told = []
+    monkeypatch.setattr(notification_service, "notify_waiting", lambda *a, **kw: told.append(a))
+    a = _drama("A")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.start(None)
+    jobs.fail.add(f"transcribe_{a}")
+    q.tick()
+    jobs.finish(f"transcribe_{a}")
+    q.tick()
+    assert _items()[0]["status"] == "failed" and told == []
+
+
 @pytest.fixture
 def cap(monkeypatch):
     def _set(cap_usd, spend=0.0):

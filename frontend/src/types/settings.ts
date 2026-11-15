@@ -64,9 +64,17 @@ export interface SettingsPreferences extends TimingPreferences {
   default_locale: string
   default_style_note: string
   scene_aware_batches: boolean // translate batches start at scene breaks
+  stream_plain_prompt: boolean // translate stream titles with the short plain prompt
+  ollama_cloud_default: boolean // a hosted Ollama model may be a default
   episode_brief: boolean // read the whole episode once before translating it in batches
   scanlate_chapter_brief: boolean // read the whole comic chapter once before translating its pages
+  scanlate_page_image: boolean // send each comic page's picture with its OCR text when translating
+  scanlate_sfx_gloss: boolean // translate sound effects into a small gloss beside the art
+  scanlate_match_text_color: boolean // letter comic balloons in the original lettering's colour
+  scanlate_rect_layout: boolean // set balloon text in one rectangle instead of following the outline
   translate_reply_guard: string // auto | on | off
+  claude_reasoning: string // default | less
+  openai_reasoning: string // default | less
   translate_alignment_check: boolean // flag lines whose English doesn't match the source (bge-m3 via Ollama)
   episode_summary_engine: string
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies

@@ -52,13 +52,14 @@ MODEL_ENGINE_REGISTRY = [
     {"name": "PaddleOCR", "kind": "package", "package": "paddleocr",
      "url": "https://github.com/PaddlePaddle/PaddleOCR",
      "help": "An alternate OCR backend for reading text out of manga/manhua page images."},
+    {"name": "LaMa-manga", "kind": "repo", "repo_ids": ["mayocream/lama-manga"],
+     "url": "https://huggingface.co/mayocream/lama-manga",
+     "help": "The model Scanlate uses to erase the original text from a page (about 200 MB). "
+             "Without it the text is erased with plain OpenCV, which can leave ghosts."},
     {"name": "audio-separator", "kind": "package", "package": "audio-separator",
      "url": "https://github.com/nomadkaraoke/python-audio-separator",
      "help": "Strips background music out of the audio track before transcription, so dialogue "
              "is easier to hear and transcribe."},
-    {"name": "Demucs", "kind": "package", "package": "demucs",
-     "url": "https://github.com/facebookresearch/demucs",
-     "help": "A fallback background-music remover, used when audio-separator isn't installed."},
 ]
 
 
@@ -222,8 +223,9 @@ _URL_PATTERN = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 # name set follows sources/ai_extract._SENSITIVE_PARAM, without its need for
 # a preceding ?/&. Group 1 is the name and "=".
 CREDENTIAL_PARAM_PATTERN = re.compile(
-    r"(?i)(?<![\w.\-])((?:[\w.\-]*(?:token|sig|auth|session|secret|credential|passw|key|jwt|"
-    r"ticket|hmac|policy)[\w.\-]*|x-amz-[\w.\-]+)=)[^&#\s\"'<>\\;,]*")
+    r"(?i)(?<![\w.\-])((?=x-amz-[\w.\-]|[\w.\-]*?(?:token|sig|auth|session|secret|credential|passw|key|jwt|"
+    r"ticket|hmac|policy))[\w.\-]+=)[^&#\s\"'<>\\;,]*")
+
 # A name counts only between non-alphanumerics: matching inside a word would
 # turn a short name like "li" into "[USER]brary", while "_", "-", "@" and "."
 # still end one ("bob@bob-laptop", "bob_notes.txt").

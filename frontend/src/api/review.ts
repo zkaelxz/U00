@@ -4,6 +4,7 @@ import type {
   HistoryItem,
   HistorySnapshot,
   LineFilter,
+  LineMark,
   LineExplanation,
   LineImprovement,
   LineNoteCreate,
@@ -27,6 +28,8 @@ import type {
   ReviewMatch,
   ReviewNote,
   TmSuggestion,
+  StepKind,
+  LineSpeakerGuesses,
   VersionItem,
   VersionActivateResult,
   BlockedRetryResult,
@@ -81,6 +84,10 @@ export const setLinesLanguage = (id: number, req: SetLanguageRequest, f?: Fetch)
 export const setReviewed = (id: number, lineId: number, reviewed: boolean, expectedEn?: string, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/reviewed`, { reviewed, expected_en: expectedEn }, f)
 
+// Your verdict on a line (null clears it); the server refuses it, 409, if the English changed since you looked.
+export const setMark = (id: number, lineId: number, mark: LineMark | null, expectedEn?: string, f?: Fetch) =>
+  postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/mark`, { mark, expected_en: expectedEn }, f)
+
 // Records every translated, unflagged, unchecked line of the title as approved.
 export const markEpisodeReviewed = (id: number, f?: Fetch) =>
   postJson<EpisodeReviewedResult>(`${lines(id)}/mark-reviewed`, undefined, f)
@@ -118,6 +125,12 @@ export const listVersions = (id: number, f?: Fetch) => getJson<VersionItem[]>(`$
 export const listTmSuggestions = (id: number, f?: Fetch, lineIds?: number[]) =>
   getJson<TmSuggestion[]>(
     `${review(id)}/tm-suggestions${lineIds ? `?${lineIds.map((l) => `line_id=${l}`).join('&')}` : ''}`,
+    f,
+  )
+
+export const listSpeakerSuggestions = (id: number, lineIds: number[], f?: Fetch) =>
+  getJson<{ lines: LineSpeakerGuesses[] }>(
+    `${review(id)}/speaker-suggestions?${lineIds.map((l) => `line_id=${l}`).join('&')}`,
     f,
   )
 
@@ -201,7 +214,7 @@ export const flaggedAdjacent = (
   pageSize: number,
   only: LineFilter,
   f?: Fetch,
-  kind: 'flagged' | 'unreviewed' = 'flagged',
+  kind: StepKind = 'flagged',
 ) =>
   getJson<FlaggedPosition>(
     `${review(id)}/flagged-adjacent?direction=${direction}&page_size=${pageSize}&only=${only}` +

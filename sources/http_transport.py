@@ -465,5 +465,5 @@ def _guard(url: str) -> str:
 def _thread_session():
     if not hasattr(_tls, "session"):
         _tls.session = lib_http.session(timeout=DEFAULT_TIMEOUT, guard=_guard,
-                                        max_bytes=MAX_IMAGE_BYTES, trust_env=True)
+                                        max_bytes=MAX_IMAGE_BYTES)
     return _tls.session

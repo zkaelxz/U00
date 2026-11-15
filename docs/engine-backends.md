@@ -141,10 +141,12 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     `OPENAI_MODELS` if a run starts failing.
   - Ollama: runs `OLLAMA_MODELS` (Gemma 4) on your own GPU; free, private and
     unlimited. See the model sizes in `OLLAMA_MODELS` for what fits a 12 GB card.
-    The `OLLAMA_CLOUD_MODELS` tags (`gemma4:31b-cloud`, `gemma4:cloud`) are Ollama's hosted
-    models, reached through the same local server after `ollama signin` (the owner's
-    account): the subtitle text is processed on Ollama's servers and free use is capped.
-    They are never a default or fallback, are skipped by the GPU/headroom checks
+    The `OLLAMA_CLOUD_MODELS` tag (`gemma4:31b-cloud`) is Ollama's hosted
+    model, reached through the same local server after `ollama signin` (the owner's
+    account): the subtitle text is processed on Ollama's servers and billed per token
+    (priced in `PRICING_PER_MILLION_TOKENS`, so the spend caps count it; the retired `gemma4:cloud` tag stays priced there for settings that still name it).
+    A hosted tag with no price row is costed at the dearest priced cloud rate, never $0.
+    It is never a default or fallback, is skipped by the GPU/headroom checks
     (`ollama_touches_local_gpu`, which also decides whether a job takes the GPU queue slot), and a 429 becomes `OllamaCloudLimitError`, which the normal
     backoff retries. A signed-in member who saved their own Ollama key has their cloud calls
     sent to `https://ollama.com/api/chat` instead, with `Authorization: Bearer <key>`, no
@@ -184,8 +186,8 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
   (`model_overrides.defaults` / `.tiers` app settings, written only from
   Diagnostics) wins via `effective_default_model`; `WORKFLOW_TIERS` (draft,
   standard, release) are fixed starting points. `OpenAIEngine` additionally
-  refuses any model that is not in `OPENAI_MODELS` or on OpenAI's own listed
-  GPT-5+ extras, because an unpriced model would slip past the cost caps.
+  refuses any model that is not in `OPENAI_MODELS` (the retired GPT-5 ids run as the default) or on OpenAI's own listed
+  GPT-6+ extras, because an unpriced model would slip past the cost caps.
 
 ### Pictures
 
@@ -220,6 +222,11 @@ stop_before_batch: checked only between batches, never during a request:
 a batch already sent is finished and kept (cancel_check_cb is the one that
 abandons a request in flight).
 
+reasoning: "less" (the saved choice `claude_reasoning` / `openai_reasoning`, read through
+`settings_service.reasoning_override(engine_name)`) sends `thinking: {"type": "between_tools"}` to
+claude-sonnet-5-5 (it refuses "disabled") and `reasoning_effort: "low"` to gpt-6-luna
+(`engine_backends/thinking.py`); every other model ignores it. Only the Workspace translate job and
+the bulk submit pass it, so Compare, the stronger-engine retry and Live keep the provider default.
 thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
 answering; None = the title's remembered choice, else off. Its reasoning is
 never saved with a line.
@@ -234,6 +241,8 @@ makes one sentence as that whole sentence, and put its English back onto
 the fragments (sentence_groups). None means the title's saved choice
 (drama_meta["translate_by_sentence"]), so every translate path agrees.
 Inert for Reflect mode and for engines that don't follow instructions.
+sentence_groups_cb: optional callable given the line ids of each sentence
+of two or more parts, once, when the run groups them.
 
 check_replies: run the merged/shifted-reply guard. None = the engine
 and model's default (default_reply_guard); an explicit True/False wins.
@@ -367,9 +376,9 @@ backward. 0 disables this.
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
 7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS` (default `OLLAMA_DEFAULT_MODEL`,
-   `gemma4:12b`); the API also accepts any tag typed by hand, and a title
+   `translategemma:27b`); the API also accepts any tag typed by hand, and a title
    or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
-   (`gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
+   (tags such as `gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
    `<think>` blocks in a reply are stripped before parsing; a separate
    `thinking` field is never read.
 8. **Thinking on translation runs.** Off by default for every run (Workspace,
@@ -425,8 +434,10 @@ default, `core.align_transcript_to_timing`) or `qwen3_forced_align`
 (`forced_align.align_with_qwen3`). The forced aligner reuses the coarse pass to
 bucket lines into chunks of at most `MAX_CHUNK_SECONDS` (60 s), refuses segments
 past `HARD_CAP_SECONDS` (300 s, the aligner's own limit), and falls back to the
-coarse timing with `TIMING_FALLBACK_NOTE` / `TIMING_REPAIRED_NOTE` when the
-aligner returns zero-length or out-of-order spans.
+coarse timing with `TIMING_FALLBACK_NOTE` only when a line's unit starts go
+backwards or none of its units got a width. A zero-length unit with room to
+spread into is repaired (`TIMING_REPAIRED_NOTE`); one between touching
+neighbours stays zero-length and the line keeps the aligner's other times.
 
 `vad_segments.py` (`speech_spans`, `merge_close`, `cap_spans`) builds Silero
 speech spans and cuts long ones at the quietest point. `Qwen3ASRVadBackend`
@@ -456,7 +467,7 @@ checked against it, and a span that disagrees is retried once in the title's
 language. A line is given a `lang` only when it differs from the title's, and
 one that still can't be confirmed gets the `language_uncertain` flag.
 
-**Model folders and offline use.** Settings > Performance and advanced > Offline, paths and limits > "Offline Whisper model folder"
+**Model folders and offline use.** Settings > Advanced > Offline, paths and limits > "Offline Whisper model folder"
 (`whisper_model_path`, read by `settings_service.get("whisper_model_path")`) is
 passed as `local_model_path` and used instead of a download. Downloads honour an
 HF token (`hf_token` key, `HF_TOKEN`). In portable mode `portable.py` redirects

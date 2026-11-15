@@ -46,7 +46,7 @@ def test_creates_a_title_with_names_link_language_and_series(token):
     assert drama["source_language"] == "zh" and drama["media_type"] == "manhua"
     assert drama["source_url"] == "https://www.twmanga.com/comic/chapter/abc/0_12.html"
     assert drama["series_id"] == h.payload["series_id"]
-    assert db.get_series_id_by_name("一人之下") == h.payload["series_id"]
+    assert db.get_series_id_by_name("One Punch Man") == h.payload["series_id"]
 
 
 def test_the_name_in_the_wrong_script_never_lands_in_the_original_field(token):
@@ -139,7 +139,8 @@ def test_a_matched_title_already_in_a_series_stays_there(token):
     h = _resolve(token, url="https://www.twmanga.com/comic/abc").payload
     assert h["series_id"] == series_id
     assert db.get_drama(drama_id)["series_id"] == series_id
-    assert db.get_series_id_by_name("一人之下") is None
+    assert len(db.list_series()) == 1
+    assert db.get_series_id_by_name("One Punch Man") is None
 
 
 def test_a_matched_title_with_no_series_joins_one_when_grouping_is_on(token):
@@ -148,7 +149,7 @@ def test_a_matched_title_with_no_series_joins_one_when_grouping_is_on(token):
     off = _resolve(token, url="https://www.twmanga.com/comic/abc", series=False).payload
     assert off["series_id"] is None and db.get_drama(drama_id)["series_id"] is None
     on = _resolve(token, url="https://www.twmanga.com/comic/abc").payload
-    assert on["series_id"] == db.get_series_id_by_name("一人之下")
+    assert on["series_id"] == db.get_series_id_by_name("One Punch Man")
     assert db.get_drama(drama_id)["series_id"] == on["series_id"]
 
 
@@ -261,7 +262,7 @@ def test_another_users_private_title_is_not_matched_filled_or_joined(token):
     h = _resolve(token, url="https://www.twmanga.com/comic/abc").payload
     assert h["created"] is True and h["drama_id"] != theirs
     assert _state(theirs) == before
-    assert db.get_series_id_by_name("一人之下") != db.get_drama(theirs)["series_id"]
+    assert db.get_series_id_by_name("One Punch Man") != db.get_drama(theirs)["series_id"]
 
 
 def test_a_title_in_another_users_private_series_is_not_matched(token):
@@ -335,3 +336,23 @@ def test_invisible_characters_do_not_split_one_series(token):
                      titles=["一​人之﻿下 第13话 - 腾讯漫画"]).payload
     assert again["matched"] is True and again["drama_id"] == first["drama_id"]
     assert len(db.list_series()) == 1
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("【第1話】作品名 - コミックウォーカー", "作品名"),
+    ("Name 【第1話】 - Site", "Name"),
+    ("[Ch. 5] One-Punch Man | Site", "One-Punch Man"),
+    ("【無料】作品名 第3話 | Site", "【無料】作品名"),
+])
+def test_a_chapter_mark_inside_brackets_does_not_cut_the_name(raw, expected):
+    assert titles._clean_candidate(raw, {"site"}) == expected
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("작품명 1권 - 리디", "작품명"),
+    ("[단행본] 작품명 12권 | Ridi", "[단행본] 작품명"),
+    ("作品名 第3巻 - Site", "作品名"),
+    ("作品名 2巻", "作品名"),
+])
+def test_a_volume_mark_is_not_part_of_the_name(raw, expected):
+    assert titles._clean_candidate(raw, {"site", "ridi", "리디"}) == expected

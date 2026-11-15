@@ -207,6 +207,46 @@ def stop_remote_health_monitor(timeout: float = 5.0) -> None:
     url_guard.home_lookup_done()   # a lookup stopped before it finished
 
 
+# Resource alerts (services/resource_monitor_service.py): GPU temperature and
+# throttling, RAM, CPU, GPU memory and free disk, sampled every
+# SAMPLE_SECONDS. Only while background services are on.
+_resource_monitor = None   # (thread, stop_event) while running
+
+
+def start_resource_monitor(settings, interval: float | None = None) -> bool:
+    global _resource_monitor
+    from services import resource_monitor_service as rms
+    if not settings.background_services:
+        return False
+    interval = rms.SAMPLE_SECONDS if interval is None else float(interval)
+    with _gpu_lock:
+        if _resource_monitor is not None and _resource_monitor[0].is_alive():
+            return False
+        stop = threading.Event()
+
+        def loop():
+            rms.sample()   # the CPU reading needs a first sample to compare with
+            while not stop.wait(interval):
+                try:
+                    rms.run_cycle()
+                except Exception as exc:
+                    log_warning("resource monitor cycle failed: %s", exc)
+
+        thread = threading.Thread(target=loop, daemon=True, name="api-resource-monitor")
+        _resource_monitor = (thread, stop)
+        thread.start()
+        return True
+
+
+def stop_resource_monitor(timeout: float = 5.0) -> None:
+    global _resource_monitor
+    with _gpu_lock:
+        monitor, _resource_monitor = _resource_monitor, None
+    if monitor is not None:
+        monitor[1].set()
+        monitor[0].join(timeout)
+
+
 def start_background_services(features_off=frozenset()) -> dict:
     """Starts what is due (and runs the startup sweeps above); returns
     {"chapter_scheduler": bool, "page_server": bool} (True = running after this call). Never raises: a
@@ -294,6 +334,8 @@ def start_background_services(features_off=frozenset()) -> dict:
                 log_warning("browser-extension engine was not set: %s", exc)
             page_server.ensure_server_started()
             state["page_server"] = page_server.server_running()
+            if state["page_server"]:
+                page_server.warm_models_soon()
     except Exception as exc:
         log_warning("browser-extension endpoint did not start: %s", exc)
     _started = state

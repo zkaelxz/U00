@@ -320,69 +320,14 @@ def test_diarization_ready_needs_community_1(caches):
     assert mrs.diarization_ready() is True
 
 
-def test_separation_ready_by_backend(caches, monkeypatch):
+def test_separation_ready_follows_the_roformer_model_file(caches, monkeypatch):
     import zipfile
     import audio_preprocess
     monkeypatch.setattr(audio_preprocess, "MIN_CHECKPOINT_BYTES", 1)
-    assert mrs.separation_ready("audio_separator") is False
-    assert mrs.separation_ready("demucs") is False
+    assert mrs.separation_ready() is False
     with zipfile.ZipFile(caches["sep"] / audio_preprocess.MEL_ROFORMER_VOCAL_MODEL, "w") as z:
         z.writestr("w", "x")
-    assert mrs.separation_ready("audio_separator") is True
-    checkpoints = caches["torch"] / "hub" / "checkpoints"
-    checkpoints.mkdir(parents=True)
-    (checkpoints / audio_preprocess.HTDEMUCS_CHECKPOINT).write_bytes(b"x")
-    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
-    assert mrs.separation_ready("demucs") is True
-
-
-def _cache_demucs(caches):
-    import audio_preprocess
-    checkpoints = caches["torch"] / "hub" / "checkpoints"
-    checkpoints.mkdir(parents=True)
-    (checkpoints / audio_preprocess.HTDEMUCS_CHECKPOINT).write_bytes(b"x")
-
-
-def test_cached_demucs_is_ready_while_roformer_is_missing(caches, monkeypatch):
-    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
-    _cache_demucs(caches)
-    assert mrs.separation_ready("demucs") is True
-    assert mrs.separation_ready("audio_separator") is False
-
-
-def test_both_separation_models_missing(caches, monkeypatch):
-    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
-    assert mrs.separation_ready("demucs") is False
-    assert mrs.separation_ready("audio_separator") is False
-    assert mrs.separation_ready("auto", None) is False
-
-
-def test_cached_demucs_without_the_package_is_not_ready(caches, monkeypatch):
-    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: None)
-    _cache_demucs(caches)
-    assert mrs.separation_ready("demucs") is False
-    assert mrs.separation_ready("auto", False) is False
-
-
-def test_offline_auto_uses_cached_demucs_when_roformer_is_missing(caches, monkeypatch):
-    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
-    _cache_demucs(caches)
-    monkeypatch.setattr(mrs.model_offline, "active", lambda: False)
-    assert mrs.separation_ready("auto", None) is False
-    monkeypatch.setattr(mrs.model_offline, "active", lambda: True)
-    assert mrs.separation_ready("auto", None) is True
-
-
-def test_auto_separation_without_the_gpu_needs_demucs(caches, monkeypatch):
-    """audio-separator refuses a CPU run, so "auto" falls back to Demucs."""
-    import zipfile
-    import audio_preprocess
-    monkeypatch.setattr(audio_preprocess, "MIN_CHECKPOINT_BYTES", 1)
-    monkeypatch.setattr(mrs.importlib.util, "find_spec", lambda name: object())
-    with zipfile.ZipFile(caches["sep"] / audio_preprocess.MEL_ROFORMER_VOCAL_MODEL, "w") as z:
-        z.writestr("w", "x")
-    assert mrs.separation_ready("auto", None) is True
-    assert mrs.separation_ready("auto", False) is False
+    assert mrs.separation_ready() is True
 
 
 def test_dub_clip_without_transcript_needs_omnivoice_asr(isolated_db, caches):
@@ -726,38 +671,6 @@ def test_lama_loads_the_cached_file_only_when_marked(monkeypatch):
         _in_own_context(member)
     pinned = {"revision": model_pins.REVISIONS[scanlate_inpaint._LAMA_ML_REPO], "etag_timeout": 30}
     assert calls == [pinned, {**pinned, "local_files_only": True}]
-
-
-def test_offline_auto_separation_does_not_fall_back_to_an_undownloaded_demucs(caches, monkeypatch):
-    import audio_preprocess
-    ran = []
-
-    def failing(name):
-        def run(*a, **k):
-            ran.append(name)
-            raise audio_preprocess.VocalSeparationError(f"{name} failed")
-        return run
-    monkeypatch.setattr(audio_preprocess, "_BACKENDS", {
-        "audio_separator": failing("audio_separator"), "demucs": failing("demucs")})
-    monkeypatch.setattr(audio_preprocess.memory_headroom, "check_separation", lambda use_gpu: None)
-
-    def member():
-        model_offline.set_offline(True)
-        audio_preprocess.separate_vocals("in.wav", "out.wav")
-    with pytest.raises(audio_preprocess.VocalSeparationError, match="not downloaded yet"):
-        _in_own_context(member)
-    assert ran == ["audio_separator"]
-    checkpoints = caches["torch"] / "hub" / "checkpoints"
-    checkpoints.mkdir(parents=True)
-    (checkpoints / audio_preprocess.HTDEMUCS_CHECKPOINT).write_bytes(b"x")
-    ran.clear()
-    with pytest.raises(audio_preprocess.VocalSeparationError):
-        _in_own_context(member)
-    assert ran == ["audio_separator", "demucs"]
-    ran.clear()
-    with pytest.raises(audio_preprocess.VocalSeparationError):
-        audio_preprocess.separate_vocals("in.wav", "out.wav")
-    assert ran == ["audio_separator", "demucs"]
 
 
 def test_a_queue_item_saved_without_at_pc_counts_as_away_from_the_pc():

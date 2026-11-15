@@ -266,14 +266,16 @@ test('People and access: first card open the first time, the rest closed and rem
   await mockPage(page, ['library.read', 'admin.diagnostics', 'admin.users.read', 'admin.users'])
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [] } }))
   await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: false } }))
+  await page.route('**/api/diagnostics/remote-setup', (r) => r.fulfill({ json: { steps: [], next: null, fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false } }))
   await page.goto('/#/admin')
   await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
   await expect(navLink(page, 'People and access')).toBeVisible()
   const cards = page.locator('details.section')
-  await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Public address check'])
+  await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Set up remote access', 'Public address check', 'Uploads from away'])
   await expect(cards.nth(0)).toHaveAttribute('open', '')
   await expect(cards.nth(1)).not.toHaveAttribute('open', '')
   await expect(cards.nth(2)).not.toHaveAttribute('open', '')
+  await expect(cards.nth(3)).not.toHaveAttribute('open', '')
   // Same page layout as the other pages: no page-specific width.
   await expect(page.locator('section[aria-label="People and access"]')).toHaveAttribute('data-page-shell', 'narrow')
   // Empty text names no command.
@@ -354,6 +356,43 @@ test('People: rights toggles on active member rows give and take one right', asy
   expect(sent).toEqual(['POST /api/admin/users/2/permissions/engines.paid',
     'DELETE /api/admin/users/2/permissions/library.read'])
   expect(unmocked).toEqual([])
+})
+
+test('People: on the PC, adds a person; away from the PC there is no form', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'])
+  const added = user({ id: 5, email: 'pc2@example.com', display_name: 'Second PC', has_google_binding: false,
+    active_sessions: 0, permissions: ['library.read', 'extension.send'] })
+  let users = [ME_ADMIN, KID]
+  const bodies: unknown[] = []
+  await page.route('**/api/admin/users', (r) => {
+    if (r.request().method() === 'POST') {
+      bodies.push(r.request().postDataJSON())
+      users = [ME_ADMIN, KID, added]
+      return r.fulfill({ json: added })
+    }
+    return r.fulfill({ json: { users, member_permissions: RIGHTS } })
+  })
+  await page.goto('/#/admin')
+  await openSection(page, /^People/)
+  const form = page.getByRole('form', { name: 'Add a person' })
+  const submit = form.getByRole('button', { name: 'Add person' })
+  await expect(submit).toBeDisabled()
+  await form.getByLabel('Email').fill('PC2@example.com')
+  await form.getByLabel('Name (optional)').fill('Second PC')
+  await form.getByRole('checkbox', { name: 'Also allow the browser extension' }).check()
+  await submit.click()
+  await expect(page.getByTestId('admin-users')).toContainText('pc2@example.com was added.')
+  await expect(page.getByRole('list', { name: 'People' }).locator(':scope > li')).toHaveCount(3)
+  await expect(form.getByLabel('Email')).toHaveValue('')
+  expect(bodies).toEqual([{ email: 'PC2@example.com', display_name: 'Second PC', extension_send: true }])
+  expect(unmocked).toEqual([])
+
+  await mockPage(page, ['admin.users.read', 'admin.users'], false)
+  await page.reload()
+  await openSection(page, /^People/)
+  await expect(page.getByRole('list', { name: 'People' }).locator(':scope > li')).toHaveCount(3)
+  await expect(page.getByRole('form', { name: 'Add a person' })).toHaveCount(0)
 })
 
 test('People: without admin.users the rights are shown but cannot be changed', async ({ page }) => {

@@ -120,6 +120,21 @@ def _create_library_tables(conn):
     """)
 
 
+def _create_word_replacement_table(conn):
+    conn.executescript("""
+        -- Whole-word replacements applied to every line a translation run writes
+        -- (a model's habitual wording the person wants swapped, e.g. "thee" -> "you").
+        CREATE TABLE IF NOT EXISTS word_replacements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            find_text TEXT NOT NULL,
+            replace_text TEXT NOT NULL,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+            UNIQUE(series_id, find_text)
+        );
+    """)
+
+
 def _create_series_tables(conn):
     conn.executescript("""
 
@@ -225,6 +240,21 @@ def _create_series_tables(conn):
             created_at REAL NOT NULL,
             expires_at REAL NOT NULL,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+    """)
+
+
+def _create_title_glossary_table(conn):
+    conn.executescript("""
+        -- The private series holding a title's own glossary terms (made on its first
+        -- term write). Kept as a link, not a dramas column, so a backup or title copy
+        -- never carries a series id that means nothing in another library. No foreign
+        -- key to dramas: delete_drama removes the row, and a drama-child table would
+        -- have to be part of every title restore.
+        CREATE TABLE IF NOT EXISTS title_glossary_series (
+            drama_id INTEGER PRIMARY KEY,
+            series_id INTEGER NOT NULL,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
         );
     """)
 
@@ -671,6 +701,17 @@ def _create_metadata_research_tables(conn):
             status TEXT NOT NULL,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+
+        -- The closing line of each chapter capture the extension saved into a
+        -- title (cleaned text only), newest kept up to a few per title.
+        CREATE TABLE IF NOT EXISTS capture_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drama_id INTEGER NOT NULL,
+            summary TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_capture_notes_drama ON capture_notes(drama_id, id);
     """)
 
 
@@ -684,6 +725,7 @@ def _create_core_indexes(conn):
         CREATE INDEX IF NOT EXISTS idx_known_titles_lang ON known_titles(language);
         CREATE INDEX IF NOT EXISTS idx_field_provenance_drama ON metadata_field_provenance(drama_id);
         CREATE INDEX IF NOT EXISTS idx_glossary_series ON glossary_terms(series_id);
+        CREATE INDEX IF NOT EXISTS idx_word_replacements_series ON word_replacements(series_id);
         CREATE INDEX IF NOT EXISTS idx_tm_series ON translation_memory(series_id);
         CREATE INDEX IF NOT EXISTS idx_series_characters_series ON series_characters(series_id);
         CREATE INDEX IF NOT EXISTS idx_vocab_drama ON vocab_lookups(drama_id);

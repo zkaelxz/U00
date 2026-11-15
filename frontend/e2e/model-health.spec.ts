@@ -193,9 +193,9 @@ test('Compare in Benchmark Lab sets up both models in the run form', async ({ pa
   await expect(run.getByTestId('bench-compare-note')).toHaveCount(0)
 
   // A retired model the app no longer offers is left out, with a note.
-  await page.goto('/#/benchmark?compare=claude:claude-old-9,claude:claude-haiku-4-5-20251001')
+  await page.goto('/#/benchmark?compare=claude:claude-old-9,claude:claude-opus-4-8')
   await expect(run.getByTestId('bench-compare-note')).toContainText("Claude · claude-old-9 isn't offered in this app any more")
-  await expect(run.getByLabel('Model 1', { exact: true })).toHaveValue('claude-haiku-4-5-20251001')
+  await expect(run.getByLabel('Model 1', { exact: true })).toHaveValue('claude-opus-4-8')
   await expect(run.getByLabel('Engine 2', { exact: true })).toHaveCount(0)
   expect(unmocked).toEqual([])
 })

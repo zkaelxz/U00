@@ -36,6 +36,7 @@ from typing import Optional
 from urllib.parse import quote, unquote, urlsplit
 
 from engine_backends import engine_registry
+import whisper_models
 from core import SOURCE_LANGUAGES
 from lib import url_guard
 from services import live_service, ownership_service
@@ -252,6 +253,9 @@ def clean_options(options, principal=None) -> dict:
     if out["whisper_size"] not in live_service.WHISPER_SIZES:
         raise InvalidInputError(
             f"whisper_size must be one of {', '.join(live_service.WHISPER_SIZES)}.")
+    language_problem = whisper_models.whisper_model_language_problem(out["whisper_size"], out["source_language"])
+    if language_problem:
+        raise InvalidInputError(language_problem)
     if out["engine"] is not None and out["engine"] not in engine_registry.ENGINES:
         raise InvalidInputError(engine_registry.unknown_engine_message(out["engine"]))
     if out["model"] is not None and (not isinstance(out["model"], str) or len(out["model"]) > 100):

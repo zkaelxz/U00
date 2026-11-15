@@ -36,10 +36,12 @@ Status holds names, numbers, booleans and fixed sentences: never a URL or a path
 
 import contextlib
 import datetime
+import hashlib
 import hmac
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -87,11 +89,24 @@ RESULT_MESSAGES = {
                "installer again to repair it; your library and settings are kept."),
 }
 
+# The library as an app-only update found it, so the version a rollback puts
+# back can tell whether the newer one changed the tables before it stopped.
+BEFORE_UPDATE_KEY = "app_update.before"
+ROLLED_BACK_CODES = ("rolled_back_health", "recovered")
+LIBRARY_CHANGED = (" Version {new} had already changed the library's tables before it stopped, "
+                   "and {old} may not read those changes correctly.")
+LIBRARY_UNKNOWN = " Couldn't tell whether the newer version changed the library."
+RESTORE_BACKUP = (" To be safe, restore the backup from before the update "
+                  "(Library tools > Backup > Restore).")
+
 _lock = threading.Lock()
 # offer: "none" | "available" | "needs_full_installer"
 _state = {"offer": "none", "offer_version": None, "size": None, "download": "idle",
           "downloaded_bytes": 0, "download_error": None}
 _release = None     # internal: the release's "app" record plus "version"
+# (version, db_schema_sha256) from the last manifest copy read, for the full
+# installer's backup check: it has no manifest of its own.
+_offer_schema = None
 _verified = None    # internal: {"version", "name", "path", "sha256", "signature"}
 _download_thread = None
 _applying = False   # one apply at a time: a second would delete the first's staged folder
@@ -125,9 +140,9 @@ def _manifest_ok(manifest, version) -> bool:
 def refresh_offer(release) -> None:
     """Called after each check with the release it found (or None). Reads
     the release's manifest copy; any failure means no app-only offer."""
-    global _release, _verified
+    global _release, _verified, _offer_schema
     app = (release or {}).get("app")
-    offer, size = "none", None
+    offer, size, schema = "none", None, None
     if app is not None and us._is_installed():
         try:
             data = us._read_capped(us._open(app["manifest_url"], us.DOWNLOAD_HOSTS,
@@ -135,10 +150,16 @@ def refresh_offer(release) -> None:
             manifest = json.loads(data.decode("utf-8"))
         except (ServiceError, ValueError, OSError, us.requests.RequestException):
             manifest = None
-        if _manifest_ok(manifest, release["version"]):
+        if isinstance(manifest, dict) and _manifest_ok(manifest, release["version"]):
             offer = "available" if _base_matches(manifest) else "needs_full_installer"
             size = app["size"]
+            # Only the full installer's backup gate reads this; the app-only
+            # path takes the schema from inside the signed zip instead.
+            trusted = _manifest_signed(app, data, release["version"])
+            schema = (release["version"],
+                      manifest.get("db_schema_sha256") if trusted else None)
     with _lock:
+        _offer_schema = schema
         _release = (dict(app, version=release["version"])
                     if offer == "available" and app is not None else None)
         if _verified is not None and (_release is None
@@ -196,8 +217,124 @@ def last_result():
     result = app_swap.read_result(install_root()) if us._is_installed() else None
     if result is None:
         return None
+    check = _rollback_library_check(result)
+    message = RESULT_MESSAGES[result["code"]].format(old=result["old"], new=result["new"])
+    if check["state"] == "changed":
+        message += LIBRARY_CHANGED.format(old=result["old"], new=check["changed_by"])
+    elif check["state"] == "unknown":
+        message += LIBRARY_UNKNOWN
+    if check["backup_at"]:
+        message += RESTORE_BACKUP
     return {"outcome": result["code"], "at": result["at"],
-            "message": RESULT_MESSAGES[result["code"]].format(old=result["old"], new=result["new"])}
+            "library_changed": check["state"] == "changed",
+            "library_unknown": check["state"] == "unknown",
+            "backup_at": check["backup_at"], "message": message}
+
+
+def _remember_library(old, new) -> None:
+    previous = db.get_app_setting(BEFORE_UPDATE_KEY, None)
+    result = app_swap.read_result(install_root()) if us._is_installed() else None
+    if (isinstance(previous, dict) and result is not None
+            and _rollback_library_check(result)["state"] == "changed"):
+        # The library is still the one an earlier rolled-back version changed.
+        # This attempt must not replace the record from before that change,
+        # or a failure that writes no result of its own would hide the warning.
+        previous["attempts"] = [*previous["attempts"], new]
+        db.set_app_setting(BEFORE_UPDATE_KEY, previous)
+        return
+    library, sources = _library_layout()
+    db.set_app_setting(BEFORE_UPDATE_KEY, {
+        "old": old, "attempts": [new], "library": library, "sources": sources,
+        **_newest_backup()})
+
+
+def _newest_backup() -> dict:
+    """The newest readable backup copy right now, by name, so a later check
+    can tell whether rotation has since deleted it."""
+    from services import auto_backup_service
+    try:
+        copies = auto_backup_service.settings_overview().get("copies") or []
+    except (ServiceError, OSError, AttributeError):
+        copies = []
+    for c in copies:
+        if _restorable_copy(c) and isinstance(c.get("name"), str):
+            return {"backup_name": c["name"], "backup_at": c.get("created_at")}
+    return {"backup_name": None, "backup_at": None}
+
+
+def _backup_still_there(name) -> bool:
+    from services import auto_backup_service
+    try:
+        copies = auto_backup_service.settings_overview().get("copies") or []
+    except (ServiceError, OSError, AttributeError):
+        return False
+    return any(_restorable_copy(c) and c.get("name") == name for c in copies)
+
+
+def _restorable_copy(c) -> bool:
+    """A readable copy of this library itself: not another library's copy in a
+    shared folder, nor one kept only for its sources.db."""
+    return (isinstance(c, dict) and bool(c.get("readable")) and c.get("managed") is True
+            and c.get("kept_as") != "sources")
+
+
+def _library_layout():
+    """(library, sources): hashes of every table, index and trigger definition
+    in library.db and in sources.db, sources None when it can't be read.
+    Stricter than the release fingerprint (names only), so a table rebuilt
+    under the same column names, or a new index, still counts as a change.
+    A migration that only rewrites rows is not seen."""
+    from sources import store
+    with contextlib.closing(db.get_conn()) as conn:
+        library = _definitions(conn)
+    # connect() creates and migrates sources.db on first use, so it exists by
+    # the time either side of the comparison is taken; a damaged one makes the
+    # answer unknown rather than blocking the update.
+    try:
+        with contextlib.closing(store.connect()) as conn:
+            sources = _definitions(conn)
+    except (sqlite3.Error, OSError):
+        sources = None
+    return library, sources
+
+
+def _definitions(conn) -> str:
+    rows = sorted(repr(tuple(r)) for r in conn.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master"))
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+
+
+def _rollback_library_check(result) -> dict:
+    """{state, backup_at, changed_by} for a rolled-back update. state is
+    "changed" when a version that was rolled back left the library different
+    from how the first update attempt since found it, "unknown" when that
+    can't be told (no record of that update, or a database that couldn't be
+    read), else "unchanged"; None when the result isn't a rollback. When
+    changed, backup_at is when the backup from before the update was taken,
+    if that copy is still there, and changed_by is that first attempt's
+    version."""
+    none = {"state": None, "backup_at": None, "changed_by": None}
+    if result["code"] not in ROLLED_BACK_CODES:
+        return none
+    try:
+        before = db.get_app_setting(BEFORE_UPDATE_KEY, None)
+        if not (isinstance(before, dict) and before.get("old") == result["old"]
+                and result["new"] in (before.get("attempts") or [])
+                and isinstance(before.get("library"), str)):
+            return {**none, "state": "unknown"}
+        library, sources = _library_layout()
+    except sqlite3.Error:
+        return {**none, "state": "unknown"}
+    if library != before.get("library") or (
+            sources is not None and before.get("sources") is not None
+            and sources != before.get("sources")):
+        backup_at = before.get("backup_at")
+        if not (isinstance(backup_at, str) and _backup_still_there(before.get("backup_name"))):
+            backup_at = None
+        return {"state": "changed", "backup_at": backup_at, "changed_by": before["attempts"][0]}
+    if sources is None or before.get("sources") is None:
+        return {**none, "state": "unknown"}
+    return none | {"state": "unchanged"}
 
 
 def status_fields() -> dict:
@@ -221,7 +358,10 @@ def status_fields() -> dict:
             "can_apply_app": (verified and offer == "available" and us._is_windows()
                               and can_switch_here() and s["download"] != "downloading"),
             "app_last_result": result["message"] if result else None,
-            "app_last_result_at": result["at"] if result else None}
+            "app_last_result_at": result["at"] if result else None,
+            "app_rollback_library_changed": bool(result and result["library_changed"]),
+            "app_rollback_library_unknown": bool(result and result["library_unknown"]),
+            "app_rollback_backup_at": result["backup_at"] if result else None}
 
 
 # --- download -----------------------------------------------------------------
@@ -355,10 +495,48 @@ def _check_database(manifest) -> None:
         return
     if _recent_backup():
         return
-    raise ConflictError("This update changes the library database, and going back to the "
-                        "current version afterwards would need a backup. Back up the library "
-                        "first (Settings > Notifications and backups > Automatic backups > Back up now), then "
-                        "update again.")
+    raise ConflictError(_BACKUP_FIRST)
+
+
+def _manifest_signed(app, data: bytes, version) -> bool:
+    """Whether the manifest copy can be believed: always on a copy with no
+    release key (it believes the unsigned installer too), else only with a
+    valid release signature over its bytes."""
+    try:
+        public_key = us._release_public_key()
+        if public_key is None:
+            return True
+        if not app.get("manifest_sig_url"):
+            return False
+        sig = release_signature.parse_signature(us._read_capped(
+            us._open(app["manifest_sig_url"], us.DOWNLOAD_HOSTS, "application/octet-stream"),
+            us.MAX_SIGNATURE_FILE_BYTES))
+        return release_signature.verify(public_key, sig, f"BaiheStudio-App-{version}.json",
+                                        hashlib.sha256(data).hexdigest())
+    except (ServiceError, OSError, us.requests.RequestException,
+            release_signature.SignatureFormatError):
+        return False
+
+
+def check_database_before_setup(version) -> None:
+    """The same rule for the full installer, which upgrades the same library.
+    Without the release's manifest copy, or with one whose signature doesn't
+    check out, Baihe can't tell whether the schema changes, so it asks for
+    the backup."""
+    with _lock:
+        known = _offer_schema
+    if known is not None and known[0] == version and known[1] is not None:
+        _check_database({"db_schema_sha256": known[1]})
+    elif not _recent_backup():
+        raise ConflictError(_BACKUP_FIRST_UNKNOWN)
+
+
+_BACKUP_STEPS = ("Back up the library first (Library tools > Backup > "
+                 "Back up now), then update again.")
+_BACKUP_FIRST = ("This update changes the library database, and going back to the current version "
+                 "afterwards would need a backup. " + _BACKUP_STEPS)
+_BACKUP_FIRST_UNKNOWN = ("This update may change the library database, and going back to the "
+                         "current version afterwards would need a backup. " + _BACKUP_STEPS)
 
 
 def _private_copy(verified, public_key) -> str:
@@ -513,10 +691,11 @@ def _apply() -> dict:
     try:
         # INSTALLED names this PC's data folder; it never ships in the zip.
         shutil.copyfile(os.path.join(us._APP_DIR, "INSTALLED"), dest / "INSTALLED")
+        _remember_library(old, verified["version"])
         app_swap.write_journal(root, app_swap.STAGED, old, verified["version"], base,
                                port=_server_port())
         _start_helper(root)
-    except (OSError, ValueError, app_swap.SwapError):
+    except (OSError, ValueError, sqlite3.Error, app_swap.SwapError):
         app_swap.clear_journal(root)
         with contextlib.suppress(OSError, app_swap.SwapError):
             app_swap.remove_folder(dest, root)
@@ -548,6 +727,10 @@ def _hand_to_updater(verified, installed) -> dict:
         raise ConflictError("This update was built for a different Python, packages or "
                             "Caddy than this install has. Use the full installer.")
     _check_database(manifest)
+    try:
+        _remember_library(us.current_version(), verified["version"])
+    except sqlite3.Error:
+        raise DependencyUnavailableError(_START_FAILED) from None
     folder = us.updates_dir()
     try:
         with open(os.path.join(folder, verified["name"] + ".sig"), "w", encoding="ascii") as fh:

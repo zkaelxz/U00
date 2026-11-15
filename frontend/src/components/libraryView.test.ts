@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { cardProgress, continueItems, countDramas, hideLibraryBar, parseTime, readHref, shownTags, tileText, workspaceHref } from './libraryView'
+import {
+  cardProgress, continueAction, continueItems, countDramas, hideLibraryBar, listDelay, needsCheckCount, parseTime, readAction, readHref, readVerb,
+  shownTags, tileText, workspaceHref, type ContinueItem, type ShelfRow,
+} from './libraryView'
 
 const t = (title_en: string | null, title_zh: string | null) => ({ title_en, title_zh })
 
@@ -81,5 +84,101 @@ describe('cardProgress for comics', () => {
   })
   it('shows nothing for a comic nobody has translated', () => {
     expect(cardProgress({ status: null, page_count: 12, pages_translated: 0 })).toBeNull()
+  })
+})
+
+describe('readVerb and readAction', () => {
+  it('says Watch for video, Listen for audio and Read for the rest', () => {
+    expect(readVerb({ media_type: 'video_drama' })).toBe('Watch')
+    expect(readVerb({ media_type: 'anime' })).toBe('Watch')
+    expect(readVerb({ media_type: 'streamer_vod' })).toBe('Watch')
+    expect(readVerb({ media_type: 'audio_drama' })).toBe('Listen')
+    expect(readVerb({ media_type: 'asmr' })).toBe('Listen')
+    expect(readVerb({ media_type: 'novel' })).toBe('Read')
+    expect(readVerb({ media_type: 'manga' })).toBe('Read')
+    expect(readVerb({ media_type: null })).toBe('Read')
+  })
+  it('reads a narrated novel whatever its media type says', () => {
+    expect(readVerb({ media_type: 'audio_drama', content_mode: 'novel_narration' })).toBe('Read')
+    expect(readVerb({ media_type: 'video_drama', content_mode: 'novel_narration' })).toBe('Read')
+  })
+  it('opens the Watch page only from Watch and Listen', () => {
+    expect(readAction({ id: 3, media_type: 'video_drama' })).toEqual({ label: 'Watch', href: '#/watch/3' })
+    expect(readAction({ id: 1, media_type: 'audio_drama' })).toEqual({ label: 'Listen', href: '#/watch/1' })
+    expect(readAction({ id: 2, media_type: 'novel' })).toEqual({ label: 'Read', href: '#/read/2' })
+    expect(readAction({ id: 4, media_type: 'manga' })).toEqual({ label: 'Read', href: '#/comic/4' })
+    expect(readAction({ id: 5, media_type: null })).toEqual({ label: 'Read', href: '#/read/5' })
+  })
+  it('says Continue, opening the Reader, once the title has a saved reading place', () => {
+    expect(readAction({ id: 3, media_type: 'video_drama' }, true)).toEqual({ label: 'Continue', href: '#/read/3' })
+  })
+})
+
+describe('continueAction', () => {
+  const reading = (page: number | null): ContinueItem =>
+    ({ kind: 'read', dramaId: 2, title: 'Blessing', titleZh: null, percent: 40, page, cover: false, at: 0 })
+  const work = (mediaType: string | null = 'video_drama'): ContinueItem =>
+    ({ kind: 'work', dramaId: 5, title: 'Signal', titleZh: null, status: 'aligned', mediaType, at: 0 })
+  const row = (over: Partial<ShelfRow> = {}): ShelfRow =>
+    ({ id: 5, media_type: 'video_drama', content_mode: null, status: 'aligned', line_count: 10, translated_count: 5, ...over })
+  const done = (over: Partial<ShelfRow> = {}) => row({ translated_count: 10, ...over })
+
+  it('reading tiles: the saved page above 1, else Continue reading; the link is unchanged', () => {
+    expect(continueAction(reading(12), undefined, null)).toEqual({ label: 'Read from page 12', href: '#/read/2' })
+    expect(continueAction(reading(1), undefined, null)).toEqual({ label: 'Continue reading', href: '#/read/2' })
+    expect(continueAction(reading(null), undefined, null)).toEqual({ label: 'Continue reading', href: '#/read/2' })
+    expect(continueAction(reading(3), row({ id: 2, media_type: 'manga' }), null)).toEqual({ label: 'Read from page 3', href: '#/comic/2' })
+  })
+
+  it('Open on the work page for a comic, a title not in the loaded list, and a title with no lines', () => {
+    expect(continueAction(work('manga'), row({ media_type: 'manga' }), null)).toEqual({ label: 'Open', href: '#/drama/5' })
+    expect(continueAction(work('manhwa'), undefined, null)).toEqual({ label: 'Open', href: '#/drama/5' })
+    expect(continueAction(work(), undefined, null)).toEqual({ label: 'Open', href: '#/drama/5' })
+    expect(continueAction(work(), row({ line_count: 0, translated_count: 0 }), null)).toEqual({ label: 'Open', href: '#/drama/5' })
+  })
+
+  it('Translate N lines on the Translate step while lines have no English, singular and with thousands', () => {
+    expect(continueAction(work(), row(), null)).toEqual({ label: 'Translate 5 lines', href: '#/drama/5/translate' })
+    expect(continueAction(work(), row({ translated_count: 9 }), 3)).toEqual({ label: 'Translate 1 line', href: '#/drama/5/translate' })
+    expect(continueAction(work(), row({ line_count: 2000, translated_count: 766 }), null).label).toBe('Translate 1,234 lines')
+    // Lines still waiting win over an exported status.
+    expect(continueAction(work(), row({ status: 'exported' }), null).label).toBe('Translate 5 lines')
+  })
+
+  it('Check the N lines on the Review step once every line has English, worded as the title page words it', () => {
+    expect(continueAction(work(), done(), 3)).toEqual({ label: 'Check the 3 lines', href: '#/drama/5/review' })
+    expect(continueAction(work(), done(), 1)).toEqual({ label: 'Check the line', href: '#/drama/5/review' })
+    expect(continueAction(work(), done(), 1500).label).toBe('Check the 1500 lines')
+  })
+
+  it('Check the lines while the count is unknown (loading or failed), Export when nothing needs a look', () => {
+    expect(continueAction(work(), done(), null)).toEqual({ label: 'Check the lines', href: '#/drama/5/review' })
+    expect(continueAction(work(), done(), 0)).toEqual({ label: 'Export', href: '#/drama/5/export' })
+  })
+
+  it('an exported title says Watch, Listen or Read and opens the same page as the cards do', () => {
+    expect(continueAction(work(), done({ status: 'exported' }), null)).toEqual({ label: 'Watch', href: '#/watch/5' })
+    expect(continueAction(work('audio_drama'), done({ status: 'exported', media_type: 'audio_drama' }), null))
+      .toEqual({ label: 'Listen', href: '#/watch/5' })
+    expect(continueAction(work('novel'), done({ status: 'exported', media_type: 'novel' }), 4)).toEqual({ label: 'Read', href: '#/read/5' })
+    expect(continueAction(work('audio_drama'), done({ status: 'exported', media_type: 'audio_drama', content_mode: 'novel_narration' }), null))
+      .toEqual({ label: 'Read', href: '#/read/5' })
+  })
+
+  it('asks for the count only for a work tile in the check state', () => {
+    expect(needsCheckCount(work(), done())).toBe(true)
+    expect(needsCheckCount(work(), row())).toBe(false)
+    expect(needsCheckCount(work(), done({ status: 'exported' }))).toBe(false)
+    expect(needsCheckCount(work(), undefined)).toBe(false)
+    expect(needsCheckCount(work('manga'), done({ media_type: 'manga' }))).toBe(false)
+    expect(needsCheckCount(reading(2), done({ id: 2 }))).toBe(false)
+  })
+})
+
+describe('listDelay', () => {
+  it('asks at once the first time and after a reload, and waits 200 ms after a search or filter change', () => {
+    expect(listDelay(null, 0)).toBe(0)
+    expect(listDelay(0, 1)).toBe(0)
+    expect(listDelay(1, 1)).toBe(200)
   })
 })

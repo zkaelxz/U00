@@ -5,12 +5,12 @@ import type { ReviewLine } from '../../../../types/review'
 import type { ResplitResult } from '../../../../types/restructure'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, sourceTextLang } from './reviewDraft'
-import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
+import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, formatTenths, formatTime, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
 import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
 })
 
 describe('spoken language', () => {
@@ -175,10 +175,12 @@ describe('labels', () => {
     expect(chipLabel('unreviewed', 3, false)).toBe('Unreviewed 3')
     expect(chipLabel('shaky', 2, false)).toBe('Least confident 2')
     expect(chipLabel('risk', 3, false)).toBe('Riskiest 3')
-    expect(emptyMessage('shaky', '')).toBe('No unchecked lines Whisper was unsure of.')
-    expect(emptyMessage('unreviewed', '')).toBe('Every translated line is checked.')
-    expect(emptyMessage('flagged', '')).toBe('No flagged lines. Nice.')
-    expect(emptyMessage('all', 'abc')).toBe('No lines match “abc”.')
+    expect(emptyMessage('shaky', '', 'Transcribe')).toBe('No unchecked lines Whisper was unsure of.')
+    expect(emptyMessage('unreviewed', '', 'Transcribe')).toBe('Every translated line is checked.')
+    expect(emptyMessage('flagged', '', 'Transcribe')).toBe('No flagged lines. Nice.')
+    expect(emptyMessage('all', 'abc', 'Transcribe')).toBe('No lines match “abc”.')
+    expect(emptyMessage('all', '', 'Transcribe')).toBe('No lines yet. Add them on Transcribe first.')
+    expect(emptyMessage('all', '', 'Media')).toBe('No lines yet. Add them on Media first.')
     expect(formatDuration(1450)).toBe('24:10')
     expect(formatDuration(3723)).toBe('1:02:03')
     expect(formatDuration(NaN)).toBe('–')
@@ -477,7 +479,7 @@ describe('parseJump', () => {
 
 describe('inFilter', () => {
   const base = { id: 1, idx: 0, start: 0, end: 1, zh: '你好', en: '', speaker: null, speaker_manual: false,
-    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null }
+    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null }
   it('follows the server filters', () => {
     expect(inFilter({ ...base, flag: 'check' }, 'flagged')).toBe(true)
     expect(inFilter(base, 'flagged')).toBe(false)
@@ -519,5 +521,27 @@ describe('lineCps', () => {
   it('guards a zero duration and has nothing for blank text', () => {
     expect(lineCps({ start: 1, end: 1, en: 'a' })).toBe(100)
     expect(lineCps({ start: 0, end: 2, en: '  ' })).toBeNull()
+  })
+})
+
+describe('formatTenths', () => {
+  it('writes a time to the tenth, cut rather than rounded', () => {
+    expect(formatTenths(62.57)).toBe('1:02.5')
+    expect(formatTenths(30.29)).toBe('0:30.2')
+    expect(formatTenths(18.99)).toBe('0:18.9')
+    // Floats just under a tenth still read as that tenth.
+    expect(formatTenths(0.3)).toBe('0:00.3')
+    expect(formatTenths(4.6)).toBe('0:04.6')
+  })
+
+  it('counts minutes past the hour and starts at zero', () => {
+    expect(formatTenths(0)).toBe('0:00.0')
+    expect(formatTenths(59.99)).toBe('0:59.9')
+    expect(formatTenths(60)).toBe('1:00.0')
+    expect(formatTenths(3725.4)).toBe('62:05.4')
+  })
+
+  it('leaves the line list\'s own two-decimal times as they are', () => {
+    expect(formatTime(62.57)).toBe('1:02.57')
   })
 })

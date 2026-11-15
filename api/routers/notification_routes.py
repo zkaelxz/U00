@@ -48,7 +48,8 @@ def get_status():
              summary="PC only: choose which events go to Discord/ntfy",
              responses=error_responses(422))
 def set_categories(body: NotificationCategoriesRequest):
-    return svc.set_categories(jobs=body.jobs, chapters=body.chapters, remote=body.remote)
+    return svc.set_categories(jobs=body.jobs, chapters=body.chapters, remote=body.remote,
+                              private_titles=body.private_titles)
 
 
 @router.post("/test", dependencies=[local_only()], response_model=NotificationTestResult,

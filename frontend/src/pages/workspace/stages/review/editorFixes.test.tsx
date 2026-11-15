@@ -21,7 +21,7 @@ vi.mock('../../../../api/restructure', () => restructure)
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 0.5, zh: `zh ${id}`, en: `en ${id}`, speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
 })
 const editing = (base: ReviewLine, en: string): EditState =>
   ({ lineId: base.id, base, draft: { ...draftFromLine(base), en }, details: false, note: null })
@@ -194,7 +194,7 @@ describe('typing in Search with an unsaved draft', () => {
     const ctl = { leaveEdit: vi.fn(() => new Promise<boolean>(() => {})), saveFailed: () => false }
     const nav = buildLinesNavigation({
       dramaId: 7, ctl: ctl as never, st: { current: { edit: editing(line(1), 'typed') } as LinesState },
-      pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all', page: 1,
+      pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all', page: 1, place: { pageFor: () => 1, abandon: () => {} },
       setFilter: vi.fn(), setPage: vi.fn(), setInput, setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
     })
     void nav.changeSearch('a')
@@ -207,7 +207,7 @@ describe('typing in Search with an unsaved draft', () => {
     const { ctl, st } = controller(editing(line(1), 'typed'))
     const nav = buildLinesNavigation({
       dramaId: 7, ctl, st, pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all',
-      page: 1, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
+      page: 1, place: { pageFor: () => 1, abandon: () => {} }, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
     })
     await nav.changeSearch('a')
     await nav.changeSearch('ab')
@@ -221,11 +221,62 @@ describe('typing in Search with an unsaved draft', () => {
     const { ctl, st } = controller(editing(line(1), 'typed'))
     const nav = buildLinesNavigation({
       dramaId: 7, ctl, st, pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all',
-      page: 1, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
+      page: 1, place: { pageFor: () => 1, abandon: () => {} }, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
     })
     await nav.changeSearch('a')
     ctl.actions.reload()
     await nav.changeSearch('ab')
     expect(patchLine).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('switching the view under an unsaved draft', () => {
+  const navigation = (leaveEdit: () => Promise<boolean>) => {
+    const setFilter = vi.fn()
+    const nav = buildLinesNavigation({
+      dramaId: 7, ctl: { leaveEdit } as never, st: { current: {} as LinesState },
+      pending: { current: null }, listRef: { current: null }, searching: false, filter: 'risk', page: 1, place: { pageFor: () => 1, abandon: () => {} },
+      setFilter, setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
+    })
+    return { nav, setFilter }
+  }
+
+  it('says the view did not change when the draft cannot be saved, so Search does not ask for the focus', async () => {
+    const { nav, setFilter } = navigation(async () => false)
+    expect(await nav.changeFilter('all')).toBe(false)
+    expect(setFilter).not.toHaveBeenCalled()
+  })
+
+  it('says the view changed once the draft is saved', async () => {
+    const { nav, setFilter } = navigation(async () => true)
+    expect(await nav.changeFilter('all')).toBe(true)
+    expect(setFilter).toHaveBeenCalledWith('all')
+  })
+})
+
+describe('a gap line filled under an open draft', () => {
+  it('keeps what was typed over the filled text once the line reloads', async () => {
+    const blank = line(1, { zh: '' })
+    const { ctl, st, setStatus } = controller({ ...editing(blank, 'en 1'), draft: { ...draftFromLine(blank), zh: '我打的' } })
+    ctl.afterWrite([1], true)
+    expect(st.current.edit?.rebaseOnLoad).toBe(true)
+    const filled = line(1, { zh: '听到的' })
+    await ctl.rebaseKept([filled])
+    const after = st.current.edit
+    expect(after?.base).toBe(filled)
+    expect(after?.draft.zh).toBe('我打的')
+    expect(after?.keepTyping).toBe(false)
+    expect(setStatus).not.toHaveBeenCalled()
+  })
+
+  it('still closes a clean edit, and a plain write still lets a clash show the other change', async () => {
+    const blank = line(1, { zh: '' })
+    const clean = controller(editing(blank, 'en 1'))
+    clean.ctl.afterWrite([1], true)
+    expect(clean.st.current.edit).toBeNull()
+
+    const plain = controller({ ...editing(blank, 'en 1'), draft: { ...draftFromLine(blank), zh: '我打的' }, rebaseOnLoad: true })
+    await plain.ctl.rebaseKept([line(1, { zh: '听到的' })])
+    expect(plain.st.current.edit?.draft.zh).toBe('听到的')
   })
 })

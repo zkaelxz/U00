@@ -54,11 +54,23 @@ export function listBackupFileDramas(file: File | Blob, f?: Fetch) {
   return postMultipart<BackupFileDramaList>(`${BASE}/import/list`, form, pcOnlyFetch(f))
 }
 
+export interface ImportChoices {
+  /** Merge each series into one of the same name here instead of adding a new series. */
+  joinSeries?: boolean
+  /** Add the file's voice bank entries. */
+  voiceBank?: boolean
+  /** Take the file's Translation and Preferences settings (never keys or paths). */
+  settings?: boolean
+}
+
 /** Imports the chosen dramas (ids as listed) as new dramas. The file is sent again: the server keeps nothing between the two calls. */
-export function importBackupFileDramas(file: File | Blob, dramaIds: readonly number[], f?: Fetch) {
+export function importBackupFileDramas(file: File | Blob, dramaIds: readonly number[], f?: Fetch, choices: ImportChoices = {}) {
   const form = new FormData()
   form.append('file', file)
   for (const id of dramaIds) form.append('drama_ids', String(id))
+  if (choices.joinSeries) form.append('join_series', 'true')
+  if (choices.voiceBank) form.append('voice_bank', 'true')
+  if (choices.settings) form.append('settings', 'true')
   form.append('confirm', 'true')
   form.append('confirm_text', RESTORE_SNAPSHOT_WORD)
   return postMultipart<ImportDramasDone>(`${BASE}/import`, form, pcOnlyFetch(f))

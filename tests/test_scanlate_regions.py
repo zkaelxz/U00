@@ -284,6 +284,44 @@ class TestShapeAwareFitting:
         assert not mask[0, 0] and not mask[-1, -1]   # rectangle corners are outside
         assert mask[110, 200]                         # centre is inside
 
+    @staticmethod
+    def _grey_balloon_page(tmp_path, art_level=60, canvas=(400, 600)):
+        cv2 = pytest.importorskip("cv2")
+        h, w = canvas
+        img = np.full((h, w, 3), art_level, np.uint8)
+        yy, xx = np.mgrid[:h, :w]
+        dist = np.hypot(xx - w // 2, yy - h // 2)
+        img[dist <= 140] = 0
+        # Shaded to grey right out to the outline: nothing is as light as the usual floor.
+        grey = np.clip(255 - 130 * np.clip(1 - dist / 400, 0, 1) ** 0.8, 0, 255)
+        for c in range(3):
+            img[..., c] = np.where(dist <= 137, grey, img[..., c])
+        path = str(tmp_path / "grey.png")
+        cv2.imwrite(path, img)
+        return path
+
+    def test_a_balloon_shaded_grey_inside_is_still_found_as_an_oval(self, tmp_path):
+        page = self._grey_balloon_page(tmp_path)
+        box = {"x": 150, "y": 60, "w": 300, "h": 280}
+        mask = scanlate_detect.bubble_shape_mask(page, box)
+        assert mask is not None
+        assert mask[140, 150] and not mask[0, 0] and not mask[-1, -1]
+        assert scanlate_detect.bubble_erase_mask(page, box)[0, 0] == 0
+
+    def test_a_grey_shaded_balloon_is_classified_as_a_bubble_not_a_sign(self, tmp_path):
+        page = self._grey_balloon_page(tmp_path, canvas=(800, 1000))
+        box = {"x": 350, "y": 250, "w": 300, "h": 300}
+        assert scanlate_detect.classify_text_regions(page, [box])[0]["kind"] == "bubble"
+
+    def test_a_grey_patch_of_art_without_an_outline_is_not_a_balloon(self, tmp_path):
+        cv2 = pytest.importorskip("cv2")
+        img = np.full((400, 600, 3), 60, np.uint8)
+        cv2.circle(img, (300, 200), 140, (150, 150, 150), -1)
+        img = cv2.GaussianBlur(img, (0, 0), 25)
+        path = str(tmp_path / "fade.png")
+        cv2.imwrite(path, img)
+        assert scanlate_detect.bubble_shape_mask(path, {"x": 150, "y": 60, "w": 300, "h": 280}) is None
+
     def test_text_stays_inside_an_oval_bubble(self, oval_page):
         mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
         # Rectangle layout spills into the corners outside the oval...
@@ -370,6 +408,33 @@ class TestGlossaryInScanlateTranslation:
                                         glossary_terms=HONORIFIC)
         assert engine.calls[0][1]["glossary_terms"] == HONORIFIC
 
+    def test_a_page_picture_is_sent_with_the_regions_scaled_to_it(self, monkeypatch):
+        seen = {}
+
+        def with_image(regions, image, mime, engine, drama_meta, **kwargs):
+            seen.update(regions=regions, image=image, mime=mime, engine=engine, kwargs=kwargs)
+            return {"0": "Hello"}, "ctx"
+        monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+        bubbles = [{"source_text": "你好", "x": 10, "y": 20, "w": 30, "h": 40}]
+        picture_engine = object()
+        context = scanlate_translate.translate_page_bubbles(
+            bubbles, _FakeLLM(), {}, character_notes="Mei: she/her",
+            page_image={"data": b"jpg", "mime": "image/jpeg", "scale": 0.5, "engine": picture_engine})
+        assert context == "ctx" and bubbles[0]["translated_text"] == "Hello"
+        assert seen["regions"][0]["box"] == {"x": 5, "y": 10, "w": 15, "h": 20}
+        assert seen["engine"] is picture_engine
+        assert seen["kwargs"]["character_notes"] == "Mei: she/her"
+
+    def test_a_failed_picture_request_falls_back_to_the_text(self, monkeypatch):
+        def broken(*args, **kwargs):
+            raise RuntimeError("the provider refused the picture")
+        monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", broken)
+        engine = _RecordingMT()
+        bubbles = [{"source_text": "师姐", "x": 1, "y": 2, "w": 3, "h": 4}]
+        scanlate_translate.translate_page_bubbles(
+            bubbles, engine, {}, page_image={"data": b"jpg", "mime": "image/jpeg", "scale": 1.0})
+        assert engine.calls, "the text-only request was not made"
+
     def test_glossary_block_matches_workspace_style_guidelines(self):
         import translation_guide
         block = translation_guide.build_glossary_block(HONORIFIC)
@@ -389,8 +454,12 @@ class TestSfxSkipByDefault:
         inpainted, drawn = [], []
         monkeypatch.setattr(scanlate_render, "inpaint_region",
                             lambda path, box, out_path=None, **kw: inpainted.append(box) or out_path)
-        monkeypatch.setattr(scanlate_render, "render_text_in_box",
-                            lambda img, box, text, **kw: drawn.append(text) or img)
+        def draw(img, box, text, report=None, **kw):
+            # A fitting pass (report given) only measures; it draws nothing on the page.
+            if report is None:
+                drawn.append(text)
+            return img
+        monkeypatch.setattr(scanlate_render, "render_text_in_box", draw)
         _, skipped_blank = scanlate_render.process_page(bubble_page, bubbles, str(tmp_path / "out.png"))
         return inpainted, drawn, skipped_blank
 
@@ -607,3 +676,244 @@ class TestSkippedSfxNote:
         notes = []
         scanlate._note_skipped_sfx([{"kind": "bubble"}, {"kind": "sfx", "include_sfx": True}], notes)
         assert notes == []
+
+
+class TestStrayMarkBeforeSoundEffect:
+    @pytest.mark.parametrize("text,kind,expected", [
+        ("0啾", "sfx", "啾"),
+        ("0 啾 啾", "sfx", "啾 啾"),
+        ("Oドン", "sfx", "ドン"),
+        ("0啾", "sign", "0啾"),
+        ("0", "sfx", "0"),
+        ("Fzzt", "sfx", "Fzzt"),
+        ("啾0", "sfx", "啾0"),
+    ])
+    def test_only_a_leading_mark_on_an_effect_is_dropped(self, text, kind, expected):
+        assert scanlate_regions.strip_stray_sfx_mark(text, kind) == expected
+
+def _glyph_page(blocks, size=(700, 800)):
+    cv2 = pytest.importorskip("cv2")
+    page = np.full(size, 250, np.uint8)
+    for bx, by in blocks:
+        for row in range(2):
+            for col in range(6):
+                cv2.rectangle(page, (bx + col * 30, by + row * 40),
+                              (bx + col * 30 + 22, by + row * 40 + 26), 40, -1)
+    return page
+
+
+def test_two_blocks_of_lettering_far_apart_become_two_regions_inside_the_box():
+    page = _glyph_page([(60, 60), (420, 480)])
+    box = {"x": 0, "y": 0, "w": 800, "h": 700, "kind": "sign"}
+    parts = scanlate_regions.split_separate_lettering(page, box)
+    assert len(parts) == 2
+    assert parts[0]["x"] < 160 and parts[0]["y"] < 160 and parts[1]["x"] > 300 and parts[1]["y"] > 400
+    assert all(0 <= p["x"] and p["x"] + p["w"] <= 800 and p["y"] + p["h"] <= 700 for p in parts)
+
+
+def test_one_block_of_lettering_and_a_small_box_stay_one_region():
+    page = _glyph_page([(300, 300)])
+    box = {"x": 0, "y": 0, "w": 800, "h": 700}
+    assert scanlate_regions.split_separate_lettering(page, box) == [box]
+    two = _glyph_page([(20, 20), (150, 120)], size=(260, 400))
+    small = {"x": 0, "y": 0, "w": 400, "h": 260}
+    assert scanlate_regions.split_separate_lettering(two, small) == [small]
+
+
+def _frame_with_curls_and_a_caption(size=(700, 800)):
+    """Small corner curls (many, so their height is the page's median) and a line
+    of tall lettering with a dash after it, as in a captioned frame."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full(size, 250, np.uint8)
+    for cx, cy in ((40, 40), (700, 40), (40, 600), (700, 600)):
+        for k in range(4):
+            cv2.rectangle(page, (cx + k * 26, cy), (cx + k * 26 + 12, cy + 12), 40, -1)
+    for left, width, top, height in ((300, 24, 300, 36), (332, 26, 296, 44), (366, 20, 304, 30)):
+        cv2.rectangle(page, (left, top), (left + width, top + height), 40, -1)
+    cv2.rectangle(page, (404, 318), (440, 321), 40, -1)
+    return page
+
+
+def test_lettering_taller_than_the_frames_ornament_curls_is_still_found_as_a_block():
+    page = _frame_with_curls_and_a_caption()
+    parts = scanlate_regions.split_separate_lettering(page, {"x": 0, "y": 0, "w": 800, "h": 700})
+    caption = [p for p in parts if p["x"] <= 300 and p["x"] + p["w"] >= 386 and p["y"] <= 296
+               and p["y"] + p["h"] >= 340]
+    assert caption, parts
+
+
+def test_a_dash_ending_the_line_is_inside_its_block():
+    page = _frame_with_curls_and_a_caption()
+    parts = scanlate_regions.split_separate_lettering(page, {"x": 0, "y": 0, "w": 800, "h": 700})
+    assert any(p["x"] <= 300 and p["x"] + p["w"] >= 440 for p in parts), parts
+
+
+def test_marks_that_stand_alone_are_not_taken_for_a_row_of_letters():
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((700, 800), 250, np.uint8)
+    for x, y in ((40, 40), (700, 60), (60, 620), (690, 600), (360, 340)):
+        cv2.rectangle(page, (x, y), (x + 14, y + 14), 40, -1)
+    assert scanlate_regions._in_a_row(*_stats_of(page)) == []
+
+
+def _stats_of(page):
+    cv2 = pytest.importorskip("cv2")
+    _, _, stats, _ = cv2.connectedComponentsWithStats((page < 150).astype(np.uint8), connectivity=8)
+    return stats, list(range(1, len(stats)))
+
+
+class TestKatakanaEffects:
+    @pytest.mark.parametrize("text,becomes", [
+        ("キュルルル・", "sfx"),
+        ("ゴゴゴゴ", "sfx"),
+        ("ドン！", "bubble"),
+        ("アメリカ", "bubble"),
+        ("ルルル、行こう", "bubble"),
+        ("もしかして", "bubble"),
+    ])
+    def test_only_a_stretched_katakana_effect_is_marked(self, text, becomes):
+        region = {"kind": "bubble", "source_text": text}
+        scanlate_regions.flag_katakana_effects([region])
+        assert region["kind"] == becomes
+
+    def test_a_region_the_person_included_is_left_alone(self):
+        region = {"kind": "bubble", "source_text": "ゴゴゴ", "include_sfx": True}
+        assert scanlate_regions.flag_katakana_effects([region]) == 0
+
+
+def test_a_block_cut_from_a_frame_that_reads_as_nothing_is_not_a_region(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    page = _glyph_page([(60, 60), (420, 480)])
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, page)
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+    monkeypatch.setattr(scanlate, "ocr_box_region",
+                        lambda p, b, *a, **kw: "こんにちは" if b["x"] < 200 else "")
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert [b["source_text"] for b in bubbles] == ["こんにちは"]
+
+
+def test_a_box_that_was_not_split_keeps_its_empty_region_for_hand_entry(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, _glyph_page([(300, 300)]))
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+    monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **kw: "")
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert len(bubbles) == 1
+
+
+def _two_lobe_balloon():
+    """One speech balloon drawn as two overlapping lobes, three lines of lettering in each, at the
+    size and position of a real Naver page where the detector gave the pair a single region."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((900, 690), 245, np.uint8)
+    for center, axes in (((220, 500), (175, 130)), ((430, 690), (170, 140))):
+        cv2.ellipse(page, center, axes, 0, 0, 360, 255, -1)
+        cv2.ellipse(page, center, axes, 0, 0, 360, 0, 3)
+    first = [(103, 458, 8), (165, 503, 4), (128, 550, 6)]
+    second = [(395, 640, 4), (330, 690, 7), (325, 735, 7)]
+    for left, top, glyphs in first + second:
+        for k in range(glyphs):
+            cv2.rectangle(page, (left + k * 31, top), (left + k * 31 + 24, top + 34), 30, -1)
+    return page
+
+
+def test_a_two_lobe_balloon_becomes_one_region_per_lobe():
+    page = _two_lobe_balloon()
+    box = {"x": 41, "y": 339, "w": 570, "h": 514, "kind": "bubble"}
+    parts = scanlate_regions.split_separate_lettering(page, box)
+    assert len(parts) == 2
+    upper, lower = sorted(parts, key=lambda p: p["y"])
+
+    def holds(part, left, top, right, bottom):
+        return (part["x"] <= left and part["y"] <= top and part["x"] + part["w"] >= right
+                and part["y"] + part["h"] >= bottom)
+
+    assert holds(upper, 103, 458, 340, 584) and holds(lower, 325, 640, 551, 769)
+    assert not holds(upper, 325, 640, 551, 769) and not holds(lower, 103, 458, 340, 584)
+    assert all(p["kind"] == "bubble" for p in parts)
+
+
+def test_tall_balloon_of_vertical_lettering_stays_one_region():
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((1000, 450), 70, np.uint8)
+    cv2.ellipse(page, (225, 500), (215, 480), 0, 0, 360, 0, -1)
+    cv2.ellipse(page, (225, 500), (211, 476), 0, 0, 360, 250, -1)
+    # Two columns of characters with a long gap inside each.
+    for left in (170, 250):
+        for top, count in ((120, 5), (560, 7)):
+            for k in range(count):
+                cv2.rectangle(page, (left, top + k * 45), (left + 24, top + k * 45 + 30), 40, -1)
+    box = {"x": 0, "y": 0, "w": 450, "h": 1000}
+    assert scanlate_regions.split_separate_lettering(page, box) == [box]
+
+
+def _line_over_specks():
+    """One line whose left letters are thin strokes (they fail the glyph test, as
+    letters on a noisy cloud do), compact letters on its right, and compact specks
+    well below it: the split cuts the line where its compact letters start."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((400, 520), 245, np.uint8)
+    for k in range(4):
+        x = 60 + k * 40
+        cv2.line(page, (x, 150), (x + 25, 150), 30, 2)
+        cv2.line(page, (x + 25, 150), (x + 25, 185), 30, 2)
+    for k in range(4):
+        cv2.rectangle(page, (240 + k * 30, 160), (256 + k * 30, 176), 30, -1)
+        cv2.rectangle(page, (300 + k * 26, 300), (316 + k * 26, 316), 30, -1)
+    return page, {"x": 0, "y": 0, "w": 520, "h": 400, "kind": "bubble"}
+
+
+def test_a_split_piece_takes_in_the_whole_text_box_it_cuts():
+    page, box = _line_over_specks()
+    assert min(p["x"] for p in scanlate_regions.split_separate_lettering(page, box)) > 200
+    line = {"x": 55, "y": 145, "w": 320, "h": 45}
+    parts = scanlate_regions.split_separate_lettering(page, dict(box, text_boxes=[line]))
+    assert len(parts) == 2
+    upper = min(parts, key=lambda p: p["y"])
+    assert upper["x"] <= 55 and upper["x"] + upper["w"] >= 375
+    assert upper["y"] <= 145 and upper["y"] + upper["h"] >= 190
+
+
+def test_a_split_piece_grows_only_as_far_as_the_text_box():
+    # Grown further, the erase reached the specks round the line on a noisy
+    # cloud and left a grey patch beside the English.
+    page, box = _line_over_specks()
+    line = {"x": 55, "y": 145, "w": 320, "h": 45}
+    parts = scanlate_regions.split_separate_lettering(page, dict(box, text_boxes=[line]))
+    assert min(p["x"] for p in parts) == 55
+
+
+def test_a_text_box_shared_by_two_pieces_is_left_split():
+    page, box = _line_over_specks()
+    both = {"x": 230, "y": 150, "w": 180, "h": 180}
+    parts = scanlate_regions.split_separate_lettering(page, dict(box, text_boxes=[both]))
+    assert sorted((p["x"], p["y"]) for p in parts) == sorted(
+        (p["x"], p["y"]) for p in scanlate_regions.split_separate_lettering(page, box))
+
+
+def _caption_page(stamp: bool):
+    """Pale frame with a dark lettering block left of centre and, optionally,
+    a faint watermark stamp near the right end of the box."""
+    page = np.full((200, 700), 235, np.uint8)
+    for row in range(40, 160, 30):
+        page[row:row + 18, 40:420] = 40
+    if stamp:
+        page[80:100, 500:640] = 120
+    return page
+
+
+def test_caption_box_over_a_watermark_is_cut_to_the_lettering():
+    box = {"x": 0, "y": 20, "w": 700, "h": 160}
+    out = scanlate_regions.trim_to_lettering(_caption_page(stamp=True), box)
+    assert out["x"] == 0 and 455 <= out["w"] <= 465
+    assert (out["y"], out["h"]) == (20, 160)
+
+
+def test_centred_caption_box_is_left_alone():
+    page = _caption_page(stamp=False)
+    box = {"x": 0, "y": 20, "w": 460, "h": 160}
+    assert scanlate_regions.trim_to_lettering(page, box) == box

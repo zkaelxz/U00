@@ -36,6 +36,7 @@ from typing import Optional
 import background_jobs
 from jobs import job_launch
 import db
+import diagnostics_torch
 import live_chat
 import live_cue_feed
 import live_cue_translation
@@ -183,6 +184,23 @@ def check_ollama(model: Optional[str] = None) -> dict:
     return {"ok": True, "model": model, "message": None}
 
 
+def _language_whisper_defaults() -> dict:
+    """Models the form starts on instead of its default for a language, so a stream in that
+    language needs no change. Only models already on this PC: Live never starts a big download
+    on its own. Japanese gets whisper-ja only where an NVIDIA GPU is present, since it cannot
+    keep up with a stream on a CPU."""
+    out = {}
+    if whisper_models.is_whisper_model_cached(whisper_models.BREEZE_KEY):
+        out["zh"] = whisper_models.BREEZE_KEY
+    try:
+        has_gpu = diagnostics_torch.nvidia_driver_info() is not None
+    except Exception:
+        has_gpu = False
+    if has_gpu and whisper_models.is_whisper_model_cached("ja-1.5b"):
+        out["ja"] = "ja-1.5b"
+    return out
+
+
 def form_options() -> dict:
     """What the Live form offers and starts on, from the values Start checks
     against, so the form never keeps its own copy that can drift."""
@@ -190,6 +208,7 @@ def form_options() -> dict:
     return {
         "languages": [{"code": c, "label": LANGUAGE_NAMES[c]} for c in SOURCE_LANGUAGES],
         "whisper_sizes": list(WHISPER_SIZES),
+        "whisper_exclusions": whisper_models.whisper_language_exclusions(),
         "segment_range": list(SEGMENT_RANGE),
         "overlap_range": list(OVERLAP_RANGE),
         "max_minutes_range": list(MAX_MINUTES_RANGE),
@@ -199,6 +218,8 @@ def form_options() -> dict:
         # The model Start runs when none is chosen, which Settings can change.
         "default_model": engine_registry.effective_default_model(LIVE_DEFAULT_ENGINE),
         "thinking_switch_engines": list(thinking.NO_THINKING_ENGINES),
+        # Per language, only where a better-than-default model is already downloaded.
+        "language_whisper_defaults": _language_whisper_defaults(),
         "defaults": {k: defaults[k].default for k in (
             "source_language", "whisper_size", "segment_seconds", "overlap_seconds",
             "max_minutes", "player_height")},
@@ -442,6 +463,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         raise InvalidInputError(f"source_language must be one of {', '.join(SOURCE_LANGUAGES)}.")
     if whisper_size not in WHISPER_SIZES:
         raise InvalidInputError(f"whisper_size must be one of {', '.join(WHISPER_SIZES)}.")
+    language_problem = whisper_models.whisper_model_language_problem(whisper_size, source_language)
+    if language_problem:
+        raise InvalidInputError(language_problem)
     segment_seconds = int(_num("segment_seconds", segment_seconds, *SEGMENT_RANGE))
     overlap_seconds = _num("overlap_seconds", overlap_seconds, *OVERLAP_RANGE)
     overlap_seconds = min(overlap_seconds, segment_seconds / 2)
@@ -471,7 +495,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                                 "Try again in a moment.")
     engine_name, eng = _build_engine(engine, model)
     translate_run_service.refuse_when_cap_spent(
-        engine_name, bool(settings_service.get("gemini_free_tier")))
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(eng, "model", None))
 
     session_id = f"live_{uuid.uuid4().hex}"
     out_dir = storage.new_workdir(session_id)

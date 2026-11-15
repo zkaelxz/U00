@@ -1,5 +1,6 @@
 /*
- * The header bell: recent finished/failed jobs and new-chapter
+ * The header bell: recent finished/failed jobs, runs waiting for the
+ * person (with an Open link) and new-chapter
  * finds from GET /api/notifications (library.read, so household users away
  * from the PC see it too). The list lives in the server's memory and is
  * lost when the app restarts.
@@ -24,6 +25,7 @@ import { useEventStream } from '../hooks/useEventStream'
 import { usePopoverDismiss } from '../hooks/usePopoverDismiss'
 import type { NotificationItem, NotificationList } from '../types/notifications'
 import { Badge } from './Badge'
+import { ButtonLink } from './Button'
 import {
   EMPTY_TEXT,
   KEPT_NOTE,
@@ -36,6 +38,7 @@ import {
   seenAfter,
   shortAgo,
   startsAtText,
+  targetLink,
   unreadCount,
   writeSeen,
 } from './notificationBellState'
@@ -81,6 +84,32 @@ function StartLiveAction({ followId }: { followId: number }) {
       </button>
       {error && <p className="error notify-text" role="alert">{error}</p>}
     </div>
+  )
+}
+
+// One entry of the panel. A waiting entry's Open link is built here from its
+// typed target: the server never sends a link.
+export function NotificationRow({ item, isNew, onOpen }: { item: NotificationItem; isNew: boolean; onOpen?: () => void }) {
+  const b = kindBadge(item.kind)
+  const open = item.kind === 'waiting' ? targetLink(item.target) : null
+  return (
+    <li className={isNew ? 'notify-item is-new' : 'notify-item'}>
+      <div className="notify-item-meta">
+        <Badge tone={b.tone}>{b.label}</Badge>
+        <time dateTime={isoTime(item.at)}>{capFirst(shortAgo(item.at))}</time>
+        {isNew && <span className="notify-new">New</span>}
+      </div>
+      <p className="notify-text">{plainJobText(item.text)}</p>
+      {startsAtText(item.starts_at) && <p className="notify-text">{startsAtText(item.starts_at)}</p>}
+      {item.action === 'start_live' && typeof item.follow_id === 'number' && <StartLiveAction followId={item.follow_id} />}
+      {open && (
+        <div className="notify-action">
+          <ButtonLink size="sm" href={open.href} title={open.title} onClick={onOpen}>
+            Open
+          </ButtonLink>
+        </div>
+      )}
+    </li>
   )
 }
 
@@ -192,18 +221,19 @@ export function NotificationBell() {
       <button
         ref={button}
         type="button"
-        className="notify-bell-btn"
+        className="notify-bell-btn hb-box"
         aria-label={bellLabel(count)}
         aria-expanded={open}
         aria-controls={panelId}
         onClick={toggle}
       >
-        <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false">
+        <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false">
           <path
             fill="currentColor"
             d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6v-5a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1z"
           />
         </svg>
+        <span className="hb-words" aria-hidden="true">Alerts</span>
         {count > 0 && (
           <span className="notify-count" aria-hidden="true" data-testid="notify-count">
             <Badge tone="accent">{count}</Badge>
@@ -213,28 +243,15 @@ export function NotificationBell() {
       {open && (
         <div className={alignStart ? 'notify-panel align-start' : 'notify-panel'} id={panelId} role="region" aria-labelledby={`${panelId}-title`}>
           <p className="notify-panel-title" id={`${panelId}-title`}>
-            Recent notifications
+            Recent alerts
           </p>
           {items.length === 0 ? (
             <p className="muted notify-empty">{EMPTY_TEXT}</p>
           ) : (
             <ul className="notify-list">
-              {items.map((i) => {
-                const b = kindBadge(i.kind)
-                const isNew = fresh.has(i.id)
-                return (
-                  <li key={i.id} className={isNew ? 'notify-item is-new' : 'notify-item'}>
-                    <div className="notify-item-meta">
-                      <Badge tone={b.tone}>{b.label}</Badge>
-                      <time dateTime={isoTime(i.at)}>{capFirst(shortAgo(i.at))}</time>
-                      {isNew && <span className="notify-new">New</span>}
-                    </div>
-                    <p className="notify-text">{plainJobText(i.text)}</p>
-                    {startsAtText(i.starts_at) && <p className="notify-text">{startsAtText(i.starts_at)}</p>}
-                    {i.action === 'start_live' && typeof i.follow_id === 'number' && <StartLiveAction followId={i.follow_id} />}
-                  </li>
-                )
-              })}
+              {items.map((i) => (
+                <NotificationRow key={i.id} item={i} isNew={fresh.has(i.id)} onOpen={closePanel} />
+              ))}
             </ul>
           )}
           <p className="notify-note">{KEPT_NOTE}</p>

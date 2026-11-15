@@ -16,7 +16,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import { useCancellableEffect } from '../../../../hooks/useCancellableEffect'
 import { useTitleTextLang } from '../../StageContext'
 
-const NO_AUDIO_TO_RETIME = 'This title has no audio to fit the lines to. Add the audio on the Media tab first.'
+const NO_AUDIO_TO_RETIME = 'This title has no audio to fit the lines to. Add the audio on the Transcribe stage first.'
 
 // Lets the Qwen3 forced aligner propose new start/end times for the ticked
 // lines, keeping their words. Nothing is written until "Use this" / "Use all

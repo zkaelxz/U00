@@ -34,6 +34,8 @@ stops at a deadline.
 
 import contextlib
 import datetime
+import hashlib
+import json
 import logging
 import os
 import sqlite3
@@ -74,17 +76,44 @@ _FOLDER_EXISTS = ("A folder for an imported title is already in the library's dr
 _READ_TIME_LIMIT_S = 30
 _IMPORT_TIME_LIMIT_S = 300
 # Every table the import reads from the file; each must be an ordinary table.
-_READ_TABLES = (("dramas", "lines", "series", "bubbles", "app_settings") + drs.CHILD_TABLES
-                + drs.SERIES_CHILDREN)
+_READ_TABLES = (("dramas", "lines", "series", "bubbles", "app_settings", "voice_bank")
+                + drs.CHILD_TABLES + drs.SERIES_CHILDREN)
 # The dramas/lines/characters columns the import treats specially; every
 # other column is copied as is. The coverage test in
 # tests/test_api_backup_import.py fails when a column is in none of the sets.
 FORCED_COLUMNS = {"dramas": {"id", "series_id", "owner_user_id", "is_private", "updated_at"},
-                  "lines": {"id", "drama_id"},
+                  # mark: an unknown value comes in as none (db.settle_copied_marks).
+                  "lines": {"id", "drama_id", "mark"},
                   "characters": {"id", "drama_id", "series_character_id"}}
 IGNORED_COLUMNS = {"dramas": {"notion_page_id"}, "lines": set(), "characters": set()}
 # File references: copied only after sanitising (see the module docstring).
 FILE_COLUMNS = {t: set(cols) for t, cols in drs.IMPORT_FILE_COLUMNS.items()}
+
+
+MAX_VOICE_BANK_ENTRIES = 1000
+_VOICE_BANK_TEXT = {"name": 300, "ref_text": 20_000, "clone_engine": 100, "voice_design": 20_000,
+                    "language": 40, "notes": 20_000, "source_drama": 300, "source_speaker": 300}
+_VOICE_BANK_DIRNAME = "voice_bank"
+# Settings an import may take from the file: the Translation and Preferences
+# pages' own fields. Not the System page (GPU, memory, voice detection: this
+# PC's hardware), not App updates (how this PC's install updates), not a card
+# with its own UI or state the app keeps for itself (no tab), and never a key,
+# a path or anything a whole-library restore keeps from this library.
+_SETTINGS_TABS = ("translation", "preferences")
+_SETTINGS_SKIPPED_SECTIONS = ("App updates",)
+KEYS_NOT_IMPORTED = ("API keys are never in a backup: enter them again in Settings > "
+                     "Translation and keys.")
+
+
+def _importable_settings() -> dict:
+    """{store key: setting key} of the settings an import may take."""
+    from lib import settings_schema
+    from services import library_restore_service as lrs
+    kept = set(lrs._RESTORE_KEPT_APP_SETTINGS)
+    return {st.store_key: st.key for st in settings_schema.SETTINGS
+            if st.store == "db" and st.tab in _SETTINGS_TABS and not st.custom
+            and not st.secret and st.type != "path" and not st.dev_only
+            and st.section not in _SETTINGS_SKIPPED_SECTIONS and st.store_key not in kept}
 
 
 def _save_upload(stream, dest: str):
@@ -170,6 +199,20 @@ class _Backup:
             self.zip_path = upload
         _check_db(self.db_path)
 
+    def voice_bank_clips(self) -> dict:
+        """{clip file name: ZipInfo} of the files under voice_bank/ (plain
+        names only, the only kind the bank reads)."""
+        if self.zip_path is None:
+            return {}
+        out = {}
+        with zipfile.ZipFile(self.zip_path) as zf:
+            for info in zf.infolist():
+                parts = info.filename.replace("\\", "/").split("/")
+                if (len(parts) == 2 and parts[0] == _VOICE_BANK_DIRNAME and parts[1]
+                        and parts[1] not in (".", "..") and not info.is_dir()):
+                    out[parts[1]] = info
+        return out
+
     def media_ids(self) -> set:
         """Old drama ids that have files under dramas/<id>/."""
         if self.zip_path is None:
@@ -233,16 +276,73 @@ def _schema_differs(backup: _Backup) -> bool:
     return False
 
 
+def _voice_bank_rows(backup: _Backup) -> list:
+    """The file's voice bank rows whose clip is in the file, at most
+    MAX_VOICE_BANK_ENTRIES (a database-only backup has no clips, so none)."""
+    clips = backup.voice_bank_clips()
+    if not clips:
+        return []
+    try:
+        with contextlib.closing(_open_db(backup.db_path)) as conn:
+            if not drs.has_table(conn, "voice_bank"):
+                return []
+            rows = drs.table_rows(conn, "voice_bank", "1 ORDER BY id LIMIT ?",
+                                  (MAX_VOICE_BANK_ENTRIES + 1,))
+    except sqlite3.Error:
+        raise InvalidInputError(_BAD_FILE) from None
+    if len(rows) > MAX_VOICE_BANK_ENTRIES:
+        raise InvalidInputError(f"The file's voice bank has more than {MAX_VOICE_BANK_ENTRIES} "
+                                "entries, more than an import takes.")
+    out = []
+    for row in rows:
+        info = clips.get(row.get("clip_filename")) if isinstance(row.get("clip_filename"),
+                                                                 str) else None
+        if info is None or info.file_size > drs._MAX_MEMBER_BYTES:
+            continue
+        entry = {col: (row.get(col) if isinstance(row.get(col), str) else None)
+                 for col in _VOICE_BANK_TEXT}
+        if not (entry["name"] or "").strip() or any(
+                v is not None and len(v) > _VOICE_BANK_TEXT[c] for c, v in entry.items()):
+            continue
+        out.append((entry, info))
+    return out
+
+
+def _settings_rows(backup: _Backup) -> dict:
+    """{setting key: stored value} of the importable settings the file holds."""
+    wanted = _importable_settings()
+    try:
+        with contextlib.closing(_open_db(backup.db_path)) as conn:
+            if not drs.has_table(conn, "app_settings"):
+                return {}
+            marks = ",".join("?" for _ in wanted)
+            rows = conn.execute(f"SELECT key, value FROM app_settings WHERE key IN ({marks})",
+                                list(wanted)).fetchall()
+    except sqlite3.Error:
+        raise InvalidInputError(_BAD_FILE) from None
+    out = {}
+    for key, value in rows:
+        if not isinstance(value, str) or len(value) > _MAX_VALUE_BYTES:
+            continue
+        try:
+            out[wanted[key]] = json.loads(value)
+        except (ValueError, RecursionError):
+            continue
+    return out
+
+
 def list_backup_dramas(stream) -> dict:
     """The dramas inside an uploaded backup file: {kind ("zip" | "database"),
-    media_available, schema_differs, dramas: [{id, title, media_type,
-    line_count, has_media}]}. Touches nothing."""
+    media_available, schema_differs, voice_bank_entries, settings_available,
+    dramas: [{id, title, media_type, line_count, has_media}]}. Touches nothing."""
     with storage.job_workdir("backup_import") as tmp:
         backup = _Backup(tmp, stream)
         dramas = _drama_summaries(backup)
         return {"kind": "zip" if backup.zip_path else "database",
                 "media_available": any(d["has_media"] for d in dramas),
-                "schema_differs": _schema_differs(backup), "dramas": dramas}
+                "schema_differs": _schema_differs(backup),
+                "voice_bank_entries": len(_voice_bank_rows(backup)),
+                "settings_available": bool(_settings_rows(backup)), "dramas": dramas}
 
 
 def _check_ids(drama_ids) -> list:
@@ -300,14 +400,45 @@ def _live_titles() -> set:
             for d in db.list_dramas()}
 
 
-def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=None) -> dict:
+def _joinable_series(src, ids, principal, owner_user_id) -> dict:
+    """{series name: live series id} for each series of the chosen dramas
+    whose name a live series has and that the importer may put a title in
+    (ownership_service.check_series_assignment); any other comes in new."""
+    marks = ",".join("?" for _ in ids)
+    names = {r[0] for r in src.execute(
+        f"SELECT s.name FROM series s JOIN dramas d ON d.series_id = s.id "
+        f"WHERE d.id IN ({marks})", ids) if isinstance(r[0], str) and r[0]}
+    out = {}
+    for name in names:
+        live_id = db.get_series_id_by_name(name)
+        if live_id is None:
+            continue
+        try:
+            out[name] = ownership_service.check_series_assignment(principal, live_id,
+                                                                  owner_user_id)
+        except ServiceError:
+            continue
+    return out
+
+
+def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=None,
+                  join_series=False, voice_bank=False, settings=False) -> dict:
     """Imports the chosen dramas (ids inside the file, as listed by
     list_backup_dramas) as new dramas. Needs confirm=True and confirm_text
     "RESTORE"; refused while a backup, export, restore or cleanup holds the
     library. All chosen dramas are imported or none. A drama whose title
     matches one already here is titled "... (restored <date>)".
+    join_series: a series whose name a series here has (and that the
+    importer may use) is merged into that one instead of coming back as
+    "... (imported <date>)" (drama_restore_service._merge_into_series).
+    voice_bank: the file's voice bank entries whose clip it holds are added
+    (one already here with the same name and clip is skipped). settings: the
+    file's _importable_settings replace this library's, each one checked as
+    a Settings write is (one that fails is left as it is); applied after the
+    titles are in, so a settings failure never undoes the import.
     Returns {imported: [{source_id, drama_id, title, media_imported}],
-    series_created, media_imported, counts}."""
+    series_created, series_joined, media_imported, voice_bank_imported,
+    settings_imported, notes, counts}."""
     ids = _check_ids(drama_ids)
     las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Importing titles")
     if abs_.job_running():
@@ -325,8 +456,15 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                     if any(i not in present for i in ids):
                         raise NotFoundError("A chosen title isn't in that file.")
                     _check_row_limits(src, ids)
+                    join = (_joinable_series(src, ids, principal, _import_owner(principal))
+                            if join_series else {})
             except sqlite3.Error:
                 raise InvalidInputError(_BAD_FILE) from None
+            bank = _voice_bank_rows(backup) if voice_bank else []
+            if bank and not las.has_disk_room(db.VOICE_BANK_DIR if os.path.isdir(
+                    db.VOICE_BANK_DIR) else db.LIBRARY_DIR, sum(i.file_size for _, i in bank)):
+                raise InvalidInputError("Not enough free disk space for the voice bank's clips.")
+            wanted_settings = _settings_rows(backup) if settings else None
             if backup.zip_path is not None:
                 media = backup.media_ids() & set(ids)
                 try:
@@ -338,26 +476,108 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                                 stagings[did] = drs.stage_media(zf, did, staging)
                 except (OSError, zipfile.BadZipFile):
                     raise InvalidInputError(_BAD_FILE) from None
-            return _import_from(backup.db_path, ids, stagings, staging, principal)
+            result = _import_from(backup.db_path, ids, stagings, staging, principal, join,
+                                  (backup.zip_path, bank))
         finally:
             if staging is not None:
                 drs.end_media_staging(staging)
+    result["settings_imported"] = (0 if wanted_settings is None
+                                   else _apply_settings(wanted_settings))
+    result["notes"] = [KEYS_NOT_IMPORTED] if wanted_settings is not None else []
+    return result
 
 
-def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
-    """Inserts the dramas in one transaction, then moves their staged
-    folders (in `staging`) into dramas/<new id>, then commits: the commit is
-    the commit point (see db's media journal)."""
+def _apply_settings(values: dict) -> int:
+    """Writes each value through settings_service.set_settings, the Settings
+    page's own checks; one it refuses is left as this library has it."""
+    from services import settings_service
+    applied = 0
+    for key, value in values.items():
+        try:
+            settings_service.set_settings({key: value})
+            applied += 1
+        except (ServiceError, TypeError, ValueError):
+            log.info("Import: setting %s from the file was not applied", key)
+    return applied
+
+
+def _file_sha256(path: str):
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def _import_voice_bank(dst, zip_path, bank, written: list) -> int:
+    """Adds the bank entries inside the caller's transaction, each clip under
+    a new name in the voice bank folder (never over a file there); `written`
+    collects those files so a rolled-back import removes them."""
+    if not bank:
+        return 0
+    import uuid
+    os.makedirs(db.VOICE_BANK_DIR, exist_ok=True)
+    live = {}
+    for name, clip in dst.execute("SELECT name, clip_filename FROM voice_bank"):
+        path = db.voice_bank_clip_path(clip)
+        if path is not None:
+            live.setdefault(name, set()).add(_file_sha256(path))
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    added = 0
+    with zipfile.ZipFile(zip_path) as zf:
+        for entry, info in bank:
+            ext = os.path.splitext(info.filename)[1][:16]
+            if not ext.isascii() or not all(c.isalnum() or c == "." for c in ext):
+                ext = ""
+            clip = f"{uuid.uuid4().hex}{ext}"
+            dest = os.path.join(db.VOICE_BANK_DIR, clip)
+            written.append(dest)
+            digest = hashlib.sha256()
+            with zf.open(info) as src, open(dest, "xb") as out:
+                for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                    out.write(chunk)
+            if digest.hexdigest() in live.get(entry["name"], ()):
+                os.remove(dest)
+                written.remove(dest)
+                continue
+            live.setdefault(entry["name"], set()).add(digest.hexdigest())
+            dst.execute("INSERT INTO voice_bank (name, clip_filename, ref_text, clone_engine, "
+                        "voice_design, language, notes, source_drama, source_speaker, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (entry["name"], clip, entry["ref_text"], entry["clone_engine"],
+                         entry["voice_design"], entry["language"], entry["notes"],
+                         entry["source_drama"], entry["source_speaker"], now))
+            added += 1
+    return added
+
+
+def _import_owner(principal):
+    """The owner an imported title gets: the importer, or the PC owner (None)
+    when that account isn't in this library."""
+    owner = ownership_service.new_item_defaults(principal)["owner_user_id"]
+    with contextlib.closing(db.get_conn()) as conn:
+        known = conn.execute("SELECT 1 FROM users WHERE id = ?", (owner,)).fetchone()
+    return owner if known else None
+
+
+def _import_from(snap_db, ids, stagings, staging, principal, join=None, bank=(None, ())) -> dict:
+    """Inserts the dramas (and `bank`, (zip path, _voice_bank_rows)) in one
+    transaction, then moves their staged folders (in `staging`) into
+    dramas/<new id>, then commits: the commit is the commit point (see db's
+    media journal)."""
     defaults = ownership_service.new_item_defaults(principal)
-    imported, folders, totals = [], {}, {}
+    imported, folders, totals, clips = [], {}, {}, []
     today = datetime.date.today().isoformat()
     titles = _live_titles()   # before dst opens: db helpers close the connection they use
     with contextlib.closing(_open_db(snap_db, _IMPORT_TIME_LIMIT_S)) as src, \
             contextlib.closing(db.get_conn()) as dst:
-        users = {r[0] for r in dst.execute("SELECT id FROM users")}
-        owner = defaults["owner_user_id"]
-        import_as = {"owner_user_id": owner if owner in users else None,
-                     "is_private": defaults["is_private"], "series": {}, "media_dir": None}
+        import_as = {"owner_user_id": _import_owner(principal),
+                     "is_private": defaults["is_private"], "series": {}, "media_dir": None,
+                     "join": join or {}}
         try:
             dst.execute("BEGIN IMMEDIATE")
             drs.refuse_newer_copy(src)
@@ -379,11 +599,15 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
                     totals[key] = totals.get(key, 0) + n
                 imported.append({"source_id": old_id, "drama_id": live_id, "title": str(shown),
                                  "media_imported": staged is not None})
+            bank_added = _import_voice_bank(dst, bank[0], bank[1], clips)
             if folders:
                 drs.move_media_in(staging, folders, _FOLDER_EXISTS)
             dst.commit()
         except BaseException as exc:
             dst.rollback()
+            for path in clips:
+                with contextlib.suppress(OSError):
+                    os.remove(path)
             if staging is not None and not drs.end_media_staging(staging):
                 raise ServiceError("The titles were not imported, but some of their files could "
                                    "not be cleaned up and are still in the library's titles "
@@ -401,6 +625,8 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
             + ",".join(str(i["drama_id"]) for i in imported))
     except Exception:
         log.warning("Could not write the audit entry for a drama import")
-    return {"imported": imported, "series_created": len(import_as["series"]),
+    joined = len(import_as.get("joined", ()))
+    return {"imported": imported, "series_created": len(import_as["series"]) - joined,
+            "series_joined": joined, "voice_bank_imported": bank_added,
             "media_imported": sum(1 for i in imported if i["media_imported"]),
             "counts": totals}

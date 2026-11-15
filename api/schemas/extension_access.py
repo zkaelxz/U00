@@ -20,6 +20,7 @@ __all__ = [
     "DeviceToken",
     "DeviceTokenList",
     "DeviceTokenCreateRequest",
+    "AdminDeviceTokenCreateRequest",
     "DeviceTokenCreated",
     "DeviceTokenRevoked",
     "AdminDeviceToken",
@@ -28,6 +29,7 @@ __all__ = [
     "MemberKeySaveRequest",
     "MemberKeyRemoved",
     "MemberPaidLimitRequest",
+    "AdminAddUserRequest",
     "NotificationChannel",
     "NotificationOutcome",
     "NotificationStatus",
@@ -35,6 +37,7 @@ __all__ = [
     "NotificationChannelClearRequest",
     "NotificationChannelResult",
     "NotificationTestResult",
+    "NotificationTarget",
 ]
 
 
@@ -112,6 +115,11 @@ class DeviceTokenCreateRequest(BaseModel):
     expires_in_days: Optional[StrictInt] = Field(90, ge=1, le=365)
 
 
+class AdminDeviceTokenCreateRequest(DeviceTokenCreateRequest):
+    # The admin account the device is for; omitted, the only active admin.
+    user_id: Optional[StrictInt] = Field(None, ge=1)
+
+
 class DeviceTokenCreated(BaseModel):
     """`token` is shown this once and can't be read again."""
     token: str
@@ -156,6 +164,14 @@ class MemberPaidLimitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     monthly_cap_usd: Optional[float] = Field(..., gt=0, le=100000, strict=True)
 
+
+class AdminAddUserRequest(BaseModel):
+    """People > Add a person. The service checks the email's shape."""
+    model_config = ConfigDict(extra="forbid")
+    email: StrictStr = Field(..., min_length=3, max_length=254)
+    display_name: StrictStr = Field("", max_length=100)
+    extension_send: StrictBool = False
+
 # --- Job notifications (Discord / ntfy) ---------------------------------------
 NotificationChannel = Literal["discord", "ntfy"]
 
@@ -189,3 +205,13 @@ class NotificationChannelResult(BaseModel):
 
 class NotificationTestResult(BaseModel):
     results: Dict[NotificationChannel, NotificationOutcome]
+
+
+class NotificationTarget(BaseModel):
+    """Where a "waiting" bell entry's Open goes: a page and the one id it needs
+    (notification_service.clean_target). Never a URL or path; the app builds
+    the link."""
+    model_config = ConfigDict(extra="forbid")
+    page: Literal["glossary", "review", "series", "jobs"]
+    drama_id: Optional[StrictInt] = Field(None, ge=1)
+    series_id: Optional[StrictInt] = Field(None, ge=1)

@@ -75,8 +75,8 @@ jobs:
     timeout-minutes: 15
     env:
       # go.dev's published hash for this archive (the same Go as tests.yml's caddy job).
-      GO_URL: "https://go.dev/dl/go1.26.10.linux-amd64.tar.gz"
-      GO_SHA256: "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
+      GO_URL: "https://go.dev/dl/go1.26.11.linux-amd64.tar.gz"
+      GO_SHA256: "9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

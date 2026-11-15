@@ -1,7 +1,11 @@
 // Static registry behind Settings search, the tab bar and each card's starting state. Every card on the
 // page belongs to exactly one tab and needs an entry (a test enforces both); notable fields get their own
 // entry so "ollama" finds the card that holds them.
-export type SettingsTab = 'translation' | 'costs' | 'notifications' | 'sharing' | 'integrations' | 'system'
+import type { DiagnosticsCard } from '../diagnostics/diagnosticsTabs'
+import type { LibraryToolsTab } from '../libraryTools/libraryToolsTabs'
+import type { AdminCard, Route } from '../../router'
+
+export type SettingsTab = 'translation' | 'costs' | 'transcription' | 'connections' | 'updates' | 'account' | 'advanced'
 
 // Each tab starts with only its first card open until the person folds things their own way, so a tab
 // reads as a list of one-line summaries with one card to start from.
@@ -10,9 +14,10 @@ type SettingsCardSpec = { id: string }
 export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCardSpec[] }[] = [
   {
     id: 'translation',
-    label: 'Translation and keys',
+    label: 'Engines and keys',
     cards: [
       { id: 'engine-routing' },
+      { id: 'server-addresses' },
       { id: 'defaults' },
       { id: 'language-packs' },
       { id: 'quick-video' },
@@ -28,21 +33,37 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     ],
   },
   {
-    id: 'notifications',
-    label: 'Notifications and backups',
+    id: 'transcription',
+    label: 'Transcription and jobs',
     cards: [
-      { id: 'notifications' },
-      { id: 'auto-backup' },
-      { id: 'save-folder' },
-      { id: 'app-updates' },
+      { id: 'performance' },
+      { id: 'timing-splitting' },
+      { id: 'transcription-experiments' },
     ],
   },
   {
-    id: 'sharing',
-    label: 'Account and display',
+    id: 'connections',
+    label: 'Connections',
+    cards: [
+      { id: 'notifications' },
+      { id: 'jellyfin' },
+      { id: 'web-search' },
+      { id: 'inbox' },
+      { id: 'extension' },
+    ],
+  },
+  {
+    id: 'updates',
+    label: 'Updates',
+    cards: [
+      { id: 'updates' },
+    ],
+  },
+  {
+    id: 'account',
+    label: 'My account and look',
     cards: [
       { id: 'sharing' },
-      { id: 'source-update' },
       { id: 'display' },
       { id: 'customize-menu' },
       { id: 'devices' },
@@ -51,23 +72,10 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     ],
   },
   {
-    id: 'integrations',
-    label: 'Integrations',
+    id: 'advanced',
+    label: 'Advanced',
     cards: [
-      { id: 'jellyfin' },
-      { id: 'web-search' },
-      { id: 'inbox' },
-      { id: 'extension' },
-    ],
-  },
-  {
-    id: 'system',
-    label: 'Performance and advanced',
-    cards: [
-      { id: 'performance' },
       { id: 'advanced' },
-      { id: 'timing-splitting' },
-      { id: 'transcription-experiments' },
       { id: 'developer-mode' },
     ],
   },
@@ -76,8 +84,8 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 // Cards whose every action is a PC-only call (the settings POSTs are local_only): away from the PC
 // the page leaves them out instead of showing a "Run this on the main PC." note.
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
-  'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
-  'notifications', 'auto-backup', 'save-folder', 'app-updates',
+  'server-addresses', 'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
+  'notifications',
   'jellyfin', 'web-search', 'inbox', 'extension',
   'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
@@ -94,6 +102,7 @@ const e = (cardId: string, label: string, keywords = ''): SettingsEntry => ({ ca
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
   e('engine-routing', 'Which engine does what', 'engines keys api key test gemini openai deepl routing'),
+  e('server-addresses', 'Server addresses', 'ollama url server address endpoint local model'),
   e('defaults', 'Translation style', 'english variant locale style note default'),
   e('language-packs', 'Language packs', 'honorifics address terms kinship set phrases glossary built-in defaults'),
   e('quick-video', 'Quick video translate', 'link profile one button download watch once translation profile'),
@@ -104,12 +113,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('notifications', 'Notifications', 'alerts channels push email discord telegram webhook'),
   e('notifications', 'Notify when a job finishes', 'notify me completion'),
-  e('auto-backup', 'Automatic backups', 'backup copies schedule frequency'),
-  e('save-folder', 'Save folder', 'comic manga downloads folder'),
-  e('app-updates', 'App updates', 'version upgrade release'),
+  e('updates', 'Updates', 'app updates version upgrade release phone app android apk packages python pip outdated'),
+  e('updates', 'Update Baihe', 'upgrade restart git latest version check'),
+  e('updates', 'Browser extension update', 'reload out of date older copy'),
 
   e('sharing', 'Sharing', 'share new items household library'),
-  e('source-update', 'Update Baihe', 'upgrade restart git latest version check'),
   e('display', 'Display', 'page width layout wide full text size font zoom bigger smaller density compact comfortable spacing tight style soft frost'),
   e('customize-menu', 'Menu items', 'customize menu navigation hide pages order'),
   e('devices', 'Signed-in devices', 'sessions sign out'),
@@ -124,8 +132,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('performance', 'Jobs and GPU', 'performance gpu use gpu limit jobs at once parallel free local-model memory unload ollama graphics'),
   e('performance', 'Resume interrupted batches', 'batch resume bulk auto resume startup translation batches'),
   e('performance', 'Keep free memory', 'vram ram graphics reserve other programs'),
-  e('advanced', 'Offline, paths and limits', 'advanced ocr offline models downloads uploads server addresses'),
-  e('advanced', 'Ollama URL', 'ollama server address endpoint local model'),
+  e('advanced', 'Offline, paths and limits', 'advanced ocr offline models downloads uploads'),
   e('advanced', 'Ollama context window', 'num_ctx tokens offline'),
   e('advanced', 'Offline Whisper model folder', 'faster-whisper hugging face'),
   e('advanced', 'OCR backend', 'tesseract paddleocr manga_ocr'),
@@ -159,6 +166,54 @@ export function filterSettings(query: string, available: ReadonlySet<string>): S
     }
   }
   return { cardIds, counts, total: cardIds.size }
+}
+
+// Setup that lives on Diagnostics, Library tools or People and access rather than here. Search lists it as a link, so a
+// person who looks for "models" or "backup" in Settings is sent to the page that has it.
+type ElsewhereEntry = { label: string; page: 'Diagnostics' | 'Library tools' | 'People and access'; to: Route; keywords: string; requires: 'admin.diagnostics' | 'admin.users.read' | 'library.read'; pcOnly: boolean }
+
+const diag = (card: DiagnosticsCard, label: string, keywords: string): ElsewhereEntry =>
+  ({ label, page: 'Diagnostics', to: { name: 'diagnostics', card }, keywords, requires: 'admin.diagnostics', pcOnly: true })
+const tools = (tab: LibraryToolsTab, label: string, keywords: string, pcOnly = false): ElsewhereEntry =>
+  ({ label, page: 'Library tools', to: { name: 'library-tools', tab }, keywords, requires: 'library.read', pcOnly })
+
+const people = (card: AdminCard, label: string, keywords: string, pcOnly = false): ElsewhereEntry =>
+  ({ label, page: 'People and access', to: { name: 'admin', card }, keywords, requires: 'admin.users.read', pcOnly })
+
+export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
+  diag('recommended', 'Recommended installs', 'install setup first run packages'),
+  diag('packages', 'Packages', 'install python package dependency missing'),
+  diag('ffmpeg', 'ffmpeg', 'video audio install'),
+  diag('cuda-runtime', 'CUDA runtime for GPU Whisper', 'gpu cuda nvidia whisper install'),
+  diag('models', 'Models', 'models download whisper ollama local model offline'),
+  diag('model-status', 'Model status', 'models health working check'),
+  diag('loaded-models', 'Loaded models', 'models memory vram gpu unload ollama'),
+  diag('process-memory', 'Memory by process', 'memory ram vram gpu'),
+  diag('test-models', 'Test my models', 'models test check'),
+  diag('ports', 'Ports', 'port address network server'),
+  diag('log', 'Log', 'log errors app log'),
+  tools('organize', 'Series and presets', 'series presets organize'),
+  tools('voices', 'Voices', 'voices voice bank dubbing tts clone'),
+  tools('activity', 'Activity', 'activity history log jobs'),
+  tools('backup', 'Backups: schedule, back up now, restore', 'backup restore copy automatic backups schedule frequency copies', true),
+  tools('organize', 'Save folder', 'comic manga downloads folder saved chapters cbz', true),
+  tools('storage', 'Storage', 'disk space storage size cleanup', true),
+  tools('data', 'Data folder', 'data folder location move library path', true),
+  people('people', 'Sign-in accounts', 'people users members accounts household invite password role permissions admin sign in login'),
+  people('activity', 'Activity log', 'audit log who did what history'),
+  people('address', 'Public address check', 'remote access address tunnel cdn url away outside home internet'),
+  people('uploads', 'Uploads from away', 'allow uploads from away remote upload admin 7 days', true),
+  people('pc-profiles', 'PC profiles', 'guest owner pin hide private titles brothers lock', true),
+]
+
+/** Same word rule as filterSettings; `allowed` drops what this person or device cannot open. */
+export function filterElsewhere(query: string, allowed: (entry: ElsewhereEntry) => boolean): ElsewhereEntry[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return []
+  return ELSEWHERE_INDEX.filter((entry) => {
+    const hay = `${entry.label} ${entry.page} ${entry.keywords}`.toLowerCase()
+    return allowed(entry) && words.every((w) => hay.includes(w))
+  })
 }
 
 export const settingsCardKey = (cardId: string) => `settings.card.${cardId}`

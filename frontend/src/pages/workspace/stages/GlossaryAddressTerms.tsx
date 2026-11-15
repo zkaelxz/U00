@@ -55,7 +55,7 @@ export function AddressTermsPanel({ onAdded }: { onAdded: () => void }) {
           type="button"
           className={buttonClass('secondary')}
           disabled={loading}
-          title="Counts forms of address such as 姐姐, さん or 오빠 in the source lines. Free; nothing is changed."
+          title="Count forms of address (姐姐, さん, 오빠). Free; changes nothing."
           onClick={scan}
         >
           {loading ? 'Looking…' : result ? 'Look again' : 'Find address terms'}

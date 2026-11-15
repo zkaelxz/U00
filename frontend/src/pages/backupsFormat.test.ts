@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
 import type { AutoBackupSettings, RestoreDramaDone, SnapshotCopy, SnapshotDrama, SnapshotInfo } from '../types/backups'
 import {
-  CHOOSE_COPY_TEXT, FOLDER_RULES, changedSettings, chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot,
+  BACKUP_PROBLEM_TEXT, CHOOSE_COPY_TEXT, FOLDER_RULES, changedSettings, chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot,
   filterSnapshotDramas, folderChange, formatWhen, initialRestoreCopy, isManaged, isoDay, nextRunText, serverSentence,
-  settingsSummary, snapshotFacts, snapshotKindLabel, splitCopies, restoreNotes,
+  snapshotFacts, snapshotKindLabel, splitCopies, restoreNotes,
 } from './backupsFormat'
 
 const UTC = { locale: 'en-GB', timeZone: 'UTC' }
@@ -16,7 +16,7 @@ const snap = (o: Partial<SnapshotInfo>): SnapshotInfo => ({
 })
 
 const SETTINGS: AutoBackupSettings = {
-  copies: [], last_note: null, enabled: false, frequency: 'weekly', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
+  copies: [], last_note: null, enabled: false, frequency: 'weekly', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'], same_drive_as_library: true, problem: null,
   last_run_at: null, last_attempt_at: null, last_error: null, next_run_at: null, running: false,
 }
 
@@ -46,12 +46,6 @@ describe('dates and snapshot lines', () => {
     expect(describeSnapshot(snap({ exists: true, readable: false }))).toMatch(/can't be read/)
     expect(describeSnapshot(SNAP, UTC)).toBe('28 Sept 2026, 09:30 · Database only · 12.3 MB · 3 titles')
     expect(snapshotFacts(snap({ exists: true, kind: 'full', size: 900, drama_count: 1 }))).toBe('Database + media · 900 B · 1 title')
-  })
-
-  it('summarises the settings for the Card header', () => {
-    expect(settingsSummary(SETTINGS)).toBe('Off')
-    expect(settingsSummary({ ...SETTINGS, enabled: true })).toBe('Weekly · database only')
-    expect(settingsSummary({ ...SETTINGS, enabled: true, frequency: 'daily', include_media: true })).toBe('Daily · with media')
   })
 
   it('says when the next backup runs, or that it is due', () => {
@@ -218,5 +212,11 @@ describe('restore one title', () => {
     expect(describeRestore({ ...r, owners_reassigned: 2, copy_has_accounts: false, skipped_tables: [] }))
       .toContain('This copy holds no accounts, so 2 owners went to the PC owner.')
     expect(describeRestore({ ...r, owners_reassigned: 0, skipped_tables: [] })).not.toContain('owner')
+  })
+})
+
+describe('backup problem text', () => {
+  it('has a sentence for every problem the server can report', () => {
+    expect(Object.keys(BACKUP_PROBLEM_TEXT).sort()).toEqual(['failing', 'stale'])
   })
 })

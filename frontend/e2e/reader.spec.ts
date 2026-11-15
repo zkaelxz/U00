@@ -35,6 +35,18 @@ with contextlib.closing(db.get_conn()) as c:
 const frameRows = (page: Page) => page.frameLocator('iframe.reader-frame').locator('.line-row')
 const label = (page: Page) => page.getByTestId('reader-page-label').first()
 
+// Turning Edit on reloads the page frame. That frame is sandboxed, so Chromium
+// gives it its own process, and a click sent before the new document has
+// painted goes to the app page instead of the pencil. Two animation frames
+// inside the frame mean it has drawn, as it has before a person can tap it.
+async function turnOnEdit(page: Page) {
+  await page.getByTestId('reader-edit-toggle').click()
+  const frame = page.frameLocator('iframe.reader-frame')
+  await expect(frame.locator('.edit-btn')).toHaveCount(40)
+  await frame.locator('body').evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))))
+  return frame
+}
+
 const engines = (items: { name: string; free: boolean }[]) => (route: import('@playwright/test').Route) =>
   route.fulfill({
     json: { items: items.map((e) => ({ ...e, label: e.name, models: null, key_configured: true })) },
@@ -66,6 +78,25 @@ test('opens at page 1, pages forward and updates ?page', async ({ page }) => {
   for (const t of ['Watch / listen', 'Vocabulary', 'Glossary']) {
     await expect(page.locator('summary', { hasText: t })).toHaveCount(0)
   }
+})
+
+test('the chapter list searches, shows translated state and jumps to the chapter page', async ({ page }) => {
+  const chapter = (number: number, title: string, first_idx: number, line_count: number, translated: number) =>
+    ({ number, title, title_en: number === 2 ? 'The Fox' : '', part: 'Volume 1', first_idx, line_count, translated, reviewed: number === 1 ? 50 : 0 })
+  await page.route('**/api/novel/dramas/2/line-chapters', (route) => route.fulfill({
+    json: { drama_id: 2, source: 'lines', total_lines: 90, chapters: [chapter(1, 'Start', 0, 50, 50), chapter(2, 'Fox', 50, 40, 10)] },
+  }))
+  await page.goto('/#/read/2?page=1')
+  await page.getByRole('button', { name: '1. Start' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Chapters' })
+  await expect(sheet.getByText('10 of 40 translated')).toBeVisible()
+  await expect(sheet.getByText('Translated, reviewed')).toBeVisible()
+  await expect(sheet.getByText('Volume 1', { exact: true })).toHaveCount(1)
+  await expect(sheet.getByText('The Fox')).toBeVisible()
+  await sheet.getByLabel('Search chapters').fill('fox')
+  await expect(sheet.getByText('Translated', { exact: true })).toHaveCount(0)
+  await sheet.getByRole('button', { name: /2\. Fox/ }).click()
+  await expect(page).toHaveURL(/page=2$/)
 })
 
 test('the page opened at its own URL runs its scripts in an opaque origin, not the app’s', async ({ page }) => {
@@ -139,7 +170,7 @@ test('resumes at the saved page and saves progress', async ({ page }) => {
 test('an empty title says so and links to Source', async ({ page }) => {
   await page.goto('/#/read/1')
   await expect(page.getByText('No lines to read yet.')).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Add lines on Media' })).toHaveAttribute('href', '#/drama/1/source')
+  await expect(page.getByRole('link', { name: 'Add lines on Transcribe' })).toHaveAttribute('href', '#/drama/1/source')
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
@@ -151,6 +182,18 @@ test('the library detail panel links to the reader', async ({ page }) => {
   await page.getByRole('dialog', { name: "Heaven Official's Blessing" }).getByRole('link', { name: 'Read', exact: true }).click()
   await expect(page).toHaveURL(/#\/read\/2/)
   await expect(label(page)).toHaveText('Page 1 of 3')
+})
+
+test('a title with a video to play has the Watch / listen fold, closed until it is opened', async ({ page }) => {
+  await page.route('**/api/reader/dramas/2/media', (r) => r.fulfill({ json: { original: 'video', narration: false, caption_tracks: [] } }))
+  const player = page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Watch / listen' }) })
+  await page.goto('/#/read/2')
+  await expect(label(page)).toHaveText('Page 1 of 3')
+  await expect(player).toHaveCount(1)
+  await expect(player).not.toHaveAttribute('open')
+  await player.locator('summary').click()
+  await expect(player).toHaveAttribute('open', '')
+  await expect(player.locator('video')).toBeVisible()
 })
 
 test('a Reading history name resumes reading', async ({ page }) => {
@@ -480,9 +523,7 @@ test('the pencil edits one line and the page shows the new text', async ({ page 
   await expect(frameRows(page)).toHaveCount(40)
   await expect(page.frameLocator('iframe.reader-frame').locator('.edit-btn')).toHaveCount(0)
 
-  await page.getByTestId('reader-edit-toggle').click()
-  const frame = page.frameLocator('iframe.reader-frame')
-  await expect(frame.locator('.edit-btn')).toHaveCount(40)
+  const frame = await turnOnEdit(page)
   await frame.locator('#ln2 .edit-btn').click()
 
   const box = page.getByTestId('reader-edit-box')
@@ -501,8 +542,7 @@ test('saving unchanged text sends nothing, and Escape closes the box', async ({ 
   })
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
-  await page.getByTestId('reader-edit-toggle').click()
-  const frame = page.frameLocator('iframe.reader-frame')
+  const frame = await turnOnEdit(page)
   await frame.locator('#ln1 .edit-btn').click()
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByTestId('reader-edit-box')).toHaveCount(0)
@@ -516,8 +556,7 @@ test('saving unchanged text sends nothing, and Escape closes the box', async ({ 
 test('an open draft is kept when another pencil is clicked', async ({ page }) => {
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
-  await page.getByTestId('reader-edit-toggle').click()
-  const frame = page.frameLocator('iframe.reader-frame')
+  const frame = await turnOnEdit(page)
   await frame.locator('#ln1 .edit-btn').click()
   await page.getByTestId('reader-edit-box').fill('My draft')
   await frame.locator('#ln3 .edit-btn').click()
@@ -535,8 +574,8 @@ test('a save over text that changed meanwhile is refused and the page reloads', 
   })
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)
-  await page.getByTestId('reader-edit-toggle').click()
-  await page.frameLocator('iframe.reader-frame').locator('#ln2 .edit-btn').click()
+  const frame = await turnOnEdit(page)
+  await frame.locator('#ln2 .edit-btn').click()
   await page.getByTestId('reader-edit-box').fill('Mine')
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'Lines changed since this page loaded' })).toBeVisible()

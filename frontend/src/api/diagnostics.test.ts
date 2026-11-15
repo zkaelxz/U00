@@ -92,10 +92,10 @@ describe('diagnostics api', () => {
   })
 
   it('model file delete names the folder and file, PC only', async () => {
-    const { mock, f } = reply(200, { deleted: true, name: 'htdemucs.th' })
-    await deleteModelFile('torch', 'htdemucs.th', f)
+    const { mock, f } = reply(200, { deleted: true, name: 'model.pt' })
+    await deleteModelFile('torch', 'model.pt', f)
     const [url, init] = mock.mock.calls[0]
-    expect(url).toBe('/api/diagnostics/model-cache/files/torch/htdemucs.th/delete')
+    expect(url).toBe('/api/diagnostics/model-cache/files/torch/model.pt/delete')
     expect(JSON.parse(init.body)).toEqual({ confirm: true })
     expect(localHeader(init)).toBe('1')
   })

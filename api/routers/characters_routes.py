@@ -16,7 +16,7 @@ from typing import List
 
 from fastapi import APIRouter, Path, Request
 from api.auth import principal_user_id, require_permission
-from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersRememberRequest,
+from api.schemas import (CastApplyRequest, CastApplyResult, CastProposal, CharactersCloneEngines, CharactersEntry, CharactersRememberRequest,
                          CharactersRememberResult, CharactersRenameRequest,
                          CharactersMergeRequest, CharactersMergeResult, CharactersSetLineSpeakerRequest,
                          CharactersSpeakerChangeResult, CharactersSpeakerChangeUndoRequest,
@@ -26,7 +26,7 @@ from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersReme
                          CharactersVoiceBankEntry, CharactersVoiceSuggestion,
                          CharactersVoiceSuggestionRequest, CharactersVoiceSuggestionResult,
                          error_responses)
-from services import characters_service
+from services import characters_service, novel_cast_service
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
 
@@ -36,6 +36,22 @@ router = APIRouter(prefix="/api/characters", tags=["characters"])
             responses=error_responses(404))
 def get_characters(drama_id: int = Path(ge=1)):
     return characters_service.list_characters(drama_id)
+
+
+@router.get("/dramas/{drama_id}/cast-proposal", dependencies=[require_permission("library.read", "lines.read")],
+            response_model=CastProposal,
+            summary="The people the glossary scan found, with the pronouns it read, for approval",
+            responses=error_responses(404))
+def get_cast_proposal(drama_id: int = Path(ge=1)):
+    return novel_cast_service.proposal(drama_id)
+
+
+@router.post("/dramas/{drama_id}/cast-proposal/apply", dependencies=[require_permission("lines.edit")],
+             response_model=CastApplyResult,
+             summary="Set the chosen pronouns where none are set (never replaces existing ones)",
+             responses=error_responses(404, 422))
+def post_cast_proposal_apply(payload: CastApplyRequest, drama_id: int = Path(ge=1)):
+    return novel_cast_service.apply(drama_id, [p.model_dump() for p in payload.people])
 
 
 @router.post("/dramas/{drama_id}/character", dependencies=[require_permission("lines.edit")], response_model=CharactersEntry,

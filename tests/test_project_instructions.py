@@ -138,3 +138,85 @@ class TestTermConventions:
                                        project_instructions=self.TEXT)
         ges.start_novel_glossary_run(did)
         assert seen["conventions"] == "- sects: translate\n- names: pinyin"
+
+
+class TestNovelGlossaryReplyCleaning:
+    WINDOW = "戚聞溪看了他一眼，她笑了。阿姨端來茶。"
+
+    def _clean(self, entries):
+        import translation_guide as tguide
+        return tguide._clean_window_entries(entries, self.WINDOW)
+
+    def test_a_term_not_copied_from_the_excerpt_is_dropped(self):
+        kept = self._clean([{"term": "戚闻溪"}, {"term": "戚聞溪"}, {"term": ""}, "x"])
+        assert [e["term"] for e in kept] == ["戚聞溪"]
+
+    def test_a_pronoun_needs_a_quote_from_the_excerpt(self):
+        kept = self._clean([
+            {"term": "戚聞溪", "reason": "she/her, a student", "evidence": "她笑了"},
+            {"term": "阿姨", "reason": "he/him", "evidence": "不在文中"},
+            {"term": "茶", "reason": "She/her", "evidence": ""},
+        ])
+        assert kept[0]["reason"] == "she/her, a student"
+        assert kept[1]["reason"] == "unclear"
+        assert kept[2]["reason"] == "unclear"
+
+    def test_a_quote_without_a_pronoun_or_title_does_not_support_a_gender(self):
+        import translation_guide as tguide
+        window = "戚聞溪看了他一眼，她笑了。眯着的小眼睛裏露出一抹邪笑。阿姨端來茶。"
+        kept = tguide._clean_window_entries([
+            {"term": "戚聞溪", "reason": "she/her", "evidence": "眯着的小眼睛裏露出一抹邪笑"},
+            {"term": "阿姨", "reason": "she/her", "evidence": "阿姨端來茶"},
+            {"term": "戚聞溪", "reason": "he/him", "evidence": "戚聞溪看了他一眼"},
+        ], window)
+        assert [e["reason"] for e in kept] == ["unclear", "she/her", "he/him"]
+
+    def test_more_titles_and_kinship_terms_count_as_a_marker(self):
+        import translation_guide as tguide
+        for quote in ("公子看了她一眼", "他兒子來了", "先生請坐", "爹爹笑了", "兄長說話"):
+            assert tguide._GENDER_MARKER.search(quote), quote
+
+    def test_japanese_and_korean_quotes_are_not_held_to_the_chinese_markers(self, monkeypatch):
+        import json
+        import translation_guide as tguide
+        class Engine:
+            supports_reference = True
+        def run(language, text, term, quote):
+            reply = [{"term": term, "reason": "she/her", "evidence": quote,
+                      "suggested_translation": "X", "category": "person_name"}]
+            monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: [text])
+            monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps(reply))
+            (e,) = tguide.extract_glossary_from_novel("x", Engine(), source_language=language)
+            return e["reason"]
+        # a Chinese-only marker list would reset every ja/ko claim
+        assert run("ja", "花子は微笑んだ。彼女は笑った。", "花子", "彼女は笑った") == "she/her"
+        assert run("ko", "하나는 웃었다. 그녀는 갔다.", "하나", "그녀는 갔다") == "she/her"
+        assert run("zh", "林燕然笑了。眯着的小眼睛。", "林燕然", "眯着的小眼睛") == "unclear"
+
+    def test_a_quote_retyped_with_a_variant_character_or_ascii_punctuation_still_counts(self):
+        import translation_guide as tguide
+        window = "陳詩這才回神，揚起笑臉。馮怡說：“随她去吧，只要她開心就好。”"
+        assert tguide._quote_is_in("陳詩這才回神,揚起笑臉", window)
+        assert tguide._quote_is_in("隨她去吧，只要她開心就好", window)
+        assert not tguide._quote_is_in("陳詩用歡快的語調喊了她的名字然後去睡覺", window)
+        assert not tguide._quote_is_in("", window)
+
+    def test_an_ambiguity_alternative_joins_the_renderings(self):
+        import translation_guide as tguide
+        merged = {}
+        tguide._merge_novel_entries(merged, self._clean([
+            {"term": "阿姨", "suggested_translation": "Auntie", "alt": "nanny"}]))
+        assert merged["阿姨"]["renderings"] == ["Auntie", "nanny"]
+
+    def test_glossary_renderings_reach_the_extraction_prompt(self, monkeypatch):
+        import translation_guide as tguide
+        prompts = []
+        monkeypatch.setattr(tguide, "call_llm_json",
+                            lambda engine, prompt, **kw: prompts.append(prompt) or "[]")
+
+        class Engine:
+            supports_reference = True
+
+        tguide.extract_glossary_from_novel(
+            "林" * 100, Engine(), known_terms=[{"term_original": "姑姑", "term_translation": "Auntie"}])
+        assert "姑姑 = Auntie" in prompts[0]

@@ -102,8 +102,8 @@ KNOWN_UPGRADE_LIMITATIONS = {
     "audio-separator": {
         "python_version": (3, 14),
         "reason": "its diffq-fixed sub-dependency has wheels only through cp313, and its "
-                  "sdist build also fails independently; Demucs, this app's "
-                  "default vocal-separation backend, is unaffected.",
+                  "sdist build also fails independently, so vocal separation "
+                  "would stop working.",
     },
     # Reproduced for real -- with huggingface_hub 2.0.0 installed
     # next to transformers 5.17.0, `import transformers` raises

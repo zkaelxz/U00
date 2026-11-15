@@ -30,3 +30,77 @@ test('phone: no blank caption card and the filter chips are not clipped', async 
   expect(await chips.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
+
+for (const view of ['full', 'simple'] as const) {
+  test(`phone, ${view} view: the floating player opens above the line bar, so its buttons stay tappable`, async ({ page }) => {
+    // Phones have no always-on-top window, so Pop out floats the player in the page.
+    await page.addInitScript((view) => {
+      Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined })
+      localStorage.setItem('baihe.pref.title.view', JSON.stringify(view))
+    }, view)
+    // A flagged line puts Simple view's check queue on screen, whose bar has taller two-line buttons.
+    execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
+from core import Line
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+db.save_lines(3, [Line(idx=i, start=i + 1, end=i + 2, zh='一', en='Line %d' % i, flag='uncertain' if i == 2 else '') for i in range(6)])
+`], { cwd: repoRoot })
+    await page.goto('/#/drama/3/review')
+    const bar = page.getByRole('toolbar', { name: 'Line actions' })
+    await expect(bar).toBeVisible()
+    // Simple folds the player away until its Player button brings it back; the button is with the title's controls, in the panel More opens.
+    if (view === 'simple') {
+      const more = page.locator('.workspace-header').getByRole('button', { name: 'More', exact: true })
+      await more.tap()
+      await page.locator('.steps-fold-controls').getByRole('button', { name: 'Player', exact: true }).tap()
+      await more.tap()
+    }
+    await page.getByRole('button', { name: 'Pop out' }).tap()
+    const float = page.getByRole('group', { name: 'Floating player' })
+    await expect(float).toBeVisible()
+    await expect
+      .poll(async () => {
+        const box = (await float.boundingBox())!
+        return box.y + box.height - (await bar.boundingBox())!.y
+      })
+      .toBeLessThanOrEqual(0)
+    await bar.getByRole('button').last().tap({ trial: true })
+  })
+}
+
+test('phone: the floating player opens above the selection bar, not over Actions… and Clear', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined })
+    localStorage.setItem('baihe.pref.title.view', JSON.stringify('full'))
+  })
+  await page.goto('/#/drama/3/review')
+  await page.locator('.review-line:not(.review-skeleton)').first().getByRole('checkbox').check({ force: true })
+  const selbar = page.getByTestId('selection-bar')
+  await expect(selbar).toBeVisible()
+  await page.getByRole('button', { name: 'Pop out' }).tap()
+  const float = page.getByRole('group', { name: 'Floating player' })
+  await expect(float).toBeVisible()
+  await expect
+    .poll(async () => {
+      const box = (await float.boundingBox())!
+      return box.y + box.height - (await selbar.boundingBox())!.y
+    })
+    .toBeLessThanOrEqual(0)
+  await selbar.getByRole('button', { name: 'Clear' }).tap({ trial: true })
+})
+
+test('phone: when the filter chips scroll, the row fades at the edge they continue past', async ({ page }) => {
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
+from core import Line
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+db.save_lines(3, [Line(idx=i, start=i + 1, end=i + 1.5, zh='一', en='Line %d' % i) for i in range(120)])
+`], { cwd: repoRoot })
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/#/drama/3/review')
+  const chips = page.locator('.review-chips')
+  await expect(chips.getByText('All 120')).toBeVisible()
+  const fade = () => chips.evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--chips-fade')) || 0)
+  expect(await chips.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  expect(await fade()).toBeGreaterThan(0)
+  await chips.evaluate((el) => el.scrollTo({ left: el.scrollWidth }))
+  await expect.poll(fade).toBe(0)
+})

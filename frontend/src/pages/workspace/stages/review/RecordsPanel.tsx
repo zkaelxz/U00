@@ -28,6 +28,7 @@ import { capFirst } from '../../../../labels'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { buttonClass } from '../../../../components/uiClasses'
 import { SnapshotPreview } from './SnapshotPreview'
+import { CompareSaves } from './CompareSaves'
 import { usePcOnly } from '../../../../hooks/usePcOnly'
 
 interface Records {
@@ -47,14 +48,17 @@ interface Props {
   jobRunning: boolean
   // Opens a line in the editor; resolves to null, or a message saying why not.
   onGoTo: GoToLine
+  // Changes each time a "Line history" button elsewhere in Review asks for the history.
+  historySignal?: number
 }
 
 // Notes (add lives on each line), translation versions (use or delete), line
 // history with a typed-confirm Restore, and translation-memory suggestions.
-export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunning, onGoTo }: Props) {
+export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunning, onGoTo, historySignal }: Props) {
   const [records, setRecords] = useState<Records | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
+  const [comparing, setComparing] = useState(false)
   // How many lines with notes or emotion tags the restore being confirmed would remove.
   const [loss, setLoss] = useState<{ id: number; lines: number } | null>(null)
   const [previewing, setPreviewing] = useState<number | null>(null)
@@ -92,6 +96,37 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       cancelled = true
     }
   }, [dramaId, reloads])
+
+  // The history may still be loading when the request comes (the panel mounts with it in Simple), so the
+  // scroll waits for the load and spends each request once, even when there turns out to be no history,
+  // so that a later load does not jump the page.
+  const historyRef = useRef<HTMLHeadingElement>(null)
+  const scrolledFor = useRef(0)
+  const loaded = records !== null || error !== null
+  const hasHistory = !!records && records.history.length > 0
+  useEffect(() => {
+    if (!historySignal || historySignal === scrolledFor.current || !loaded) return
+    scrolledFor.current = historySignal
+    const heading = historyRef.current
+    if (!hasHistory || !heading) return
+    if (typeof ResizeObserver === 'undefined') {
+      heading.scrollIntoView?.({ block: 'start' })
+      return
+    }
+    // Records stays mounted but hidden behind another tool group, and the parent shows it again only after
+    // this runs: scroll when the heading gets a size, and give up soon so a later visit does not jump.
+    const observer = new ResizeObserver(() => {
+      if (heading.getClientRects().length === 0) return
+      observer.disconnect()
+      heading.scrollIntoView?.({ block: 'start' })
+    })
+    observer.observe(heading)
+    const giveUp = window.setTimeout(() => observer.disconnect(), 2000)
+    return () => {
+      observer.disconnect()
+      window.clearTimeout(giveUp)
+    }
+  }, [historySignal, loaded, hasHistory])
 
   const act = (p: Promise<unknown>) =>
     p.then(() => {
@@ -235,6 +270,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
     <Section
       storageKey="review.records"
       title="Records"
+      openSignal={historySignal}
       count={total}
       summary={counts.filter(([, c]) => c > 0).map(([l, c]) => `${l} ${c}`).join(' · ')}
     >
@@ -335,7 +371,11 @@ export function RecordsPanel({ dramaId, reloads, onChanged, onReshaped, jobRunni
       )}
       {history.length > 0 && (
         <>
-          <h2 className="subhead">Line history</h2>
+          <h2 className="subhead" ref={historyRef}>Line history</h2>
+          <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={comparing} onClick={() => setComparing(!comparing)}>
+            {comparing ? 'Hide compare' : 'Compare saves side by side'}
+          </button>
+          {comparing && <CompareSaves dramaId={dramaId} history={history} jobRunning={jobRunning} onChanged={onReshaped} />}
           <ul className="records-list" data-testid="history-list">
             {history.map((h) => {
               // Every row has the same visible words, so the name says which version it acts on.

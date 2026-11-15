@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
@@ -24,7 +24,7 @@ import {
   NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
   type MoreFilters,
 } from './libraryFilters'
-import { countDramas, dramaName, hideLibraryBar, readHref, workspaceHref } from './libraryView'
+import { countDramas, dramaName, hideLibraryBar, listDelay, readAction, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { buttonClass } from './uiClasses'
@@ -58,7 +58,7 @@ interface Props {
   // GET /api/series failed: grouping by series falls back to the plain list, with a Retry.
   seriesError?: boolean
   onRetrySeries?: () => void
-  // Titles with a saved reading position (the Continue shelf's): cards offer Continue instead of Read.
+  // Titles with a saved reading position (the Continue shelf's): cards offer Continue instead of Watch, Listen or Read.
   continuing?: ReadonlySet<number>
   // The titles on screen (expanded groups, display order), for pruning the selection to what the viewer can see.
   onVisible?: (items: DramaSummary[]) => void
@@ -128,10 +128,12 @@ export function LibraryList({
   // Hidden, not unmounted: the saved search, sort and view still apply once the first title exists.
   const emptyLibrary = scope === 'titles' && hideLibraryBar(items?.length ?? null, filtered)
 
+  // The reload the last request went out under; null before the first.
+  const lastReload = useRef<number | null>(null)
   useEffect(() => {
     let cancelled = false
-    // Debounced so typing in the search box doesn't send a request per key.
     const timer = setTimeout(() => {
+      lastReload.current = reloadKey
       api
         .listDramas(listQuery(titleSearch, status, quickFilter, more))
         .then((resp) => {
@@ -147,7 +149,7 @@ export function LibraryList({
           setError(e)
           onLoadErrorRef.current(e)
         })
-    }, 200)
+    }, listDelay(lastReload.current, reloadKey))
     return () => {
       cancelled = true
       clearTimeout(timer)
@@ -240,6 +242,7 @@ export function LibraryList({
                     <tbody>
                       {list.map((d) => {
                         const title = dramaName(d)
+                        const read = readAction(d)
                         return (
                           <tr key={d.id} className={d.id === selectedId ? 'selected' : undefined}>
                             {checking && (
@@ -265,7 +268,7 @@ export function LibraryList({
                             <td>{d.status && <Badge kind="status" value={d.status} />}</td>
                             <td className="tags-col">{d.custom_tags.join(', ')}</td>
                             <td className="row-actions">
-                              <a className={buttonClass('ghost', 'sm')} href={readHref(d)} aria-label={`Read ${title}`}>Read</a>
+                              <a className={buttonClass('ghost', 'sm')} href={read.href} aria-label={`${read.label} ${title}`}>{read.label}</a>
                               <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
                                 Details
                               </button>
@@ -390,7 +393,8 @@ export function LibraryList({
               {items.length === 0 && !filtered && onCreate && (
                 <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
                   <div className="actions">
-                    <button type="button" className={buttonClass('secondary')} onClick={onCreate}>New title</button>
+                    {/* A phone's header already has the primary Add; a computer's Add box has none until something is given. */}
+                    <button type="button" className={buttonClass(phone ? 'secondary' : 'primary')} onClick={onCreate}>Add</button>
                   </div>
                 </Card>
               )}

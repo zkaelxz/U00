@@ -1,5 +1,5 @@
 /*
- * Settings > Notifications and backups > Notifications: push a short message to Discord and/or
+ * Settings > Connections > Notifications: push a short message to Discord and/or
  * ntfy when a background job finishes or fails, or new chapters are found.
  * "What to send" switches pick which of those events are pushed. PC only. The saved
  * addresses are secrets: the inputs are never pre-filled and the page only
@@ -130,8 +130,8 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
       {popupNeed && <NeedsInstall need={popupNeed} />}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
-        Sends a short message (job type, title name) when a job finishes or fails, or when tracked
-        sources have new chapters.
+        Sends a short message (job type, title name) when a job finishes or fails, when a run stops
+        and waits for you, or when tracked sources have new chapters.
       </p>
       {!status ? (
         !error && <p className="muted">Loading…</p>

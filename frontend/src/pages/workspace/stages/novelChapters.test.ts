@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { NovelChapterList, NovelChapterRow } from '../../../types/novelChapters'
-import { chaptersHeadline, chaptersSummary, loadedLabel, neighbour, optionLabel, rowMeta, rowTitle, translationLine } from './novelChapters'
+import { chaptersHeadline, chaptersSummary, loadedLabel, neighbour, lineProgress, optionLabel, readerPageOf, rowMeta, rowTitle, translationLine } from './novelChapters'
 
 const list = (over: Partial<NovelChapterList> = {}): NovelChapterList => ({
   drama_id: 1, present: true, size_bytes: 10, split: true, total: 12, char_count: 48210,
@@ -79,5 +79,19 @@ describe('chapter selector helpers', () => {
   it('labels an option with its number and the source title', () => {
     expect(optionLabel(row())).toBe('3. 第3章')
     expect(optionLabel(row({ title: '' }))).toBe('3. Chapter 3')
+  })
+})
+
+describe('line progress helpers', () => {
+  it('words how far a chapter is translated', () => {
+    expect(lineProgress({ line_count: 40, translated: 0 })).toBe('Not translated')
+    expect(lineProgress({ line_count: 40, translated: 12 })).toBe('12 of 40 lines translated')
+    expect(lineProgress({ line_count: 40, translated: 40 })).toBe('Translated')
+  })
+  it('finds the Reader page of a line', () => {
+    expect(readerPageOf(0, 40)).toBe(1)
+    expect(readerPageOf(39, 40)).toBe(1)
+    expect(readerPageOf(40, 40)).toBe(2)
+    expect(readerPageOf(95, 50)).toBe(2)
   })
 })

@@ -4,9 +4,12 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed' | 'shaky' | 'risk'
+export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed' | 'shaky' | 'risk' | 'marked'
 
 export type ReviewLine = Schemas['ReviewLinesLine']
+
+// The person's own verdict on a line; "good" is Checked.
+export type LineMark = 'wrong' | 'mixed'
 
 export type ReviewLinesPage = Schemas['ReviewLinesPage']
 
@@ -172,6 +175,13 @@ export interface ShortenResult {
   snapshot_saved: boolean
   lines: { id: number; idx: number; before: string; after: string }[]
 }
+
+// Speakers offered for a line with none, most-supported first (nothing is applied).
+export type SpeakerGuess = Schemas['ReviewSpeakerGuess']
+export type LineSpeakerGuesses = Schemas['ReviewLineSpeakerGuesses']
+
+// What previous/next steps to: flagged lines, unchecked translations, or lines still needing a speaker.
+export type StepKind = 'flagged' | 'unreviewed' | 'no_speaker'
 
 // Review parity R08: the nearest flagged line across pages (all null: none).
 export interface FlaggedPosition {

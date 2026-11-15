@@ -356,6 +356,15 @@ def hand_follows_to_pc_owner(sources_path: str) -> None:
         conn.close()
 
 
+def unlink_dramas(sources_path: str) -> None:
+    from sources import store as src_store
+    conn = _open_carry_conn(sources_path)
+    try:
+        src_store.forget_drama_links(conn)
+    finally:
+        conn.close()
+
+
 def folders_left_behind(old_dir: str, skip) -> list:
     """Names of the folders still in the previous library that are not in
     `skip` (what the zip held, media, folders the app rebuilds)."""

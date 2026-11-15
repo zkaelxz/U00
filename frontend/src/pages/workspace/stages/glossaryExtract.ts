@@ -20,13 +20,15 @@ export const SOURCE_TEXT: Record<GlossarySource, SourceText> = {
   lines: { label: 'Transcript', testId: 'lines-glossary' },
 }
 
-// The transcript run is one LLM call, so it has no meaningful percentage.
-function linesGlossaryProgressText(status: string): string {
-  return status === 'queued' ? 'Waiting to start…' : 'Scanning the transcript…'
+// The transcript run is one LLM call, so it has no meaningful percentage; the
+// server's message carries the elapsed time so a slow model doesn't look stuck.
+function linesGlossaryProgressText(status: string, message?: string): string {
+  if (status === 'queued') return 'Waiting to start…'
+  return message || 'Scanning the transcript…'
 }
 
-export const extractionProgressText = (source: GlossarySource, status: string, progress: number | null) =>
-  source === 'novel' ? novelGlossaryProgressText(status, progress) : linesGlossaryProgressText(status)
+export const extractionProgressText = (source: GlossarySource, status: string, progress: number | null, message?: string) =>
+  source === 'novel' ? novelGlossaryProgressText(status, progress) : linesGlossaryProgressText(status, message)
 
 export const SUGGEST_HELP = 'Uses your translation engine. You review the suggestions before anything is added.'
 
@@ -37,11 +39,13 @@ export function suggestBlockers(
   dramaId: number,
   hasNovel: boolean | null,
   hasLines: boolean | null,
+  sourceStage: string,
 ): Record<GlossarySource, Blocker | null> {
   const href = `#/drama/${dramaId}/source`
-  const novel = novelGlossaryBlocker(dramaId, hasNovel !== false)
+  const novel = novelGlossaryBlocker(dramaId, hasNovel !== false, sourceStage)
+  // "add them", not "transcribe it": the stage is itself called Transcribe on audio and video titles.
   const lines =
-    (hasLines === false ? { text: 'Still needed: transcript lines', link: 'transcribe it on Media', href: `${href}?tab=transcribe` } : null)
+    (hasLines === false ? { text: 'Still needed: transcript lines', link: `add them on ${sourceStage}`, href: `${href}?tab=transcribe` } : null)
   return { novel, lines }
 }
 

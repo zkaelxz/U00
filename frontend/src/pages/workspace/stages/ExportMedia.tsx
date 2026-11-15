@@ -33,7 +33,7 @@ import { ExportBlock } from './ExportBlock'
 import { JobPanel } from './JobPanel'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
-export function ExportEpub({ reason }: { reason: string | null }) {
+export function ExportEpub({ reason, opening }: { reason: string | null; opening: boolean }) {
   const { dramaId } = useStage()
   const [field, setField] = useState<'en' | 'zh'>('en')
   const [error, setError] = useState<unknown>(null)
@@ -45,7 +45,7 @@ export function ExportEpub({ reason }: { reason: string | null }) {
     }, setError)
 
   return (
-    <ExportBlock id="epub" reason={reason} hint="Novel narration">
+    <ExportBlock id="epub" opening={opening} reason={reason} hint="Novel narration">
       <Field label="Language">
         <select value={field} onChange={(e) => setField(e.target.value as 'en' | 'zh')}>
           <option value="en">English</option>
@@ -66,6 +66,7 @@ interface JobProps {
   start: () => Promise<MediaExportStarted> | string
   // A reason already known up front: the button stays disabled and shows it.
   blockedReason?: string | null
+  opening: boolean
   startError: StartError | null
   onStartError: (error: StartError | null) => void
   note: string
@@ -76,7 +77,7 @@ interface JobProps {
   children?: ReactNode
 }
 
-function MediaJobSection({ id, label, kind, start, blockedReason, startError, onStartError, note, hint, testId, children }: JobProps) {
+function MediaJobSection({ id, label, kind, start, blockedReason, opening, startError, onStartError, note, hint, testId, children }: JobProps) {
   const { dramaId } = useStage()
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [artifact, setArtifact] = useState<ArtifactInfo | null>(null)
@@ -127,6 +128,7 @@ function MediaJobSection({ id, label, kind, start, blockedReason, startError, on
   return (
     <ExportBlock
       id={id}
+      opening={opening}
       reason={blocked}
       hint={hint}
       status={
@@ -172,9 +174,10 @@ interface BlockShare {
   startError: StartError | null
   onStartError: (error: StartError | null) => void
   reason: string | null
+  opening: boolean
 }
 
-export function AudiobookBlock({ reason, startError, onStartError }: BlockShare) {
+export function AudiobookBlock({ reason, opening, startError, onStartError }: BlockShare) {
   const { dramaId } = useStage()
   return (
     <MediaJobSection
@@ -185,13 +188,14 @@ export function AudiobookBlock({ reason, startError, onStartError }: BlockShare)
       note="Encodes the narration audio to an .m4b file with chapter markers."
       start={() => startAudiobook(dramaId)}
       blockedReason={reason}
+      opening={opening}
       startError={startError}
       onStartError={onStartError}
     />
   )
 }
 
-export function BurnedVideoBlock({ request, reason, startError, onStartError, children }: BlockShare & {
+export function BurnedVideoBlock({ request, reason, opening, startError, onStartError, children }: BlockShare & {
   request: () => { request?: AssExportRequest; error?: string }
   children?: ReactNode
 }) {
@@ -208,6 +212,7 @@ export function BurnedVideoBlock({ request, reason, startError, onStartError, ch
         return r.request ? startBurnedVideo(dramaId, r.request) : (r.error ?? 'Fix the ASS style settings first.')
       }}
       blockedReason={reason}
+      opening={opening}
       startError={startError}
       onStartError={onStartError}
     >
@@ -217,7 +222,7 @@ export function BurnedVideoBlock({ request, reason, startError, onStartError, ch
 }
 
 // Parity E17: the subtitles as a track viewers can switch on and off.
-export function SoftsubVideoBlock({ reason, startError, onStartError }: BlockShare) {
+export function SoftsubVideoBlock({ reason, opening, startError, onStartError }: BlockShare) {
   const { dramaId } = useStage()
   const [field, setField] = useState<SoftsubVideoRequest['field']>('en')
   const [format, setFormat] = useState<NonNullable<SoftsubVideoRequest['subtitle_format']>>('srt')
@@ -231,6 +236,7 @@ export function SoftsubVideoBlock({ reason, startError, onStartError }: BlockSha
       note="Adds the subtitles as a track the viewer can turn on and off; the picture and sound are copied unchanged. MP4 and MKV keep their format, anything else becomes MKV."
       start={() => startSoftsubVideo(dramaId, { field, subtitle_format: format })}
       blockedReason={reason}
+      opening={opening}
       startError={startError}
       onStartError={onStartError}
     >
@@ -259,7 +265,7 @@ export function SoftsubVideoBlock({ reason, startError, onStartError }: BlockSha
 }
 
 // Parity E19: the dub track in place of (or over) the original audio.
-export function DubbedVideoBlock({ reason, startError, onStartError }: BlockShare) {
+export function DubbedVideoBlock({ reason, opening, startError, onStartError }: BlockShare) {
   const { dramaId } = useStage()
   const [keepOriginal, setKeepOriginal] = useState(false)
   return (
@@ -272,6 +278,7 @@ export function DubbedVideoBlock({ reason, startError, onStartError }: BlockShar
       note="Replaces the video's sound with the title's existing dub track."
       start={() => startDubbedVideo(dramaId, { keep_original: keepOriginal })}
       blockedReason={reason}
+      opening={opening}
       startError={startError}
       onStartError={onStartError}
     >

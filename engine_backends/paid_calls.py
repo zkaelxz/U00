@@ -15,7 +15,8 @@ from .local import is_ollama_cloud_model, scrub_error_text
 from .pricing import estimate_cost_for_engine
 from .run_limits import (RATE_LIMIT_STOP_MESSAGE, RATE_LIMIT_STOP_REASON, FailureStreak,
                          RateLimitWaitBudget, TranslateRunStopped, _rate_limit_budget_var)
-from .shared import ContentModerationBlocked, LLMTaskTimeout, TranslationCancelled, stops_translate_run
+from .shared import (ContentModerationBlocked, LLMTaskTimeout, TranslationCancelled, redact_secrets,
+                     stops_translate_run)
 
 CAP_STOP_REASON = "Stopped: monthly cap reached"
 
@@ -58,6 +59,22 @@ def record_call(engine, engine_name: str, operation: str, usage: dict | None = N
                  inp, out, estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
                  cache_read_tokens=cache_read)
     return True
+
+
+def record_chat_calls(engine, engine_name: str, operation: str, usages: list, *,
+                      drama_id: int | None = None) -> None:
+    """Writes the usage rows of one plain chat request (the Reader's Ask, the
+    maintenance assistant): one per reply that reported tokens, else one empty
+    row for a paid engine, since a failed request may have been billed. Never
+    raises: a database error here must not turn an answer already paid for
+    into a failed request."""
+    try:
+        for usage in usages or [None]:
+            record_call(engine, engine_name, operation, usage, drama_id=drama_id)
+    except Exception as exc:
+        import applog
+        applog.get_logger().warning("Could not log %s usage: %s", operation,
+                                    redact_secrets(str(exc)))
 
 
 def usage_logger(drama_id, engine_name: str, engine, operation: str):

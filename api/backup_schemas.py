@@ -49,6 +49,11 @@ class AutoBackupSettings(BaseModel):
                                                        "damaged sources.db left out).")
     next_run_at: Optional[str] = None
     running: bool
+    same_drive_as_library: bool = Field(description="The copies share a drive with the library, "
+                                                    "so one drive failure loses both.")
+    problem: Optional[Literal["failing", "stale"]] = Field(
+        None, description="Why the owner should look: the last run failed, or no success "
+                          "for a long while. Never set while backups are off.")
     copies: List[SnapshotCopy] = Field(default_factory=list, description="Newest first.")
 
 
@@ -177,6 +182,9 @@ class BackupFileDramaList(BaseModel):
     media_available: bool
     schema_differs: bool = Field(description="The file has columns this version doesn't know; "
                                              "they are ignored.")
+    voice_bank_entries: int = Field(0, description="Voice bank entries whose clip the file "
+                                                   "holds (none in a database-only file).")
+    settings_available: bool = False
     dramas: List[BackupFileDrama]
 
 
@@ -190,5 +198,9 @@ class ImportedDrama(BaseModel):
 class ImportDramasDone(BaseModel):
     imported: List[ImportedDrama]
     series_created: int
+    series_joined: int = 0
     media_imported: int
+    voice_bank_imported: int = 0
+    settings_imported: int = 0
+    notes: List[str] = []
     counts: Dict[str, int]

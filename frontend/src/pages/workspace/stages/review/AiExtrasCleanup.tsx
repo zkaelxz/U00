@@ -94,7 +94,7 @@ export function AiExtrasCleanup({ dramaId, jobRunning, onChanged }: Props) {
                 </button>
               </div>
               {jobRunning && <p className="muted">{JOB_RUNNING_MESSAGE}</p>}
-              <p className="muted">Your current lines are saved as a snapshot first. To undo, restore it from Records → Line history.</p>
+              <p className="muted">Saved to Line history first. To undo, restore it from Records → Line history.</p>
             </>
           )}
         </div>

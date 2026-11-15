@@ -32,10 +32,9 @@ const PAGE_KEYWORDS: Record<string, string> = {
   admin: 'admin users accounts sign in activity audit',
   diagnostics: 'health logs disk',
   jobs: 'queue progress running',
-  translate: 'text',
-  'make-subtitles': 'transcribe srt whisper audio video file',
-  sources: 'download novel chapters comics sites',
-  discover: 'find titles online',
+  translate: 'translate text',
+  'make-subtitles': 'transcribe srt whisper audio video file link new title quick translate',
+  discover: 'find titles online discover sources download novel chapters comics sites',
   live: 'stream youtube captions',
   benchmark: 'compare models arena golden',
   assistant: 'help maintain fix',
@@ -47,10 +46,12 @@ const LINE_LABEL_LENGTH = 80
 // Two characters is the shortest word worth a search over every line of a title.
 export const MIN_LINE_QUERY = 2
 
-// A member (or anyone whose settings cannot be read) sees only the Sharing tab's cards, as on the page.
-const MEMBER_CARDS: ReadonlySet<string> = new Set(
-  SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id),
-)
+// A member (or anyone whose settings cannot be read) sees only the account tab's cards, plus Update Baihe
+// (filtered below to system.update), as on the page.
+const MEMBER_CARDS: ReadonlySet<string> = new Set([
+  ...SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id),
+  'updates',
+])
 
 /** One entry per settings index line, for the cards the Settings page would show this person. */
 export function settingsEntries(ctx: NavContext): PaletteEntry[] {
@@ -61,7 +62,7 @@ export function settingsEntries(ctx: NavContext): PaletteEntry[] {
     (s) =>
       (reads || MEMBER_CARDS.has(s.cardId)) &&
       (ownKey || s.cardId !== 'ollama-key') &&
-      (s.cardId !== 'source-update' || canUpdateApp(ctx.session)) &&
+      (s.cardId !== 'updates' || canUpdateApp(ctx.session)) &&
       !(away && PC_ONLY_CARDS.has(s.cardId)),
   ).map((s, i) => ({
     id: `settings-${s.cardId}-${i}`,

@@ -7,6 +7,7 @@ button.theme-menu-btn {
   padding: 6px 7px;
   color: var(--muted);
 }
+button.theme-menu-btn .hb-icon { display: contents; }
 button.theme-menu-btn:hover:not(:disabled),
 button.theme-menu-btn[aria-expanded='true'] { color: var(--text); }
 .theme-menu-panel {

@@ -139,7 +139,7 @@ function CopyTermsCard({ data, onCopied }: { data: SeriesPageData; onCopied: () 
                   <p className="series-term-list">{preview.new_terms.join(' · ')}{preview.new_count > preview.new_terms.length && ' …'}</p>
                 </details>
               )}
-              {preview.new_count > 0 && (
+              {(preview.new_count > 0 || preview.replacements_new > 0) && (
                 <div className="actions">
                   <button
                     type="button"
@@ -151,7 +151,7 @@ function CopyTermsCard({ data, onCopied }: { data: SeriesPageData; onCopied: () 
                       onCopied()
                     })}
                   >
-                    {busy ? 'Working…' : `Copy ${preview.new_count === 1 ? '1 term' : `${preview.new_count} terms`}`}
+                    {busy ? 'Working…' : `Copy ${preview.new_count === 1 ? '1 term' : `${preview.new_count} terms`}${preview.replacements_new > 0 ? ' and the word replacements' : ''}`}
                   </button>
                   <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={() => setPreview(null)}>Cancel</button>
                 </div>

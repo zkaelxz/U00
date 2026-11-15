@@ -11,7 +11,7 @@ async function engineChosen(page: Page) {
 // Reaches the page at `#/translate`.
 test('translates with the offline engine and lists it in history', async ({ page }) => {
   await page.goto('/#/translate')
-  await expect(page.getByRole('region', { name: 'Quick translate' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Text' })).toBeVisible()
 
   await page.getByLabel('Engine', { exact: true }).selectOption('fake')
   await page.getByLabel('Text to translate').fill('你好，世界')
@@ -64,7 +64,7 @@ test('an engine with no key is marked and says where to add one', async ({ page 
   await engine.selectOption('claude')
   await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeDisabled()
   await expect(page.getByText('Still needed: an API key for Claude.')).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Add it in Settings' })).toHaveAttribute('href', '#/settings')
+  await expect(page.getByRole('link', { name: 'Add a key in Settings' })).toHaveAttribute('href', '#/settings')
   await expect(page.getByLabel('Model')).toBeVisible()
 })
 

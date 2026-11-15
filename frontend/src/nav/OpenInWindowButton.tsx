@@ -8,7 +8,7 @@ export function OpenInWindowButton({ className }: { className?: string }) {
       type="button"
       className={buttonClass('secondary', 'sm', className)}
       data-testid="open-in-window"
-      title="Open this page in a second window to work on another page at the same time"
+      title="Open in a second window"
       onClick={() => openInNewWindow(window.location.hash || '#/')}
     >
       Open in new window ↗

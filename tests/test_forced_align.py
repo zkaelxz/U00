@@ -352,6 +352,39 @@ class TestAllZeroAlignerResult:
         assert (out[0]["start"], out[0]["end"]) == (0.0, 3.0)
 
 
+class TestZeroUnitBetweenTouchingNeighbours:
+    def _run(self, monkeypatch, fn):
+        import forced_align as fa
+        monkeypatch.setattr(fa, "_extract_audio_slice",
+                            lambda a, s, e, out: open(out, "wb").close())
+
+        class Model:
+            def align(self, audio, text, language):
+                # 再 is zero-length and both neighbours touch it: no gap to spread it over
+                spans = [(0, 2), (2, 2), (2, 4)]
+                return [[FakeUnit(c, s, e) for c, (s, e) in zip(text, spans)]]
+        monkeypatch.setattr(fa, "load_qwen3_aligner", lambda use_gpu=False: Model())
+        return fn(fa)
+
+    def test_line_keeps_aligner_times_instead_of_falling_back(self, monkeypatch):
+        segs = [{"start": 0.0, "end": 8.0, "text": "你再好"}]
+        result = self._run(monkeypatch, lambda fa: fa.align_with_qwen3(
+            "/f.wav", ["你再", "好"], segs, language="zh"))
+        assert (result[0].start, result[0].end) == (0.0, 2.0)
+        assert (result[1].start, result[1].end) == (2.0, 4.0)
+        import forced_align as fa
+        assert [ln.flag_note for ln in result] != [fa.TIMING_FALLBACK_NOTE] * 2
+        assert result[0].flag_note != fa.TIMING_FALLBACK_NOTE
+
+    def test_refine_segment_timing_keeps_aligner_times(self, monkeypatch):
+        import forced_align as fa
+        out = self._run(monkeypatch, lambda fa: fa.refine_segment_timing(
+            "/f.wav", [[{"start": 0.0, "end": 8.0, "text": "你再"},
+                        {"start": 4.0, "end": 8.0, "text": "好"}]], "zh"))
+        assert (out[0]["start"], out[0]["end"]) == (0.0, 2.0)
+        assert out[0].get("flag_note") != fa.TIMING_FALLBACK_NOTE
+
+
 class TestAlignWithQwen3:
     def _fake_model_returning(self, per_chunk_text_to_units):
         class FakeModel:

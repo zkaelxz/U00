@@ -9,7 +9,7 @@ import type {
   NovelGlossaryRunResult,
   NovelGlossaryStatus,
 } from '../types/autotuneGlossary'
-import type { GlossaryProposalsApplyRequest, LinesGlossaryRunResult } from '../types/glossaryHelpers'
+import type { GlossaryProposalsApplyRequest, ChaptersGlossaryRunResult, LinesGlossaryRunResult } from '../types/glossaryHelpers'
 import type { JobCancelResult } from '../types/jobs'
 import { getJson, postJson, type Fetch } from './client'
 
@@ -45,8 +45,10 @@ export const applyNovelGlossary = (id: number, body: GlossaryProposalsApplyReque
 export const getLinesGlossary = (id: number, f?: Fetch) =>
   getJson<NovelGlossaryStatus>(`/api/glossary/dramas/${id}/from-lines`, f)
 
-export const startLinesGlossary = (id: number, f?: Fetch) =>
-  postJson<LinesGlossaryRunResult>(`/api/glossary/dramas/${id}/from-lines`, undefined, f)
+// chapter: only that saved chapter (numbered as GET line-chapters), else the whole title.
+export const startLinesGlossary = (id: number, f?: Fetch, chapter?: number) =>
+  postJson<LinesGlossaryRunResult>(
+    `/api/glossary/dramas/${id}/from-lines${chapter ? `?chapter=${chapter}` : ''}`, undefined, f)
 
 export const applyLinesGlossary = (id: number, body: GlossaryProposalsApplyRequest, f?: Fetch) =>
   postJson<NovelGlossaryApplyResult>(`/api/glossary/dramas/${id}/from-lines/apply`, body, f)
@@ -68,3 +70,14 @@ export const dismissGlossaryTerms = (id: number, terms: string[], f?: Fetch) =>
 
 export const restoreGlossaryTerms = (id: number, terms: string[], f?: Fetch) =>
   postJson<GlossaryDismissResult>(`/api/glossary/dramas/${id}/dismissals/restore`, { terms }, f)
+
+// Scans every saved chapter in turn and adds the terms found, never overwriting yours (one paid
+// call per chapter). The status has the from-lines shape; its message names the outcome.
+export const startChaptersGlossary = (id: number, f?: Fetch) =>
+  postJson<ChaptersGlossaryRunResult>(`/api/glossary/dramas/${id}/from-chapters`, undefined, f)
+
+export const getChaptersGlossary = (id: number, f?: Fetch) =>
+  getJson<NovelGlossaryStatus>(`/api/glossary/dramas/${id}/from-chapters`, f)
+
+export const cancelChaptersGlossary = (id: number, runId: string, f?: Fetch) =>
+  postJson<JobCancelResult>(`/api/glossary/dramas/${id}/from-chapters/cancel`, { run_id: runId }, f)

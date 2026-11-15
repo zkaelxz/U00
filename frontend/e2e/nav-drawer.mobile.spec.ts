@@ -15,7 +15,7 @@ test('the header keeps the Menu button, brand and the icon controls, with no nav
   await expect(menu).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('.app-header').getByRole('link', { name: 'Baihe Studio' })).toHaveAttribute('href', '#/library')
   await expect(page.getByRole('button', { name: /^Jobs/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Notifications/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Alerts/ })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
   await expect(page.locator('summary[aria-label="Settings and tools"]')).toHaveCount(0)
   const box = (await menu.boundingBox())!
@@ -113,7 +113,7 @@ test('top-level pages get a bottom bar whose More opens the drawer; title pages 
   const bar = page.getByRole('navigation', { name: 'Quick' })
   await expect(bar).toBeVisible()
   await expect(bar.getByRole('link', { name: 'Library', exact: true })).toHaveAttribute('aria-current', 'page')
-  await expect(bar.getByRole('link', { name: 'Make', exact: true })).toBeVisible()
+  await expect(bar.getByRole('link', { name: 'Add', exact: true })).toBeVisible()
   await expect(bar.getByRole('link', { name: 'Jobs', exact: true })).toBeVisible()
   // The header no longer carries a hamburger beside the bar.
   await expect(page.locator('.app-header .menu-btn')).toHaveCount(0)
@@ -127,4 +127,12 @@ test('top-level pages get a bottom bar whose More opens the drawer; title pages 
   await page.goto('/#/drama/3/review')
   await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Quick' })).toHaveCount(0)
+})
+
+test('the drawer shows Theme once: the header controls\' words stay hidden outside the header', async ({ page }) => {
+  await page.goto('/#/library')
+  await menuButton(page).tap()
+  await expect(drawer(page)).toBeVisible()
+  await expect(drawer(page).locator('.hb-words:visible')).toHaveCount(0)
+  await expect(drawer(page).getByText('Theme', { exact: true }).filter({ visible: true })).toHaveCount(1)
 })

@@ -19,12 +19,14 @@ import threading
 from urllib.parse import parse_qsl, urlsplit
 
 import comic_chapter_links
+import comic_chapters
 import db
 import db.dramas
 import page_server
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, ServiceError
 from services import (drama_service, extension_novel_service, link_details_service, ownership_service,
                       source_link_service)
+from lib import clock
 from services.series_service import term_key
 from engine_backends.shared import redact_secrets
 
@@ -38,15 +40,23 @@ _BRIDGE_PRINCIPAL = extension_novel_service._BRIDGE_PRINCIPAL
 # One send at a time: two popups (or a double click) on the same new series would
 # otherwise both find nothing and each create it.
 _resolve_lock = threading.Lock()
+_title_spend_lock = threading.Lock()
+# Titles whose creator is still translating the name; guarded by _resolve_lock. The series is named
+# from that translation, so a second capture matching the title meanwhile must not join one first.
+_series_pending: set = set()
 
 _FAILED = "Could not set up a title for this page; pick one by hand."
 _NO_TITLE = ("No existing title matches this page. Pick a drama, or turn on creating new titles.")
 _KINDS = ("comic", "novel")
 
 _NUMBER = r"[\d０-９一二三四五六七八九十百零]+"
-_CHAPTER_MARK = (rf"第\s*{_NUMBER}\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol|volume)\.?\s*[\d.]+"
-                 r"|[\d.]+\s*[화話话章]|#\s*\d+")
+_CHAPTER_MARK = (rf"第\s*{_NUMBER}\s*[章话話回集卷巻期]|(?:chapter|chap|ch|episode|ep|vol|volume)\.?\s*[\d.]+"
+                 r"|[\d.]+\s*[화話话章권巻卷]|#\s*\d+")
 _CHAPTER_ONLY = re.compile(rf"^(?:{_CHAPTER_MARK}|\d+)$", re.IGNORECASE)
+# A chapter mark inside brackets ("【第1話】Name") would otherwise be cut together with
+# everything after it, leaving only the opening bracket.
+_BRACKETED_CHAPTER = re.compile(
+    rf"[【\[（(「『〈《][^】\]）)」』〉》]*?(?:{_CHAPTER_MARK})[^】\]）)」』〉》]*[】\]）)」』〉》]", re.IGNORECASE)
 _CHAPTER_TAIL = re.compile(rf"\s*(?:{_CHAPTER_MARK}).*$", re.IGNORECASE)
 # Page titles read "Name chapter - Site" or "chapter_Name_Site"; a hyphen with no spaces
 # belongs to the name ("One-Punch Man").
@@ -86,7 +96,7 @@ def _site_words(host: str, site_name: str = "") -> set:
 def _clean_candidate(text: str, site: set) -> str:
     """The work's name out of one page title: the first piece that is not a
     chapter number or the site's name, with a trailing chapter marker cut off."""
-    for part in _SEPARATORS.split(_line(text)):
+    for part in _SEPARATORS.split(_BRACKETED_CHAPTER.sub(" ", _line(text))):
         part = part.strip()
         if not part or _CHAPTER_ONLY.match(part) or term_key(part).replace(" ", "") in site:
             continue
@@ -199,6 +209,34 @@ def _find_match(clean_url: str, host: str, original: str, english: str, kind: st
     return None
 
 
+def _series_display_name(original: str, english: str, drama_id: int) -> str:
+    """The name a series is joined or made under. First the series of another title with the same
+    original name whose series has this title's owner and privacy (what naming the series after the original
+    always did, and what keeps one work from different sites in one series even when each
+    translation reads differently), then a series of the same owner and privacy whose name matches
+    the English or original name ignoring case and width (the check a new series gets), else the
+    English name, else the original."""
+    row = db.get_item_ownership("drama", drama_id) or {}
+
+    def same_scope(item: dict) -> bool:
+        return (item.get("owner_user_id") == row.get("owner_user_id")
+                and bool(item.get("is_private")) == bool(row.get("is_private")))
+
+    english = english or _line((db.get_drama(drama_id) or {}).get("title_en"))
+    series = {s["id"]: s for s in db.list_series() if same_scope(s)}
+    if original:
+        key = term_key(original)
+        for drama in db.list_dramas():
+            if (drama["id"] != drama_id and drama.get("series_id") in series
+                    and term_key(drama.get("title_zh")) == key):
+                return series[drama["series_id"]]["name"]
+    for name in (english, original):
+        for item in series.values():
+            if name and term_key(item["name"]) == term_key(name):
+                return item["name"]
+    return english or original
+
+
 def _join_series(drama_id: int, name: str):
     """The series the title joins, only while it is in none, by the rule the link
     details use for a name taken from a site: a series with the same owner and
@@ -229,10 +267,11 @@ def _answer(drama_id: int, created: bool, filled: list) -> dict:
             "media_type": drama.get("media_type") or ""}
 
 
-def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
+def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL, translate_title: bool = True) -> dict:
     """Finds or creates the title for a page. `create` off only finds (422 when
     nothing matches), `fill` off creates a placeholder named after the site with
-    the page link but no names, `series` off leaves the title out of any series."""
+    the page link but no names, `series` off leaves the title out of any series. `translate_title`
+    is False for a caller who may not spend the owner's engine (see api/routers/extension_bridge_routes.py)."""
     if not isinstance(payload, dict):
         raise InvalidInputError("The request must be a JSON object.")
     page = _read(payload)
@@ -254,8 +293,8 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
                 filled = db.dramas.fill_blank_fields(drama_id, {"title_zh": original, "title_en": english})
                 if clean_url and drama_service.set_source_url_once(drama_id, page["url"]):
                     filled.append("source_url")
-            if page["series"] and series_name:
-                _join_series(drama_id, series_name)
+            if page["series"] and series_name and drama_id not in _series_pending:
+                _join_series(drama_id, _series_display_name(original, english, drama_id))
             _remember_links(drama_id, page, host)
             return _answer(drama_id, False, filled)
         if not page["create"]:
@@ -269,21 +308,83 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
         # The link is kept even with Fill off, or the next send could never find this title again.
         if clean_url:
             drama_service.set_source_url_once(drama_id, page["url"])
-        if page["series"] and series_name:
-            _join_series(drama_id, series_name)
         _remember_links(drama_id, page, host)
-        return _answer(drama_id, True, [f for f in ("title_zh", "title_en") if created.get(f)]
-                       + (["source_url"] if clean_url else []))
+        filled_names = ([f for f in ("title_zh", "title_en") if created.get(f)]
+                        + (["source_url"] if clean_url else []))
+        translate = bool(page["fill"] and original and not english and translate_title)
+        wants_series = bool(page["series"] and series_name)
+        if translate and wants_series:
+            _series_pending.add(drama_id)
+    try:
+        # Outside the lock: an AI call must not hold up the next title's lookup.
+        if translate and _translate_title_once(drama_id, original, language):
+            filled_names.append("title_en")
+        # After the translation, so the series is named in English like the title.
+        if wants_series:
+            _join_series(drama_id, _series_display_name(original, english, drama_id))
+    finally:
+        with _resolve_lock:
+            _series_pending.discard(drama_id)
+    return _answer(drama_id, True, filled_names)
+
+
+_TITLE_PROMPT = ("Translate this {language} comic or novel title into natural English, as a published "
+                 "title would read. Return ONLY a JSON object: {{\"title\": \"<the English title>\"}}. "
+                 "Title: {title}")
+
+
+def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
+    """Puts an English title on a title the capture just created from a page that gave only the
+    original name, with one small AI call on the engine the extension is set up with (the same one
+    its page translations use, so a member is held to the same permission check by the caller). Runs only at creation, so a
+    later chapter never spends again, and only fills a blank English title, so a name the person
+    typed stays. Skipped (False) when the monthly cap is used up, the engine has no key or the
+    reply is unusable; it never fails the import."""
+    try:
+        from core import LANGUAGE_NAMES
+        from engine_backends import engine_registry, llm_tasks, paid_calls
+        from engine_backends.shared import extract_first_json_value
+        import page_server
+        from services import translate_run_service
+        config = page_server.get_translation_config()
+        engine_name = (config.get("engine") or "").strip()
+        engine_cls = engine_registry.ENGINES.get(engine_name)
+        if engine_cls is None or not getattr(engine_cls, "supports_reference", False):
+            return False
+        engine = page_server._build_engine(config)
+        if engine is None:
+            return False
+        # The spend is logged only once the reply is back, so the cap check and the call share one
+        # hold: otherwise members creating titles at once could each pass a cap with room for one.
+        with _title_spend_lock:
+            translate_run_service.refuse_when_cap_spent(
+                engine_name, bool(config.get("free_tier")) and engine_name == "gemini",
+                config.get("model"))
+            reply = llm_tasks.call_llm_json(
+                engine, _TITLE_PROMPT.format(language=LANGUAGE_NAMES.get(language, "source-language"),
+                                             title=original[:300]),
+                max_tokens=150, fallback=None,
+                usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extension_title_translate"))
+        data = extract_first_json_value(re.sub(r"^```json|^```|```$", "", (reply or "").strip(),
+                                               flags=re.MULTILINE).strip())
+        # The reply becomes a series name too, so it gets the same character cleaning as page names.
+        english = _line(data.get("title")) if isinstance(data, dict) else ""
+        english = redact_secrets(english)[:drama_service.MAX_NAME_LEN]
+        return bool(english) and bool(db.dramas.fill_blank_fields(drama_id, {"title_en": english}))
+    except Exception as exc:
+        import applog
+        applog.get_logger().warning("Translating a new title failed: %s", redact_secrets(str(exc)))
+        return False
 
 
 _STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ForbiddenError, 403), (ConflictError, 409))
 
 
-def resolve_from_bridge(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
+def resolve_from_bridge(payload: dict, principal=_BRIDGE_PRINCIPAL, translate_title: bool = True) -> dict:
     """page_server's POST /title: `resolve_title` with its errors turned into
     the bridge's own, since a raw exception could carry a path."""
     try:
-        return resolve_title(payload, principal)
+        return resolve_title(payload, principal, translate_title)
     except ServiceError as e:
         status = next((code for cls, code in _STATUS if isinstance(e, cls)), 500)
         raise page_server.EndpointError(status, redact_secrets(e.message)) from None
@@ -291,3 +392,31 @@ def resolve_from_bridge(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
         import applog
         applog.get_logger().warning("Setting up an extension title failed", exc_info=True)
         raise page_server.EndpointError(500, _FAILED) from None
+
+
+# Query keys and path words that carry a chapter's own number. A bare `id` is not here: on many
+# sites it names the series, and a number taken from it would file every chapter under one label.
+_CHAPTER_QUERY_KEYS = ("no", "episode_no", "episode", "chapter", "chapter_no", "ep", "cno")
+_CHAPTER_PATH = re.compile(r"(?:^|/)(?:chapter|chap|episode|ep|ch)[-_/]?(\d+(?:\.\d+)?)(?:/|$)", re.IGNORECASE)
+
+
+def capture_chapter_ref(source_url: str, run_id: str | None):
+    """The chapter label for pages a capture just saved, or None when nothing names one.
+    The number comes from the page address when it carries one. Otherwise the whole capture
+    (every batch of one run shares `run_id`) is one chapter stamped with its import time, so
+    imported chapters stay in the order they were captured and never fall into "unknown"."""
+    parts = urlsplit(str(source_url or ""))
+    host = (parts.hostname or "")[:40]
+    number = next((v for k, v in parse_qsl(parts.query) if k.lower() in _CHAPTER_QUERY_KEYS
+                   and re.fullmatch(r"\d+(?:\.\d+)?", v)), None)
+    if number is None:
+        found = _CHAPTER_PATH.search(parts.path)
+        number = found.group(1) if found else None
+    if number is not None:
+        return comic_chapters.chapter_ref(chapter_id=number, title=f"Chapter {number}",
+                                          source=host, url=source_url)
+    if not run_id:
+        return None
+    stamp = clock.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return comic_chapters.chapter_ref(chapter_id=f"run-{run_id}", title=f"Imported {stamp}",
+                                      source=host, url=source_url)

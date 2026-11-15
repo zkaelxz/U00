@@ -19,6 +19,8 @@ import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateS
 import { splitLines, type RunForm } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage, useStageFocus } from '../StageContext'
+import { filterTerms, sortTerms, type TermSort } from './glossaryTermView'
+import { GlossaryTermsToolbar } from './GlossaryTermsToolbar'
 import { GlossaryImport } from './GlossaryImport'
 import { InstructionsEditor } from './GlossaryInstructions'
 import { GlossaryRetranslateAction } from './GlossaryRetranslate'
@@ -29,10 +31,12 @@ import { NameReportPanel } from './NameReportPanel'
 import { VtuberNames } from './VtuberNames'
 import { LanguagePacks } from './LanguagePacks'
 import { SeriesAssign } from './SeriesAssign'
+import { GlossaryTitleTerms } from './GlossaryTitleTerms'
 import { revealForm } from './revealForm'
 import { SuggestTerms, useSuggestSources } from './SuggestTerms'
 import { startCardSuggestLabel, type GlossarySource } from './glossaryExtract'
 import { scanBanner, scanSummary, sourceToShow } from './glossaryScan'
+import { WordReplacementsTab } from './GlossaryReplacements'
 import { GLOSSARY_TABS, emptyTabText, instructionsSummary, type GlossaryTab } from './glossaryTabs'
 import { loadGlossaryUi, saveGlossaryUi } from './glossaryUi'
 import { noneAsNull } from './glossaryTermForm'
@@ -159,8 +163,8 @@ function TermRow({ t, checked, editing, catalogues, onToggle, onEdit, onSave, on
                 <td role="cell" data-label="Banned" className="card-meta">{t.banned_translations.join(', ')}</td>
                 <td role="cell" data-label="Exact" className="card-meta">{t.enforce_exact ? 'Yes' : 'No'}</td>
                 <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={onEdit}>Edit</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={onSimilar}>Find similar</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} title="Ask the engine how this name may have been written, then check it against the lines" onClick={onSuggest}>Suggest spellings</button></td>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} onClick={onSimilar}>Find similar</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} onClick={onSuggest}>Suggest spellings</button></td>
               </tr>
               {editing && (
                 <tr role="row" className="term-edit-row">
@@ -211,6 +215,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
   const [saveError, setSaveError] = useState<unknown>(null)
   const [reloads, setReloads] = useState(0)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<TermSort>('listed')
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -313,7 +319,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       setReloads((n) => n + 1)
     }, setSaveError)
 
-  const ids = terms ? terms.map((t) => t.id) : []
+  const shown = terms ? sortTerms(filterTerms(terms, query), sort) : []
+  const ids = shown.map((t) => t.id)
   const chosen = selectedInOrder(selected, ids)
   const allOn = ids.length > 0 && chosen.length === ids.length
 
@@ -381,6 +388,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       {panel('terms', (
         <>
       <SeriesAssign />
+      <GlossaryTitleTerms onCopied={() => setReloads((n) => n + 1)} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {emptyTabText('terms', emptyCtx) && <p className="muted" role="status">{emptyTabText('terms', emptyCtx)}</p>}
       {showStart && !editing && (
@@ -415,6 +423,9 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
         </div>
       )}
       {terms && terms.length > 0 && (
+        <GlossaryTermsToolbar query={query} onQuery={setQuery} sort={sort} onSort={setSort} shown={shown.length} total={terms.length} />
+      )}
+      {terms && terms.length > 0 && (
         <div className="table-scroll"><table role="table" className="card-table glossary-table">
           <thead>
             <tr role="row">
@@ -432,7 +443,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
               <th role="columnheader">Original</th><th role="columnheader">Translation</th><th role="columnheader">Aliases</th><th role="columnheader">Banned</th><th role="columnheader">Exact</th><th role="columnheader"><span className="visually-hidden">Edit</span></th></tr>
           </thead>
           <tbody>
-            {terms.map((t) => (
+            {shown.map((t) => (
               <TermRow
                 key={t.id}
                 t={t}
@@ -549,7 +560,6 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           <button
             type="button"
             className={buttonClass('secondary')}
-            title="Find a name that is heard or written differently across all your titles"
             onClick={() => setShowNameReport(true)}
           >
             Check names across all titles
@@ -560,11 +570,8 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       ))}
       {panel('packs', (
         <>
-      <LanguagePacks
-        glossarySources={(terms ?? []).map((t) => t.term_original)}
-        hasSeries={seriesId != null}
-        onAdded={() => setReloads((n) => n + 1)}
-      />
+      <LanguagePacks glossarySources={(terms ?? []).map((t) => t.term_original)} hasSeries={seriesId != null}
+        onAdded={() => setReloads((n) => n + 1)} />
       <VtuberNames />
         </>
       ))}
@@ -595,6 +602,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           )}
         </>
       ) : <p className="muted" role="status">Loading instructions…</p>)}
+      {panel('replacements', <WordReplacementsTab />)}
       {panel('retranslate', <RetranslateTab retranslate={retranslate} />)}
       </div>
     </Section>

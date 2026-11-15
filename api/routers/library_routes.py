@@ -18,7 +18,7 @@ from fastapi import APIRouter, Path, Query, Request
 from engine_backends import shared
 from api.auth import require_permission
 from api.schemas import (
-    DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
+    CaptureNoteList, DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
     LibraryContinueResponse, LibraryDashboard, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
     LibraryRecentResponse, LibraryRename, LibrarySearchResponse, LibrarySeriesResponse,
     LibraryVoice, LibraryVoiceBankResponse, error_responses)
@@ -92,6 +92,13 @@ def list_dramas(
             responses=error_responses(404, 422))
 def get_drama(drama_id: int = Path(ge=1)):
     return to_detail(library_service.get_library_drama(drama_id))
+
+
+@router.get("/dramas/{drama_id}/capture-notes", dependencies=[require_permission("library.read")],
+            response_model=CaptureNoteList, summary="The closing lines of the title's latest extension captures",
+            responses=error_responses(404, 422))
+def get_capture_notes(request: Request, drama_id: int = Path(ge=1)):
+    return {"items": library_service.list_capture_notes(drama_id, principal=request.state.principal)}
 
 
 _ERR = error_responses(422)

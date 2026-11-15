@@ -26,6 +26,7 @@ from api.schemas.settings import *  # noqa: F401,F403
 from api.schemas.loaded_models import *  # noqa: F401,F403
 from api.schemas.review import *  # noqa: F401,F403
 from api.schemas.characters import *  # noqa: F401,F403
+from api.schemas.word_replacements import *  # noqa: F401,F403
 from api.schemas.translate import *  # noqa: F401,F403
 from api.schemas.language_packs import *  # noqa: F401,F403
 from api.schemas.vdb_names import *  # noqa: F401,F403
@@ -41,11 +42,13 @@ from api.schemas.transcribe import *  # noqa: F401,F403
 from api.schemas.source_suspect import *  # noqa: F401,F403
 from api.schemas.timing_check import *  # noqa: F401,F403
 from api.schemas.retranscribe_lines import *  # noqa: F401,F403
+from api.schemas.three_run import *  # noqa: F401,F403
 from api.schemas.real_model_check import *  # noqa: F401,F403
 from api.schemas.subtitle_import import *  # noqa: F401,F403
 from api.schemas.spend_history import *  # noqa: F401,F403
 from api.schemas.pending_install import *  # noqa: F401,F403
 from api.schemas.browser import *  # noqa: F401,F403
+from api.schemas.ffmpeg_install import *  # noqa: F401,F403
 from api.schemas.voice_engines import *  # noqa: F401,F403
 from api.schemas.benchmark import *  # noqa: F401,F403
 from api.schemas.queue import *  # noqa: F401,F403

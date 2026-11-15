@@ -59,7 +59,9 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
     # the web-search server, or switch uploads from away back on. Every path
     # setting is kept by type, so a new one is covered without being listed here.
     # "jellyfin", "comic_save" and "web_search" are those services' SETTING keys.
-    "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.on_at",
+    "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.since",
+    # This PC window's Guest PIN belongs to the PC, not to the library a backup came from.
+    "pc_profile_pin", "pc_profile_pin.blocked_until",
     *(setting.store_key for setting in settings_schema.SETTINGS
       if setting.store == "db" and setting.type == "path"),
     *(settings_schema.BY_KEY[key].store_key for key in ("cookies_browser", "max_upload_mb")))
@@ -190,6 +192,7 @@ def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
                         library_restore_sql.copy_rows(conn, "cur", t)
                 elif t not in skip_tables and t in up_tables:
                     library_restore_sql.copy_rows(conn, "up", t)
+            db.settle_copied_marks(conn)
             conn.execute("COMMIT")
         finally:
             conn.close()
@@ -366,6 +369,8 @@ def _stage_sources_db(staging_dir: str, library_dir: str, from_upload: bool, own
             if not src_store.snapshot_to(staged_src, source=live_src):
                 return
             src_store.migrate_file(staged_src)
+            # The live links name the replaced library's titles, not the restored ones.
+            library_restore_sql.unlink_dramas(staged_src)
         except sqlite3.Error:
             raise ValueError(message) from None
     _require_quick_check(staged_src, message)
@@ -398,12 +403,29 @@ def _put_back(old_dir, library_dir: str, failed_dir: str | None = None) -> None:
     from lib.errors import ServiceError
     try:
         if failed_dir:
-            os.rename(library_dir, failed_dir)
+            _rename_dir(library_dir, failed_dir)
         if old_dir:
             os.rename(old_dir, library_dir)
     except OSError as e:
         logging.getLogger(__name__).exception("Restore: the previous library was not put back")
         raise ServiceError(RESTORE_NOT_PUT_BACK) from e
+
+
+def _rename_dir(src: str, dst: str, attempts: int = 5) -> None:
+    """os.rename for the live library folder. Windows refuses (PermissionError)
+    while a file inside is open, and the app's own log file is one: it is
+    closed first, and the rename retried because another thread logging in
+    between reopens it."""
+    import applog
+    for attempt in range(attempts):
+        applog.release_log_file()
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.2)
 
 
 def _remove_entry(path: str):
@@ -494,7 +516,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
             old_dir = None
             if os.path.exists(library_dir):
                 old_dir = f"{library_dir}{db.PRE_RESTORE_MARKER}{int(time.time())}"
-                os.rename(library_dir, old_dir)
+                _rename_dir(library_dir, old_dir)
             try:
                 os.rename(staging_dir, library_dir)
             except Exception:

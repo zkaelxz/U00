@@ -1,11 +1,14 @@
 """
-lib/release_signature.py, tools/release_signing.py and the release job's
-signing step in .github/workflows/windows-installer.yml. Keys are throwaway
-ones made here; the workflow step runs for real with a fake `gh` on PATH.
+lib/release_signature.py, tools/release_signing.py, the release job's
+signing step in .github/workflows/windows-installer.yml and the promote step
+in .github/workflows/promote-release.yml. Keys are throwaway ones made here;
+the workflow steps run for real with a fake `gh` on PATH.
 """
 
 import hashlib
+import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -143,7 +146,7 @@ def _release_script() -> str:
     # required reviewer; a repository secret still reaches the job.
     assert wf["jobs"]["release"]["environment"] == "release"
     # A later step uploads the signed files as an artifact; only the one that runs the script is checked.
-    (step,) = [s for s in wf["jobs"]["release"]["steps"] if "run" in s]
+    (step,) = [s for s in wf["jobs"]["release"]["steps"] if s.get("name", "").startswith("Attach")]
     assert step["env"]["BAIHE_RELEASE_SIGNING_KEY"] == "${{ secrets.BAIHE_RELEASE_SIGNING_KEY }}"
     assert "uses" not in step
     return step["run"]
@@ -155,12 +158,16 @@ if [ "$1 $2" = "run download" ]; then
   while [ $# -gt 0 ]; do case "$1" in --name) n="$2"; shift;; --dir) d="$2"; shift;; esac; shift; done
   mkdir -p "$d/$n"
   printf 'MZ fake installer' > "$d/$n/$n.exe"
+elif [ "$1" = "api" ] && printf '%s' "$*" | grep -q 'release/v'; then
+  [ -s "$GH_NOTES_FILE" ] || exit 1
+  cat "$GH_NOTES_FILE"
 elif [ "$1" = "api" ]; then
   printf '# comment\\n%s\\n' "$GH_COMMITTED_PUBLIC_KEY"
 elif [ "$1 $2" = "release view" ]; then
   exit 1
 elif [ "$1 $2" = "release create" ]; then
   printf '%s\\n' "$@" > "$GH_LOG"
+  while [ $# -gt 0 ]; do [ "$1" = "--notes-file" ] && cp "$2" "$GH_LOG.notes"; shift; done
 fi
 """
 
@@ -173,7 +180,7 @@ FAKE_GH_WITH_APP_ZIP = FAKE_GH.replace(
 
 
 def _run_release(tmp_path, key, fake_gh=FAKE_GH, committed_public=None,
-                 ref="v0.2.0"):
+                 ref="v0.2.0", notes=None):
     if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
                                and shutil.which("base64")):
         pytest.skip("needs bash, openssl and coreutils (the release job runs on ubuntu)")
@@ -188,7 +195,9 @@ def _run_release(tmp_path, key, fake_gh=FAKE_GH, committed_public=None,
            "GITHUB_RUN_ID": "1", "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t",
            "GH_LOG": str(tmp_path / "gh.log"), "TMPDIR": str(tmp_path),
            "GITHUB_SHA": "0" * 40,
-           "GH_COMMITTED_PUBLIC_KEY": committed_public or ""}
+           "GH_COMMITTED_PUBLIC_KEY": committed_public or "",
+           "GH_NOTES_FILE": str(tmp_path / "notes.md")}
+    (tmp_path / "notes.md").write_text(notes or "", encoding="utf-8")
     if key is not None:
         env["BAIHE_RELEASE_SIGNING_KEY"] = key
     proc = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True,
@@ -198,6 +207,85 @@ def _run_release(tmp_path, key, fake_gh=FAKE_GH, committed_public=None,
     proc.stdout = "\n".join(line for line in proc.stdout.splitlines()
                              if not line.startswith("::add-mask::"))
     return proc, (log.read_text().splitlines() if log.exists() else None), work
+
+
+def _ci_check_step() -> dict:
+    yaml = pytest.importorskip("yaml")
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "windows-installer.yml")
+                        .read_text(encoding="utf-8"))
+    steps = wf["jobs"]["release"]["steps"]
+    # First, so a red commit never reaches the signing key.
+    assert steps[0]["name"] == "Check that Tests passed at the tagged commit"
+    return steps[0]
+
+
+def _ci_check_script() -> str:
+    return _ci_check_step()["run"]
+
+
+FAKE_GH_CHECKS = """#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" > "$GH_LOG"
+printf '%s\\n' "$GH_CONCLUSION"
+"""
+
+
+@pytest.mark.parametrize("conclusion,ok", [
+    ("success", True), ("failure", False), ("cancelled", False), ("null", False),
+    ("missing", False)])
+def test_release_job_publishes_only_when_tests_passed_at_the_commit(tmp_path, conclusion, ok):
+    if os.name == "nt" or not shutil.which("bash"):
+        pytest.skip("needs bash (the release job runs on ubuntu)")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "gh").write_text(FAKE_GH_CHECKS, encoding="utf-8")
+    (bindir / "gh").chmod(0o755)
+    env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "GITHUB_REPOSITORY": "o/r",
+           "GITHUB_SHA": "a" * 40, "GH_TOKEN": "t", "GH_LOG": str(tmp_path / "gh.log"),
+           "GH_CONCLUSION": conclusion, "RUNS_FILTER": _ci_check_step()["env"]["RUNS_FILTER"]}
+    proc = subprocess.run(["bash", "-c", _ci_check_script()], env=env, capture_output=True,
+                          text=True, timeout=60)
+    assert (proc.returncode == 0) is ok, proc.stdout + proc.stderr
+    asked = (tmp_path / "gh.log").read_text()
+    assert (f"repos/o/r/actions/workflows/tests.yml/runs?head_sha={'a' * 40}"
+            "&event=push&branch=baihe-subtitler") in asked
+    if not ok:
+        assert "Nothing was published" in proc.stdout
+    if conclusion == "cancelled":
+        # Not "wait for it to finish": a cancelled run never does.
+        assert "Tag the later commit" in proc.stdout
+        assert "wait for it to finish" not in proc.stdout
+
+
+def _run_of(conclusion, created="2026-11-12T10:00:00Z", sha="a" * 40, event="push",
+            branch="baihe-subtitler", path=".github/workflows/tests.yml"):
+    return {"conclusion": conclusion, "created_at": created, "head_sha": sha, "event": event,
+            "head_branch": branch, "path": path}
+
+
+@pytest.mark.parametrize("runs,expected", [
+    ([_run_of("success")], "success"),
+    ([], "missing"),
+    ([_run_of("failure")], "failure"),
+    # A pull request's run tests a merge with the base, not this commit.
+    ([_run_of("success", event="pull_request")], "missing"),
+    ([_run_of("success", branch="someone-elses-branch")], "missing"),
+    ([_run_of("success", path=".github/workflows/windows-installer.yml")], "missing"),
+    ([_run_of("success", sha="b" * 40)], "missing"),
+    # The newest run counts, so a later failure is not hidden by an earlier pass.
+    ([_run_of("success", "2026-11-12T10:00:00Z"), _run_of("failure", "2026-11-12T11:00:00Z")],
+     "failure"),
+    ([_run_of(None)], "missing"),
+])
+def test_release_job_counts_only_the_push_run_on_the_branch(runs, expected):
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("needs jq (gh's --jq takes the same filter)")
+    proc = subprocess.run([jq, "-r", _ci_check_step()["env"]["RUNS_FILTER"]],
+                          input=json.dumps({"workflow_runs": runs}), capture_output=True,
+                          text=True, timeout=30, env={**os.environ, "GITHUB_SHA": "a" * 40})
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == expected
 
 
 def test_release_job_signs_what_the_app_verifies(tmp_path, keys):
@@ -258,11 +346,237 @@ def test_release_job_signs_the_app_zip_too(tmp_path, keys):
     app = "BaiheStudio-App-0.2.0.zip"
     assert sorted(Path(a).name for a in gh_args if a.startswith("out/")) == sorted([
         NAME, NAME + ".sha256", NAME + ".sig", app, app + ".sha256", app + ".sig",
-        "BaiheStudio-App-0.2.0.json"])
-    for name in (NAME, app):
+        "BaiheStudio-App-0.2.0.json", "BaiheStudio-App-0.2.0.json.sha256",
+        "BaiheStudio-App-0.2.0.json.sig"])
+    # The manifest copy too: the full installer's backup gate reads its schema.
+    for name in (NAME, app, "BaiheStudio-App-0.2.0.json"):
         data = (out / name).read_bytes()
         sig = rs.parse_signature((out / (name + ".sig")).read_bytes())
         assert rs.verify(public, sig, name, hashlib.sha256(data).hexdigest())
         assert (out / (name + ".sha256")).read_text().split() == [
             hashlib.sha256(data).hexdigest(), name]
     assert private.split(":", 1)[1] not in proc.stdout + proc.stderr
+
+
+def test_a_stable_tag_is_published_as_a_pre_release_first(tmp_path, keys):
+    # Copies with "Include pre-releases" off are offered it only once
+    # Promote Release has run.
+    _, _, private, public_text = keys
+    proc, gh_args, _ = _run_release(tmp_path, private, committed_public=public_text)
+    assert proc.returncode == 0, proc.stderr
+    assert "--prerelease" in gh_args
+
+
+# --- the promote job -------------------------------------------------------------
+
+def _promote_job():
+    return _promote_step()["run"]
+
+
+def _promote_step():
+    yaml = pytest.importorskip("yaml")
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "promote-release.yml")
+                        .read_text(encoding="utf-8"))
+    job = wf["jobs"]["promote"]
+    assert job["environment"] == "release-main"
+    assert not any("uses" in s for s in job["steps"])   # nothing from the repository runs
+    (step,) = job["steps"]
+    return step
+
+
+FAKE_GH_PROMOTE = """#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$GH_LOG"
+case "$1 $2" in
+  "api repos/o/r/environments/release-main") printf '%s\\n' "$GH_RULES" ;;
+  "api repos/o/r/commits/tags/"*) printf '%s\\n' "${GH_COMMIT}" ;;
+  "api repos/o/r/actions/workflows/tests.yml/runs?head_sha=$GH_COMMIT&event=push&branch=baihe-subtitler&per_page=100")
+    printf '%s\\n' "$GH_TESTS" ;;
+  "api -H")
+    case "$*" in
+      *"contents/installer/release_public_key.txt?ref=$GH_COMMIT") printf '# comment\\n%s\\n' "$GH_KEY" ;;
+      *) exit 1 ;;
+    esac ;;
+  "release view")
+    case "$*" in
+      *isDraft*) printf '%s\\n' "$GH_STATE" ;;
+      *assets*) printf '%s\\n' $GH_ASSETS ;;
+    esac ;;
+  "release download")
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --dir) d="$2"; mkdir -p "$d"; shift ;;
+        --pattern) [ -f "$GH_FILES/$2" ] && cp "$GH_FILES/$2" "$d/"; shift ;;
+      esac
+      shift
+    done ;;
+  "release edit") ;;
+  *) exit 1 ;;
+esac
+"""
+
+SIGNED = f"{NAME} {NAME}.sha256 {NAME}.sig"
+APP = "BaiheStudio-App-0.2.0.zip"
+MANIFEST = "BaiheStudio-App-0.2.0.json"
+APP_SIGNED = (f"{APP} {APP}.sha256 {APP}.sig {MANIFEST} {MANIFEST}.sha256 {MANIFEST}.sig")
+
+
+def _release_files(folder, seed, tamper=None):
+    """The installer and app zip with their .sha256 and real .sig files, as
+    the tag's run published them; `tamper` names a file changed afterwards."""
+    folder.mkdir()
+    for name, body in ((NAME, b"MZ fake installer"), (APP, b"PK fake app"),
+                       (MANIFEST, b"{}")):
+        sha = hashlib.sha256(body).hexdigest()
+        (folder / name).write_bytes(body + (b" changed" if tamper == name else b""))
+        (folder / (name + ".sha256")).write_text(f"{sha}  {name}\n", encoding="ascii")
+        (folder / (name + ".sig")).write_text(rs.format_signature(rs.sign(seed, name, sha)) + "\n",
+                                              encoding="ascii")
+    if tamper and tamper.endswith(".sha256"):
+        (folder / tamper).write_text("0" * 64 + "  x\n", encoding="ascii")
+
+
+def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=SIGNED,
+                 tamper=None, key=None, sign_with=None, tests="success", commit="c" * 40):
+    if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
+                               and shutil.which("base64")):
+        pytest.skip("needs bash, openssl and coreutils (the promote job runs on ubuntu)")
+    script = _promote_job()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "gh").write_text(FAKE_GH_PROMOTE, encoding="utf-8")
+    (bindir / "gh").chmod(0o755)
+    private, public = rs.generate()
+    seed = rs.parse_private_key(sign_with or private)
+    _release_files(tmp_path / "assets", seed, tamper)
+    log = tmp_path / "gh.log"
+    env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "TAG": tag,
+           "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t", "GH_LOG": str(log),
+           "GH_RULES": rules, "GH_STATE": state, "GH_ASSETS": assets, "GH_COMMIT": commit,
+           "GH_TESTS": tests, "RUNS_FILTER": _promote_step()["env"]["RUNS_FILTER"],
+           "GH_KEY": public if key is None else key, "GH_FILES": str(tmp_path / "assets"),
+           "TMPDIR": str(tmp_path)}
+    proc = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True,
+                          timeout=60)
+    calls = log.read_text().splitlines() if log.exists() else []
+    return proc, [c for c in calls if c.startswith("release edit")]
+
+
+def test_promote_makes_the_tested_pre_release_the_full_release(tmp_path):
+    proc, edits = _run_promote(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert edits == ["release edit v0.2.0 --repo o/r --prerelease=false --latest"]
+
+
+def test_promote_checks_the_app_zip_files_when_the_release_has_one(tmp_path):
+    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP} {APP}.sha256")
+    assert proc.returncode != 0 and edits == []
+    assert f"no {APP}.sig" in proc.stdout
+
+
+def test_promote_takes_a_release_with_a_signed_app_zip(tmp_path):
+    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP_SIGNED}")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert len(edits) == 1
+
+
+@pytest.mark.parametrize("change,says", [
+    ({"rules": "0"}, "no required reviewer"),
+    ({"state": "false false"}, "not a published pre-release"),
+    ({"state": "true true"}, "not a published pre-release"),
+    ({"tag": "v0.2.0-beta.1"}, "stays a pre-release"),
+    ({"tag": "v0.2.0; rm -rf /"}, "not a release tag"),
+    ({"assets": f"{NAME} {NAME}.sha256"}, f"no {NAME}.sig"),
+])
+def test_promote_refuses_and_changes_nothing(tmp_path, change, says):
+    proc, edits = _run_promote(tmp_path, **change)
+    assert proc.returncode != 0 and edits == []
+    assert says in proc.stdout and "Nothing was promoted" in proc.stdout
+
+
+@pytest.mark.parametrize("change,says", [
+    ({"tamper": NAME}, f"{NAME} doesn't match its .sha256 file"),
+    ({"tamper": NAME + ".sha256"}, f"{NAME} doesn't match its .sha256 file"),
+    ({"tamper": APP, "assets": f"{SIGNED} {APP_SIGNED}"}, f"{APP} doesn't match"),
+    # The full installer's backup gate believes the manifest only when it is signed.
+    ({"tamper": MANIFEST, "assets": f"{SIGNED} {APP_SIGNED}"}, f"{MANIFEST} doesn't match"),
+    ({"assets": f"{SIGNED} {APP} {APP}.sha256 {APP}.sig {MANIFEST} {MANIFEST}.sha256"},
+     f"no {MANIFEST}.sig"),
+    # Signed, and the hash matches, but by a key other than the tag's own.
+    ({"sign_with": rs.generate()[0]}, f"{NAME}.sig is not a valid signature"),
+    ({"key": ""}, "holds no release public key"),
+    ({"key": "ed25519-public:bm90IGEga2V5"}, "isn't a valid public key"),
+    # A tag moved to a commit that never passed Tests on baihe-subtitler, where
+    # whoever moved it could have committed their own key.
+    ({"tests": "missing"}, "is missing, not success"),
+    ({"tests": "failure"}, "is failure, not success"),
+    ({"commit": "not-a-sha"}, "Couldn't read the commit"),
+])
+def test_promote_verifies_the_files_and_signatures(tmp_path, change, says):
+    proc, edits = _run_promote(tmp_path, **change)
+    assert proc.returncode != 0 and edits == []
+    assert says in proc.stdout and "Nothing was promoted" in proc.stdout
+
+
+def test_promote_reads_the_tag_not_a_branch_and_its_tests_run_on_the_branch(tmp_path):
+    proc, _ = _run_promote(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    calls = (tmp_path / "gh.log").read_text()
+    assert "api repos/o/r/commits/tags/v0.2.0 --jq .sha" in calls
+    assert f"contents/installer/release_public_key.txt?ref={'c' * 40}" in calls
+
+
+def test_promote_never_pipes_into_grep_q():
+    # grep -q exits at its first match; under pipefail the writer then dies of
+    # SIGPIPE now and then and a listed asset reads as missing. Too rare for
+    # the runs-based tests to catch, so the shape is pinned instead.
+    # Only newline-terminated multi-line writers can race; the single-string
+    # `printf '%s' "$TAG" | grep -Eq` checks cannot match before EOF.
+    assert not re.search(r"printf '%s\\n'[^|\n]*\|\s*grep\b[^|\n]*\s-[A-Za-z]*[qm]", _promote_job())
+
+
+def test_promote_refuses_a_release_with_no_assets(tmp_path):
+    proc, edits = _run_promote(tmp_path, assets="")
+    assert proc.returncode != 0 and edits == []
+    assert f"no {NAME}" in proc.stdout
+
+
+def test_promote_counts_the_same_tests_runs_as_the_release_job():
+    promote = _promote_step()["env"]["RUNS_FILTER"]
+    release = _ci_check_step()["env"]["RUNS_FILTER"]
+    assert promote == release.replace("env.GITHUB_SHA", "env.COMMIT")
+
+
+def test_promote_checks_the_signature_of_every_signed_file(tmp_path):
+    proc, edits = _run_promote(tmp_path, assets=f"{SIGNED} {APP_SIGNED}")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    for name in (NAME, APP, MANIFEST):
+        assert f"Verified {name}" in proc.stdout
+
+
+def test_the_release_body_is_the_tags_notes_file(tmp_path, keys):
+    # The update card shows the body, so this is what people read before updating.
+    _, _, private, public_text = keys
+    proc, gh_args, _ = _run_release(tmp_path, private, committed_public=public_text,
+                                    notes="# Baihe Studio v0.2.0\n\n- Fixed a thing.\n")
+    assert proc.returncode == 0, proc.stderr
+    assert "--notes-file" in gh_args and "--notes" not in gh_args
+    body = (tmp_path / "gh.log.notes").read_text()
+    assert body.startswith("# Baihe Studio v0.2.0\n\n- Fixed a thing.\n")
+    assert body.rstrip().endswith("Check the installer against its .sha256 file before you run it.")
+
+
+def test_without_a_notes_file_the_release_gets_one_line_and_a_warning(tmp_path, keys):
+    _, _, private, public_text = keys
+    proc, gh_args, _ = _run_release(tmp_path, private, committed_public=public_text)
+    assert proc.returncode == 0, proc.stderr
+    assert (tmp_path / "gh.log.notes").read_text().startswith("Baihe Studio 0.2.0.\n")
+    assert "release/v0.2.0-notes.md is not in the tagged commit" in proc.stdout
+
+
+def test_a_huge_notes_file_is_cut_below_githubs_limit(tmp_path, keys):
+    _, _, private, public_text = keys
+    proc, _, _ = _run_release(tmp_path, private, committed_public=public_text,
+                              notes="x" * 200_000)
+    assert proc.returncode == 0, proc.stderr
+    assert len((tmp_path / "gh.log.notes").read_text()) < 125_000
