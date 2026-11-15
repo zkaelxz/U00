@@ -273,8 +273,11 @@ of every GPU-queue poll (20 s) while the `gpu_guard` preference is on (default o
 reads the first GPU's free memory and temperature with one nvidia-smi call. The card is
 *short* when free VRAM is under `external_busy_min_free_mb` and *hot* when the GPU
 temperature is at or above `gpu_guard_temp_c` (85 °C). The CPU temperature is not read. Either starts a hold at once; the hold ends only after every
-reading has stayed 1 GB / 5 °C clear for 60 s, so a value at the limit doesn't flap. No
-reading, or a state older than 90 s, means no hold.
+reading has stayed 1 GB / 5 °C clear for 60 s, so a value at the limit doesn't flap; in
+that minute the held message says what the card reads now ("GPU memory is free again …,
+checking it stays free"). A changed memory or GPU temperature limit is judged on the next
+reading: a card already clear of the new limit isn't held for the old one's clear minute.
+No reading, or a state older than 90 s, means no hold.
 
 While held:
 
@@ -283,7 +286,9 @@ While held:
   "Held: the GPU is hot (…)". Needs the GPU limit on: with it off nothing queues.
 - While short and no Baihe job runs, idle models are unloaded (`whisper_models.release_gpu_models`
   and `ollama_unload.unload_loaded_models`), at most once a minute.
-- After `gpu_guard_stop_minutes` (2; 0 = never) of one unbroken hold, every running GPU
+- After `gpu_guard_stop_minutes` (2; 0 = never) of one unbroken hold, or at once when free
+  memory is under half the reserve (`CRITICAL_SHARE`: on the V100, four streams left 1.9 GB
+  of a 5 GB reserve during the 2-minute wait), and never during the clear minute, every running GPU
   job that registered a restart is stopped with `request_cancel` (the same stop as the
   Stop button) and started again through the call that started it, under its starter's
   principal (`allow_restart`). With the GPU limit on the new run queues held at once;
@@ -293,6 +298,15 @@ While held:
   Until it starts again, `gpu_guard.restart_pending(job_id)` is true and the job queue
   (`queue_service._job_outcome`) keeps the item that started it running, so a run on the
   queue goes on with its next step instead of ending as cancelled.
+- A registered job whose model `memory_headroom` refused (`HeadroomError.vram_need_mb`,
+  carried in a process job's result) doesn't end Failed: as the run ends, `job_runner`
+  asks `gpu_guard.wait_for_room_locked`, which puts it back to "queued" (no notification)
+  saying "Waiting for GPU memory: …". It starts again once free memory covers the reserve
+  plus that need and the card is neither short nor hot. Only then, or if it can't wait, does
+  it end Failed with its own sentence and the usual failure notification: after an hour
+  (`ROOM_WAIT_SECONDS`), when the guard is turned off, or when the guard has no fresh
+  reading or the job used its restarts (it fails at once, as before). Cancel ends it as any
+  queued job.
 
 Which jobs register (checked per type, 2026-11-15):
 

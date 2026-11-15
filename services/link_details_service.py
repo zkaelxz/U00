@@ -99,7 +99,7 @@ def _tidy(text, limit=300) -> str:
     return text[:limit]
 
 
-def _video_fields(url: str, cancel) -> dict:
+def video_link_fields(url: str, cancel) -> dict:
     """The child's {"link": ...} fields; raises a fixed-text error."""
     from services import egress_proxy
     tmp = storage.new_workdir("link_probe")
@@ -133,7 +133,7 @@ def _video_fields(url: str, cancel) -> dict:
 
 
 def _video_view(url: str, cancel) -> dict:
-    link = _video_fields(url, cancel)
+    link = video_link_fields(url, cancel)
     view = _empty("video", url)
     channel = _tidy(link.get("channel"))
     view.update(title=_tidy(link.get("title")), channel=channel,

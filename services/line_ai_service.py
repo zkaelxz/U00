@@ -161,8 +161,7 @@ def explain_line(drama_id: int, line_id: int, engine_name: str | None = None, mo
     Returns {line_id, explanation, engine, model}."""
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
                                          gemini_free_tier)
-    series_id = drama.get("series_id")
-    glossary = db.list_effective_glossary_terms(series_id) if series_id else None
+    glossary = db.list_run_glossary_terms(drama) or None
     text = run(lambda: line_tools.explain_translation(
         line.zh, line.en, engine, source_language=_line_language(drama, line),
         glossary_terms=glossary), (engine, "line_explain", drama_id))

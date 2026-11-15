@@ -34,6 +34,14 @@ CLEAR_SECONDS = 60
 # The poller ticks every 20 s; a state older than this means it stopped, and
 # an old reading must not keep jobs held.
 STALE_SECONDS = 90
+# Free memory under this share of the reserve stops running jobs on the next
+# poll rather than after the set minutes. On the V100 with a 5 GB reserve,
+# four streams left 1.9 GB free while the 2-minute wait ran; under 2.5 GB a
+# fifth stream (about 1.2 GB) has little room left.
+CRITICAL_SHARE = 0.5
+# A job refused because its model would not fit (memory_headroom) waits this
+# long for room before it is left as it ended.
+ROOM_WAIT_SECONDS = 3600
 # Ollama is asked again at most this often while memory stays short.
 UNLOAD_EVERY_SECONDS = 60
 # A job stopped this many times in a row is not restarted again: its own
@@ -124,9 +132,15 @@ def _step(state: dict, reading, conf: dict, now: float) -> dict:
         return {**_fresh_state(), "unloaded_at": state.get("unloaded_at")}
     free, temp = reading
     floor, limit = conf["min_free_mb"], conf["temp_limit"]
+    changed = (state.get("min_free_mb"), state.get("temp_limit")) != (floor, limit)
     state.update(at=now, free_mb=free, temp_c=temp, min_free_mb=floor, temp_limit=limit)
     short_now = free < floor
     hot_now = temp is not None and temp >= limit
+    if changed and not (short_now or hot_now):
+        # A limit the owner just changed is judged afresh: a card already clear
+        # of the new one isn't kept waiting out the clear minute of the old one.
+        state.update(short=False, hot=False, since=None, clear_since=None)
+        return state
     if short_now or hot_now:
         if not (state["short"] or state["hot"]):
             state["since"] = now
@@ -147,6 +161,11 @@ def _step(state: dict, reading, conf: dict, now: float) -> dict:
 
 
 def _why(state: dict) -> str:
+    if state.get("clear_since") is not None:
+        # The clear minute: say what the card reads now, not the old shortage.
+        if state["short"]:
+            return f"GPU memory is free again ({state['free_mb'] / 1024:.1f} GB free), checking it stays free"
+        return f"the GPU has cooled ({state['temp_c']:.0f} °C), checking it stays cool"
     if state["short"]:
         return (f"low GPU memory ({state['free_mb'] / 1024:.1f} GB free, "
                 f"{state['min_free_mb'] / 1024:.1f} GB kept free)")
@@ -159,6 +178,12 @@ def _held_text(why: str) -> str:
 
 def _stopped_text(why: str) -> str:
     return f"Stopped: {why}. Starts again by itself when the GPU is clear."
+
+
+def _room_text(need_mb, floor_mb, free_mb) -> str:
+    free = "" if free_mb is None else f", and {free_mb / 1024:.1f} GB is free"
+    return (f"Waiting for GPU memory: its model needs about {need_mb / 1024:.1f} GB on top of "
+            f"the {floor_mb / 1024:.1f} GB kept free{free}. Starts by itself when there is room.")
 
 
 def hold_reason(now: float | None = None):
@@ -214,11 +239,41 @@ def _forget_ended_locked() -> None:
     still says "queued"; a run cancelled or cleared while queued doesn't."""
     for job_id, entry in list(_restartable.items()):
         run = _jobs.get(job_id)
-        if run is not None and run is not entry["run"] and entry["run"].get("status") == "queued" \
-                and run.get("kind") == "process" and run.get("status") == "running":
+        if _follows_promotion(entry, run):
             entry["run"] = run
         if run is None or run is not entry["run"] or run.get("status") not in ("queued", "running"):
             del _restartable[job_id]
+
+
+def _follows_promotion(entry, run) -> bool:
+    return (run is not None and run is not entry["run"] and entry["run"].get("status") == "queued"
+            and run.get("kind") == "process" and run.get("status") == "running")
+
+
+def wait_for_room_locked(job_id: str, run: dict, need_mb, error: str) -> bool:
+    """Caller holds job_table._lock, as `run` ends refused by memory_headroom
+    for `need_mb` MB of GPU memory. A registered run then goes back to
+    "queued", saying it waits for room, instead of ending Failed: True, and
+    the caller records nothing more and sends no notification. False (it
+    ends as usual) when the guard isn't reading the card, the run didn't
+    register or it already used its restarts."""
+    if not need_mb:
+        return False
+    now = time.time()
+    with _guard_lock:
+        entry = _restartable.get(job_id)
+        if entry is None or not (entry["run"] is run or _follows_promotion(entry, run)) \
+                or entry["restarts"] >= MAX_RESTARTS or job_id in _pending \
+                or _state["at"] is None or now - _state["at"] > STALE_SECONDS:
+            return False
+        del _restartable[job_id]
+        _pending[job_id] = {**entry, "run": run, "why": "not enough free GPU memory for its model",
+                            "room_mb": float(need_mb), "error": error, "stopped_at": now}
+        floor, free = _state["min_free_mb"], _state["free_mb"]
+    run.pop("result", None)
+    run.update(status="queued", error=None, message=_room_text(need_mb, floor, free))
+    _mirror_locked(job_id)
+    return True
 
 
 def _call_as(principal, fn):
@@ -265,9 +320,21 @@ def _free_idle_models(state: dict, now: float) -> None:
         _warn("GPU guard: unloading Ollama's models failed", exc)
 
 
+def _stop_due(state: dict, now: float, stop_minutes: int) -> bool:
+    """After the set minutes of one unbroken hold; at once when free memory
+    is under CRITICAL_SHARE of the reserve, since then the next stream may
+    not start at all. Never in the clear minute, and never with 0 minutes."""
+    if stop_minutes <= 0 or state["since"] is None or state.get("clear_since") is not None:
+        return False
+    if state["short"] and state["free_mb"] is not None \
+            and state["free_mb"] < state["min_free_mb"] * CRITICAL_SHARE:
+        return True
+    return now - state["since"] >= stop_minutes * 60
+
+
 def _stop_running(state: dict, now: float, stop_minutes: int) -> None:
     import background_jobs
-    if stop_minutes <= 0 or state["since"] is None or now - state["since"] < stop_minutes * 60:
+    if not _stop_due(state, now, stop_minutes):
         return
     stop = []
     with _lock, _guard_lock:
@@ -303,6 +370,71 @@ def _set_message(run, text) -> None:
                 return
 
 
+def _waiting_locked(job_id, run) -> bool:
+    """Caller holds _lock. Still the run waiting for room: not cancelled,
+    cleared or started again by hand meanwhile."""
+    return _jobs.get(job_id) is run and run.get("status") == "queued"
+
+
+def _end_waiting(job_id: str, entry: dict, note: str) -> None:
+    """Ends a run that waited for room the way it would have ended without
+    the wait: Failed with its own sentence, and the failure notification."""
+    from jobs.job_settings import _notify_job_finished
+    run = entry["run"]
+    with _guard_lock:
+        _pending.pop(job_id, None)
+    with _lock:
+        if not _waiting_locked(job_id, run):
+            return
+        run.update(status="error", error=entry["error"], message=note, finished_at=time.time())
+        _mirror_locked(job_id)
+    _notify_job_finished(run.get("description"), "error", job_id=job_id,
+                         owner_user_id=run.get("owner_user_id"), reason=entry["error"])
+
+
+def _room_step(job_id: str, entry: dict, state: dict, now: float) -> None:
+    """A run refused for GPU memory (wait_for_room_locked) starts again once
+    free memory covers the reserve plus its model, for up to an hour."""
+    from jobs import job_launch
+    run, room = entry["run"], entry["room_mb"]
+    with _lock:
+        waiting = _waiting_locked(job_id, run)
+    if not waiting or job_launch.is_stopping():
+        with _guard_lock:
+            _pending.pop(job_id, None)
+        return
+    free, floor = state["free_mb"], state["min_free_mb"]
+    if free is None or state["short"] or state["hot"] or free < floor + room:
+        if now - entry["stopped_at"] >= ROOM_WAIT_SECONDS:
+            _end_waiting(job_id, entry, "The GPU did not have room for its model within an hour.")
+        else:
+            _set_message(run, _room_text(room, floor, free))
+        return
+    with _lock:
+        if not _waiting_locked(job_id, run):
+            return
+        # The start refuses a job id that is still queued; the new run replaces this record.
+        run.update(status="error", error=entry["error"], message="", finished_at=now)
+        _mirror_locked(job_id)
+    with _guard_lock:
+        _pending.pop(job_id, None)
+    try:
+        _call_as(entry["principal"], entry["restart"])
+    except Exception as exc:
+        from engine_backends.redaction import redact_secrets
+        from jobs.job_settings import _notify_job_finished
+        _warn(f"GPU guard: job {job_id} could not be started again", exc)
+        _set_message(run, "It did not start again: " + redact_secrets(str(exc))[:200])
+        _notify_job_finished(run.get("description"), "error", job_id=job_id,
+                             owner_user_id=run.get("owner_user_id"), reason=entry["error"])
+        return
+    with _guard_lock:
+        again = _restartable.get(job_id)
+        if again is not None:
+            again["restarts"] = entry["restarts"] + 1
+    _log(f"GPU guard: job {job_id} started again once the GPU had room")
+
+
 def _restart_pending(state: dict, now: float) -> None:
     from jobs import job_launch
     from jobs.job_settings import get_gpu_limit_enabled
@@ -311,6 +443,9 @@ def _restart_pending(state: dict, now: float) -> None:
         pending = list(_pending.items())
     for job_id, entry in pending:
         run = entry["run"]
+        if entry.get("room_mb"):
+            _room_step(job_id, entry, state, now)
+            continue
         if run.get("status") in ("queued", "running") or entry["stopped_at"] == now:
             continue   # still stopping; a run stopped this tick starts again on the next
         if run.get("status") != "cancelled":
@@ -369,7 +504,10 @@ def tick(now: float | None = None, reading=...) -> dict:
             with _guard_lock:
                 _state.clear()
                 _state.update(_fresh_state())
+                waiting = [(jid, e) for jid, e in _pending.items() if e.get("room_mb")]
                 _pending.clear()
+            for job_id, entry in waiting:
+                _end_waiting(job_id, entry, "")
             return status()
         reading = read_card() if reading is ... else reading
         with _guard_lock:
