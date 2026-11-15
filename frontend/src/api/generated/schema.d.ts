@@ -9539,6 +9539,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/keys-file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which keys-file and environment settings are set (yes or no, never a value) */
+        get: operations["get_keys_file_status_api_settings_keys_file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/keys/{engine}": {
         parameters: {
             query?: never;
@@ -18887,6 +18904,24 @@ export interface components {
         EngineTestRequest: {
             /** Model */
             model?: string | null;
+        };
+        /** EnvSettingRow */
+        EnvSettingRow: {
+            /** From File */
+            from_file: boolean;
+            /** Group */
+            group: string;
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /** Set */
+            set: boolean;
+        };
+        /** EnvSettingsStatus */
+        EnvSettingsStatus: {
+            /** Settings */
+            settings: components["schemas"]["EnvSettingRow"][];
         };
         /** EpisodeSummaryGenerate */
         EpisodeSummaryGenerate: {
@@ -60687,6 +60722,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_keys_file_status_api_settings_keys_file_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvSettingsStatus"];
                 };
             };
         };
