@@ -590,7 +590,6 @@ class TestRemoteUploadsOnTheSingleListener:
         c = _remote(_app())
         _u, s = _user(admin=True)
         assert self._paste(c, s).status_code == 403
-        db.set_app_setting("assistant.developer_mode", True)
         settings_service.set_settings({"remote_uploads": True})
         assert self._paste(c, s).status_code == 200
 

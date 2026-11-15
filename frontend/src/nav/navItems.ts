@@ -91,7 +91,7 @@ export const NAV_ITEMS: NavItem[] = [
     badge: 'running-jobs',
     rail: { group: 'system', active: ['jobs'] },
   }),
-  // A member sees only Account and display here, which needs library.read.
+  // A member sees only My account and look here, which needs library.read.
   item('Settings', { name: 'settings' }, { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
   item('People and access', { name: 'admin' }, {
     requires: 'admin.users.read',

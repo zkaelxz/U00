@@ -22,7 +22,7 @@ test('Settings tabs keep every word whole', async ({ page }) => {
 
 test('closed Settings cards are one row tall, not 60px taller', async ({ page }) => {
   await page.goto('/#/settings')
-  await page.getByRole('tab', { name: 'Performance and advanced' }).click()
+  await page.getByRole('tab', { name: 'Transcription and jobs' }).click()
   const heights = await page.evaluate(() =>
     [...document.querySelectorAll('.settings-panel:not([hidden]) > .settings-card')].slice(1).map((c) => c.getBoundingClientRect().height),
   )

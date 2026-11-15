@@ -70,7 +70,7 @@ for (const scheme of ['light', 'dark'] as const) {
 test('Menu items can hide it; the address still loads', async ({ page }) => {
   await mockMakeSubtitles(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   const sw = page.getByRole('region', { name: 'Menu items' }).getByRole('switch', { name: 'Add' })
   await expect(sw).toHaveAttribute('aria-checked', 'true')
   await sw.click()
@@ -79,7 +79,7 @@ test('Menu items can hide it; the address still loads', async ({ page }) => {
   await page.goto('/#/make-subtitles')
   await expect(page.getByRole('region', { name: 'Add' })).toBeVisible()
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   await page.getByRole('region', { name: 'Menu items' }).getByRole('switch', { name: 'Add' }).click()
   await expect(navLink(page, 'Add')).toBeVisible()
 })

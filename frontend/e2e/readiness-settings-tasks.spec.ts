@@ -13,7 +13,7 @@ async function readiness(page: Page, patch: Record<string, boolean>) {
 test('Settings notify says desktop popups need plyer and that Discord and ntfy do not', async ({ page }) => {
   await readiness(page, { plyer: false })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Connections')
   const card = page.getByRole('region', { name: 'Notifications' })
   await expect(card.getByTestId('needs-notify_plyer')).toContainText('Discord and ntfy don\'t need it')
   await expect(card.getByRole('link', { name: 'Open Diagnostics' })).toBeVisible()
@@ -37,7 +37,7 @@ test('Settings Tasks names the task whose engine has no key, or whose package or
     }),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   await expect(page.getByTestId('task-a_claude')).toContainText('anthropic package')
   await expect(page.getByTestId('task-b_deepseek')).toContainText('no API key')
   await expect(page.getByTestId('task-c_ollama')).toContainText("Ollama isn't answering")

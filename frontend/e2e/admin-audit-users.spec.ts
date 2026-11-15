@@ -271,7 +271,7 @@ test('People and access: first card open the first time, the rest closed and rem
   await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
   await expect(navLink(page, 'People and access')).toBeVisible()
   const cards = page.locator('details.section')
-  await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Set up remote access', 'Public address check'])
+  await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Set up remote access', 'Public address check', 'Uploads from away'])
   await expect(cards.nth(0)).toHaveAttribute('open', '')
   await expect(cards.nth(1)).not.toHaveAttribute('open', '')
   await expect(cards.nth(2)).not.toHaveAttribute('open', '')

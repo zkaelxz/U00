@@ -108,7 +108,7 @@ test('a settings hit opens its card on the right tab, scrolled into view', async
   await paletteInput(page).fill('upload size')
   await palette(page).getByRole('option', { name: /^Upload size limit/ }).click()
   await expect(page).toHaveURL(/#\/settings\?card=advanced$/)
-  await expect(page.getByRole('tab', { name: 'Performance and advanced' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Advanced' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('region', { name: 'Offline, paths and limits' })).toBeInViewport()
 })
 

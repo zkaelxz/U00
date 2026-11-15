@@ -1,5 +1,5 @@
 /*
- * Settings > PC profiles: a PIN that makes the PC window open on Guest, which
+ * People and access > PC profiles: a PIN that makes the PC window open on Guest, which
  * leaves private titles out of every list until the Owner enters the PIN.
  * It hides titles from view, it does not lock the files or the data.
  */

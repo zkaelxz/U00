@@ -34,7 +34,7 @@ test('saves a key, shows only its last four characters, then removes it after a 
   const s = await mockDevices(page, member)
   const sent = await mockKey(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   const card = page.getByRole('region', { name: TITLE })
   await expect(card).toContainText('No key saved')
 
@@ -63,7 +63,7 @@ test('saves a key, shows only its last four characters, then removes it after a 
 test('is not offered to a member who cannot start jobs', async ({ page }) => {
   await mockDevices(page, ME.signedIn)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   await expect(page.getByRole('region', { name: 'Signed-in devices' })).toBeVisible()
   await expect(page.getByRole('region', { name: TITLE })).toHaveCount(0)
 })
