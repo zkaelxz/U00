@@ -183,6 +183,14 @@ describe('text on frost glass over the wash', () => {
       '--btn': ['--text', '--muted', '--accent-text'],
       '--active': ['--text', '--accent-text'],
     }
+    // The header is transparent over the wash at the top of a page, and "Connected" (14px, --ok) sits directly on it with no glass between;
+    // scrolled, the bar's own backing is --bg, which the pair list above already covers.
+    for (const wash of ['--wash-1', '--wash-2']) {
+      it(`${name}: Connected (--ok) on the page ${wash} at 60%`, () => {
+        const page = over(FROST[name][wash], 60, resolve(theme, '--bg'))
+        expect(contrast(resolve(theme, '--ok'), page)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
     for (const [fill, fgs] of Object.entries(FILLS)) {
       for (const fg of fgs) {
         it(`${name}: ${fg} on ${fill} over the wash`, () => {
@@ -219,6 +227,9 @@ describe('accent text on the page wash', () => {
   // Darkest points sampled from the rendered pages (review of 2026-10-18).
   it.each([['light', '#c8e7fd'], ['sepia', '#eadcb7']])('%s: --accent-text on the sampled wash %s', (name, sampled) => {
     expect(contrast(resolve(THEMES[name], '--accent-text'), sampled)).toBeGreaterThanOrEqual(4.5)
+  })
+  it.each([['light', '#c8e7fd'], ['sepia', '#eadcb7']])('%s: Connected (--ok) on the sampled wash %s', (name, sampled) => {
+    expect(contrast(resolve(THEMES[name], '--ok'), sampled)).toBeGreaterThanOrEqual(4.5)
   })
 })
 
