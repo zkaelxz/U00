@@ -199,14 +199,18 @@ test('a custom update source is named on the card', async ({ page }) => {
   )
 })
 
-test('away from the PC the card is left out and asks nothing', async ({ page }) => {
+test('away from the PC the App updates part is left out and asks nothing', async ({ page }) => {
   const calls = await mockUpdates(page)
   await page.route((u) => u.pathname === '/api/meta', (route) =>
     json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false }),
   )
   await page.goto('/#/settings')
-  await expect(page.getByRole('tab', { name: 'Updates' })).toHaveCount(0)
+  // The Updates card itself stays for someone who may update Baihe from away; only its PC-only parts go.
+  await openSettingsGroups(page, 'Updates')
+  await expect(page.getByRole('region', { name: 'Updates', exact: true })).toBeVisible()
   await expect(card(page)).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Phone app', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Packages', exact: true })).toHaveCount(0)
   expect(calls).toEqual([])
 })
 
@@ -230,7 +234,7 @@ test('one Updates card lists the app, the phone app, packages and the extension'
 
   const packages = updates.getByRole('region', { name: 'Packages', exact: true })
   await expect(packages.getByTestId('update-packages-line')).toContainText('2 packages have updates.')
-  await expect(updates.getByRole('region', { name: 'Browser extension updates' })).toContainText('never updates an extension loaded from a folder')
+  await expect(updates.getByRole('region', { name: 'Updates for the extension' })).toContainText('never updates an extension loaded from a folder')
   await packages.getByRole('link', { name: 'Open Diagnostics > Packages' }).click()
   await expect(page).toHaveURL(/#\/diagnostics\?card=packages$/)
 })

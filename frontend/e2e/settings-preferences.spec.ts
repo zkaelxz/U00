@@ -239,10 +239,13 @@ test('away from the PC the PC-only preference blocks and their tabs are left out
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  for (const name of ['Costs', 'Transcription and jobs', 'Connections', 'Updates', 'Advanced']) {
+  // The tab row is drawn once the settings arrive; checking for missing tabs before that proves nothing.
+  await openSettingsGroups(page, 'Engines and keys')
+  for (const name of ['Costs', 'Transcription and jobs', 'Connections', 'Advanced']) {
     await expect(page.getByRole('tab', { name })).toHaveCount(0)
   }
-  await openSettingsGroups(page, 'Engines and keys')
+  // Updates stays: someone who may update Baihe can do it from away.
+  await expect(page.getByRole('tab', { name: 'Updates' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Translation style' })).toHaveCount(0)
   for (const name of ['Jobs and GPU', 'Offline, paths and limits', 'Developer Mode']) {
     await expect(page.getByRole('region', { name })).toHaveCount(0)

@@ -27,7 +27,7 @@ export function UpdatesCard() {
       <SourceUpdateCard />
       {pc === 'local' && <PhoneAppBlock />}
       {pc === 'local' && <PackagesBlock />}
-      <Card title="Browser extension" aria-label="Browser extension updates">
+      <Card title="Browser extension" aria-label="Updates for the extension">
         <p className="muted">
           {EXTENSION_UPDATE_NOTE}
           {/* The Browser extension card is PC only, so away from the PC the link would lead nowhere. */}
