@@ -1452,6 +1452,17 @@ test.describe('the check queue', () => {
       await page.goto('/#/drama/3/review')
       await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
       await expectNoSidewaysScroll(page)
+      // Nothing overlaps or is cut: the first row's parts keep their order, and every reason chip and the tabs are whole and inside the window.
+      const [main, pills, fine] = [
+        (await page.locator('.review-queue-row').getByRole('button', { name: 'Check the 3 lines' }).boundingBox())!,
+        (await page.getByRole('group', { name: 'Lines to show' }).boundingBox())!,
+        (await page.locator('.check-queue-fine-group').boundingBox())!,
+      ]
+      expect(main.x + main.width, `at ${width}: the main button is left of the pills`).toBeLessThanOrEqual(pills.x)
+      expect(pills.x + pills.width, `at ${width}: the pills are left of "look fine"`).toBeLessThanOrEqual(fine.x)
+      for (const n of [12, 7]) expect(await card(page, n).getByTestId('queue-reason').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `at ${width}: chip ${n} is whole`).toBe(true)
+      const tabsBox = (await page.getByRole('tablist', { name: 'Review tools' }).boundingBox())!
+      expect(tabsBox.x + tabsBox.width, `at ${width}: the tabs are inside the window`).toBeLessThanOrEqual(width)
       await allRadio(page).check({ force: true })
       await expect(allRadio(page)).toBeChecked()
       await expect(page.locator('.review-line').nth(5)).toBeVisible()
