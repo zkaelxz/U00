@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { clearDrama3Lines } from './reviewResultsSeed'
-import { clearTurns, guesses, row, seedBlankSpeakers, speakers } from './speakerGuessHelpers'
+import { clearTurns, flagLine, guesses, row, seedBlankSpeakers, speakers } from './speakerGuessHelpers'
 
 // Phone: the suggested speakers fit the row and take a tap, and the Undo sits above the phone's action bar.
 
@@ -44,4 +44,15 @@ test('a phone card in Need a look offers the speakers and moves on after a tap',
   await expect(page.getByTestId('queue-position')).toHaveText('1 of 2 to look at')
   await expect(guesses(page, 3)).toBeVisible()
   expect(speakers()[1]).toBe('Cray')
+})
+
+test('a flagged phone card says what is left after its speaker is tapped, without sideways scroll', async ({ page }) => {
+  seedBlankSpeakers()
+  flagLine(3, 'reading_speed', '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.')
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', JSON.stringify('simple')))
+  await page.goto('/#/drama/3/review')
+  await guesses(page, 3).getByRole('button', { name: /^Anvil/ }).tap()
+  await expect(page.getByTestId('speaker-note')).toHaveText('Speaker set to Anvil. This line is still listed: fast to read, 25 characters a second.')
+  await expect(page.getByTestId('queue-position')).toHaveText('1 of 3 to look at')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

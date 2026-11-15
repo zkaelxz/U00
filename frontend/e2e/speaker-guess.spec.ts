@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { clearDrama3Lines } from './reviewResultsSeed'
-import { clearTurns, guesses, row, seedBlankSpeakers, speakers } from './speakerGuessHelpers'
+import { clearTurns, flagLine, guesses, row, seedBlankSpeakers, speakers } from './speakerGuessHelpers'
 
 // Review: a line with no speaker offers the speakers around it and the voice detection's
 // guess as buttons; N steps between such lines and 1/2/3 take a guess and move on.
@@ -86,4 +86,24 @@ test('a line with no speaker is in Simple\'s Need a look, and taking a speaker m
   await page.getByTestId('speaker-undo').getByRole('button', { name: 'Undo' }).click()
   await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
   await expect(card(page, 2)).toBeVisible()
+})
+
+test('a flagged card with no speaker stays open after its speaker is picked, and says what still lists it', async ({ page }) => {
+  seedBlankSpeakers()
+  flagLine(3, 'reading_speed', '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.')
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', JSON.stringify('simple')))
+  await page.goto('/#/drama/3/review')
+  // The flagged line leads the list; the two others are listed for their blank speaker alone.
+  await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
+  await expect(card(page, 3).locator('.review-speaker')).toHaveCount(0)
+
+  await guesses(page, 3).getByRole('button', { name: /^Anvil/ }).click()
+  await expect(card(page, 3).locator('.review-speaker')).toHaveText('Anvil')
+  await expect(card(page, 3).getByTestId('speaker-note')).toHaveText('Speaker set to Anvil. This line is still listed: fast to read, 25 characters a second.')
+  await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
+
+  // The note goes with the Undo, and the buttons come back.
+  await page.getByTestId('speaker-undo').getByRole('button', { name: 'Undo' }).click()
+  await expect(card(page, 3).getByTestId('speaker-note')).toHaveCount(0)
+  await expect(guesses(page, 3).getByRole('button')).toHaveCount(2)
 })
