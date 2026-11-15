@@ -33,13 +33,15 @@ import type { ReviewLine } from '../../types/review'
 import { holds } from '../diagnostics/adminUsers'
 import { lineEditPatch } from '../reader/readerLineEdit'
 import { stageLabel } from '../workspace/stages'
+import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { Player, type PlayerHandle } from '../workspace/stages/review/Player'
 import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
+import { useWatchMarks } from './useWatchMarks'
 import {
-  currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, loopLineAt, openFix, ownScrollUntil,
+  attentionIndex, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, loopLineAt, openFix, ownScrollUntil,
   parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, spokenOrder,
   stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
@@ -149,6 +151,16 @@ export default function WatchPage({ id }: { id: number }) {
     id, ordered, lineIndex, canEdit, ready: lines !== null && playable !== null, setLines, player, mediaRef, current, playFrom,
     onSaved: () => setCaptionVersion((v) => v + 1),
   })
+  const { markStatus, markBusy, mark, say } = useWatchMarks(id, setLines)
+  const jumpToMarked = (direction: 1 | -1) => {
+    const to = attentionIndex(ordered, currentIndex >= 0 ? currentIndex : null, direction)
+    if (to === null) {
+      say(direction === 1 ? 'No marked or flagged line after this one.' : 'No marked or flagged line before this one.')
+      return
+    }
+    say('')
+    goTo(ordered[to])
+  }
   const fixIndex = fix ? lineIndex.get(fix.lineId) : undefined
   const fixLine = fixIndex === undefined ? null : ordered[fixIndex]
 
@@ -167,6 +179,15 @@ export default function WatchPage({ id }: { id: number }) {
       return true
     }
     if (fix) return false
+    if (key === 'good' || key === 'wrong' || key === 'mixed') {
+      if (!canEdit) return false
+      void mark(current, key)
+      return true
+    }
+    if (key === 'nextmarked' || key === 'prevmarked') {
+      jumpToMarked(key === 'nextmarked' ? 1 : -1)
+      return true
+    }
     if (key === 'fix') {
       startFix()
       return canEdit
@@ -290,7 +311,10 @@ export default function WatchPage({ id }: { id: number }) {
                 canEdit={canEdit}
                 fix={fix}
                 busy={busy}
-                status={status}
+                status={status || markStatus}
+                onMark={canEdit ? (verdict) => void mark(fixLine ?? current, verdict) : undefined}
+                onJump={jumpToMarked}
+                markBusy={markBusy}
                 onOpen={startFix}
                 onDraft={setDraft}
                 onSave={() => void save()}
@@ -703,7 +727,11 @@ const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canP
 }) {
   const text = (
     <>
-      <span className="watch-row-meta">{rowMeta(l)}</span>
+      <span className="watch-row-meta">
+        {rowMeta(l)}
+        <LineMarkBadge line={l} />
+        {l.flag && <span className="watch-row-flag" role="img" aria-label="Flagged" title="A check flagged this line">⚑</span>}
+      </span>
       {l.zh && <span className="watch-row-zh" lang={l.lang || sourceLanguage}>{l.zh}</span>}
       <span className={l.en ? 'watch-row-en' : 'watch-row-en is-empty'} lang={l.en ? 'en' : undefined}>{l.en || 'No English yet'}</span>
     </>
