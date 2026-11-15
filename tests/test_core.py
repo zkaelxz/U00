@@ -2239,8 +2239,8 @@ class TestWordTimestampsKept:
         assert whisper_transcribe.transcribe_for_timing("/fake/audio.mp3") == [
             {"start": pytest.approx(0.2 - WORD_EDGE_PAD_START),
              "end": pytest.approx(1.0 + WORD_EDGE_PAD_END), "text": "你好",
-             "words": [{"start": 0.2, "end": 0.6, "word": "你"},
-                       {"start": 0.6, "end": 1.0, "word": "好"}]}]
+             "words": [{"start": 0.2, "end": 0.6, "word": "你", "probability": 0.9},
+                       {"start": 0.6, "end": 1.0, "word": "好", "probability": 0.9}]}]
 
     def test_fast_mode_gets_the_same_word_timestamps_kwarg(self):
         import sys, types

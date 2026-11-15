@@ -77,7 +77,10 @@ def _load(drama_id: int, line_id: int):
 
 
 def _reload(drama_id: int, line_id: int) -> dict:
-    return line_dict(_load(drama_id, line_id)[1])
+    ownership_service.require_drama(drama_id)
+    for ln in db.load_line_objects(drama_id, with_words=True, ids=[line_id]):
+        return line_dict(ln)
+    raise NotFoundError(f"No line with id {line_id} in this title.")
 
 
 def _refuse_if_line_job_running(drama_id: int):

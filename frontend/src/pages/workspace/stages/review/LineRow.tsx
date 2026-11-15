@@ -25,7 +25,7 @@ import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
 import { queueAction, queueReason, type QueueAction } from './checkQueueModel'
-import { CONFLICT_MESSAGE, formatTenths, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTenths, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, unsurePieces, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -279,6 +279,15 @@ function ShakyBadge({ line, help }: { line: ReviewLine; help: boolean }) {
       {help && <HelpTip label="Shaky" id={`line-shaky-help-${line.id}`}>{SHAKY_HELP}</HelpTip>}
     </>
   )
+}
+
+const UNSURE_WORD_HELP = 'Whisper was unsure of this word'
+
+function SourceText({ line }: { line: ReviewLine }) {
+  if (!line.unsure_words?.length) return <>{line.zh}</>
+  return <>{unsurePieces(line.zh, line.unsure_words).map((p, i) => p.unsure
+    ? <span key={i} className="review-unsure-word" title={UNSURE_WORD_HELP}>{p.text}</span>
+    : p.text)}</>
 }
 
 function LineCps({ line, lineAbove = false }: { line: ReviewLine; lineAbove?: boolean }) {
@@ -655,7 +664,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       {!prose && !draft && <RowSpeakerGuesses line={line} guesses={guesses} active={active} isPhone={isPhone} actions={actions} />}
       {queue && speakerNote && <p className="review-speaker-note" role="status" data-testid="speaker-note">{speakerNote}</p>}
       <div className="review-body">
-        <div lang={textLang} className="review-zh">{line.zh}</div>
+        <div lang={textLang} className="review-zh"><SourceText line={line} /></div>
         {card ? (
           // Labelled and boxed so the English reads as the place to type; it opens the editor on a click as before,
           // and is not focused on its own so the card's keyboard shortcuts keep working.

@@ -145,7 +145,11 @@ class TestPayload:
         [-1, 56, 116000, 116500],
         [54, 54, 116000, 116500],
         [54, 10 ** 6, 116000, 116500],
-        [54, 56, 116000, 116500, 7],
+        [54, 56, 116000, 116500, 7, 8],
+        [54, 56, 116000, 116500, 101],  # a probability past 100%
+        [54, 56, 116000, 116500, -1],
+        [54, 56, 116000, 116500, 7.0],
+        [54, 56, 116000, 116500, True],
         [54, 56, 116000],
         "\u0000\ud800é字",
         {"0": 1},
@@ -681,3 +685,74 @@ def test_backup_copy_keeps_words_but_drops_oversized_ones():
                                 confirm_text="RESTORE")
     new, new_big = (i["drama_id"] for i in res["imported"])
     assert _valid_words(new)[0] and _stored(new_big) == [None]
+
+
+# ---- per-word probability --------------------------------------------------------
+
+def _scored_words(unsure=()):
+    """WORDS with Whisper's probability on each: 0.9, or 0.2 for the indexes in `unsure`."""
+    return [{**w, "probability": 0.2 if k in unsure else 0.9} for k, w in enumerate(WORDS)]
+
+
+def _line(payload, text=TEXT):
+    return Line(idx=0, start=START, end=END, zh=text, word_timings=payload)
+
+
+class TestWordProbability:
+    def test_faster_whisper_words_keep_their_probability(self):
+        class Word:
+            start, end, word, probability = 1.0, 1.5, "你好", 0.42
+        assert segment_splitting._word_dicts([Word()]) == [
+            {"start": 1.0, "end": 1.5, "word": "你好", "probability": 0.42}]
+
+    def test_stored_as_a_whole_percent_and_read_back(self):
+        payload = segment_splitting.encode_line_words(TEXT, _scored_words(unsure={1}))
+        rows = json.loads(payload)["w"]
+        assert rows[0] == [0, 2, 100000, 100500, 90] and rows[1][4] == 20
+        assert [w["probability"] for w in segment_splitting.line_words(_line(payload))][:3] == [0.9, 0.2, 0.9]
+
+    def test_unsure_words_are_the_char_spans_under_the_threshold(self):
+        payload = segment_splitting.encode_line_words(TEXT, _scored_words(unsure={1, 7}))
+        assert segment_splitting.unsure_word_spans(_line(payload), 0.5) == [[2, 4], [14, 16]]
+        sure = segment_splitting.encode_line_words(TEXT, _scored_words())
+        assert segment_splitting.unsure_word_spans(_line(sure), 0.5) == []
+
+    def test_lines_without_scores_show_nothing(self):
+        # Qwen3 and anime-whisper give no probability; rows stored before it was kept have four values.
+        plain = segment_splitting.encode_line_words(TEXT, WORDS)
+        assert all(len(r) == 4 for r in json.loads(plain)["w"])
+        assert segment_splitting.line_words(_line(plain))
+        assert segment_splitting.unsure_word_spans(_line(plain), 0.5) is None
+        assert segment_splitting.unsure_word_spans(_line(None), 0.5) is None
+        odd = [{**w, "probability": p} for w, p in zip(WORDS, [None, "x", True, float("nan")] * 99)]
+        assert segment_splitting.unsure_word_spans(
+            _line(segment_splitting.encode_line_words(TEXT, odd)), 0.5) is None
+
+    def test_an_edit_drops_the_scores_with_the_words(self):
+        payload = segment_splitting.encode_line_words(TEXT, _scored_words(unsure={1}))
+        assert segment_splitting.unsure_word_spans(_line(payload, TEXT[:-1] + "啦"), 0.5) is None
+
+    def test_split_and_merge_carry_the_scores(self):
+        did = db.create_drama(title_zh="D", source_language="zh")
+        db.save_lines(did, [Line(idx=0, start=START, end=END, zh=TEXT, speaker="A",
+                                 word_timings=segment_splitting.encode_line_words(
+                                     TEXT, _scored_words(unsure={1, 10})))])
+        ids = [r["id"] for r in db.load_lines(did)]
+        out = svc.split_line(did, ids[0], ids, at_char=len(PHRASES[0]), expected_zh=TEXT)
+        first, second = out["lines"]
+        assert first["unsure_words"] == [[2, 4]]
+        assert second["unsure_words"] == [[20 - len(PHRASES[0]), 22 - len(PHRASES[0])]]
+        ids = out["line_ids"]
+        merged = svc.merge_lines(did, ids, ids)["lines"]
+        assert merged[0]["unsure_words"] == [[2, 4], [20, 22]]
+
+    def test_review_page_and_line_edits_send_the_spans(self):
+        did = db.create_drama(title_zh="D", source_language="zh")
+        db.save_lines(did, [Line(idx=0, start=START, end=END, zh=TEXT, en="x", speaker="A",
+                                 word_timings=segment_splitting.encode_line_words(
+                                     TEXT, _scored_words(unsure={3})))])
+        [line] = review_lines_service.list_review_lines(did)["lines"]
+        assert line["unsure_words"] == [[6, 8]]
+        from services import lines_service
+        assert lines_service.patch_line(did, line["id"], en="y")["unsure_words"] == [[6, 8]]
+        assert lines_service.patch_line(did, line["id"], zh=TEXT + "啊")["unsure_words"] is None

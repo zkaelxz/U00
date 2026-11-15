@@ -5,12 +5,12 @@ import type { ReviewLine } from '../../../../types/review'
 import type { ResplitResult } from '../../../../types/restructure'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, sourceTextLang } from './reviewDraft'
-import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, formatTenths, formatTime, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
+import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, formatTenths, formatTime, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, unsurePieces, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
 import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null, ...over,
 })
 
 describe('spoken language', () => {
@@ -479,7 +479,7 @@ describe('parseJump', () => {
 
 describe('inFilter', () => {
   const base = { id: 1, idx: 0, start: 0, end: 1, zh: '你好', en: '', speaker: null, speaker_manual: false,
-    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null }
+    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null }
   it('follows the server filters', () => {
     expect(inFilter({ ...base, flag: 'check' }, 'flagged')).toBe(true)
     expect(inFilter(base, 'flagged')).toBe(false)
@@ -543,5 +543,27 @@ describe('formatTenths', () => {
 
   it('leaves the line list\'s own two-decimal times as they are', () => {
     expect(formatTime(62.57)).toBe('1:02.57')
+  })
+})
+
+describe('unsurePieces', () => {
+  it('marks the unsure words and keeps the rest of the text as is', () => {
+    expect(unsurePieces('我今天早上起来', [[2, 4], [6, 7]])).toEqual([
+      { text: '我今', unsure: false }, { text: '天早', unsure: true },
+      { text: '上起', unsure: false }, { text: '来', unsure: true },
+    ])
+  })
+
+  it('counts code points like the server, so a character outside the BMP does not shift the words', () => {
+    expect(unsurePieces('𠀋好人', [[1, 2]])).toEqual([
+      { text: '𠀋', unsure: false }, { text: '好', unsure: true }, { text: '人', unsure: false },
+    ])
+  })
+
+  it('ignores spans that overlap or fall outside the text', () => {
+    expect(unsurePieces('你好吗', [[0, 2], [1, 3], [2, 9]])).toEqual([
+      { text: '你好', unsure: true }, { text: '吗', unsure: false },
+    ])
+    expect(unsurePieces('你好', null)).toEqual([{ text: '你好', unsure: false }])
   })
 })

@@ -25993,6 +25993,14 @@ export interface components {
             speaker_manual: boolean;
             /** Start */
             start: number;
+            /**
+             * Unsure Words
+             * @description [start, end) character offsets into `zh` of the words Whisper was unsure of; [] when it was sure of every word, null when the line keeps no word scores (another engine, an older row, or edited source text).
+             */
+            unsure_words: [
+                number,
+                number
+            ][] | null;
             /** Zh */
             zh: string;
         };
