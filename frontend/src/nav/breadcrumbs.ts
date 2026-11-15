@@ -11,6 +11,8 @@ export interface Crumb {
 interface CrumbOptions {
   /** The title the page already loaded; a placeholder is used until it arrives. */
   title?: string | null
+  /** The Watch page's last crumb: Listen for an audio title. */
+  verb?: 'Watch' | 'Listen'
 }
 
 const labelOf = (name: Route['name']): string => NAV_ITEMS.find((i) => i.target.name === name)?.label ?? name
@@ -34,10 +36,11 @@ export function routeCrumbs(route: Route, opts: CrumbOptions = {}): Crumb[] {
         { label: route.name === 'read' ? 'Reader' : 'Comic' },
       ]
     case 'follow':
+    case 'watch':
       return [
         library,
         { label: opts.title || `Title #${route.id}`, href: routeHref({ name: 'drama', id: route.id, stage: null }) },
-        { label: 'Follow along' },
+        { label: route.name === 'follow' ? 'Follow along' : opts.verb ?? 'Watch' },
       ]
     case 'settings':
       return route.section ? [{ label: labelOf('settings'), href: routeHref({ name: 'settings' }) }, { label: route.section === 'uploads' ? 'Uploads' : 'Developer mode' }] : []
