@@ -594,13 +594,20 @@ details.section[open] > summary::before { content: '\25BE'; }
    plus 10px gaps and a margin, in rem so a larger text size moves them; the second set is for a header that also carries
    the PIN profile button or the account (329px more), and a third for an account name longer than twelve letters, which
    asks for 6rem more (the longest name the button shows, 24 characters, is about 90px wider than the twelve the others are sized for). */
-.header-end.has-room { flex: 1 1 0; justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
-/* Where no words fit, the row behaves as it always did (shrinking rather than wrapping, so the header is never taller than before);
-   the words steps widen the gaps to the drawn 10px with a margin, because the container cannot change its own gap. The header that
-   also carries the PIN button and the account starts at 6px: with 8px its icons overflow the header by 5px at some narrow widths. */
+.header-end.has-room { flex: 1 1 0; min-width: 32.2rem; justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
+.header-end.has-room.has-extras { min-width: 47rem; }
+/* A size container has no content width of its own, so the min-width stands in for the icons' natural width (32.2rem, 47rem with the PIN
+   button or account) and lets the header wrap the row to a line of its own, as it always did; up to 640px the row shrinks instead, as it
+   always did. The words steps widen the gaps to the drawn 10px with a margin, because the container cannot change its own gap. The
+   header that also carries the PIN button and the account starts at 6px: with 8px its icons overflow by 5px at some narrow widths. */
 .header-end.has-room.has-extras { gap: 6px; }
-@media (max-width: 640px) { .header-end.has-room, .header-end.has-room.has-extras { gap: var(--space-1); } }
-.header-end .hb-words { display: none; }
+@media (max-width: 640px) { .header-end.has-room, .header-end.has-room.has-extras { gap: var(--space-1); min-width: 0; } }
+.hb-words { display: none; }
+/* While the server does not answer, the badge ("Can't reach Baihe" and its help mark) is 54px wider than "Connected", which the steps were sized with.
+   The padding narrows what the size container's queries see, so every words step comes 3.6rem later exactly then, with no second set of steps;
+   the first control's negative margin gives the controls that room back. */
+.header-end.has-room:has([data-testid='api-status']) { padding-left: 3.6rem; }
+.header-end.has-room:has([data-testid='api-status']) > :first-child { margin-left: -3.6rem; }
 /* "Connected" is a luxury of the same room the five controls' words need: below that step the row keeps today's width and says nothing while the server answers. */
 .header-end .api-connected { display: none; color: var(--ok); font-size: var(--text-sm); white-space: nowrap; }
 

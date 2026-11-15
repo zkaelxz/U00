@@ -197,24 +197,50 @@ test('Alerts: the name with and without new rows, and the panel heading', async 
   await expect(page.getByText('Recent notifications')).toHaveCount(0)
 })
 
-// Heights of the same header on the commit before the words, at the same widths (docked menu, no Back button).
+// Heights of the same header on the commit before the words, at the same widths (docked menu); with Back the base wrapped the row to a line of its own.
 const NARROW = [
-  { width: 640, header: 'plain' as const, tallest: 69 },
-  { width: 900, header: 'longest' as const, tallest: 80 },
+  { width: 640, header: 'plain' as const, back: false, tallest: 69 },
+  { width: 900, header: 'longest' as const, back: false, tallest: 80 },
+  { width: 700, header: 'plain' as const, back: true, tallest: 124 },
+  { width: 800, header: 'longest' as const, back: true, tallest: 124 },
 ]
-for (const { width, header, tallest } of NARROW) {
-  test(`at ${width}px, ${header} header: no taller than before the words, and nothing says Connected`, async ({ page }) => {
+
+/** Pairs of visible header controls (or a control and the Back button) whose boxes cross. */
+async function overlaps(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const header = document.querySelector('.app-header') as HTMLElement
+    const boxes = [...header.querySelectorAll('.header-end > *, .app-back')]
+      .filter((el) => el.getClientRects().length > 0)
+      .map((el) => ({ name: (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 20) || el.className || el.tagName, r: el.getBoundingClientRect() }))
+    const found: string[] = []
+    for (let a = 0; a < boxes.length; a++) for (let b = a + 1; b < boxes.length; b++) {
+      const x = boxes[a].r, y = boxes[b].r
+      if (x.left < y.right - 1 && y.left < x.right - 1 && x.top < y.bottom - 1 && y.top < x.bottom - 1) found.push(`${boxes[a].name} / ${boxes[b].name}`)
+    }
+    return found
+  })
+}
+
+for (const { width, header, back, tallest } of NARROW) {
+  test(`at ${width}px${back ? ' with Back' : ''}, ${header} header: no taller than before the words, nothing overlaps or scrolls sideways, and nothing says Connected`, async ({ page }) => {
     await dock(page)
     if (header === 'longest') await longestHeader(page)
     else await quietHeader(page)
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/library')
     await expect(page.locator('.header-end')).toBeVisible()
+    // A second hash visit in the same document is what gives the header its Back button.
+    if (back) {
+      await page.evaluate(() => { location.hash = '#/jobs' })
+      await expect(page.locator('.app-back')).toBeVisible()
+    }
     // The element is there once the status check has answered; it must stay out of sight below the step where the five show words.
     await expect(page.getByTestId('api-connected')).toHaveCount(1)
     await expect(page.getByTestId('api-connected')).toBeHidden()
     const s = await headerState(page)
     expect(Math.round(s.rowHeight)).toBeLessThanOrEqual(tallest)
+    expect(s.sideways).toBe(false)
+    expect(await overlaps(page)).toEqual([])
   })
 }
 
@@ -259,5 +285,41 @@ test('a 24-character account name asks for more room before the words show, and 
     expect(s.rowHeight - s.tallest, `${width}px is one line`).toBeLessThanOrEqual(HEADER_FRAME)
     expect(s.clipped, `${width}px`).toEqual([])
     expect(s.sideways, `${width}px`).toBe(false)
+  }
+})
+
+test('Can\'t reach Baihe is wider than Connected: just above each words step the badge stays whole and the bar one line', async ({ page }) => {
+  await longestHeader(page)
+  await dock(page)
+  let failing = false
+  // Registered after the header's own /api/meta mock, so it sees every read first.
+  await page.route((u) => u.pathname === '/api/meta', (route) => (failing ? route.abort() : route.fallback()))
+  await page.setViewportSize({ width: 1700, height: 800 })
+  await page.goto('/#/library')
+  await expect(page.getByTestId('api-connected')).toBeVisible()
+  failing = true
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  const badge = page.getByTestId('api-status')
+  await expect(badge).toBeVisible()
+  // 1376, 1526 and 1640 are just above where the five, the search words and Report a problem start when "Connected" shows (the badge is 54px
+  // wider, so the steps wait for it); 1430, 1580 and 1685 are where they start while it shows.
+  for (const width of [1376, 1526, 1640, 1430, 1580, 1685]) {
+    await page.setViewportSize({ width, height: 800 })
+    await expect.poll(async () => (await badge.boundingBox())?.height ?? 0, { message: `${width}px` }).toBeGreaterThan(0)
+    const s = await headerState(page)
+    const box = (await badge.boundingBox())!
+    expect(box.height, `${width}px: the badge is one line`).toBeLessThan(34)
+    expect(box.width, `${width}px: the badge keeps its width`).toBeGreaterThanOrEqual(135)
+    expect(s.tallest, `${width}px: no control wrapped its words`).toBeLessThanOrEqual(44)
+    expect(s.rowHeight - s.tallest, `${width}px is one line`).toBeLessThanOrEqual(HEADER_FRAME)
+    expect(s.clipped, `${width}px`).toEqual([])
+    expect(await overlaps(page), `${width}px`).toEqual([])
+    // The controls stay inside their own row: a negative margin must not push the first one out over the page title.
+    expect(await page.evaluate(() => {
+      const end = document.querySelector('.header-end') as HTMLElement
+      const first = [...end.children].find((c) => c.getClientRects().length > 0) as HTMLElement
+      return Math.round(end.getBoundingClientRect().left - first.getBoundingClientRect().left)
+    }), `${width}px`).toBeLessThanOrEqual(1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px sideways`).toBeLessThanOrEqual(0)
   }
 })

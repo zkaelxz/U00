@@ -128,3 +128,11 @@ test('top-level pages get a bottom bar whose More opens the drawer; title pages 
   await expect(page.getByRole('button', { name: 'Menu', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Quick' })).toHaveCount(0)
 })
+
+test('the drawer shows Theme once: the header controls\' words stay hidden outside the header', async ({ page }) => {
+  await page.goto('/#/library')
+  await menuButton(page).tap()
+  await expect(drawer(page)).toBeVisible()
+  await expect(drawer(page).locator('.hb-words:visible')).toHaveCount(0)
+  await expect(drawer(page).getByText('Theme', { exact: true }).filter({ visible: true })).toHaveCount(1)
+})
