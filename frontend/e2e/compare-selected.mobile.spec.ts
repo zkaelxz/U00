@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
 
 import { mockCompare } from './compareMocks'
-import { compareAction, seedLines, tickBox } from './compareSelectedHelpers'
+import { phoneBarAction, seedLines, tickBox } from './compareSelectedHelpers'
 
-// Phone project (390x844, touch): the bar action is a 44 px target, opens the
+// Phone project (390x844, touch): the bar's action (in its Actions sheet) is a 44 px target, opens the
 // section on the ticked lines, and nothing scrolls sideways.
 
 test.afterEach(async ({ page }) => {
@@ -16,9 +16,10 @@ test('phone: tick 3 lines, press the action, Run sends those ids', async ({ page
   await page.goto('/#/drama/3/review')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
   for (const n of [2, 5, 9]) await tickBox(page, n).tap()
-  const b = await compareAction(page).boundingBox()
+  const action = await phoneBarAction(page, 'Compare transcription…')
+  const b = await action.boundingBox()
   expect(Math.round(b!.height)).toBeGreaterThanOrEqual(44)
-  await compareAction(page).tap()
+  await action.tap()
 
   const panel = page.getByTestId('compare-transcription')
   await expect(panel).toBeVisible()
