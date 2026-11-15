@@ -388,10 +388,10 @@ const SHAKY_BELOW = 0.6
 export const isShaky = (line: Pick<ReviewLine, 'confidence' | 'reviewed'>) =>
   line.confidence != null && line.confidence < SHAKY_BELOW && !line.reviewed
 
-/** Mirrors review_lines_service._risk_score > 0: any flag, or confidence under 0.8, on a translated unchecked line. */
+/** Mirrors review_lines_service._risk_score > 0: any flag, a mark, or confidence under 0.8, on a translated unchecked line. */
 export const RISK_CONFIDENCE_BELOW = 0.8
-const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence'>) =>
-  isUnreviewed(line) && (!!line.flag || (line.confidence != null && line.confidence < RISK_CONFIDENCE_BELOW))
+const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence' | 'mark'>) =>
+  isUnreviewed(line) && (!!line.flag || !!line.mark || (line.confidence != null && line.confidence < RISK_CONFIDENCE_BELOW))
 
 /** Whether the server's filter (review_lines_service._visible) still lists this line. */
 export function inFilter(line: ReviewLine, filter: LineFilter): boolean {

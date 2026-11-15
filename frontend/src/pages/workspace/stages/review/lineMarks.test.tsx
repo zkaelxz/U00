@@ -15,6 +15,9 @@ describe('the Marked view', () => {
   it('lists a line that carries a mark, and says so when there is none', () => {
     expect(inFilter({ ...LINE, mark: 'wrong' }, 'marked')).toBe(true)
     expect(inFilter(LINE, 'marked')).toBe(false)
+    // The server ranks a marked, unchecked line in Need a look even with no flag and a sure transcript.
+    expect(inFilter({ ...LINE, mark: 'mixed' }, 'risk')).toBe(true)
+    expect(inFilter(LINE, 'risk')).toBe(false)
     expect(chipLabel('marked', 2, false)).toBe('Marked 2')
     expect(emptyMessage('marked', '', 'Transcribe')).toBe('No lines marked wrong or mixed.')
   })
