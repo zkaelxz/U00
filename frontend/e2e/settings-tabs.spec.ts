@@ -155,3 +155,13 @@ test('Settings has no Ports card; Diagnostics owns the ports', async ({ page }) 
   await expect(page.getByRole('tab', { name: 'System' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('summary', { hasText: /^Ports/ })).toBeVisible()
 })
+
+test('Advanced lists the keys-file settings as set or not set, never a value', async ({ page }) => {
+  await page.goto('/#/settings')
+  await tab(page, 'Advanced').click()
+  const card = page.getByRole('region', { name: 'Keys file and environment', exact: true })
+  await expect(card).toBeVisible()
+  await fold(page, 'Keys file and environment').locator('> summary').click()
+  await expect(card.getByText('BAIHE_PUBLIC_URL')).toBeVisible()
+  await expect(card.getByText('Not set').first()).toBeVisible()
+})

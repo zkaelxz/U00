@@ -76,6 +76,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'Advanced',
     cards: [
       { id: 'advanced' },
+      { id: 'keys-file' },
       { id: 'developer-mode' },
     ],
   },
@@ -87,7 +88,7 @@ export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'server-addresses', 'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
   'notifications',
   'jellyfin', 'web-search', 'inbox', 'extension',
-  'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
+  'performance', 'advanced', 'keys-file', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
 
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))
@@ -139,6 +140,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('advanced', 'Downloads', 'cookies browser yt-dlp lncrawl novel downloader'),
   e('advanced', 'Program locations', 'paths cookie file tesseract lncrawl command'),
   e('advanced', 'Upload size limit', 'uploads max mb'),
+  e('keys-file', 'Keys file and environment', 'env dotenv keys file environment variables set not set port public address webhook'),
   e('timing-splitting', 'Timing and splitting', 'voice detection vad silence line length split long lines sentence grouping scene break pause threshold seconds characters reset default'),
   e('transcription-experiments', 'Advanced transcription', 'transcription experiments asr whisper experimental qwen batch size mixed languages forced aligner'),
   e('developer-mode', 'Developer Mode', 'assistant benchmark lab maintenance ai developer'),
