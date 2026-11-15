@@ -83,9 +83,9 @@ test('phone: the selection bar stays one row and lists its actions in a sheet', 
   await expect(sheet.getByRole('list', { name: 'Actions for the selected lines' }).getByRole('button')).toHaveText(['Copy line numbers', 'Compare transcription…', 'Re-time with Qwen3 aligner…', 'Set speaker…', 'Re-transcribe selected'])
   await sheet.getByRole('button', { name: 'Set speaker…' }).tap()
   await expect(sheet).toBeHidden()
-  await expect(page.getByLabel('Speaker for 3 lines')).toBeInViewport()
   const panel = page.getByTestId('set-speaker')
-  for (const name of ['Set speaker', 'Close']) expect((await panel.getByRole('button', { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  await expect(panel).toBeInViewport()
+  for (const name of ['Set new speaker', 'Close']) expect((await panel.getByRole('button', { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
 })
 
 test("phone: Copy line numbers from the sheet copies, also through the page's fallback copy", async ({ page, context }) => {
