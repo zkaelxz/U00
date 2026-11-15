@@ -294,7 +294,7 @@ export default function LivePage() {
             <p className="muted" data-testid="live-echo-note">Echo (testing) is available in Developer Mode</p>
           )}
           <Field label="Use glossary and packs from"
-            help="Optional. The glossary always comes from a series. Pick a series for its glossary and the language packs of its newest title that has a pack choice; pick a title for its series' glossary and that title's own packs. The names and terms that occur in the stream are sent with each translation request. Nothing is written to the library.">
+            help="Optional. The glossary always comes from a series. Pick a series (uses the packs of its newest title that has a pack choice) or a title (uses its series' glossary and its own packs). Terms found in the stream are sent with each translation. Nothing is written to the library.">
             <select value={glossaryPick} disabled={active || busy} data-testid="live-glossary-title"
               onChange={(e) => setPrefs({ ...prefs, ...glossaryIds(e.target.value) })}>
               <option value="">None</option>
@@ -373,12 +373,12 @@ export default function LivePage() {
             {gpuReason && <p className="muted" data-testid="live-gpu-note">{gpuReason}</p>}
             {pc !== 'remote' && (
               <Field label="Delayed player"
-                help="Records a delayed copy of the picture and sound on this PC and plays that instead of the stream's own player, so the picture can be held back to match the lines even where the stream can't be rewound. Downloads the video as well as the audio. Takes effect when you press Start.">
+                help="Records a delayed copy of the video on this PC and plays it instead of the stream's player, so the picture matches the lines even where the stream can't be rewound. Downloads video as well as audio. Takes effect on Start.">
                 <Toggle checked={form.delayed_player} disabled={active || busy} onChange={(v) => setOpt('delayed_player', v)} />
               </Field>
             )}
             {form.delayed_player && (
-              <Field label="Delayed player quality" help="The tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is roughly 5 Mbit/s); streams that don't offer it use the nearest smaller size. Takes effect when you press Start.">
+              <Field label="Delayed player quality" help="Tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is about 5 Mbit/s). A stream without it uses the nearest smaller size. Takes effect on Start.">
                 <select value={form.player_height} disabled={active || busy} onChange={(e) => setOpt('player_height', Number(e.target.value))}>
                   {opts.player_heights.map((h) => <option key={h} value={h}>{h}p</option>)}
                 </select>
