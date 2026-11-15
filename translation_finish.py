@@ -6,6 +6,7 @@ finish step shared by the translate jobs.
 import contextlib
 import json
 import logging
+import time
 
 import db
 import sentence_groups
@@ -138,13 +139,47 @@ def _sentence_sources(fresh, groups) -> dict:
     return out
 
 
+def _write_episode_summary(drama_id, summary_engine, summary_engine_choice, summary_monthly_cap_usd,
+                           episode_done: bool, stage_cb) -> None:
+    """The once-per-episode summary, written only for a finished episode; see finish_translation_run."""
+    if (summary_engine is not None and summary_monthly_cap_usd
+            and _summary_engine_is_paid(summary_engine, summary_engine_choice)):
+        _cap, refusal = pricing.resolve_cost_cap(
+            None, summary_monthly_cap_usd, db.get_month_spend())
+        if refusal:
+            summary_engine = None
+    if episode_done and summary_engine is not None:
+        _fresh_for_summary = db.load_line_objects(drama_id)
+        # Its own timing stage: the summary engine may be a local model that has to load
+        # after a cloud run, and it was otherwise hidden inside the Finish stage's time.
+        if stage_cb is not None:
+            stage_cb("Episode summary")
+        summary_started = time.monotonic()
+        summary = llm_tasks.generate_episode_summary(
+            _fresh_for_summary, summary_engine,
+            usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
+                drama_id, summary_engine_choice or getattr(summary_engine, "name", ""),
+                getattr(summary_engine, "model", ""), "episode_summary", inp, out,
+                pricing.estimate_cost_for_engine(
+                    summary_engine, inp, out, cache_read, cache_write),
+                cache_read_tokens=cache_read))
+        from applog import get_logger
+        get_logger().info(
+            "Episode summary for title %s: engine %s, model %s, %.1f s, %s", drama_id,
+            summary_engine_choice or getattr(summary_engine, "name", ""),
+            getattr(summary_engine, "model", "") or "default", time.monotonic() - summary_started,
+            "written" if summary else "none written")
+        if summary:
+            db.update_drama(drama_id, episode_summary=summary)
+
+
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
                            glossary_terms, errors, cancelled: bool = False,
                            summary_engine=None, summary_engine_choice: str | None = None,
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float | None = None,
                            flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None,
-                           sentence_parts=()) -> bool:
+                           sentence_parts=(), stage_cb=None) -> bool:
     """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
@@ -264,22 +299,6 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         fields["status"] = "translated"
     db.update_drama(drama_id, **fields)
 
-    if (summary_engine is not None and summary_monthly_cap_usd
-            and _summary_engine_is_paid(summary_engine, summary_engine_choice)):
-        _cap, refusal = pricing.resolve_cost_cap(
-            None, summary_monthly_cap_usd, db.get_month_spend())
-        if refusal:
-            summary_engine = None
-    if fields.get("status") == "translated" and not cancelled and summary_engine is not None:
-        _fresh_for_summary = db.load_line_objects(drama_id)
-        summary = llm_tasks.generate_episode_summary(
-            _fresh_for_summary, summary_engine,
-            usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-                drama_id, summary_engine_choice or getattr(summary_engine, "name", ""),
-                getattr(summary_engine, "model", ""), "episode_summary", inp, out,
-                pricing.estimate_cost_for_engine(
-                    summary_engine, inp, out, cache_read, cache_write),
-                cache_read_tokens=cache_read))
-        if summary:
-            db.update_drama(drama_id, episode_summary=summary)
+    _write_episode_summary(drama_id, summary_engine, summary_engine_choice, summary_monthly_cap_usd,
+                           fields.get("status") == "translated" and not cancelled, stage_cb)
     return True
