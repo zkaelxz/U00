@@ -3,7 +3,7 @@ import { type ReactNode, useState } from 'react'
 import { Sheet } from '../../../../components/Sheet'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
-import { usePublishedHeight } from './PhoneEditBar'
+import { usePublishedHeight } from './usePublishedHeight'
 import { SELECTION_ACTIONS, type SelectionActionContext } from './selectionActions'
 
 type BarAction = (typeof SELECTION_ACTIONS)[number] & { why: string | null }
