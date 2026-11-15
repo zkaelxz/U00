@@ -74,6 +74,20 @@ class TestSearch:
         a.search("百合", page=2)
         assert t.urls() == [f"{BASE}/search?keyword=%E7%99%BE%E5%90%88&page=2"]
 
+    def test_a_volume_that_could_not_be_fetched_is_named_in_a_notice(self):
+        a, _ = _adapter({BOOK_URL: html(fx.BOOK_PAGE), _reader("323701"): html(fx.READER_323701),
+                         _reader("323778"): html("<html>oops</html>", status=500)})
+        chapters = a.get_chapters("33139")
+        assert len(chapters) == 10
+        assert "could not be loaded" in a.chapter_notice
+        assert "Try again" in a.chapter_notice
+
+    def test_no_notice_when_every_volume_loads(self):
+        a, _ = _adapter({BOOK_URL: html(fx.BOOK_PAGE), _reader("323701"): html(fx.READER_323701),
+                         _reader("323778"): html(fx.READER_323778)})
+        a.get_chapters("33139")
+        assert a.chapter_notice == ""
+
     def test_markup_change_is_reported(self):
         a, _ = _adapter({f"{BASE}/search?keyword=x&page=1": html("<html><body></body></html>")})
         with pytest.raises(lightnovel_fun.LayoutChanged):

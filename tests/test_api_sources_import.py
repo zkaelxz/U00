@@ -572,3 +572,15 @@ def test_check_returns_new_chapters_in_site_order_and_leaves_known_alone(client,
     assert [c.chapter_id for c in new] == ["c2", "af"]
     assert store.known_chapter_ids("alpha", "s1") == before | {"c2", "af"}
     assert chapter_check.check_series(Fake(), row) == []
+
+
+def test_comic_chapter_over_the_size_cap_saves_no_pages(client, fakes, monkeypatch):
+    fakes["comic"] = _make("comic", comic=True)
+    monkeypatch.setattr(pipeline, "_MAX_CHAPTER_BYTES", 1)
+    did = db.create_drama(title_en="M", media_type="manhua")
+    client.post("/api/sources/comic/import",
+                json={"series_id": "s1", "chapter_ids": ["c1"], "drama_id": did})
+    _, b = _result(client, f"sourceimport_{did}")
+    ch = b["result"]["chapters"][0]
+    assert ch["outcome"] == "failed" and "more than" in ch["error"]
+    assert db.list_pages(did) == []
