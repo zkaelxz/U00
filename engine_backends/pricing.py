@@ -310,13 +310,12 @@ def estimate_text_tokens(text: str) -> float:
 
 
 def estimate_translation_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
-    """Rough pre-run estimate of a normal single-pass translation run,
-    from the lines' own character count. For token-billed engines this
-    uses a tokenizer-free heuristic (a token per CJK character, ~3.5 chars/token otherwise) -- an
-    order-of-magnitude estimate, not a precise bill. batch_size: every batch
-    re-sends the instructions, so a run in many batches costs more input
-    than one request carrying all the lines."""
-    return estimate_cost_for_engine(engine, *estimate_translation_tokens(zh_lines, batch_size))
+    """Rough pre-run estimate of a normal single-pass translation run with the
+    bare instructions (estimate_run_tokens: the real reply size, and every batch
+    re-sending the instructions when batch_size is given). Tokenizer-free, so an
+    estimate, not a bill; a title's own glossary and style guide are not known here."""
+    inp, out, _ = estimate_run_tokens(zh_lines, batch_size or len(zh_lines) or 1)
+    return estimate_cost_for_engine(engine, inp, out)
 
 
 def estimate_translation_tokens(zh_lines: list, batch_size: int | None = None) -> tuple:
