@@ -29,8 +29,9 @@ export function UpdatesCard() {
       {pc === 'local' && <PackagesBlock />}
       <Card title="Browser extension" aria-label="Browser extension updates">
         <p className="muted">
-          {EXTENSION_UPDATE_NOTE}{' '}
-          <a href={routeHref({ name: 'settings', card: 'extension' })}>Open Browser extension</a>
+          {EXTENSION_UPDATE_NOTE}
+          {/* The Browser extension card is PC only, so away from the PC the link would lead nowhere. */}
+          {pc === 'local' && <>{' '}<a href={routeHref({ name: 'settings', card: 'extension' })}>Open Browser extension</a></>}
         </p>
       </Card>
     </Card>

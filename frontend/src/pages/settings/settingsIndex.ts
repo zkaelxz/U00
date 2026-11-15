@@ -113,10 +113,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('notifications', 'Notifications', 'alerts channels push email discord telegram webhook'),
   e('notifications', 'Notify when a job finishes', 'notify me completion'),
-  e('updates', 'Updates', 'app updates version upgrade release'),
+  e('updates', 'Updates', 'app updates version upgrade release phone app android apk packages python pip outdated'),
   e('updates', 'Update Baihe', 'upgrade restart git latest version check'),
-  e('updates', 'Phone app update', 'android apk newest build'),
-  e('updates', 'Package updates', 'python pip outdated'),
   e('updates', 'Browser extension update', 'reload out of date older copy'),
 
   e('sharing', 'Sharing', 'share new items household library'),

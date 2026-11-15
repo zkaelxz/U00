@@ -85,6 +85,7 @@ export default function SettingsPage() {
   const [error, setError] = useState<unknown>(null)
   // A failed load leaves only the My account and look tab, so it gets a Retry rather than a dismissable banner.
   const [loadError, setLoadError] = useState<unknown>(null)
+  const [settingsRefused, setSettingsRefused] = useState(false)
   const [loadTry, setLoadTry] = useState(0)
   // The routing card reloads after any key, endpoint or preference save here
   // (a replaced key keeps configured=true but clears its Test).
@@ -152,7 +153,8 @@ export default function SettingsPage() {
     // A 403 from an older server means the same.
     setLoadError(null)
     getSettings().then(setSettings, (e: unknown) => {
-      if (!(hasStatus(e, 403))) setLoadError(e)
+      if (hasStatus(e, 403)) setSettingsRefused(true)
+      else setLoadError(e)
     })
     // One banner for both loads: a stopped server fails them together, and Retry reloads both.
     fetchSettingsSchema().then(setSchema, (e: unknown) => {
@@ -275,7 +277,7 @@ export default function SettingsPage() {
           <div className="settings-tabrow">
             {/* While an admin's settings are still loading only two of the tabs are known; drawing that
                 short row first would swap it for the full one a moment later. */}
-            {visibleTabs.length > 1 && (loaded || !readsSettings || loadError != null) && (
+            {visibleTabs.length > 1 && (loaded || !readsSettings || settingsRefused || loadError != null) && (
               <Tabs
                 label="Settings"
                 idPrefix="settings"

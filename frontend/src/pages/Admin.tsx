@@ -27,12 +27,15 @@ export default function AdminPage() {
   const route = useRoute()
   const wanted = route.name === 'admin' ? route.card : undefined
   // A link that names a card ("#/admin?card=uploads") opens it and brings it into view; each number only goes up.
-  const [opens, setOpens] = useState<Partial<Record<AdminCard, number>>>({})
+  const [seen, setSeen] = useState<{ card?: AdminCard; opens: Partial<Record<AdminCard, number>> }>({ opens: {} })
+  if (seen.card !== wanted) {
+    setSeen({ card: wanted, opens: wanted ? { ...seen.opens, [wanted]: (seen.opens[wanted] ?? 0) + 1 } : seen.opens })
+  }
+  const opens = seen.opens
+  // `pc` is a dependency because the PC-only cards are drawn only once the page knows it is at the PC.
   useEffect(() => {
-    if (!wanted) return
-    setOpens((cur) => ({ ...cur, [wanted]: (cur[wanted] ?? 0) + 1 }))
-    document.getElementById(`admin-card-${wanted}`)?.scrollIntoView({ block: 'start' })
-  }, [wanted])
+    if (wanted) document.getElementById(`admin-card-${wanted}`)?.scrollIntoView({ block: 'start' })
+  }, [wanted, pc])
   const slot = (id: AdminCard, children: ReactNode) => <div id={`admin-card-${id}`} className="admin-card-slot">{children}</div>
   return (
     <PageShell width="narrow" title="People and access" label="People and access" meta="Who can sign in, what they did, and how to reach this PC from away." className="diag-page">
