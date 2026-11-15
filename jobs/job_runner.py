@@ -98,6 +98,27 @@ def _done_note(result):
     return jobs_service.speaker_skip_text(result)
 
 
+def _refused_need_mb(result):
+    """The GPU memory (MB) a result's model needed when memory_headroom
+    refused to load it, else None."""
+    if isinstance(result, dict) and result.get("failed_reason") == "headroom":
+        return result.get("vram_need_mb")
+    return None
+
+
+def _waits_for_room_locked(job_id, need_mb, error) -> bool:
+    """Caller holds _lock. A run refused for GPU memory waits for room
+    (gpu_guard.wait_for_room_locked) instead of ending Failed."""
+    if not need_mb:
+        return False
+    from jobs import gpu_guard
+    try:
+        return gpu_guard.wait_for_room_locked(job_id, _jobs[job_id], need_mb, error)
+    except Exception as exc:
+        _warn(f"job {job_id}: could not wait for GPU room", exc)
+        return False
+
+
 def _judge_result(result, job_id):
     """(failure error, soft-failure reason, done note, waiting note) for a
     returned result; the waiting note (jobs_service.waiting_note) only for
@@ -144,10 +165,12 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             _recorded = False
             with _lock:
                 if _still_running_locked(job_id, run):
-                    _recorded = True
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
                     _failed, _soft, _note, _waiting = _judge_result(_result, job_id)
+                    _recorded = not (_failed and _waits_for_room_locked(
+                        job_id, _refused_need_mb(_result), _failed))
+                if _recorded:
                     _jobs[job_id]["status"] = "error" if _failed else "done"
                     if _failed:
                         _outcome = "error"
@@ -184,7 +207,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             _description = _owner = None
             _recorded = False
             with _lock:
-                if _still_running_locked(job_id, run):
+                if _still_running_locked(job_id, run) and not _waits_for_room_locked(
+                        job_id, getattr(exc, "vram_need_mb", None), error_msg):
                     _recorded = True
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = error_msg
@@ -794,6 +818,9 @@ def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
             job["status"] = "error"
             job["error"] = f"Completion hook failed: {hook_error}"
             job["finished_at"] = time.time()
+        elif outcome and outcome[0] == "ok" and _waits_for_room_locked(
+                job_id, _refused_need_mb(result), _failed_outcome_error(result, job_id)):
+            return None
         elif outcome and outcome[0] == "ok":
             _jobs_reason, _notify_failed, _waiting = _record_ok_locked(job_id, job, result, logger)
         elif outcome and outcome[0] == "error":

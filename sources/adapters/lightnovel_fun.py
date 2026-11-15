@@ -383,6 +383,8 @@ class LightnovelFunSource(SourceAdapter):
 
     # -- chapters ----------------------------------------------------------------
     def get_chapters(self, series_id: str):
+        # Read by the caller after the call: the list alone can't say that it is short.
+        self.chapter_notice = ""
         detail = self._book(series_id)
         catalog = [v for v in _list(detail.get("catalog")) if isinstance(v, dict) and _id(v.get("id"))]
         if not catalog:
@@ -420,6 +422,11 @@ class LightnovelFunSource(SourceAdapter):
                     log.warning("lightnovel_fun: couldn't load volume %s of book %s",
                                 _text(volumes[vid].get("title")), series_id)
                 progress = True
+
+        if failed:
+            names = ", ".join(_text(volumes[v].get("title")) or v for v in order if v in failed)
+            self.chapter_notice = (f"Some volumes could not be loaded, so their chapters are missing from this list: "
+                                   f"{names}. Try again in a few minutes.")
 
         chapters = []
         for vid in order:

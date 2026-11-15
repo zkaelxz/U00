@@ -100,7 +100,7 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     the API transcribe and auto-tune paths so they can't drift. Returns "" when there's nothing to prime with. Raises
     NotFoundError for an unknown drama id."""
     drama = ownership_service.require_drama(drama_id)
-    terms = db.list_effective_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
+    terms = db.list_run_glossary_terms(drama)
     glossary_names = core_module.build_initial_prompt(terms).rstrip("。")
     prompt = "、".join(x for x in (glossary_names, (extra_names or "").strip()) if x)
     if prompt:
@@ -549,7 +549,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
     except memory_headroom.HeadroomError as exc:
-        outcome = {"failed_reason": "headroom", "detail": str(exc)}
+        outcome = {"failed_reason": "headroom", "detail": str(exc), "vram_need_mb": exc.vram_need_mb}
     except ImportError as exc:
         outcome = {**transcribe_pipeline.missing_package_outcome(
             transcribe_pipeline.MISSING_OCR_MESSAGE if transcript_mode == "hardsub_ocr"
