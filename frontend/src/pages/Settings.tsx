@@ -273,7 +273,9 @@ export default function SettingsPage() {
         <>
           {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}
           <div className="settings-tabrow">
-            {visibleTabs.length > 1 && (
+            {/* While an admin's settings are still loading only two of the tabs are known; drawing that
+                short row first would swap it for the full one a moment later. */}
+            {visibleTabs.length > 1 && (loaded || !readsSettings || loadError != null) && (
               <Tabs
                 label="Settings"
                 idPrefix="settings"

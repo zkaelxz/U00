@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-// People and access on a phone (390x844, touch): the three cards fit without
+// People and access on a phone (390x844, touch): the cards fit without
 // sideways scroll in light and dark, and their summaries are 44px targets.
 
 const ME = {
@@ -33,10 +33,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.goto('/#/admin')
     await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
     const cards = page.locator('details.section')
-    await expect(cards).toHaveCount(4)
-    for (let n = 1; n < 4; n++) await cards.nth(n).locator('summary').tap()
+    await expect(cards).toHaveCount(5)
+    for (let n = 1; n < 5; n++) await cards.nth(n).locator('summary').tap()
     await expect(page.getByRole('table', { name: 'Activity log' })).toBeVisible()
-    for (let n = 0; n < 4; n++) {
+    for (let n = 0; n < 5; n++) {
       const box = await cards.nth(n).locator('summary').boundingBox()
       expect(box!.height).toBeGreaterThanOrEqual(44)
     }
